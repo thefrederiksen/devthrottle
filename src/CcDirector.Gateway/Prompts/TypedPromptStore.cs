@@ -55,10 +55,26 @@ public sealed record TypedPromptRecord
     /// back with "Send anyway".
     /// </summary>
     public bool NeverSent { get; init; }
+    /// <summary>The request fields to send a never-sent prompt with (contract section 10); null once it has been sent.</summary>
+    public TypedPromptUnsentRequest? Unsent { get; init; }
     /// <summary>Why a shown-back record is shown back (<c>not-delivered</c>, <c>unconfirmed</c>), null otherwise.</summary>
     public string? Reason { get; init; }
     public DateTime? ResolvedAtUtc { get; init; }
     public DateTime? AcknowledgedAtUtc { get; init; }
+}
+
+/// <summary>
+/// What the Gateway needs to send a typed prompt that NEVER LEFT it (contract section 10): the request fields the prompt
+/// route had settled when the session could not be located. Kept only on a never-sent record; the text is on the record.
+/// </summary>
+public sealed record TypedPromptUnsentRequest
+{
+    public bool AppendEnter { get; init; } = true;
+    public bool AgentDriven { get; init; }
+    public string? Surface { get; init; }
+    public bool MenuGuard { get; init; }
+    public bool OnlyWhenWaitingForInput { get; init; }
+    public CcDirector.Gateway.Contracts.SubmissionProvenanceDto? Provenance { get; init; }
 }
 
 /// <summary>What <see cref="TypedPromptStore.Read"/> found for one delivery id.</summary>
@@ -109,6 +125,11 @@ public static class TypedPromptDecisions
     public const string SessionExited = Voice.DeliveryDecisions.SessionExited;
     /// <summary>The held state while the session's Director cannot be reached (contract section 2's value).</summary>
     public const string WaitingForDirector = "waiting-for-director";
+    /// <summary>Why a never-sent prompt was shown back rather than sent: it asked for the menu guard, which reads the live
+    /// screen one hop before the send, and only the prompt route can do that.</summary>
+    public const string ReasonMenuGuardNotAtTheDriver = "menu-guard-needs-the-prompt-route";
+    /// <summary>Why a prompt that went out is known not in: nothing left the Gateway (its Director was not connected).</summary>
+    public const string ReasonNeverLeftTheGateway = "never-left-the-gateway";
 
     /// <summary>What woke the driver: the session's Director connected again. Same spelling as the dictation driver's.</summary>
     public const string DriveDirectorConnected = "director-connected";
@@ -270,7 +291,7 @@ public sealed class TypedPromptStore
     /// section 8: a stale or frozen Director is a held delivery, never "session gone"). Writes <c>session-not-found</c> and
     /// <c>still-delivering</c> with <c>waiting-for-director</c> before the route answers. The text is kept.
     /// </summary>
-    public void HoldNeverSent(string deliveryId, string sessionId, string text, DateTime receivedAtUtc)
+    public void HoldNeverSent(string deliveryId, string sessionId, string text, DateTime receivedAtUtc, TypedPromptUnsentRequest unsent)
     {
         var id = RequireId(deliveryId);
         WithGate(id, () =>
@@ -296,6 +317,7 @@ public sealed class TypedPromptStore
                 State = TypedPromptState.Held,
                 DirectorState = TypedPromptDecisions.WaitingForDirector,
                 NeverSent = true,
+                Unsent = unsent,
             });
             AppendLine(dir, id, TypedPromptDecisions.StillDelivering,
                 new TypedPromptDecisionFacts { SessionId = sessionId, State = TypedPromptDecisions.WaitingForDirector });
@@ -363,6 +385,56 @@ public sealed class TypedPromptStore
                 Attempt = next.DriveAttempts,
             });
             return next;
+        });
+    }
+
+    /// <summary>
+    /// The driver is about to SEND a never-sent prompt (contract section 10): in one step under the record's gate, write
+    /// <c>sent-to-director</c> and mark it no longer never-sent - so from here on, a crash or any later wake-up only ASKS
+    /// what became of it and never sends it again. Returns false (nothing written) when it is not a held never-sent record.
+    /// </summary>
+    public bool MarkSending(string deliveryId)
+    {
+        var id = RequireId(deliveryId);
+        return WithGate(id, () =>
+        {
+            var read = ReadUnlocked(id);
+            if (read.Record is not { State: TypedPromptState.Held, NeverSent: true } record) return false;
+            var dir = DirFor(id);
+            AppendLine(dir, id, TypedPromptDecisions.SentToDirector, new TypedPromptDecisionFacts
+            {
+                SessionId = record.SessionId,
+                Characters = record.Characters,
+                SentAtUtc = record.SentAtUtc,
+                Reason = TypedPromptDecisions.GatewayDrive,
+            });
+            WriteRecord(dir, record with { NeverSent = false });
+            return true;
+        });
+    }
+
+    /// <summary>
+    /// A send the driver began left NOTHING behind - the Director's tunnel was gone, so the command never left the Gateway
+    /// (<see cref="MarkSending"/> said it might have). Written as the Director's answer with that reason, and the record is
+    /// never-sent again, so the next wake-up may send it.
+    /// </summary>
+    public void MarkNeverLeft(string deliveryId, string? error)
+    {
+        var id = RequireId(deliveryId);
+        WithGate(id, () =>
+        {
+            var read = ReadUnlocked(id);
+            if (read.Record is not { State: TypedPromptState.Held } record)
+                throw new InvalidOperationException($"typed prompt {id} is not held; its send cannot be marked never-left");
+            var dir = DirFor(id);
+            AppendLine(dir, id, TypedPromptDecisions.DirectorAnswer, new TypedPromptDecisionFacts
+            {
+                SessionId = record.SessionId,
+                Ok = false,
+                Reason = TypedPromptDecisions.ReasonNeverLeftTheGateway,
+                Error = error,
+            });
+            WriteRecord(dir, record with { NeverSent = true, DirectorState = TypedPromptDecisions.WaitingForDirector });
         });
     }
 

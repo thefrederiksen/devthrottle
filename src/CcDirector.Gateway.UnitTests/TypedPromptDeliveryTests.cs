@@ -28,6 +28,8 @@ public sealed class TypedPromptDeliveryTests : IDisposable
     private readonly MovableClock _clock = new();
     private readonly Queue<Func<DirectorCommand, DirectorCommandResult?>> _answers = new();
     private int _prompts;
+    private readonly List<PromptRequest> _sentPrompts = new();
+    private Func<DirectorCommand, DirectorCommandResult>? _promptAnswer;
     private int _asks;
     private bool _directorConnected = true;
 
@@ -401,7 +403,7 @@ public sealed class TypedPromptDeliveryTests : IDisposable
         // not-delivered (with "Send anyway"), never "could not confirm".
         var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
         var id = TypedPromptDelivery.MintDeliveryId();
-        store.HoldNeverSent(id, Guid.NewGuid().ToString(), "hello agent", _clock.GetUtcNow().UtcDateTime);
+        store.HoldNeverSent(id, Guid.NewGuid().ToString(), "hello agent", _clock.GetUtcNow().UtcDateTime, new TypedPromptUnsentRequest());
 
         _clock.Ahead = TimeSpan.FromSeconds(299);
         Assert.Equal(TypedDriveResult.Held, await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
@@ -415,18 +417,105 @@ public sealed class TypedPromptDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task Drive_APromptThatNeverLeft_WhenItsSessionIsBack_IsShownBack_WithoutAskingOrSending()
+    public async Task Drive_APromptThatNeverLeft_WhenItsSessionIsBack_IsSentOnce_UnderItsMintedId()
+    {
+        // Proves contract section 10: a typed prompt that never left the Gateway is provably not in, so when its session is
+        // reachable again within the limit the driver SENDS it - once, with its minted delivery id - and a later wake-up
+        // sends nothing more.
+        var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
+        var id = TypedPromptDelivery.MintDeliveryId();
+        store.HoldNeverSent(id, Seat(), "hello agent", _clock.GetUtcNow().UtcDateTime,
+            new TypedPromptUnsentRequest { AppendEnter = true, Surface = "cockpit" });
+        _promptAnswer = _ => Accepted(DeliveryState.Delivered);
+        _clock.Ahead = TimeSpan.FromSeconds(300);
+
+        var result = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveDirectorConnected);
+        var again = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
+
+        Assert.Equal(TypedDriveResult.Finished, result);
+        Assert.Equal(TypedDriveResult.NotHeld, again);
+        Assert.Equal(1, _prompts);
+        Assert.Equal(0, _asks);
+        var sent = Assert.Single(_sentPrompts);
+        Assert.Equal(id, sent.DeliveryId);
+        Assert.Equal("hello agent", sent.Text);
+        Assert.Equal("cockpit", sent.Surface);
+        var record = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.Delivered, record.State);
+        Assert.Null(record.Text);
+        Assert.Equal(new[] { "session-not-found", "still-delivering", "gateway-drive", "sent-to-director", "director-answer", "delivered" },
+            store.ReadDecisions(id).Select(l => l.Decision));
+    }
+
+    [Fact]
+    public async Task Drive_APromptSentOnceAndUnanswered_IsAskOnlyFromThenOn()
+    {
+        // Proves the send is once: the Gateway's send goes unanswered, so it is held, and the next wake-up ASKS - it never
+        // sends a second copy.
+        var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
+        var id = TypedPromptDelivery.MintDeliveryId();
+        store.HoldNeverSent(id, Seat(), "hello agent", _clock.GetUtcNow().UtcDateTime, new TypedPromptUnsentRequest());
+        _promptAnswer = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds");
+        var driver = Driver();
+
+        Assert.Equal(TypedDriveResult.Held, await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveDirectorConnected));
+        Answer(DeliveryState.Delivered);
+        Assert.Equal(TypedDriveResult.Finished, await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
+
+        Assert.Equal(1, _prompts);
+        Assert.Equal(1, _asks);
+        Assert.Equal(TypedPromptState.Delivered, store.Read(id).Record!.State);
+    }
+
+    [Fact]
+    public async Task Drive_APromptThatNeverLeft_BackOnlyAt5_01_IsShownBack_NotSent()
     {
         var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
         var id = TypedPromptDelivery.MintDeliveryId();
-        store.HoldNeverSent(id, Seat(), "hello agent", _clock.GetUtcNow().UtcDateTime);
+        store.HoldNeverSent(id, Seat(), "hello agent", _clock.GetUtcNow().UtcDateTime, new TypedPromptUnsentRequest());
+        _clock.Ahead = TimeSpan.FromSeconds(301);
 
-        var result = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveDirectorConnected);
+        Assert.Equal(TypedDriveResult.Finished, await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveDirectorConnected));
 
-        Assert.Equal(TypedDriveResult.Finished, result);
-        Assert.Equal(TypedPromptState.NotDelivered, store.Read(id).Record!.State);
-        Assert.Equal(0, _asks);
         Assert.Equal(0, _prompts);
+        Assert.Equal(TypedPromptState.NotDelivered, store.Read(id).Record!.State);
+        Assert.Equal("hello agent", store.Read(id).Record!.Text);
+    }
+
+    [Fact]
+    public async Task Drive_APromptThatNeverLeft_AndAskedForTheMenuGuard_IsShownBack_NeverTypedBlind()
+    {
+        var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
+        var id = TypedPromptDelivery.MintDeliveryId();
+        store.HoldNeverSent(id, Seat(), "hello agent", _clock.GetUtcNow().UtcDateTime, new TypedPromptUnsentRequest { MenuGuard = true });
+
+        Assert.Equal(TypedDriveResult.Finished, await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
+
+        Assert.Equal(0, _prompts);
+        Assert.Equal(TypedPromptState.NotDelivered, store.Read(id).Record!.State);
+        Assert.Equal("menu-guard-needs-the-prompt-route", store.ReadDecisions(id).Last().Facts!.Reason);
+    }
+
+    [Fact]
+    public async Task Drive_AGatewaySendThatNeverLeft_StaysNeverSent_AndIsSentOnTheNextWakeUp()
+    {
+        // Proves a send the Director's tunnel was gone for left nothing behind: it is written as never-left, the record is
+        // never-sent again, and the next wake-up sends it - still exactly one prompt reaches a Director.
+        var store = new TypedPromptStore(Path.Combine(_root, "typed"), TenantId.Local, _clock);
+        var id = TypedPromptDelivery.MintDeliveryId();
+        store.HoldNeverSent(id, Seat(), "hello agent", _clock.GetUtcNow().UtcDateTime, new TypedPromptUnsentRequest());
+        var driver = Driver();
+
+        _directorConnected = false;
+        Assert.Equal(TypedDriveResult.Held, await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
+        Assert.True(store.Read(id).Record!.NeverSent);
+        Assert.Equal("waiting-for-director", store.Read(id).Record!.DirectorState);
+
+        _directorConnected = true;
+        _promptAnswer = _ => Accepted(DeliveryState.Delivered);
+        Assert.Equal(TypedDriveResult.Finished, await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveDirectorConnected));
+        Assert.Equal(1, _prompts);
+        Assert.Equal(TypedPromptState.Delivered, store.Read(id).Record!.State);
     }
 
     [Fact]
@@ -561,7 +650,10 @@ public sealed class TypedPromptDeliveryTests : IDisposable
         if (cmd.Verb == "prompt")
         {
             Interlocked.Increment(ref _prompts);
-            return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Fail(DirectorCommandStatus.Error, "no prompt expected"));
+            lock (_sentPrompts) _sentPrompts.Add(JsonSerializer.Deserialize<PromptRequest>(cmd.PayloadJson, Json)!);
+            var played = _promptAnswer?.Invoke(cmd) ?? DirectorCommandResult.Fail(DirectorCommandStatus.Error, "no prompt expected");
+            played.CommandId = cmd.CommandId;
+            return Task.FromResult<DirectorCommandResult?>(played);
         }
         Assert.Equal(DeliveryStateRequest.Verb, cmd.Verb);
         Interlocked.Increment(ref _asks);
@@ -586,6 +678,10 @@ public sealed class TypedPromptDeliveryTests : IDisposable
         result.CommandId = cmd.CommandId;
         return result;
     }
+
+    private static DirectorCommandResult Accepted(DeliveryState state)
+        => DirectorCommandResult.Success(JsonSerializer.Serialize(
+            new PromptResponse { Accepted = true, DeliveryState = state, ActivityState = "Working" }, Json));
 
     private static SessionVerbClient.PromptSendOutcome Accepted(PromptResponse body)
         => new(SessionVerbClient.PromptSendKind.Accepted, body, "");

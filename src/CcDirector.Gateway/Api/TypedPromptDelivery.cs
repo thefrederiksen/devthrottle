@@ -36,7 +36,7 @@ internal enum TypedSendKind
 
 /// <summary>What the prompt route read from the Director's answer to a typed prompt.</summary>
 internal sealed record TypedSendReading(TypedSendKind Kind, PromptResponse? Body, string? Error, string? DirectorState,
-    TypedPromptDecisionFacts DirectorAnswer);
+    TypedPromptDecisionFacts DirectorAnswer, bool NeverLeft = false);
 
 /// <summary>
 /// TYPED PROMPTS ARE RESOLVED BY THE GATEWAY (Voice Delivery mission, phase 5, contract section 7). Phase 4 case 2f: a typed
@@ -116,7 +116,8 @@ internal sealed class TypedPromptDelivery
             DeliverySendKind.Delivered => new TypedSendReading(TypedSendKind.Delivered, body, null, null, answer),
             DeliverySendKind.NotDelivered when body is not null =>
                 new TypedSendReading(TypedSendKind.AnsweredNotTyped, body, error, null, answer),
-            DeliverySendKind.NotDelivered => new TypedSendReading(TypedSendKind.NotIn, null, error, null, answer),
+            DeliverySendKind.NotDelivered => new TypedSendReading(TypedSendKind.NotIn, null, error, null, answer,
+                NeverLeft: sent.Kind == SessionVerbClient.PromptSendKind.NeverLeftTheGateway),
             _ => throw new InvalidOperationException($"a prompt answer read as {kind}, which a single send cannot come to"),
         };
     }
@@ -190,12 +191,7 @@ internal sealed class TypedPromptDelivery
             return TypedDriveResult.Finished;
         }
         if (record.NeverSent)
-        {
-            // It never left the Gateway, so the Director cannot hold it: asking would only hear "unknown". The typed
-            // driver never sends text, so the owner gets it back with "Send anyway".
-            store.ResolveNotDelivered(id, TypedPromptDecisions.ReasonNeverSent, null);
-            return TypedDriveResult.Finished;
-        }
+            return await SendNeverSentAsync(store, record, new SessionVerbClient(director, _sendCommand));
 
         var route = new SessionVerbClient(director, _sendCommand);
         store.RecordDecision(id, TypedPromptDecisions.AskedDirector,
@@ -237,6 +233,68 @@ internal sealed class TypedPromptDelivery
                 return TypedDriveResult.Finished;
             default:
                 throw new InvalidOperationException($"the Director answered delivery state {asked.Answer.State}, which this Gateway does not know");
+        }
+    }
+
+    // SEND ONCE (contract section 10, the Tech Lead's ruling): a typed prompt that never left the Gateway is provably not in,
+    // so when its session is reachable again within the age limit from the time it arrived, it is sent - once, under its
+    // minted delivery id. The sent-to-director line is written BEFORE the send, so a crash or any later wake-up only asks.
+    // Past the limit it is shown back with "Send anyway". Every prompt that DID leave the Gateway stays ask-only.
+    private async Task<TypedDriveResult> SendNeverSentAsync(TypedPromptStore store, TypedPromptRecord record, SessionVerbClient route)
+    {
+        var id = record.DeliveryId;
+        if (DeliverySendAndAsk.IsPastConfirmLimit(Clock.GetUtcNow().UtcDateTime, record.SentAtUtc, out _))
+        {
+            store.ResolveNotDelivered(id, TypedPromptDecisions.ReasonNeverSent, null);
+            return TypedDriveResult.Finished;
+        }
+        var unsent = record.Unsent
+            ?? throw new InvalidOperationException($"never-sent typed prompt {id} carries no request fields to send it with");
+        if (unsent.MenuGuard)
+        {
+            // The menu guard reads the live screen one hop before the send, on the prompt route; the driver cannot, and
+            // typing blind could confirm whatever a picker has highlighted. So the owner gets it back instead.
+            store.ResolveNotDelivered(id, TypedPromptDecisions.ReasonMenuGuardNotAtTheDriver, null);
+            return TypedDriveResult.Finished;
+        }
+        if (!store.MarkSending(id)) return TypedDriveResult.NotHeld;
+        var reading = await SendAsync(route, record.SessionId, new PromptRequest
+        {
+            Text = record.Text ?? throw new InvalidOperationException($"never-sent typed prompt {id} has no text"),
+            AppendEnter = unsent.AppendEnter,
+            AgentDriven = unsent.AgentDriven,
+            Surface = unsent.Surface,
+            OnlyWhenWaitingForInput = unsent.OnlyWhenWaitingForInput,
+            Provenance = unsent.Provenance,
+            DeliveryId = id,
+        });
+        FileLog.Write($"[TypedPromptDelivery] deliveryId={id}: sent once by the Gateway, answer read as {reading.Kind}");
+        if (reading.Kind == TypedSendKind.NotIn && reading.NeverLeft)
+        {
+            store.MarkNeverLeft(id, reading.Error);
+            store.StayHeld(id, TypedPromptDecisions.WaitingForDirector, countUnknown: false);
+            return TypedDriveResult.Held;
+        }
+        store.RecordDecision(id, TypedPromptDecisions.DirectorAnswer, reading.DirectorAnswer with { SessionId = record.SessionId });
+        switch (reading.Kind)
+        {
+            case TypedSendKind.Delivered:
+                store.ResolveDelivered(id);
+                return TypedDriveResult.Finished;
+            case TypedSendKind.AnsweredNotTyped:
+                store.ResolveNotDelivered(id, reading.Body?.RefusedFor ?? reading.DirectorAnswer.Error ?? "the Director typed nothing",
+                    reading.DirectorAnswer.State);
+                return TypedDriveResult.Finished;
+            case TypedSendKind.NotIn:
+                // Refused before the session was touched: "session has exited", or its Director - connected, answering -
+                // no longer lists it. The session ended.
+                store.ResolveSessionEnded(id, reading.Error ?? "refused");
+                return TypedDriveResult.Finished;
+            case TypedSendKind.Held:
+                store.StayHeld(id, reading.DirectorState!, countUnknown: false);
+                return TypedDriveResult.Held;
+            default:
+                throw new InvalidOperationException($"unknown typed send reading {reading.Kind}");
         }
     }
 

@@ -322,6 +322,32 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Accepted, outcomeStatus);
         Assert.Equal("waiting-for-director", outcome.GetProperty("directorState").GetString());
         Assert.True(_gateway.TypedPrompts.Read(deliveryId).Record!.NeverSent);
+
+        // Its Director comes back and lists the session: the driver sends it ONCE, under its minted id (contract
+        // section 10), and the outcome reads delivered.
+        _promptAnswer = _ => DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse
+        {
+            Accepted = true, DeliveryState = DeliveryState.Delivered, ActivityState = "Working",
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        await _conn.InvokeAsync("PushSnapshot", 2L, new[]
+        {
+            new SessionDto { SessionId = _sid, ActivityState = "WaitingForInput" },
+            new SessionDto { SessionId = unlocated, ActivityState = "WaitingForInput" },
+        });
+        var result = await _gateway.TypedPromptDriver.DriveOnceAsync(TenantId.Local, _gateway.TypedPrompts, deliveryId,
+            TypedPromptDecisions.DriveDirectorConnected);
+        var again = await _gateway.TypedPromptDriver.DriveOnceAsync(TenantId.Local, _gateway.TypedPrompts, deliveryId,
+            TypedPromptDecisions.DriveTick);
+
+        Assert.Equal(TypedDriveResult.Finished, result);
+        Assert.Equal(TypedDriveResult.NotHeld, again);
+        PromptRequest sent;
+        lock (_arrived) sent = Assert.Single(_arrived);
+        Assert.Equal(deliveryId, sent.DeliveryId);
+        Assert.Equal("for a frozen machine", sent.Text);
+        var (deliveredStatus, delivered) = await Send(HttpMethod.Get, $"sessions/{unlocated}/prompts/{deliveryId}/outcome");
+        Assert.Equal(HttpStatusCode.OK, deliveredStatus);
+        Assert.True(delivered.GetProperty("submitted").GetBoolean());
     }
 
     [Fact]

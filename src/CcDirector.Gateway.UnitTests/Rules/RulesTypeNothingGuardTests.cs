@@ -391,7 +391,8 @@ public sealed class RulesTypeNothingGuardTests
     /// "unanswered" apart from "never left" and "refused". The seventh is the typed prompt route's send (the Voice
     /// Delivery mission, phase 5): every typed prompt carries a delivery id, and one that went out unanswered is HELD
     /// and asked about by the Gateway later, never read as a failure the caller re-sends - so it must see the same three
-    /// outcomes apart. Every other caller in the Gateway goes through the wrapper.</summary>
+    /// outcomes apart. It also sends, exactly once, a typed prompt that never left the Gateway because its session could
+    /// not be located, when that session is reachable again within five minutes (contract section 10). Every other caller in the Gateway goes through the wrapper.</summary>
     private static readonly string[] AllowedDirectCallersOfTheSeam =
     {
         "CcDirector.Gateway.Api.DeliverySendAndAsk",

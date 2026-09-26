@@ -601,7 +601,11 @@ public sealed class StreamCommandTests : IAsyncLifetime
 
             var resp = await http.PostAsJsonAsync($"sessions/{Guid.NewGuid()}/prompt", new PromptRequest { Text = "x" });
 
-            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+            // Nothing located, so nothing is sent. Since Voice Delivery phase 5 (contract section 8) that typed prompt is
+            // held 202 waiting for its Director rather than answered 404.
+            Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+            var body = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            Assert.Equal("waiting-for-director", body.GetProperty("directorState").GetString());
         }
         finally
         {
@@ -829,9 +833,12 @@ public sealed class StreamCommandTests : IAsyncLifetime
 
             var resp = await http.PostAsJsonAsync($"sessions/{Guid.NewGuid()}/prompt", new PromptRequest { Text = "x" });
 
-            // Unreachable Director + no stream => the HTTP location pull finds nothing => 404. Either way,
-            // the request is NOT served (no stream shortcut), which is exactly today's behaviour.
-            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+            // Unreachable Director + no stream => the HTTP location pull finds nothing, so the request is NOT served
+            // (no stream shortcut). Since Voice Delivery phase 5 (contract section 8) a typed prompt whose session is
+            // not located is held 202 waiting for its Director rather than answered 404 - still nothing was sent.
+            Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+            var body = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+            Assert.Equal("waiting-for-director", body.GetProperty("directorState").GetString());
         }
         finally
         {
