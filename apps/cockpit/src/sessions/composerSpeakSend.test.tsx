@@ -111,7 +111,7 @@ vi.mock("@devthrottle/client-core/dictation/readyCue", () => ({
 }));
 
 import { SessionComposer } from "./SessionComposer";
-import { dismissDictationStatus } from "@devthrottle/client-core/dictation/backgroundSend";
+import { dismissDictationStatus, retryPendingDictation } from "@devthrottle/client-core/dictation/backgroundSend";
 import {
   allDictationStatuses,
   clearDictationStatus,
@@ -289,8 +289,11 @@ describe("Cockpit composer: the Still delivering and too-old states", () => {
     // Nothing that could send a second copy.
     expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
     expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
-    // Upload now re-drives the SAME upload id, which the Director refuses to type twice.
-    expect(within(strip).getByRole("button", { name: "Upload now" })).toBeTruthy();
+    // The Gateway drives this delivery itself (phase 5): the one button is "Check now", which reads what the
+    // Gateway ruled for this exact recording and sends nothing.
+    expect(within(strip).queryByRole("button", { name: "Upload now" })).toBeNull();
+    fireEvent.click(within(strip).getByRole("button", { name: "Check now" }));
+    await waitFor(() => expect(retryPendingDictation).toHaveBeenCalledWith("up-delivering"));
   });
 
   it("too old shows the words back with Send anyway and the age wording", async () => {

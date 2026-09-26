@@ -88,12 +88,18 @@ export interface PendingDictation {
    *  words may already be in, so the owner gets them back with Dismiss only. Always set on a dropped
    *  record; one saved before the field existed is given one when it is read - see migratePendingRecord. */
   droppedOfferSendAnyway?: boolean;
-  /** Set while "Send anyway" on a dropped clip is waiting on a 202 "still delivering" answer (voice
-   *  delivery, #3398): the words may already be in, so the same "Send anyway" - with the same delivery
-   *  claim, which the Director refuses to type twice - is pressed again automatically on the ordinary
-   *  cadence, including after a reload, until a 200 ends it or a failure shows the words back. Only
+  /** Set once "Send anyway" on a dropped clip was answered 202 "still delivering" (voice delivery, #3398).
+   *  Since phase 5 the Gateway owns that press from its 202 on and presses it again itself, so the client
+   *  never presses it again: it only reads `GET /dictation/{id}/outcome`, including after a reload. A record
+   *  an older client marked this way (when the client still re-pressed) is read the same way. Only
    *  meaningful alongside `staleDropped`. */
   sendingAnyway?: boolean;
+  /** Set once the Gateway has answered this upload's complete call with 202 "still delivering" (voice
+   *  delivery phase 5, #3398). From that answer on the Gateway drives the delivery to its end itself, so the
+   *  client never calls complete for this upload again: it only reads `GET /dictation/{id}/outcome` and
+   *  renders what that says - including after a reload, which is why it is on disk. A 404 from that read for a
+   *  record marked here is an error naming the upload id, never a reason to upload again. */
+  heldByGateway?: boolean;
   /** Set when the user ABANDONED this clip (issue #1181, Task 5). The record is kept ONLY to carry the
    *  abandon through to the Gateway: while set, the retry loop no longer uploads it - it calls
    *  /dictation/{id}/abandon instead, and deletes the on-device copy once the Gateway confirms (retrying

@@ -24,7 +24,9 @@ import { useMemo, useSyncExternalStore } from "react";
 //               safe and delivery continues automatically. retryable is true so the UI offers Upload now.
 //               With `delivering` set it is the "Still delivering" state (voice delivery, #3398): the
 //               Gateway could not yet say whether the words reached the session, so the UI shows it calm
-//               and in progress, and never offers "Send anyway" or a fresh-id "Retry" for it.
+//               and in progress, and never offers "Send anyway" or a fresh-id "Retry" for it. Its one
+//               button is "Check now": the Gateway drives that delivery itself (phase 5), and the
+//               button only reads what it ruled.
 // parked      - a genuinely permanent, non-retryable failure stopped the auto-loop (issue #1184): the clip
 //               is over the provider size cap or an unsupported format. The audio is KEPT and the clip is
 //               saved-and-retryable, but delivery does NOT auto-retry - retryable is true so the UI offers

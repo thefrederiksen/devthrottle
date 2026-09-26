@@ -75,7 +75,9 @@ describe("phone: Still delivering", () => {
     expect(strip.getAttribute("role")).toBe("status");
     expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
     expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
-    expect(within(strip).getByRole("button", { name: "Upload now" })).toBeTruthy();
+    // The Gateway drives this delivery itself (phase 5): the one button reads what it ruled.
+    expect(within(strip).getByRole("button", { name: "Check now" })).toBeTruthy();
+    expect(within(strip).queryByRole("button", { name: "Upload now" })).toBeNull();
   });
 
   it("the roster card says Still delivering, calmly, not Saved - still sending", () => {

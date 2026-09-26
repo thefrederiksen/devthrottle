@@ -73,15 +73,15 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
     };
     // Still delivering (voice delivery, #3398): the words may already be in the session. Shown calm and in
     // progress, like a send under way - not amber, not red - and with nothing that could send a second copy:
-    // no "Send anyway" and no fresh-id "Retry". "Upload now" re-drives this same upload id, which the
-    // Director refuses to type twice, so it stays.
+    // no "Send anyway" and no fresh-id "Retry". The Gateway is driving this delivery itself (phase 5), so the
+    // one button is "Check now": it reads what the Gateway ruled, at once, and sends nothing.
     if (status.delivering) {
       return (
         <div className="dictate-strip dictate-strip-busy dictate-strip-delivering" role="status">
           <span className="dictate-strip-spin" aria-hidden="true" />
           <span className="dictate-strip-text">{status.error ?? "Still delivering"}</span>
           <button type="button" className="dictate-strip-btn" onClick={() => void onUploadNow()} disabled={uploadingNow}>
-            {uploadingNow ? "Uploading..." : "Upload now"}
+            {uploadingNow ? "Checking..." : "Check now"}
           </button>
         </div>
       );

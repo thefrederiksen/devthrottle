@@ -2693,6 +2693,54 @@ export async function uploadDictationToSession(
   return held(DICTATION_HELD_NO_CONNECTION_MESSAGE);
 }
 
+/** What `GET /dictation/{uploadId}/outcome` said about a recording the Gateway owns (voice delivery phase 5,
+ *  #3398). The route only reads: it never sends, asks, transcribes or writes.
+ *  - `delivering`: 202, the Gateway still holds it and is driving it itself.
+ *  - `resolved`: 200, final - delivered, or shown back with the Gateway's reason and offer. Already
+ *    acknowledged, exactly as a final complete answer is.
+ *  - `not-found`: 404, the Gateway does not own this upload (not owned yet, or no such upload for this
+ *    account). */
+export type DictationOutcomeRead =
+  | { kind: "delivering"; directorState?: string }
+  | { kind: "resolved"; result: DictationSubmitResult }
+  | { kind: "not-found" };
+
+// GET /dictation/{uploadId}/outcome (voice delivery phase 5, #3398): once the Gateway has answered a complete
+// (or a "Send anyway") with 202, it drives the delivery to its end itself, and the client only READS what it
+// ruled. The 200 bodies are the complete call's own shapes - for a dictation and for a "Send anyway" of it - so
+// they are read by the same rules: a shown-back answer must carry the Gateway's offerSendAnyway, and a final
+// answer is acknowledged before it is returned, as the complete path does. Anything but 200, 202 and 404 is a
+// read that did not happen and is thrown as such (a network failure throws too); the caller reads again later.
+export async function readDictationOutcome(uploadId: string): Promise<DictationOutcomeRead> {
+  const id = encodeURIComponent(uploadId);
+  const res = await gatewayFetch(`/dictation/${id}/outcome`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+  });
+  if (res.status === 404) return { kind: "not-found" };
+  if (res.status === 202) {
+    const body = (await res.json().catch(() => ({}))) as { directorState?: string };
+    return { kind: "delivering", directorState: body.directorState };
+  }
+  if (res.status !== 200) throw await GatewayError.from(res, "read what became of that recording");
+  const body = (await res.json().catch(() => ({}))) as {
+    submitted?: boolean; movedOn?: boolean; transcript?: string; reason?: string; offerSendAnyway?: boolean;
+  };
+  const offerSendAnyway = shownBackOffer(body, uploadId);
+  await ackDictation(id);
+  return {
+    kind: "resolved",
+    result: {
+      terminal: true,
+      submitted: Boolean(body.submitted),
+      movedOn: Boolean(body.movedOn),
+      movedOnReason: body.movedOn === true ? body.reason : undefined,
+      offerSendAnyway,
+      transcript: body.transcript ?? "",
+    },
+  };
+}
+
 // Whether to offer "Send anyway" on a shown-back (movedOn) answer - the Gateway's decision, read verbatim
 // (phase 2, change 1; the client is dumb, rule 7). A shown-back answer that does not carry it is an error that
 // names the upload id: guessing would either offer a second copy that might double the words, or hide the

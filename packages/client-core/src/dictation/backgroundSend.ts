@@ -1,4 +1,12 @@
-import { abandonDictation, sendPrompt, uploadDictationToSession, type RecordRefusalKind } from "../api/client";
+import {
+  abandonDictation,
+  readDictationOutcome,
+  sendPrompt,
+  uploadDictationToSession,
+  type DictationOutcomeRead,
+  type DictationSubmitResult,
+  type RecordRefusalKind,
+} from "../api/client";
 import { captureLossWarning, logCaptureHealth } from "./captureHealth";
 import { deletePending, getPending, listPending, savePending, type PendingDictation } from "./pendingStore";
 import { clearDictationStatus, publishDictationStatus } from "./status";
@@ -32,6 +40,14 @@ const HARD_WINDOW_MS = 60 * 60 * 1000; // "hard" retries for the first hour sinc
 const HARD_MIN_DELAY_MS = 2_000; // first hard retry after two seconds
 const HARD_MAX_DELAY_MS = 15_000; // hard exponential backoff caps at fifteen seconds
 const THROTTLED_DELAY_MS = 5 * 60 * 1000; // after the hard hour (or out of credits): one slow attempt every five minutes
+
+// ---- reading a delivery the Gateway owns (voice delivery phase 5, #3398) ------------------------------
+// Once the Gateway has answered a complete (or a "Send anyway") with 202, it drives that delivery to its end
+// itself - on its own timer, when the Director's tunnel comes back, and after its own restart. The client only
+// READS what it ruled, through GET /dictation/{id}/outcome, and renders it. This is how often it reads while
+// the page is visible. A hidden page does not read on this timer at all: it reads when it becomes visible
+// again. A frozen background tab therefore only delays when the owner SEES the result, never the delivery.
+const OUTCOME_READ_INTERVAL_MS = 10_000;
 
 // The honest, plain-English held lines. A held dictation is saved and still being delivered - the copy
 // never says "was not transcribed", because it is held, not lost (criterion 8).
@@ -102,6 +118,11 @@ function notSentMessage(reason: string | undefined, haveWords: boolean): string 
 // and could not yet say whether the words reached the session. Calm, because nothing has failed.
 const STILL_DELIVERING_MESSAGE =
   "Still delivering - checking that your words reached the session. They will not be sent twice.";
+// A delivery the Gateway had taken over and now says it has no record of (a 404 from its outcome read). Never a
+// reason to send again: the words may already be in. Names the recording so it can be looked up.
+function ownedNotFoundMessage(uploadId: string): string {
+  return `The server has lost track of recording ${uploadId}, which it had taken over for delivery. It was not sent again - check the session to see whether your words arrived. Your recording is still saved on this device.`;
+}
 const UNHEARD_MESSAGE = "Nothing was heard in that recording, so nothing was sent.";
 // The empty-CAPTURE line, for a clip that arrived from the recorder with no bytes in it at all. Deliberately
 // not the unheard sentence above: that one means the server listened and heard no speech, which is a fact
@@ -181,6 +202,10 @@ const _inFlight = new Set<string>();
 // Scheduled next-attempt timers, keyed by upload id, so a new trigger can cancel a waiting timer and
 // drive immediately.
 const _timers = new Map<string, ReturnType<typeof setTimeout>>();
+// Upload ids read from disk on load whose Gateway ownership is not known (voice delivery phase 5): each is
+// read through GET /dictation/{id}/outcome once before any upload, because an older client did not mark a
+// complete answered 202 on disk. Removed as soon as that read is answered.
+const _readBeforeUpload = new Set<string>();
 let _listenersInstalled = false;
 
 // Persist the recorded audio durably the instant Send is pressed, then drive the first delivery attempt.
@@ -362,9 +387,14 @@ export async function resumePendingDictations(): Promise<void> {
   const single = listAccounts().length <= 1;
   const ours = all.filter((rec) => (rec.accountId ? rec.accountId === mine : single));
 
+  // A record the Gateway owns (its complete, or its "Send anyway", was answered 202) is only READ: the Gateway
+  // is driving it, and nothing here may complete it again or press it again (voice delivery phase 5). That
+  // includes a "Send anyway" an older client marked while it still re-pressed. Every other active record is
+  // read once before it is uploaded, because an older client did not mark a complete answered 202 on disk: a
+  // record the Gateway already owns is thereby found and read, and only a 404 (not owned) lets it upload.
   await Promise.all(
     ours.map((rec) => {
-      if (rec.staleDropped && rec.sendingAnyway) return sendDroppedDictationAnyway(rec.id);
+      if (isOwnedByGateway(rec)) return readOwnedOutcome(rec);
       if (rec.staleDropped) {
         publishDropped(rec);
         return Promise.resolve();
@@ -373,13 +403,15 @@ export async function resumePendingDictations(): Promise<void> {
         publishParked(rec, rec.parkedReason);
         return Promise.resolve();
       }
+      if (!rec.abandoning) _readBeforeUpload.add(rec.id);
       return driveRecord(rec, { resumed: true, attempt: 0 });
     }),
   );
 }
 
 // The explicit "Upload now" control on the status strip: kick a waiting or throttled clip back to
-// full-speed delivery immediately (resetting the backoff to the hard cadence). If the durable record is
+// full-speed delivery immediately (resetting the backoff to the hard cadence). On a delivery the Gateway owns
+// the same control is "Check now", and it only reads (voice delivery phase 5). If the durable record is
 // gone (already delivered, or abandoned) the stale status is cleared so a dead strip cannot linger.
 export async function retryPendingDictation(uploadId: string): Promise<void> {
   let rec: PendingDictation | null;
@@ -396,11 +428,11 @@ export async function retryPendingDictation(uploadId: string): Promise<void> {
   // is permanent, so this exact upload id can only ever return the same answer. "Retry this clip"
   // genuinely means "send the recording as a new dictation", so hand over to the fresh-id path rather than
   // re-driving into a guaranteed re-drop (or, worse, quietly doing nothing).
-  // A "Send anyway" that is still delivering (voice delivery, #3398) is pressed again at once with the same
-  // claim - never handed to the fresh-id retry, which would be a second copy of words that may already be in.
-  if (rec.staleDropped && rec.sendingAnyway) {
-    clearScheduled(uploadId);
-    await sendDroppedDictationAnyway(uploadId);
+  // A delivery the Gateway owns (voice delivery phase 5): the strip's button is "Check now", and it READS what
+  // the Gateway ruled, at once. It never completes the upload again and never presses "Send anyway" again, and
+  // it is never handed to the fresh-id retry, which would be a second copy of words that may already be in.
+  if (isOwnedByGateway(rec)) {
+    await readOwnedOutcome(rec);
     return;
   }
   if (rec.staleDropped) {
@@ -463,11 +495,12 @@ export async function abandonPendingDictation(uploadId: string): Promise<void> {
 // The record is deleted only AFTER the send is confirmed: on failure nothing is discarded, and the status
 // stays sticky with the words still in it, so a bad moment cannot lose them.
 //
-// A 202 "still delivering" answer (voice delivery, #3398) means the words may already be in. The copy is kept
-// and marked `sendingAnyway` on disk, the strip shows "Still delivering" with no "Send anyway", and this same
-// press - with the same delivery claim, which the Director refuses to type twice - repeats automatically on
-// the ordinary cadence, and after a reload, until a 200 ends it in done or a failure shows the words back.
-export async function sendDroppedDictationAnyway(uploadId: string, attempt = 0): Promise<void> {
+// A 202 "still delivering" answer (voice delivery, #3398) means the words may already be in, and from that
+// answer on the GATEWAY owns this press and presses it again itself (phase 5). The copy is kept and marked
+// `sendingAnyway` on disk, the strip shows "Still delivering" with no "Send anyway", and the client only reads
+// what the Gateway rules (GET /dictation/{id}/outcome) - it never presses again, on a timer, on a reload, or
+// from a stale button. A press that arrives for a record already marked is turned into a read.
+export async function sendDroppedDictationAnyway(uploadId: string): Promise<void> {
   if (_inFlight.has(uploadId)) return; // already sending this exact clip
   _inFlight.add(uploadId);
   try {
@@ -481,12 +514,18 @@ export async function sendDroppedDictationAnyway(uploadId: string, attempt = 0):
       clearDictationStatus(uploadId); // already dealt with; do not leave a dead strip behind
       return;
     }
+    // Already pressed and answered 202: the Gateway owns it now. Read, never press again. The read takes the
+    // same in-flight guard, so this press gives it up first.
+    if (rec.sendingAnyway) {
+      _inFlight.delete(uploadId);
+      await readOwnedOutcome(rec);
+      return;
+    }
     const text = composeDroppedMessage(rec);
     if (text.length === 0) return; // nothing to send; this clip's action is Retry, not Send anyway
     // The Gateway said not to offer "Send anyway" for this clip (it could not confirm the words arrived), so
-    // nothing may send it - not a stale button, not a second strip. A repeat of a press already under way
-    // (sendingAnyway) is the owner's own earlier press carried on, so it continues.
-    if (rec.droppedOfferSendAnyway !== true && !rec.sendingAnyway) {
+    // nothing may send it - not a stale button, not a second strip.
+    if (rec.droppedOfferSendAnyway !== true) {
       console.error(`[backgroundSend] Send anyway refused for ${rec.id}: the Gateway did not offer it`);
       publishDropped(rec);
       return;
@@ -498,15 +537,8 @@ export async function sendDroppedDictationAnyway(uploadId: string, attempt = 0):
       // Director can refuse these words if that recording already reached the session after all.
       answer = await sendPrompt(rec.sessionId, text, true, undefined, undefined, undefined, rec.id);
     } catch {
-      // Keep the record AND the sticky status - the words are still on the device and still on screen. A
-      // repeated press that fails ends the automatic repeats: the owner decides again.
-      if (rec.sendingAnyway) {
-        try {
-          await savePending({ ...rec, sendingAnyway: undefined });
-        } catch {
-          // The store hiccuped: a reload may press once more, which the Director refuses if the words are in.
-        }
-      }
+      // Keep the record AND the sticky status - the words are still on the device and still on screen, and the
+      // owner decides again.
       publishDictationStatus({
         sessionId: rec.sessionId,
         uploadId: rec.id,
@@ -519,34 +551,28 @@ export async function sendDroppedDictationAnyway(uploadId: string, attempt = 0):
       return;
     }
     if (answer.unconfirmed) {
-      // The Gateway's verdict on a re-press nobody answered for more than 5 minutes (phase 2, change 1): it
-      // could not confirm the words arrived, and pressing again might double them. Stop pressing, clear the
-      // mark on disk, and show the words back with Dismiss only. The copy stays until the owner dismisses it.
-      clearScheduled(rec.id);
+      // The Gateway's "could not confirm it arrived" verdict on this press (phase 2, change 1): pressing again
+      // might double the words. Show them back with Dismiss only. The copy stays until the owner dismisses it.
       const unconfirmed: PendingDictation = {
         ...rec,
-        sendingAnyway: undefined,
         droppedReason: "unconfirmed",
         droppedOfferSendAnyway: false,
       };
       try {
         await savePending(unconfirmed);
       } catch {
-        // The store hiccuped: a reload would press once more, and the Gateway answers it the same way.
+        // The store hiccuped: the status below is still shown; a reload shows the older shown-back state.
       }
       publishDropped(unconfirmed);
       return;
     }
     if (answer.delivering) {
-      // Still delivering: keep the copy, mark it durably so a reload keeps pressing, and press again later.
+      // Still delivering: the Gateway owns this press now. Keep the copy, mark it durably so a reload knows to
+      // read rather than press, and read what the Gateway rules.
       const marked: PendingDictation = { ...rec, sendingAnyway: true };
-      try {
-        await savePending(marked);
-      } catch {
-        // The store hiccuped: this page still repeats the press; only a reload would lose the mark.
-      }
+      await markOwnedByGateway(marked);
       publishDelivering(marked);
-      scheduleSendAnyway(marked, attempt);
+      scheduleOutcomeRead(marked);
       return;
     }
     // Confirmed sent: only now is the durable copy safe to drop.
@@ -668,6 +694,27 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
       return;
     }
 
+    // A record read from disk on load is asked about before it is uploaded (see resumePendingDictations): an
+    // older client did not mark a complete answered 202, and the Gateway may already own it. Only a 404 - the
+    // Gateway does not own it - lets it upload; an answer is applied instead; a read that did not happen is
+    // held and asked again on the next attempt, never skipped into an upload.
+    if (_readBeforeUpload.has(rec.id)) {
+      let read: DictationOutcomeRead;
+      try {
+        read = await readDictationOutcome(rec.id);
+      } catch (err) {
+        console.warn(`[backgroundSend] could not read the outcome of ${rec.id} before uploading it: ${errText(err)}`);
+        publishHeld(rec, heldMessage(rec, undefined));
+        scheduleNext(rec, opts.attempt, false);
+        return;
+      }
+      _readBeforeUpload.delete(rec.id);
+      if (read.kind !== "not-found") {
+        await applyOwnedOutcome(rec, read);
+        return;
+      }
+    }
+
     const outcome = await uploadDictationToSession({
       sessionId: rec.sessionId,
       uploadId: rec.id,
@@ -750,12 +797,14 @@ async function driveRecord(rec: PendingDictation, opts: DriveOptions): Promise<v
     }
 
     if (outcome.delivering) {
-      // Still delivering (voice delivery, #3398): the words may already be in the session. Keep the copy and
-      // retry this SAME upload id on the ordinary cadence - the Director refuses to type it twice, so a retry
-      // either learns it was delivered (done, above) or finishes the delivery. Never a failure, and never
-      // anything that could send a second copy.
-      publishDelivering(rec);
-      scheduleNext(rec, opts.attempt, false);
+      // Still delivering (voice delivery, #3398): the Gateway has the words and the delivery id, and from this
+      // answer on it drives the delivery to its end itself (phase 5). The client stops driving: no further
+      // complete for this upload id, ever. Keep the copy, mark it on disk so a reload knows it is only to be
+      // read, show "Still delivering", and read what the Gateway rules.
+      const owned: PendingDictation = { ...rec, heldByGateway: true };
+      await markOwnedByGateway(owned);
+      publishDelivering(owned);
+      scheduleOutcomeRead(owned);
       return;
     }
 
@@ -802,6 +851,12 @@ async function driveById(id: string, opts: DriveOptions): Promise<void> {
     clearScheduled(id); // delivered or abandoned; nothing left to drive
     return;
   }
+  if (isOwnedByGateway(rec)) {
+    // The Gateway owns it (voice delivery phase 5): read, never drive. Defensive - an owned record is given a
+    // read timer, never a drive timer.
+    await readOwnedOutcome(rec);
+    return;
+  }
   if (rec.staleDropped) {
     // Shown back not sent between scheduling and firing (issue #1590): never auto-drive it - the Gateway's
     // answer for the upload id is permanent, so a re-drive could only return it again. Defensive; a shown-back
@@ -833,10 +888,9 @@ async function kickAll(): Promise<void> {
     return;
   }
   for (const rec of all) {
-    if (rec.staleDropped && rec.sendingAnyway) {
-      // A "Send anyway" still delivering (voice delivery, #3398): press it again now, same claim.
-      clearScheduled(rec.id);
-      void sendDroppedDictationAnyway(rec.id);
+    if (isOwnedByGateway(rec)) {
+      // The Gateway owns it (voice delivery phase 5): read what it ruled now; never complete or press again.
+      void readOwnedOutcome(rec);
       continue;
     }
     if (rec.parkedReason || rec.staleDropped) continue;
@@ -854,13 +908,143 @@ function scheduleNext(rec: PendingDictation, attempt: number, outOfCredits: bool
   _timers.set(rec.id, t);
 }
 
-// Schedule the next automatic press of a "Send anyway" that is still delivering (voice delivery, #3398), on
-// the same cadence as a held clip. Shares the timer map, so any trigger that drives the clip cancels it.
-function scheduleSendAnyway(rec: PendingDictation, attempt: number): void {
+// ---- reading a delivery the Gateway owns (voice delivery phase 5, #3398) ------------------------------
+
+// A record the Gateway owns: its complete was answered 202 (`heldByGateway`), or its "Send anyway" was
+// (`sendingAnyway`, which an older client also set while it still re-pressed). Nothing may complete it or press
+// it again; it is only read.
+function isOwnedByGateway(rec: PendingDictation): boolean {
+  return rec.heldByGateway === true || (rec.staleDropped === true && rec.sendingAnyway === true);
+}
+
+// Write the owned mark to disk, so a reload reads the record instead of driving it.
+async function markOwnedByGateway(rec: PendingDictation): Promise<void> {
+  try {
+    await savePending(rec);
+  } catch (err) {
+    // The store hiccuped. This page still only reads; a reload finds an unmarked record and reads it once
+    // before any upload (resumePendingDictations), so the Gateway's ownership is still found.
+    console.error(`[backgroundSend] could not mark ${rec.id} as owned by the Gateway on disk: ${errText(err)}`);
+  }
+}
+
+// Read what the Gateway ruled for an owned record and render it. Guarded by the same in-flight set as the
+// driver, so two triggers (load, visible, online, the timer, Check now) read it once at a time. Never sends.
+async function readOwnedOutcome(rec: PendingDictation): Promise<void> {
+  if (_inFlight.has(rec.id)) return;
+  _inFlight.add(rec.id);
   clearScheduled(rec.id);
-  const delay = nextDelayMs(rec, attempt, false);
-  const t = setTimeout(() => void sendDroppedDictationAnyway(rec.id, attempt + 1), delay);
+  try {
+    let read: DictationOutcomeRead;
+    try {
+      read = await readDictationOutcome(rec.id);
+    } catch (err) {
+      // The read did not happen (no connection, a Gateway fault). The Gateway is still driving the delivery;
+      // show its last known state and read again later.
+      console.warn(`[backgroundSend] could not read the outcome of ${rec.id}: ${errText(err)}`);
+      publishDelivering(rec);
+      scheduleOutcomeRead(rec);
+      return;
+    }
+    await applyOwnedOutcome(rec, read);
+  } finally {
+    _inFlight.delete(rec.id);
+  }
+}
+
+// Render one outcome read. 202: still delivering, read again later. 200: final - delivered (delete the copy),
+// shown back (the phase 2 shown-back states, from the Gateway's reason and offer), or nothing heard. 404 for a
+// record the Gateway owns: an error naming the upload id, the copy kept, and NOTHING re-driven.
+async function applyOwnedOutcome(rec: PendingDictation, read: DictationOutcomeRead): Promise<void> {
+  if (read.kind === "delivering") {
+    let owned = rec;
+    if (!isOwnedByGateway(rec)) {
+      owned = { ...rec, heldByGateway: true };
+      await markOwnedByGateway(owned);
+    }
+    publishDelivering(owned);
+    scheduleOutcomeRead(owned);
+    return;
+  }
+  if (read.kind === "not-found") {
+    console.error(`[backgroundSend] outcome read for ${rec.id} answered 404, but the Gateway had taken it over`);
+    publishDictationStatus({
+      sessionId: rec.sessionId,
+      uploadId: rec.id,
+      phase: "failed",
+      retryable: false,
+      error: ownedNotFoundMessage(rec.id),
+    });
+    return;
+  }
+  await applyFinalOutcome(rec, read.result);
+}
+
+// A final answer for an owned record. For a "Send anyway" the words shown back are the ones the record already
+// holds (droppedTranscript, composed with the typed text exactly as the press sent them); the Gateway's
+// transcript is the text as SENT, which already includes the typed text, and composing it again would repeat it.
+async function applyFinalOutcome(rec: PendingDictation, result: DictationSubmitResult): Promise<void> {
+  if (result.submitted) {
+    await deletePending(rec.id);
+    publishDictationStatus({
+      sessionId: rec.sessionId,
+      uploadId: rec.id,
+      phase: "done",
+      warning: rec.staleDropped ? undefined : rec.captureWarning,
+    });
+    return;
+  }
+  if (result.movedOn) {
+    const dropped: PendingDictation = {
+      ...rec,
+      heldByGateway: undefined,
+      sendingAnyway: undefined,
+      staleDropped: true,
+      droppedTranscript: rec.sendingAnyway ? rec.droppedTranscript : result.transcript.trim(),
+      droppedReason: result.movedOnReason,
+      droppedOfferSendAnyway: result.offerSendAnyway,
+    };
+    try {
+      await savePending(dropped);
+    } catch {
+      // The durable store hiccuped. The status below is still published; never fall through to a silent clear.
+    }
+    publishDropped(dropped);
+    return;
+  }
+  await deletePending(rec.id);
+  publishUnheard(rec);
+}
+
+// Read an owned record again after a modest interval - only while the page is visible. A hidden page reads
+// when it becomes visible again (the visibilitychange listener), so no timer is kept running behind it.
+function scheduleOutcomeRead(rec: PendingDictation): void {
+  clearScheduled(rec.id);
+  const t = setTimeout(() => {
+    _timers.delete(rec.id);
+    if (typeof document !== "undefined" && document.hidden) return;
+    void readOwnedOutcomeById(rec.id);
+  }, OUTCOME_READ_INTERVAL_MS);
   _timers.set(rec.id, t);
+}
+
+async function readOwnedOutcomeById(id: string): Promise<void> {
+  let rec: PendingDictation | null;
+  try {
+    rec = await getPending(id);
+  } catch {
+    return;
+  }
+  if (rec === null) {
+    clearDictationStatus(id); // resolved and dismissed elsewhere; nothing left to read
+    return;
+  }
+  if (!isOwnedByGateway(rec)) return; // resolved since the timer was set
+  await readOwnedOutcome(rec);
+}
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 // A "needs-operator" record refusal (issue #2745) is throttled from the first attempt: the Gateway has said
@@ -941,8 +1125,8 @@ function publishDropped(rec: PendingDictation): void {
   });
 }
 
-// Publish the "Still delivering" held status (voice delivery, #3398). retryable stays true so "Upload now"
-// can kick the next attempt of this same upload id; nothing here offers a fresh upload id or "Send anyway".
+// Publish the "Still delivering" held status (voice delivery, #3398). retryable stays true so the strip offers
+// "Check now", which reads what the Gateway ruled (phase 5); nothing here offers a fresh upload id or "Send anyway".
 function publishDelivering(rec: PendingDictation): void {
   publishDictationStatus({
     sessionId: rec.sessionId,
