@@ -550,6 +550,143 @@ public sealed class TypedPromptsAreResolvedByTheGatewayTests : IAsyncLifetime
         Assert.Contains("send-anyway-claim-dropped", lines);
     }
 
+    [Fact]
+    public async Task A_write_after_the_claim_mark_fails_the_route_answers_500_and_the_driver_still_resolves_the_claim()
+    {
+        // Round 3, finding 1 (a), through the REAL route - not the helpers. The claim is decided, marked, and handed
+        // to the driver as one step, and a write the route makes AFTER the mark - the settle of the delivered claim -
+        // fails, exactly as a record write on the hosted Gateway's network share can. The route answers 500, the
+        // words were typed once by the press, and the claim is still the driver's: its next wake-up resolves it by
+        // ASKING, with no Gateway restart. Undo the hand-off at the mark (the route marks the claim but hands the
+        // driver nothing) and this goes red: the tick then finds nothing to drive and the claim stays held forever.
+        const string words = "Reply with only the word OK. Marker, choral lemur 26";
+        var deliveryId = await ShownBack(words);
+        await DropTheShownBacksLeftoverDriverEntry();
+        var recordFile = Path.Combine(_gateway.TypedPrompts.Root, deliveryId, "record.json");
+        var asksBefore = _asks;
+
+        // The route's press delivers the words on the Director side, and the record write the route makes when it
+        // settles the delivered claim fails: the record is made read-only while the press is in flight.
+        _promptAnswer = body =>
+        {
+            var result = SessionCommandExecutor.SendPromptAsync(_session, body, SendSource.UserInput, _directorRecord)
+                .GetAwaiter().GetResult();
+            File.SetAttributes(recordFile, FileAttributes.ReadOnly);
+            return result;
+        };
+
+        var (status, _) = await PostClaimedPrompt(words, deliveryId);
+
+        Assert.Equal(HttpStatusCode.InternalServerError, status);
+        Assert.Equal(1, _backend.TextsSent); // the words were typed once, by the press
+        Assert.Equal(TypedPromptState.Held, _gateway.TypedPrompts.Read(deliveryId).Record!.State); // nothing settled
+        Assert.Equal(1, _gateway.HeldDeliveries!.HeldCount); // the claim is the driver's, handed over AT the mark
+
+        // The share recovers, and the driver's first attempt - due after the shortest wait - resolves the claim: it
+        // ASKS what became of the delivery id (the press's answer line says it may have reached the Director), the
+        // Director answers delivered, and nothing is sent again. No Gateway restart happened.
+        File.SetAttributes(recordFile, FileAttributes.Normal);
+        _clock.Ahead = HeldDeliveryDriver.ShortestWait + TimeSpan.FromSeconds(1);
+        await _gateway.HeldDeliveries!.TickAsync();
+
+        var resolved = _gateway.TypedPrompts.Read(deliveryId).Record!;
+        Assert.Equal(TypedPromptState.Delivered, resolved.State);
+        Assert.Null(resolved.Text);
+        Assert.Equal(0, _gateway.HeldDeliveries!.HeldCount);
+        Assert.Equal(2, Arrived()); // the original send and the press - the driver sent nothing
+        Assert.Equal(asksBefore + 1, _asks); // it asked, and the Director's answer settled the claim
+    }
+
+    [Fact]
+    public async Task The_claimed_press_is_held_at_the_Director_and_a_driver_tick_meanwhile_sends_nothing()
+    {
+        // Round 3, finding 1 (b), through the REAL route. The claim is handed to the driver AT the mark, BEFORE the
+        // owner's press runs, so a driver wake-up can arrive while the press is in flight - and the two must never
+        // press the words twice beside each other. The one press gate keeps them apart: the tick finds the owner's
+        // press running, presses nothing (no ask, no send), and the claim is not lost. Take the gate away from the
+        // route's owner press and this goes red: the tick then sends a second copy of the words while the press is
+        // still in flight.
+        const string words = "one press only, however many wake-ups arrive";
+        var deliveryId = await ShownBack(words);
+        await DropTheShownBacksLeftoverDriverEntry();
+        var asksBefore = _asks;
+
+        // The press is slow on the Director, so it is still in flight when the tick arrives - the exact race the
+        // hand-off at the mark makes possible. A SECOND press of the same claim (what the gate must stop) would be
+        // answered at once as a copy already delivered - it must never be asked for.
+        var pressReachedTheDirector = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseThePress = new TaskCompletionSource<DirectorCommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _promptAnswer = body =>
+        {
+            if (pressReachedTheDirector.Task.IsCompleted)
+                return DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse
+                {
+                    Accepted = false,
+                    DeliveryState = DeliveryState.Delivered,
+                    DeliveryStateReason = "this delivery id was already delivered",
+                    Error = "this delivery id was already delivered",
+                    ActivityState = "Working",
+                }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            pressReachedTheDirector.SetResult();
+            return releaseThePress.Task.GetAwaiter().GetResult();
+        };
+
+        var owner = PostClaimedPrompt(words, deliveryId);
+        await pressReachedTheDirector.Task; // the owner's press is in flight, inside the Director send
+
+        // A driver wake-up arrives while the press runs. It presses NOTHING: no prompt, no ask - and the claim is
+        // still driven, not lost.
+        _clock.Ahead = HeldDeliveryDriver.ShortestWait + TimeSpan.FromSeconds(1);
+        await _gateway.HeldDeliveries!.TickAsync();
+
+        Assert.Equal(2, Arrived()); // the original send and the press - the tick sent nothing
+        Assert.Equal(asksBefore, _asks); // and asked nothing
+        // The one gateway-drive line so far is ShownBack's own drive of the shown-back record; the tick began no
+        // drive of its own - under a route that presses without the gate, this tick would drive and make it two.
+        Assert.Equal(1, _gateway.TypedPrompts.ReadDecisions(deliveryId)
+            .Count(l => l.Decision == TypedPromptDecisions.GatewayDrive));
+        Assert.Equal(1, _gateway.HeldDeliveries!.HeldCount); // the tick declined, the claim is not lost
+
+        // The press comes back held at the Director: the route answers 202 still delivering, and the claim stays
+        // the driver's.
+        releaseThePress.SetResult(DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse
+        {
+            Accepted = true, DeliveryState = DeliveryState.Delivering, ActivityState = "Working",
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web))));
+        var (status, held) = await owner;
+        Assert.Equal(HttpStatusCode.Accepted, status);
+        Assert.True(held.GetProperty("delivering").GetBoolean());
+        Assert.Equal("delivering", held.GetProperty("directorState").GetString());
+        Assert.Equal(deliveryId, held.GetProperty("deliveryId").GetString());
+        Assert.Equal(TypedPromptState.Held, _gateway.TypedPrompts.Read(deliveryId).Record!.State);
+
+        // And the claim is not lost: the driver's next wake-up presses it - asking first, because the press may
+        // have reached the Director - and the real prompt core delivers the words ONCE.
+        _promptAnswer = null; // from here the REAL prompt core answers, as it will for the driver's press
+        _clock.Ahead = TimeSpan.FromSeconds(10); // past the wait the declined tick set
+        await _gateway.HeldDeliveries!.TickAsync();
+
+        Assert.Equal(TypedPromptState.Delivered, _gateway.TypedPrompts.Read(deliveryId).Record!.State);
+        Assert.Equal(0, _gateway.HeldDeliveries!.HeldCount);
+        Assert.Equal(3, Arrived()); // the original send, the press, and the driver's own send - each once
+        Assert.Equal(asksBefore + 1, _asks); // the driver's press asked first, then sent
+        Assert.Equal(1, _backend.TextsSent); // the words were typed exactly once
+    }
+
+    /// <summary>
+    /// <see cref="ShownBack"/> holds the ORIGINAL prompt through the route's ordinary hold, which tracks it in the
+    /// Gateway's own driver, and then drives it to its shown-back end DIRECTLY - which resolves the record but never
+    /// removes the driver's in-memory entry. A test that measures the CLAIM's own hand-off must clear that leftover
+    /// first, or the tick would drive the id whoever handed it over.
+    /// </summary>
+    private async Task DropTheShownBacksLeftoverDriverEntry()
+    {
+        _clock.Ahead = HeldDeliveryDriver.ShortestWait + TimeSpan.FromSeconds(1);
+        await _gateway.HeldDeliveries!.TickAsync(); // the shown-back record is resolved: nothing to drive, the entry is dropped
+        Assert.Equal(0, _gateway.HeldDeliveries!.HeldCount);
+        _clock.Ahead = TimeSpan.Zero;
+    }
+
     /// <summary>The real clock moved ahead by <see cref="Ahead"/>: the route and the driver judge the limit by it.</summary>
     private sealed class AheadClock : TimeProvider
     {

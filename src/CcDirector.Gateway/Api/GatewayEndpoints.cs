@@ -4098,9 +4098,8 @@ internal static class GatewayEndpoints
                 //
                 // BUT ONLY THE OWNER'S OWN WORDS ARE HELD (the Delivery Lead's ruling on merging this phase with #3435,
                 // 26 September 2026): a prompt sent with a SESSION key is never held and never handed to the driver, in
-                // any branch. The caller here is a session key - a raised one, the only kind that reaches a send; an
-                // unraised one was answered by the ownership rule above - so it is answered exactly as before phase 5:
-                // the session could not be reached now, and the calling agent retries.
+                // any branch. Any session key, raised or not, is answered that the session could not be reached now -
+                // the same answer as before phase 5, and the calling agent retries.
                 if (claimStore is null && callingSessionForAttribution is null
                     && ResolveReadTenant(httpCtx, tenantBoundary) is { } heldTenant)
                     return HoldNeverSent(heldTenant);
