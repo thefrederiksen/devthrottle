@@ -51,6 +51,12 @@ internal static class Program
         // second silence tolerance. Apply logs what it changed, and says so if the runtime refuses.
         ThreadPoolFloor.Apply();
 
+        // Run at normal priority however this process was started (Voice Delivery mission, phase 6). A Windows
+        // scheduled task starts its program at Below Normal, and on a machine kept busy at Normal such a Director
+        // answered the prompt verb 32 seconds after it was asked and a one-file read after 61 - past the Gateway's
+        // 30-second wait. Before any session starts, so the agents it starts inherit Normal too.
+        ProcessPriorityFloor.Apply();
+
         // Catch anything that escapes a background thread so a crash is at least
         // recorded to a findable file rather than vanishing silently (issue #242).
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
