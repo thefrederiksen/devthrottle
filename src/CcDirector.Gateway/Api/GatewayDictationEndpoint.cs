@@ -1122,6 +1122,10 @@ internal static class GatewayDictationEndpoint
                 Surface = deliverySurface ?? "unknown",
                 DeliveryUploadId = spokenAlone ? uploadId : null,
                 DeliveryId = deliveryId,
+                // THE SEND TIME THE DIRECTOR'S AGE LIMIT IS MEASURED FROM (Voice Delivery phase 5, contract section 9,
+                // F6): the recording's own sentAtUtc - the moment the owner pressed Send - never the moment this
+                // attempt happened to run, so a re-send minutes later is not minutes fresher than the recording is.
+                SentAtUtc = sentAtUtc,
                 Provenance = new SubmissionProvenanceDto
                 {
                     Route = SubmissionRoutes.GatewayDictation,

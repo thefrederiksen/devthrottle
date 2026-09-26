@@ -408,6 +408,62 @@ public sealed class HeldDeliveryDriverTests : IDisposable
             Lines(uploadId).Last(l => l.Decision == DeliveryDecisions.Unconfirmed).Facts!.DirectorNoAnswer);
     }
 
+    // ===== the send time every prompt carries as it leaves (contract section 9, F6) =========================
+
+    [Fact]
+    public async Task EveryPromptTheDictationPathSends_CarriesTheRecordingsOwnSendTime_ReadAsItLeaves()
+    {
+        // F6: the Gateway puts the Send time on every prompt request, and the Director refuses to type one older than
+        // the limit. The dictation path's Send time is the RECORDING's own sentAtUtc - the moment the owner pressed
+        // Send - never the moment an attempt happened to run, so a Gateway re-send minutes later is not minutes
+        // fresher than the recording is. Both prompts below are read as they leave this Gateway: the first attempt's
+        // and the driver's own re-send of the same held recording.
+        var (driver, _) = NewDriver();
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _prompt = _ => Task.FromResult<DirectorCommandResult?>(Timeout());
+        _deliveryState = _ => StateIs(DeliveryState.Unknown);
+        var first = await OwnAndAttemptAsync(driver, uploadId, sid);
+        Assert.Equal(202, first.Status);
+
+        _prompt = _ => Task.FromResult<DirectorCommandResult?>(Accepted());
+        _clock.Fixed = _sentAt.AddSeconds(299);
+        await driver.TickAsync();
+        Assert.Equal(2, Prompts());
+
+        var expected = DateTime.SpecifyKind(_sentAt, DateTimeKind.Utc);
+        var sentRequests = _commands.Where(c => c.Verb == "prompt")
+            .Select(c => JsonSerializer.Deserialize<PromptRequest>(c.PayloadJson, Json)!).ToList();
+        Assert.Equal(2, sentRequests.Count);
+        Assert.All(sentRequests, sent => Assert.Equal(expected, sent.SentAtUtc));
+    }
+
+    [Fact]
+    public async Task TheDriversSendAnywayRePress_CarriesTheFirstVerifiedClaimsTime_ReadAsItLeaves()
+    {
+        // F6, the same rule on the "Send anyway" path: the Gateway's own re-press carries the moment the owner FIRST
+        // pressed it - the first verified claim, the same moment the Gateway's own limit is measured from - never the
+        // moment the driver happened to wake, so a re-press minutes later is not minutes fresher than the press it
+        // stands in for.
+        var (driver, _) = NewDriver();
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _store.MarkDelivered(uploadId, submitted: false, movedOn: true, SpokenWords, reason: DeliveryDecisions.TooOld);
+        Assert.True(_store.ResolveDeliveryClaim(uploadId, sid, SpokenWords.Length, DateTime.UtcNow).Verified);
+        Assert.True(_store.TakeSendAnywayOwnership(uploadId, new SendAnywayDelivery(DateTime.UtcNow, sid, SpokenWords, "cockpit", null)));
+        driver.Track(TenantId.Local, uploadId, HeldDeliveryKind.SendAnyway);
+        var firstClaim = Lines(uploadId).First(l => l.Decision == DeliveryDecisions.ClaimVerified).AtUtc;
+
+        _clock.Fixed = firstClaim.AddSeconds(10);
+        await driver.TickAsync();
+
+        Assert.Equal(1, Prompts());
+        var sent = JsonSerializer.Deserialize<PromptRequest>(_commands.Single(c => c.Verb == "prompt").PayloadJson, Json)!;
+        Assert.Equal(VoiceUploadStore.NormalizeUploadId(uploadId), sent.DeliveryId);
+        Assert.Equal(SpokenWords, sent.Text);
+        Assert.Equal(firstClaim, sent.SentAtUtc);
+    }
+
     // ===== what the driver cannot read, it does not guess at ==================================================
 
     [Fact]

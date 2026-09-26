@@ -176,6 +176,13 @@ internal sealed class DictationDelivery
         }
         else
         {
+            // THE SEND TIME OF A "SEND ANYWAY" IS THE FIRST PRESS, NOT THIS ONE (Voice Delivery phase 5, contract
+            // section 9, F6): the Director's age limit is measured from the moment the owner first pressed it (the
+            // first verified claim, the same moment the Gateway's own limit is measured from), so a Gateway re-press
+            // minutes later is not minutes fresher than the press it stands in for. The claim was verified before the
+            // delivery was ever held, so there is always one.
+            var firstClaim = store.ReadClaimSends(deliveryId).FirstClaimVerifiedAtUtc
+                ?? throw new InvalidOperationException($"held Send anyway of upload {deliveryId} has no verified claim in its decision log");
             attempt = await ClaimedSendCore.AttemptAsync(new SessionVerbClient(director, _sendCommand), held.SessionId,
                 new PromptRequest
                 {
@@ -183,6 +190,7 @@ internal sealed class DictationDelivery
                     AppendEnter = true,
                     Surface = held.Surface ?? "unknown",
                     DeliveryId = deliveryId,
+                    SentAtUtc = DateTime.SpecifyKind(firstClaim, DateTimeKind.Utc),
                     Provenance = held.Provenance,
                 },
                 store, deliveryId, session.ActivityState, Clock, gatewayDriven: true);
