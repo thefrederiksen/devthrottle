@@ -328,6 +328,14 @@ public sealed class RecordingIngestServiceTests : IDisposable
         Assert.Contains("heard minute-1", md);
         Assert.Contains("## Segments that could not be transcribed", md);
         Assert.Contains("segment 2: Chunk 2 failed after 1 attempts", md);
+
+        // The served transcript and the status must say so too, not only the file.
+        var served = svc.GetTranscript("rec1")!;
+        Assert.Contains("Segments that could not be transcribed:", served);
+        Assert.Contains("segment 2: Chunk 2 failed after 1 attempts", served);
+        Assert.Contains("heard minute-0", served);
+        Assert.Equal(3, status.ChunksReceived);
+        Assert.Equal(2, status.ChunksTranscribed);
     }
 
     [Fact]

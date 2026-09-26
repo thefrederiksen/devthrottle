@@ -828,17 +828,31 @@ public sealed class RecordingIngestService : IDisposable
         if (!string.IsNullOrWhiteSpace(s.Transcript))
         {
             var manifest = LoadManifest(recordingId);
-            if (manifest is not null && manifest.Notes.Count > 0)
+            var hasNotes = manifest is not null && manifest.Notes.Count > 0;
+            var skipped = s.UntranscribedSegments is { Count: > 0 } ? s.UntranscribedSegments : null;
+            if (!hasNotes && skipped is null)
+                return s.Transcript;
+
+            var sb = new StringBuilder();
+            if (hasNotes)
             {
-                var sb = new StringBuilder();
                 sb.AppendLine("Notes:");
-                foreach (var note in manifest.Notes.OrderBy(n => n.TMs))
+                foreach (var note in manifest!.Notes.OrderBy(n => n.TMs))
                     sb.Append('[').Append(FormatOffset(note.TMs)).Append("] ").AppendLine(note.Text);
                 sb.AppendLine();
-                sb.Append(s.Transcript);
-                return sb.ToString();
             }
-            return s.Transcript;
+            // A skipped segment is a hole in the text below; the served transcript must say so, not only
+            // the transcript.md file.
+            if (skipped is not null)
+            {
+                sb.AppendLine("Segments that could not be transcribed:");
+                foreach (var seg in skipped.OrderBy(x => x.Index))
+                    sb.Append('[').Append(FormatOffset(seg.StartMs)).Append("] segment ").Append(seg.Index)
+                      .Append(": ").AppendLine(seg.Reason);
+                sb.AppendLine();
+            }
+            sb.Append(s.Transcript);
+            return sb.ToString();
         }
         var md = Path.Combine(RecordingDir(recordingId), "transcript.md");
         return File.Exists(md) ? File.ReadAllText(md) : null;
@@ -981,7 +995,8 @@ public sealed class RecordingIngestService : IDisposable
             // finishes (see CleanupSegmentFiles), so counting them on disk would
             // report 0 for a completed job. ChunksTotal is the authoritative
             // count of segments that were received and transcribed.
-            received = transcribed = s.ChunksTotal;
+            received = s.ChunksTotal;
+            transcribed = s.ChunksTotal - (s.UntranscribedSegments?.Count ?? 0);
         }
         else
         {

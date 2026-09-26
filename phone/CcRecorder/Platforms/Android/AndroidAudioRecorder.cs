@@ -218,7 +218,7 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
                 if (_manifest is not null)
                 {
                     _manifest.EndedAt = DateTime.UtcNow.ToString("o");
-                    _manifest.State = "Queued"; // queued for background upload; never deleted
+                    MarkStopped(); // queued for background upload; never deleted
                     SaveManifest();
                 }
             }
@@ -232,9 +232,9 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
                 if (_manifest is not null)
                 {
                     _manifest.EndedAt ??= DateTime.UtcNow.ToString("o");
-                    _manifest.State = "Queued";
                     _manifest.Interrupted = true;
                     _manifest.CaptureError = "Stop failed: " + ex.Message;
+                    MarkStopped();
                     try { SaveManifest(); } catch { /* disk write failing is the very error being handled */ }
                 }
             }
@@ -619,9 +619,9 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         if (_manifest is not null)
         {
             _manifest.EndedAt = DateTime.UtcNow.ToString("o");
-            _manifest.State = "Queued"; // whatever was captured still uploads
             _manifest.Interrupted = true;
             _manifest.CaptureError = reason;
+            MarkStopped(); // whatever was captured still uploads
             // The service and wake lock below must be released even if this
             // write fails; the manifest on disk then keeps its last good state.
             try { SaveManifest(); } catch { }
@@ -629,6 +629,22 @@ public sealed class AndroidAudioRecorder : IAudioRecorder
         StopForegroundService();
         // If the enqueue fails, the next app open drains the queue instead.
         try { UploadScheduler.EnqueueNow(global::Android.App.Application.Context); } catch { }
+    }
+
+    /// <summary>
+    /// Queue a stopped recording for upload, or - when not one segment holds audio - mark it
+    /// <see cref="RecordingUploadGate.NoAudio"/> with the reason, so it never waits in "Queued" for an upload
+    /// that has nothing to send. Must be called inside the gate.
+    /// </summary>
+    private void MarkStopped()
+    {
+        if (_manifest is null) return;
+        _manifest.State = RecordingUploadGate.StateAfterStop(_manifest.Chunks.Count);
+        if (_manifest.State == RecordingUploadGate.NoAudio)
+        {
+            _manifest.CaptureError ??= RecordingUploadGate.NoAudioReason;
+            RecorderLog.Write($"[AndroidAudioRecorder] MarkStopped: recording {_manifest.RecordingId} has no audio segment");
+        }
     }
 
     /// <summary>

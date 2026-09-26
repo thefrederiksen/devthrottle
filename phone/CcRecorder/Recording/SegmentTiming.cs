@@ -30,13 +30,14 @@ public static class SegmentTiming
     /// received no valid audio, and the file it leaves behind is not playable; a Stop pressed just after a
     /// rotation always does this, and that sub-second tail is not worth a note.
     /// </summary>
-    /// <param name="ran">How long the dropped segment had been recording.</param>
+    /// <param name="ran">Wall-clock time since the dropped segment started. It can include a pause, so the
+    /// note says "up to".</param>
     public static string? DroppedSegmentNote(TimeSpan ran)
     {
         if (ran < DroppedSegmentNoteThreshold)
             return null;
-        return $"[capture] The last {FormatSpan(ran)} of audio could not be saved: the phone's recorder "
-            + "finished without a usable file.";
+        return $"[capture] Up to {FormatSpan(ran)} of audio before this point could not be saved: the phone's "
+            + "recorder finished that segment without a usable file.";
     }
 
     /// <summary>A dropped segment shorter than this is the Stop-right-after-a-rotation case and is not reported.</summary>

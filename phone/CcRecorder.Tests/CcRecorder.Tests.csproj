@@ -24,6 +24,7 @@
     <Compile Include="..\CcRecorder\Account\GatewayEnrollmentClient.cs" Link="Account\GatewayEnrollmentClient.cs" />
     <Compile Include="..\CcRecorder\Account\AppForeground.cs" Link="Account\AppForeground.cs" />
     <Compile Include="..\CcRecorder\Recording\SegmentTiming.cs" Link="Recording\SegmentTiming.cs" />
+    <Compile Include="..\CcRecorder\Recording\RecordingUploadGate.cs" Link="Recording\RecordingUploadGate.cs" />
   </ItemGroup>
 
 </Project>

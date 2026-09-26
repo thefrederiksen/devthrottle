@@ -63,7 +63,7 @@ public class SegmentTimingTests
 
         Assert.NotNull(note);
         Assert.StartsWith("[capture]", note);
-        Assert.Contains("37 s", note);
+        Assert.Contains("Up to 37 s", note);
         Assert.All(note!, c => Assert.True(c < 128));
     }
 }
