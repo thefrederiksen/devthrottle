@@ -1168,7 +1168,7 @@ public sealed class TurnVerdictService : IDisposable
         // be played the first one's words. The sweep is the exception because it comes past every pass, and
         // re-asking the judge about an unreachable session each time would be a paid call on a loop.
         var currentSource = new Lazy<WingmanNarrationSource?>(
-            () => WingmanNarrationSource.Select(_env.ReadConversation(tenant, sid)?.Widgets, rows));
+            () => SelectSource(_env.ReadConversation(tenant, sid), rows, facts));
         if (latest is not null && IsReusable(key, latest, hash, trigger, currentSource))
             return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid,
                 reuseCause: string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
@@ -1178,7 +1178,7 @@ public sealed class TurnVerdictService : IDisposable
         // The source this stop is judged from, chosen ONCE, over this one screen read.
         var conversation = _env.ReadConversation(tenant, sid)
                            ?? new StoredConversation(false, Array.Empty<TurnWidgetDto>());
-        var source = WingmanNarrationSource.Select(conversation.Widgets, rows);
+        var source = SelectSource(conversation, rows, facts);
 
         // ---- the account's ceiling ----
         var capped = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.Sweep or TurnVerdictTrigger.SnoozeExpiry
@@ -1494,7 +1494,7 @@ public sealed class TurnVerdictService : IDisposable
         }
 
         var conversation = _env.ReadConversation(tenant, sid);
-        var source = WingmanNarrationSource.Select(conversation?.Widgets, rows);
+        var source = SelectSource(conversation, rows, facts);
         // Built only if the narration call reads it, from this same screen read and conversation: the package the
         // judge would be given for this screen now. Nothing more is read to build it.
         var narrationPackage = new Lazy<TurnVerdictPackage>(() => TurnVerdictPackageBuilder.Build(
@@ -1988,9 +1988,18 @@ public sealed class TurnVerdictService : IDisposable
     internal bool SweepFindsTheStopItRead(TenantId tenant, string sessionId, TurnVerdictDto latest, string hash, IReadOnlyList<string>? rows)
     {
         if (string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return true;
-        var source = WingmanNarrationSource.Select(_env.ReadConversation(tenant, sessionId)?.Widgets, rows);
+        var source = SelectSource(_env.ReadConversation(tenant, sessionId), rows, _env.ReadSessionState(tenant, sessionId).Facts);
         return IsSameStop(latest, source);
     }
+
+    /// <summary>
+    /// <see cref="WingmanNarrationSource.Select"/> with everything that names WHICH occurrence the source is: the stored
+    /// generation the conversation belongs to, and the Director's count of finished turns. Every caller here that
+    /// stores or compares a fingerprint selects through this, so the stored reading and the stop it is compared with
+    /// are always named the same way.
+    /// </summary>
+    private static WingmanNarrationSource? SelectSource(StoredConversation? conversation, IReadOnlyList<string>? rows, SessionDto? facts)
+        => WingmanNarrationSource.Select(conversation?.Widgets, rows, conversation?.Generation ?? "", facts?.TurnCount);
 
     /// <summary>
     /// Write where a failed stop is on its retry schedule onto the failed record (<see cref="WingmanRetrySchedule"/>).

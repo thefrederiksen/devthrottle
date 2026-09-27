@@ -351,6 +351,131 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.NotEqual(first, later);
     }
 
+    // The shape Grok stores: no time on any message, and a new conversation is a new generation starting at position zero.
+    private static StoredConversation NoTimesConversation(string generation) => new(true, new List<TurnWidgetDto>
+    {
+        new() { Kind = StoredConversationWidgets.UserTextKind, Content = "push it" },
+        new() { Kind = StoredConversationWidgets.AgentTextKind, Content = ReplyText },
+    }, generation);
+
+    /// <summary>
+    /// A NEW GENERATION WITH NO TIMES IS STILL A NEW STOP (round 2 of the review of pull request 3445). Grok's transcript
+    /// records no time, and a new Grok conversation is a new stored generation that starts again at position zero. Here
+    /// the new conversation holds exactly the old one's ask and reply at exactly the old places, and the Gateway missed
+    /// the Working edge in between. Position and time alone would name it as the stop already read; the generation does
+    /// not, so it is read with its own Call A and Call B.
+    /// </summary>
+    [Fact]
+    public async Task Sweep_ANewGenerationWithNoTimesAndTheSameFinalWords_IsRead_EvenWhenTheWorkingEdgeWasMissed()
+    {
+        var env = Env();
+        env.Conversation = _ => NoTimesConversation("grok-chat-a");
+        var service = new TurnVerdictService(env);
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(1, env.JudgeCalls);
+        var callsB = env.NarratorCalls;
+        Assert.True(callsB > 0);   // control: the first stop's Call B was really made
+
+        env.Conversation = _ => NoTimesConversation("grok-chat-b");
+        env.Screen = () => Screen(Sid, "push it", ReplyText, "> ");
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(0, env.Invalidations);   // control: no Working edge removed the old reading
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, sweep.Kind);
+        Assert.NotEqual(first.Verdict!.SourceHash, sweep.Verdict!.SourceHash);
+        Assert.Equal(2, env.JudgeCalls);
+        Assert.True(env.NarratorCalls > callsB);
+    }
+
+    /// <summary>The same stop redrawn inside ONE generation with no times is still one stop: nothing the generation adds
+    /// changes on a redraw.</summary>
+    [Fact]
+    public async Task Sweep_TheSameStopRedrawnInOneGenerationWithNoTimes_IsNotReadAgain()
+    {
+        var env = Env();
+        env.Conversation = _ => NoTimesConversation("grok-chat-a");
+        var service = new TurnVerdictService(env);
+        var first = await service.StartTurnEnd(Signal());
+        var callsB = env.NarratorCalls;
+
+        env.Screen = Redrawn;
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.NotEqual(first.Verdict!.ScreenHash, sweep.ScreenHash);   // control: the screen really changed
+        Assert.Equal(TurnVerdictOutcomeKind.Reused, sweep.Kind);
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal(callsB, env.NarratorCalls);
+    }
+
+    // A screen-only agent: nothing stored, and a recognized failure on the terminal is the whole source.
+    private const string FailureRow = "Error: API key auth failed for provider openai-mindzie";
+
+    private static FakeTurnVerdictEnvironment ScreenOnlyFailureEnv(Func<int?> turnCount)
+    {
+        var env = new FakeTurnVerdictEnvironment
+        {
+            Screen = () => Screen(Sid, FailureRow, "> "),
+            Conversation = _ => null,
+        };
+        env.Facts = sid => new SessionDto
+        {
+            SessionId = sid,
+            Name = "devthrottle - the retention sweep",
+            Agent = "Grok",
+            ActivityState = "WaitingForInput",
+            TurnCount = turnCount(),
+        };
+        return env;
+    }
+
+    /// <summary>
+    /// A REPEATED SCREEN-ONLY FAILURE IS READ AGAIN (round 2 of the review of pull request 3445). A screen-only agent
+    /// stores no conversation, so a failure has no place in one: two stops ending on the same recognized failure had
+    /// the same words and the same empty place, and with the Working edge missed the second was taken for the first.
+    /// The Director counts a finished turn at every flip into waiting, on its own terminal, so the second failure ends a
+    /// later turn - and it is read. The choice, stated: a failure that really is the same stop keeps its count on a
+    /// redraw and is reused (the next test); a failure a Director restart renumbers is read once more - one call, where
+    /// the other way round is a stop nobody reads.
+    /// </summary>
+    [Fact]
+    public async Task Sweep_TheSameScreenOnlyFailureEndingALaterTurn_IsRead_EvenWhenTheWorkingEdgeWasMissed()
+    {
+        int? turns = 3;
+        var env = ScreenOnlyFailureEnv(() => turns);
+        var service = new TurnVerdictService(env);
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.NotEqual("", first.Verdict!.SourceHash);   // control: the failure IS the stop's source
+
+        turns = 4;
+        env.Screen = () => Screen(Sid, FailureRow, "> ", "  ? for shortcuts");
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(0, env.Invalidations);   // control: no Working edge removed the old reading
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, sweep.Kind);
+        Assert.NotEqual(first.Verdict.SourceHash, sweep.Verdict!.SourceHash);
+        Assert.Equal(2, env.JudgeCalls);
+    }
+
+    /// <summary>The same screen-only failure redrawn, in the same turn, is one stop and is not read again. The redraw adds a
+    /// footer row, which the failure's content window leaves out; a changed row inside that window changes the failure's
+    /// own words, and is read again.</summary>
+    [Fact]
+    public async Task Sweep_TheSameScreenOnlyFailureRedrawnInTheSameTurn_IsNotReadAgain()
+    {
+        var env = ScreenOnlyFailureEnv(() => 3);
+        var service = new TurnVerdictService(env);
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(1, env.JudgeCalls);
+
+        env.Screen = () => Screen(Sid, FailureRow, "> ", "  ? for shortcuts");
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.NotEqual(first.Verdict!.ScreenHash, sweep.ScreenHash);   // control: the screen really changed
+        Assert.Equal(TurnVerdictOutcomeKind.Reused, sweep.Kind);
+        Assert.Equal(1, env.JudgeCalls);
+    }
+
     /// <summary>A new stop after a Working edge the Gateway DID see: the stored reading is gone, and the sweep reads it.</summary>
     [Fact]
     public async Task Sweep_ANewStopAfterAWorkingEdge_IsRead()

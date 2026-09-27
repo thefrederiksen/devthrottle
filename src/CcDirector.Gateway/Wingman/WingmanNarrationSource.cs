@@ -32,10 +32,19 @@ public sealed record WingmanNarrationSource(
     /// visible failure is terminal-failure on the verdict path and on the voice path alike, because it is the
     /// same answer. Before slice C the voice callers returned "voice unavailable" or "nothing to narrate" for
     /// an empty or unsupported conversation without reading the screen, and the two paths disagreed.
+    ///
+    /// <paramref name="generation"/> and <paramref name="completedTurns"/> only name WHICH occurrence the source is
+    /// (see <see cref="Identity"/>); they never change which source is chosen or what it says. A caller that stores
+    /// the fingerprint passes both.
     /// </summary>
+    /// <param name="generation">The stored generation the widgets belong to (<see cref="StoredConversation.Generation"/>).</param>
+    /// <param name="completedTurns">The Director's count of the turns this session has finished
+    /// (<see cref="SessionDto.TurnCount"/>); null when the Director does not report it.</param>
     public static WingmanNarrationSource? Select(
         IReadOnlyList<TurnWidgetDto>? widgets,
-        IReadOnlyList<string>? liveRows)
+        IReadOnlyList<string>? liveRows,
+        string generation = "",
+        int? completedTurns = null)
     {
         var (agent, user) = LatestSpeakerIndexes(widgets);
         if (agent >= user && agent >= 0)
@@ -44,7 +53,7 @@ public sealed record WingmanNarrationSource(
             return reply.Length == 0
                 ? null
                 : new WingmanNarrationSource(WingmanNarrationSourceKind.AgentReply, reply,
-                    AgentReplyIdentityPrefix + Occurrence(widgets, agent) + reply);
+                    AgentReplyIdentityPrefix + Occurrence(widgets, agent, generation) + reply);
         }
 
         // Either the person spoke last, or nobody has spoken at all (user < 0 means agent < 0 too, because the
@@ -58,26 +67,47 @@ public sealed record WingmanNarrationSource(
             : new WingmanNarrationSource(
                 WingmanNarrationSourceKind.TerminalFailure,
                 terminal,
-                TerminalIdentityPrefix + Occurrence(widgets, user) + terminal);
+                TerminalIdentityPrefix + TurnOccurrence(completedTurns) + Occurrence(widgets, user, generation) + terminal);
     }
 
     /// <summary>
-    /// WHERE AND WHEN a source happened, as the first line of its <see cref="Identity"/>: the widget's position in the
-    /// stored conversation and the time its message was recorded. For a reply that is the reply itself; for a terminal
-    /// failure it is the person's unanswered message the failure followed.
+    /// WHERE a source happened, as the first line of its <see cref="Identity"/>: the stored generation, the widget's
+    /// position in it, and the time its message was recorded when the agent records one. For a reply that is the reply
+    /// itself; for a terminal failure it is the person's unanswered message the failure followed.
     ///
     /// ONE STOP IS ONE OCCURRENCE, NOT ONE TEXT (review of pull request 3445). Two turns often end with the same words -
     /// "Done.", the same question, the same failure - and when the Gateway misses the Working edge between them, the
     /// words alone would name the second stop as the first, and it would never be read. The stored conversation is the
-    /// contiguous prefix of the session's current generation and is append-only, so a stored reply never moves, and the
-    /// timestamp separates two generations that reuse a position. "-1|" when nothing was said at all - a screen-only
-    /// agent - where the failure on the screen is the only evidence there is.
+    /// contiguous prefix of ONE generation and is append-only, so inside a generation a stored reply never moves. A new
+    /// generation starts again at position zero, and Grok's transcript records no time at all, so position and time
+    /// alone repeat across a new Grok conversation (round 2 of that review): the generation is what makes the position
+    /// an occurrence. "-1" when nothing was said at all - a screen-only agent.
     /// </summary>
-    private static string Occurrence(IReadOnlyList<TurnWidgetDto>? widgets, int index)
+    private static string Occurrence(IReadOnlyList<TurnWidgetDto>? widgets, int index, string generation)
     {
         var at = index >= 0 && widgets is not null ? widgets[index].Timestamp?.UtcDateTime.ToString("O") ?? "" : "";
-        return $"{index}|{at}\n";
+        return $"{generation}|{index}|{at}\n";
     }
+
+    /// <summary>
+    /// WHICH FINISHED TURN a terminal failure ended, as the Director counted it (<see cref="SessionDto.TurnCount"/>), on
+    /// the first line of a failure's <see cref="Identity"/>. A failure is read off the screen, and when the person's
+    /// retry never reached the stored conversation - a screen-only agent above all, which stores nothing - the
+    /// conversation has no new place for the second failure, and the same words at the same place would name it as
+    /// the first. The Director counts a turn at the flip into waiting for input, on its own terminal, whether or not
+    /// the Gateway's fifteen-second sample saw the Working edge between; a redraw is not a flip, so the same stop keeps
+    /// its count.
+    ///
+    /// Only a failure carries it. A reply already has a place of its own in the stored conversation, and a count that
+    /// restarts with the Director would only make that reply look new after a restart.
+    ///
+    /// The count restarts with the Director, so a Director restart during a failed stop reads that failure once more:
+    /// one call, where the alternative is a missed stop. "turn ?" when the Director does not report the count (older
+    /// than the field) - there the failure's own words and place are all there is, and two identical failures in a row
+    /// with a missed Working edge are still read as one.
+    /// </summary>
+    private static string TurnOccurrence(int? completedTurns)
+        => completedTurns is { } n ? $"turn {n}\n" : "turn ?\n";
 
     /// <summary>
     /// The fingerprint of a stop's source, stored on its reading as <see cref="TurnVerdictDto.SourceHash"/>: a hash of
