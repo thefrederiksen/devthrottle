@@ -41,6 +41,7 @@ public sealed class FleetDoorbellRingerTests
         public bool Exited { get { Events.Add("exited?"); return ExitedOnRead(++_exitedReads); } }
         public bool DirectorSaysWorking { get { Events.Add("working?"); return WorkingOnRead(++_workingReads); } }
         public bool HasTerminalGrid { get; set; } = true;
+        public TimeSpan? DirectorSettledFor { get; set; }
         public bool ProductMayHaveLeftText => false;
 
         public ScreenFrame TakeFrame()

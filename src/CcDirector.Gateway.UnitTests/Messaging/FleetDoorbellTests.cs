@@ -573,10 +573,10 @@ public sealed class FleetDoorbellTests : IDisposable
         var others = counter.Others;
 
         Assert.Equal(40, _rings.Count);
-        // The stuck scan, the no-reply scan (slice 3) and the one unread read; when anything rang, one read and one
-        // save to record it.
-        Assert.Equal(directorsRing ? 5 : 3, readers + others);
-        Assert.True(readers <= 4, $"at most four queries, saw {readers} (+{others} other commands)");
+        // The stuck scan, the unreachable scan (issue 3289), the no-reply scan (slice 3) and the one unread read;
+        // when anything rang, one read and one save to record it.
+        Assert.Equal(directorsRing ? 6 : 4, readers + others);
+        Assert.True(readers <= 5, $"at most five queries, saw {readers} (+{others} other commands)");
         Assert.All(ids, id => Assert.Equal(directorsRing ? 1 : 0, Peek(id).RingCount));
     }
 

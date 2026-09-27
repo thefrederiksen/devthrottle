@@ -28,6 +28,11 @@ public sealed record FleetMessageLimits
     /// <summary>How many unanswered rings mark a message stuck (<see cref="FleetRingSchedule"/>).</summary>
     public int StuckAfterRings { get; init; } = 3;
 
+    /// <summary>How long an unread message may go without its doorbell ringing even once before its sender is told
+    /// (issue 3289). A deferred ring is not counted as a ring, so without this a message whose recipient is never
+    /// idle and safe to type into never reaches stuck, and its sender is never told.</summary>
+    public TimeSpan UnreachableAfter { get; init; } = TimeSpan.FromMinutes(15);
+
     /// <summary>How long a message is kept after it was written. Thirty days, matching the activity ledger.</summary>
     public TimeSpan Retention { get; init; } = TimeSpan.FromDays(30);
 

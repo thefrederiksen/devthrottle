@@ -29,6 +29,10 @@ public interface IDoorbellTarget
     /// <summary>The session has a terminal the Director renders.</summary>
     bool HasTerminalGrid { get; }
 
+    /// <summary>How long the Director's activity state has said the turn ended (WaitingForInput), read NOW; null
+    /// when it does not say so. See <see cref="DoorbellSafety.SettledOutranksMarker"/>.</summary>
+    TimeSpan? DirectorSettledFor { get; }
+
     /// <summary>An earlier product send left a retained-text mark (see <see cref="DoorbellFacts.ProductMayHaveLeftText"/>).</summary>
     bool ProductMayHaveLeftText { get; }
 
@@ -56,6 +60,10 @@ public sealed class SessionDoorbellTarget : IDoorbellTarget
                           || _session.ActivityState == ActivityState.Exited;
     public bool DirectorSaysWorking => _session.ActivityState is ActivityState.Working or ActivityState.Starting;
     public bool HasTerminalGrid => _session.BackendType is SessionBackendType.ConPty;
+    public TimeSpan? DirectorSettledFor =>
+        _session.ActivityState == ActivityState.WaitingForInput && _session.WaitingSince is { } since
+            ? DateTime.UtcNow - since
+            : null;
     public bool ProductMayHaveLeftText => _session.ProductMayHaveLeftComposerText;
 
     public ScreenFrame TakeFrame()
@@ -108,6 +116,34 @@ public static class FleetDoorbellRinger
 
     private static readonly ConcurrentDictionary<Guid, byte> Ringing = new();
 
+    /// <summary>How often one session's unreadable screen is written to the log.</summary>
+    public static readonly TimeSpan UnreadableScreenLogInterval = TimeSpan.FromMinutes(30);
+
+    private static readonly ConcurrentDictionary<Guid, DateTime> UnreadableScreenLogged = new();
+
+    /// <summary>
+    /// AN UNREADABLE SCREEN IS WRITTEN DOWN (issue 3289). "No composer was recognised" deferred 25,781 rings on one
+    /// Director on 27 September 2026, and the log said nothing about what the screen showed, so the cause could not
+    /// be read from outside the Director. The bottom of the frame the check refused - the rows it searches, the cursor
+    /// and whether it is shown - is logged once per session every <see cref="UnreadableScreenLogInterval"/>, to the
+    /// Director's local log. Those rows are whatever the terminal shows, so they can include words the check could
+    /// not frame as a composer.
+    /// </summary>
+    private static void LogUnreadableScreen(IDoorbellTarget target, ScreenFrame frame)
+    {
+        var now = DateTime.UtcNow;
+        if (UnreadableScreenLogged.TryGetValue(target.Id, out var last) && now - last < UnreadableScreenLogInterval) return;
+        UnreadableScreenLogged[target.Id] = now;
+        var rows = frame.Rows ?? [];
+        var lastRow = rows.Count - 1;
+        while (lastRow >= 0 && string.IsNullOrWhiteSpace(rows[lastRow])) lastRow--;
+        var first = Math.Max(0, lastRow - DoorbellSafety.BottomRows - DoorbellSafety.MaxFooterRows);
+        var shown = string.Join(" | ", Enumerable.Range(first, Math.Max(0, lastRow - first + 1))
+            .Select(i => $"{i}:{rows[i]}"));
+        FileLog.Write($"[FleetDoorbellRinger] UNREADABLE SCREEN: session={target.Id}, agent={target.Agent}, rows={rows.Count}, " +
+                      $"cursor={frame.CursorRow},{frame.CursorCol}, cursorVisible={frame.CursorVisible}, bottom=[{shown}]");
+    }
+
     /// <summary>
     /// Gather the facts about one session, with two frames taken <paramref name="pause"/> apart.
     ///
@@ -123,6 +159,7 @@ public static class FleetDoorbellRinger
         ArgumentNullException.ThrowIfNull(pause);
         var exited = target.Exited;
         var working = target.DirectorSaysWorking;
+        var settledFor = target.DirectorSettledFor;
         var hasGrid = target.HasTerminalGrid;
         var first = target.TakeFrame();
         var readable = hasGrid && first.Rows.Count > 0;
@@ -134,7 +171,8 @@ public static class FleetDoorbellRinger
                 working,
                 readable,
                 target.ProductMayHaveLeftText,
-                [first]);
+                [first],
+                settledFor);
         }
         await pause().ConfigureAwait(false);
         var second = target.TakeFrame();
@@ -144,7 +182,8 @@ public static class FleetDoorbellRinger
             working,
             readable,
             target.ProductMayHaveLeftText,
-            [first, second]);
+            [first, second],
+            settledFor);
     }
 
     /// <summary>Ring one live session. See <see cref="RingAsync(IDoorbellTarget, int, Func{Task}?)"/>.</summary>
@@ -168,17 +207,22 @@ public static class FleetDoorbellRinger
             var facts = await GatherFactsAsync(target, pause ?? (() => Task.Delay(BetweenFrames))).ConfigureAwait(false);
             var verdict = DoorbellSafety.Check(facts);
             if (!verdict.Ring)
+            {
+                if (verdict.Reason == FleetRingDeferReasons.ScreenUnreadable && facts.Frames.Count > 0)
+                    LogUnreadableScreen(target, facts.Frames[^1]);
                 return Deferred(target, verdict.Reason, verdict.Detail);
+            }
 
             var approved = facts.Frames[^1];
             var rowsBefore = DoorbellSafety.CountDoorbellRows(approved);
+            var markerWasUp = DoorbellSafety.ShowsWorking(approved.Rows ?? []);
             var line = FleetDoorbellLine.For(unreadCount);
             (string Reason, string Detail)? changed = null;
             var outcome = await target.SubmitLineAsync(
                 line,
                 mayTypeNow: () => (changed = ChangedSinceCheck(target, approved)) is null,
                 composerShowsLine: () => DoorbellSafety.ComposerHoldsExactly(target.Agent, target.TakeFrame(), line),
-                turnStarted: () => DoorbellSafety.ShowsDoorbellSubmitted(target.Agent, target.TakeFrame(), rowsBefore))
+                turnStarted: () => DoorbellSafety.ShowsDoorbellSubmitted(target.Agent, target.TakeFrame(), rowsBefore, markerWasUp))
                 .ConfigureAwait(false);
 
             switch (outcome)
@@ -222,16 +266,7 @@ public static class FleetDoorbellRinger
     }
 
     /// <summary>Two frames are the same when every row and the cursor match exactly.</summary>
-    internal static bool SameFrame(ScreenFrame a, ScreenFrame b)
-    {
-        if (a.CursorRow != b.CursorRow || a.CursorCol != b.CursorCol || a.CursorVisible != b.CursorVisible) return false;
-        var ra = a.Rows ?? [];
-        var rb = b.Rows ?? [];
-        if (ra.Count != rb.Count) return false;
-        for (var i = 0; i < ra.Count; i++)
-            if (!string.Equals(ra[i], rb[i], StringComparison.Ordinal)) return false;
-        return true;
-    }
+    internal static bool SameFrame(ScreenFrame a, ScreenFrame b) => DoorbellSafety.SameFrame(a, b);
 
     /// <summary>
     /// THE SUBMIT WAS NOT VERIFIED (ruling 2). A deferral is never counted as a ring, so the answer is always
