@@ -173,6 +173,7 @@ cc-gmail -a work auth --method oauth
 | draft | YES (IMAP) | YES |
 | reply | YES (IMAP+SMTP) | YES |
 | delete, archive | YES (IMAP) | YES |
+| not-spam | NO | YES |
 | attachments | YES | YES |
 | stats | YES | YES |
 | calendar | NO | YES |
@@ -342,6 +343,8 @@ cc-gmail delete <message_id> --permanent  # Permanently delete
 cc-gmail archive <message_id>             # Archive (remove from inbox)
 cc-gmail archive-before 2024-01-01        # Archive old messages
 cc-gmail archive-before 2024-01-01 --dry-run  # Preview what would be archived
+cc-gmail not-spam <message_id>           # Out of Spam into the Inbox; refuses one not in Spam
+cc-gmail not-spam <message_id> --json    # {id, thread_id, labels}, the labels read back from Gmail
 ```
 
 ### Statistics

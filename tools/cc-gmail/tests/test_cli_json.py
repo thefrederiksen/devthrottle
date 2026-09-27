@@ -464,6 +464,7 @@ class TestFailureGoesToStderrNotStdout:
         ["search", "in:inbox", "--json"],
         ["list", "--json"],
         ["read", "m1", "--json"],
+        ["not-spam", "m1", "--json"],
     ])
     def test_api_failure_message_is_on_stderr_and_stdout_is_empty(self, split_runner, args):
         svc = ExplodingGmailService(MESSAGES)

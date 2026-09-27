@@ -461,6 +461,31 @@ class GmailClient:
             .execute()
         )
 
+    def not_spam(self, message_id: str) -> Dict[str, Any]:
+        """Move one message out of Spam into the Inbox, as Gmail's "Not spam" does.
+
+        Refuses a message that is not in Spam: this never moves anything else. The labels
+        are read back from Gmail afterwards, and the answer is that read, not the request.
+        """
+        before = self.get_message(message_id, format="minimal")
+        if "SPAM" not in (before.get("labelIds") or []):
+            raise ValueError(f"message {message_id} is not in Spam (labels {before.get('labelIds') or []})")
+        (
+            self.service.users()
+            .messages()
+            .modify(
+                userId=self.user_id,
+                id=message_id,
+                body={"removeLabelIds": ["SPAM"], "addLabelIds": ["INBOX"]},
+            )
+            .execute()
+        )
+        after = self.get_message(message_id, format="minimal")
+        labels = after.get("labelIds") or []
+        if "SPAM" in labels or "INBOX" not in labels:
+            raise ValueError(f"message {message_id} is still not in the Inbox after Not spam (labels {labels})")
+        return {"id": after.get("id"), "thread_id": after.get("threadId"), "labels": list(labels)}
+
     def archive_message(self, message_id: str) -> Dict[str, Any]:
         """
         Archive a message by removing the INBOX label.
