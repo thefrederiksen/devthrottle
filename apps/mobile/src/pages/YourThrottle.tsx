@@ -218,7 +218,8 @@ function ExcludedNote({ figure }: { figure: ThrottleFigure }) {
       {excluded.notStartedByYou > 0 && (
         <>
           {excluded.notStartedByYou.toLocaleString()} turn{excluded.notStartedByYou === 1 ? " went" : "s went"} into
-          sessions you did not start and {excluded.notStartedByYou === 1 ? "is" : "are"} outside every number here.
+          sessions not recorded as started by you; {excluded.notStartedByYou === 1 ? "it is" : "they are"} counted
+          under who runs your sessions, never in your voice, phone or surface numbers.
         </>
       )}
     </p>

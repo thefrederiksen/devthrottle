@@ -141,6 +141,7 @@ public static class WorkspaceCapture
 
             ReportsTo = string.IsNullOrWhiteSpace(s.ControllerSessionId) ? null : s.ControllerSessionId,
             ParentSessionId = string.IsNullOrWhiteSpace(s.ParentSessionId) ? null : s.ParentSessionId,
+            OriginKind = string.IsNullOrWhiteSpace(s.OriginKind) ? null : s.OriginKind,
             WorkflowRunId = s.WorkflowRunId?.ToString(),
 
             // A live session does not carry the prompt it was started with, so a captured seat has no

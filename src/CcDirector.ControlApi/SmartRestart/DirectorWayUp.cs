@@ -1020,7 +1020,10 @@ public sealed class DirectorWayUp : IDirectorWayUp
             Role = string.IsNullOrWhiteSpace(seat.Role) ? null : seat.Role,
             ResumeSessionId = string.IsNullOrWhiteSpace(seat.ClaudeSessionId) ? null : seat.ClaudeSessionId,
             PrePrompt = WayUpWords.ReopenPrompt(ToLocal(ShutdownAtUtc(doc))),
-            Origin = Core.Sessions.SessionOriginKinds.Human,
+            // The reopened seat CONTINUES the session it was captured from, so it keeps that session's starter:
+            // a mission seat reopened after a restart is not one the owner started (Your Throttle, 2026-09-27).
+            // A seat captured before the starter was recorded is reopened by the owner, as before.
+            Origin = Core.Sessions.SessionOriginKinds.Normalize(seat.OriginKind) ?? Core.Sessions.SessionOriginKinds.Human,
             OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
             PooledWorktree = seat.PooledWorktree is { } pooled && pooled.IsComplete() ? pooled : null,
         };

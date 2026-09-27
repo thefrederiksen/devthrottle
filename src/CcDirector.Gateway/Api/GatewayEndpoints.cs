@@ -1956,9 +1956,12 @@ internal static class GatewayEndpoints
                 PrePrompt = context,
                 // Session origin (devthrottle_internal issue #982). The SURFACE is certain - this is a
                 // direct Gateway API route, not the command line and not a schedule - so it is stated.
-                // The KIND is NOT: restoring an interrupted session can be asked for by a person in the
-                // Cockpit or by an agent cleaning up after a crash, and this handler cannot tell which.
-                // Left unstated, so it records "unknown", which is exactly what we know.
+                // The KIND is the INTERRUPTED session's: the restore continues its work, so it keeps the
+                // starter the journal recorded, and a session the owner started is still his after a crash
+                // (Your Throttle, 2026-09-27). Who asked for the restore is a different question this handler
+                // cannot answer. A journal written before the field existed says nothing, and the restore
+                // records "unknown", which is exactly what is known.
+                Origin = Core.Sessions.SessionOriginKinds.Normalize(row.OriginKind),
                 OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
             };
             var createSr = await DirectorCommandRouter.TrySendAsync(sendCommand, target.DirectorId, "create", "", spawnReq, CancellationToken.None, machineName: target.MachineName);

@@ -316,6 +316,16 @@ public sealed class WorkspaceSeat
     /// history, control is a live relationship, and the reporting chain is built from both.</summary>
     public string? ParentSessionId { get; set; }
 
+    /// <summary>
+    /// Who started the session this seat was captured from (<c>SessionOriginKinds</c>: human, agent, schedule or
+    /// unknown). A restore of a captured seat is a CONTINUATION, so the restored session is born with this
+    /// starter, whoever asked for the restore - otherwise every Director restart would re-label every seat by
+    /// who ran the restore, and Your Throttle would count the owner's mission seats as his (2026-09-27). Null on
+    /// an authored seat (never a session) and on a seat captured before the field existed; then the restore is a
+    /// fresh start and who asked for it decides.
+    /// </summary>
+    public string? OriginKind { get; set; }
+
     /// <summary>The workflow run this seat is seated on, passed to --workflow-run.</summary>
     public string? WorkflowRunId { get; set; }
 
