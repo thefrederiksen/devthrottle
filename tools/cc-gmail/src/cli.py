@@ -2053,6 +2053,35 @@ def untrash(
         raise typer.Exit(1)
 
 
+@app.command("not-spam")
+@_json_messages_to_stderr
+def not_spam(
+    message_id: str = typer.Argument(..., help="Message ID to move out of Spam"),
+    json_output: bool = typer.Option(False, "--json", help="Output a JSON object: id, thread_id, labels (read back from Gmail)"),
+):
+    """Move one message out of Spam into the Inbox. Refuses a message not in Spam (or in Trash) when checked."""
+    acct, auth_method = _resolve_and_get_auth()
+    if auth_method == "app_password":
+        console.print("[red]Error:[/red] not-spam needs an OAuth account (an App Password account has no Gmail labels to move).")
+        raise typer.Exit(1)
+
+    try:
+        result = get_client().not_spam(message_id)
+        if json_output:
+            print(json.dumps(result))
+            return
+        console.print(f"[green]Moved out of Spam into the Inbox:[/green] {message_id} (labels {', '.join(result['labels'])})")
+
+    except HttpError as e:
+        logger.error(f"Gmail API error moving out of spam: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+    except (ValueError, ConnectionError, OSError) as e:
+        logger.error(f"Not spam error: {e}")
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(1)
+
+
 @app.command()
 def archive(
     message_ids: List[str] = typer.Argument(..., help="Message ID(s) to archive"),
