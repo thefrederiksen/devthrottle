@@ -1278,15 +1278,13 @@ public sealed class TurnVerdictService : IDisposable
             if (narration.Label is { Length: > 0 } label)
                 record.Label = label;
 
-            // A NARRATION THAT WAS OWED AND DID NOT COME IS A FAILED READING TO THE PERSON LOOKING AT IT. The judge's
-            // answer stands - the row keeps its colour and its label - and the record says the words are missing, so it
-            // shows the same tag and goes on the same schedule as any other failure. A narration that was never owed
-            // (a session another live session owns) carries no failure detail and is not one.
+            // A CALL B THAT FAILED IS NOT A WINGMAN ERROR (the turn pipeline mission, section 5: "If Call B fails, Call
+            // A's colour stands and the reading has no label/narration"). Call A decided the colour, so the row shows it
+            // with its plain state label: no error card, no retry schedule, and no automatic call spent on the words
+            // again. Why the words are missing is kept on the record for the debug view and for a person asking again.
             if (!record.Failed && narration.Spoken is not { Length: > 0 } && narration.FailureDetail is { Length: > 0 } noWords)
                 record.NarrationFailureReason = noWords;
-            record.FailureKind = record.Failed ? FailureKindWord(failure)
-                : record.NarrationFailureReason is not null ? WingmanFailureKinds.NarrationFailed
-                : null;
+            record.FailureKind = record.Failed ? FailureKindWord(failure) : null;
 
             // WHERE THIS STOP IS ON ITS RETRY SCHEDULE is written on the failed record itself, before it is stored, so
             // the record a card is rendered from and the record the sweep retries from are one record.
@@ -1730,8 +1728,8 @@ public sealed class TurnVerdictService : IDisposable
 
     /// <summary>
     /// One narration call has finished, however it ended. The claim STAYS - no automatic path narrates this same
-    /// record again, which is what keeps a stop that fails from spending a paid model call on every sweep pass (the
-    /// booked retry makes a NEW reading, with its own record, at most eight times) - but it stops
+    /// record again, which is what keeps a stop that fails from spending a paid model call on every sweep pass (a
+    /// failed write-up is not booked for a retry either; only a failed Call A is) - but it stops
     /// being a RUNNING call, which is what lets a PERSON ask again. See <see cref="ReleaseNarrationClaimForRequest"/>.
     /// </summary>
     internal void NarrationCallFinished(TenantId tenant, string sid, string verdictId)
@@ -1764,12 +1762,13 @@ public sealed class TurnVerdictService : IDisposable
     /// should not be conflated. It is the reason the card's own instruction, "ask for the narration again", can be
     /// followed and still produce nothing new.
     ///
-    /// ONLY A PERSON RELEASES IT, deliberately. The automatic paths - the turn end and the idle sweep - keep the older
-    /// restraint that <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins: a stop whose
-    /// narration failed is not narrated again on every pass, because the sweep comes past every forty-five seconds
-    /// and a stop that keeps failing would keep costing a call. What asks again by itself is the booked retry
-    /// (<see cref="StartDueRetriesAsync"/>), eight times at most and as a new reading; a person asking is bounded by the
-    /// person.
+    /// ONLY A PERSON RELEASES IT, deliberately. Call B gets one immediate second attempt inside the same reading; after
+    /// that, the automatic paths - the turn end, the idle sweep and the booked retry (<see cref="StartDueRetriesAsync"/>)
+    /// - never release this claim and never call Call B again for the stop. A failed write-up is an accepted reading,
+    /// not a failed one, so it is never booked for a retry: the schedule is for a failed Call A only. The restraint
+    /// <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins still holds - the sweep comes
+    /// past every forty-five seconds, and a stop that keeps failing would keep costing a call. The only thing that buys
+    /// another Call B attempt is a person asking, and that is bounded by the person.
     /// </summary>
     internal bool ReleaseNarrationClaimForRequest(TenantId tenant, string sid, string verdictId)
     {
@@ -1921,12 +1920,9 @@ public sealed class TurnVerdictService : IDisposable
             return true;
         if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return false;
         if (hash.Length == 0 && trigger != TurnVerdictTrigger.Sweep) return false;
-        // A READING WITH NO WORDS is asked again by its booked retry exactly as a failed one is. Every other trigger
-        // reuses it: the judge's answer on it is good, and a person asking buys the narration call alone.
-        if (!latest.Failed)
-            return !(trigger == TurnVerdictTrigger.Retry
-                     && latest.NarrationFailureReason is not null
-                     && WingmanRetrySchedule.IsDue(latest.NextRetryAtUtc, _env.NowUtc()));
+        // An accepted reading is reused by every trigger, one with no words included: the judge's answer on it is
+        // good, and a person asking buys the narration call alone.
+        if (!latest.Failed) return true;
         return trigger switch
         {
             // The sweep and a voice session's refresh reuse EVERY failed record, with or without words: a refused

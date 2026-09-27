@@ -62,8 +62,10 @@ NARRATION:
 `NarrationCall.ParseAnswer` reads the two parts mechanically. Any other shape - no label line, an empty or
 eleven-word label, no narration line, no words - is a failed Call B: Call A's colour stands, the record has no
 label (the row shows its plain state label) and no words, and it carries `NarrationFailureReason`. Nothing is
-stored until both calls are done, so colour, label and words appear together. A person asking again after a
-failed Call B saves the label with the words.
+stored until both calls are done, so colour, label and words appear together. A failed Call B is NOT a failed
+reading: it gets one immediate second attempt inside the same reading, then no Wingman error, no booked retry, and
+no further automatic Call B - the turn end, the sweep and the retry schedule all reuse the record. Only a person
+asking again buys another Call B, and that saves the label with the words.
 
 **A menu is "open the session to choose".** On a stop Call A's picker step decided (or a v3 record answered with
 keys), the code-owned closing sentence tells the narration to say what is being asked and to tell the person to
@@ -399,8 +401,8 @@ speech re-attempt refusal and the provider deadline both existed for the voice p
 ladder of booked re-attempts beside the judgement. That ledger was replaced by one retry schedule written on
 the stored reading itself (`TurnVerdictDto.RetriesMade`, `NextRetryAtUtc`) and carried by the idle sweep
 (`TurnVerdictService.StartDueRetries`), so nothing reaches this boundary that may not ask the judge, and a
-provider's named wait is honoured by booking the retry later rather than by a check here. A failed reading is
-asked again ONLY by that booked retry, under the `Retry` trigger, and only once its booked time has passed;
+provider's named wait is honoured by booking the retry later rather than by a check here. A failed reading (a
+failed Call A; a failed Call B alone is an accepted reading and is never booked) is asked again ONLY by that booked retry, under the `Retry` trigger, and only once its booked time has passed;
 every other automatic trigger still reuses a failed record, so an unchanged screen is never paid for twice
 outside the schedule.
 

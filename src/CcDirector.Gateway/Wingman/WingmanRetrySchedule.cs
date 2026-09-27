@@ -44,12 +44,11 @@ public static class WingmanRetrySchedule
     }
 
     /// <summary>
-    /// Is this a reading the schedule applies to? A refused or unanswered reading, or an accepted one whose
-    /// narration call produced no words - to the person looking at the card both are a stop the Wingman could not
-    /// read to them.
+    /// Is this a reading the schedule applies to? Only a failed Call A - a refused or unanswered judgement, where
+    /// the colour was never decided. A reading whose Call B produced no words is NOT: Call A's colour stands and the
+    /// row shows its plain state label (the turn pipeline mission, section 5).
     /// </summary>
-    public static bool NeedsRetry(CcDirector.Gateway.Contracts.TurnVerdictDto reading)
-        => reading.Failed || reading.NarrationFailureReason is not null;
+    public static bool NeedsRetry(CcDirector.Gateway.Contracts.TurnVerdictDto reading) => reading.Failed;
 
     /// <summary>Is the booked retry due? False when nothing is booked.</summary>
     public static bool IsDue(DateTime? nextRetryAtUtc, DateTime nowUtc)
