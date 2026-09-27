@@ -111,7 +111,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
         /// <summary>The stored generation the widgets belong to. Setting a new one is a new conversation - a new Grok
         /// chat, a cleared context - whose positions start again at zero.</summary>
-        public string Generation { get; set; } = "";
+        public string Generation { get; set; } = "transcript-1";
 
         /// <summary>The delegate the service is constructed with.</summary>
         public Func<TenantId, string, CcDirector.Gateway.History.StoredConversation?> Reader

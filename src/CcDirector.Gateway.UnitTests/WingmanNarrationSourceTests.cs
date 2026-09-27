@@ -20,12 +20,13 @@ public sealed class WingmanNarrationSourceTests
             ">",
         };
 
-        var source = WingmanNarrationSource.Select(widgets, rows);
+        var source = WingmanNarrationSource.Select(widgets, rows, "transcript-1", completedTurns: 2);
 
         Assert.NotNull(source);
         Assert.Equal(WingmanNarrationSourceKind.TerminalFailure, source!.Kind);
         Assert.Contains("API key auth failed", source.Content);
         Assert.DoesNotContain("Hello", source.Content);
+        Assert.NotNull(source.Identity);
         Assert.NotEqual(source.Content, source.Identity);
     }
 
@@ -38,13 +39,15 @@ public sealed class WingmanNarrationSourceTests
 
         var source = WingmanNarrationSource.Select(
             widgets,
-            new[] { "Error: API key auth failed for provider old-provider" });
+            new[] { "Error: API key auth failed for provider old-provider" },
+            "transcript-1");
 
         Assert.NotNull(source);
         Assert.Equal(WingmanNarrationSourceKind.AgentReply, source!.Kind);
         Assert.Equal("The fix is complete.", source.Content);
         // The identity is the occurrence and the words: the same words elsewhere in the conversation are another stop.
-        Assert.EndsWith(source.Content, source.Identity);
+        Assert.NotNull(source.Identity);
+        Assert.EndsWith(source.Content, source.Identity!);
         Assert.NotEqual(source.Content, source.Identity);
     }
 
@@ -63,12 +66,52 @@ public sealed class WingmanNarrationSourceTests
     {
         var widgets = Widgets(("UserMessage", "run it"));
 
-        var first = WingmanNarrationSource.Select(widgets, new[] { "Error: API key auth failed for provider one" });
-        var second = WingmanNarrationSource.Select(widgets, new[] { "Error: API key auth failed for provider two" });
+        var first = WingmanNarrationSource.Select(widgets, new[] { "Error: API key auth failed for provider one" }, "transcript-1", 1);
+        var second = WingmanNarrationSource.Select(widgets, new[] { "Error: API key auth failed for provider two" }, "transcript-1", 1);
 
         Assert.NotNull(first);
         Assert.NotNull(second);
-        Assert.NotEqual(first!.Identity, second!.Identity);
+        Assert.NotNull(first!.Identity);
+        Assert.NotEqual(first.Identity, second!.Identity);
+    }
+
+    // ------------------------------------------- an occurrence is named only when every part of it is known (round 4)
+
+    [Fact]
+    public void AReplyWithNoProvenGeneration_HasAnUnknownIdentity_AndNoFingerprint()
+    {
+        var widgets = Widgets(("UserMessage", "fix it"), ("Text", "The fix is complete."));
+
+        foreach (var generation in new[] { null, "" })
+        {
+            var source = WingmanNarrationSource.Select(widgets, null, generation);
+            Assert.NotNull(source);                                   // the reply is still what is narrated
+            Assert.Equal("The fix is complete.", source!.Content);
+            Assert.Null(source.Identity);                             // but which occurrence it is, is unknown
+            Assert.Null(WingmanNarrationSource.Fingerprint(source));
+        }
+
+        // Control: the same reply inside a proven generation IS named.
+        Assert.NotNull(WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(widgets, null, "transcript-1")));
+    }
+
+    [Fact]
+    public void AFailureWithNoTurnCount_HasAnUnknownIdentity_NeverAPlaceholderTwoFailuresShare()
+    {
+        var widgets = Widgets(("UserMessage", "run it"));
+        var rows = new[] { "Error: API key auth failed for provider one" };
+
+        var noCount = WingmanNarrationSource.Select(widgets, rows, "transcript-1", completedTurns: null);
+        Assert.NotNull(noCount);
+        Assert.Equal(WingmanNarrationSourceKind.TerminalFailure, noCount!.Kind);
+        Assert.Null(noCount.Identity);
+        Assert.Null(WingmanNarrationSource.Fingerprint(noCount));
+
+        var noGeneration = WingmanNarrationSource.Select(widgets, rows, null, completedTurns: 3);
+        Assert.Null(noGeneration!.Identity);
+
+        // Control: a known generation and a known count name it.
+        Assert.NotNull(WingmanNarrationSource.Select(widgets, rows, "transcript-1", 3)!.Identity);
     }
 
     [Fact]

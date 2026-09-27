@@ -1235,7 +1235,9 @@ public sealed class TurnVerdictService : IDisposable
             // The carrying-on clock's first source travels on the stored record, so it survives a restart.
             record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
             // WHICH STOP THIS READING IS OF travels on it too, so the sweep can tell a redraw from a new stop.
-            record.SourceHash = WingmanNarrationSource.Fingerprint(source);
+            // "" when the stop cannot be named - no source, or an occurrence that is not proven - and "" never
+            // matches anything (IsSameStop), so such a stop is read again rather than taken for this one.
+            record.SourceHash = WingmanNarrationSource.Fingerprint(source) ?? "";
 
             ct.ThrowIfCancellationRequested();
 
@@ -1968,8 +1970,9 @@ public sealed class TurnVerdictService : IDisposable
     /// two stops ending on the same "Done." are two stops. A NEW stop still gets read: new work ends in a new reply at a
     /// new place in the conversation (a new fingerprint), and a
     /// Working edge the Gateway did see has already removed the stored reading. A reading with no source fingerprint
-    /// (none was chosen, or it was stored before the fingerprint existed) cannot be matched, and the screen hash stays
-    /// the only evidence, exactly as before.
+    /// (none was chosen, it was stored before the fingerprint existed, or its occurrence could not be proven) cannot be
+    /// matched, and neither can a current source whose occurrence is unknown: the screen hash stays the only evidence,
+    /// exactly as before. UNKNOWN IS NEVER THE SAME (round 4): reuse needs both sides named.
     ///
     /// Why only the sweep: a turn end IS a new stop by definition and is judged on its own screen; a person asking and
     /// a booked retry are deliberate attempts with their own rules above.
@@ -1977,7 +1980,8 @@ public sealed class TurnVerdictService : IDisposable
     internal static bool IsSameStop(TurnVerdictDto latest, WingmanNarrationSource? currentSource)
     {
         if (latest.SourceHash.Length == 0) return false;
-        return string.Equals(latest.SourceHash, WingmanNarrationSource.Fingerprint(currentSource), StringComparison.Ordinal);
+        var current = WingmanNarrationSource.Fingerprint(currentSource);
+        return current is not null && string.Equals(latest.SourceHash, current, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1994,12 +1998,38 @@ public sealed class TurnVerdictService : IDisposable
 
     /// <summary>
     /// <see cref="WingmanNarrationSource.Select"/> with everything that names WHICH occurrence the source is: the stored
-    /// generation the conversation belongs to, and the Director's count of finished turns. Every caller here that
-    /// stores or compares a fingerprint selects through this, so the stored reading and the stop it is compared with
-    /// are always named the same way.
+    /// generation the conversation belongs to - only when it is proven to follow the agent's own conversation - and the
+    /// Director's count of finished turns. Every caller here that stores or compares a fingerprint selects through this,
+    /// so the stored reading and the stop it is compared with are always named the same way.
     /// </summary>
     private static WingmanNarrationSource? SelectSource(StoredConversation? conversation, IReadOnlyList<string>? rows, SessionDto? facts)
-        => WingmanNarrationSource.Select(conversation?.Widgets, rows, conversation?.Generation ?? "", facts?.TurnCount);
+        => WingmanNarrationSource.Select(conversation?.Widgets, rows, ProvenGeneration(conversation, facts), facts?.TurnCount);
+
+    /// <summary>
+    /// The agents whose stored generation is PROVEN to be the identity of the conversation the agent is in now, so a new
+    /// conversation is always a new generation (round 4 of the review of pull request 3445). The generation is the
+    /// Director's <c>TurnPushBuilder.GenerationFor</c>:
+    /// <list type="bullet">
+    /// <item>Claude Code - the hook-reported transcript path, which moves on /clear and on a resumed transcript.</item>
+    /// <item>Pi - the transcript named by pi's own session id, which the Director rebinds when /new starts a new one.</item>
+    /// </list>
+    /// Every other agent is "identity unknown", and its stops are never reused on a redrawn screen. OpenCode, Copilot
+    /// and Gemini are named by the Director SESSION id for the whole session, which survives an OpenCode /new (round 3).
+    /// Codex and Grok are named by a transcript path found by "newest file for this repository" and then cached for the
+    /// session, so a new conversation inside the same session keeps the old path. Any agent not listed here, including
+    /// one added later, fails toward a fresh reading until its generation is shown to follow its conversation.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> AgentsWithAProvenConversationIdentity =
+        new HashSet<string>(StringComparer.Ordinal) { "ClaudeCode", "Pi" };
+
+    /// <summary>The conversation's stored generation when <see cref="AgentsWithAProvenConversationIdentity"/> vouches for
+    /// it; null (unknown) otherwise - for any other agent, a session whose agent is not known, or no stored conversation.</summary>
+    private static string? ProvenGeneration(StoredConversation? conversation, SessionDto? facts)
+        => conversation is { Generation.Length: > 0 } c
+           && facts is not null
+           && AgentsWithAProvenConversationIdentity.Contains(facts.Agent)
+            ? c.Generation
+            : null;
 
     /// <summary>
     /// Write where a failed stop is on its retry schedule onto the failed record (<see cref="WingmanRetrySchedule"/>).

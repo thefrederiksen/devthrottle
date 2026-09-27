@@ -317,7 +317,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
             new() { Kind = StoredConversationWidgets.AgentTextKind, Content = ReplyText },
             new() { Kind = StoredConversationWidgets.UserTextKind, Content = "push the other branch too" },
             new() { Kind = StoredConversationWidgets.AgentTextKind, Content = ReplyText },
-        });
+        }, TurnVerdictTestDoubles.TranscriptGeneration);
         env.Screen = () => Screen(Sid, "push the other branch too", ReplyText, "> ");
         var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
 
@@ -343,15 +343,18 @@ public sealed class TurnVerdictServiceTests : IDisposable
         };
         var t = new DateTimeOffset(2026, 9, 27, 9, 0, 0, TimeSpan.Zero);
 
-        var first = WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(At(t), null));
-        var same = WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(At(t), null));
-        var later = WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(At(t.AddHours(1)), null));
+        var first = WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(At(t), null, "transcript-1"));
+        var same = WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(At(t), null, "transcript-1"));
+        var later = WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(At(t.AddHours(1)), null, "transcript-1"));
 
+        Assert.NotNull(first);       // control: a proven generation names the occurrence
         Assert.Equal(first, same);   // control: the same occurrence read twice is one stop
         Assert.NotEqual(first, later);
     }
 
-    // The shape Grok stores: no time on any message, and a new conversation is a new generation starting at position zero.
+    // A stored conversation with no time on any message, where a new conversation is a new generation starting at
+    // position zero. The default facts name the agent Claude Code, whose generation is proven, so only the generation
+    // tells two such conversations apart.
     private static StoredConversation NoTimesConversation(string generation) => new(true, new List<TurnWidgetDto>
     {
         new() { Kind = StoredConversationWidgets.UserTextKind, Content = "push it" },
@@ -407,21 +410,29 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.Equal(callsB, env.NarratorCalls);
     }
 
-    // A screen-only agent: nothing stored, and a recognized failure on the terminal is the whole source.
+    // A failure read off the screen: the person's message is stored with no reply, and a recognized failure on the
+    // terminal is the whole source. The person's retry never reached the stored conversation, so the failure's place
+    // does not move between two failures; only the Director's turn count separates them.
     private const string FailureRow = "Error: API key auth failed for provider openai-mindzie";
 
-    private static FakeTurnVerdictEnvironment ScreenOnlyFailureEnv(Func<int?> turnCount)
+    private static FakeTurnVerdictEnvironment ScreenOnlyFailureEnv(Func<int?> turnCount, string agent = "ClaudeCode",
+        Func<StoredConversation?>? conversation = null)
     {
         var env = new FakeTurnVerdictEnvironment
         {
             Screen = () => Screen(Sid, FailureRow, "> "),
-            Conversation = _ => null,
+            Conversation = _ => conversation is null
+                ? new StoredConversation(true, new List<TurnWidgetDto>
+                {
+                    new() { Kind = StoredConversationWidgets.UserTextKind, Content = "run the migration" },
+                }, TurnVerdictTestDoubles.TranscriptGeneration)
+                : conversation(),
         };
         env.Facts = sid => new SessionDto
         {
             SessionId = sid,
             Name = "devthrottle - the retention sweep",
-            Agent = "Grok",
+            Agent = agent,
             ActivityState = "WaitingForInput",
             TurnCount = turnCount(),
         };
@@ -476,6 +487,111 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.Equal(1, env.JudgeCalls);
     }
 
+    // ------------------------------------------------ round 4: reuse only on PROOF; unknown identity is never the same
+
+    /// <summary>
+    /// A SCREEN-ONLY FAILURE WITH NO TURN COUNT IS READ AGAIN (round 3 of the review of pull request 3445). A Director
+    /// older than the turn-count field sends none, and the failure's occurrence was then named "turn ?" - the same for
+    /// every failure, so two identical failures in a row with the Working edge missed were one stop and the second was
+    /// never read. An unknown count is now an unknown occurrence, which is never the same stop: the second is read.
+    /// Red on the round-3 branch: the second sweep reused the first reading.
+    /// </summary>
+    [Fact]
+    public async Task Sweep_TwoIdenticalScreenOnlyFailuresWithNoTurnCount_AreBothRead()
+    {
+        var env = ScreenOnlyFailureEnv(() => null);
+        var service = new TurnVerdictService(env);
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal("", first.Verdict!.SourceHash);   // the reading records that its stop could not be named
+
+        env.Screen = () => Screen(Sid, FailureRow, "> ", "  ? for shortcuts");
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.NotEqual(first.Verdict.ScreenHash, sweep.ScreenHash);   // control: the screen really changed
+        Assert.Equal(0, env.Invalidations);                           // control: no Working edge removed the old reading
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, sweep.Kind);
+        Assert.Equal(2, env.JudgeCalls);
+    }
+
+    /// <summary>
+    /// AN OPENCODE /new IS READ (round 3 of the review of pull request 3445). OpenCode's stored generation is the
+    /// Director SESSION id for the whole session, so a /new that starts a new OpenCode conversation keeps it. Here the
+    /// new conversation ends on the same ask and the same reply at the same place, under the same generation, and the
+    /// Gateway missed the Working edge: nothing stored can tell the two stops apart. OpenCode's identity is therefore
+    /// unknown, and the stop is read. Red on the round-3 branch: the sweep reused the first reading.
+    /// </summary>
+    [Fact]
+    public async Task Sweep_AnOpenCodeNewConversationUnderTheSameSession_SamePlaceSameWords_IsRead()
+    {
+        var env = Env();
+        env.Facts = sid => new SessionDto { SessionId = sid, Agent = "OpenCode", ActivityState = "WaitingForInput" };
+        env.Conversation = _ => NoTimesConversation("session:" + Sid);
+        var service = new TurnVerdictService(env);
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(1, env.JudgeCalls);
+
+        // /new: a new OpenCode conversation, the same Director session, the same generation, the same shape.
+        env.Screen = Redrawn;
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.NotEqual(first.Verdict!.ScreenHash, sweep.ScreenHash);   // control: the screen really changed
+        Assert.Equal(0, env.Invalidations);                            // control: no Working edge removed the old reading
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, sweep.Kind);
+        Assert.Equal(2, env.JudgeCalls);
+    }
+
+    /// <summary>
+    /// SAME-STOP REUSE, PER AGENT. A redrawn screen over the same reply is reused only for the agents whose stored
+    /// generation is proven to follow their own conversation - Claude Code and Pi - and read again for every other
+    /// agent, including a name the Gateway has never heard of and a session whose agent it does not know. The rows for
+    /// Claude Code and Pi are the saving; every other row is the rule failing toward a fresh reading.
+    /// </summary>
+    [Theory]
+    [InlineData("ClaudeCode", true)]
+    [InlineData("Pi", true)]
+    [InlineData("Codex", false)]
+    [InlineData("Grok", false)]
+    [InlineData("OpenCode", false)]
+    [InlineData("Copilot", false)]
+    [InlineData("Gemini", false)]
+    [InlineData("Cursor", false)]
+    [InlineData("RawCli", false)]
+    [InlineData("SomeAgentAddedLater", false)]
+    [InlineData("", false)]
+    public async Task Sweep_TheSameStopRedrawn_IsReusedOnlyForAnAgentWhoseConversationIdentityIsProven(string agent, bool reused)
+    {
+        var env = Env();
+        env.Facts = sid => new SessionDto { SessionId = sid, Agent = agent, ActivityState = "WaitingForInput" };
+        var service = new TurnVerdictService(env);
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal(reused, first.Verdict!.SourceHash.Length > 0);   // a stop is named exactly when it can be proven
+
+        env.Screen = Redrawn;
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.NotEqual(first.Verdict.ScreenHash, sweep.ScreenHash);   // control: the screen really changed
+        Assert.Equal(reused ? TurnVerdictOutcomeKind.Reused : TurnVerdictOutcomeKind.Judged, sweep.Kind);
+        Assert.Equal(reused ? 1 : 2, env.JudgeCalls);
+    }
+
+    /// <summary>A stored conversation with no generation at all names nothing, even for Claude Code.</summary>
+    [Fact]
+    public async Task Sweep_TheSameStopRedrawn_WithNoStoredGeneration_IsRead()
+    {
+        var env = Env();
+        env.Conversation = _ => NoTimesConversation("");
+        var service = new TurnVerdictService(env);
+        await service.StartTurnEnd(Signal());
+
+        env.Screen = Redrawn;
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, sweep.Kind);
+        Assert.Equal(2, env.JudgeCalls);
+    }
+
     /// <summary>A new stop after a Working edge the Gateway DID see: the stored reading is gone, and the sweep reads it.</summary>
     [Fact]
     public async Task Sweep_ANewStopAfterAWorkingEdge_IsRead()
@@ -503,7 +619,8 @@ public sealed class TurnVerdictServiceTests : IDisposable
         var env = Env();
         var service = new TurnVerdictService(env);
         var withSource = await service.StartTurnEnd(Signal());
-        Assert.Equal(WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(Reply("push it", ReplyText).Widgets, null)),
+        Assert.Equal(WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(Reply("push it", ReplyText).Widgets, null,
+                TurnVerdictTestDoubles.TranscriptGeneration)),
             withSource.Verdict!.SourceHash);
         Assert.NotEqual("", withSource.Verdict.SourceHash);
 

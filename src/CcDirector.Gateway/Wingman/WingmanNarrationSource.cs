@@ -7,10 +7,13 @@ using CcDirector.Gateway.Supervision;
 namespace CcDirector.Gateway.Wingman;
 
 /// <summary>The current source Wingman should speak for a session.</summary>
+/// <param name="Identity">WHICH OCCURRENCE this source is - where it happened and what it says - or null when that
+/// cannot be proven (see <see cref="Select"/>). Null is "unknown", never a value: an unknown identity is never the
+/// same stop as anything.</param>
 public sealed record WingmanNarrationSource(
     WingmanNarrationSourceKind Kind,
     string Content,
-    string Identity)
+    string? Identity)
 {
     private const string AgentReplyIdentityPrefix = "agent-reply@";
     private const string TerminalIdentityPrefix = "terminal-failure@";
@@ -36,14 +39,24 @@ public sealed record WingmanNarrationSource(
     /// <paramref name="generation"/> and <paramref name="completedTurns"/> only name WHICH occurrence the source is
     /// (see <see cref="Identity"/>); they never change which source is chosen or what it says. A caller that stores
     /// the fingerprint passes both.
+    ///
+    /// AN OCCURRENCE IS NAMED ONLY WHEN EVERY PART OF IT IS KNOWN (round 4 of the review of pull request 3445). Three
+    /// rounds each found one more way for two stops to share a name - a new Grok conversation, an OpenCode /new under
+    /// the same Director session, an older Director with no turn count - and each shared name was a stop nobody read.
+    /// So the rule is turned around: a reply is named only inside a PROVEN generation, and a terminal failure only
+    /// inside a proven generation AND a known turn count. Anything unknown gives a null <see cref="Identity"/>, which is
+    /// never the same stop as anything, so the stop is read again. A missed stop is a wrong answer to the owner; an
+    /// extra reading is a few cents.
     /// </summary>
-    /// <param name="generation">The stored generation the widgets belong to (<see cref="StoredConversation.Generation"/>).</param>
+    /// <param name="generation">The stored generation the widgets belong to (<see cref="StoredConversation.Generation"/>),
+    /// passed ONLY when it is proven to follow the agent's own conversation; null or "" when it is not, and then no
+    /// occurrence is named.</param>
     /// <param name="completedTurns">The Director's count of the turns this session has finished
-    /// (<see cref="SessionDto.TurnCount"/>); null when the Director does not report it.</param>
+    /// (<see cref="SessionDto.TurnCount"/>); null when the Director does not report it, and then no failure is named.</param>
     public static WingmanNarrationSource? Select(
         IReadOnlyList<TurnWidgetDto>? widgets,
         IReadOnlyList<string>? liveRows,
-        string generation = "",
+        string? generation = null,
         int? completedTurns = null)
     {
         var (agent, user) = LatestSpeakerIndexes(widgets);
@@ -53,7 +66,9 @@ public sealed record WingmanNarrationSource(
             return reply.Length == 0
                 ? null
                 : new WingmanNarrationSource(WingmanNarrationSourceKind.AgentReply, reply,
-                    AgentReplyIdentityPrefix + Occurrence(widgets, agent, generation) + reply);
+                    string.IsNullOrEmpty(generation)
+                        ? null
+                        : AgentReplyIdentityPrefix + Occurrence(widgets, agent, generation) + reply);
         }
 
         // Either the person spoke last, or nobody has spoken at all (user < 0 means agent < 0 too, because the
@@ -67,7 +82,9 @@ public sealed record WingmanNarrationSource(
             : new WingmanNarrationSource(
                 WingmanNarrationSourceKind.TerminalFailure,
                 terminal,
-                TerminalIdentityPrefix + TurnOccurrence(completedTurns) + Occurrence(widgets, user, generation) + terminal);
+                string.IsNullOrEmpty(generation) || TurnOccurrence(completedTurns) is not { } turn
+                    ? null
+                    : TerminalIdentityPrefix + turn + Occurrence(widgets, user, generation) + terminal);
     }
 
     /// <summary>
@@ -102,21 +119,22 @@ public sealed record WingmanNarrationSource(
     /// restarts with the Director would only make that reply look new after a restart.
     ///
     /// The count restarts with the Director, so a Director restart during a failed stop reads that failure once more:
-    /// one call, where the alternative is a missed stop. "turn ?" when the Director does not report the count (older
-    /// than the field) - there the failure's own words and place are all there is, and two identical failures in a row
-    /// with a missed Working edge are still read as one.
+    /// one call, where the alternative is a missed stop. Null when the Director does not report the count (older than
+    /// the field): the failure's occurrence is then UNKNOWN - never a placeholder like "turn ?" that two failures would
+    /// share - so two identical failures in a row are both read (round 3 of the review).
     /// </summary>
-    private static string TurnOccurrence(int? completedTurns)
-        => completedTurns is { } n ? $"turn {n}\n" : "turn ?\n";
+    private static string? TurnOccurrence(int? completedTurns)
+        => completedTurns is { } n ? $"turn {n}\n" : null;
 
     /// <summary>
     /// The fingerprint of a stop's source, stored on its reading as <see cref="TurnVerdictDto.SourceHash"/>: a hash of
     /// <see cref="Identity"/> - which occurrence it is and what it says - so a reply and a terminal failure with the same
-    /// words are never the same stop, and neither are two replies with the same words at different places. ""
-    /// when there is no source - the screen is then the only evidence there is, and nothing can name the stop.
+    /// words are never the same stop, and neither are two replies with the same words at different places. Null when
+    /// there is no source, or its occurrence is unknown: then nothing names the stop, and it is never the same as one
+    /// already read.
     /// </summary>
-    public static string Fingerprint(WingmanNarrationSource? source)
-        => source is null ? "" : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source.Identity)));
+    public static string? Fingerprint(WingmanNarrationSource? source)
+        => source?.Identity is { } identity ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity))) : null;
 
     /// <summary>
     /// True when the conversation ends with the person's words rather than an agent reply - so any narration
