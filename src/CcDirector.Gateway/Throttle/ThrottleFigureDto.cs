@@ -32,7 +32,8 @@ public sealed class ThrottleFigureDto
     /// </summary>
     public ThrottleHeadlineDto Headline { get; set; } = new();
 
-    /// <summary>Turns the predicate counted: every turn-submitted row in the window carrying an input origin.</summary>
+    /// <summary>Turns the predicate counted: every turn-submitted row in the window carrying an input origin, in a
+    /// session a person started.</summary>
     public long Turns { get; set; }
 
     public long VoiceTurns { get; set; }
@@ -74,6 +75,58 @@ public sealed class ThrottleFigureDto
     /// <see cref="ThrottleExcludedDto.AgentDriven"/>, surfaced at the top level because the Agents page
     /// reads it as the leverage numerator.</summary>
     public long AgentDrivenTurns { get; set; }
+
+    /// <summary>
+    /// WHO RUNS YOUR SESSIONS (owner's ask, 2026-09-27). Every session that received a submission in the window,
+    /// split by who started it - a person, another session, or a schedule - with the sessions whose starter was
+    /// not recorded kept apart and named. Only the first group's turns are in the headline; this block is what
+    /// shows how much of the fleet's traffic that leaves out. Finished here like every other ratio.
+    /// </summary>
+    public ThrottleStartersDto Starters { get; set; } = new();
+}
+
+/// <summary>The sessions of the window by who started them (<see cref="ThrottleFigureDto.Starters"/>).</summary>
+public sealed class ThrottleStartersDto
+{
+    /// <summary>Distinct sessions that received any turn-submitted row in the window, whoever drove it.</summary>
+    public int Sessions { get; set; }
+
+    /// <summary>Every turn-submitted row in the window, whoever drove it and whether or not it carried an origin.</summary>
+    public long Turns { get; set; }
+
+    /// <summary>False when no session received a submission in the window; every share below is then null.</summary>
+    public bool HasData { get; set; }
+
+    /// <summary>The share the ring prints: sessions a person started, of <see cref="Sessions"/>.</summary>
+    public double? HumanShare { get; set; }
+
+    /// <summary><see cref="HumanShare"/> rounded half up to a whole percent; null when there is no session.</summary>
+    public int? HumanPercent { get; set; }
+
+    /// <summary>Always all four groups, in the order the pages draw them: human, agent, schedule, notRecorded.</summary>
+    public List<ThrottleStarterDto> Groups { get; set; } = new();
+}
+
+/// <summary>One group of <see cref="ThrottleStartersDto.Groups"/>.</summary>
+public sealed class ThrottleStarterDto
+{
+    /// <summary>human, agent, schedule, or notRecorded (no session history row, or its origin was "unknown" or
+    /// never written).</summary>
+    public string Kind { get; set; } = "";
+
+    /// <summary>The Gateway's own display name for the group, rendered verbatim.</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>Distinct sessions in this group that received a submission in the window.</summary>
+    public int Sessions { get; set; }
+
+    /// <summary>Every turn-submitted row in the window that went into this group's sessions.</summary>
+    public long Turns { get; set; }
+
+    /// <summary>This group's sessions of <see cref="ThrottleStartersDto.Sessions"/>; null when there is none.</summary>
+    public double? SessionShare { get; set; }
+
+    public int? SessionPercent { get; set; }
 }
 
 public sealed class ThrottleWindowDto
@@ -143,6 +196,11 @@ public sealed class ThrottleExcludedDto
     /// <summary>The remainder: a person's submission the product could not place on a surface. These are the
     /// rows disclosed beside the share as "outside every number here".</summary>
     public long Unresolved { get; set; }
+
+    /// <summary>Turns that DID carry an input origin but went into a session no person started - another
+    /// session or a schedule started it, or who started it was not recorded. Out of every number in the
+    /// headline (owner's ruling, 2026-09-27: only the sessions he starts say how he drives).</summary>
+    public long NotStartedByYou { get; set; }
 }
 
 public sealed class ThrottleBucketDto

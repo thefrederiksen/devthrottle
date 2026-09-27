@@ -66,9 +66,25 @@ public sealed class ThrottleLedgerReaderTests : IDisposable
         SendSource = "UserInput",
     };
 
+    /// <summary>Records sessions in a tenant's history as started by a person, the way the Director's history
+    /// push does, so their turns are in the headline (only sessions a person started are).</summary>
+    private void StartedByAPerson(TenantId tenant, params string[] sessionIds)
+    {
+        var history = HistoryFor(tenant);
+        var now = DateTime.UtcNow;
+        foreach (var id in sessionIds)
+            history.UpsertLive("dir-1", new SessionDto
+            {
+                SessionId = id, Agent = "ClaudeCode", CreatedAt = now.AddHours(-1), ActivityState = "Working",
+                Status = "Running", OriginKind = "human",
+            }, now);
+    }
+
     [Fact]
     public void Reads_only_the_named_tenants_turn_submitted_rows_inside_the_window()
     {
+        StartedByAPerson(TenantA, "s1");
+        StartedByAPerson(TenantB, "s-b");
         var ledgerA = LedgerFor(TenantA);
         ledgerA.AppendBatch(new[]
         {
@@ -134,11 +150,23 @@ public sealed class ThrottleLedgerReaderTests : IDisposable
         {
             SessionId = "named", RepoName = "thefrederiksen/devthrottle", RepoPath = @"D:\ReposFred\devthrottle",
             Agent = "ClaudeCode", CreatedAt = now.AddHours(-1), ActivityState = "Working", Status = "Running",
+            OriginKind = "human",
         }, now);
         history.UpsertLive("dir-1", new SessionDto
         {
             SessionId = "path-only", RepoPath = @"D:\ReposFred\mindzieWeb",
             Agent = "ClaudeCode", CreatedAt = now.AddHours(-1), ActivityState = "Working", Status = "Running",
+            OriginKind = "human",
+        }, now);
+        history.UpsertLive("dir-1", new SessionDto
+        {
+            SessionId = "no-repo", Agent = "ClaudeCode", CreatedAt = now.AddHours(-1), ActivityState = "Working",
+            Status = "Running", OriginKind = "human",
+        }, now);
+        history.UpsertLive("dir-1", new SessionDto
+        {
+            SessionId = "a-seat", RepoPath = @"D:\ReposFred\devthrottle", Agent = "Codex", CreatedAt = now.AddHours(-1),
+            ActivityState = "Working", Status = "Running", OriginKind = "agent", ParentSessionId = "named",
         }, now);
         // Tenant B's history holds a row for the SAME session id with a different repository. The join
         // must read tenant A's history, so this name must not appear.
@@ -153,12 +181,17 @@ public sealed class ThrottleLedgerReaderTests : IDisposable
             Submission(From.AddHours(1), "named", "typed/desktop", null, sequence: 1),
             Submission(From.AddHours(2), "named", "voice/desktop", "UserInput", sequence: 2),
             Submission(From.AddHours(3), "path-only", "typed/desktop", null, sequence: 3),
-            Submission(From.AddHours(4), "unknown-to-history", "typed/desktop", null, sequence: 4),
+            Submission(From.AddHours(4), "no-repo", "typed/desktop", null, sequence: 4),
+            // Neither of these is a session a person is known to have started: out of the figure, in the Starters.
+            Submission(From.AddHours(5), "unknown-to-history", "typed/desktop", null, sequence: 5),
+            Submission(From.AddHours(6), "a-seat", "voice/desktop", "UserInput", sequence: 6),
         });
 
         var figure = Reader().Compute(TenantA, From, To);
 
         Assert.Equal(4, figure.Turns);
+        Assert.Equal(2, figure.Excluded.NotStartedByYou);
+        Assert.Equal(new[] { 3, 1, 0, 1 }, figure.Starters.Groups.Select(g => g.Sessions));
         Assert.Equal(2, figure.Repos.Count);
         Assert.Equal("thefrederiksen/devthrottle", figure.Repos[0].Repo);
         Assert.Equal("devthrottle", figure.Repos[0].RepoName);

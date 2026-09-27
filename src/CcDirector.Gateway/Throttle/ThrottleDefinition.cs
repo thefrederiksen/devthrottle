@@ -23,7 +23,7 @@ public static class ThrottleDefinition
     /// </summary>
     public const string Predicate =
         "The shared figure is computed over activity_events rows where EventType is turn-submitted and " +
-        "InputOrigin is present, grouped by the origin's modality and surface.";
+        "InputOrigin is present, in sessions a person started, grouped by the origin's modality and surface.";
 
     /// <summary>The unit of every share on the page (ruling R8): submitted turns. Never words, never characters.</summary>
     public const string Unit = "submitted turns";
@@ -103,7 +103,43 @@ public static class ThrottleDefinition
 
     /// <summary>What session history knows about one session, for the per-repository split (R9: the ledger
     /// carries no repository; session history carries the resolved name and the checkout path).</summary>
-    public readonly record struct SessionFacts(string? RepoName, string? RepoPath);
+    /// <param name="OriginKind">Who started the session, as session history recorded it at birth
+    /// (<see cref="Core.Sessions.SessionOriginKinds"/>): human, agent, schedule or unknown; null when the row
+    /// predates the field.</param>
+    public readonly record struct SessionFacts(string? RepoName, string? RepoPath, string? OriginKind = null);
+
+    /// <summary>
+    /// The four starter groups of <see cref="ThrottleStartersDto"/>, in the order every page draws them, with the
+    /// Gateway's display name for each. ONLY <see cref="StarterHuman"/> sessions are in the headline (owner's
+    /// ruling, 2026-09-27): "It's only when I started this session that it should be counted whether or not I use
+    /// voice or desktop versus phone." A session whose starter was not recorded is not a session a person is
+    /// known to have started, so it is out too - and named as its own group, never folded into another.
+    /// </summary>
+    public const string StarterHuman = "human";
+    public const string StarterAgent = "agent";
+    public const string StarterSchedule = "schedule";
+    public const string StarterNotRecorded = "notRecorded";
+
+    public static readonly IReadOnlyList<(string Kind, string Label)> Starters = new[]
+    {
+        (StarterHuman, "Started by you"),
+        (StarterAgent, "Run by other sessions"),
+        (StarterSchedule, "Run by a schedule"),
+        (StarterNotRecorded, "Starter not recorded"),
+    };
+
+    /// <summary>Which starter group a session belongs to, from its history row.</summary>
+    public static string StarterOf(string sessionId, IReadOnlyDictionary<string, SessionFacts> sessions)
+    {
+        if (!sessions.TryGetValue(sessionId, out var facts)) return StarterNotRecorded;
+        return Core.Sessions.SessionOriginKinds.Normalize(facts.OriginKind) switch
+        {
+            Core.Sessions.SessionOriginKinds.Human => StarterHuman,
+            Core.Sessions.SessionOriginKinds.Agent => StarterAgent,
+            Core.Sessions.SessionOriginKinds.Schedule => StarterSchedule,
+            _ => StarterNotRecorded,
+        };
+    }
 
     /// <summary>
     /// The fold: apply the predicate to a window of ledger rows and produce every turn figure the page
@@ -132,9 +168,12 @@ public static class ThrottleDefinition
         var agents = new Dictionary<string, AgentTally>(StringComparer.Ordinal);
         var repos = new Dictionary<string, RepoTally>(StringComparer.Ordinal);
         var countedSessions = new HashSet<string>(StringComparer.Ordinal);
+        var starterSessions = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        var starterTurns = new Dictionary<string, long>(StringComparer.Ordinal);
 
         long counted = 0, voice = 0, typed = 0;
         long noOrigin = 0, noOriginAgent = 0, noOriginFramework = 0;
+        long notStartedByYou = 0;
         long repoUnattributed = 0;
 
         foreach (var row in rows)
@@ -142,6 +181,14 @@ public static class ThrottleDefinition
             if (row.OccurredUtc < fromUtc || row.OccurredUtc >= toUtc) continue;
 
             var agentKey = row.AgentKind ?? "";
+
+            // Who started the session this row went into. Every submission counts toward its group's traffic,
+            // whoever drove it, so the Starters block shows the whole fleet beside the human figure.
+            var starter = StarterOf(row.SessionId, sessions);
+            if (!starterSessions.TryGetValue(starter, out var starterSet))
+                starterSessions[starter] = starterSet = new HashSet<string>(StringComparer.Ordinal);
+            starterSet.Add(row.SessionId);
+            starterTurns[starter] = starterTurns.TryGetValue(starter, out var st) ? st + 1 : 1;
 
             // THE PREDICATE: InputOrigin present. Nothing about SendSource decides membership - a null
             // send source with a present origin is the terminal-typed turn and it is IN (consequence 1).
@@ -163,6 +210,16 @@ public static class ThrottleDefinition
             }
 
             var (modality, surface) = ParseOrigin(row.InputOrigin!, row);
+
+            // THE OWNER'S RULING (2026-09-27): a turn is his only in a session he started. A session another
+            // session or a schedule started - or one nobody recorded a starter for - says nothing about how he
+            // drives, so its turns are out of every number below and disclosed as a count.
+            if (starter != StarterHuman)
+            {
+                notStartedByYou++;
+                continue;
+            }
+
             var isVoice = modality == "voice";
 
             counted++;
@@ -211,6 +268,7 @@ public static class ThrottleDefinition
                 AgentDriven = noOriginAgent,
                 Framework = noOriginFramework,
                 Unresolved = noOrigin - noOriginAgent - noOriginFramework,
+                NotStartedByYou = notStartedByYou,
             },
             AgentDrivenTurns = noOriginAgent,
             ReposUnattributedTurns = repoUnattributed,
@@ -283,7 +341,40 @@ public static class ThrottleDefinition
         }
         dto.ReposSummary = ReposSummary(dto.Repos);
 
+        dto.Starters = StartersSummary(starterSessions, starterTurns);
+
         return dto;
+    }
+
+    /// <summary>The Starters block, finished here: every group always present, in page order, with its share of
+    /// the sessions and the ring's human share rounded once.</summary>
+    private static ThrottleStartersDto StartersSummary(
+        IReadOnlyDictionary<string, HashSet<string>> sessions, IReadOnlyDictionary<string, long> turns)
+    {
+        var totalSessions = sessions.Values.Sum(s => s.Count);
+        var result = new ThrottleStartersDto
+        {
+            Sessions = totalSessions,
+            Turns = turns.Values.Sum(),
+            HasData = totalSessions > 0,
+        };
+        foreach (var (kind, label) in Starters)
+        {
+            var count = sessions.TryGetValue(kind, out var s) ? s.Count : 0;
+            var share = ShareOf(count, totalSessions);
+            result.Groups.Add(new ThrottleStarterDto
+            {
+                Kind = kind, Label = label, Sessions = count,
+                Turns = turns.TryGetValue(kind, out var t) ? t : 0,
+                SessionShare = share.Share, SessionPercent = share.Percent,
+            });
+            if (kind == StarterHuman)
+            {
+                result.HumanShare = share.Share;
+                result.HumanPercent = share.Percent;
+            }
+        }
+        return result;
     }
 
     /// <summary>The surfaces the headline reports, in the order every page draws them, with the Gateway's own

@@ -20,6 +20,23 @@ public sealed class ThrottleDefinitionTests
     private static readonly DateTime To = new(2026, 8, 31, 4, 0, 0, DateTimeKind.Utc);
     private static readonly IReadOnlyDictionary<string, SessionFacts> NoSessions = new Dictionary<string, SessionFacts>();
 
+    /// <summary>
+    /// The tests written before who-started-the-session mattered are about other things (the predicate's three
+    /// consequences, the hours, the splits), so this wrapper states every session in them as started by a
+    /// person: a session missing from their history map, or listed without an origin, is filled in as human.
+    /// It shadows the library's <c>Fold</c> inside this class only. The starter rule itself is proven by the
+    /// tests that call <see cref="ThrottleDefinition.Fold"/> directly.
+    /// </summary>
+    private static CcDirector.Gateway.Throttle.ThrottleFigureDto Fold(
+        IEnumerable<LedgerSubmission> rows, DateTime from, DateTime to, IReadOnlyDictionary<string, SessionFacts> sessions)
+    {
+        var list = rows.ToList();
+        var human = new Dictionary<string, SessionFacts>(StringComparer.Ordinal);
+        foreach (var (id, f) in sessions) human[id] = f with { OriginKind = f.OriginKind ?? "human" };
+        foreach (var r in list) if (!human.ContainsKey(r.SessionId)) human[r.SessionId] = new SessionFacts(null, null, "human");
+        return ThrottleDefinition.Fold(list, from, to, human);
+    }
+
     private static LedgerSubmission Row(string? origin, string? source, string session = "s1", string? agent = "ClaudeCode",
         int hoursIn = 1)
         => new(From.AddHours(hoursIn), session, agent, origin, source);
@@ -31,11 +48,75 @@ public sealed class ThrottleDefinitionTests
         // says phase three does not get to paraphrase it.
         Assert.Equal(
             "The shared figure is computed over activity_events rows where EventType is turn-submitted and " +
-            "InputOrigin is present, grouped by the origin's modality and surface.",
+            "InputOrigin is present, in sessions a person started, grouped by the origin's modality and surface.",
             Predicate);
         Assert.Equal("turn-submitted", TurnSubmitted);
         Assert.Equal("submitted turns", Unit);
         Assert.Equal(30, RetentionDays);
+    }
+
+    [Fact]
+    public void OnlySessionsAPersonStarted_AreInTheHeadline_AndEveryStarterGroupIsReported()
+    {
+        // The owner's ruling (2026-09-27): a turn says how he drives only in a session he started. The same
+        // voice-from-the-phone turn goes into four sessions; only the human one is counted.
+        var sessions = new Dictionary<string, SessionFacts>
+        {
+            ["mine"] = new(null, null, "human"),
+            ["seat"] = new(null, null, "agent"),
+            ["cron"] = new(null, null, "schedule"),
+            ["asked-nothing"] = new(null, null, "unknown"),
+            ["old-row"] = new(null, null, null),
+        };
+        var figure = ThrottleDefinition.Fold(new[]
+        {
+            Row("voice/phone", "Delivery", session: "mine"),
+            Row("typed/desktop", null, session: "mine"),
+            Row("typed/desktop", null, session: "seat"),
+            Row("typed/desktop", null, session: "seat"),
+            Row(null, AgentSendSource, session: "seat"),
+            Row("typed/desktop", null, session: "cron"),
+            Row("voice/phone", "Delivery", session: "asked-nothing"),
+            Row("typed/desktop", null, session: "old-row"),
+            Row("typed/desktop", null, session: "not-in-history"),
+        }, From, To, sessions);
+
+        Assert.Equal(2, figure.Turns);
+        Assert.Equal(1, figure.VoiceTurns);
+        Assert.Equal(1, figure.TypedTurns);
+        Assert.Equal(1, figure.Sessions);
+        Assert.Equal(50, figure.Headline.Voice.Percent);
+        Assert.Equal(50, figure.Headline.Phone.Percent);
+        // Six origin-carrying turns went into sessions nobody is known to have started by hand.
+        Assert.Equal(6, figure.Excluded.NotStartedByYou);
+        // Agent traffic is still counted beside the figure, whoever started the session it went into.
+        Assert.Equal(1, figure.AgentDrivenTurns);
+        Assert.Equal(2, Assert.Single(figure.Agents).Turns);
+        Assert.Equal(2, figure.HourlyTurns.Sum(h => h.Turns));
+
+        var s = figure.Starters;
+        Assert.True(s.HasData);
+        Assert.Equal(6, s.Sessions);
+        Assert.Equal(9, s.Turns);
+        Assert.Equal(new[] { "human", "agent", "schedule", "notRecorded" }, s.Groups.Select(g => g.Kind));
+        Assert.Equal(new[] { "Started by you", "Run by other sessions", "Run by a schedule", "Starter not recorded" },
+            s.Groups.Select(g => g.Label));
+        Assert.Equal(new[] { 1, 1, 1, 3 }, s.Groups.Select(g => g.Sessions));
+        Assert.Equal(new long[] { 2, 3, 1, 3 }, s.Groups.Select(g => g.Turns));
+        Assert.Equal(17, s.HumanPercent);
+        Assert.Equal(1.0 / 6.0, s.HumanShare!.Value, 12);
+        Assert.Equal(new int?[] { 17, 17, 17, 50 }, s.Groups.Select(g => g.SessionPercent));
+    }
+
+    [Fact]
+    public void WithNoSession_TheStartersBlockIsEmpty_AndEveryGroupIsStillServed()
+    {
+        var figure = ThrottleDefinition.Fold(Array.Empty<LedgerSubmission>(), From, To, NoSessions);
+        Assert.False(figure.Starters.HasData);
+        Assert.Null(figure.Starters.HumanPercent);
+        Assert.Null(figure.Starters.HumanShare);
+        Assert.Equal(4, figure.Starters.Groups.Count);
+        Assert.All(figure.Starters.Groups, g => Assert.Null(g.SessionPercent));
     }
 
     [Fact]

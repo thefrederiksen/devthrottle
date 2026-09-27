@@ -17,6 +17,8 @@ import {
   type ThrottleData,
   type ThrottleServed,
   type ThrottleFigure,
+  type ThrottleStarters,
+  type StarterKind,
   type ThrottleSummary,
   type ConcurrencyHour,
   type InputHour,
@@ -215,12 +217,26 @@ function WindowStatement({ figure, timeZone }: { figure: ThrottleFigure; timeZon
 
 // ---- Overview: the landing dashboard - the two headline percentages first, big and clear ------------
 
+/** One color per starter group, in the Gateway's drawing order: you bright, everything else quieter. */
+const STARTER_COLOR: Record<StarterKind, string> = {
+  human: "#22c55e",
+  agent: "color-mix(in srgb, var(--text-dim) 70%, transparent)",
+  schedule: "#f59e0b",
+  notRecorded: "color-mix(in srgb, var(--text-dim) 35%, transparent)",
+};
+
+const ONLY_YOURS = "Only sessions you started";
+
 function OverviewTab({ summary, data }: { summary: ThrottleSummary; data: ThrottleServed }) {
   const figure = data.throttle;
+  // Who runs your sessions (owner's ruling, 2026-09-27) leads the page, and is shown even when nothing of
+  // yours was counted: a window where only other sessions worked is exactly what it exists to show.
+  const who = figure.starters.hasData ? <WhoRunsYourSessions starters={figure.starters} /> : null;
 
   if (!summary.hasData) {
     return (
       <>
+        {who}
         <div className="thr-empty">
           No turn counted in this window. Send a turn from the composer, dictation, phone, or cockpit and
           your throttle will appear here.
@@ -234,6 +250,8 @@ function OverviewTab({ summary, data }: { summary: ThrottleSummary; data: Thrott
 
   return (
     <>
+      {who}
+
       {/* The two hero rings: the questions the owner actually asks - how much do I speak, and how much do
           I drive from my phone. Each ring is its own metric, so each fills with its own accent against a
           muted remainder; the center is the headline. */}
@@ -246,6 +264,7 @@ function OverviewTab({ summary, data }: { summary: ThrottleSummary; data: Thrott
           centerCaption="spoken"
           primary={{ label: "Voice", count: summary.voiceTurns }}
           secondary={{ label: "Typed", count: summary.typedTurns }}
+          note={ONLY_YOURS}
         />
         <HeroRing
           title="Mobile vs desktop"
@@ -260,6 +279,7 @@ function OverviewTab({ summary, data }: { summary: ThrottleSummary; data: Thrott
           // the parts still add to the ring's other side and nothing is folded away.
           rest={summary.surfaces.filter((s) => s.surface !== "phone" && s.turns > 0)
             .map((s) => ({ label: s.label, count: s.turns }))}
+          note={ONLY_YOURS}
         />
       </div>
 
@@ -269,18 +289,102 @@ function OverviewTab({ summary, data }: { summary: ThrottleSummary; data: Thrott
           <h2>Where you drive from</h2>
           <span className="thr-panel-sub">{summary.totalTurns} turns across every surface</span>
         </div>
+        <p className="thr-scope">{ONLY_YOURS}</p>
         <SurfaceSplitBar summary={summary} />
       </div>
 
       {/* Supporting headline numbers. */}
       <div className="thr-stats">
-        <StatTile value={summary.totalTurns.toLocaleString()} label="Turns counted" sub={figure.window.label.toLowerCase()} />
-        <StatTile value={figure.sessions.toLocaleString()} label="Sessions you drove" />
+        <StatTile value={summary.totalTurns.toLocaleString()} label="Your turns" sub={figure.window.label.toLowerCase()} />
+        <StatTile value={figure.sessions.toLocaleString()} label="Sessions you started" />
         <StatTile value={String(peakLive)} label="Peak sessions at once" sub="all-time" />
       </div>
 
       <ExcludedNote figure={figure} />
     </>
+  );
+}
+
+// WHO RUNS YOUR SESSIONS: every session of the window by who started it. The ring's arcs are the Gateway's
+// session shares and its center the Gateway's rounded share for you; the legend names each group with its
+// sessions, and the bar under it splits the window's turns the same way. Groups with no session are left out
+// of the legends; "Started by you" is always shown. Nothing here divides.
+function WhoRunsYourSessions({ starters }: { starters: ThrottleStarters }) {
+  const R = 42;
+  const C = 2 * Math.PI * R;
+  const shown = starters.groups.filter((g) => g.kind === "human" || g.sessions > 0);
+  let offset = 0;
+  const arcs = starters.groups.map((g) => {
+    const length = (g.sessionShare ?? 0) * C;
+    const arc = { kind: g.kind, length, offset };
+    offset += length;
+    return arc;
+  });
+  const human = starters.groups.find((g) => g.kind === "human");
+  return (
+    <div className="thr-panel thr-who" data-testid="thr-who">
+      <div className="thr-panel-head">
+        <h2>Who runs your sessions</h2>
+        <span className="thr-who-sub">{starters.sessions.toLocaleString()} sessions worked in this window</span>
+      </div>
+      <div className="thr-who-body">
+        <div
+          className="thr-who-ring"
+          role="img"
+          aria-label={`Who runs your sessions: you started ${formatPercent(starters.humanPercent)} (${human?.sessions ?? 0} of ${starters.sessions} sessions)`}
+        >
+          <svg viewBox="0 0 100 100" className="thr-ring-svg">
+            <circle className="thr-ring-track" cx="50" cy="50" r={R} />
+            {arcs.filter((a) => a.length > 0).map((a) => (
+              <circle
+                key={a.kind}
+                className="thr-who-arc"
+                cx="50"
+                cy="50"
+                r={R}
+                style={{ stroke: STARTER_COLOR[a.kind], strokeDasharray: `${a.length} ${C}`, strokeDashoffset: -a.offset }}
+              />
+            ))}
+          </svg>
+          <div className="thr-ring-center">
+            <div className="thr-who-pct">{formatPercent(starters.humanPercent)}</div>
+            <div className="thr-ring-cap">started by you</div>
+          </div>
+        </div>
+        <div className="thr-who-detail">
+          <div className="thr-who-legend">
+            {shown.map((g) => (
+              <span key={g.kind} className="thr-who-leg" data-kind={g.kind}>
+                <span className="thr-dot" style={{ background: STARTER_COLOR[g.kind] }} />
+                {g.label}
+                <b>{g.sessions.toLocaleString()}</b>
+                <span className="thr-who-pctsmall">{formatPercent(g.sessionPercent)}</span>
+              </span>
+            ))}
+          </div>
+          <div className="thr-who-turns-title">Turns in them</div>
+          <div className="thr-who-bar" role="img" aria-label="Turns by who started the session">
+            {starters.groups.filter((g) => g.turns > 0).map((g) => (
+              <div
+                key={g.kind}
+                className="thr-who-seg"
+                style={{ flexGrow: g.turns, background: STARTER_COLOR[g.kind] }}
+                title={`${g.label}: ${g.turns} turns`}
+              />
+            ))}
+          </div>
+          <div className="thr-who-legend">
+            {shown.map((g) => (
+              <span key={g.kind} className="thr-who-leg">
+                <span className="thr-dot" style={{ background: STARTER_COLOR[g.kind] }} />
+                {g.kind === "human" ? "Yours" : g.label}
+                <b>{g.turns.toLocaleString()}</b>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

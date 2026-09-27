@@ -8,6 +8,8 @@ import {
   throttleWindowFromSearch,
   type ThrottleData,
   type ThrottleFigure,
+  type ThrottleStarters,
+  type StarterKind,
   type ThrottleSummary,
 } from "@devthrottle/client-core/stats/statsClient";
 import { ThrottleWindowSelector } from "@devthrottle/client-core/stats/ThrottleWindowSelector";
@@ -26,11 +28,24 @@ import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 // default. Choosing writes the length back to the URL; the Gateway decides what it means.
 // Renders immediately with a loading state, shows an explicit error banner on failure (no-fallback rule),
 // and auto-refreshes so the split moves live as the user drives by voice.
+// ONLY THE SESSIONS YOU STARTED (owner's ruling, 2026-09-27): the rings, the split and the totals count turns
+// in sessions a person started. A new first card, "Who runs your sessions", shows every session of the window
+// by who started it - you, another session, or a schedule - so the page says what it leaves out.
 
 const REFRESH_MS = 10_000;
 
 const RING_VOICE = "var(--accent)";
 const RING_MOBILE = "#8b5cf6";
+
+/** One color per starter group, in the Gateway's drawing order: you bright, everything else quieter. */
+const STARTER_COLOR: Record<StarterKind, string> = {
+  human: "#22c55e",
+  agent: "color-mix(in srgb, var(--text-dim) 70%, transparent)",
+  schedule: "#f59e0b",
+  notRecorded: "color-mix(in srgb, var(--text-dim) 35%, transparent)",
+};
+
+const ONLY_YOURS = "Only sessions you started";
 
 export function YourThrottle() {
   const [data, setData] = useState<ThrottleData | null>(null);
@@ -100,6 +115,8 @@ export function YourThrottle() {
       {figure !== null && <WindowNote figure={figure} timeZone={timeZone} />}
       {figure !== null && <ThrottleWindowSelector window={figure.window} onChoose={choose} />}
 
+      {figure !== null && figure.starters.hasData && <WhoRunsYourSessions starters={figure.starters} />}
+
       {figure !== null && summary !== null && !summary.hasData && (
         <div className="thr-note">
           No turn counted in this window. Send a turn from the phone, desktop, or cockpit and it will show up
@@ -117,6 +134,7 @@ export function YourThrottle() {
               color={RING_VOICE}
               primary={{ label: "Voice", count: summary.voiceTurns }}
               secondary={{ label: "Typed", count: summary.typedTurns }}
+              note={ONLY_YOURS}
             />
             <MetricRing
               title="Mobile vs desktop"
@@ -128,6 +146,7 @@ export function YourThrottle() {
               // are named separately rather than added together, so the two surfaces say the same thing.
               rest={summary.surfaces.filter((s) => s.surface !== "phone" && s.turns > 0)
                 .map((s) => ({ label: s.label, count: s.turns }))}
+              note={ONLY_YOURS}
             />
           </div>
 
@@ -136,11 +155,11 @@ export function YourThrottle() {
           <div className="mthr-stats">
             <div className="mthr-stat">
               <div className="mthr-stat-value">{summary.totalTurns.toLocaleString()}</div>
-              <div className="mthr-stat-label">Turns counted</div>
+              <div className="mthr-stat-label">Your turns</div>
             </div>
             <div className="mthr-stat">
               <div className="mthr-stat-value">{figure.sessions.toLocaleString()}</div>
-              <div className="mthr-stat-label">Sessions you drove</div>
+              <div className="mthr-stat-label">Sessions you started</div>
             </div>
           </div>
 
@@ -197,6 +216,79 @@ function ExcludedNote({ figure }: { figure: ThrottleFigure }) {
         </>
       )}
     </p>
+  );
+}
+
+// WHO RUNS YOUR SESSIONS: a ring of the window's sessions by who started them (the arc for each group is the
+// Gateway's session share, the number in the middle its rounded share for you), the groups named with their
+// session counts, and a bar of the turns that went into each. Groups with no session are left out of the
+// legend; "Started by you" is always shown. Every number is a served field.
+function WhoRunsYourSessions({ starters }: { starters: ThrottleStarters }) {
+  const R = 42;
+  const C = 2 * Math.PI * R;
+  const shown = starters.groups.filter((g) => g.kind === "human" || g.sessions > 0);
+  let offset = 0;
+  const arcs = starters.groups.map((g) => {
+    const length = (g.sessionShare ?? 0) * C;
+    const arc = { kind: g.kind, length, offset };
+    offset += length;
+    return arc;
+  });
+  return (
+    <section className="mthr-who" aria-label="Who runs your sessions" data-testid="mthr-who">
+      <div className="mthr-who-top">
+        <div
+          className="mthr-who-ring"
+          role="img"
+          aria-label={`Who runs your sessions: you started ${formatPercent(starters.humanPercent)} (${starters.groups[0].sessions} of ${starters.sessions} sessions)`}
+        >
+          <svg viewBox="0 0 100 100" className="mthr-who-svg">
+            <circle className="mthr-ring-track" cx="50" cy="50" r={R} />
+            {arcs.filter((a) => a.length > 0).map((a) => (
+              <circle
+                key={a.kind}
+                className="mthr-who-arc"
+                cx="50"
+                cy="50"
+                r={R}
+                style={{ stroke: STARTER_COLOR[a.kind], strokeDasharray: `${a.length} ${C}`, strokeDashoffset: -a.offset }}
+              />
+            ))}
+          </svg>
+          <div className="mthr-who-pct">{formatPercent(starters.humanPercent)}</div>
+        </div>
+        <div className="mthr-metric-body">
+          <div className="mthr-metric-title">Who runs your sessions</div>
+          <div className="mthr-metric-legend">
+            {shown.map((g) => (
+              <span key={g.kind} className="mthr-who-leg" data-kind={g.kind}>
+                <span className="mthr-dot" style={{ background: STARTER_COLOR[g.kind] }} />
+                {g.label} <b>{g.sessions.toLocaleString()}</b>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="mthr-who-turns-title">Turns in them</div>
+      <div className="mthr-split-bar">
+        {starters.groups.filter((g) => g.turns > 0).map((g) => (
+          <div
+            key={g.kind}
+            className="mthr-who-seg"
+            style={{ flexGrow: g.turns, background: STARTER_COLOR[g.kind] }}
+            title={`${g.label}: ${g.turns} turns`}
+          />
+        ))}
+      </div>
+      <div className="mthr-split-legend">
+        {shown.map((g) => (
+          <span key={g.kind} className="mthr-who-leg">
+            <span className="mthr-dot" style={{ background: STARTER_COLOR[g.kind] }} />
+            {g.kind === "human" ? "Yours" : g.label} <b>{g.turns.toLocaleString()}</b>
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -280,6 +372,7 @@ function SurfaceSplitBar({ summary }: { summary: ThrottleSummary }) {
   return (
     <section className="mthr-split" aria-label="Where you drive from">
       <div className="mthr-split-title">Where you drive from</div>
+      <div className="mthr-metric-note mthr-split-note">{ONLY_YOURS}</div>
       <div className="mthr-split-bar">
         {segments.map((seg, i) => {
           const width = seg.share === null ? 0 : seg.share * 100;
