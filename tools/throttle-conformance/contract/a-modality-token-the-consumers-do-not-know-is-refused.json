@@ -65,11 +65,12 @@
         "turns": 180
       }
     ],
-    "definition": "The shared figure is computed over activity_events rows where EventType is turn-submitted and InputOrigin is present, grouped by the origin's modality and surface.",
+    "definition": "The shared figure is computed over activity_events rows where EventType is turn-submitted and InputOrigin is present, in sessions a person started, grouped by the origin's modality and surface.",
     "excluded": {
       "agentDriven": 4,
       "framework": 160,
       "noInputOrigin": 662,
+      "notStartedByYou": 1204,
       "unresolved": 498
     },
     "headline": {
@@ -173,6 +174,47 @@
     },
     "reposUnattributedTurns": 0,
     "sessions": 3,
+    "starters": {
+      "groups": [
+        {
+          "kind": "human",
+          "label": "Started by you",
+          "sessionPercent": 30,
+          "sessionShare": 0.3,
+          "sessions": 64,
+          "turns": 812
+        },
+        {
+          "kind": "agent",
+          "label": "Run by other sessions",
+          "sessionPercent": 60,
+          "sessionShare": 0.6,
+          "sessions": 150,
+          "turns": 2040
+        },
+        {
+          "kind": "schedule",
+          "label": "Run by a schedule",
+          "sessionPercent": 5,
+          "sessionShare": 0.05,
+          "sessions": 16,
+          "turns": 120
+        },
+        {
+          "kind": "notRecorded",
+          "label": "Starter not recorded",
+          "sessionPercent": 5,
+          "sessionShare": 0.05,
+          "sessions": 8,
+          "turns": 48
+        }
+      ],
+      "hasData": true,
+      "humanPercent": 27,
+      "humanShare": 0.2689075630252101,
+      "sessions": 238,
+      "turns": 3020
+    },
     "turns": 1786,
     "typedTurns": 771,
     "unit": "submitted turns",

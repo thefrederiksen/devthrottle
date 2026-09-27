@@ -325,6 +325,10 @@ public sealed class WorkspaceStore
             seat.Role = from.Role;
             seat.ReportsTo = from.ReportsTo;
             seat.ParentSessionId = from.ParentSessionId;
+            // Who started the session is an observation too, and the restore reads it back to decide the
+            // restored session's starter - a caller who could rewrite it could make any seat count as the
+            // owner's in Your Throttle.
+            seat.OriginKind = from.OriginKind;
             seat.WorkflowRunId = from.WorkflowRunId;
             seat.SortOrder = from.SortOrder;
             seat.StateAtDrain = from.StateAtDrain;

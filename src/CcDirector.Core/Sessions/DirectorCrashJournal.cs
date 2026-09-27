@@ -18,6 +18,11 @@ public sealed class DirectorCrashJournalSession
     /// Written the moment the owner changes (<see cref="DirectorCrashJournal.SetSessionOwner"/>), so a Director that
     /// dies right after a hand over still says who owned the session.</summary>
     public string? ControllerSessionId { get; set; }
+
+    /// <summary>Who started the session (<see cref="SessionOriginKinds"/>), so a session restored after a crash is
+    /// born with the same starter and Your Throttle keeps counting the owner's own sessions as his (2026-09-27).
+    /// Null in a journal written before the field existed.</summary>
+    public string? OriginKind { get; set; }
 }
 
 /// <summary>The on-disk shape of a Director crash journal.</summary>

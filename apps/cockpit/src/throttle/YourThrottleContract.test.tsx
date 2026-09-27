@@ -240,3 +240,32 @@ describe("the Your Throttle contract, on the rendered Cockpit page - the whole a
     });
   }
 });
+
+// WHO RUNS YOUR SESSIONS (owner's ask, 2026-09-27), read off the rendered Cockpit panel. The fixture's groups
+// carry session shares and percents (30, 60, 5, 5) that their counts (64, 150, 16, 8 of 238) do not divide to,
+// so a page that computes its own is caught. Every number is the served field.
+describe("who runs your sessions, on the rendered Cockpit page", () => {
+  it("prints the served groups and percents, draws the served shares, and renames the tiles", async () => {
+    const fixture = loadContractFixtures().find((f) => f.name === "the-headline-is-rendered-not-the-counts")!;
+    const starters = (fixture.wire as { starters: { humanPercent: number; groups: { label: string; sessions: number; turns: number; sessionShare: number; sessionPercent: number }[] } }).starters;
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify(servedBodyFor(fixture.wire)), { status: 200, headers: { "Content-Type": "application/json" } }),
+    ));
+    const { container } = renderAt("/your-throttle?week=2026-W35");
+    const panel = await screen.findByTestId("thr-who");
+
+    expect(panel.querySelector(".thr-who-pct")!.textContent).toBe(`${starters.humanPercent}%`);
+    const legends = Array.from(panel.querySelectorAll(".thr-who-legend"));
+    const sessionsLegend = Array.from(legends[0].querySelectorAll(".thr-who-leg"));
+    expect(sessionsLegend.map((l) => count(l.querySelector("b")!.textContent))).toEqual(starters.groups.map((g) => g.sessions));
+    expect(sessionsLegend.map((l) => percent(l.querySelector(".thr-who-pctsmall")!.textContent))).toEqual(starters.groups.map((g) => g.sessionPercent));
+    expect(Array.from(legends[1].querySelectorAll(".thr-who-leg b")).map((b) => count(b.textContent))).toEqual(starters.groups.map((g) => g.turns));
+    const arcs = Array.from(panel.querySelectorAll(".thr-who-arc")).map((a) => round10(Number(((a as HTMLElement).style.strokeDasharray).split(" ")[0]) / C));
+    expect(arcs).toEqual(starters.groups.map((g) => round10(g.sessionShare)));
+
+    expect(container.querySelectorAll(".thr-hero-note")).toHaveLength(2);
+    expect(container.querySelector(".thr-scope")!.textContent).toBe("Only sessions you started");
+    expect(screen.getByText("Your turns")).toBeTruthy();
+    expect(screen.getByText("Sessions you started")).toBeTruthy();
+  });
+});

@@ -102,10 +102,10 @@ public sealed class ThrottleLedgerReader
             var chunk = sessionIds.Skip(i).Take(HistoryChunk).ToList();
             var found = ctx.SessionHistory.AsNoTracking()
                 .Where(s => chunk.Contains(s.SessionId))
-                .Select(s => new { s.SessionId, s.RepoName, s.RepoPath })
+                .Select(s => new { s.SessionId, s.RepoName, s.RepoPath, s.OriginKind })
                 .ToList();
             foreach (var s in found)
-                facts[s.SessionId] = new ThrottleDefinition.SessionFacts(s.RepoName, s.RepoPath);
+                facts[s.SessionId] = new ThrottleDefinition.SessionFacts(s.RepoName, s.RepoPath, s.OriginKind);
         }
         return facts;
     }

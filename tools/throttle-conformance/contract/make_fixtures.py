@@ -33,7 +33,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 DEFINITION = ("The shared figure is computed over activity_events rows where EventType is turn-submitted and "
-              "InputOrigin is present, grouped by the origin's modality and surface.")
+              "InputOrigin is present, in sessions a person started, grouped by the origin's modality and surface.")
 # The mentor's fixture week: Toronto 2026-W35, Monday 24 August 00:00 to Monday 31 August 00:00 local.
 FROM_UTC = "2026-08-24T04:00:00Z"
 TO_UTC = "2026-08-31T04:00:00Z"
@@ -115,6 +115,21 @@ def repos_summary(has_data):
             "topRepoName": "repo-alpha", "topShare": 0.7368421052631579, "topPercent": 74, "hasData": True}
 
 
+# Who runs the sessions (owner's ask, 2026-09-27): the four starter groups, finished by the library. Hostile like
+# the rest: its human share is served as 27 per cent, and 64 of 238 sessions rounds to 27 - but its groups' own
+# session shares are served as 30, 60, 5 and 5, which is not what 64, 150, 16 and 8 of 238 round to. A consumer
+# prints the served fields.
+STARTERS = {
+    "sessions": 238, "turns": 3020, "hasData": True, "humanShare": 64 / 238, "humanPercent": 27,
+    "groups": [
+        {"kind": "human", "label": "Started by you", "sessions": 64, "turns": 812, "sessionShare": 0.3, "sessionPercent": 30},
+        {"kind": "agent", "label": "Run by other sessions", "sessions": 150, "turns": 2040, "sessionShare": 0.6, "sessionPercent": 60},
+        {"kind": "schedule", "label": "Run by a schedule", "sessions": 16, "turns": 120, "sessionShare": 0.05, "sessionPercent": 5},
+        {"kind": "notRecorded", "label": "Starter not recorded", "sessions": 8, "turns": 48, "sessionShare": 0.05, "sessionPercent": 5},
+    ],
+}
+
+
 def wire(turns, voice, typed, buckets, head, excluded=None):
     has_data = head["hasData"]
     return {
@@ -138,8 +153,10 @@ def wire(turns, voice, typed, buckets, head, excluded=None):
         "agentsSummary": agents_summary(has_data),
         "reposSummary": repos_summary(has_data),
         "reposUnattributedTurns": 0,
-        "excluded": excluded or {"noInputOrigin": 662, "agentDriven": 4, "framework": 160, "unresolved": 498},
+        "excluded": excluded or {"noInputOrigin": 662, "agentDriven": 4, "framework": 160, "unresolved": 498,
+                                 "notStartedByYou": 1204},
         "agentDrivenTurns": 4,
+        "starters": STARTERS,
     }
 
 
@@ -375,7 +392,19 @@ INVENTORY = {
     "excluded.agentDriven": BOTH,
     "excluded.framework": BOTH,
     "excluded.unresolved": BOTH,
+    "excluded.notStartedByYou": BROWSER,
     "agentDrivenTurns": BOTH,
+    "starters.sessions": BROWSER,
+    "starters.turns": BROWSER,
+    "starters.hasData": BROWSER,
+    "starters.humanShare": BROWSER,
+    "starters.humanPercent": BROWSER,
+    "starters.groups[].kind": BROWSER,
+    "starters.groups[].label": BROWSER,
+    "starters.groups[].sessions": BROWSER,
+    "starters.groups[].turns": BROWSER,
+    "starters.groups[].sessionShare": BROWSER,
+    "starters.groups[].sessionPercent": BROWSER,
 }
 
 

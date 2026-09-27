@@ -1,11 +1,11 @@
 {
   "fixtures": {
-    "a-modality-token-the-consumers-do-not-know-is-refused.json": "3be712fcafa0cfdd63a76865bfdcfbb07dd3ed6a149a666295a80b5ea4a6a9f9",
-    "a-surface-the-consumers-do-not-know-is-refused.json": "b89abb7683f06f1a4dc6f067fb1fb53b476c523185e853e86d3ef642ef25fb29",
-    "an-answer-without-a-headline-is-refused.json": "ae21a8830737ab0223e217cb777cbc5a968442ce8e94b24ef98309212d0216da",
-    "the-empty-state-is-the-librarys-ruling.json": "92da110a74caf5d779d38efbcdcb1df9afd353997352394ae3d5346959ce6d6b",
-    "the-headline-is-rendered-not-the-counts.json": "b8d0330140caceb48b44a5ac310e40ddcf1ef11bac5630eafc431e0f94da711b",
-    "the-percent-field-is-printed-not-re-rounded.json": "4f965156581a82f07a0530f36131e5c6b9556787e34550939bf193ed555dfae0"
+    "a-modality-token-the-consumers-do-not-know-is-refused.json": "27199d2e3c249656d80d3b6ee93060f8555f0c5e621c57e5996fe4f5fd0a83a6",
+    "a-surface-the-consumers-do-not-know-is-refused.json": "6158fbe00735c5f25972d08824d2aa8b477982c736e5101e83107006fc50cf97",
+    "an-answer-without-a-headline-is-refused.json": "5090a3524947782ad49635409f2c0a16c2b3ed7b3232c38429379ac903ec5368",
+    "the-empty-state-is-the-librarys-ruling.json": "650a9111315b17eb0f20a08319b2a321cd9122dfb1cdebe6571be9228fb62eb2",
+    "the-headline-is-rendered-not-the-counts.json": "30be394b8fe2c595ca8d8c46da10b9a253f6bcd342d49e23ecc15b3338dbfb4b",
+    "the-percent-field-is-printed-not-re-rounded.json": "f1a87378dd2a8b1e912b81bc8a424653998e5b4a19a56cd5ea7a8876f9dc0c74"
   },
-  "inventory": "744752ba4d3ca11556b39718d26d14d551434f49cfff8566d5fee161b9dbff64"
+  "inventory": "9c9c4e9be64076b7b5f1d93ae3815c7fcdb25120f3129bdde054088378e41f4c"
 }

@@ -39,6 +39,7 @@ public sealed class ThrottleFeedReadsTheLedgerTests : IAsyncLifetime
     private string _keyB = "";
     private string _keyUnbound = "";
     private TenantId _tenantA;
+    private TenantId _tenantB;
     private string? _priorHosted;
     private string? _priorRoot;
     private readonly string _storageRoot =
@@ -65,9 +66,9 @@ public sealed class ThrottleFeedReadsTheLedgerTests : IAsyncLifetime
         _keyB = _gateway.Devices.Register("dev-b", "MB").DeviceKey;
         _keyUnbound = _gateway.Devices.Register("dev-x", "MX").DeviceKey;
         _tenantA = _gateway.TenantRegistry.MintOrLookupBySubject("sub-alice", "alice@example.com");
-        var tenantB = _gateway.TenantRegistry.MintOrLookupBySubject("sub-bob", "bob@example.com");
+        _tenantB = _gateway.TenantRegistry.MintOrLookupBySubject("sub-bob", "bob@example.com");
         _gateway.Devices.SetAccountBinding("dev-a", "sub-alice", _tenantA.Value);
-        _gateway.Devices.SetAccountBinding("dev-b", "sub-bob", tenantB.Value);
+        _gateway.Devices.SetAccountBinding("dev-b", "sub-bob", _tenantB.Value);
     }
 
     public async Task DisposeAsync()
@@ -98,8 +99,22 @@ public sealed class ThrottleFeedReadsTheLedgerTests : IAsyncLifetime
         SendSource = source,
     };
 
+    /// <summary>
+    /// Posts the events, and first records each of their sessions in the key's tenant's history as started by a
+    /// person - the Director pushes that history beside its ledger, and only sessions a person started are in the
+    /// figure. A test that means a session to have another starter records it with <see cref="Born"/> BEFORE
+    /// posting: the store keeps the first origin it is told and never overwrites it.
+    /// </summary>
     private async Task Post(string deviceKey, params ActivityEventRecord[] events)
     {
+        var tenant = deviceKey == _keyA ? _tenantA : deviceKey == _keyB ? _tenantB : (TenantId?)null;
+        if (tenant is { } t)
+        {
+            var history = new SessionHistoryStore(new GatewayDatabase(new FixedTenantContext(t)));
+            foreach (var id in events.Select(e => e.SessionId).Distinct(StringComparer.Ordinal))
+                history.UpsertLive("dir-1", Born(id, DateTime.UtcNow.AddDays(-1), kind: "human", repoPath: ""), DateTime.UtcNow);
+        }
+
         var req = new HttpRequestMessage(HttpMethod.Post, "activity-events/batch")
         {
             Content = JsonContent.Create(new ActivityEventIngestRequest { Events = events.ToList() }),

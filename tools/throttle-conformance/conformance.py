@@ -143,12 +143,25 @@ def run_library(tenant, start, end, connection, out_path):
     return json.loads(Path(out_path).read_text(encoding="utf-8")), dll_sha256
 
 
-def mentor_side(metrics, origin, account, tz, extract, start, end, break_predicate):
-    """The mentor harness's reading of the same ledger, with the R17 predicate applied."""
+def human_sessions(extract_sessions):
+    """The sessions a person started, from the session-history extract (owner's ruling, 2026-09-27: only these are
+    in the figure). A row whose OriginKind is anything but "human" - agent, schedule, unknown, or absent - is not."""
+    human = set()
+    with open(extract_sessions, encoding="utf-8") as f:
+        for line in f:
+            row = json.loads(line)
+            if (row.get("OriginKind") or "").strip().lower() == "human":
+                human.add(row["SessionId"])
+    return human
+
+
+def mentor_side(metrics, origin, account, tz, extract, start, end, break_predicate, human):
+    """The mentor harness's reading of the same ledger, with the predicate applied: an origin, in a session a
+    person started."""
     world = metrics.World(account["label"], tz)
     metrics.load_events(world, extract)
     ledger = origin.Ledger(world.events)
-    rows = [r for rows in ledger.by_session.values() for r in rows if start <= r["ts"] < end]
+    rows = [dict(r, session=s) for s, srows in ledger.by_session.items() for r in srows if start <= r["ts"] < end]
     buckets = collections.Counter()
     excluded = collections.Counter()
     for r in rows:
@@ -167,13 +180,16 @@ def mentor_side(metrics, origin, account, tz, extract, start, end, break_predica
             else:
                 excluded["unresolved"] += 1
             continue
+        if r["session"] not in human:
+            excluded["notStartedByYou"] += 1
+            continue
         modality, surface = r["origin"]
         buckets[(modality, surface)] += 1
     # The mentor's Ledger keys rows by session already; count the sessions that had a counted turn.
     counted_sessions = {
         s for s, srows in ledger.by_session.items()
-        if any(start <= r["ts"] < end and r["origin"] is not None and not (break_predicate and r["source"] is None)
-               for r in srows)
+        if s in human and any(start <= r["ts"] < end and r["origin"] is not None and not (break_predicate and r["source"] is None)
+                              for r in srows)
     }
     earliest_in_window = min((r["ts"] for r in rows), default=None)
     return {
@@ -183,10 +199,13 @@ def mentor_side(metrics, origin, account, tz, extract, start, end, break_predica
         "typedTurns": sum(v for (m, _), v in buckets.items() if m == "typed"),
         "sessions": len(counted_sessions),
         "buckets": {m + "/" + s: v for (m, s), v in sorted(buckets.items())},
-        "excluded": {k: excluded.get(k, 0) for k in ("noInputOrigin", "agentDriven", "framework", "unresolved")},
+        "excluded": {k: excluded.get(k, 0) for k in EXCLUDED_KEYS},
         "agentDrivenTurns": excluded.get("agentDriven", 0),
         "rowsInWindow": len(rows),
     }
+
+
+EXCLUDED_KEYS = ("noInputOrigin", "agentDriven", "framework", "unresolved", "notStartedByYou")
 
 
 def predicate_from_source():
@@ -222,7 +241,7 @@ def headline_side(mentor):
     }
 
 
-def raw_side(extract_events, extract_sessions, start, end):
+def raw_side(extract_events, extract_sessions, start, end, human):
     """A plain reading of the extract for what the mentor's Ledger does not carry: agent kind and repository."""
     def parse(s):
         return dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
@@ -250,6 +269,8 @@ def raw_side(extract_events, extract_sessions, start, end):
             if not origin_token:
                 if row.get("SendSource") == "Agent":
                     agents[agent]["agentDrivenTurns"] += 1
+                continue
+            if row["SessionId"] not in human:
                 continue
             modality = origin_token.split("/", 1)[0]
             a = agents[agent]
@@ -362,7 +383,7 @@ def compare(library, mentor, raw, predicate_expected, window_expected):
     lib_buckets = {b["modality"] + "/" + b["surface"]: b["turns"] for b in library["buckets"]}
     for key in sorted(set(lib_buckets) | set(mentor["buckets"])):
         eq("bucket " + key, lib_buckets.get(key, 0), mentor["buckets"].get(key, 0))
-    for key in ("noInputOrigin", "agentDriven", "framework", "unresolved"):
+    for key in EXCLUDED_KEYS:
         eq("excluded." + key, library["excluded"][key], mentor["excluded"][key])
     eq("agentDrivenTurns", library["agentDrivenTurns"], mentor["agentDrivenTurns"])
 
@@ -503,8 +524,9 @@ def main():
     out_path = Path(os.environ.get("TEMP", ".")) / ("throttle-library-%s-%s.json" % (account["label"], args.week))
     library, provenance["dll_sha256"] = run_library(tenant, start_utc, end_utc, connection, out_path)
 
-    mentor = mentor_side(metrics, origin, account, tz, extract_events, start, end, args.break_predicate)
-    raw = raw_side(extract_events, extract_sessions, start, end)
+    human = human_sessions(extract_sessions)
+    mentor = mentor_side(metrics, origin, account, tz, extract_events, start, end, args.break_predicate, human)
+    raw = raw_side(extract_events, extract_sessions, start, end, human)
 
     predicate = predicate_from_source()
     window_expected = (start_utc.strftime("%Y-%m-%dT%H:%M:%SZ"), end_utc.strftime("%Y-%m-%dT%H:%M:%SZ"))
@@ -531,7 +553,7 @@ def main():
     lib_buckets = {b["modality"] + "/" + b["surface"]: b["turns"] for b in library["buckets"]}
     for key in sorted(set(lib_buckets) | set(mentor["buckets"])):
         lines.append("| bucket %s | %s | %s |" % (key, lib_buckets.get(key, 0), mentor["buckets"].get(key, 0)))
-    for key in ("noInputOrigin", "agentDriven", "framework", "unresolved"):
+    for key in EXCLUDED_KEYS:
         lines.append("| excluded.%s | %s | %s |" % (key, library["excluded"][key], mentor["excluded"][key]))
     lines.append("")
     lines.append("Per-agent and per-repository splits and the hourly series were compared against a plain reading of the extract; "

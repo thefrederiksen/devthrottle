@@ -556,16 +556,16 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
                 // Session origin (devthrottle_internal issue #982): a handover's target. The SURFACE
                 // is certain - this is the handover verb, not the command line and not a schedule - so
                 // it is stated, and it matches what the Gateway's CROSS-Director handover records, so
-                // the same act reads the same whichever leg it took. The KIND is left unknown: a
-                // handover is asked for by a person moving work or by a session handing itself over,
-                // and nothing at this point can tell them apart.
+                // the same act reads the same whichever leg it took. The KIND is the SOURCE's: the
+                // target continues the source's work, so a session the owner started is still one he
+                // started after it moves, and Your Throttle keeps counting it as his (2026-09-27).
                 //
                 // The SOURCE session is deliberately not recorded as the parent. ParentSessionId means
                 // "the session that asked for this one"; in a handover the source is the session being
                 // LEFT, and putting it here would make the lineage tree mean two things at once.
                 target = sessionManager.CreateSession(repo, agent, userArgs: null, SessionBackendType.ConPty, resumeSessionId: null,
                     beforeLaunch: s => s.StampOrigin(new SessionOrigin(
-                        SessionOriginKinds.Unknown, SessionOriginSurfaces.Api)));
+                        SessionOriginKinds.Normalize(source.OriginKind) ?? SessionOriginKinds.Unknown, SessionOriginSurfaces.Api)));
             }
             catch (Exception ex)
             {

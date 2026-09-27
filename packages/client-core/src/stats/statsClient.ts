@@ -172,6 +172,38 @@ export interface ThrottleExcluded {
   framework: number;
   /** The remainder: a submission of yours the product could not place on a surface. Outside every number. */
   unresolved: number;
+  /** Turns that carried an origin but went into a session you did not start - another session or a schedule
+   * started it, or its starter was not recorded. Outside every number (owner's ruling, 2026-09-27). */
+  notStartedByYou: number;
+}
+
+/** The four starter groups the Gateway serves, in its drawing order. A kind outside these is refused. */
+export const STARTER_KINDS = ["human", "agent", "schedule", "notRecorded"] as const;
+export type StarterKind = (typeof STARTER_KINDS)[number];
+
+/** One starter group: the sessions of the window that one kind of starter opened. Mirrors ThrottleStarterDto. */
+export interface ThrottleStarterGroup {
+  kind: StarterKind;
+  /** The Gateway's display name, rendered verbatim. */
+  label: string;
+  sessions: number;
+  /** Every submission into this group's sessions in the window, whoever drove it. */
+  turns: number;
+  sessionShare: number | null;
+  sessionPercent: number | null;
+}
+
+/** WHO RUNS YOUR SESSIONS, finished on the Gateway: every session that received a submission in the window,
+ * by who started it. Only the human group's turns are in the headline. Mirrors ThrottleStartersDto. */
+export interface ThrottleStarters {
+  sessions: number;
+  turns: number;
+  hasData: boolean;
+  /** Sessions a person started, of all sessions - the ring's share. */
+  humanShare: number | null;
+  humanPercent: number | null;
+  /** Always human, agent, schedule, notRecorded, in that order. */
+  groups: ThrottleStarterGroup[];
 }
 
 /** One share of the headline denominator, as the Gateway finished it: the count, the fraction, and the
@@ -249,6 +281,8 @@ export interface ThrottleFigure {
   /** Turns the fleet drove into ITSELF over the window: one session prompting another. Beside your own
    *  turns, never inside them. The ratio of this to your own turns is your leverage. */
   agentDrivenTurns: number;
+  /** The window's sessions by who started them; only the sessions you started are in the headline. */
+  starters: ThrottleStarters;
 }
 
 /** GET /stats/data when the Gateway serves the figure. */
@@ -475,8 +509,42 @@ function normalizeFigure(raw: unknown): ThrottleFigure {
       agentDriven: num(x.agentDriven),
       framework: num(x.framework),
       unresolved: num(x.unresolved),
+      notStartedByYou: num(x.notStartedByYou),
     },
     agentDrivenTurns: num(f.agentDrivenTurns),
+    starters: normalizeStarters(f.starters),
+  };
+}
+
+/** Who runs the sessions, as the Gateway finished it. Refused when absent, like the summaries: without it the
+ * page cannot say that its numbers cover only the sessions you started. */
+function normalizeStarters(raw: unknown): ThrottleStarters {
+  if (raw === null || typeof raw !== "object") throw new Error("GET /stats/data answered without who started the sessions; this client does not work it out");
+  const s = raw as Partial<Record<keyof ThrottleStarters, unknown>>;
+  if (typeof s.hasData !== "boolean" || !Array.isArray(s.groups)) {
+    throw new Error("GET /stats/data answered who started the sessions without its empty state or its groups");
+  }
+  return {
+    sessions: num(s.sessions),
+    turns: num(s.turns),
+    hasData: s.hasData,
+    humanShare: ratioOrNull(s.humanShare, "the share of sessions you started"),
+    humanPercent: ratioOrNull(s.humanPercent, "the percent of sessions you started"),
+    groups: s.groups.map((raw): ThrottleStarterGroup => {
+      const g = (raw ?? {}) as Partial<Record<keyof ThrottleStarterGroup, unknown>>;
+      const kind = STARTER_KINDS.find((k) => k === g.kind);
+      if (kind === undefined || typeof g.label !== "string") {
+        throw new Error("GET /stats/data answered a starter group this client does not know: " + String(g.kind));
+      }
+      return {
+        kind,
+        label: g.label,
+        sessions: num(g.sessions),
+        turns: num(g.turns),
+        sessionShare: ratioOrNull(g.sessionShare, "a starter group's session share"),
+        sessionPercent: ratioOrNull(g.sessionPercent, "a starter group's session percent"),
+      };
+    }),
   };
 }
 

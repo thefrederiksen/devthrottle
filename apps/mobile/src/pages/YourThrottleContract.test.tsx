@@ -131,3 +131,34 @@ describe("the Your Throttle contract, on the rendered phone page - the whole ans
     });
   }
 });
+
+// WHO RUNS YOUR SESSIONS (owner's ask, 2026-09-27), read off the rendered card. The fixture's starter block is
+// hostile: its groups' session shares (30, 60, 5, 5) are not what their counts (64, 150, 16, 8 of 238) divide
+// to, so an arc drawn from the counts is caught. Every number is the served field.
+describe("who runs your sessions, on the rendered phone page", () => {
+  it("prints the served groups, draws the served shares, and scopes the rings to the sessions you started", async () => {
+    const fixture = loadContractFixtures().find((f) => f.name === "the-headline-is-rendered-not-the-counts")!;
+    const starters = (fixture.wire as { starters: { humanPercent: number; groups: { label: string; sessions: number; turns: number; sessionShare: number }[] } }).starters;
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify(servedBodyFor(fixture.wire)), { status: 200, headers: { "Content-Type": "application/json" } }),
+    ));
+    const { container } = renderAt("/throttle?week=2026-W35");
+    const card = await screen.findByTestId("mthr-who");
+
+    expect(card.querySelector(".mthr-who-pct")!.textContent).toBe(`${starters.humanPercent}%`);
+    const [sessionsLegend, turnsLegend] = [
+      Array.from(card.querySelectorAll(".mthr-metric-legend .mthr-who-leg")),
+      Array.from(card.querySelectorAll(".mthr-split-legend .mthr-who-leg")),
+    ];
+    expect(sessionsLegend.map((l) => count(l.querySelector("b")!.textContent))).toEqual(starters.groups.map((g) => g.sessions));
+    expect(sessionsLegend.map((l) => (l.textContent ?? "").replace(l.querySelector("b")!.textContent ?? "", "").trim()))
+      .toEqual(starters.groups.map((g) => g.label));
+    expect(turnsLegend.map((l) => count(l.querySelector("b")!.textContent))).toEqual(starters.groups.map((g) => g.turns));
+    const arcs = Array.from(card.querySelectorAll(".mthr-who-arc")).map((a) => round10(Number(((a as HTMLElement).style.strokeDasharray).split(" ")[0]) / C));
+    expect(arcs).toEqual(starters.groups.map((g) => round10(g.sessionShare)));
+
+    // The rings, the split and the tiles say they cover only the sessions you started.
+    expect(container.querySelectorAll(".mthr-metric-note")).toHaveLength(3);
+    expect(Array.from(container.querySelectorAll(".mthr-stat-label")).map((l) => l.textContent)).toEqual(["Your turns", "Sessions you started"]);
+  });
+});
