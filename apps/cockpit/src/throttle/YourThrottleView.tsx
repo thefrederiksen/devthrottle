@@ -392,7 +392,7 @@ function WhoRunsYourSessions({ starters }: { starters: ThrottleStarters }) {
 // publishes the size of the subset. The counts are the Gateway's; this only puts words around them.
 function ExcludedNote({ figure }: { figure: ThrottleFigure }) {
   const { excluded, agentDrivenTurns } = figure;
-  if (excluded.unresolved === 0 && agentDrivenTurns === 0) return null;
+  if (excluded.unresolved === 0 && agentDrivenTurns === 0 && excluded.notStartedByYou === 0) return null;
   return (
     <p className="thr-muted" data-testid="thr-excluded">
       {excluded.unresolved > 0 && (
@@ -406,7 +406,14 @@ function ExcludedNote({ figure }: { figure: ThrottleFigure }) {
         <>
           <b>{agentDrivenTurns.toLocaleString()}</b> turn{agentDrivenTurns === 1 ? " was" : "s were"} other
           sessions prompting yours - the fleet driving itself. Those are on the Agents tab, never in your
-          share.
+          share.{" "}
+        </>
+      )}
+      {excluded.notStartedByYou > 0 && (
+        <>
+          <b>{excluded.notStartedByYou.toLocaleString()}</b> turn{excluded.notStartedByYou === 1 ? " went" : "s went"} into
+          sessions you did not start and {excluded.notStartedByYou === 1 ? "is" : "are"} outside every number on
+          this page.
         </>
       )}
     </p>

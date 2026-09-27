@@ -200,7 +200,7 @@ function WindowNote({ figure, timeZone }: { figure: ThrottleFigure; timeZone: st
 // What the definition left out, beside the share (rulings R7 and R17). The counts are the Gateway's.
 function ExcludedNote({ figure }: { figure: ThrottleFigure }) {
   const { excluded, agentDrivenTurns } = figure;
-  if (excluded.unresolved === 0 && agentDrivenTurns === 0) return null;
+  if (excluded.unresolved === 0 && agentDrivenTurns === 0 && excluded.notStartedByYou === 0) return null;
   return (
     <p className="thr-note" data-testid="mthr-excluded">
       {excluded.unresolved > 0 && (
@@ -212,7 +212,13 @@ function ExcludedNote({ figure }: { figure: ThrottleFigure }) {
       {agentDrivenTurns > 0 && (
         <>
           {agentDrivenTurns.toLocaleString()} turn{agentDrivenTurns === 1 ? " was" : "s were"} other sessions
-          prompting yours; those are never in your share.
+          prompting yours; those are never in your share.{" "}
+        </>
+      )}
+      {excluded.notStartedByYou > 0 && (
+        <>
+          {excluded.notStartedByYou.toLocaleString()} turn{excluded.notStartedByYou === 1 ? " went" : "s went"} into
+          sessions you did not start and {excluded.notStartedByYou === 1 ? "is" : "are"} outside every number here.
         </>
       )}
     </p>

@@ -109,6 +109,27 @@ public sealed class ThrottleDefinitionTests
     }
 
     [Fact]
+    public void AMalformedOriginInASessionYouDidNotStart_IsNeverRead_SoItCannotRefuseTheFigure()
+    {
+        var sessions = new Dictionary<string, SessionFacts>
+        {
+            ["mine"] = new(null, null, "human"),
+            ["seat"] = new(null, null, "agent"),
+        };
+        var figure = ThrottleDefinition.Fold(new[]
+        {
+            Row("voice/phone", "Delivery", session: "mine"),
+            Row("not-an-origin", null, session: "seat"),
+        }, From, To, sessions);
+
+        Assert.Equal(1, figure.Turns);
+        Assert.Equal(1, figure.Excluded.NotStartedByYou);
+        // The same row in a session you started is still a producer defect and still fails loud.
+        Assert.Throws<InvalidOperationException>(() => ThrottleDefinition.Fold(
+            new[] { Row("not-an-origin", null, session: "mine") }, From, To, sessions));
+    }
+
+    [Fact]
     public void WithNoSession_TheStartersBlockIsEmpty_AndEveryGroupIsStillServed()
     {
         var figure = ThrottleDefinition.Fold(Array.Empty<LedgerSubmission>(), From, To, NoSessions);

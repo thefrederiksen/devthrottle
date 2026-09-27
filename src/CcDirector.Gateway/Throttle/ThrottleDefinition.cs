@@ -209,17 +209,17 @@ public static class ThrottleDefinition
                 continue;
             }
 
-            var (modality, surface) = ParseOrigin(row.InputOrigin!, row);
-
             // THE OWNER'S RULING (2026-09-27): a turn is his only in a session he started. A session another
             // session or a schedule started - or one nobody recorded a starter for - says nothing about how he
-            // drives, so its turns are out of every number below and disclosed as a count.
+            // drives, so its turns are out of every number below and disclosed as a count. Decided BEFORE the
+            // origin is parsed: a row outside the population is never read, so it cannot refuse the figure.
             if (starter != StarterHuman)
             {
                 notStartedByYou++;
                 continue;
             }
 
+            var (modality, surface) = ParseOrigin(row.InputOrigin!, row);
             var isVoice = modality == "voice";
 
             counted++;

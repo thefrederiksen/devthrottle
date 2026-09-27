@@ -5423,9 +5423,13 @@ internal static class GatewayEndpoints
                 Agent = req.ToAgent,
                 PrePrompt = contextText,
                 // Session origin (devthrottle_internal issue #982): a direct API route, like the
-                // interrupted-session restore above. The kind is left unstated for the same reason - a
-                // handover is asked for by a person moving work or by a session handing itself over,
-                // and this handler cannot tell them apart.
+                // interrupted-session restore above. WHO asked for the handover cannot be told apart here -
+                // a person moving work or a session handing itself over - but that is not the question the
+                // kind answers. The target CONTINUES the source's work, so it is born with the source's
+                // recorded starter: the owner's session moved to another machine is still one he started,
+                // and Your Throttle counts it as his (2026-09-27). A source with no recorded starter passes
+                // nothing, and the target records "unknown", which is exactly what is known.
+                Origin = Core.Sessions.SessionOriginKinds.Normalize(sourceSession.OriginKind),
                 //
                 // The SOURCE session is deliberately NOT recorded as the parent. ParentSessionId means
                 // "the session that asked for this one", and in a handover the source is the session
