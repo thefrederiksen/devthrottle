@@ -464,12 +464,20 @@ class GmailClient:
     def not_spam(self, message_id: str) -> Dict[str, Any]:
         """Move one message out of Spam into the Inbox, as Gmail's "Not spam" does.
 
-        Refuses a message that is not in Spam: this never moves anything else. The labels
-        are read back from Gmail afterwards, and the answer is that read, not the request.
+        Refuses a message that is not in Spam, and one that is also in Trash (someone deleted it:
+        it is not ours to bring back). The labels are read back from Gmail afterwards, and the
+        answer is that read, not the request.
+
+        Known limit: the check and the move are two requests, and Gmail's messages.modify takes
+        no precondition, so a message someone takes out of Spam in the moment between them still
+        gets INBOX added. Nothing in the API closes that window; it is milliseconds wide.
         """
         before = self.get_message(message_id, format="minimal")
-        if "SPAM" not in (before.get("labelIds") or []):
-            raise ValueError(f"message {message_id} is not in Spam (labels {before.get('labelIds') or []})")
+        labels_before = before.get("labelIds") or []
+        if "SPAM" not in labels_before:
+            raise ValueError(f"message {message_id} is not in Spam (labels {labels_before})")
+        if "TRASH" in labels_before:
+            raise ValueError(f"message {message_id} is in Trash as well as Spam (labels {labels_before}); not moved")
         (
             self.service.users()
             .messages()
@@ -482,7 +490,7 @@ class GmailClient:
         )
         after = self.get_message(message_id, format="minimal")
         labels = after.get("labelIds") or []
-        if "SPAM" in labels or "INBOX" not in labels:
+        if "SPAM" in labels or "TRASH" in labels or "INBOX" not in labels:
             raise ValueError(f"message {message_id} is still not in the Inbox after Not spam (labels {labels})")
         return {"id": after.get("id"), "thread_id": after.get("threadId"), "labels": list(labels)}
 

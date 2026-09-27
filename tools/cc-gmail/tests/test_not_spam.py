@@ -86,6 +86,29 @@ def test_a_message_not_in_spam_is_refused_and_untouched():
     assert svc.labels["m2"] == ["CATEGORY_UPDATES"]
 
 
+def test_a_message_in_trash_is_refused_and_untouched():
+    svc = LabelledGmail({"m7": ["SPAM", "TRASH", "UNREAD"]})
+    result = _invoke(svc, ["not-spam", "m7", "--json"])
+    assert result.exit_code == 1
+    assert "in Trash" in result.output
+    assert [c[0] for c in svc.calls] == ["get"]
+
+
+def test_a_message_that_lands_in_trash_is_an_error_not_a_success():
+    svc = LabelledGmail({"m8": ["SPAM"]})
+    real_modify = svc.modify
+
+    def modify_then_trashed(userId, id, body):
+        answer = real_modify(userId, id, body)
+        svc.labels[id].append("TRASH")   # deleted by someone else between the move and the read-back
+        return answer
+
+    svc.modify = modify_then_trashed
+    result = _invoke(svc, ["not-spam", "m8", "--json"])
+    assert result.exit_code == 1
+    assert "still not in the Inbox" in result.output
+
+
 def test_a_move_gmail_did_not_make_is_an_error_not_a_success():
     svc = LabelledGmail({"m3": ["SPAM"]}, ignore_modify=True)
     result = _invoke(svc, ["not-spam", "m3", "--json"])
