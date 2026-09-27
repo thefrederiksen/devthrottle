@@ -413,32 +413,49 @@ public sealed class AFailedReadingIsAskedAgainOnAScheduleTests
     }
 
     [Fact]
-    public async Task AReadingWhoseWriteUpFailed_ShowsTheSameError_AndIsReadAgainOnTheSameSchedule()
+    public async Task AReadingWhoseWriteUpFailed_ShowsNoError_AndIsNotAskedAgain()
     {
-        // The judge answered; the second call, which writes the words, did not. The owner is owed words and has
-        // none, so it is the same tag and the same schedule - not a second kind of failure with its own rules.
+        // The judge answered; the second call, which writes the words, did not. Call A's colour stands and the row
+        // falls back to its plain state label (the turn pipeline mission, section 5). That is not a Wingman error:
+        // no card, no retry booked, and the sweep never spends another call on it.
         var rig = new Rig { JudgeFails = false };
         rig.Env.VoiceSession = _ => true;
-        var narratorFails = true;
-        rig.Env.Narrator = (_, _) => narratorFails
-            ? throw new TimeoutException("The narration call did not answer.")
-            : Task.FromResult(NarratedAnswer(Spoken));
+        rig.Env.Narrator = (_, _) => throw new TimeoutException("The narration call did not answer.");
 
         await rig.TurnEnds();
 
         var first = rig.Latest();
         Assert.False(first.Failed);
-        Assert.NotNull(first.NarrationFailureReason);
-        Assert.Equal(Start.AddMinutes(1), first.NextRetryAtUtc);
-        Assert.Equal("Wingman error", WingmanErrorFold.For(first, agentWorking: false)!.Tag);
+        Assert.NotNull(first.NarrationFailureReason);   // CONTROL: Call B really did fail
+        Assert.Null(first.FailureKind);
+        Assert.Null(first.NextRetryAtUtc);
+        Assert.Null(WingmanErrorFold.For(first, agentWorking: false));
+        // The only quiet retry is the one immediate second attempt inside the reading, before anything is stored.
+        Assert.Equal(2, rig.Env.NarratorCalls);
 
-        narratorFails = false;
-        rig.Now = Start.AddSeconds(61);
-        Assert.Equal(1, await rig.SweepAsync());
-        Assert.Equal(1, rig.Env.RecoveryProbeCalls);
-        Assert.Null(rig.Latest().NarrationFailureReason);
-        Assert.Null(rig.Latest().NextRetryAtUtc);
-        Assert.Null(WingmanErrorFold.For(rig.Latest(), agentWorking: false));
+        rig.Now = Start.AddMinutes(2);
+        Assert.Equal(0, await rig.SweepAsync());
+        Assert.Equal(2, rig.Env.NarratorCalls);
+        Assert.Equal(first.VerdictId, rig.Latest().VerdictId);
+    }
+
+    [Fact]
+    public void AReadingStoredBeforeTheFix_WithABookedWriteUpRetry_ShowsNoError()
+    {
+        // A record written by the old code carries the narration failure word and a booked retry. It must not keep
+        // drawing the card after the deploy.
+        var old = new TurnVerdictDto
+        {
+            VerdictId = "v-old",
+            Failed = false,
+            FailureKind = "narration-failed",
+            NarrationFailureReason = "the narration call did not answer",
+            RetriesMade = 3,
+            NextRetryAtUtc = Start.AddMinutes(5),
+        };
+
+        Assert.False(WingmanRetrySchedule.NeedsRetry(old));
+        Assert.Null(WingmanErrorFold.For(old, agentWorking: false));
     }
 
     [Fact]

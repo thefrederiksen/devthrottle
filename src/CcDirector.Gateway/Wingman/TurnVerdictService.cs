@@ -1278,15 +1278,13 @@ public sealed class TurnVerdictService : IDisposable
             if (narration.Label is { Length: > 0 } label)
                 record.Label = label;
 
-            // A NARRATION THAT WAS OWED AND DID NOT COME IS A FAILED READING TO THE PERSON LOOKING AT IT. The judge's
-            // answer stands - the row keeps its colour and its label - and the record says the words are missing, so it
-            // shows the same tag and goes on the same schedule as any other failure. A narration that was never owed
-            // (a session another live session owns) carries no failure detail and is not one.
+            // A CALL B THAT FAILED IS NOT A WINGMAN ERROR (the turn pipeline mission, section 5: "If Call B fails, Call
+            // A's colour stands and the reading has no label/narration"). Call A decided the colour, so the row shows it
+            // with its plain state label: no error card, no retry schedule, and no automatic call spent on the words
+            // again. Why the words are missing is kept on the record for the debug view and for a person asking again.
             if (!record.Failed && narration.Spoken is not { Length: > 0 } && narration.FailureDetail is { Length: > 0 } noWords)
                 record.NarrationFailureReason = noWords;
-            record.FailureKind = record.Failed ? FailureKindWord(failure)
-                : record.NarrationFailureReason is not null ? WingmanFailureKinds.NarrationFailed
-                : null;
+            record.FailureKind = record.Failed ? FailureKindWord(failure) : null;
 
             // WHERE THIS STOP IS ON ITS RETRY SCHEDULE is written on the failed record itself, before it is stored, so
             // the record a card is rendered from and the record the sweep retries from are one record.
@@ -1921,12 +1919,9 @@ public sealed class TurnVerdictService : IDisposable
             return true;
         if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return false;
         if (hash.Length == 0 && trigger != TurnVerdictTrigger.Sweep) return false;
-        // A READING WITH NO WORDS is asked again by its booked retry exactly as a failed one is. Every other trigger
-        // reuses it: the judge's answer on it is good, and a person asking buys the narration call alone.
-        if (!latest.Failed)
-            return !(trigger == TurnVerdictTrigger.Retry
-                     && latest.NarrationFailureReason is not null
-                     && WingmanRetrySchedule.IsDue(latest.NextRetryAtUtc, _env.NowUtc()));
+        // An accepted reading is reused by every trigger, one with no words included: the judge's answer on it is
+        // good, and a person asking buys the narration call alone.
+        if (!latest.Failed) return true;
         return trigger switch
         {
             // The sweep and a voice session's refresh reuse EVERY failed record, with or without words: a refused

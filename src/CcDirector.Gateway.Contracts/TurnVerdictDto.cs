@@ -177,9 +177,10 @@ public sealed class TurnVerdictDto
     /// <summary>
     /// Why this reading has NO WORDS although the judge's answer was accepted, or null (mission "Wingman error and
     /// retry", 2026-09-19). A reading is both calls, and this is the second one failing: the row keeps the judge's
-    /// colour and label, <see cref="Failed"/> stays false, and there is nothing to read or hear. That is a failed
-    /// reading to the person looking at it, so it shows the same tag and goes on the same retry schedule. Null when
-    /// no narration was owed at all - a session another live session owns.
+    /// colour, <see cref="Failed"/> stays false, the row shows its plain state label, and there is nothing to read or
+    /// hear. It is NOT a Wingman error: no error card and no retry schedule (the turn pipeline mission, section 5).
+    /// Kept for the debug view and for a person asking again. Null when no narration was owed at all - a session
+    /// another live session owns.
     /// </summary>
     public string? NarrationFailureReason { get; set; }
 
@@ -277,7 +278,4 @@ public static class WingmanFailureKinds
 
     /// <summary>The model answered, and the answer could not be used.</summary>
     public const string Refused = "refused";
-
-    /// <summary>The judge's answer was accepted and the narration call that follows it produced no words.</summary>
-    public const string NarrationFailed = "narration-failed";
 }

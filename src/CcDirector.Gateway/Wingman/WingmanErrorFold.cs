@@ -71,7 +71,6 @@ public static class WingmanErrorFold
         WingmanFailureKinds.RateLimited => "The model was busy and asked us to wait.",
         WingmanFailureKinds.Unavailable => "The model could not be reached.",
         WingmanFailureKinds.Refused => "The model's answer could not be used.",
-        WingmanFailureKinds.NarrationFailed => "The model read this stop and did not write it up.",
         // A record stored before the failure word existed.
         _ => "The Wingman could not read this stop.",
     };
