@@ -2011,16 +2011,17 @@ public sealed class TurnVerdictService : IDisposable
     /// Director's <c>TurnPushBuilder.GenerationFor</c>:
     /// <list type="bullet">
     /// <item>Claude Code - the hook-reported transcript path, which moves on /clear and on a resumed transcript.</item>
-    /// <item>Pi - the transcript named by pi's own session id, which the Director rebinds when /new starts a new one.</item>
     /// </list>
-    /// Every other agent is "identity unknown", and its stops are never reused on a redrawn screen. OpenCode, Copilot
+    /// Every other agent is "identity unknown", and its stops are never reused on a redrawn screen. Pi is NOT listed
+    /// (round 5): the Director pushes the first stop after a Pi /new before it rebinds the session to the new
+    /// conversation, so that stop can arrive under the old generation (issue #3446). OpenCode, Copilot
     /// and Gemini are named by the Director SESSION id for the whole session, which survives an OpenCode /new (round 3).
     /// Codex and Grok are named by a transcript path found by "newest file for this repository" and then cached for the
     /// session, so a new conversation inside the same session keeps the old path. Any agent not listed here, including
     /// one added later, fails toward a fresh reading until its generation is shown to follow its conversation.
     /// </summary>
     internal static readonly IReadOnlySet<string> AgentsWithAProvenConversationIdentity =
-        new HashSet<string>(StringComparer.Ordinal) { "ClaudeCode", "Pi" };
+        new HashSet<string>(StringComparer.Ordinal) { "ClaudeCode" };
 
     /// <summary>The conversation's stored generation when <see cref="AgentsWithAProvenConversationIdentity"/> vouches for
     /// it; null (unknown) otherwise - for any other agent, a session whose agent is not known, or no stored conversation.</summary>

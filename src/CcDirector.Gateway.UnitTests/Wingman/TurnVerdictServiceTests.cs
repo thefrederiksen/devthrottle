@@ -543,13 +543,15 @@ public sealed class TurnVerdictServiceTests : IDisposable
 
     /// <summary>
     /// SAME-STOP REUSE, PER AGENT. A redrawn screen over the same reply is reused only for the agents whose stored
-    /// generation is proven to follow their own conversation - Claude Code and Pi - and read again for every other
-    /// agent, including a name the Gateway has never heard of and a session whose agent it does not know. The rows for
-    /// Claude Code and Pi are the saving; every other row is the rule failing toward a fresh reading.
+    /// generation is proven to follow their own conversation - only Claude Code - and read again for every other
+    /// agent, including a name the Gateway has never heard of and a session whose agent it does not know. The Claude
+    /// Code row is the saving; every other row is the rule failing toward a fresh reading.
     /// </summary>
     [Theory]
     [InlineData("ClaudeCode", true)]
-    [InlineData("Pi", true)]
+    // Pi reads fresh: its first stop after /new is pushed before the Director rebinds it to the new conversation,
+    // so the stored generation can still be the old one (issue #3446).
+    [InlineData("Pi", false)]
     [InlineData("Codex", false)]
     [InlineData("Grok", false)]
     [InlineData("OpenCode", false)]
