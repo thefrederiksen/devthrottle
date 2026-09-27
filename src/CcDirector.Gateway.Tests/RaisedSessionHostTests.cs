@@ -351,19 +351,38 @@ public sealed class RaisedSessionHostTests : IAsyncLifetime
             // The owner's own answer is the control: it comes from the route, never from the guard.
             Assert.NotEqual(HttpStatusCode.Forbidden, owner.Status);
             Assert.NotEqual(HttpStatusCode.Unauthorized, owner.Status);
-            Assert.True(raised.Status == owner.Status, $"{name}: a raised key answered {raised.Status}, the owner's device {owner.Status}");
-            // Where the route names its answer with a code, the raised key got the very same one - so it went as far
-            // down the route as the owner's own device did.
-            Assert.Equal(CodeOf(owner.Body), CodeOf(raised.Body));
 
             if (name == "prompt")
             {
+                // Voice Delivery phase 5: the owner's and the raised key's prompts both reach the Director send, and with
+                // no Director on the tunnel neither gets an answer. From there the route answers them differently ON
+                // PURPOSE (the Delivery Lead's ruling, written in DeliverPromptAsync): the owner's own words are HELD
+                // (202, the Gateway asks what became of them), while a session key is never held - it is answered 502
+                // "could not be reached now" and retries itself. So "went as far as the owner's device" is read as a
+                // presence both answers share: the delivery id the route mints only for a prompt it sent to the
+                // Director. The ownership rule's refusal (the unraised key, below) carries none.
+                Assert.Equal(HttpStatusCode.Accepted, owner.Status);
+                Assert.Equal(HttpStatusCode.BadGateway, raised.Status);
+                var ownerDelivery = Root(owner.Body).GetProperty("deliveryId").GetString();
+                var raisedDelivery = Root(raised.Body).GetProperty("deliveryId").GetString();
+                Assert.Matches("^[0-9a-f]{32}$", ownerDelivery);
+                Assert.Matches("^[0-9a-f]{32}$", raisedDelivery);
+                Assert.Equal(CcDirector.Gateway.Prompts.TypedPromptReadKind.Present, _gateway.TypedPrompts.ForTenant(_tenantA).Read(ownerDelivery!).Kind);
+                Assert.Equal(CcDirector.Gateway.Prompts.TypedPromptReadKind.Absent, _gateway.TypedPrompts.ForTenant(_tenantA).Read(raisedDelivery!).Kind);
+
                 // Parent Control, fix 1: any session key reaches the prompt route, which types only into a session the
                 // caller owns. The unraised key does not own this one, so the ROUTE refuses it, with its own sentence.
                 Assert.Equal(HttpStatusCode.Forbidden, unraised.Status);
                 Assert.Equal(Util.AgentInputRefusal.NotYourSession, Root(unraised.Body).GetProperty("error").GetString());
+                Assert.False(Root(unraised.Body).TryGetProperty("deliveryId", out var unraisedDelivery)
+                             && unraisedDelivery.ValueKind == JsonValueKind.String);
                 continue;
             }
+
+            Assert.True(raised.Status == owner.Status, $"{name}: a raised key answered {raised.Status}, the owner's device {owner.Status}");
+            // Where the route names its answer with a code, the raised key got the very same one - so it went as far
+            // down the route as the owner's own device did.
+            Assert.Equal(CodeOf(owner.Body), CodeOf(raised.Body));
             AssertRefusedByTheGuard(unraised);
             Assert.Equal(Util.AgentInputRefusal.Typing, Root(unraised.Body).GetProperty("error").GetString());
         }
