@@ -468,9 +468,12 @@ class GmailClient:
         it is not ours to bring back). The labels are read back from Gmail afterwards, and the
         answer is that read, not the request.
 
-        Known limit: the check and the move are two requests, and Gmail's messages.modify takes
-        no precondition, so a message someone takes out of Spam in the moment between them still
-        gets INBOX added. Nothing in the API closes that window; it is milliseconds wide.
+        The contract is "a message that was in Spam when it was checked", not "a message that is
+        in Spam when it is moved": the check and the move are two requests, and Gmail's
+        messages.modify takes no precondition, so nothing in the API can make them one. If a
+        person takes the message out of Spam (or archives or trashes it) between the two, it still
+        gets INBOX added: the SAME message the caller asked to move, never another one. The
+        read-back then fails the command when the message did not end up in the Inbox alone.
         """
         before = self.get_message(message_id, format="minimal")
         labels_before = before.get("labelIds") or []

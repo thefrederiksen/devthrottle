@@ -2059,7 +2059,7 @@ def not_spam(
     message_id: str = typer.Argument(..., help="Message ID to move out of Spam"),
     json_output: bool = typer.Option(False, "--json", help="Output a JSON object: id, thread_id, labels (read back from Gmail)"),
 ):
-    """Move one message out of Spam into the Inbox. Refuses a message that is not in Spam."""
+    """Move one message out of Spam into the Inbox. Refuses a message not in Spam (or in Trash) when checked."""
     acct, auth_method = _resolve_and_get_auth()
     if auth_method == "app_password":
         console.print("[red]Error:[/red] not-spam needs an OAuth account (an App Password account has no Gmail labels to move).")
