@@ -1113,6 +1113,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<DateTime?>("UnreachableNoticeAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("TenantId", "MessageId");
 
                     b.HasIndex("TenantId");

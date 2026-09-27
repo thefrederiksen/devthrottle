@@ -50,3 +50,26 @@ checked against the agent itself.
 The capture program is not part of the repository; it created a `SessionManager`, started the agent with
 `CreateSession(..., SessionBackendType.ConPty, ...)`, typed with `Session.SendInput`, and wrote
 `SnapshotLiveScreen()` to these files.
+
+## Background tasks and Monitors (issues 3186 and 3289)
+
+Captured on Windows on 27 September 2026 from Claude Code 2.1.283 (Haiku 4.5) in the Director's own terminal at
+120 by 40, with the rig's `--claude-doorbell-capture` mode (`src/CcDirector.DeliveryQualification/ClaudeDoorbellCapture.cs`).
+Unlike the files above, `activity` in these IS the state the Director's own terminal-state detector reported, because
+the rig wires it.
+
+| File | Screen |
+|---|---|
+| `claude-idle-placeholder-fresh` | A new session: the empty composer shows Claude Code's suggestion `Try "fix typecheck errors"`, cursor at column 2 (read as text, deliberately) |
+| `claude-idle-background-task` | A turn has ended with a background shell running: footer `1 shell - <- 1 agent - down to manage`, no `esc to interrupt` |
+| `claude-owner-text-background-task` | The same, with an unsent sentence in the composer |
+| `claude-working-background-task` | A turn running a foreground command while the background shell runs; the Director said Working, footer says `esc to interrupt` |
+| `claude-idle-monitor` | A turn has ended with a background shell and a Monitor running |
+| `claude-owner-text-monitor` | The same, with an unsent sentence in the composer |
+| `claude-working-monitor` | A turn running while the shell and the Monitor run; spinner row `Orchestrating... (12s ...)`, Director said Working |
+
+One is DERIVED, and says so in its own `derivedFrom` and `derivation` fields:
+
+| File | Derived from |
+|---|---|
+| `claude-idle-stale-working-marker` | `claude-idle-monitor` with its footer row replaced by the idle footer issue 3186 recorded: `bypass permissions on (shift+tab to cycle) - esc to interrupt - <- 1 agent`. Claude Code 2.1.283 no longer draws `esc to interrupt` while idle, so it could not be captured live |

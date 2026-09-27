@@ -81,7 +81,9 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20260921131114_IndexFactoryActivityReads", all[index + 6]);
             // The name a trigger's pending start used, stored with its lock (the trigger's live check) after that.
             Assert.Equal("20260921203258_AddTriggerStartName", all[index + 7]);
-            Assert.Equal(all.Count - 8, index);
+            // The fleet message's unreachable-notice mark (issue 3289) after that.
+            Assert.Equal("20260927212206_AddFleetMessageUnreachableNotice", all[index + 8]);
+            Assert.Equal(all.Count - 9, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -98,7 +100,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // Later migrations follow the one under test, so migrating fully applies them too; the raised sessions
             // table was the last of them until the factory activity record and then the factory triggers followed it,
             // and then the name a trigger's pending start used.
-            Assert.Equal("20260921203258_AddTriggerStartName", ctx.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20260927212206_AddFleetMessageUnreachableNotice", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 

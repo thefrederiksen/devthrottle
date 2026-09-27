@@ -88,4 +88,9 @@ public sealed class FleetMessageEntity : TenantScopedEntity
     /// <summary>When the Gateway found this message's reply deadline passed with no reply (UTC), or null. Written
     /// in the same save as the no-reply notice to the sender, so the notice is written once.</summary>
     public DateTime? ReplyOverdueAtUtc { get; set; }
+
+    /// <summary>When the Gateway told the sender that this message's doorbell had not been able to ring for
+    /// <see cref="Messaging.FleetMessageLimits.UnreachableAfter"/> (UTC), or null. Written in the same save as that
+    /// notice, so the notice is written once. The message keeps ringing; this only stops a second notice.</summary>
+    public DateTime? UnreachableNoticeAtUtc { get; set; }
 }
