@@ -1167,9 +1167,13 @@ public sealed class TurnVerdictService : IDisposable
         // different stops on a Director that cannot be reached would look like one screen, and the second would
         // be played the first one's words. The sweep is the exception because it comes past every pass, and
         // re-asking the judge about an unreachable session each time would be a paid call on a loop.
-        if (latest is not null && IsReusable(key, latest, hash, trigger,
-                () => WingmanNarrationSource.Select(_env.ReadConversation(tenant, sid)?.Widgets, rows)?.Content))
-            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid);
+        var currentSource = new Lazy<WingmanNarrationSource?>(
+            () => WingmanNarrationSource.Select(_env.ReadConversation(tenant, sid)?.Widgets, rows));
+        if (latest is not null && IsReusable(key, latest, hash, trigger, currentSource))
+            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid,
+                reuseCause: string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
+                    ? ActivityCauses.ScreenUnchanged
+                    : ActivityCauses.SameStop);
 
         // The source this stop is judged from, chosen ONCE, over this one screen read.
         var conversation = _env.ReadConversation(tenant, sid)
@@ -1230,6 +1234,8 @@ public sealed class TurnVerdictService : IDisposable
 
             // The carrying-on clock's first source travels on the stored record, so it survives a restart.
             record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
+            // WHICH STOP THIS READING IS OF travels on it too, so the sweep can tell a redraw from a new stop.
+            record.SourceHash = WingmanNarrationSource.Fingerprint(source);
 
             ct.ThrowIfCancellationRequested();
 
@@ -1468,7 +1474,8 @@ public sealed class TurnVerdictService : IDisposable
         IReadOnlyList<string> rows,
         TurnVerdictSettings settings,
         SessionDto? facts,
-        ScreenGridResponse? grid)
+        ScreenGridResponse? grid,
+        string reuseCause)
     {
         var (tenant, sid) = key;
         var verdict = latest;
@@ -1508,7 +1515,7 @@ public sealed class TurnVerdictService : IDisposable
                 colour => NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Reused, verdict, colour));
 
         _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictReused,
-            ActivityCauses.ScreenUnchanged,
+            reuseCause,
             $"trigger={TriggerWord(trigger)} id={verdict.VerdictId} failed={verdict.Failed}"));
 
         var holdLeft = RateLimitHoldLeft(key, verdict);
@@ -1905,11 +1912,12 @@ public sealed class TurnVerdictService : IDisposable
     /// explain may ask again about a failed record once, but not about a failure its own attempts produced. A turn end
     /// and a snooze expiry never reuse a failed record outside a rate limit's wait.
     /// </summary>
-    /// <param name="currentSource">The source this stop would be judged from now, read only when a rate limit's wait is
-    /// running for the stored record - so the wait binds the stop it was named for, and a new reply on the same
-    /// unreadable screen is still a new stop.</param>
+    /// <param name="currentSource">The source this stop would be judged from now, read only when it is needed: when a rate
+    /// limit's wait is running for the stored record - so the wait binds the stop it was named for, and a new reply on
+    /// the same unreadable screen is still a new stop - and when the sweep finds the screen redrawn and asks whether it
+    /// is still the stop that was read.</param>
     private bool IsReusable((TenantId Tenant, string SessionId) key, TurnVerdictDto latest, string hash, TurnVerdictTrigger trigger,
-        Func<string?> currentSource)
+        Lazy<WingmanNarrationSource?> currentSource)
     {
         // INSIDE A RATE LIMIT'S NAMED WAIT NOTHING ASKS AGAIN ABOUT THAT STOP, for every trigger and whatever the screen
         // now reads - an unreadable screen included (slice I inspection, round two). Checked before the screen is compared
@@ -1917,9 +1925,11 @@ public sealed class TurnVerdictService : IDisposable
         // previous one's wait (WingmanVoiceServiceTests.TheProvidersHold_DoesNotDelayANewTurnsNarration).
         if (RateLimitHoldLeft(key, latest) is not null
             && _rateLimitHolds.TryGetValue(key, out var hold)
-            && string.Equals(hold.SourceText, currentSource(), StringComparison.Ordinal))
+            && string.Equals(hold.SourceText, currentSource.Value?.Content, StringComparison.Ordinal))
             return true;
-        if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return false;
+        if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
+            && !(trigger == TurnVerdictTrigger.Sweep && IsSameStop(latest, currentSource.Value)))
+            return false;
         if (hash.Length == 0 && trigger != TurnVerdictTrigger.Sweep) return false;
         // A READING WITH NO WORDS is asked again by its booked retry exactly as a failed one is. Every other trigger
         // reuses it: the judge's answer on it is good, and a person asking buys the narration call alone.
@@ -1943,6 +1953,41 @@ public sealed class TurnVerdictService : IDisposable
             TurnVerdictTrigger.OnDemand => false,
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// IS THIS STILL THE STOP THE STORED READING WAS MADE OF, though the screen was redrawn? Only the idle sweep asks.
+    ///
+    /// ONE STOP GETS ONE READING (live QA, 26 September 2026). The sweep used to take a changed screen hash to mean a
+    /// new stop, and a stopped session's screen changes without any new work - someone opens it and the terminal is
+    /// redrawn, a status line ticks. One question stop was read four times, each time a paid Call A or Call B and each
+    /// time with a different label; a finished stop was asked about again half an hour later.
+    ///
+    /// The stop is named by what it was judged from - the agent's latest reply, or the failure on the terminal - not
+    /// by the pixels around it. A NEW stop still gets read: new work ends in a new reply (a new fingerprint), and a
+    /// Working edge the Gateway did see has already removed the stored reading. A reading with no source fingerprint
+    /// (none was chosen, or it was stored before the fingerprint existed) cannot be matched, and the screen hash stays
+    /// the only evidence, exactly as before.
+    ///
+    /// Why only the sweep: a turn end IS a new stop by definition and is judged on its own screen; a person asking and
+    /// a booked retry are deliberate attempts with their own rules above.
+    /// </summary>
+    internal static bool IsSameStop(TurnVerdictDto latest, WingmanNarrationSource? currentSource)
+    {
+        if (latest.SourceHash.Length == 0) return false;
+        return string.Equals(latest.SourceHash, WingmanNarrationSource.Fingerprint(currentSource), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The voice sweep's question before it spends a slot: would the sweep answer this screen from the stored reading?
+    /// The same rule <see cref="IsReusable"/> applies - the same screen, or the same stop redrawn - so the two cannot
+    /// disagree about what counts as new.
+    /// </summary>
+    internal bool SweepFindsTheStopItRead(TenantId tenant, string sessionId, TurnVerdictDto latest, string hash, IReadOnlyList<string>? rows)
+    {
+        if (string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return true;
+        var source = WingmanNarrationSource.Select(_env.ReadConversation(tenant, sessionId)?.Widgets, rows);
+        return IsSameStop(latest, source);
     }
 
     /// <summary>

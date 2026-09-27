@@ -28,6 +28,13 @@ public sealed class TurnVerdictDto
     /// it, which is what makes a stale option tap refusable.</summary>
     public string ScreenHash { get; set; } = "";
 
+    /// <summary>The fingerprint of what this stop was judged from - the agent's latest reply, or the failure on
+    /// the terminal - or "" when there was neither. It names the STOP where <see cref="ScreenHash"/> names the
+    /// screen: a stopped session's terminal is redrawn (someone opens it, a status line ticks) and its screen
+    /// hash moves, but the reply it stopped on does not. The idle sweep asks "is this the stop that was read?"
+    /// with it, so a redraw is never paid for as a new stop.</summary>
+    public string SourceHash { get; set; } = "";
+
     /// <summary>Which judge answered.</summary>
     public string Model { get; set; } = "";
 

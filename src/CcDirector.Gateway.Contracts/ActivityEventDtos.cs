@@ -338,6 +338,10 @@ public static class ActivityCauses
     /// <summary>The screen is the one the stored verdict was formed on, so no judge was asked.</summary>
     public const string ScreenUnchanged = "screen-unchanged";
 
+    /// <summary>The screen was redrawn, but the idle sweep found the same stop on it - the same reply, or the same
+    /// failure - so the stored reading still answers it and no judge was asked.</summary>
+    public const string SameStop = "same-stop";
+
     /// <summary>The judge did not answer within its timeout, or the call never reached it.</summary>
     public const string JudgeDidNotAnswer = "judge-did-not-answer";
 
@@ -486,7 +490,7 @@ public static class ActivityCauses
         SnoozeRequested, WorkSettled, DirectorRemoved, SessionNotLive, Unknown,
         TransientTransport, RateLimited, ContextFull, NonRecoverable, UnclassifiedFault,
         MenuOwnsScreen, RetryCeiling,
-        JudgeAnswered, ScreenUnchanged, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
+        JudgeAnswered, ScreenUnchanged, SameStop, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
         Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, Shutdown, CarryingOnExpired,
         CarryingOnAgain,
         SnoozeNothingNew, SnoozeVerdictRules, SnoozeReJudgeRequested, SnoozeReadInFlight,

@@ -233,6 +233,123 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.Equal(2, env.JudgeCalls);
     }
 
+    // ================================================================= one stop, one reading (the idle sweep)
+
+    // The same stop, redrawn: the reply is the one the reading was made of, and a status line under it has ticked.
+    private static ScreenGridResponse Redrawn() => Screen(Sid, ReplyText, "> ", "  context 41% | 14:36");
+
+    /// <summary>
+    /// LIVE QA, 26 SEPTEMBER 2026: one question stop was read four times - by its turn end and three times by the idle
+    /// sweep - because the sweep took a redrawn screen for a new stop. Each read was a paid Call A or Call B and each
+    /// gave the row a different label. The sweep now names the stop by what it was judged from, so a redraw is the
+    /// same stop and is answered from the stored reading: no Call A, no Call B, the same verdict and label.
+    /// </summary>
+    [Fact]
+    public async Task Sweep_TheSameStopOnARedrawnScreen_IsNotReadAgain_NoCallANoCallB()
+    {
+        var env = Env();
+        var service = new TurnVerdictService(env);
+
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, first.Kind);
+        var callsA = env.JudgeCalls;
+        var callsB = env.NarratorCalls;
+        Assert.Equal(1, callsA);   // control: the stop's one Call A was really made
+
+        env.Screen = Redrawn;
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        // CONTROL: the screen really did change, so the old screen-hash rule would have asked again.
+        Assert.NotEqual(first.Verdict!.ScreenHash, sweep.ScreenHash);
+        Assert.Equal(TurnVerdictOutcomeKind.Reused, sweep.Kind);
+        Assert.Equal(first.Verdict.VerdictId, sweep.Verdict!.VerdictId);
+        Assert.Equal(first.Verdict.Label, sweep.Verdict.Label);
+        Assert.Equal(callsA, env.JudgeCalls);
+        Assert.Equal(callsB, env.NarratorCalls);
+        Assert.Contains(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictReused && r.Cause == ActivityCauses.SameStop);
+    }
+
+    /// <summary>
+    /// The other half of the rule: a NEW stop is still read. The agent worked and stopped on a new reply, and the
+    /// Gateway missed the Working edge in between (a quick turn the fifteen-second sampler never saw), so the old
+    /// reading is still stored. The sweep is then the only thing that reads the new stop, and it must.
+    /// </summary>
+    [Fact]
+    public async Task Sweep_ANewStopAfterNewWork_IsRead_EvenWhenTheWorkingEdgeWasMissed()
+    {
+        var env = Env();
+        var service = new TurnVerdictService(env);
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(1, env.JudgeCalls);
+
+        const string newReply = "The migration has run and every table is on the new schema.";
+        env.Conversation = _ => Reply("now run the migration", newReply);
+        env.Screen = () => Screen(Sid, newReply, "> ");
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(0, env.Invalidations);   // control: no Working edge removed the old reading
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, sweep.Kind);
+        Assert.NotEqual(first.Verdict!.VerdictId, sweep.Verdict!.VerdictId);
+        Assert.Equal(2, env.JudgeCalls);
+    }
+
+    /// <summary>A new stop after a Working edge the Gateway DID see: the stored reading is gone, and the sweep reads it.</summary>
+    [Fact]
+    public async Task Sweep_ANewStopAfterAWorkingEdge_IsRead()
+    {
+        var env = Env();
+        var service = new TurnVerdictService(env);
+        await service.StartTurnEnd(Signal());
+
+        service.OnSessionWorking(Tenant, Sid);
+        env.Screen = Redrawn;
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, sweep.Kind);
+        Assert.Equal(2, env.JudgeCalls);
+    }
+
+    /// <summary>
+    /// A stop with NO source - no reply stored and no failure on the screen - cannot be named, so the screen is the only
+    /// evidence there is and a changed screen is still read, exactly as before. And every reading carries the fingerprint
+    /// of what it was judged from, so the sweep has something to match.
+    /// </summary>
+    [Fact]
+    public async Task Sweep_AStopWithNoSource_KeepsTheScreenRule_AndAReadingCarriesItsSourceFingerprint()
+    {
+        var env = Env();
+        var service = new TurnVerdictService(env);
+        var withSource = await service.StartTurnEnd(Signal());
+        Assert.Equal(WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(Reply("push it", ReplyText).Widgets, null)),
+            withSource.Verdict!.SourceHash);
+        Assert.NotEqual("", withSource.Verdict.SourceHash);
+
+        service.OnSessionWorking(Tenant, Sid);
+        env.Conversation = _ => null;
+        var noSource = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+        Assert.Equal("", noSource.Verdict!.SourceHash);
+
+        env.Screen = Redrawn;
+        var again = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, again.Kind);
+        Assert.Equal(3, env.JudgeCalls);
+    }
+
+    /// <summary>A turn end is a new stop by definition and keeps judging a changed screen; only the sweep asks "same stop?".</summary>
+    [Fact]
+    public async Task TurnEnd_OnARedrawnScreen_IsStillJudged()
+    {
+        var env = Env();
+        var service = new TurnVerdictService(env);
+        await service.StartTurnEnd(Signal());
+
+        env.Screen = Redrawn;
+        var second = await service.StartTurnEnd(Signal(at: ObservedAt.AddMinutes(1)));
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, second.Kind);
+        Assert.Equal(2, env.JudgeCalls);
+    }
+
     // ================================================================= the ceiling
 
     [Theory]

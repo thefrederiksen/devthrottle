@@ -1148,9 +1148,9 @@ public sealed class WingmanVoiceService
     /// <summary>
     /// Read the screen one periodic-sweep attempt will be judged on, and decide from what is already stored
     /// whether that attempt would cost anything. The rule is the verdict service's own reuse rule for a sweep:
-    /// a stored answer about this exact screen - accepted or refused - is used without asking the judge again,
-    /// so only a changed screen, or an accepted verdict whose audio is missing and may be attempted now, reaches a
-    /// provider. A FAILED reading's retry is not this sweep's to make: TurnVerdictService.StartDueRetriesAsync carries
+    /// a stored answer about this stop - accepted or refused, on this exact screen or on the same stop redrawn - is
+    /// used without asking the judge again, so only a new stop, or an accepted verdict whose audio is missing and may
+    /// be attempted now, reaches a provider. A FAILED reading's retry is not this sweep's to make: TurnVerdictService.StartDueRetriesAsync carries
     /// it, on the same pass, for every session and not only the ones in voice mode.
     ///
     /// GAP, NOT PROVEN: THE SWEEP READS WITHOUT THE SETTLE DELAY. The turn end waits out the settle delay before
@@ -1171,7 +1171,9 @@ public sealed class WingmanVoiceService
         var rows = screenGrid is { HasGrid: true, Rows.Count: > 0 } ? screenGrid.Rows : null;
         var hash = rows is null ? "" : WingmanScreenVerdictCache.HashRows(rows);
         var latest = verdicts.Latest(tenant, sid);
-        var judgeWouldBeAsked = latest is null || !string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal);
+        // The same screen, or the same stop on a redrawn one: the verdict service's own rule, asked of it, so a redraw
+        // spends no slot here and no call there.
+        var judgeWouldBeAsked = latest is null || !verdicts.SweepFindsTheStopItRead(tenant, sid, latest, hash, rows);
         var speechWouldBeMade = !judgeWouldBeAsked
                                 && latest is not null
                                 && (!latest.Failed || !string.IsNullOrWhiteSpace(latest.Spoken))

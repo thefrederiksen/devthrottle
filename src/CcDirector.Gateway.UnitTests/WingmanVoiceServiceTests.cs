@@ -1516,6 +1516,41 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     }
 
     /// <summary>
+    /// ONE STOP, ONE READING, on the voice sweep's own pre-check (live QA, 26 September 2026). A stop that has its reading
+    /// and its clip is redrawn - a status line ticks under the reply - and the sweep must spend no slot and ask no model:
+    /// it is the same stop. Then the agent works and stops on a new reply, with no Working edge seen, and the sweep does
+    /// read that one.
+    /// </summary>
+    [Fact]
+    public async Task TheSweep_OnTheSameStopRedrawn_ReachesNoProvider_ButANewStopIsRead()
+    {
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
+        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-samestop-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var brain = new RecordingBrain();
+            var svc = ServiceWithBrainAndTtsHandler(brain, new TtsStubHandler(HttpStatusCode.OK, "", new byte[] { 1, 2, 3 }),
+                Path.Combine(dir, "voice-sessions.json"), new MovableClock(), conversation.Reader);
+
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));   // control: the stop has its reading and its clip
+            var asks = brain.AskCount;
+            Assert.True(asks > 0);
+
+            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate", "  context 41% | 14:36");
+            Assert.False(await SweepOnceAsync(svc, director));
+            Assert.Equal(asks, brain.AskCount);
+
+            conversation.Store(("Text", "a new reply after new work"));
+            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "a new reply after new work");
+            Assert.True(await SweepOnceAsync(svc, director));
+            Assert.True(brain.AskCount > asks);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+    }
+
+    /// <summary>
     /// A speech failure books retry 1 of 8 one minute out, the sweep does not call the provider before that, and
     /// when it is due the sweep's next pass makes the audio with nobody pressing anything. This is goal 2 of the
     /// mission on the speech leg, and the "not asked before it is due" half is what keeps a failing provider from

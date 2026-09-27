@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.History;
 using CcDirector.Gateway.Supervision;
@@ -56,6 +58,14 @@ public sealed record WingmanNarrationSource(
                 terminal,
                 TerminalIdentityPrefix + terminal);
     }
+
+    /// <summary>
+    /// The fingerprint of a stop's source, stored on its reading as <see cref="TurnVerdictDto.SourceHash"/>: a hash of
+    /// <see cref="Identity"/>, so a reply and a terminal failure with the same words are never the same stop. ""
+    /// when there is no source - the screen is then the only evidence there is, and nothing can name the stop.
+    /// </summary>
+    public static string Fingerprint(WingmanNarrationSource? source)
+        => source is null ? "" : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source.Identity)));
 
     /// <summary>
     /// True when the conversation ends with the person's words rather than an agent reply - so any narration
