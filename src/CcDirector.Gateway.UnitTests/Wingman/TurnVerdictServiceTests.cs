@@ -2,6 +2,7 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.History;
 using CcDirector.Gateway.Speech;
 using CcDirector.Gateway.Streaming;
 using CcDirector.Gateway.Tests.Data;
@@ -291,6 +292,63 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.Equal(TurnVerdictOutcomeKind.Judged, sweep.Kind);
         Assert.NotEqual(first.Verdict!.VerdictId, sweep.Verdict!.VerdictId);
         Assert.Equal(2, env.JudgeCalls);
+    }
+
+    /// <summary>
+    /// A NEW STOP WITH THE SAME WORDS IS STILL A NEW STOP (review of pull request 3445). Two turns often end on the same
+    /// reply - "Done.", the same question, the same failure. Here the person asked again, the agent worked and stopped on
+    /// exactly the words it stopped on before, and the Gateway missed the Working edge in between. A stop named by its
+    /// words alone would be taken for the first one and never read; a stop named by where it is in the conversation is
+    /// read, with its own Call A and Call B.
+    /// </summary>
+    [Fact]
+    public async Task Sweep_ANewStopWithTheSameFinalWords_IsRead_EvenWhenTheWorkingEdgeWasMissed()
+    {
+        var env = Env();
+        var service = new TurnVerdictService(env);
+        var first = await service.StartTurnEnd(Signal());
+        Assert.Equal(1, env.JudgeCalls);
+        var callsB = env.NarratorCalls;
+        Assert.True(callsB > 0);   // control: the first stop's Call B was really made
+
+        env.Conversation = _ => new StoredConversation(true, new List<TurnWidgetDto>
+        {
+            new() { Kind = StoredConversationWidgets.UserTextKind, Content = "push it" },
+            new() { Kind = StoredConversationWidgets.AgentTextKind, Content = ReplyText },
+            new() { Kind = StoredConversationWidgets.UserTextKind, Content = "push the other branch too" },
+            new() { Kind = StoredConversationWidgets.AgentTextKind, Content = ReplyText },
+        });
+        env.Screen = () => Screen(Sid, "push the other branch too", ReplyText, "> ");
+        var sweep = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(0, env.Invalidations);   // control: no Working edge removed the old reading
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, sweep.Kind);
+        Assert.NotEqual(first.Verdict!.VerdictId, sweep.Verdict!.VerdictId);
+        Assert.NotEqual(first.Verdict.SourceHash, sweep.Verdict.SourceHash);
+        Assert.Equal(2, env.JudgeCalls);
+        Assert.True(env.NarratorCalls > callsB);
+    }
+
+    /// <summary>
+    /// The same words at the same place in the conversation but at a different moment - a new generation after the
+    /// conversation was cleared - are a different stop too.
+    /// </summary>
+    [Fact]
+    public void Fingerprint_TheSameReplyAtTheSamePlace_RecordedAtAnotherMoment_IsAnotherStop()
+    {
+        static IReadOnlyList<TurnWidgetDto> At(DateTimeOffset when) => new List<TurnWidgetDto>
+        {
+            new() { Kind = StoredConversationWidgets.UserTextKind, Content = "push it", Timestamp = when },
+            new() { Kind = StoredConversationWidgets.AgentTextKind, Content = ReplyText, Timestamp = when.AddSeconds(5) },
+        };
+        var t = new DateTimeOffset(2026, 9, 27, 9, 0, 0, TimeSpan.Zero);
+
+        var first = WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(At(t), null));
+        var same = WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(At(t), null));
+        var later = WingmanNarrationSource.Fingerprint(WingmanNarrationSource.Select(At(t.AddHours(1)), null));
+
+        Assert.Equal(first, same);   // control: the same occurrence read twice is one stop
+        Assert.NotEqual(first, later);
     }
 
     /// <summary>A new stop after a Working edge the Gateway DID see: the stored reading is gone, and the sweep reads it.</summary>

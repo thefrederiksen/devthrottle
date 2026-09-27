@@ -12,7 +12,8 @@ public sealed record WingmanNarrationSource(
     string Content,
     string Identity)
 {
-    private const string TerminalIdentityPrefix = "terminal-failure\n";
+    private const string AgentReplyIdentityPrefix = "agent-reply@";
+    private const string TerminalIdentityPrefix = "terminal-failure@";
 
     /// <summary>
     /// Select what is true now. A completed agent reply wins. When the person's later message has no reply,
@@ -42,7 +43,8 @@ public sealed record WingmanNarrationSource(
             var reply = widgets![agent].Content?.Trim() ?? "";
             return reply.Length == 0
                 ? null
-                : new WingmanNarrationSource(WingmanNarrationSourceKind.AgentReply, reply, reply);
+                : new WingmanNarrationSource(WingmanNarrationSourceKind.AgentReply, reply,
+                    AgentReplyIdentityPrefix + Occurrence(widgets, agent) + reply);
         }
 
         // Either the person spoke last, or nobody has spoken at all (user < 0 means agent < 0 too, because the
@@ -56,12 +58,31 @@ public sealed record WingmanNarrationSource(
             : new WingmanNarrationSource(
                 WingmanNarrationSourceKind.TerminalFailure,
                 terminal,
-                TerminalIdentityPrefix + terminal);
+                TerminalIdentityPrefix + Occurrence(widgets, user) + terminal);
+    }
+
+    /// <summary>
+    /// WHERE AND WHEN a source happened, as the first line of its <see cref="Identity"/>: the widget's position in the
+    /// stored conversation and the time its message was recorded. For a reply that is the reply itself; for a terminal
+    /// failure it is the person's unanswered message the failure followed.
+    ///
+    /// ONE STOP IS ONE OCCURRENCE, NOT ONE TEXT (review of pull request 3445). Two turns often end with the same words -
+    /// "Done.", the same question, the same failure - and when the Gateway misses the Working edge between them, the
+    /// words alone would name the second stop as the first, and it would never be read. The stored conversation is the
+    /// contiguous prefix of the session's current generation and is append-only, so a stored reply never moves, and the
+    /// timestamp separates two generations that reuse a position. "-1|" when nothing was said at all - a screen-only
+    /// agent - where the failure on the screen is the only evidence there is.
+    /// </summary>
+    private static string Occurrence(IReadOnlyList<TurnWidgetDto>? widgets, int index)
+    {
+        var at = index >= 0 && widgets is not null ? widgets[index].Timestamp?.UtcDateTime.ToString("O") ?? "" : "";
+        return $"{index}|{at}\n";
     }
 
     /// <summary>
     /// The fingerprint of a stop's source, stored on its reading as <see cref="TurnVerdictDto.SourceHash"/>: a hash of
-    /// <see cref="Identity"/>, so a reply and a terminal failure with the same words are never the same stop. ""
+    /// <see cref="Identity"/> - which occurrence it is and what it says - so a reply and a terminal failure with the same
+    /// words are never the same stop, and neither are two replies with the same words at different places. ""
     /// when there is no source - the screen is then the only evidence there is, and nothing can name the stop.
     /// </summary>
     public static string Fingerprint(WingmanNarrationSource? source)

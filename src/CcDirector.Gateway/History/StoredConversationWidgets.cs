@@ -76,6 +76,7 @@ public static class StoredConversationWidgets
                     Content = text,
                     Header = part.ToolName ?? "",
                     ToolUseId = part.ToolId ?? "",
+                    Timestamp = message.Timestamp,
                 });
             }
         }

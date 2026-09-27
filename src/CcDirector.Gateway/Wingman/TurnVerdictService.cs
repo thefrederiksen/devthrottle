@@ -1964,7 +1964,9 @@ public sealed class TurnVerdictService : IDisposable
     /// time with a different label; a finished stop was asked about again half an hour later.
     ///
     /// The stop is named by what it was judged from - the agent's latest reply, or the failure on the terminal - not
-    /// by the pixels around it. A NEW stop still gets read: new work ends in a new reply (a new fingerprint), and a
+    /// by the pixels around it - and by WHERE in the conversation that reply or failure happened, not only its words, so
+    /// two stops ending on the same "Done." are two stops. A NEW stop still gets read: new work ends in a new reply at a
+    /// new place in the conversation (a new fingerprint), and a
     /// Working edge the Gateway did see has already removed the stored reading. A reading with no source fingerprint
     /// (none was chosen, or it was stored before the fingerprint existed) cannot be matched, and the screen hash stays
     /// the only evidence, exactly as before.

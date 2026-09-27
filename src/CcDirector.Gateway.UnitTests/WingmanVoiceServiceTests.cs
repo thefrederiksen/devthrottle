@@ -1551,6 +1551,36 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     }
 
     /// <summary>
+    /// A NEW STOP THAT ENDS ON THE SAME WORDS is still read by the voice sweep (review of pull request 3445): the person
+    /// asked again, the agent stopped on exactly the reply it gave before, and no Working edge was seen. The pre-check
+    /// must not take it for the stop already read.
+    /// </summary>
+    [Fact]
+    public async Task TheSweep_ANewStopEndingOnTheSameWords_IsRead()
+    {
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "Done.") };
+        var conversation = StoredConversationStub.Of(("UserMessage", "push it"), ("Text", "Done."));
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-samewords-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var brain = new RecordingBrain();
+            var svc = ServiceWithBrainAndTtsHandler(brain, new TtsStubHandler(HttpStatusCode.OK, "", new byte[] { 1, 2, 3 }),
+                Path.Combine(dir, "voice-sessions.json"), new MovableClock(), conversation.Reader);
+
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));   // control: the first stop has its reading and its clip
+            var asks = brain.AskCount;
+            Assert.True(asks > 0);
+
+            conversation.Store(("UserMessage", "push it"), ("Text", "Done."), ("UserMessage", "and the other branch"), ("Text", "Done."));
+            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "and the other branch", "Done.");
+            Assert.True(await SweepOnceAsync(svc, director));
+            Assert.True(brain.AskCount > asks);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+    }
+
+    /// <summary>
     /// A speech failure books retry 1 of 8 one minute out, the sweep does not call the provider before that, and
     /// when it is due the sweep's next pass makes the audio with nobody pressing anything. This is goal 2 of the
     /// mission on the speech leg, and the "not asked before it is due" half is what keeps a failing provider from

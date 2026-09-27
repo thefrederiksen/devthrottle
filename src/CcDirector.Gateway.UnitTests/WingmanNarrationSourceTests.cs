@@ -43,7 +43,9 @@ public sealed class WingmanNarrationSourceTests
         Assert.NotNull(source);
         Assert.Equal(WingmanNarrationSourceKind.AgentReply, source!.Kind);
         Assert.Equal("The fix is complete.", source.Content);
-        Assert.Equal(source.Content, source.Identity);
+        // The identity is the occurrence and the words: the same words elsewhere in the conversation are another stop.
+        Assert.EndsWith(source.Content, source.Identity);
+        Assert.NotEqual(source.Content, source.Identity);
     }
 
     [Fact]

@@ -29,6 +29,7 @@ public sealed class TurnVerdictWatchdogTests
         JudgedAtUtc = JudgedAt,
         TurnEndObservedAtUtc = JudgedAt.AddSeconds(-30),
         ScreenHash = "hash-1",
+        SourceHash = "source-1",
         Model = "devthrottle/wingman-fast",
         ContractVersion = "v1",
         PackageKind = "agent-reply",
@@ -130,6 +131,10 @@ public sealed class TurnVerdictWatchdogTests
         Assert.Equal(ReplyText, expired.Evidence);
         Assert.Equal(original.TurnEndObservedAtUtc, expired.TurnEndObservedAtUtc);
         Assert.Equal(original.ScreenHash, expired.ScreenHash);
+        // THE SAME STOP, BY ITS FINGERPRINT TOO (review of pull request 3445): the idle sweep names a stop by the
+        // source it was judged from, and an expiry that dropped it made the sweep read the expired stop again.
+        Assert.Equal("source-1", expired.SourceHash);
+        Assert.Equal(original.SourceHash, expired.SourceHash);
         Assert.Equal(now, expired.JudgedAtUtc);
         Assert.NotEqual(original.VerdictId, expired.VerdictId);
         Assert.False(expired.Failed);
@@ -143,6 +148,29 @@ public sealed class TurnVerdictWatchdogTests
         };
         Assert.Equal("red", SessionOrdering.EffectiveColor(row));
         Assert.Equal("Said it would continue and did not", SessionOrdering.StateLabel(row));
+    }
+
+    /// <summary>
+    /// THE UNDO IS THE SAME STOP TOO. <see cref="TurnVerdictWatchdog.CarryOnAgain"/> replaces a clock expiry; it must
+    /// carry the stop's receipt, screen and source fingerprint, or the idle sweep reads the stop again after it.
+    /// </summary>
+    [Fact]
+    public void CarryOnAgain_KeepsTheSameStop_ItsScreenAndItsSourceFingerprint()
+    {
+        var expired = TurnVerdictWatchdog.Expire(CarryingOn(), JudgedAt.AddMinutes(12));
+        var now = JudgedAt.AddMinutes(20);
+
+        var again = TurnVerdictWatchdog.CarryOnAgain(expired, now);
+
+        Assert.Equal(TurnVerdictVocabulary.ContinuesAlone, again.Verdict);
+        Assert.Equal(TurnVerdictWatchdog.CarryingOnAgainLabel, again.Label);
+        Assert.Equal(expired.TurnEndObservedAtUtc, again.TurnEndObservedAtUtc);
+        Assert.Equal("hash-1", again.ScreenHash);
+        Assert.Equal("source-1", again.SourceHash);
+        Assert.Equal(now, again.JudgedAtUtc);
+        Assert.NotEqual(expired.VerdictId, again.VerdictId);
+        Assert.Null(again.NextScheduledWakeUtc);
+        Assert.Empty(again.Options);
     }
 
     // ================================================================= the seat's tick, with an injected clock
