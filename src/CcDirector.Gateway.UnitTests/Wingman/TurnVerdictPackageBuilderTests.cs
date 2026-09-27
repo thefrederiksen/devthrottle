@@ -334,12 +334,96 @@ public sealed class TurnVerdictPackageBuilderTests
         Assert.Equal("Retention sweep done", package.PreviousVerdictLabel);
 
         // NOT PROVEN, and deliberately so: nothing in this build stamps a turn-end cause, a turn-end
-        // confidence, a pending wake-up count or a next scheduled wake. These are null for every session
-        // today, the judge is told so in as many words, and this test exists to fail the day a producer
-        // appears and nobody wires it through here.
+        // confidence or a pending wake-up count. These are null for every session today, the judge is told
+        // so in as many words, and this test exists to fail the day a producer appears and nobody wires it
+        // through here. The next scheduled wake IS produced - from a ScheduleWakeup in the last turn, see
+        // the tests below - and this conversation set none, so it is null here.
         Assert.Null(package.TurnEndCause);
         Assert.Null(package.TurnEndConfidence);
         Assert.Null(package.PendingWakeUps);
+        Assert.Null(package.NextScheduledWakeUtc);
+    }
+
+    // ================================================================= the wake-up the session set itself
+
+    private const string ScheduledAnswer =
+        "Next wakeup scheduled for 10:20:00 (in 1218s). Nothing more to do this turn - the harness re-invokes you when the wakeup fires.";
+
+    private static TurnWidgetDto WakeCall(string id, int delaySeconds) => new()
+    {
+        Kind = TurnVerdictPackageBuilder.ToolUseKind,
+        Header = "ScheduleWakeup",
+        Content = "{\"delaySeconds\":" + delaySeconds + ",\"reason\":\"check the build\"}",
+        ToolUseId = id,
+    };
+
+    private static TurnWidgetDto WakeAnswer(string id, string text) => new()
+    {
+        Kind = TurnVerdictPackageBuilder.ToolResultKind,
+        Content = text,
+        ToolUseId = id,
+    };
+
+    [Fact]
+    public void Build_AWakeUpScheduledInTheLastTurn_CarriesItsDueTime_FromTheHarnessAnswer_CountedFromTheStop()
+    {
+        var conversation = Conversation(
+            User("Watch the nightly build."),
+            WakeCall("toolu_1", 1200),
+            WakeAnswer("toolu_1", ScheduledAnswer),
+            Agent("I will look again in twenty minutes."));
+
+        var package = TurnVerdictPackageBuilder.Build(Signal(), Session(), conversation, Screen("> "), previousVerdictLabel: null);
+
+        // The harness's confirmed 1218 seconds, not the 1200 asked for.
+        Assert.Equal(ObservedAt.AddSeconds(1218), package.NextScheduledWakeUtc);
+        Assert.Equal(DateTimeKind.Utc, package.NextScheduledWakeUtc!.Value.Kind);
+    }
+
+    [Fact]
+    public void Build_TwoWakeUpsInTheLastTurn_TheLaterOneWins()
+    {
+        var conversation = Conversation(
+            User("Watch the nightly build."),
+            WakeCall("toolu_1", 1200),
+            WakeAnswer("toolu_1", ScheduledAnswer),
+            WakeCall("toolu_2", 300),
+            WakeAnswer("toolu_2", "Next wakeup scheduled for 09:35:00 (in 300s). Nothing more to do this turn."),
+            Agent("Checking back in five minutes instead."));
+
+        var package = TurnVerdictPackageBuilder.Build(Signal(), Session(), conversation, Screen("> "), previousVerdictLabel: null);
+
+        Assert.Equal(ObservedAt.AddSeconds(300), package.NextScheduledWakeUtc);
+    }
+
+    [Theory]
+    [InlineData(null)]                                            // no answer yet: nothing is confirmed scheduled
+    [InlineData("Error: delaySeconds must be a number")]          // the harness refused it
+    [InlineData("Loop stopped. No further wakeups will fire.")]   // a stop schedules nothing
+    public void Build_AWakeUpWithNoConfirmedTime_CarriesNoDueTime(string? answer)
+    {
+        var widgets = new List<TurnWidgetDto> { User("Watch the nightly build."), WakeCall("toolu_1", 1200) };
+        if (answer is not null) widgets.Add(WakeAnswer("toolu_1", answer));
+        widgets.Add(Agent("I will look again later."));
+
+        var package = TurnVerdictPackageBuilder.Build(Signal(), Session(), Conversation(widgets.ToArray()), Screen("> "), previousVerdictLabel: null);
+
+        Assert.Null(package.NextScheduledWakeUtc);
+    }
+
+    [Fact]
+    public void Build_AWakeUpBeforeThePersonsLatestMessage_IsNotThisStopsWakeUp()
+    {
+        var conversation = Conversation(
+            User("Watch the nightly build."),
+            WakeCall("toolu_1", 1200),
+            WakeAnswer("toolu_1", ScheduledAnswer),
+            Agent("I will look again in twenty minutes."),
+            User("Never mind, just tell me when it is green."),
+            Agent("Understood."));
+
+        var package = TurnVerdictPackageBuilder.Build(Signal(), Session(), conversation, Screen("> "), previousVerdictLabel: null);
+
         Assert.Null(package.NextScheduledWakeUtc);
     }
 
