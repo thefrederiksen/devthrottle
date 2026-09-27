@@ -2586,7 +2586,8 @@ public sealed class GatewayHost : IAsyncDisposable
         if (stored is null) return null;
         return new History.StoredConversation(
             stored.Value.Head.IsSupported,
-            History.StoredConversationWidgets.From(stored.Value.Messages));
+            History.StoredConversationWidgets.From(stored.Value.Messages),
+            stored.Value.Head.Generation);
     }
 
     /// <summary>

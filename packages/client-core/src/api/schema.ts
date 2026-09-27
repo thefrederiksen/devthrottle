@@ -12572,6 +12572,7 @@ export interface components {
             /** Format: date-time */
             turnEndObservedAtUtc?: string;
             screenHash?: string;
+            sourceHash?: string;
             model?: string;
             contractVersion?: string;
             packageKind?: string;

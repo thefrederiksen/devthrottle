@@ -378,7 +378,11 @@ internal static class TurnVerdictTestDoubles
     {
         new() { Kind = StoredConversationWidgets.UserTextKind, Content = ask },
         new() { Kind = StoredConversationWidgets.AgentTextKind, Content = reply },
-    });
+    }, Generation: TranscriptGeneration);
+
+    /// <summary>The stored generation <see cref="Reply"/> belongs to: one Claude Code transcript, which the default
+    /// <see cref="FakeTurnVerdictEnvironment.Facts"/> names as the agent - an identity the verdict service trusts to follow the conversation.</summary>
+    public const string TranscriptGeneration = "transcript-1";
 
     public static SessionVerbClient RouteServing(string directorId, Func<ScreenGridResponse?> screen, Action? onRead = null)
         => new(new DirectorDto { DirectorId = directorId, ControlEndpoint = "http://tunnel-only" }, (_, command, _) =>

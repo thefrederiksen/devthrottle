@@ -137,32 +137,15 @@ public static class TurnVerdictWatchdog
         var body = string.IsNullOrWhiteSpace(description)
             ? ExpiredCorrection
             : $"{ExpiredCorrection} {ExpiredReadingFrame} {description}";
-        return new TurnVerdictDto
-        {
-            VerdictId = Guid.NewGuid().ToString("N"),
-            JudgedAtUtc = Utc(nowUtc),
-            TurnEndObservedAtUtc = original.TurnEndObservedAtUtc,
-            ScreenHash = original.ScreenHash,
-            Model = ClockModel,
-            ContractVersion = original.ContractVersion,
-            PackageKind = original.PackageKind,
-            Failed = false,
-            Verdict = TurnVerdictVocabulary.NeededYou,
-            Confidence = SessionOrdering.ConfidenceHigh,
-            Evidence = original.Evidence,
-            Label = ExpiredLabel,
-            // ONE BODY, written once, in all three fields - see the note above. The correction opens it and the
-            // description follows behind its frame, so the news leads and the fact is said once.
-            Summary = body,
-            AnswerVia = "reply",
-            Menu = null,
-            Options = new List<TurnVerdictOptionDto>(),
-            Risk = TurnVerdictVocabulary.RiskNone,
-            Spoken = body,
-            Narration = body,
-            NextScheduledWakeUtc = null,
-            FinishedKind = null,
-        };
+        var expired = ClockRewrite(original, nowUtc);
+        expired.Verdict = TurnVerdictVocabulary.NeededYou;
+        expired.Label = ExpiredLabel;
+        // ONE BODY, written once, in all three fields - see the note above. The correction opens it and the
+        // description follows behind its frame, so the news leads and the fact is said once.
+        expired.Summary = body;
+        expired.Spoken = body;
+        expired.Narration = body;
+        return expired;
     }
 
     /// <summary>The label on the verdict stored when an expiry is undone.</summary>
@@ -205,33 +188,54 @@ public static class TurnVerdictWatchdog
     public static TurnVerdictDto CarryOnAgain(TurnVerdictDto expired, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(expired);
-        return new TurnVerdictDto
-        {
-            VerdictId = Guid.NewGuid().ToString("N"),
-            JudgedAtUtc = Utc(nowUtc),
-            TurnEndObservedAtUtc = expired.TurnEndObservedAtUtc,
-            ScreenHash = expired.ScreenHash,
-            Model = ClockModel,
-            ContractVersion = expired.ContractVersion,
-            PackageKind = expired.PackageKind,
-            Failed = false,
-            Verdict = TurnVerdictVocabulary.ContinuesAlone,
-            Confidence = SessionOrdering.ConfidenceHigh,
-            Evidence = expired.Evidence,
-            Label = CarryingOnAgainLabel,
-            Summary = CarryingOnAgainSummary,
-            AnswerVia = "reply",
-            Menu = null,
-            Options = new List<TurnVerdictOptionDto>(),
-            Risk = TurnVerdictVocabulary.RiskNone,
-            Spoken = CarryingOnAgainSpokenLead,
-            // One text, read or heard - see the note on Expire above.
-            Narration = CarryingOnAgainSpokenLead,
-            // The clock runs again from the judging moment, on the ten-minute rule: the announced wake-up the
-            // original verdict carried is long past, and an expiry has already dropped it.
-            NextScheduledWakeUtc = null,
-            FinishedKind = null,
-        };
+        var again = ClockRewrite(expired, nowUtc);
+        again.Verdict = TurnVerdictVocabulary.ContinuesAlone;
+        again.Label = CarryingOnAgainLabel;
+        again.Summary = CarryingOnAgainSummary;
+        again.Spoken = CarryingOnAgainSpokenLead;
+        // One text, read or heard - see the note on Expire above.
+        again.Narration = CarryingOnAgainSpokenLead;
+        // The clock runs again from the judging moment, on the ten-minute rule: the announced wake-up the
+        // original verdict carried is long past, and an expiry has already dropped it (ClockRewrite clears it).
+        return again;
+    }
+
+    /// <summary>
+    /// A clock-written reading OF THE SAME STOP: a copy of the reading it replaces, so everything that names the stop -
+    /// its receipt, its screen, and the fingerprint of the reply it was judged from - is carried without being listed,
+    /// and a new id, the judging moment and the clock as its model, with every judge-made answer and every attempt's
+    /// bookkeeping cleared. The caller writes the verdict, label and body.
+    ///
+    /// WHY A COPY AND NOT A NEW RECORD (review of pull request 3445). Both replacements used to be built field by
+    /// field, and when the stop's source fingerprint was added neither listed it: after an expiry or its undo the
+    /// latest reading had no fingerprint, so the idle sweep could not recognise the stop it had read and paid for Call A
+    /// and Call B on it again at the next redraw. Starting from <see cref="TurnVerdictDtoCopy"/>, whose reflection test
+    /// fails when it leaves a field behind, a field that names the stop cannot be dropped here again.
+    /// </summary>
+    private static TurnVerdictDto ClockRewrite(TurnVerdictDto from, DateTime nowUtc)
+    {
+        var r = TurnVerdictDtoCopy.Of(from);
+        r.VerdictId = Guid.NewGuid().ToString("N");
+        r.JudgedAtUtc = Utc(nowUtc);
+        r.Model = ClockModel;
+        r.Failed = false;
+        r.FailureReason = null;
+        r.FailureKind = null;
+        r.Confidence = SessionOrdering.ConfidenceHigh;
+        r.AnswerVia = "reply";
+        r.Menu = null;
+        r.Options = new List<TurnVerdictOptionDto>();
+        r.Risk = TurnVerdictVocabulary.RiskNone;
+        r.NextScheduledWakeUtc = null;
+        r.FinishedKind = null;
+        r.SupersededAtUtc = null;
+        r.NarrationFailureReason = null;
+        r.RetriesMade = 0;
+        r.NextRetryAtUtc = null;
+        r.OptionsDroppedReason = null;
+        r.DecidedBy = null;
+        r.DecisionReason = null;
+        return r;
     }
 
     private static DateTime Utc(DateTime value)
