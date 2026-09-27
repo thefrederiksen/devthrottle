@@ -1728,8 +1728,8 @@ public sealed class TurnVerdictService : IDisposable
 
     /// <summary>
     /// One narration call has finished, however it ended. The claim STAYS - no automatic path narrates this same
-    /// record again, which is what keeps a stop that fails from spending a paid model call on every sweep pass (the
-    /// booked retry makes a NEW reading, with its own record, at most eight times) - but it stops
+    /// record again, which is what keeps a stop that fails from spending a paid model call on every sweep pass (a
+    /// failed write-up is not booked for a retry either; only a failed Call A is) - but it stops
     /// being a RUNNING call, which is what lets a PERSON ask again. See <see cref="ReleaseNarrationClaimForRequest"/>.
     /// </summary>
     internal void NarrationCallFinished(TenantId tenant, string sid, string verdictId)
@@ -1762,12 +1762,13 @@ public sealed class TurnVerdictService : IDisposable
     /// should not be conflated. It is the reason the card's own instruction, "ask for the narration again", can be
     /// followed and still produce nothing new.
     ///
-    /// ONLY A PERSON RELEASES IT, deliberately. The automatic paths - the turn end and the idle sweep - keep the older
-    /// restraint that <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins: a stop whose
-    /// narration failed is not narrated again on every pass, because the sweep comes past every forty-five seconds
-    /// and a stop that keeps failing would keep costing a call. What asks again by itself is the booked retry
-    /// (<see cref="StartDueRetriesAsync"/>), eight times at most and as a new reading; a person asking is bounded by the
-    /// person.
+    /// ONLY A PERSON RELEASES IT, deliberately. Call B gets one immediate second attempt inside the same reading; after
+    /// that, the automatic paths - the turn end, the idle sweep and the booked retry (<see cref="StartDueRetriesAsync"/>)
+    /// - never release this claim and never call Call B again for the stop. A failed write-up is an accepted reading,
+    /// not a failed one, so it is never booked for a retry: the schedule is for a failed Call A only. The restraint
+    /// <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins still holds - the sweep comes
+    /// past every forty-five seconds, and a stop that keeps failing would keep costing a call. The only thing that buys
+    /// another Call B attempt is a person asking, and that is bounded by the person.
     /// </summary>
     internal bool ReleaseNarrationClaimForRequest(TenantId tenant, string sid, string verdictId)
     {
