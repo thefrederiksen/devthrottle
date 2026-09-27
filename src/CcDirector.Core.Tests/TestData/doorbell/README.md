@@ -60,7 +60,7 @@ the rig wires it.
 
 | File | Screen |
 |---|---|
-| `claude-idle-placeholder-fresh` | A new session: the empty composer shows Claude Code's suggestion `Try "fix typecheck errors"`, cursor at column 2 |
+| `claude-idle-placeholder-fresh` | A new session: the empty composer shows Claude Code's suggestion `Try "fix typecheck errors"`, cursor at column 2 (read as text, deliberately) |
 | `claude-idle-background-task` | A turn has ended with a background shell running: footer `1 shell - <- 1 agent - down to manage`, no `esc to interrupt` |
 | `claude-owner-text-background-task` | The same, with an unsent sentence in the composer |
 | `claude-working-background-task` | A turn running a foreground command while the background shell runs; the Director said Working, footer says `esc to interrupt` |

@@ -70,7 +70,7 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///  3. The product has not left text of its own in the composer (see <see cref="DoorbellFacts.ProductMayHaveLeftText"/>).
 ///  4. The Director does not think the session is working.
 ///  5. In BOTH frames: the screen shows no working marker, no menu, and a composer that is recognised and empty.
-///     The working marker is waived only when the Director's turn-end signal has held for
+///     For Claude Code only, the working marker is waived when the Director's turn-end signal has held for
 ///     <see cref="SettledOutranksMarker"/> AND the two frames are identical (issue 3186, below).
 ///
 /// THE TURN-END SIGNAL OUTRANKS A STILL FOOTER (issue 3186). Claude Code has printed "esc to interrupt" in its footer
@@ -126,8 +126,9 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///    are never rung (their messages wait until they read the inbox on their own, and never go stuck).
 ///  - A Codex placeholder not in <see cref="CodexPlaceholders"/> reads as text, so the ring is deferred until the
 ///    placeholder changes. Safe, but late.
-///  - A Claude Code suggestion is recognised only in the captured shape 'Try "..."' (<see cref="IsClaudeSuggestion"/>);
-///    any other dim suggestion reads as text, so the ring is deferred until it changes. Safe, but late.
+///  - A Claude Code suggestion (dim text on an empty prompt row, e.g. 'Try "fix typecheck errors"' on a new session,
+///    fixture claude-idle-placeholder-fresh) reads as text, so the ring is deferred until it changes. Safe, but late:
+///    it is not told apart from the owner's own words with the cursor moved to the start (review round 1, finding 1).
 ///  - Text the owner has typed but the agent has not yet repainted, and a turn that starts after the last look.
 ///    The ringer (<see cref="Sessions.FleetDoorbellRinger"/>) takes a third frame and re-reads the Director's
 ///    state immediately before the first byte and defers if anything moved; a keystroke or a self-started turn
@@ -165,16 +166,6 @@ public static class DoorbellSafety
     /// </summary>
     public static readonly TimeSpan SettledOutranksMarker = TimeSpan.FromSeconds(30);
 
-    /// <summary>
-    /// Is this prompt row the suggestion Claude Code draws in an empty composer? Captured from Claude Code 2.1.283 on
-    /// 27 September 2026 (fixture claude-idle-placeholder-fresh, 'Try "fix typecheck errors"'; another start drew 'Try "edit <filepath> to..."'):
-    /// the word Try, a space, and a double-quoted suggestion that closes the row.
-    /// </summary>
-    public static bool IsClaudeSuggestion(string afterGlyph) =>
-        afterGlyph.Length > 6
-        && afterGlyph.StartsWith("Try \"", StringComparison.Ordinal)
-        && afterGlyph.EndsWith('"');
-
     /// <summary>Hints only an interactive menu or dialog shows. Compared case-insensitively.</summary>
     public static readonly IReadOnlyList<string> MenuHints =
     [
@@ -205,7 +196,11 @@ public static class DoorbellSafety
         if (facts.Frames is null || facts.Frames.Count < 2)
             return DoorbellVerdict.Defer(FleetRingDeferReasons.ScreenUnreadable, "two screen frames are needed and were not taken");
 
-        var markerIsStale = facts.DirectorSettledFor is { } settled
+        // Claude Code only: the idle footer with the marker was seen there, and a running Claude Code turn is
+        // proven to move the screen every second. No mid-turn Codex screen was ever captured (review round 1,
+        // finding 2), so a Codex marker still defers.
+        var markerIsStale = facts.Agent == AgentKind.ClaudeCode
+                            && facts.DirectorSettledFor is { } settled
                             && settled >= SettledOutranksMarker
                             && facts.Frames.Skip(1).All(f => SameFrame(facts.Frames[0], f));
         foreach (var frame in facts.Frames)
@@ -288,13 +283,6 @@ public static class DoorbellSafety
 
         var onPrompt = AfterGlyph(rows[prompt]);
         var continuation = ContinuationRows(rows, prompt, close);
-        // A SUGGESTION IS NOT TEXT (issue 3289). Claude Code draws a dim suggestion in an empty composer -
-        // 'Try "fix typecheck errors"' - with the cursor straight after the glyph, to the LEFT of the suggestion. The
-        // rows carry no colour, so it is recognised the way Codex's placeholder is: its shape, the visible cursor at
-        // the start of the prompt row, and nothing on any continuation row. Typed text leaves the cursor at its end.
-        if (IsClaudeSuggestion(onPrompt) && continuation.All(c => c.Length == 0)
-            && frame.CursorVisible && frame.CursorRow == prompt && frame.CursorCol == EmptyComposerCursorColumn)
-            return (ComposerReading.Empty, "");
         if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))
         {
             // WHITESPACE IS TEXT (inspection 4, ruling 3). The rows arrive trailing-trimmed, so a draft of

@@ -136,45 +136,37 @@ public sealed class DoorbellIdleWithBackgroundTaskTests
         Assert.Equal(FleetRingDeferReasons.ComposerHoldsText, verdict.Reason);
     }
 
-    // ---------- Claude Code's suggestion in an empty composer ----------
+    // ---------- Claude Code's suggestion in an empty composer: still read as text ----------
 
     [Fact]
-    public void ReadComposer_SuggestionInAnEmptyComposer_IsEmpty()
+    public void Check_SuggestionInAnEmptyComposer_DefersAsComposerHoldsText()
     {
+        // Safe, but late: the suggestion is not told apart from the owner's own 'Try "..."' with the cursor moved to
+        // the start of the row, so it is read as text (review round 1, finding 1).
         var frame = Load("claude-idle-placeholder-fresh");
-        Assert.Equal("❯ Try \"fix typecheck errors\"", frame.Rows[frame.CursorRow]);
+        Assert.Equal("❯\u00a0Try \"fix typecheck errors\"", frame.Rows[frame.CursorRow]);
 
-        Assert.Equal(ComposerReading.Empty, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, frame));
-        Assert.True(DoorbellSafety.Check(Facts("claude-idle-placeholder-fresh")).Ring);
+        var verdict = DoorbellSafety.Check(Facts("claude-idle-placeholder-fresh", settled: LongSettled));
+
+        Assert.False(verdict.Ring);
+        Assert.Equal(FleetRingDeferReasons.ComposerHoldsText, verdict.Reason);
     }
+
+    // ---------- The waiver is Claude Code's alone ----------
 
     [Fact]
-    public void ReadComposer_SuggestionShapeTypedByTheOwner_HoldsText()
+    public void Check_CodexWorkingMarkerAfterTheDirectorSettled_StillDefersAsWorking()
     {
-        // Typed, the same words leave the cursor at their end.
-        var frame = Load("claude-idle-placeholder-fresh");
-        var typed = frame with { CursorCol = frame.Rows[frame.CursorRow].Length };
+        // No mid-turn Codex screen was ever captured, so its marker keeps deferring whatever the Director says.
+        var codex = Load("codex-idle-empty-placeholder");
+        var last = Array.FindLastIndex(codex.Rows.ToArray(), r => r.Trim().Length > 0);
+        var marked = DoorbellCaptures.WithRow(codex, last, codex.Rows[last] + " - esc to interrupt");
+        var facts = new DoorbellFacts(AgentKind.Codex, false, false, true, false, [marked, marked], LongSettled);
 
-        Assert.Equal(ComposerReading.HoldsText, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, typed));
-    }
+        var verdict = DoorbellSafety.Check(facts);
 
-    [Fact]
-    public void ReadComposer_SuggestionWithAHiddenCursor_IsNotEmpty()
-    {
-        var frame = Load("claude-idle-placeholder-fresh") with { CursorVisible = false };
-
-        Assert.NotEqual(ComposerReading.Empty, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, frame));
-    }
-
-    [Theory]
-    [InlineData("Try \"fix typecheck errors\"", true)]
-    [InlineData("Try \"edit <filepath> to...\"", true)]
-    [InlineData("Try \"\"", false)]
-    [InlineData("Try this instead", false)]
-    [InlineData("please try \"x\"", false)]
-    public void IsClaudeSuggestion_OnlyTheCapturedShape(string row, bool expected)
-    {
-        Assert.Equal(expected, DoorbellSafety.IsClaudeSuggestion(row));
+        Assert.False(verdict.Ring);
+        Assert.Equal(FleetRingDeferReasons.Working, verdict.Reason);
     }
 
     // ---------- Verifying the submit under a marker that was already up ----------
