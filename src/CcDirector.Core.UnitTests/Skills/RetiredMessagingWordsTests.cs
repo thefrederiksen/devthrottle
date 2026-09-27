@@ -87,6 +87,10 @@ public sealed class RetiredMessagingWordsTests
             "the Gateway's refusal sentence, which names the command a session may use on a session it owns"),
         ("src/CcDirector.Gateway.UnitTests/SessionKeyGuardTests.cs",
             "asserts that refusal sentence names the command"),
+        ("src/CcDirector.Gateway/Messaging/FleetDoorbell.cs",
+            "the unreachable notice (issue 3289) tells a sender whose message could not ring that, if it owns the session, it may type into it - the fix 1 rule"),
+        ("src/CcDirector.Gateway.UnitTests/Messaging/FleetDoorbellUnreachableTests.cs",
+            "asserts that unreachable notice names the command"),
     };
 
     /// <summary>The phrases to scan <paramref name="relative"/> for: the retired words always, and the

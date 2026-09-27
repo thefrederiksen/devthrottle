@@ -498,8 +498,8 @@ public sealed class FleetDoorbell
     /// <summary>
     /// The notice a sender receives when its message's doorbell has not rung once in
     /// <see cref="FleetMessageLimits.UnreachableAfter"/>. It opens with <see cref="StuckNoticePrefix"/> and the whole
-    /// message id, says why the ring was held back when that is known, and tells a sender that started the session
-    /// how to reach it now. Cut to <paramref name="maxLength"/> only if the text is longer, which leaves the id whole
+    /// message id, says why the ring was held back when that is known, and tells a sender that owns the session how
+    /// to reach it now. Cut to <paramref name="maxLength"/> only if the text is longer, which leaves the id whole
     /// (the cap is never below <see cref="FleetMessageLimits.MinTextLength"/>).
     /// </summary>
     public static string UnreachableNoticeText(FleetMessageEntity message, string? recipientName, string? heldBackBecause,
@@ -516,7 +516,7 @@ public sealed class FleetDoorbell
             $"{StuckNoticePrefix}{message.MessageId} to {who} has not reached it: in {FleetMessagePolicy.Describe(limits.UnreachableAfter)} " +
             $"its doorbell could not ring once, and the session has not read its inbox.{because} " +
             "The message stays in that inbox and rings as soon as the session is idle. Do not send it again. " +
-            $"If you started that session, you can type into it directly: cc-devthrottle session prompt {shortId} \"<text>\".";
+            $"If you own that session, you can type into it while it waits: cc-devthrottle session prompt {shortId} \"<text>\".";
         return text.Length <= maxLength ? text : text[..maxLength];
     }
 
