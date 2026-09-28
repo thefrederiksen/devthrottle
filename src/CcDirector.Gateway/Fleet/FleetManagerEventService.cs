@@ -705,6 +705,13 @@ public sealed class FleetManagerEventService : IDisposable
         var v = turn.Verdict;
         if (v.Failed)
             return $"The Wingman's reading of the Fleet Manager's latest turn failed ({v.FailureReason ?? "no reason was given"}), so it cannot be told whether it is asking you something.";
+        // RED BECAUSE NOTHING IS MOVING IT IS NOT A QUESTION (the simpler session colours ruling, 2026-09-28). A Fleet
+        // Manager whose sessions have all stopped reads red by code - and that is exactly the moment their stop events
+        // are waiting for it. Holding them for "a turn that asks you nothing" would hold them for ever: the delivery is
+        // what starts that next turn. These two steps run only after every question rule found nothing to ask.
+        if (string.Equals(v.Verdict, TurnVerdictVocabulary.NeededYou, StringComparison.Ordinal)
+            && CallACodeSteps.IsRedWithNothingAsked(v.DecidedBy))
+            return null;
         if (string.Equals(v.Verdict, TurnVerdictVocabulary.NeededYou, StringComparison.Ordinal))
             return "The Fleet Manager is waiting for your answer; events are sent after its next turn that asks you nothing.";
         // THE GATE IS THE STATE (contract v3, owner ruling 2026-09-18). It used to also require the judge's

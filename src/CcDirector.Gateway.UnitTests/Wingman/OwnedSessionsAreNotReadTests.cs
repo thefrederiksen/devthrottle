@@ -1,4 +1,5 @@
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
@@ -245,9 +246,14 @@ public sealed class OwnedSessionsAreNotReadTests : IDisposable
 
         Assert.Equal((TurnVerdictOutcomeKind.Judged, (string?)null), (outcome.Kind, outcome.SkipCause));
         Assert.Equal(1, _screenReads);
-        Assert.Equal(1, _brain.Asks);
+        // Nothing in this fixture is working, so Call A is decided by code - nothing under it, or everything under it
+        // stopped (the simpler session colours ruling, 2026-09-28) - and the model is not asked. The reading and its
+        // narration are still made: that is what this control holds.
+        Assert.Equal(0, _brain.Asks);
         Assert.Equal(1, _brain.Narrations);
-        Assert.NotNull(env.Latest(Tenant, sid));
+        var stored = env.Latest(Tenant, sid);
+        Assert.NotNull(stored);
+        Assert.Contains(stored!.DecidedBy, new[] { CallACodeSteps.NothingUnderItStep, CallACodeSteps.AllUnderItStoppedStep });
     }
 
     [Fact]
@@ -269,7 +275,8 @@ public sealed class OwnedSessionsAreNotReadTests : IDisposable
         Assert.True(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Fm));
 
         Assert.True(await WaitUntil(() => env.Latest(Tenant, Fm) is not null), "the snooze expiry never read the owner's own session");
-        Assert.Equal(1, _brain.Asks);
+        // Its sessions are all stopped, so the reading is the code's, not the model's.
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, env.Latest(Tenant, Fm)!.DecidedBy);
         foreach (var sid in Owned)
             Assert.Null(env.Latest(Tenant, sid));
     }
@@ -312,7 +319,8 @@ public sealed class OwnedSessionsAreNotReadTests : IDisposable
         var outcome = await seat.VerdictForCurrentScreenAsync(Tenant, "dir-1", Fm, trigger);
 
         Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
-        Assert.Equal(1, _brain.Asks);
+        // Everything under it is stopped: code decides, and the narration call is still made.
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, outcome.Verdict!.DecidedBy);
         Assert.Equal(1, _brain.Narrations);
     }
 

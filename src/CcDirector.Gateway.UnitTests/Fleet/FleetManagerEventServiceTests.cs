@@ -231,8 +231,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     {
         await TurnEndAsync("plain");
 
-        Assert.Equal((1, 0), (_brain.Asks, _brain.Narrations));
-        Assert.NotNull(_verdicts.Latest(Tenant, "plain"));
+        // It owns nothing, so Call A is decided by code (nothing under it) and no model is asked - but it IS read.
+        Assert.Equal((0, 0), (_brain.Asks, _brain.Narrations));
+        Assert.Equal(CallACodeSteps.NothingUnderItStep, _verdicts.Latest(Tenant, "plain")!.DecidedBy);
         Assert.Empty(Open());
     }
 
@@ -1064,7 +1065,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     // ---- steps 5 and 6 inspection, round 2, finding 3: a finished turn, never an open question
 
     /// <summary>A Wingman reading of the Fleet Manager's own stop, as the seat reports one.</summary>
-    private void FleetManagerReadAs(string verdict, string confidence = "high", string sid = "fm")
+    private void FleetManagerReadAs(string verdict, string confidence = "high", string sid = "fm", string? decidedBy = null)
         => _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, sid, "dir-1", TurnVerdictTrigger.TurnEnd,
             _now, new TurnVerdictOutcome
             {
@@ -1072,8 +1073,33 @@ public sealed class FleetManagerEventServiceTests : IDisposable
                 Verdict = new TurnVerdictDto
                 {
                     VerdictId = "fm-" + verdict, Verdict = verdict, Confidence = confidence, TurnEndObservedAtUtc = _now,
+                    DecidedBy = decidedBy,
                 },
             }));
+
+    /// <summary>
+    /// RED BECAUSE NOTHING IS MOVING IT IS NOT A QUESTION (the simpler session colours ruling, 2026-09-28). A Fleet Manager
+    /// whose sessions have all stopped reads red by code at exactly the moment their events wait for it; holding them for
+    /// "a turn that asks you nothing" would hold them for ever. The question steps still hold them - the control.
+    /// </summary>
+    [Theory]
+    [InlineData("all-under-it-stopped", true)]
+    [InlineData("nothing-under-it", true)]
+    [InlineData("question", false)]
+    [InlineData("model", false)]
+    public async Task AFleetManagerReadRed_GetsItsEvents_OnlyWhenTheRedAskedNothing(string decidedBy, bool delivered)
+    {
+        await TurnEndAsync("worker-1");
+        SetState("fm", "WaitingForInput");
+        _service.OnTurnEnd(Signal("fm"), wingmanRunning: true);
+
+        FleetManagerReadAs(TurnVerdictVocabulary.NeededYou, confidence: "", decidedBy: decidedBy);
+        await _service.WhenIdleAsync();
+
+        var result = await _service.DeliverToAsync(Tenant, "fm");
+        Assert.Equal(delivered, result != FleetManagerDeliveryResult.TurnNotFinished);
+        Assert.Equal(delivered, _env.Sends.Count > 0);
+    }
 
     /// <summary>
     /// THE FLEET MANAGER IS WAITING FOR THE OWNER'S ANSWER. The Director reports that as WaitingForInput, exactly as it

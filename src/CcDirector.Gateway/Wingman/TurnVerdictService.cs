@@ -1168,7 +1168,7 @@ public sealed class TurnVerdictService : IDisposable
         // re-asking the judge about an unreachable session each time would be a paid call on a loop.
         var currentSource = new Lazy<WingmanNarrationSource?>(
             () => SelectSource(_env.ReadConversation(tenant, sid), rows, facts));
-        if (latest is not null && IsReusable(key, latest, hash, trigger, currentSource))
+        if (latest is not null && IsReusable(key, latest, hash, trigger, currentSource, OwnedSessionsForAStop(facts, state.Owned)))
             return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid,
                 reuseCause: string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
                     ? ActivityCauses.ScreenUnchanged
@@ -1203,7 +1203,7 @@ public sealed class TurnVerdictService : IDisposable
                 conversation,
                 grid,
                 previousVerdictLabel: null,
-                ownedSessions: state.Owned);
+                ownedSessions: OwnedSessionsForAStop(facts, state.Owned));
             flight.Package = package;
 
             var failure = TurnVerdictFailureKind.None;
@@ -1213,10 +1213,11 @@ public sealed class TurnVerdictService : IDisposable
             string? rawReply = null;
             string? prompt = null;
 
-            // ---- CALL A, CODE FIRST (contract v4, design v2) ----
-            // Four plain rules, in order, the first to fire deciding: a picker on the screen, the agent's own
-            // needs-human verdict, a real question in the reply, a way back the agent set itself. A stop one of them
-            // decides costs NO model call, and its record says which step decided and why.
+            // ---- CALL A, CODE FIRST (contract v4, design v2, and the simpler session colours ruling) ----
+            // Six plain rules, in order, the first to fire deciding: a picker on the screen, the agent's own
+            // needs-human verdict, a real question in the reply, a way back the agent set itself, nothing under it,
+            // and everything under it stopped. A stop one of them decides costs NO model call, and its record says
+            // which step decided and why. Only a stop with work still running under it reaches the model.
             var codeDecision = CallACodeSteps.Decide(package, TurnVerdictPackageBuilder.LastTurnToolUses(conversation.Widgets));
             TurnVerdictDto record;
             if (codeDecision is not null)
@@ -1983,7 +1984,7 @@ public sealed class TurnVerdictService : IDisposable
     /// the same unreadable screen is still a new stop - and when the sweep finds the screen redrawn and asks whether it
     /// is still the stop that was read.</param>
     private bool IsReusable((TenantId Tenant, string SessionId) key, TurnVerdictDto latest, string hash, TurnVerdictTrigger trigger,
-        Lazy<WingmanNarrationSource?> currentSource)
+        Lazy<WingmanNarrationSource?> currentSource, OwnedSessionCounts? owned)
     {
         // INSIDE A RATE LIMIT'S NAMED WAIT NOTHING ASKS AGAIN ABOUT THAT STOP, for every trigger and whatever the screen
         // now reads - an unreadable screen included (slice I inspection, round two). Checked before the screen is compared
@@ -1993,6 +1994,7 @@ public sealed class TurnVerdictService : IDisposable
             && _rateLimitHolds.TryGetValue(key, out var hold)
             && string.Equals(hold.SourceText, currentSource.Value?.Content, StringComparison.Ordinal))
             return true;
+        if (ModelReadingOutlivedItsRunningWork(latest, owned)) return false;
         if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
             && !(trigger == TurnVerdictTrigger.Sweep && IsSameStop(latest, currentSource.Value)))
             return false;
@@ -2017,6 +2019,38 @@ public sealed class TurnVerdictService : IDisposable
             _ => false,
         };
     }
+
+    /// <summary>
+    /// A READING THE MODEL MADE WHILE WORK WAS RUNNING UNDER THE SESSION DOES NOT OUTLIVE THAT WORK (the simpler session
+    /// colours ruling, 2026-09-28). Since steps 5 and 6 of <see cref="CallACodeSteps"/>, the model only ever decides a
+    /// stop with a session still working under it. When the last of those stops, the parent has not worked, so its
+    /// screen and its reply are unchanged and the stored calm reading would otherwise be reused for as long as it sits:
+    /// the "all under it stopped" rule could never fire. So the stop is decided again - by code, at no model cost.
+    ///
+    /// ONE DIRECTION ONLY, deliberately. A red that step 6 made is not re-asked when a child starts working again: a
+    /// child that goes quiet for ten seconds reads as stopped, and re-asking the model on every such flap would be a
+    /// paid call each time. Not known (null) keeps the reading.
+    ///
+    /// A FAILED READING IS DECIDED AGAIN TOO (review of pull request 3476). A model call that timed out while work ran
+    /// under the session would otherwise be reused by the sweep for as long as the parent sits - and a Fleet Manager
+    /// whose reading failed never gets its events. So is a reading stored before <c>DecidedBy</c> existed (null): it can
+    /// only have been the model's. Only a reading a CODE step made is kept, and the re-decision is a code step, so this
+    /// cannot loop.
+    /// </summary>
+    internal static bool ModelReadingOutlivedItsRunningWork(TurnVerdictDto latest, OwnedSessionCounts? owned)
+        => owned is { Working: 0 }
+           && (latest.DecidedBy is null
+               || string.Equals(latest.DecidedBy, CallACodeSteps.ModelStep, StringComparison.Ordinal));
+
+    /// <summary>
+    /// THE OWNED SESSIONS CALL A MAY READ, which is none while the session itself is working (review of pull request
+    /// 3476). Steps 5 and 6 of <see cref="CallACodeSteps"/> describe a STOPPED session with nothing running under it;
+    /// an automatic request never reaches a working session, but a person asking does, and a working session with no
+    /// children must not be told "stopped - nothing running under it". Null leaves those two steps silent, exactly as
+    /// for a session the roster does not know.
+    /// </summary>
+    internal static OwnedSessionCounts? OwnedSessionsForAStop(SessionDto? facts, OwnedSessionCounts? owned)
+        => facts is not null && SessionOrdering.IsWorkingSession(facts) ? null : owned;
 
     /// <summary>
     /// IS THIS STILL THE STOP THE STORED READING WAS MADE OF, though the screen was redrawn? Only the idle sweep asks.

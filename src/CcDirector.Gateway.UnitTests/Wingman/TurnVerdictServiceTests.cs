@@ -1,5 +1,6 @@
 ﻿using CcDirector.Core.HostedAi;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.History;
@@ -130,8 +131,9 @@ public sealed class TurnVerdictServiceTests : IDisposable
 
         Assert.Equal(TurnVerdictOutcomeKind.Judged, judged.Kind);
         Assert.Equal(1, screenReads);
-        Assert.Equal(1, brain.Asks);
-        Assert.NotNull(env.Latest(Tenant, "child-1"));
+        // It owns nothing, so Call A is decided by code (nothing under it) and the model is not asked.
+        Assert.Equal(0, brain.Asks);
+        Assert.Equal(CallACodeSteps.NothingUnderItStep, env.Latest(Tenant, "child-1")!.DecidedBy);
     }
 
     private static SessionDto Owner(string state) => new()

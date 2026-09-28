@@ -20,8 +20,9 @@ a stop that has already been detected MEANS.
 **Read this before anything below it, including the v3 amendment. Where they disagree, this is what shipped.**
 The turn pipeline mission (issue #3399), design v2, approved by the owner on 26 September 2026.
 
-**Call A decides one thing: does this stop need its owner.** Four code steps run first, in order, and the
-first to fire decides with no model call (`CallACodeSteps`, in Core):
+**Call A decides one thing: does this stop need its owner.** Six code steps run first, in order, and the
+first to fire decides with no model call (`CallACodeSteps`, in Core). Steps 5 and 6 were added by the simpler
+session colours ruling (owner, 28 September 2026):
 
 1. `picker` - a picker or permission prompt is drawn on the screen (`PickerOnScreen`, the one footer rule) -> needs-you
 2. `agent-verdict` - the agent's last message carries its own CC-DISMISS block saying needs-human -> needs-you
@@ -29,6 +30,16 @@ first to fire decides with no model call (`CallACodeSteps`, in Core):
    question, or one the same line answers) -> needs-you
 4. `way-back` - the agent set itself a way back in its last turn: a ScheduleWakeup, a Monitor, a session spawn,
    or a background run -> carrying-on (never on a failure with no reply)
+5. `nothing-under-it` - the session owns no session at all -> needs-you, reason "stopped - nothing running under it"
+6. `all-under-it-stopped` - it owns sessions, at every level, and none of them is still working -> needs-you
+
+Steps 5 and 6 read the sessions under the stopped one from the same roster snapshot the held check answers from,
+"working" meaning the blue row. When that is not known (the session is not in the fresh roster), or the session is
+itself working (a person asking), neither fires. So the model is reached ONLY by a stop with at least one session
+still working under it - the owner: red by default there "will bother the user too much". A model reading (or a
+failed one, or one stored before `DecidedBy` existed) is not reused once nothing is working under the session: it
+is decided again, by code. The Fleet Manager's event delivery reads a red from steps 5 or 6 as "asks you nothing",
+since both run only after every question step found nothing to ask.
 
 A stop none of them decides goes to the model (`turn-verdict-v4.txt`): every visible screen row, the cursor row,
 the full-screen flag and the agent's latest reply, and nothing else - no conversation, no recent turns, no first
