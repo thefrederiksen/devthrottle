@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway;
 using CcDirector.Gateway.Contracts;
@@ -249,13 +250,15 @@ public sealed class HostedStatsServeTests : IAsyncLifetime
         var ingest = await http.PostAsJsonAsync("activity-events/batch", new ActivityEventIngestRequest { Events = events });
         Assert.Equal(HttpStatusCode.OK, ingest.StatusCode);
 
-        // And the session's repository, in the tenant's own session history, which the repository split joins
-        // on. The history recorder itself runs on the SignalR push path, which this HTTP-level test does not
-        // drive, so the row is written through the real store over the Gateway's own database file.
+        // And the session's repository and starter, in the tenant's own session history: the repository split
+        // joins on it, and the figure counts a turn only when a person started its session (#3452). The history
+        // recorder itself runs on the SignalR push path, which this HTTP-level test does not drive, so the row
+        // is written through the real store over the Gateway's own database file.
         new SessionHistoryStore(new GatewayDatabase(new FixedTenantContext(tenant))).UpsertLive(directorId, new SessionDto
         {
             SessionId = sessionId, Name = sessionId, RepoPath = repo, RepoName = repo, Agent = "ClaudeCode",
             CreatedAt = at, ActivityState = "Working", Status = "Running",
+            OriginKind = SessionOriginKinds.Human,
         }, DateTime.UtcNow);
     }
 
