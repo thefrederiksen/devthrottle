@@ -266,6 +266,10 @@ public sealed class VoiceListeningLedger
     /// change writes again, and it goes up to the caller - the play report answers an error the player retries on its
     /// next play, and the hub push logs it. Written to a temporary file and moved into place, so a failed write never
     /// leaves half a record.
+    ///
+    /// What this cannot do: make a write durable on a disk that refuses it. If the Gateway restarts after a failed reset
+    /// and before the next successful write, it reads the old count. That same failure already breaks the voice
+    /// sessions file beside it, so it is reported loudly rather than papered over with a second store.
     /// </summary>
     private void Save(TenantId tenant, AccountRecord record)
     {
