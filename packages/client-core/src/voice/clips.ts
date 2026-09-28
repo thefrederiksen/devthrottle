@@ -296,7 +296,7 @@ export function playingSid(): string | null {
   return _currentAudio !== null && !_currentAudio.paused ? _currentSid : null;
 }
 
-// Plays this page has already told the Gateway about, so pausing and resuming one clip is one report, not many.
+// Plays the Gateway has ACCEPTED, so pausing and resuming one clip is one report, not many.
 const _reportedPlays = new Set<string>();
 
 /**
@@ -305,15 +305,18 @@ const _reportedPlays = new Set<string>();
  * own audio element - naming the clip by the generatedAt stamp it was downloaded under. A download is never a play,
  * so nothing else reports one. The phone reports the fact and decides nothing.
  *
- * A failed report is logged and forgotten, so the next play of the same clip reports it again; the audio itself is
- * already playing and is not affected.
+ * Only a report the Gateway accepted (played=true) is remembered. A failed report, or one the Gateway could not match
+ * to the session's current narration, is forgotten, so the next play of the same clip reports it again; the audio
+ * itself is already playing and is not affected.
  */
 export function reportClipPlaying(sid: string, generatedAt: string): void {
   if (sid.length === 0 || generatedAt.length === 0) return;
   const key = `${sid}|${generatedAt}`;
   if (_reportedPlays.has(key)) return;
   _reportedPlays.add(key);
-  void reportNarrationPlayed(sid, generatedAt).catch((err: unknown) => {
+  void reportNarrationPlayed(sid, generatedAt).then((played) => {
+    if (!played) _reportedPlays.delete(key);
+  }).catch((err: unknown) => {
     _reportedPlays.delete(key);
     console.warn(`[voice/clips] play report failed sid=${sid} generatedAt=${generatedAt}: ${err instanceof Error ? err.message : String(err)}`);
   });

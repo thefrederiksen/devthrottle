@@ -983,7 +983,14 @@ public sealed class WingmanVoiceService
 
     /// <summary>Mark the session as a voice session (persisted, so the gateway keeps its voice fresh
     /// across restarts via the background sweep + turn-end).</summary>
-    public void Mark(TenantId tenant, string sid) { if (StateFor(tenant).VoiceSessions.TryAdd(sid, 1)) SaveVoiceSessions(tenant); }
+    public void Mark(TenantId tenant, string sid)
+    {
+        if (!StateFor(tenant).VoiceSessions.TryAdd(sid, 1)) return;
+        // A session JOINING voice starts with nothing on the listening ledger. A narration stored while it was off voice,
+        // or one that finished storing just after it was switched off, is about a stop from before this voice period.
+        Listening.Forget(tenant, sid);
+        SaveVoiceSessions(tenant);
+    }
 
     /// <summary>
     /// Stop keeping voice for this session - it is no longer a voice session (issue #859). The user
@@ -1128,12 +1135,17 @@ public sealed class WingmanVoiceService
         var ready = new VoiceReady(spoken, reply, audio, DateTime.UtcNow,
             NormalizeContentType(contentType) ?? DetectAudioContentType(audio), servedViaFallback, sourceIdentity ?? reply, sourceKind);
         var state = StateFor(tenant);
+        // Entered in the listening ledger BEFORE it is published below: the moment Ready holds it, a phone can fetch it,
+        // play it and report the play, and a report that arrives ahead of the ledger entry would be refused as naming
+        // no narration on record - a stop the owner heard, counted as unheard. Only a VOICE session's narration is a
+        // stop the owner can hear or not: an explain press on a session off voice makes a clip, and it is not one.
+        if (state.VoiceSessions.ContainsKey(sid))
+            Listening.NoteNarrationReady(tenant, sid, ready.AtUtc);
         state.Ready[sid] = ready;
         state.NothingToNarrate.TryRemove(sid, out _);   // audio exists, so there was something to narrate after all
         state.DirectorCannotSend.TryRemove(sid, out _); // ...and a narration proves that computer CAN send its conversation
         state.SpeechRetries.TryRemove(sid, out _);      // ...and the audio ARRIVED, so the speech retry schedule ends on its first success
         SaveReadyAudio(tenant, sid, ready);
-        Listening.NoteNarrationReady(tenant, sid, ready.AtUtc);   // this is now the session's stop, and nobody has played it yet
     }
 
     /// <summary>Test seam: store ready audio exactly as a successful synthesis would (in-memory +

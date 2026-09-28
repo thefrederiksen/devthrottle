@@ -22,8 +22,9 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as unknown as Response;
 }
 
+// Let the report's whole promise chain (fetch, error read, then/catch) finish before asserting.
 async function settle(): Promise<void> {
-  for (let i = 0; i < 5; i++) await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe("reportClipPlaying", () => {
@@ -79,6 +80,23 @@ describe("reportClipPlaying", () => {
     expect(calls).toBe(2);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it("reports again when the Gateway could not match the clip (played=false), since it may have raced the narration", async () => {
+    let calls = 0;
+    globalThis.fetch = (() => {
+      calls++;
+      return Promise.resolve(jsonResponse({ played: calls > 1 }));
+    }) as unknown as typeof fetch;
+
+    reportClipPlaying("sid-unmatched", "2026-09-28T10:00:00Z");
+    await settle();
+    reportClipPlaying("sid-unmatched", "2026-09-28T10:00:00Z");
+    await settle();
+    reportClipPlaying("sid-unmatched", "2026-09-28T10:00:00Z"); // now accepted: remembered
+    await settle();
+
+    expect(calls).toBe(2);
   });
 
   it("reports nothing without a session or a clip stamp", async () => {

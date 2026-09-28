@@ -114,6 +114,33 @@ public sealed class VoiceNarrationPlayedTests : IDisposable
         Assert.False(voice.Listening.NotePlayed(Tenant, sid, atUtc));
     }
 
+    [Fact]
+    public void StoreReady_ANarrationForASessionOffVoice_IsNotAStop()
+    {
+        var voice = Service();
+        var sid = Guid.NewGuid().ToString();
+
+        voice.StoreReadyAudioForTest(Tenant, sid, "Explained.", "Explain reply.", Mp3("a"));   // an explain press, voice off
+
+        Assert.NotNull(voice.Get(Tenant, sid));
+        Assert.Null(voice.Listening.StopFor(Tenant, sid));
+    }
+
+    [Fact]
+    public void Mark_ASessionJoiningVoice_StartsWithNoStopFromBefore()
+    {
+        var voice = Service();
+        var sid = Guid.NewGuid().ToString();
+        voice.Mark(Tenant, sid);
+        var at = new DateTime(2026, 9, 28, 10, 0, 0, DateTimeKind.Utc);
+        voice.Unmark(Tenant, sid);
+        voice.Listening.NoteNarrationReady(Tenant, sid, at);   // a store that finished just after the switch-off
+
+        voice.Mark(Tenant, sid);
+
+        Assert.Null(voice.Listening.StopFor(Tenant, sid));
+    }
+
     [Theory]
     [InlineData("not-a-session", "2026-09-28T10:00:00Z")]
     [InlineData("11111111-1111-4111-8111-111111111111", null)]
