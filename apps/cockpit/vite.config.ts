@@ -83,6 +83,8 @@ const devProxy = proxyTarget
       "/vault": { target: proxyTarget, changeOrigin: true },
       // Dev reports (dev reports mission, phase 3): the four owner routes the Reports view calls.
       "/dev-reports": { target: proxyTarget, changeOrigin: true },
+      // A factory's memory (Factory Memory mission, phase 3b): the factory page's Memory tab.
+      "/factory-memory": { target: proxyTarget, changeOrigin: true },
       // The Transcription Health page and the Transcription tab of Settings. Neither was proxied
       // before, so both could only ever be exercised against a Gateway that served the bundle itself.
       //

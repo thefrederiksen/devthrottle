@@ -4,17 +4,21 @@ import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { getFactoryMap, type FactoryMapView } from "@devthrottle/client-core/factory/factoryAgentsClient";
 import { EmptyState, ErrorBanner, LoadingState } from "../components";
 import { FactoryMapDrawing, FactoryMapLegend, FactoryMapSpec } from "./FactoryMap";
+import { FactoryMemoryTab } from "./FactoryMemoryTab";
 import { AgentTable } from "./FactoryParts";
 import "./factory.css";
 
 // One factory's page (issue #3383). It opens on the Map tab: how the factory's agents connect, drawn from the map
 // the factory published, with each agent's status from the Gateway. The Agents tab is the same rows its card shows.
 // Read-only (rule 7): the only way to change a factory is the button that asks the Fleet Manager, which sends nothing
-// by itself.
+// by itself. The Memory tab (Factory Memory mission, phase 3b) is the one exception, and it changes the factory's
+// NOTES, not the factory: see FactoryMemoryTab.
+//
+// Which tabs exist is the Gateway's (FactoryMapFold.View); a ?tab= the Gateway did not offer opens the Map.
 export function FactoryPageView() {
   const { factory = "" } = useParams();
   const [params, setParams] = useSearchParams();
-  const tab = params.get("tab") === "agents" ? "agents" : "map";
+  const requestedTab = params.get("tab") ?? "map";
   const [view, setView] = useState<FactoryMapView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -33,6 +37,7 @@ export function FactoryPageView() {
   if (error !== null) return <ErrorBanner message={error} onRetry={reload} />;
   if (view === null) return <LoadingState />;
 
+  const tab = view.tabs.some((t) => t.key === requestedTab) ? requestedTab : "map";
   const picked = view.nodes.find((n) => n.id === selected) ?? null;
   return (
     <div className="fa-page" data-testid="factory-page">
@@ -66,7 +71,9 @@ export function FactoryPageView() {
         ))}
       </div>
 
-      {tab === "agents" ? (
+      {tab === "memory" ? (
+        <FactoryMemoryTab factory={view.factoryId} />
+      ) : tab === "agents" ? (
         <AgentTable rows={view.agents} showFactory={false} />
       ) : view.emptyText !== null ? (
         <EmptyState message={view.emptyText} />
