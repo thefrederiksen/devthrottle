@@ -251,12 +251,6 @@ export function WingmanNow({
           >
             <h3>{now.calmCard.heading}</h3>
             {now.calmCard.body != null && <p>{now.calmCard.body}</p>}
-            {now.carryingOnDeadline && (
-              <p>
-                {now.carryingOnDeadline.before} {formatClockTime(now.carryingOnDeadline.atUtc)}
-                {now.carryingOnDeadline.after}
-              </p>
-            )}
           </section>
         )}
 

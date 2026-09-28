@@ -329,8 +329,12 @@ public static class WingmanStopsFold
                 Text = "The carrying-on clock ran out with no work since, so the row went back to needing you.",
             };
         }
-        else if (accepted && verdict!.Verdict == TurnVerdictVocabulary.ContinuesAlone)
+        else if (accepted && verdict!.Verdict == TurnVerdictVocabulary.ContinuesAlone
+                 && (t.ClockDeadlineUtc is not null
+                     || (verdict.VerdictId is { Length: > 0 } clockedId && expiryByReplaced.ContainsKey(clockedId))))
         {
+            // HISTORY ONLY. The carrying-on clock was removed (owner ruling, 2026-09-28): no new stop records a deadline
+            // and nothing expires any more, so only a stop the clock touched while it existed still has one to show.
             var ranOut = verdict.VerdictId is { Length: > 0 } id && expiryByReplaced.TryGetValue(id, out var expiry) ? expiry : null;
             did.Clock = new WingmanStopClockDto
             {

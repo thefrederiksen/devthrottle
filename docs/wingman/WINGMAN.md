@@ -32,7 +32,7 @@ not one of the words is not re-attempted for a listener, because at temperature 
 |---|---|---|
 | needs-you | red | needed-you |
 | done | cyan | finished (kind done) |
-| carrying-on | purple, carrying-on clock unchanged | continues-alone |
+| carrying-on | purple | continues-alone |
 
 Every record says which step decided it and why (`DecidedBy`, `DecisionReason`), and so does the debug view.
 
@@ -466,14 +466,11 @@ the detector made it.
 |---|---|---|---|
 | `finished`, kind `done` | cyan | leads "Done" | No. Listed in the calm band below the reds |
 | `finished`, kind `report` | cyan | leads "Report" | No. Same band |
-| `continues-alone` | purple | the Wingman's line, or "Carrying on" | No. Same band, and a clock is running |
+| `continues-alone` | purple | the Wingman's line, or "Carrying on" | No. Same band |
 | `needed-you`, `stuck-needs-person`, `stuck-recoverable`, `cannot-tell` | red, unchanged | the ask, in the Wingman's words | Yes |
 | refused, timed out, rate limited, or never judged | red, unchanged | as today | Yes |
 
-Purple carries a clock (`TurnVerdictWatchdog`): the agent's announced next wake-up plus two
-minutes when it announced one, otherwise ten minutes. On expiry the row goes red with the label
-"Said it would continue and did not". A session whose own owned sessions are still working is
-carrying on whatever its reply says, and the clock does not run while any of them works.
+**Purple has no clock (removed 28 September 2026).** There used to be a carrying-on clock that turned a purple row red after ten minutes (or two minutes past an announced wake-up) and said "It said it would continue, and it did not." Most of what it caught were sessions waiting on real work that takes longer than ten minutes - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred by a rule or the model, not said by the agent. The owner ruled it out. A purple row stays purple until the session stops again.
 
 A snooze that ends with no new turn end comes back CYAN with "Snooze ended, nothing new" rather
 than red - nothing happened, so there is nothing to bring him. If a stop DID happen while the
@@ -777,5 +774,5 @@ so that nobody re-opens them against this charter:
   The durable fix is to store the arming moment on the snooze itself, which costs a migration on
   both providers.
 - **A shadow account does not re-judge on a snooze expiry**, because its rows carry no verdict
-  to read. The re-judge should read the store, as the carrying-on clock does, so that shadow
-  records reflect what the product would have done.
+  to read. The re-judge should read the store, so that shadow records reflect what the
+  product would have done.

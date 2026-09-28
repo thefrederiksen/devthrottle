@@ -129,59 +129,6 @@ public sealed class CallACodeFirstTests : IDisposable
         Assert.Equal("the agent set itself a way back in its last turn: a ScheduleWakeup call", stored.DecisionReason);
     }
 
-    /// <summary>
-    /// THE CARRYING-ON CLOCK WAITS FOR THE WAKE-UP THE SESSION SET (live QA FAIL 1, 26 September 2026). A session set
-    /// a twenty-minute ScheduleWakeup and was read carrying-on by the way-back step - and the clock turned it red at ten
-    /// minutes, before the wake-up was due, because the package never carried the time. Through the real seat: the
-    /// stop is judged, the clock ticks, and the row stays purple until the wake-up plus its grace.
-    /// </summary>
-    [Fact]
-    public async Task WayBackStep_ATwentyMinuteWakeUp_IsNotRedAtTenMinutes_AndIsRedOnceTheWakeUpPlusGracePasses()
-    {
-        // Anchored at the real moment, not the fixed ObservedAt: a code-step record is stamped with the wall clock
-        // (TurnVerdictContract.FromCodeStep), and the expiry must sort after it.
-        var stop = DateTime.UtcNow;
-        var now = stop;
-        var env = new FakeTurnVerdictEnvironment
-        {
-            Knobs = TurnVerdictSettings.Defaults with { JudgeEnabled = true, ColourEnabled = true, SettleMs = 0 },
-            Clock = () => now,
-            Screen = () => Screen(Sid, "  I will look again in twenty minutes.", "", "> "),
-            Conversation = _ => new StoredConversation(true, new List<TurnWidgetDto>
-            {
-                new() { Kind = StoredConversationWidgets.UserTextKind, Content = FirstAsk },
-                new() { Kind = TurnVerdictPackageBuilder.ToolUseKind, Header = "ScheduleWakeup", ToolUseId = "toolu_w",
-                        Content = "{\"delaySeconds\":1200,\"reason\":\"check the sweep\"}" },
-                new() { Kind = TurnVerdictPackageBuilder.ToolResultKind, ToolUseId = "toolu_w",
-                        Content = "Next wakeup scheduled for 10:20:00 (in 1200s). Nothing more to do this turn." },
-                new() { Kind = StoredConversationWidgets.AgentTextKind, Content = "I will look again in twenty minutes." },
-            }),
-            Judge = (_, _) => Task.FromResult("done"),
-        };
-        var service = new TurnVerdictService(env);
-
-        await service.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, stop, IsNewTurn: true));
-
-        var stored = env.Latest(Tenant, Sid)!;
-        Assert.Equal("continues-alone", stored.Verdict);
-        Assert.Equal(CallACodeSteps.WayBackStep, stored.DecidedBy);
-        Assert.Equal(stop.AddMinutes(20), stored.NextScheduledWakeUtc);
-
-        // Ten minutes: the old fixed allowance. The wake-up is not due for another ten, so this is not red.
-        now = stop.AddMinutes(10);
-        Assert.Equal(0, service.ExpireCarryingOn(Tenant));
-        now = stop.AddMinutes(20) + TurnVerdictWatchdog.AfterAnnouncedWake - TimeSpan.FromSeconds(1);
-        Assert.Equal(0, service.ExpireCarryingOn(Tenant));
-        Assert.Equal("continues-alone", env.Latest(Tenant, Sid)!.Verdict);
-
-        // The wake-up plus its grace, and no new turn: it said it would continue and did not.
-        now = stop.AddMinutes(20) + TurnVerdictWatchdog.AfterAnnouncedWake;
-        Assert.Equal(1, service.ExpireCarryingOn(Tenant));
-        var expired = env.Latest(Tenant, Sid)!;
-        Assert.Equal("needed-you", expired.Verdict);
-        Assert.Equal(TurnVerdictWatchdog.ExpiredLabel, expired.Label);
-    }
-
     [Fact]
     public async Task WayBackStep_AWakeUpBeforeThePersonsLatestMessage_DoesNotCount()
     {
@@ -213,7 +160,6 @@ public sealed class CallACodeFirstTests : IDisposable
     public async Task ModelStep_IsGivenTheScreenAndTheReply_AndNothingElse()
     {
         var env = Env(PlainReport);
-        env.Owned = sid => sid == Sid ? new OwnedSessionsFacts(Working: 2, Live: 3, Stopped: 1, NeedYou: 0, LastActivityAtUtc: ObservedAt) : null;
         // A previous reading with a label, on a different screen, so it is not reused.
         env.Store(Tenant, Sid, new TurnVerdictDto
         {

@@ -286,9 +286,6 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     private int _snapshotReads;
     public int SnapshotReads => _snapshotReads;
 
-    /// <summary>The sessions each session owns. Null: it owns none.</summary>
-    public Func<string, OwnedSessionsFacts?> Owned = _ => null;
-    public OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId) => Owned(sessionId);
 
     public IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant)
     {

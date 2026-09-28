@@ -19,9 +19,6 @@ namespace CcDirector.Gateway.Wingman;
 /// colour switch off every row is stamped "none" and no verdict reaches the screen, which is indistinguishable to a
 /// reader from the judge never having run. NULL means the route was not told, and then no claim is made: a Gateway
 /// that cannot see the account's settings says nothing about them rather than guessing that they are on.</param>
-/// <param name="OwnedSessions">What this session's OWN sessions are doing, or null when it owns none. The
-/// carrying-on clock does not run while one of them is still alive, so this is what decides whether the
-/// carrying-on card can name a deadline at all.</param>
 /// <param name="AccountRoster">Every row of this account's folded roster, or null when the caller did not read
 /// one. It is the SAME fold the Sessions list serves, ordered here by the SAME rule, so the tab and the list can
 /// never point him at two different sessions. Null means no claim is made about what else needs him.</param>
@@ -42,7 +39,6 @@ public sealed record WingmanNowInputs(
     IReadOnlyList<AnsweredTurnVerdict> VerdictsNewestFirst,
     WingmanNowConversation? Conversation,
     bool? WingmanSwitchedOff = null,
-    OwnedSessionsFacts? OwnedSessions = null,
     IReadOnlyList<SessionDto>? AccountRoster = null,
     DateTime? NowUtc = null,
     bool StartedBySchedule = false);
@@ -248,16 +244,6 @@ public static class WingmanNowFold
     /// enough that it does not become the whole reply in a slot that is not built for one.</summary>
     public const int LastWordsLength = 200;
 
-    // ------------------------------------------------------------------ slice 3: the carrying-on deadline
-
-    /// <summary>The words before the deadline instant.</summary>
-    public const string CarryingOnDeadlineBefore = "If it has not worked again by";
-
-    /// <summary>The words after it. The comma opens the clause, so the client joins the three parts with single
-    /// spaces and nothing else.</summary>
-    public const string CarryingOnDeadlineAfter =
-        ", and none of the sessions it owns is still working, this turns red and says so.";
-
     // ------------------------------------------------------------------ slice 4: working, and what it was asked
 
     /// <summary>The pill while the session is working.</summary>
@@ -293,17 +279,6 @@ public static class WingmanNowFold
     /// <summary>The lead on the stop a working session has just come from.</summary>
     public const string LastStopLead = "Last stop";
 
-    /// <summary>
-    /// The whole line for a stop the CARRYING-ON CLOCK wrote, as a sentence.
-    ///
-    /// Every other past stop reads "&lt;pill words&gt; - &lt;the Wingman's headline&gt;", and for a judged stop that
-    /// is a state word in front of an ask, which reads. For this one it was a state word glued to a reason code:
-    /// "Needs you - Said it would continue and did not". The clock's own record is recognised by its
-    /// <see cref="TurnVerdictWatchdog.ClockModel"/> stamp - a fact on the record, never a match on the label -
-    /// so this cannot start firing for a judged stop whose words happen to look similar.
-    /// </summary>
-    public const string ExpiredPastText = "It said it would carry on, then stopped, so it needed you.";
-
     /// <summary>The lead before the moment a snoozed session comes back.</summary>
     public const string SnoozedUntilLead = "Snoozed until";
 
@@ -329,15 +304,6 @@ public static class WingmanNowFold
     /// arriving later is not credited to him. Outside it, nobody is named at all.
     /// </summary>
     public static readonly TimeSpan OwnerTurnTolerance = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// The carrying-on sentence while the session still has one of its OWN sessions running: no clock is counting,
-    /// so there is no instant to name.
-    ///
-    /// This is the design's own sentence, kept verbatim. Its "it" is the session, as in the dated form beside it.
-    /// </summary>
-    public const string CarryingOnNoDeadlineBody =
-        "It turns red if it stops working and none of the sessions it owns is still working.";
 
     /// <summary>The Now view for one session.</summary>
     public static WingmanNowResponse Fold(WingmanNowInputs inputs)
@@ -517,30 +483,6 @@ public static class WingmanNowFold
         else
         {
             answer.CalmCard = CalmCard(state);
-            if (string.Equals(state, WingmanNowStates.CarryingOn, StringComparison.Ordinal))
-            {
-                // THE INSTANT COMES FROM THE FUNCTION THE CLOCK ITSELF EXPIRES ON, never from arithmetic repeated
-                // here. The sentence promises the owner a moment; if this file worked that moment out a second
-                // way, the promise and the expiry would be free to disagree, and the one he would notice is the
-                // row going red at a time the card told him it would not.
-                var deadline = TurnVerdictWatchdog.DeadlineFor(live, inputs.OwnedSessions);
-                if (deadline is { } at)
-                {
-                    answer.CarryingOnDeadline = new WingmanNowDeadlineDto
-                    {
-                        Before = CarryingOnDeadlineBefore,
-                        AtUtc = at,
-                        After = CarryingOnDeadlineAfter,
-                    };
-                }
-                else
-                {
-                    // No clock is counting, because a session it owns is still running. The card says so in words
-                    // that name no time - there is none to name - rather than leaving the owner to wonder why the
-                    // sentence he saw last time has gone.
-                    answer.CalmCard!.Body = CarryingOnNoDeadlineBody;
-                }
-            }
         }
 
         return answer;
@@ -748,10 +690,8 @@ public static class WingmanNowFold
         {
             Heading = ReportHeading, Body = ReportBody, Tone = WingmanNowCardTones.Cyan,
         },
-        // THE HEADING ALONE, and its body is filled in by the caller. The sentence under this one is about the
-        // clock, and it takes two forms - a deadline with an instant in the middle of it, or no clock at all
-        // because a session it owns is still running - so the caller, which has the verdict and the owned
-        // sessions, decides which. Both forms are this fold's words; neither is the client's.
+        // THE HEADING ALONE. There is no timer on carrying on (the carrying-on clock was removed, owner ruling
+        // 2026-09-28), so there is no deadline to promise and no sentence under the heading.
         WingmanNowStates.CarryingOn => new WingmanNowCardDto
         {
             Heading = CarryingOnHeading, Tone = WingmanNowCardTones.Purple,
@@ -964,19 +904,25 @@ public static class WingmanNowFold
     }
 
     /// <summary>
+    /// The model stamp the removed carrying-on clock wrote on its own records. HISTORY ONLY: nothing writes it since
+    /// the clock was removed (owner ruling, 2026-09-28), but a record it wrote before then stays in the store for the
+    /// retention period, and its label is the clock's reason code rather than anything the Wingman read.
+    /// </summary>
+    internal const string HistoricClockModel = "carrying-on-clock";
+
+    /// <summary>
     /// What a past stop SAYS, as one line: the pill's words, a dash, and the Wingman's own headline.
     ///
-    /// EXCEPT FOR A STOP THE CARRYING-ON CLOCK WROTE, which is a whole sentence instead - see
-    /// <see cref="ExpiredPastText"/>. That record's label is a reason code rather than an ask, and the ordinary
-    /// shape glued a status word onto it with a dash: "Needs you - Said it would continue and did not". It is
-    /// recognised by the model stamped on the record, which the clock and only the clock writes.
+    /// EXCEPT FOR A RECORD THE REMOVED CARRYING-ON CLOCK WROTE, which shows the pill's words alone. Its label,
+    /// "Said it would continue and did not", is the clock's, not the Wingman's, and the owner does not want it shown.
+    /// It is recognised by the model stamped on the record - a fact on the record, never a match on the label.
     /// </summary>
     private static string PastText(TurnVerdictDto verdict)
     {
-        if (string.Equals(verdict.Model, TurnVerdictWatchdog.ClockModel, StringComparison.Ordinal))
-            return ExpiredPastText;
-
         var words = PastPillWords(verdict)!;
+        if (string.Equals(verdict.Model, HistoricClockModel, StringComparison.Ordinal))
+            return words;
+
         var label = NullIfBlank(verdict.Label);
         return label is null ? words : words + " - " + label;
     }

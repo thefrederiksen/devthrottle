@@ -198,13 +198,15 @@ public static class ActivityEventTypes
     /// <summary>A "continues-alone" verdict ran out of time: the session said it would carry on by itself and
     /// has not worked since, so the carrying-on clock stored a "needed-you" verdict in its place, labelled
     /// "Said it would continue and did not". The cause is <see cref="ActivityCauses.CarryingOnExpired"/>; the
-    /// detail carries the two verdict ids and never a word of the screen.</summary>
+    /// detail carries the two verdict ids and never a word of the screen. NO LONGER WRITTEN: the carrying-on clock
+    /// was removed (owner ruling, 2026-09-28). Kept because ledger rows written before then carry it.</summary>
     public const string TurnVerdictExpired = "turn-verdict-expired";
 
     /// <summary>An expiry the carrying-on clock wrote was UNDONE: the session owns a live session again, so a
     /// "continues-alone" verdict was stored in the expiry's place and the clock started again from that moment
     /// (the owner's ruling, 2026-09-17). The cause is <see cref="ActivityCauses.CarryingOnAgain"/>; the detail
-    /// carries the two verdict ids and never a word of the screen.</summary>
+    /// carries the two verdict ids and never a word of the screen. NO LONGER WRITTEN, for the same reason as
+    /// <see cref="TurnVerdictExpired"/>.</summary>
     public const string TurnVerdictExpiryUndone = "turn-verdict-expiry-undone";
 
     /// <summary>A snooze's clock ran out and the Wingman ruled on what that means (ruling 10): nothing happened

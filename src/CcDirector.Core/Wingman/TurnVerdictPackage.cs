@@ -97,8 +97,8 @@ public sealed record TurnVerdictPackage
 
     /// <summary>When the session will next be woken: the moment its last turn's ScheduleWakeup is due, from the
     /// seconds the harness confirmed it scheduled, counted from the observed turn end. Null when the last turn
-    /// scheduled no wake-up, or when the one it made has no confirmed time - then the carrying-on clock runs its
-    /// fixed ten minutes from the judging moment, because nothing else says how long the session meant to be away.</summary>
+    /// scheduled no wake-up, or when the one it made has no confirmed time. Recorded for the Wingman inspector only:
+    /// the carrying-on clock that once timed a purple row from it was removed (owner ruling, 2026-09-28).</summary>
     public DateTime? NextScheduledWakeUtc { get; init; }
 
     /// <summary>The states of the sessions this session owns, at every level, as the row's own crew line counts
