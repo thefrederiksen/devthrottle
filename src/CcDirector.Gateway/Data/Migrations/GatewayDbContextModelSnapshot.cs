@@ -840,6 +840,50 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("factory_activity", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FactoryMemoryNoteEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Factory")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AuthorId")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuthorKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Deleted")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Text")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("WrittenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "Factory", "Name", "Version");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Factory", "Name");
+
+                    b.ToTable("factory_memory_notes", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetManagerEventEntity", b =>
                 {
                     b.Property<Guid>("Id")
