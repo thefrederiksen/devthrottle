@@ -143,38 +143,6 @@ public sealed class WingmanStopsWritePathTests : IDisposable
         => FakeTurnVerdictEnvironment.CarryingOn("Watching the test run", "It is watching the test run and will report back.");
 
     [Fact]
-    public async Task A_stop_recorded_red_still_shows_red_after_the_row_has_gone_cyan()
-    {
-        var rig = Build(Sid);
-        // A carrying-on verdict, judged long enough ago that its clock has run out.
-        rig.Env.Store(Account, Sid, CarryingOn(JudgedAt.AddMinutes(-20)));
-
-        // RED: the clock expires it, through the seat's own expiry.
-        Assert.Equal(1, rig.Service.ExpireCarryingOn(Account));
-
-        // CYAN: a later stop is judged finished, through the seat's own turn end.
-        rig.Env.Clock = () => JudgedAt.AddMinutes(1);
-        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Finished(ReplyText, "The branch is pushed."));
-        var outcome = await rig.Service.StartTurnEnd(new TurnEndSignal(Sid, "director-write-path", Account, JudgedAt.AddMinutes(1), IsNewTurn: true));
-        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
-
-        await rig.Writer.CompleteAsync();
-        Assert.Equal(2, rig.Writer.Written);
-
-        // THE CONTROL: the row really is cyan now. Without it, a stamp that never ran and a fold that said "red" for
-        // everything would pass the assertion below.
-        Assert.Equal("cyan", ColourNow(rig));
-
-        var stops = Read(rig).Stops;
-        var expired = stops.Single(s => s.Outcome == TurnVerdictTraceOutcomes.Expired);
-        var finished = stops.Single(s => s.Outcome == TurnVerdictTraceOutcomes.Judged);
-        Assert.True(expired.RowRecorded);
-        Assert.Equal("red", expired.RowColour);
-        Assert.Equal(TurnVerdictWatchdog.ExpiredLabel, expired.RowLabel);
-        Assert.Equal("cyan", finished.RowColour);
-    }
-
-    [Fact]
     public async Task A_stop_on_a_session_that_is_not_on_the_roster_records_no_colour_and_says_not_recorded()
     {
         // The roster holds another session; the judged one has gone from it.
@@ -190,24 +158,7 @@ public sealed class WingmanStopsWritePathTests : IDisposable
     }
 
     [Fact]
-    public async Task A_carrying_on_judgement_records_when_its_clock_was_set_to_run_out()
-    {
-        var rig = Build(Sid);
-        rig.Env.Judge = (_, _) => Task.FromResult(ContinuesAloneAnswer());
-
-        var outcome = await rig.Service.StartTurnEnd(new TurnEndSignal(Sid, "director-write-path", Account, JudgedAt, IsNewTurn: true));
-        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
-        await rig.Writer.CompleteAsync();
-
-        var stop = Assert.Single(Read(rig).Stops);
-        Assert.Equal("purple", stop.RowColour);
-        Assert.Equal(TurnVerdictWatchdog.DeadlineFor(outcome.Verdict!), stop.Did.Clock!.SetToRunOutAtUtc);
-        // The seat stamps the judging moment itself; ten minutes from it, with no wake-up announced.
-        Assert.Equal(outcome.Verdict!.JudgedAtUtc + TurnVerdictWatchdog.WithoutAnnouncedWake, stop.Did.Clock.SetToRunOutAtUtc);
-    }
-
-    [Fact]
-    public async Task A_carrying_on_judgement_whose_owned_session_is_working_records_no_deadline()
+    public async Task A_carrying_on_judgement_records_no_clock_because_there_is_none()
     {
         var rig = Build(Sid);
         rig.Env.Judge = (_, _) => Task.FromResult(ContinuesAloneAnswer());
@@ -216,34 +167,10 @@ public sealed class WingmanStopsWritePathTests : IDisposable
         await rig.Service.StartTurnEnd(new TurnEndSignal(Sid, "director-write-path", Account, JudgedAt, IsNewTurn: true));
         await rig.Writer.CompleteAsync();
 
+        // The carrying-on clock was removed (owner ruling, 2026-09-28): a new carrying-on stop records no deadline and
+        // the inspector describes no clock for it.
         var stop = Assert.Single(Read(rig).Stops);
-        Assert.Null(stop.Did.Clock!.SetToRunOutAtUtc);
-        Assert.StartsWith("No deadline was recorded", stop.Did.Clock.Text);
+        Assert.Null(stop.Did.Clock);
     }
 
-    [Fact]
-    public async Task The_expiry_of_a_carrying_on_judgement_is_paired_with_it_through_the_store()
-    {
-        var rig = Build(Sid);
-        rig.Env.Judge = (_, _) => Task.FromResult(ContinuesAloneAnswer());
-        var judged = await rig.Service.StartTurnEnd(new TurnEndSignal(Sid, "director-write-path", Account, JudgedAt, IsNewTurn: true));
-        Assert.Equal(TurnVerdictOutcomeKind.Judged, judged.Kind);
-
-        var deadline = judged.Verdict!.JudgedAtUtc + TurnVerdictWatchdog.WithoutAnnouncedWake;
-        var ranOutAt = deadline.AddMinutes(1);
-        rig.Env.Clock = () => ranOutAt;
-        Assert.Equal(1, rig.Service.ExpireCarryingOn(Account));
-        await rig.Writer.CompleteAsync();
-
-        var stops = Read(rig).Stops;
-        Assert.Equal(new[] { TurnVerdictTraceOutcomes.Expired, TurnVerdictTraceOutcomes.Judged }, stops.Select(s => s.Outcome));
-        var carryingOn = stops[1];
-        var expiry = stops[0];
-        Assert.Equal(deadline, carryingOn.Did.Clock!.SetToRunOutAtUtc);
-        Assert.Equal(ranOutAt, carryingOn.Did.Clock.RanOutAtUtc);
-        Assert.Equal(expiry.TraceId, carryingOn.Did.Clock.RanOutTraceId);
-        Assert.Equal(carryingOn.TraceId, expiry.Did.ReplacedTraceId);
-        Assert.Equal("red", expiry.RowColour);
-        Assert.Equal("purple", carryingOn.RowColour);
-    }
 }

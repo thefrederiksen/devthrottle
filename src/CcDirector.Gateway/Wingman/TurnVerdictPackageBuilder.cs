@@ -249,9 +249,8 @@ public static class TurnVerdictPackageBuilder
 
     /// <summary>
     /// WHEN THE SESSION SAID IT WOULD BE BACK: the moment its last turn's ScheduleWakeup is due, or null when the last
-    /// turn scheduled none. This is what the carrying-on clock (<see cref="TurnVerdictWatchdog"/>) waits for; without
-    /// it the clock ran its ten-minute rule and turned a twenty-minute wake-up red at ten minutes (live QA, session
-    /// 3310aa0d, 26 September 2026).
+    /// turn scheduled none. Shown in the Wingman inspector's facts. (The carrying-on clock that used to wait on it was
+    /// removed by the owner's ruling of 28 September 2026.)
     ///
     /// THE HARNESS'S ANSWER, NOT THE REQUEST. The delay is read from the tool's RESULT - the seconds the harness says
     /// it actually scheduled, after its own clamping and rounding - and not from the delaySeconds the agent asked

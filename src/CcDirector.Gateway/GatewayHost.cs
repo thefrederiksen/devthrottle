@@ -814,10 +814,6 @@ public sealed class GatewayHost : IAsyncDisposable
     // read and the display push, because the edge it fires is an edge across ALL of them - a second instance
     // would be a second memory, and each would fire its own "first" expiry for the same session.
     private readonly Wingman.SnoozeExpiryReJudge _snoozeExpiry;
-    private readonly Wingman.TurnVerdictWatchdogSweep _turnVerdictWatchdogSweep;
-    private System.Threading.Timer? _turnVerdictWatchdogTimer;
-    private int _turnVerdictWatchdogInFlight;
-    private static readonly TimeSpan TurnVerdictWatchdogInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan TurnVerdictRetentionInterval = TimeSpan.FromHours(6);
     private static readonly TimeSpan TurnVerdictRetentionStartupDelay = TimeSpan.FromMinutes(7);
 
@@ -2165,8 +2161,6 @@ public sealed class GatewayHost : IAsyncDisposable
             tenant => PushedSessions.SnapshotConnected(tenant), _turnVerdictRows, _displayFold.Record);
         _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append,
             stamp: _turnVerdictTraceRowStamp.Stamp);
-        _turnVerdictWatchdogSweep = new Wingman.TurnVerdictWatchdogSweep(
-            _tenantBoundary, TenantRegistry, _tenantContext, EnsureTurnVerdictService);
         // Slice F (ruling 10): a snooze expiry re-judges. The JUDGEMENT is fire and forget - the fold is the hot
         // path and waits for nothing - and it goes through the seat's ordinary current-screen request, so an
         // unchanged screen reuses the stored verdict and only a changed one costs a model call. What the fold DOES
@@ -5096,10 +5090,6 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdictRetentionTimer = new System.Threading.Timer(_ => SweepTurnVerdictRetention(), null,
             TurnVerdictRetentionStartupDelay, TurnVerdictRetentionInterval);
         FileLog.Write($"[GatewayHost] turn verdict retention sweep started: every {TurnVerdictRetentionInterval.TotalHours:0}h, retention {Wingman.TurnVerdictStore.RetentionPeriod.TotalDays:0} days");
-        // Slice D: the carrying-on clock. Each tick reads the stored verdicts, so nothing it needs lives only in memory.
-        _turnVerdictWatchdogTimer = new System.Threading.Timer(_ => SweepTurnVerdictWatchdog(), null,
-            TurnVerdictWatchdogInterval, TurnVerdictWatchdogInterval);
-        FileLog.Write($"[GatewayHost] carrying-on clock started: every {TurnVerdictWatchdogInterval.TotalSeconds:0}s");
         if (FleetDoorbellHeartbeatEnabled)
         {
             _fleetDoorbellTimer = new System.Threading.Timer(_ => SweepFleetDoorbell(), null,
@@ -5663,34 +5653,6 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// The carrying-on clock's timer callback (a boundary - it owns the overlap guard and the try/catch so a failed
-    /// tick never crashes the timer thread). One tick at a time; a skipped tick expires on the next one, fifteen
-    /// seconds later, which the two-minute and ten-minute allowances are indifferent to.
-    /// </summary>
-    private void SweepTurnVerdictWatchdog()
-    {
-        if (Interlocked.CompareExchange(ref _turnVerdictWatchdogInFlight, 1, 0) != 0)
-            return;
-        _ = RunTurnVerdictWatchdogSweepAsync();
-    }
-
-    private async Task RunTurnVerdictWatchdogSweepAsync()
-    {
-        try
-        {
-            await _turnVerdictWatchdogSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[GatewayHost] carrying-on clock tick FAILED: {ex.Message}");
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _turnVerdictWatchdogInFlight, 0);
-        }
-    }
-
-    /// <summary>
     /// The prompt-log retention timer callback (a boundary - it owns the overlap guard and the try/catch so
     /// a purge failure never crashes the timer thread). One sweep at a time; a skipped tick simply purges on
     /// the next one, which retention granularity is indifferent to.
@@ -6055,7 +6017,6 @@ public sealed class GatewayHost : IAsyncDisposable
         _cronTimer = null;
         try { _activityRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] activity retention timer dispose error: {ex.Message}"); }
         try { _turnVerdictRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict retention timer dispose error: {ex.Message}"); }
-        try { _turnVerdictWatchdogTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] carrying-on clock timer dispose error: {ex.Message}"); }
         try { _fleetDoorbellTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet doorbell timer dispose error: {ex.Message}"); }
         _fleetDoorbellTimer = null;
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }
@@ -6069,7 +6030,6 @@ public sealed class GatewayHost : IAsyncDisposable
         _devReportSettleTimer = null;
         _activityRetentionTimer = null;
         _turnVerdictRetentionTimer = null;
-        _turnVerdictWatchdogTimer = null;
         try { _leaseSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] lease sweep timer dispose error: {ex.Message}"); }
         _leaseSweepTimer = null;
         try { _autoDismissTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] auto-dismiss timer dispose error: {ex.Message}"); }

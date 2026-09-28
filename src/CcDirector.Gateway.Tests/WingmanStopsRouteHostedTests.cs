@@ -151,49 +151,6 @@ public sealed class WingmanStopsRouteHostedTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_stop_the_production_seat_expires_is_served_red_and_stays_red_after_the_row_goes_cyan()
-    {
-        _gateway.TenantSettingsResolver.SetTurnVerdictJudgeEnabled(_tenantA, true, DateTime.UtcNow);
-        _gateway.TenantSettingsResolver.SetTurnVerdictColourEnabled(_tenantA, true, DateTime.UtcNow);
-        _gateway.TurnVerdicts.Store(_tenantA, _sessionId,
-            Verdict("v-carrying-on", Core.Wingman.TurnVerdictVocabulary.ContinuesAlone, "Watching the test run", DateTime.UtcNow.AddMinutes(-30)));
-
-        // The PRODUCTION seat, the PRODUCTION environment and the PRODUCTION trace writer with the host's stamp.
-        Assert.Equal(1, _gateway.EnsureTurnVerdictServiceForTest().ExpireCarryingOn(_tenantA));
-
-        // The writer is off the verdict path, so the stop arrives a moment later. Wait for it, with a ceiling.
-        JsonElement stop = default;
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (DateTime.UtcNow < deadline)
-        {
-            var (s, b) = await Get(_deviceA, $"sessions/{_sessionId}/wingman-stops");
-            Assert.Equal(HttpStatusCode.OK, s);
-            var stops = Root(b).GetProperty("stops");
-            if (stops.GetArrayLength() == 1) { stop = stops[0]; break; }
-            await Task.Delay(100);
-        }
-        var writer = _gateway.TurnVerdictTraceWriterForTest;
-        Assert.True(stop.ValueKind == JsonValueKind.Object,
-            $"No stop arrived. The trace writer says: written={writer.Written} failed={writer.Failed} colourFoldFailed={writer.ColourFoldFailed} "
-            + $"dropped={writer.Dropped} lost={writer.Lost} abandoned={writer.Abandoned} lastFailure={writer.LastFailure ?? "none"}.");
-        Assert.Equal("expired", stop.GetProperty("outcome").GetString());
-        Assert.True(stop.GetProperty("rowRecorded").GetBoolean());
-        Assert.Equal("red", stop.GetProperty("rowColour").GetString());
-        Assert.Equal(Wingman.TurnVerdictWatchdog.ExpiredLabel, stop.GetProperty("rowLabel").GetString());
-
-        // The row moves on: a later verdict calls the stop finished.
-        _gateway.TurnVerdicts.Store(_tenantA, _sessionId,
-            Verdict("v-finished", Core.Wingman.TurnVerdictVocabulary.Finished, "Pushed the tag", DateTime.UtcNow.AddSeconds(1)));
-        var (rowStatus, rowBody) = await Get(_deviceA, $"sessions/{_sessionId}");
-        Assert.Equal(HttpStatusCode.OK, rowStatus);
-        // THE CONTROL: the row really is cyan now.
-        Assert.Equal("cyan", Root(rowBody).GetProperty("effectiveColor").GetString());
-
-        var (_, after) = await Get(_deviceA, $"sessions/{_sessionId}/wingman-stops");
-        Assert.Equal("red", Root(after).GetProperty("stops")[0].GetProperty("rowColour").GetString());
-    }
-
-    [Fact]
     public async Task Another_accounts_session_answers_exactly_what_an_unknown_session_answers()
     {
         var foreign = await Get(_deviceB, $"sessions/{_sessionId}/wingman-stops");

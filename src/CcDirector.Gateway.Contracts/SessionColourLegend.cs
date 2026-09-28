@@ -163,7 +163,7 @@ public static class SessionColourLegend
         ["cyan"] = new("The session stopped and the Wingman judged it finished",
             ["the work is done", "it is only reporting something and asks you nothing"]),
 
-        ["purple"] = new("The session stopped, but the Wingman judged it will continue on its own, and it turns red if it does not", []),
+        ["purple"] = new("The session stopped, but the Wingman judged it will continue on its own", []),
 
         ["yellow"] = new("The session stopped and is being looked at before it is shown to you",
             ["the Wingman or the Director is reading the stop", "its voice summary is not ready yet"]),

@@ -30,7 +30,7 @@ public sealed class SessionColourLegendTests
 {
     /// <summary>The carrying-on sentence, named once because two tests reach for it.</summary>
     private const string PurpleClaim =
-        "The session stopped, but the Wingman judged it will continue on its own, and it turns red if it does not";
+        "The session stopped, but the Wingman judged it will continue on its own";
 
     // The fold's vocabulary, spelled out literally rather than read from the palette under test.
     private static readonly string[] FoldColours =
@@ -331,27 +331,6 @@ public sealed class SessionColourLegendTests
     }
 
     // ================================================================= promises about time
-
-    [Fact]
-    public void TheCarryingOnPromise_IsKeptByTheRealClock_NotByAVerdictThisTestWrote()
-    {
-        // Round 4's finding: this used to hand the fold an already-expired verdict of its own making, so deleting the
-        // watchdog would have left "It turns red if it does not" false with the test still green.
-        var row = PromiseFor("purple", PurpleClaim).Session;
-        var verdict = row.TurnVerdict!;
-        var judgedAt = verdict.JudgedAtUtc;
-
-        Assert.Equal("purple", SessionOrdering.EffectiveColor(row));
-        Assert.False(TurnVerdictWatchdog.IsExpired(verdict, judgedAt.AddMinutes(9)));
-        Assert.True(TurnVerdictWatchdog.IsExpired(verdict, judgedAt.AddMinutes(10)));
-
-        row.TurnVerdict = TurnVerdictWatchdog.Expire(verdict, judgedAt.AddMinutes(10));
-        row.VerdictLabel = row.TurnVerdict.Label;
-
-        Assert.Equal("red", SessionOrdering.EffectiveColor(row));
-        Assert.Equal(TurnVerdictWatchdog.ExpiredLabel, SessionOrdering.StateLabel(row));
-        Assert.Equal(SessionOrdering.TriageBucket.NeedsYou, SessionOrdering.Classify(row));
-    }
 
     // ================================================================= the notes
 

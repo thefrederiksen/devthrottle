@@ -61,7 +61,6 @@ function base(overrides: Partial<WingmanNowDto> = {}): WingmanNowDto {
     replyHint: null,
     snoozedUntil: null,
     calmCard: null,
-    carryingOnDeadline: null,
     lastWords: null,
     failedHeadline: null,
     failedStory: null,
@@ -259,7 +258,7 @@ describe("Now - the live stop", () => {
     expect(onGoToSession).toHaveBeenCalledWith("3f2b19c0-0000-4000-8000-000000000044");
   });
 
-  it("draws carrying on: nothing needed, and when it turns red, in the Gateway's words with the local clock", () => {
+  it("draws carrying on as a purple card that promises no deadline", () => {
     const now = base({
       state: "carrying-on",
       pillText: "Carrying on",
@@ -270,38 +269,12 @@ describe("Now - the live stop", () => {
       story: "The Worker is running the full test gate on pull request 2977.",
       agentSaid: { who: "Claude Code said", text: "The Worker is seated and running." },
       calmCard: { heading: "Nothing needed from you", body: null, tone: "purple" },
-      carryingOnDeadline: {
-        before: "If it has not worked again by",
-        atUtc: "2026-09-17T12:05:00Z",
-        after: ", and none of the sessions it owns is still working, this turns red and says so.",
-      },
     });
-    render(<WingmanNow now={now} at={AT} />);
+    const { container } = render(<WingmanNow now={now} at={AT} />);
 
     expect(screen.getByText("Nothing needed from you")).toBeTruthy();
-    expect(
-      screen.getByText(
-        `If it has not worked again by ${formatClockTime("2026-09-17T12:05:00Z")}, and none of the sessions it owns is still working, this turns red and says so.`,
-      ),
-    ).toBeTruthy();
-  });
-
-  it("draws the carrying-on sentence that has no clock from the card's own body, with no deadline to show", () => {
-    // ONE SENTENCE, NEVER TWO TO CHOOSE BETWEEN. While a session it owns is still running no clock is counting, so
-    // the Gateway sends NO deadline at all and puts the sentence that says so in the card's body.
-    const now = base({
-      state: "carrying-on",
-      calmCard: {
-        heading: "Nothing needed from you",
-        body: "It turns red if it stops working and none of the sessions it owns is still working.",
-        tone: "purple",
-      },
-      carryingOnDeadline: null,
-    });
-    render(<WingmanNow now={now} at={AT} />);
-    expect(
-      screen.getByText("It turns red if it stops working and none of the sessions it owns is still working."),
-    ).toBeTruthy();
+    expect(container.querySelector(".wnow-card-calm-purple")).toBeTruthy();
+    expect(screen.queryByText(/turns red/)).toBeNull();
   });
 
   it("draws done: the work is complete, and nothing to answer", () => {

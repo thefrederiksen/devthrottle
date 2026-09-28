@@ -81,10 +81,10 @@ public sealed class TurnVerdictTraceRowStampTests
     {
         var live = new MovedOn { Latest = Verdict("later", TurnVerdictVocabulary.Finished, "Pushed the tag") };
 
-        var stamped = Stamp(live).Stamp(Account, Trace(Verdict("expired", TurnVerdictVocabulary.NeededYou, TurnVerdictWatchdog.ExpiredLabel)));
+        var stamped = Stamp(live).Stamp(Account, Trace(Verdict("expired", TurnVerdictVocabulary.NeededYou, "Said it would continue and did not")));
 
         Assert.Equal("red", stamped.RowColour);
-        Assert.Equal(TurnVerdictWatchdog.ExpiredLabel, stamped.RowLabel);
+        Assert.Equal("Said it would continue and did not", stamped.RowLabel);
     }
 
     [Fact]

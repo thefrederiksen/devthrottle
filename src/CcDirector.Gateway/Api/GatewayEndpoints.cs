@@ -3175,7 +3175,6 @@ internal static class GatewayEndpoints
         app.MapGet("/sessions/{sid}/wingman-now", (HttpContext ctx, string sid)
             => ReadWingmanNow(ctx, sid, tenantBoundary, registry, pushedSessions, turnVerdicts, sessionTurns,
                 snoozeRegistry, handRaises, turnVerdictRows, snoozeExpiry, turnVerdictSettings,
-                streamStaleResolved,
                 // The same voice facts the roster route binds, from the same delegates - so this view and the
                 // Sessions list read one verdict about one session rather than two.
                 tenant => new VoiceRowStamp.VoiceFacts(
@@ -6989,7 +6988,6 @@ internal static class GatewayEndpoints
         Wingman.ITurnVerdictRowSource? turnVerdictRows,
         Wingman.SnoozeExpiryReJudge? snoozeExpiry,
         Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null,
-        TimeSpan? streamStaleAfter = null,
         Func<Core.Tenancy.TenantId, VoiceRowStamp.VoiceFacts>? voiceFactsFor = null,
         Func<Core.Tenancy.TenantId, string, bool>? startedByScheduleFor = null)
     {
@@ -7078,14 +7076,6 @@ internal static class GatewayEndpoints
             wingmanSwitchedOff = !settings.JudgeEnabled || !settings.ColourEnabled;
         }
 
-        // WHAT THIS SESSION'S OWN SESSIONS ARE DOING, read the way the carrying-on clock's own seat reads them -
-        // GatewayTurnVerdictEnvironment.OwnedSessions is this same call over the same fresh snapshot. The clock
-        // does not run while one of them is still alive, so the card can only name a deadline when this says so,
-        // and reading it a second way here is how the card and the clock would come to disagree.
-        Wingman.OwnedSessionsFacts? ownedSessions = null;
-        if (pushedSessions is not null && streamStaleAfter is { } stale)
-            ownedSessions = Wingman.TurnVerdictOwnedSessions.For(pushedSessions.SnapshotFresh(tenant.Value, stale), sid);
-
         // WHO ASKED A WORKING SESSION, when the answer is "a schedule". It is read from the recorded cron fires -
         // a fire writes the session it started - so the card names a schedule from a record and never from a
         // reading of the row. A Gateway handed no delegate looks nowhere and the card then says nothing about
@@ -7093,7 +7083,7 @@ internal static class GatewayEndpoints
         var startedBySchedule = startedByScheduleFor is not null && startedByScheduleFor(tenant.Value, sid);
 
         var answer = Wingman.WingmanNowFold.Fold(
-            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation, wingmanSwitchedOff, ownedSessions,
+            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation, wingmanSwitchedOff,
                 roster, DateTime.UtcNow, startedBySchedule));
         FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} state={answer.State}");
         return Results.Json(answer);

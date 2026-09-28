@@ -41,7 +41,7 @@ not one of the words is not re-attempted for a listener, because at temperature 
 |---|---|---|
 | needs-you | red | needed-you |
 | done | cyan | finished (kind done) |
-| carrying-on | purple, carrying-on clock unchanged | continues-alone |
+| carrying-on | purple | continues-alone |
 
 Every record says which step decided it and why (`DecidedBy`, `DecisionReason`), and so does the debug view.
 
@@ -203,7 +203,6 @@ Where each piece lives:
 | The two switches and the timings | `src/CcDirector.Gateway/Wingman/TurnVerdictSettings.cs` |
 | Colour, label and bucket | `src/CcDirector.Gateway.Contracts/SessionOrdering.cs` |
 | What each colour means, in words | `src/CcDirector.Gateway.Contracts/SessionColourLegend.cs` |
-| The carrying-on clock | `src/CcDirector.Gateway/Wingman/TurnVerdictWatchdog.cs` |
 | The activation route - the owner typing | `src/CcDirector.Gateway/Wingman/TurnVerdictAnswer.cs` |
 | "This verdict is wrong" | `src/CcDirector.Gateway/Wingman/TurnVerdictFeedbackService.cs` |
 
@@ -245,8 +244,8 @@ corpus label and a live verdict mean the same thing.
 
 `finished` and `continues-alone` are the same answer to "wake the owner?" and different answers
 to "should anything have happened next?". That is the whole reason they are two words: a
-finished session staying quiet is correct; one that said it would continue and then stayed quiet
-is stuck, and the clock in section 7 is what catches it.
+finished session staying quiet is correct; one that said it would continue is expected to act again.
+(A clock that turned a quiet carrying-on row red was removed on 28 September 2026 - see section 7.)
 
 ### Validation, which is mechanical and never interpretation
 
@@ -493,7 +492,7 @@ calm":
 |---|---|---|---|
 | `finished`, kind `done` | cyan | leads "Done" | No. Listed in the calm band below the reds |
 | `finished`, kind `report` | cyan | leads "Report" | No. Same band |
-| `continues-alone` | purple | the Wingman's line, or "Carrying on" | No. Same band, clock running |
+| `continues-alone` | purple | the Wingman's line, or "Carrying on" | No. Same band |
 | Any other word | red, unchanged | the ask, in the Wingman's words | Yes |
 | Refused, timed out, rate limited, never judged | red, unchanged | as today | Yes |
 
@@ -501,10 +500,7 @@ calm":
 read as a session that had not started yet, which is the opposite of what is true about it, so
 the two never share a colour.
 
-**Purple carries a clock.** The agent's announced next wake-up plus two minutes when it
-announced one, otherwise ten minutes. On expiry the row goes red with "Said it would continue
-and did not". A session whose own owned sessions are still working is carrying on whatever its
-reply says, and the clock does not run while any of them works.
+**Purple has no clock (removed 28 September 2026).** There used to be a carrying-on clock that turned a purple row red after ten minutes (or two minutes past an announced wake-up) and said "It said it would continue, and it did not." Most of what it caught were sessions waiting on real work that takes longer than ten minutes - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred by a rule or the model, not said by the agent. The owner ruled it out. A purple row stays purple until the session stops again.
 
 **A reading stamp comes first.** A stop the Wingman will judge never shows red first: `reading`
 is stamped at the boundary before any wait or read, so the first colour pushed is the yellow
