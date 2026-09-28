@@ -386,3 +386,125 @@ public sealed class FactoryMemoryStoreTests : IDisposable
         Assert.Equal("domains", Assert.Single(store.List(Tenant, TheFactory)).Name);
     }
 }
+
+/// <summary>
+/// ONE SPELLING FOR A FACTORY AND FOR A NOTE (Factory Memory mission, phase 2 review, findings 1, 2 and 3).
+///
+/// These exist because the review could say of the first version "no test would fail": every test spelled the
+/// factory one way, so nothing would have caught the case where one factory spelled two ways is ONE factory for
+/// access and TWO memories for storage - each session reading its own partition, neither able to see that half
+/// the factory's lessons are in the other. That is the lost lesson the mission exists to end, arriving silently.
+/// </summary>
+[Trait("Category", "FactoryMemory")]
+public sealed class FactoryMemoryOneSpellingTests : IDisposable
+{
+    private const string Scout = "5e551011-0000-0000-0000-000000000009";
+    private static readonly DateTime Now = new(2026, 9, 28, 12, 0, 0, DateTimeKind.Utc);
+
+    private readonly GatewayDbTestHarness _h = new();
+    public void Dispose() => _h.Dispose();
+    private FactoryMemoryStore NewStore() => new(_h.Open());
+    private static TenantId Tenant => TenantId.Local;
+
+    [Fact]
+    public void A_FACTORY_SPELLED_TWO_WAYS_IS_ONE_MEMORY()
+    {
+        // THE TEST THE REVIEW ASKED FOR. Written as 'website-factory', read as 'Website-Factory': one note, not
+        // two partitions. Remove the folding and this fails in both directions.
+        var store = NewStore();
+        Assert.True(store.Set(Tenant, "website-factory", "domains", "one", 0,
+            FactoryMemoryAuthorKinds.Session, Scout, Now).Ok);
+
+        Assert.Equal("one", store.Get(Tenant, "Website-Factory", "domains")!.Text);
+        Assert.Single(store.List(Tenant, "WEBSITE-FACTORY"));
+
+        // And a write through the other spelling continues the SAME version chain rather than starting a second.
+        var second = store.Set(Tenant, "Website-Factory", "domains", "one, and two", 1,
+            FactoryMemoryAuthorKinds.Session, Scout, Now);
+        Assert.True(second.Ok);
+        Assert.Equal(2, second.Note!.Version);
+        Assert.Equal("website-factory", second.Note.Factory);
+    }
+
+    [Fact]
+    public void A_NOTE_NAMED_TWO_WAYS_IS_ONE_NOTE()
+    {
+        // Before folding, 'Domains' and 'domains' were two rows to the database and one file on disk: an agent
+        // would start a run silently missing one of them, and neither counted against the other in the caps.
+        var store = NewStore();
+        Assert.True(store.Set(Tenant, "website-factory", "domains", "one", 0,
+            FactoryMemoryAuthorKinds.Session, Scout, Now).Ok);
+
+        var again = store.Set(Tenant, "website-factory", "Domains", "two", 1,
+            FactoryMemoryAuthorKinds.Session, Scout, Now);
+
+        Assert.True(again.Ok);
+        Assert.Equal(2, again.Note!.Version);
+        Assert.Equal("domains", again.Note.Name);
+        Assert.Single(store.List(Tenant, "website-factory"));
+    }
+
+    [Theory]
+    [InlineData("in valid")]
+    [InlineData("a:b")]
+    [InlineData("..")]
+    [InlineData("../../escape")]
+    [InlineData(@"back\slash")]
+    [InlineData("trailing-")]
+    [InlineData("under_score")]
+    public void A_name_that_could_not_be_a_file_is_REFUSED(string name)
+    {
+        // Every one of these is admitted by "not blank and at most 200 characters", and every one of them would
+        // reach the Director, which writes one file per note before an agent starts and treats a failure as a
+        // hard stop. The last two are refused for being outside the alphabet rather than dangerous: one rule.
+        var store = NewStore();
+        var write = store.Set(Tenant, "website-factory", name, "x", 0, FactoryMemoryAuthorKinds.Session, Scout, Now);
+
+        Assert.Equal(FactoryMemoryOutcome.BadName, write.Outcome);
+        Assert.Empty(store.List(Tenant, "website-factory"));
+    }
+
+    [Theory]
+    [InlineData("aux")]
+    [InlineData("con")]
+    [InlineData("nul")]
+    [InlineData("com1")]
+    public void A_NAME_WINDOWS_KEEPS_FOR_A_DEVICE_IS_REFUSED(string name)
+    {
+        // These pass the alphabet rule and cannot be files. One note called 'aux' would stop every later session
+        // of the factory on every Windows machine, because a factory session never starts without its memory.
+        var store = NewStore();
+        var write = store.Set(Tenant, "website-factory", name, "x", 0, FactoryMemoryAuthorKinds.Session, Scout, Now);
+
+        Assert.Equal(FactoryMemoryOutcome.BadName, write.Outcome);
+        Assert.Contains("Windows keeps", write.Refusal);
+    }
+
+    [Theory]
+    [InlineData("Not A Factory")]
+    [InlineData("factory/../other")]
+    [InlineData("")]
+    public void A_factory_that_is_not_one_spelling_is_REFUSED(string factory)
+    {
+        var store = NewStore();
+        var write = store.Set(Tenant, factory, "domains", "x", 0, FactoryMemoryAuthorKinds.Session, Scout, Now);
+
+        Assert.Equal(FactoryMemoryOutcome.BadFactory, write.Outcome);
+    }
+
+    [Fact]
+    public void ONLY_A_REAL_SECOND_WRITER_IS_CALLED_ONE()
+    {
+        // Finding 3, as the logic that decides it. A failed insert used to be reported as a second writer
+        // whatever caused it - so a caller whose text a database refused was told to merge and try again, and
+        // would do that for as long as it was willing while the lesson was never stored. The head decides: the
+        // version the write wanted either exists now, or it does not.
+        var taken = new FactoryMemoryNoteEntity { Version = 4 };
+        var older = new FactoryMemoryNoteEntity { Version = 3 };
+
+        Assert.True(FactoryMemoryStore.WasTakenByAnotherWriter(taken, attemptedVersion: 4));
+        Assert.True(FactoryMemoryStore.WasTakenByAnotherWriter(new FactoryMemoryNoteEntity { Version = 5 }, 4));
+        Assert.False(FactoryMemoryStore.WasTakenByAnotherWriter(older, attemptedVersion: 4));
+        Assert.False(FactoryMemoryStore.WasTakenByAnotherWriter(null, attemptedVersion: 1));
+    }
+}

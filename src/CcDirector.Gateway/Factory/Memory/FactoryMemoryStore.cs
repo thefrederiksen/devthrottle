@@ -67,6 +67,7 @@ public sealed class FactoryMemoryStore
     /// </summary>
     public IReadOnlyList<FactoryMemoryNoteEntity> List(TenantId tenant, string factory)
     {
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return Array.Empty<FactoryMemoryNoteEntity>();
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
@@ -83,6 +84,8 @@ public sealed class FactoryMemoryStore
     /// </summary>
     public FactoryMemoryNoteEntity? Get(TenantId tenant, string factory, string name)
     {
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return null;
+        if (!FactoryNames.TryNoteName(name, out name, out _)) return null;
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
@@ -93,6 +96,8 @@ public sealed class FactoryMemoryStore
     /// <summary>Every kept version of one note, newest first.</summary>
     public IReadOnlyList<FactoryMemoryNoteEntity> History(TenantId tenant, string factory, string name)
     {
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return Array.Empty<FactoryMemoryNoteEntity>();
+        if (!FactoryNames.TryNoteName(name, out name, out _)) return Array.Empty<FactoryMemoryNoteEntity>();
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
@@ -160,12 +165,15 @@ public sealed class FactoryMemoryStore
     private FactoryMemoryWrite AppendInside(GatewayDbContext ctx, TenantId tenant, string factory, string name,
         string? text, bool deleted, int expectedVersion, string authorKind, string? authorId, DateTime nowUtc)
     {
-        if (string.IsNullOrWhiteSpace(name))
-            return FactoryMemoryWrite.Refused(FactoryMemoryOutcome.BadName, "a note needs a name", null);
-        name = name.Trim();
-        if (name.Length > MaxNameLength)
-            return FactoryMemoryWrite.Refused(FactoryMemoryOutcome.BadName,
-                $"a note's name takes at most {MaxNameLength} characters", null);
+        // ONE SPELLING, FOLDED AND CHECKED HERE (phase 2 review, findings 1 and 2). Both of these are refused
+        // rather than accepted-and-coped-with-later, because the Director turns a note into a FILE before an
+        // agent starts and a name it cannot write is a hard stop for every later session of the factory.
+        if (!FactoryNames.TryFactory(factory, out var foldedFactory, out var factoryRefusal))
+            return FactoryMemoryWrite.Refused(FactoryMemoryOutcome.BadFactory, factoryRefusal!, null);
+        factory = foldedFactory;
+        if (!FactoryNames.TryNoteName(name, out var foldedName, out var nameRefusal))
+            return FactoryMemoryWrite.Refused(FactoryMemoryOutcome.BadName, nameRefusal!, null);
+        name = foldedName;
 
         var head = Head(ctx, factory, name);
         var current = head?.Version ?? 0;
@@ -188,7 +196,9 @@ public sealed class FactoryMemoryStore
                 return FactoryMemoryWrite.Refused(FactoryMemoryOutcome.NoteTooLarge,
                     $"the note takes {bytes} bytes; one note takes at most {MaxNoteBytes}", head);
 
-            var others = Current(ctx, factory).Where(n => !n.Deleted && !n.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+            // Names are folded above, so an exact comparison is now the right one: before folding, 'Domains'
+            // beside 'domains' counted against neither the note limit nor the factory's bytes.
+            var others = Current(ctx, factory).Where(n => !n.Deleted && !string.Equals(n.Name, name, StringComparison.Ordinal)).ToList();
             var isNewName = head is null || head.Deleted;
             if (isNewName && others.Count + 1 > MaxNotes)
                 return FactoryMemoryWrite.Refused(FactoryMemoryOutcome.TooManyNotes,
@@ -236,11 +246,27 @@ public sealed class FactoryMemoryStore
         catch (DbUpdateException ex)
         {
             tx.Rollback();
-            FileLog.Write($"[FactoryMemoryStore] {factory}/{name}: version {written.Version} was taken by another writer: {ex.Message}");
             ctx.ChangeTracker.Clear();
-            return FactoryMemoryWrite.Refused(FactoryMemoryOutcome.Stale,
-                $"another writer took version {written.Version} of '{name}' first; read it again, merge, and write once more",
-                Head(ctx, factory, name));
+            var headNow = Head(ctx, factory, name);
+
+            // ONLY A SECOND WRITER IS REPORTED AS ONE (phase 2 review, finding 3). A key violation is one cause
+            // of this exception and not the only one: on PostgreSQL a text holding a zero character, or a value
+            // longer than its column, raises the same thing. Telling such a caller that another writer won is a
+            // refusal naming a cause that did not happen - and it tells the caller to merge and try again, which
+            // it will do for as long as it is willing, never storing the lesson. So the head decides: if the
+            // version this write wanted now exists, a writer really did take it; if it does not, the write failed
+            // for its own reason and the caller is told that instead.
+            if (WasTakenByAnotherWriter(headNow, written.Version))
+            {
+                FileLog.Write($"[FactoryMemoryStore] {factory}/{name}: version {written.Version} was taken by another writer");
+                return FactoryMemoryWrite.Refused(FactoryMemoryOutcome.Stale,
+                    $"another writer took version {written.Version} of '{name}' first; read it again, merge, and write once more",
+                    headNow);
+            }
+
+            FileLog.Write($"[FactoryMemoryStore] {factory}/{name}: the write FAILED and no other writer holds version {written.Version}: {ex.Message}");
+            return FactoryMemoryWrite.Refused(FactoryMemoryOutcome.WriteFailed,
+                $"'{name}' could not be stored: {Innermost(ex).Message}", headNow);
         }
 
         Prune(ctx, factory, name, nowUtc);
@@ -275,6 +301,21 @@ public sealed class FactoryMemoryStore
         }
     }
 
+    /// <summary>
+    /// Did a second writer really take this version? The head decides, and nothing else can: an insert can fail
+    /// for reasons that have no writer behind them at all. True only when the version this write wanted now
+    /// exists - which is exactly what a key violation by a competing insert leaves behind.
+    /// </summary>
+    internal static bool WasTakenByAnotherWriter(FactoryMemoryNoteEntity? head, int attemptedVersion)
+        => head is not null && head.Version >= attemptedVersion;
+
+    /// <summary>The innermost reason, which is the one a database driver puts the real message on.</summary>
+    private static Exception Innermost(Exception ex)
+    {
+        while (ex.InnerException is { } inner) ex = inner;
+        return ex;
+    }
+
     /// <summary>The highest version of one name, or null when the name has never been written.</summary>
     private static FactoryMemoryNoteEntity? Head(GatewayDbContext ctx, string factory, string name)
         => ctx.FactoryMemoryNotes.AsNoTracking()
@@ -304,6 +345,10 @@ public enum FactoryMemoryOutcome
     AlreadyDeleted,
     NoSuchVersion,
     BadName,
+    /// <summary>The factory id is not one spelling of a factory id.</summary>
+    BadFactory,
+    /// <summary>The write failed for its own reason, and no second writer holds the version it wanted.</summary>
+    WriteFailed,
 }
 
 /// <summary>

@@ -165,7 +165,14 @@ internal static class FactoryMemoryEndpoints
             }
             // WHICH person, as far as this Gateway can tell: the device that authenticated. It is recorded as the
             // author so "who changed the memory" has an answer for a person's edit as well as a session's.
-            caller = new Caller(stated, FactoryMemoryAuthorKinds.Person, FleetManagerOwnerDevice.Caller(ctx)?.Actor);
+            // Folded and checked (phase 2 review, finding 1): a person reading 'Website-Factory' in the Cockpit
+            // must be shown the same memory an agent of website-factory writes, not an empty second one.
+            if (!Factory.FactoryNames.TryFactory(stated, out var folded, out var refusal))
+            {
+                error = Results.BadRequest(new { error = refusal, detail = SpawnFactory.OneSpelling });
+                return false;
+            }
+            caller = new Caller(folded, FactoryMemoryAuthorKinds.Person, FleetManagerOwnerDevice.Caller(ctx)?.Actor);
             return true;
         }
 
