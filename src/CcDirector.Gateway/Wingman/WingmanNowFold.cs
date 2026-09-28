@@ -676,8 +676,8 @@ public static class WingmanNowFold
     };
 
     /// <summary>
-    /// The calm card, INCLUDING ITS COLOUR. The approved mockup tints the finished work and the report cyan and
-    /// carrying on purple, and the colour is named here for the same reason the words are: reading it off the state
+    /// The calm card, INCLUDING ITS COLOUR. Every calm card is cyan - done, report and carrying on alike (the simpler
+    /// session colours ruling, 2026-09-28, which removed purple) - and the colour is named here for the same reason the words are: reading it off the state
     /// name in the client would be the client deciding what a state means.
     /// </summary>
     private static WingmanNowCardDto? CalmCard(string state) => state switch
@@ -694,7 +694,7 @@ public static class WingmanNowFold
         // 2026-09-28), so there is no deadline to promise and no sentence under the heading.
         WingmanNowStates.CarryingOn => new WingmanNowCardDto
         {
-            Heading = CarryingOnHeading, Tone = WingmanNowCardTones.Purple,
+            Heading = CarryingOnHeading, Tone = WingmanNowCardTones.Cyan,
         },
         _ => null,
     };

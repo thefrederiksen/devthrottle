@@ -392,7 +392,7 @@ public sealed class CallACodeFirstTests : IDisposable
     [Theory]
     [InlineData("needs-you", "needed-you", "red")]
     [InlineData("done", "finished", "cyan")]
-    [InlineData("carrying-on", "continues-alone", "purple")]
+    [InlineData("carrying-on", "continues-alone", "cyan")]
     public async Task EachWord_IsStoredAsItsOldWord_AndPaintsItsColour(string word, string storedWord, string colour)
     {
         var env = Env(PlainReport);

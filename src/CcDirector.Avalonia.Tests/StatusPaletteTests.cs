@@ -33,7 +33,6 @@ public sealed class StatusPaletteTests
     [InlineData("cyan", "#06B6D4")]         // cyan-500 - finished, never the brand-new green (issue #2892)
     [InlineData("yellow", "#EAB308")]       // yellow-500
     [InlineData("orange", "#F97316")]       // orange-500
-    [InlineData("purple", "#A855F7")]       // purple-500
     [InlineData("supporting", "#64748B")]   // slate-500
     [InlineData("error", "#B91C1C")]        // red-700 - crashed, NOT finished (issue #959)
     [InlineData("grey", "#6B7280")]         // gray-500
@@ -52,7 +51,7 @@ public sealed class StatusPaletteTests
         // also the grey somebody reaching for "a lighter grey" would pick for the neutral - at 1.90:1 from
         // the palette grey it would be the very lie the neutral exists to avoid.
         var strays = new[] { "#E5484D", "#F44747", "#F14C4C", "#9CA3AF", "#6A6A6A", "#888888", "#5FD08A", "#2B6CB0", "#DCDCAA", "#F59E0B" };
-        var live = new[] { "red", "blue", "green", "cyan", "yellow", "orange", "purple", "supporting", "error", "grey", "unknown" }
+        var live = new[] { "red", "blue", "green", "cyan", "yellow", "orange", "supporting", "error", "grey", "unknown" }
             .Select(StatusPalette.HexFor)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

@@ -21,13 +21,13 @@ namespace CcDirector.Core.Wingman;
 ///   unknown = process exited, or the source is unreachable. Written here; the Gateway folds Exited to
 ///             "grey" instead, deliberately - it is the single source of truth for the fold.
 ///   green   = brand-new, never took a turn. GATEWAY ONLY, from SessionDto.IsBrandNew.
-///   cyan    = the Wingman judged the stop finished - done, or a report that asks nothing. GATEWAY ONLY,
-///             from the turn verdict. It was green until issue #2892, and a finished row read as a new one.
+///   cyan    = the Wingman judged the stop calm - done, a report that asks nothing, or carrying on by itself.
+///             GATEWAY ONLY, from the turn verdict. It was green until issue #2892, and a finished row read as
+///             a new one.
 ///   yellow  = the wingman is reading the finished turn, or a voice summary is being prepared.
 ///             GATEWAY ONLY.
-///   purple  = the Wingman judged that the session is carrying on by itself. GATEWAY ONLY, from the turn
-///             verdict. (It used to mean "parked on its own background task", from
-///             SessionDto.IsBackgroundRunning; that arm was deleted so purple has one producer.)
+///   (purple is gone. It meant "carrying on by itself" and, before that, "parked on its own background
+///             task"; carrying on is cyan since the simpler session colours ruling, 2026-09-28.)
 ///   supporting = a controlled sub-agent whose controller is STILL ALIVE (issue #815). GATEWAY ONLY - it
 ///             needs the whole fleet to know the controller lives.
 ///
@@ -55,7 +55,6 @@ public static class StatusColor
     public const string Yellow = "yellow";
     public const string Green = "green";
     public const string Blue = "blue";
-    public const string Purple = "purple";
 
     /// <summary>The session's agent process ended unexpectedly - a crash: a non-zero exit, or the
     /// process dropping out while it was actively working. The row is kept in this Error state so the

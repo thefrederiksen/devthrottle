@@ -45,6 +45,9 @@ describe("Gateway-stamped session presentation state", () => {
 
   it("fails loudly on unknown Gateway colors", () => {
     expect(() => dotColor("chartreuse")).toThrow("Unknown Gateway effectiveColor");
+    // Purple is gone: carrying on is cyan (the simpler session colours ruling, 2026-09-28), so the Gateway never
+    // sends it and a client that met it would be meeting a defect.
+    expect(() => dotColor("purple")).toThrow("Unknown Gateway effectiveColor");
   });
 
   it("renders the 'unknown' and 'grey' Gateway colors as gray", () => {
@@ -74,7 +77,6 @@ describe("Gateway-stamped session presentation state", () => {
     expect(dotColor("green")).toBe("#22C55E");
     expect(dotColor("cyan")).toBe("#06B6D4");
     expect(dotColor("blue")).toBe("#3B82F6");
-    expect(dotColor("purple")).toBe("#A855F7");
     expect(dotColor("supporting")).toBe("#64748B");
     expect(dotColor("error")).toBe("#B91C1C");
     expect(dotColor("grey")).toBe("#6B7280");
@@ -233,11 +235,11 @@ describe("the calm band after the waiting line", () => {
   const calm = (id: string, effectiveColor: string, createdAt: string) =>
     session({ sessionId: id, effectiveColor, triageBucket: "active", verdictState: "judged", createdAt } as Partial<SessionDto>);
 
-  it("lists the cyan and purple judged rows after every red row", () => {
+  it("lists the cyan judged rows - done and carrying on alike - after every red row", () => {
     const sessions = [
       calm("done", "cyan", "2026-07-09T08:00:00Z"),
       needsYou("red-b", "2026-07-09T10:00:00Z"),
-      calm("carrying", "purple", "2026-07-09T07:00:00Z"),
+      calm("carrying", "cyan", "2026-07-09T07:00:00Z"),
       needsYou("red-a", "2026-07-09T09:00:00Z"),
     ];
 

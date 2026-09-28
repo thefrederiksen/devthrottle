@@ -50,7 +50,7 @@ const LEGEND = {
   entries: [
     { colour: "red", hex: "#EF4444", title: "Needs you", means: "The session has stopped and is waiting for you.", asksForYou: "Yes" },
     { colour: "blue", hex: "#3B82F6", title: "Working", means: "The agent is running a turn right now.", asksForYou: "No" },
-    { colour: "purple", hex: "#A855F7", title: "Carrying on", means: "The Wingman judged it will continue on its own.", asksForYou: "No" },
+    { colour: "cyan", hex: "#06B6D4", title: "Nothing needed from you", means: "The Wingman judged it needs nothing from you.", asksForYou: "No" },
   ],
   broken: { hex: "#FF00FF", title: "Magenta", means: "Not a state." },
   verdictNote: "Some colours need the verdicts switched on.",
@@ -469,8 +469,8 @@ describe("FleetMapView - what the colours mean", () => {
           sessionId: "144",
           number: 144,
           name: "cc-worktrees - Architect",
-          effectiveColor: "purple",
-          effectiveColorHex: "#A855F7",
+          effectiveColor: "cyan",
+          effectiveColorHex: "#06B6D4",
           stateLabel: "Monitor fix round 2 progress",
           // What the Director wrote before the Wingman judged the turn - the hover used to show this.
           lastStatusReason: "needs you",
@@ -493,10 +493,10 @@ describe("FleetMapView - what the colours mean", () => {
     }
   });
 
-  it("hovers a purple dot as Carrying on, not as the Director's 'needs you'", async () => {
+  it("hovers a calm dot as Nothing needed from you, not as the Director's 'needs you'", async () => {
     const { container } = render(<FleetMapView />);
     await screen.findByText(LEGEND.entries[2].means);
     const dot = container.querySelector(".fmap-card .fmap-dot") as HTMLElement;
-    expect(dot.getAttribute("title")).toBe("Carrying on: Monitor fix round 2 progress");
+    expect(dot.getAttribute("title")).toBe("Nothing needed from you: Monitor fix round 2 progress");
   });
 });

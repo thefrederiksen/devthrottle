@@ -162,7 +162,7 @@ public sealed class SessionRailStateTests
     /// The Director writes <c>LastStatusReason</c> itself, from the only thing it knows - running or
     /// stopped - and it writes it BEFORE the Wingman has judged the turn. So a session the Wingman has
     /// since judged "carrying on by itself" still carries the local sentence "needs you", and that
-    /// sentence was what the rail hovered. A purple dot said "needs you".
+    /// sentence was what the rail hovered. A calm dot said "needs you".
     ///
     /// The assertion is deliberately not "the hover is non-empty", which would pass on the bug: it names
     /// the Gateway's words AND asserts the Director's own are gone.
@@ -176,7 +176,7 @@ public sealed class SessionRailStateTests
         // What this Director wrote for itself, before any verdict.
         session.SetStatusColor("red", "needs you");
         // What the Gateway then folded and stamped down: the session is carrying on by itself.
-        session.ApplyGatewayDisplayState("purple", "Monitor fix round 2 progress", "active", null, null, false);
+        session.ApplyGatewayDisplayState("cyan", "Monitor fix round 2 progress", "active", null, null, false);
 
         Assert.Equal("Monitor fix round 2 progress", vm.ColourHover);
         Assert.DoesNotContain("needs you", vm.ColourHover, StringComparison.OrdinalIgnoreCase);

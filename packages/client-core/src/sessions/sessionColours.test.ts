@@ -48,7 +48,7 @@ describe("dotTitle - the hover over a session's dot", () => {
   const legend: SessionColourLegend = {
     entries: [
       { colour: "red", hex: "#EF4444", title: "Needs you", means: "Waiting for you.", asksForYou: "Yes" },
-      { colour: "purple", hex: "#A855F7", title: "Carrying on", means: "Will continue on its own.", asksForYou: "No" },
+      { colour: "cyan", hex: "#06B6D4", title: "Nothing needed from you", means: "Needs nothing from you.", asksForYou: "No" },
       { colour: "grey", hex: "#6B7280", title: "Snoozed or exited", means: "Resting.", asksForYou: "No" },
     ],
     broken: { hex: "#FF00FF", title: "Magenta", means: "Not a state." },
@@ -58,9 +58,9 @@ describe("dotTitle - the hover over a session's dot", () => {
     ({ sessionId: "s", effectiveColor, stateLabel, lastStatusReason }) as SessionDto;
 
   it("names the colour and says the Gateway's label - never the Director's pre-Wingman reason", () => {
-    // The owner's case, 16 September: session 144 painted purple hovered "needs you".
-    const title = dotTitle(stamped("purple", "Monitor fix round 2 progress"), legend);
-    expect(title).toBe("Carrying on: Monitor fix round 2 progress");
+    // The owner's case, 16 September: session 144, carrying on, hovered "needs you".
+    const title = dotTitle(stamped("cyan", "Monitor fix round 2 progress"), legend);
+    expect(title).toBe("Nothing needed from you: Monitor fix round 2 progress");
     expect(title.toLowerCase()).not.toContain("needs you");
   });
 
@@ -73,6 +73,6 @@ describe("dotTitle - the hover over a session's dot", () => {
   });
 
   it("says the stamped label alone until the legend has loaded", () => {
-    expect(dotTitle(stamped("purple", "Monitor fix round 2 progress"), null)).toBe("Monitor fix round 2 progress");
+    expect(dotTitle(stamped("cyan", "Monitor fix round 2 progress"), null)).toBe("Monitor fix round 2 progress");
   });
 });

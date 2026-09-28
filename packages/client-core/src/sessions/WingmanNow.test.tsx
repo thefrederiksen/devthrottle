@@ -258,22 +258,22 @@ describe("Now - the live stop", () => {
     expect(onGoToSession).toHaveBeenCalledWith("3f2b19c0-0000-4000-8000-000000000044");
   });
 
-  it("draws carrying on as a purple card that promises no deadline", () => {
+  it("draws carrying on as a cyan card that promises no deadline", () => {
     const now = base({
       state: "carrying-on",
       pillText: "Carrying on",
-      pillColour: "purple",
-      pillColourHex: "#a855f7",
+      pillColour: "cyan",
+      pillColourHex: "#06b6d4",
       when: { lead: "Stopped at", atUtc: "2026-09-17T11:19:00Z", showAgo: true, elapsedOnly: false },
       headline: "Waiting for its Worker to finish the slice J test run",
       story: "The Worker is running the full test gate on pull request 2977.",
       agentSaid: { who: "Claude Code said", text: "The Worker is seated and running." },
-      calmCard: { heading: "Nothing needed from you", body: null, tone: "purple" },
+      calmCard: { heading: "Nothing needed from you", body: null, tone: "cyan" },
     });
     const { container } = render(<WingmanNow now={now} at={AT} />);
 
     expect(screen.getByText("Nothing needed from you")).toBeTruthy();
-    expect(container.querySelector(".wnow-card-calm-purple")).toBeTruthy();
+    expect(container.querySelector(".wnow-card-calm-cyan")).toBeTruthy();
     expect(screen.queryByText(/turns red/)).toBeNull();
   });
 
@@ -728,17 +728,15 @@ describe("Now - the calm card's colour", () => {
 
     rerender(
       <WingmanNow
-        now={base({ state: "carrying-on", calmCard: { heading: "Nothing needed from you", body: null, tone: "purple" } })}
+        now={base({ state: "carrying-on", calmCard: { heading: "Nothing needed from you", body: null, tone: "cyan" } })}
         at={AT}
       />,
     );
-    expect(container.querySelector(".wnow-card-calm-purple")).toBeTruthy();
-    expect(container.querySelector(".wnow-card-calm-cyan")).toBeNull();
+    expect(container.querySelector(".wnow-card-calm-cyan")).toBeTruthy();
 
     // No tone from the Gateway is not a licence to pick one here.
     rerender(<WingmanNow now={base({ calmCard: { heading: "Only telling you", body: null } })} at={AT} />);
     expect(container.querySelector(".wnow-card-calm-cyan")).toBeNull();
-    expect(container.querySelector(".wnow-card-calm-purple")).toBeNull();
     expect(container.querySelector(".wnow-card-calm")).toBeTruthy();
   });
 });

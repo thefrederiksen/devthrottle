@@ -36,7 +36,6 @@ public sealed class AgreementCheckFaultInjectionTests
         ["cyan"] = "#06B6D4",
         ["yellow"] = "#EAB308",
         ["orange"] = "#F97316",
-        ["purple"] = "#A855F7",
         ["supporting"] = "#64748B",
         ["error"] = "#B91C1C",
         ["grey"] = "#6B7280",

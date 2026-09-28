@@ -102,12 +102,12 @@ describe("Now, rendered from the answer the Gateway actually sends", () => {
     expect(onGoToSession).toHaveBeenCalledWith(next.sessionId);
   });
 
-  it("draws carrying on as a purple card with no deadline sentence", () => {
+  it("draws carrying on as a cyan card with no deadline sentence", () => {
     const now = SAMPLE.carryingOn;
     const { container } = render(<WingmanNow now={now} at={minutesAfter(now.when!.atUtc, 3)} />);
 
     expect(screen.getByText(now.calmCard!.heading)).toBeTruthy();
-    expect(container.querySelector(".wnow-card-calm-purple")).toBeTruthy();
+    expect(container.querySelector(".wnow-card-calm-cyan")).toBeTruthy();
     expect(screen.queryByText(/turns red/)).toBeNull();
   });
 

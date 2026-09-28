@@ -26,8 +26,8 @@ public class SessionViewModel : INotifyPropertyChanged
     // The colours the fold emits (see SessionOrdering.EffectiveColor) are:
     //   blue   = working          red    = needs you
     //   green  = ready (brand-new session, parked at its prompt with nothing needed)
-    //   cyan   = the Wingman judged the stop finished - done, or a report (issue #2892)
-    //   yellow = wingman narrating purple = the Wingman judged it carrying on by itself
+    //   cyan   = the Wingman judged the stop calm - done, a report, or carrying on by itself (issue #2892)
+    //   yellow = wingman narrating
     //   orange = dictation in flight, or a deep dive running
     //   grey   = parked (on hold) or exited      supporting = a live-controlled Worker's suppressed red
     //   error  = crashed (issue #959)

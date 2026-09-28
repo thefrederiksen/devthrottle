@@ -28,13 +28,9 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class SessionColourLegendTests
 {
-    /// <summary>The carrying-on sentence, named once because two tests reach for it.</summary>
-    private const string PurpleClaim =
-        "The session stopped, but the Wingman judged it will continue on its own";
-
     // The fold's vocabulary, spelled out literally rather than read from the palette under test.
     private static readonly string[] FoldColours =
-        { "red", "yellow", "orange", "green", "cyan", "blue", "purple", "supporting", "error", "grey", "unknown" };
+        { "red", "yellow", "orange", "green", "cyan", "blue", "supporting", "error", "grey", "unknown" };
 
     /// <summary>What one claim promises: a session with exactly those facts, and what the fold must do with it.</summary>
     /// <param name="Session">A session built from the facts the claim describes.</param>
@@ -64,15 +60,16 @@ public sealed class SessionColourLegendTests
             OnHold = true, HasLiveSupervisor = true, Transcribing = true, IsBrandNew = true,
         }, "Working"),
 
-        ("cyan", "The session stopped and the Wingman judged it finished") =>
+        ("cyan", "The session stopped and the Wingman judged it needs nothing from you") =>
             new(Judged("cyan-finished", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindDone), "Done - Pushed the branch"),
         ("cyan", "the work is done") =>
             new(Judged("cyan-done", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindDone), "Done - Pushed the branch"),
         ("cyan", "it is only reporting something and asks you nothing") =>
             new(Judged("cyan-report", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindReport), SessionOrdering.CalmReportLabel + " - Pushed the branch"),
 
-        // The row is purple and stays purple until the session's next stop: there is no timer on carrying on.
-        ("purple", PurpleClaim) => new(CarryingOn("purple-continues"), "Pushed the branch"),
+        // ONE CALM COLOUR (the simpler session colours ruling, 2026-09-28): carrying on was purple and is cyan now. It
+        // stays cyan until the session's next stop: there is no timer on carrying on.
+        ("cyan", "it will carry on by itself") => new(CarryingOn("cyan-continues"), "Pushed the branch"),
 
         ("yellow", "The session stopped and is being looked at before it is shown to you") => new(
             Briefing("yellow-being-read"), "Wingman reading",
@@ -120,25 +117,25 @@ public sealed class SessionColourLegendTests
     {
         switch (claim)
         {
-            case "Done and Carrying on appear only when the Wingman's verdicts are switched on for your account":
-                // "only": the two it names lose their colour without a verdict, and NOTHING ELSE does.
-                foreach (var colour in new[] { "cyan", "purple" })
+            case "Nothing needed from you appears only when the Wingman's verdicts are switched on for your account":
+                // "only": the calm colour loses itself without a verdict, and NOTHING ELSE does.
+                foreach (var colour in new[] { "cyan" })
                     foreach (var text in SessionColourLegend.ClaimsFor(colour))
                         Assert.Equal("red", SessionOrdering.EffectiveColor(Unstamped(PromiseFor(colour, text).Session)));
 
-                foreach (var entry in SessionColourLegend.Build().Entries.Where(e => e.Colour is not ("cyan" or "purple")))
+                foreach (var entry in SessionColourLegend.Build().Entries.Where(e => e.Colour != "cyan"))
                     foreach (var text in SessionColourLegend.ClaimsFor(entry.Colour))
                     {
                         var promise = PromiseFor(entry.Colour, text);
                         var expected = promise.FoldsTo ?? entry.Colour;
                         Assert.True(expected == SessionOrdering.EffectiveColor(Unstamped(promise.Session)),
-                            $"the note says only Done and Carrying on need the switch, but '{entry.Title}' / \"{text}\" " +
+                            $"the note says only Nothing needed from you needs the switch, but '{entry.Title}' / \"{text}\" " +
                             $"changes without a verdict");
                     }
                 return;
 
             case "With them off, those sessions show red instead":
-                foreach (var colour in new[] { "cyan", "purple" })
+                foreach (var colour in new[] { "cyan" })
                     foreach (var text in SessionColourLegend.ClaimsFor(colour))
                     {
                         var row = Unstamped(PromiseFor(colour, text).Session);

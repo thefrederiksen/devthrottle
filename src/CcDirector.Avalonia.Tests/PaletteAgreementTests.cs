@@ -33,7 +33,7 @@ public sealed class PaletteAgreementTests
     // that iterates the values it is checking proves nothing. "unknown" is a real fold colour (grey), so it
     // is in the list; both "grey" and "unknown" map to the one grey on every surface.
     private static readonly string[] Names =
-        { "red", "yellow", "orange", "green", "cyan", "blue", "purple", "supporting", "error", "grey", "unknown" };
+        { "red", "yellow", "orange", "green", "cyan", "blue", "supporting", "error", "grey", "unknown" };
 
     [AvaloniaFact]
     public void Canonical_Desktop_AndWebColors_AgreeOnEveryName()

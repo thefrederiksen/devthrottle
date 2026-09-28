@@ -52,7 +52,7 @@ not one of the words is not re-attempted for a listener, because at temperature 
 |---|---|---|
 | needs-you | red | needed-you |
 | done | cyan | finished (kind done) |
-| carrying-on | purple | continues-alone |
+| carrying-on | cyan | continues-alone |
 
 Every record says which step decided it and why (`DecidedBy`, `DecisionReason`), and so does the debug view.
 
@@ -509,7 +509,7 @@ calm":
 |---|---|---|---|
 | `finished`, kind `done` | cyan | leads "Done" | No. Listed in the calm band below the reds |
 | `finished`, kind `report` | cyan | leads "Report" | No. Same band |
-| `continues-alone` | purple | the Wingman's line, or "Carrying on" | No. Same band |
+| `continues-alone` | cyan | the Wingman's line, or "Carrying on" | No. Same band |
 | Any other word | red, unchanged | the ask, in the Wingman's words | Yes |
 | Refused, timed out, rate limited, never judged | red, unchanged | as today | Yes |
 
@@ -517,7 +517,7 @@ calm":
 read as a session that had not started yet, which is the opposite of what is true about it, so
 the two never share a colour.
 
-**Purple has no clock (removed 28 September 2026).** There used to be a carrying-on clock that turned a purple row red after ten minutes (or two minutes past an announced wake-up) and said "It said it would continue, and it did not." Most of what it caught were sessions waiting on real work that takes longer than ten minutes - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred by a rule or the model, not said by the agent. The owner ruled it out. A purple row stays purple until the session stops again.
+**One calm colour (28 September 2026).** Carrying on used to be purple. The owner only ever asks one question of a stopped row - do I need to go there? - so every calm verdict is now cyan, and only the row's words say which kind of calm it is. There is no clock on carrying on either: a carrying-on clock that turned the row red after ten minutes (or two minutes past an announced wake-up) was removed the same day, because most of what it caught were sessions waiting on real work - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred, not said by the agent. A carrying-on row stays cyan until the session stops again.
 
 **A reading stamp comes first.** A stop the Wingman will judge never shows red first: `reading`
 is stamped at the boundary before any wait or read, so the first colour pushed is the yellow

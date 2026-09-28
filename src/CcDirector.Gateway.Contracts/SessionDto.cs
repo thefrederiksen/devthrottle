@@ -169,8 +169,7 @@ public sealed class SessionDto
     /// SessionStatusWingman. The UI renders this verbatim and never derives it
     /// from other fields.
     /// Values: "blue" (agent is working), "red" (needs the user - input/permission/idle),
-    /// "yellow" (the Wingman is reading the screen and narrating), "purple" (parked on its
-    /// own background task, will resume itself), "supporting" (a SUPERVISED session that has STOPPED -
+    /// "yellow" (the Wingman is reading the screen and narrating), "supporting" (a SUPERVISED session that has STOPPED -
     /// one that answers to another live session, or that a schedule started - so it parks instead of
     /// asking the owner; issue #815, rendered as a recessive slate #64748B), "unknown"
     /// (process exited, or source unreachable/unparseable - rendered gray). On-hold is separate:

@@ -159,8 +159,8 @@
     "sessionLine": "112 - Wingman Inspector - Manager",
     "state": "carrying-on",
     "pillText": "Carrying on",
-    "pillColour": "purple",
-    "pillColourHex": "#a855f7",
+    "pillColour": "cyan",
+    "pillColourHex": "#06b6d4",
     "showWhyColour": true,
     "when": {
       "lead": "Stopped at",
@@ -185,7 +185,7 @@
     "calmCard": {
       "heading": "Nothing needed from you",
       "body": null,
-      "tone": "purple"
+      "tone": "cyan"
     },
     "lastWords": null,
     "failedHeadline": null,
