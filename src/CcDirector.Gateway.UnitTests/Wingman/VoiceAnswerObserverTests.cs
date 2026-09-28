@@ -192,6 +192,22 @@ public sealed class VoiceAnswerObserverTests : IDisposable
         Assert.Equal(Outcome.NoNarration, observer.Observe(Tenant, Row(sid, activity, OwnerTurn2, WorkingOrigins.Owner)));
     }
 
+    /// <summary>A stop can sit at a permission prompt too (the voice sweep narrates it), and pushes that repeat that
+    /// state are not the session moving on: the owner's approval is still his answer.</summary>
+    [Fact]
+    public void Observe_AStopAtAPermissionPromptThatTheOwnerApproves_IsHisAnswer()
+    {
+        var voice = Voice();
+        var observer = new VoiceAnswerObserver(voice);
+        var sid = Guid.NewGuid().ToString();
+        voice.Mark(Tenant, sid);
+        Assert.Null(observer.Observe(Tenant, Row(sid, "WaitingForPerm", OwnerTurn1)));
+        voice.StoreReadyAudioForTest(Tenant, sid, "It wants to push.", "May I push?", Encoding.ASCII.GetBytes("ID3a"));
+        Assert.Null(observer.Observe(Tenant, Row(sid, "WaitingForPerm", OwnerTurn1)));
+
+        Assert.Equal(Outcome.Unheard, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
+    }
+
     [Fact]
     public void Observe_ASecondPushOfTheSameOwnerTurn_SettlesTheStopOnlyOnce()
     {

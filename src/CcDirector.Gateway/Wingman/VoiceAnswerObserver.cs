@@ -32,10 +32,10 @@ public sealed class VoiceAnswerObserver
     private readonly WingmanVoiceService _voice;
 
     // (tenant, sid) -> what this observer last saw of that voice session: its owner-turn stamp and its completed-turn
-    // count (either null when the Director did not report it).
+    // count (either null when the Director did not report it), and its activity state.
     private readonly ConcurrentDictionary<(TenantId Tenant, string Sid), Seen> _seen = new();
 
-    private readonly record struct Seen(DateTime? OwnerTurn, int? Turns);
+    private readonly record struct Seen(DateTime? OwnerTurn, int? Turns, string Activity);
 
     public VoiceAnswerObserver(WingmanVoiceService voice)
     {
@@ -69,25 +69,26 @@ public sealed class VoiceAnswerObserver
             return null;
         }
 
-        var now = new Seen(session.LastOwnerTurnAtUtc, session.TurnCount);
+        var now = new Seen(session.LastOwnerTurnAtUtc, session.TurnCount, session.ActivityState ?? "");
         if (!_seen.TryGetValue(key, out var before))
         {
             _seen[key] = now;   // first sight: where the facts stand now, judged against nothing
             return null;
         }
-        if (now == before)
-        {
-            // Nothing completed and the owner did not start anything. A session no longer sitting at its stop - working,
-            // at a permission prompt, anything but waiting for input - has moved on without him: the stop has had its
-            // next turn, and it was not his answer. Retired on the FIRST push that shows it, whatever state that push
-            // carries, so a missed Working push does not hide it (review of step 2).
-            if (!IsAtAStop(session.ActivityState))
-                _voice.Listening.RetireUnanswered(tenant, sid, $"it moved on to {session.ActivityState} without a message from the owner");
-            return null;
-        }
+        if (now == before) return null;
         if (!_seen.TryUpdate(key, now, before)) return null;   // a concurrent push already took this change
 
         var ownerTurnMoved = now.OwnerTurn is not null && (before.OwnerTurn is null || now.OwnerTurn.Value > before.OwnerTurn.Value);
+        if (!ownerTurnMoved && now.Turns == before.Turns)
+        {
+            // Nothing completed and the owner did not start anything, yet the session is working or has changed state -
+            // from waiting for input to a permission prompt, say. It has moved on without him: the stop has had its next
+            // turn, and it was not his answer. Retired on the FIRST push that shows it, whatever state that push
+            // carries, so a missed Working push does not hide it (review of step 2).
+            if (IsWorking(now.Activity) || !string.Equals(now.Activity, before.Activity, StringComparison.OrdinalIgnoreCase))
+                _voice.Listening.RetireUnanswered(tenant, sid, $"it moved from {before.Activity} to {now.Activity} without a message from the owner");
+            return null;
+        }
         int? completed = now.Turns is int n && before.Turns is int b && n >= b ? n - b : null;
         var ownTurnOnly = IsWorking(session.ActivityState) ? 0 : 1;
 
@@ -102,10 +103,6 @@ public sealed class VoiceAnswerObserver
         FileLog.Write($"[VoiceAnswerObserver] owner drove a turn on a voice session: tenant={tenant.ToLogString()} sid={sid} ownerTurn={now.OwnerTurn!.Value:O}");
         return _voice.Listening.NoteOwnerAnswered(tenant, sid);
     }
-
-    /// <summary>Waiting for input: the one state a narrated stop sits in until someone gives the session its next turn.</summary>
-    private static bool IsAtAStop(string? activity) =>
-        string.Equals(activity, "WaitingForInput", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Working or Starting: there is a turn in progress. The same two states the snooze machine calls work.</summary>
     private static bool IsWorking(string? activity) =>
