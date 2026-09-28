@@ -13,7 +13,7 @@ import {
   type WingmanVoice,
 } from "../api/client";
 import { backgroundTranscribeAndSend, type CapturedUtterance } from "../dictation/backgroundSend";
-import { ensureClip, getClipState, getVoiceMeta, saveVoiceMeta, stopPlayback, useVoiceClips, type ClipPhase } from "./clips";
+import { ensureClip, getClipState, getVoiceMeta, reportClipPlaying, saveVoiceMeta, stopPlayback, useVoiceClips, type ClipPhase } from "./clips";
 import { positionFor, saveMark, wasAutoPlayed } from "./playbackPositions";
 import { switchVoiceModeOn } from "./switchVoiceMode";
 import { speakLocally } from "../speech/localSpeech";
@@ -127,6 +127,8 @@ export interface VoiceModeView {
   onLoadedMeta: (e: SyntheticEvent<HTMLAudioElement>) => void;
   onTimeUpdate: (e: SyntheticEvent<HTMLAudioElement>) => void;
   onEndedAudio: (e: SyntheticEvent<HTMLAudioElement>) => void;
+  /** Bind to the audio element's "playing" event: tells the Gateway this clip's narration was heard (voice mode auto-off). */
+  onPlayingAudio: () => void;
   onSeek: (e: ChangeEvent<HTMLInputElement>) => void;
   onRestart: () => void;
   onTogglePlay: () => void;
@@ -801,6 +803,11 @@ export function useVoiceMode(
   // the law (docs/new_architecture/sessions.html). Null until the first poll resolves the session.
   const voiceDisplay: VoiceDisplay | null = session?.voiceDisplay ?? null;
 
+  // The Voice screen's own audio element started playing its clip: tell the Gateway which narration was heard. Bound
+  // to the element's "playing" event, so a play the browser refused is never reported.
+  const clipGeneratedAt = clip.generatedAt;
+  const onPlayingAudio = useCallback(() => reportClipPlaying(sid, clipGeneratedAt), [sid, clipGeneratedAt]);
+
   return {
     voiceOn,
     speaking,
@@ -832,6 +839,7 @@ export function useVoiceMode(
     onLoadedMeta,
     onTimeUpdate,
     onEndedAudio,
+    onPlayingAudio,
     onSeek,
     onRestart,
     onTogglePlay,

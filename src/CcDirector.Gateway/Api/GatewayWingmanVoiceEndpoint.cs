@@ -123,6 +123,24 @@ internal static class GatewayWingmanVoiceEndpoint
     /// working before its stop is narrated. See the voice-turn route for why it waits at all.</summary>
     private static readonly TimeSpan VoiceTurnSettleWait = TimeSpan.FromSeconds(20);
 
+    /// <summary>
+    /// The body of <c>POST /sessions/{sid}/wingman/voice/played</c>, apart from resolving the tenant: check the session
+    /// id and the clip stamp, and record the play against the session's current narration. 400 for an id that is not
+    /// a session id or a stamp that is not a time; otherwise 200 with <c>played</c> saying whether the report named
+    /// the session's current narration.
+    /// </summary>
+    internal static IResult NotePlayReport(VoiceListeningLedger listening, TenantId tenant, string sid, string? generatedAtText)
+    {
+        if (!Guid.TryParse(sid, out _))
+            return Results.Json(new { error = "invalid session id format" }, statusCode: StatusCodes.Status400BadRequest);
+        if (string.IsNullOrWhiteSpace(generatedAtText)
+            || !DateTime.TryParse(generatedAtText, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var generatedAt))
+            return Results.Json(new { error = "generatedAt must name the clip that started playing" }, statusCode: StatusCodes.Status400BadRequest);
+        var played = listening.NotePlayed(tenant, sid, generatedAt.ToUniversalTime());
+        FileLog.Write($"[GatewayWingmanVoice] voice/played sid={sid} generatedAt={generatedAtText} played={played}");
+        return Results.Json(new { played });
+    }
+
     public static void Map(
         IEndpointRouteBuilder app,
         DirectorRegistry registry,
@@ -232,6 +250,22 @@ internal static class GatewayWingmanVoiceEndpoint
             return audio is { Length: > 0 }
                 ? Results.Bytes(audio, voice.GetAudioContentType(reqTenant.Value, sid) ?? "audio/mpeg", enableRangeProcessing: true)
                 : Results.Json(new { error = "no voice ready for this session" }, statusCode: StatusCodes.Status404NotFound);
+        });
+
+        // THE PLAYER SAYS "PLAYED" (voice mode auto-off, owner ruling 28 September 2026). Called by the voice player the
+        // moment a narration starts playing, naming the clip by the generatedAt stamp it was served under. The phone
+        // pre-downloads every clip, so the audio route above being read is not a play - this is the only report of one.
+        // The phone reports a fact and decides nothing: whether the report is about the session's current narration,
+        // and what a play means for voice mode, are ruled here. A report about a clip a newer stop has replaced is
+        // answered 200 with played=false - the player did nothing wrong, it is simply about the past. Device callers
+        // only: an agent's session key is not admitted (SessionKeyGuard names no such route), so no agent can report a
+        // play on the owner's behalf.
+        app.MapPost("/sessions/{sid}/wingman/voice/played", (string sid, VoiceNarrationPlayedRequest? req, HttpContext ctx) =>
+        {
+            var reqTenant = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
+            if (reqTenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+            return NotePlayReport(voice.Listening, reqTenant.Value, sid, req?.GeneratedAt);
         });
 
         // Turn voice off for a session (issue #859): unmark it as a voice session so the gateway
@@ -1359,6 +1393,13 @@ internal static class GatewayWingmanVoiceEndpoint
 public sealed class WingmanVoiceTurnRequest
 {
     public string Text { get; set; } = "";
+}
+
+/// <summary>Body of the voice player's play report: the <c>generatedAt</c> stamp of the clip that started playing,
+/// exactly as <c>GET /sessions/{sid}/wingman/voice</c> served it.</summary>
+public sealed class VoiceNarrationPlayedRequest
+{
+    public string? GeneratedAt { get; set; }
 }
 
 /// <summary>Body of the fleet-wide voice-mode route (issue #1765): <c>Enabled = true</c> turns voice

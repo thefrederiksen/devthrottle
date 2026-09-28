@@ -175,6 +175,14 @@ public sealed class WingmanVoiceService
         /// on (inspection round 1, finding 1).
         /// </summary>
         public readonly ConcurrentDictionary<string, long> StopEpochs = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Held while a session joins or leaves voice together with its listening-ledger entry, and while a narration is
+        /// entered and published. Without it a narration finishing while a session is being marked could be entered and
+        /// then wiped by the mark, leaving a playable clip the ledger never heard of (review of voice mode auto-off,
+        /// step 1). Only in-memory work runs under it; the file writes happen after it is released.
+        /// </summary>
+        public readonly object ListeningGate = new();
     }
 
     private readonly WingmanTranslator _translator;
@@ -216,6 +224,11 @@ public sealed class WingmanVoiceService
     /// <summary>The turn-verdict seat a narration takes its words from (the Wingman-on-every-turn mission,
     /// slice C). Null only in tests that never generate; any generation without it fails loud.</summary>
     private readonly TurnVerdictService? _verdicts;
+
+    /// <summary>Which narration each voice session is on and whether it was played - the half of voice mode
+    /// auto-off only the player can report (see <see cref="VoiceListeningLedger"/>). Every narration this service
+    /// makes ready is entered here, and a session switched off voice is forgotten.</summary>
+    public VoiceListeningLedger Listening { get; } = new();
 
     /// <summary>
     /// True only for the EXACT form <see cref="Tenancy.TenantRegistry"/> mints: a canonical lowercase GUID.
@@ -978,7 +991,19 @@ public sealed class WingmanVoiceService
 
     /// <summary>Mark the session as a voice session (persisted, so the gateway keeps its voice fresh
     /// across restarts via the background sweep + turn-end).</summary>
-    public void Mark(TenantId tenant, string sid) { if (StateFor(tenant).VoiceSessions.TryAdd(sid, 1)) SaveVoiceSessions(tenant); }
+    public void Mark(TenantId tenant, string sid)
+    {
+        var state = StateFor(tenant);
+        lock (state.ListeningGate)
+        {
+            if (!state.VoiceSessions.TryAdd(sid, 1)) return;
+            // A session JOINING voice starts with nothing on the listening ledger. A narration stored while it was off
+            // voice, or one that finished storing just after it was switched off, is about a stop from before this voice
+            // period.
+            Listening.Forget(tenant, sid);
+        }
+        SaveVoiceSessions(tenant);
+    }
 
     /// <summary>
     /// Stop keeping voice for this session - it is no longer a voice session (issue #859). The user
@@ -994,18 +1019,26 @@ public sealed class WingmanVoiceService
     public void Unmark(TenantId tenant, string sid)
     {
         var state = StateFor(tenant);
-        var wasVoice = state.VoiceSessions.TryRemove(sid, out _);
+        bool wasVoice;
+        // The whole switch-off is one step against Mark and a narration being stored (see ListeningGate): released
+        // before the clip is removed, a re-mark and a fresh narration could land in between and be torn half down -
+        // its clip deleted, its ledger stop kept - leaving a stop that can be counted unheard with nothing to play.
+        lock (state.ListeningGate)
+        {
+            wasVoice = state.VoiceSessions.TryRemove(sid, out _);
+            Listening.Forget(tenant, sid);                  // whether its narration was heard is about a session no longer on voice
+            state.Generating.TryRemove(sid, out _);
+            state.Unavailable.TryRemove(sid, out _);        // voice is off, so its unavailable-state is moot (issue #939)
+            state.ReadFailed.TryRemove(sid, out _);         // ...and so is whatever the last transcript read recorded
+            state.NothingToNarrate.TryRemove(sid, out _);   // voice is off, so "nothing to narrate" is moot too
+            state.DirectorCannotSend.TryRemove(sid, out _); // ...and so is "update that computer to hear this session"
+            state.PreferBackupUntil.TryRemove(sid, out _);  // voice is off, so the backup-routing window is moot too (issue devthrottle_internal#405)
+            state.SpeechRetries.TryRemove(sid, out _);      // ...and nobody is owed a speech retry for a turn nobody wants narrated
+            SupersedeStop(state, sid);                      // ...and a narration call still running is about a stop nobody is listening to
+            if (state.Ready.TryRemove(sid, out _))
+                DeleteReadyAudio(tenant, sid);   // keep the durable cache in step so a stale tap can't 404; inside, so a clip stored next is never deleted by this
+        }
         if (wasVoice) SaveVoiceSessions(tenant);
-        state.Generating.TryRemove(sid, out _);
-        state.Unavailable.TryRemove(sid, out _);        // voice is off, so its unavailable-state is moot (issue #939)
-        state.ReadFailed.TryRemove(sid, out _);         // ...and so is whatever the last transcript read recorded
-        state.NothingToNarrate.TryRemove(sid, out _);   // voice is off, so "nothing to narrate" is moot too
-        state.DirectorCannotSend.TryRemove(sid, out _); // ...and so is "update that computer to hear this session"
-        state.PreferBackupUntil.TryRemove(sid, out _);  // voice is off, so the backup-routing window is moot too (issue devthrottle_internal#405)
-        state.SpeechRetries.TryRemove(sid, out _);      // ...and nobody is owed a speech retry for a turn nobody wants narrated
-        SupersedeStop(state, sid);                      // ...and a narration call still running is about a stop nobody is listening to
-        if (state.Ready.TryRemove(sid, out _))
-            DeleteReadyAudio(tenant, sid);   // keep the durable cache in step so a stale tap can't 404
         if (wasVoice)
             FileLog.Write($"[WingmanVoiceService] voice unmarked (turned off): tenant={tenant.ToLogString()} sid={sid}");
     }
@@ -1122,7 +1155,17 @@ public sealed class WingmanVoiceService
         var ready = new VoiceReady(spoken, reply, audio, DateTime.UtcNow,
             NormalizeContentType(contentType) ?? DetectAudioContentType(audio), servedViaFallback, sourceIdentity ?? reply, sourceKind);
         var state = StateFor(tenant);
-        state.Ready[sid] = ready;
+        // Entered in the listening ledger BEFORE it is published below: the moment Ready holds it, a phone can fetch it,
+        // play it and report the play, and a report that arrives ahead of the ledger entry would be refused as naming
+        // no narration on record - a stop the owner heard, counted as unheard. Only a VOICE session's narration is a
+        // stop the owner can hear or not: an explain press on a session off voice makes a clip, and it is not one. The
+        // check, the entry and the publish are one step against Mark and Unmark (see ListeningGate).
+        lock (state.ListeningGate)
+        {
+            if (state.VoiceSessions.ContainsKey(sid))
+                Listening.NoteNarrationReady(tenant, sid, ready.AtUtc);
+            state.Ready[sid] = ready;
+        }
         state.NothingToNarrate.TryRemove(sid, out _);   // audio exists, so there was something to narrate after all
         state.DirectorCannotSend.TryRemove(sid, out _); // ...and a narration proves that computer CAN send its conversation
         state.SpeechRetries.TryRemove(sid, out _);      // ...and the audio ARRIVED, so the speech retry schedule ends on its first success
