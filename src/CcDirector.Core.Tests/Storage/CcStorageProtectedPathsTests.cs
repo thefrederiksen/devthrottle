@@ -88,6 +88,12 @@ public sealed class CcStorageProtectedPathsTests
             ["DictationSessions"] = DataTheMissionReportsAndNeverOffers,
             ["DictationCorpus"] = DataTheMissionReportsAndNeverOffers,
             ["PiPreamble"] = DataTheMissionReportsAndNeverOffers,
+            // A factory session's copy of its factory's memory (Factory Memory mission, phase 3a). NOT protected,
+            // and decided rather than defaulted: it is one folder per session holding a COPY of notes whose
+            // authority is the Gateway, written fresh before every agent starts and deleted when the session is
+            // removed. It holds no credential. Losing it costs a running agent the files it was reading - the
+            // next session downloads them again - which is the same bargain the preamble beside it makes.
+            ["FactoryMemory"] = DataTheMissionReportsAndNeverOffers,
             ["SessionPreambles"] = DataTheMissionReportsAndNeverOffers,
             ["SessionPointers"] = DataTheMissionReportsAndNeverOffers,
             ["SessionRecordings"] = DataTheMissionReportsAndNeverOffers,
