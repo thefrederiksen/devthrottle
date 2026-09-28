@@ -149,7 +149,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
             DateTime.UtcNow, TenantId.Local);
 
         await using (var unwired = await Host.StartAsync(_tenant,
-            app => GatewayEndpoints.Map(app, unwiredRegistry, "test", "test-token", tenantBoundary: null!)))
+            app => GatewayEndpoints.Map(app, unwiredRegistry, "test", "test-token", tenantBoundary: null!, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
         {
             var (status, body) = await Get(unwired.Http, "/directors");
             AssertRefusal(status, body);
@@ -166,7 +166,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
             DateTime.UtcNow, _tenant);
 
         await using var wired = await Host.StartAsync(_tenant,
-            app => GatewayEndpoints.Map(app, wiredRegistry, "test", "test-token", tenantBoundary: WiredBoundary()));
+            app => GatewayEndpoints.Map(app, wiredRegistry, "test", "test-token", tenantBoundary: WiredBoundary(), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
         var (wiredStatus, wiredBody) = await Get(wired.Http, "/directors");
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Contains("own-director", wiredBody, StringComparison.Ordinal);
@@ -190,7 +190,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         });
 
         await using (var unwired = await Host.StartAsync(_tenant,
-            app => MachineEndpoints.Map(app, unwiredLaunchers, Spawner(), boundary: null!)))
+            app => MachineEndpoints.Map(app, unwiredLaunchers, Spawner(), boundary: null!, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown)))
         {
             var (status, body) = await Get(unwired.Http, "/launchers");
             AssertRefusal(status, body);
@@ -207,7 +207,7 @@ public sealed class OmittedTenantBoundaryFailClosedTests : IAsyncLifetime
         });
 
         await using var wired = await Host.StartAsync(_tenant,
-            app => MachineEndpoints.Map(app, wiredLaunchers, Spawner(), boundary: WiredBoundary()));
+            app => MachineEndpoints.Map(app, wiredLaunchers, Spawner(), boundary: WiredBoundary(), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown));
         var (wiredStatus, wiredBody) = await Get(wired.Http, "/launchers");
         Assert.Equal(HttpStatusCode.OK, wiredStatus);
         Assert.Equal(JsonValueKind.Array, JsonDocument.Parse(wiredBody).RootElement.ValueKind);

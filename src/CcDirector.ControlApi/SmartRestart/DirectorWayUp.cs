@@ -1010,7 +1010,9 @@ public sealed class DirectorWayUp : IDirectorWayUp
     /// </summary>
     /// <param name="doc">The record.</param>
     /// <param name="seat">The seat that ended without a handover.</param>
-    private static NewSessionRequest BuildReopen(WorkspaceDocument doc, WorkspaceSeat seat)
+    /// <remarks>Internal, as <see cref="DirectorRestore.BuildRequest"/> is, so a test can build a reopened seat's
+    /// create and read what it carries (Factory Memory phase 1 review, finding 1).</remarks>
+    internal static NewSessionRequest BuildReopen(WorkspaceDocument doc, WorkspaceSeat seat)
     {
         var request = new NewSessionRequest
         {
