@@ -196,6 +196,57 @@ public sealed class CallACodeFirstTests : IDisposable
     }
 
     [Fact]
+    public async Task AFailedModelReading_IsDecidedAgainByCode_WhenTheWorkUnderItHasStopped()
+    {
+        // Review of pull request 3476: a model call that failed while a worker ran was reused by the sweep for as long
+        // as the parent sat, which also held a Fleet Manager's events for ever.
+        var working = 1;
+        var env = Env(PlainReport);
+        env.Judge = (_, _) => Task.FromResult("banana");
+        env.Owned = _ => new OwnedSessionCounts(Working: working, Stopped: 1 - working, NeedYou: 0);
+        var service = new TurnVerdictService(env);
+
+        await service.StartTurnEnd(Signal());
+        Assert.True(env.Latest(Tenant, Sid)!.Failed);
+        var callsSoFar = env.JudgeCalls;
+
+        working = 0;
+        await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(callsSoFar, env.JudgeCalls);
+        var stored = env.Latest(Tenant, Sid)!;
+        Assert.False(stored.Failed);
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, stored.DecidedBy);
+    }
+
+    [Fact]
+    public void AReadingStoredBeforeDecidedByExisted_IsDecidedAgain_WhenNothingIsWorkingUnderIt()
+    {
+        var old = new TurnVerdictDto { VerdictId = "v3", Verdict = "finished", DecidedBy = null };
+        var byCode = new TurnVerdictDto { VerdictId = "v4", Verdict = "needed-you", DecidedBy = CallACodeSteps.NothingUnderItStep };
+
+        Assert.True(TurnVerdictService.ModelReadingOutlivedItsRunningWork(old, new OwnedSessionCounts(0, 0, 0)));
+        Assert.False(TurnVerdictService.ModelReadingOutlivedItsRunningWork(old, new OwnedSessionCounts(1, 0, 0)));
+        Assert.False(TurnVerdictService.ModelReadingOutlivedItsRunningWork(old, null));
+        Assert.False(TurnVerdictService.ModelReadingOutlivedItsRunningWork(byCode, new OwnedSessionCounts(0, 0, 0)));
+    }
+
+    [Fact]
+    public async Task APersonAskingAboutAWorkingSessionWithNothingUnderIt_IsNotToldItStopped()
+    {
+        // Review of pull request 3476: a person's request reaches a working session, and steps 5 and 6 describe a
+        // STOPPED one. The model answers, as it did before.
+        var env = Env(PlainReport);
+        env.Facts = sid => new SessionDto { SessionId = sid, Agent = "ClaudeCode", ActivityState = "Working" };
+        env.Owned = _ => new OwnedSessionCounts(0, 0, 0);
+
+        await new TurnVerdictService(env).VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.OnDemand);
+
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal(CallACodeSteps.ModelStep, env.Latest(Tenant, Sid)!.DecidedBy);
+    }
+
+    [Fact]
     public async Task AModelReading_IsStillReused_WhileWorkUnderItIsRunning()
     {
         var env = Env(PlainReport);

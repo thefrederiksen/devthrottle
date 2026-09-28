@@ -1168,7 +1168,7 @@ public sealed class TurnVerdictService : IDisposable
         // re-asking the judge about an unreachable session each time would be a paid call on a loop.
         var currentSource = new Lazy<WingmanNarrationSource?>(
             () => SelectSource(_env.ReadConversation(tenant, sid), rows, facts));
-        if (latest is not null && IsReusable(key, latest, hash, trigger, currentSource, state.Owned))
+        if (latest is not null && IsReusable(key, latest, hash, trigger, currentSource, OwnedSessionsForAStop(facts, state.Owned)))
             return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid,
                 reuseCause: string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
                     ? ActivityCauses.ScreenUnchanged
@@ -1203,7 +1203,7 @@ public sealed class TurnVerdictService : IDisposable
                 conversation,
                 grid,
                 previousVerdictLabel: null,
-                ownedSessions: state.Owned);
+                ownedSessions: OwnedSessionsForAStop(facts, state.Owned));
             flight.Package = package;
 
             var failure = TurnVerdictFailureKind.None;
@@ -2030,11 +2030,27 @@ public sealed class TurnVerdictService : IDisposable
     /// ONE DIRECTION ONLY, deliberately. A red that step 6 made is not re-asked when a child starts working again: a
     /// child that goes quiet for ten seconds reads as stopped, and re-asking the model on every such flap would be a
     /// paid call each time. Not known (null) keeps the reading.
+    ///
+    /// A FAILED READING IS DECIDED AGAIN TOO (review of pull request 3476). A model call that timed out while work ran
+    /// under the session would otherwise be reused by the sweep for as long as the parent sits - and a Fleet Manager
+    /// whose reading failed never gets its events. So is a reading stored before <c>DecidedBy</c> existed (null): it can
+    /// only have been the model's. Only a reading a CODE step made is kept, and the re-decision is a code step, so this
+    /// cannot loop.
     /// </summary>
     internal static bool ModelReadingOutlivedItsRunningWork(TurnVerdictDto latest, OwnedSessionCounts? owned)
-        => !latest.Failed
-           && string.Equals(latest.DecidedBy, CallACodeSteps.ModelStep, StringComparison.Ordinal)
-           && owned is { Working: 0 };
+        => owned is { Working: 0 }
+           && (latest.DecidedBy is null
+               || string.Equals(latest.DecidedBy, CallACodeSteps.ModelStep, StringComparison.Ordinal));
+
+    /// <summary>
+    /// THE OWNED SESSIONS CALL A MAY READ, which is none while the session itself is working (review of pull request
+    /// 3476). Steps 5 and 6 of <see cref="CallACodeSteps"/> describe a STOPPED session with nothing running under it;
+    /// an automatic request never reaches a working session, but a person asking does, and a working session with no
+    /// children must not be told "stopped - nothing running under it". Null leaves those two steps silent, exactly as
+    /// for a session the roster does not know.
+    /// </summary>
+    internal static OwnedSessionCounts? OwnedSessionsForAStop(SessionDto? facts, OwnedSessionCounts? owned)
+        => facts is not null && SessionOrdering.IsWorkingSession(facts) ? null : owned;
 
     /// <summary>
     /// IS THIS STILL THE STOP THE STORED READING WAS MADE OF, though the screen was redrawn? Only the idle sweep asks.
