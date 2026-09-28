@@ -1934,6 +1934,12 @@ export interface CreateSessionOptions {
    *  its default (true). True launches the agent's configured model AND its permission-bypass flag;
    *  false launches the same model but stops for each permission prompt. */
   bypassPermissions?: boolean;
+  /**
+   * The factory to start the session into (Factory Memory mission, phase 3b), or omitted for none. Only a
+   * person's device key is allowed to name one freely - the Gateway reads which kind of caller this is from the
+   * credential - so this is how the owner starts a session into a factory by hand. Blank means none.
+   */
+  factory?: string;
   signal?: AbortSignal;
 }
 
@@ -1950,8 +1956,12 @@ export async function createSession(
 ): Promise<SessionDto> {
   const id = encodeURIComponent(directorId);
   const agent = options?.agent?.trim() || "ClaudeCode";
-  const body: NewSessionRequest = { repoPath: repoPath.trim(), agent, wingmanEnabled: false };
+  // `factory` is on the Gateway's NewSessionRequest (phase 1 of the Factory Memory mission) but not yet in the
+  // generated schema.ts, which is regenerated from a running Gateway; the intersection names it until then.
+  const body: NewSessionRequest & { factory?: string } = { repoPath: repoPath.trim(), agent, wingmanEnabled: false };
   if (options?.bypassPermissions !== undefined) body.bypassPermissions = options.bypassPermissions;
+  const factory = options?.factory?.trim() ?? "";
+  if (factory.length > 0) body.factory = factory;
   const res = await gatewayFetch(`/directors/${id}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },

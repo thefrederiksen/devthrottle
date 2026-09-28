@@ -15,6 +15,10 @@ public static class FactoryMapFold
     public const string TabMap = "map";
     public const string TabAgents = "agents";
 
+    /// <summary>The factory's memory (Factory Memory mission, phase 3b): its notes, their history, and a person's
+    /// correct, delete and restore. The tab's content is read from /factory-memory; only its place is decided here.</summary>
+    public const string TabMemory = "memory";
+
     private const string Solid = "solid";
     private const string Dashed = "dashed";
     private const string Dotted = "dotted";
@@ -32,6 +36,7 @@ public static class FactoryMapFold
             {
                 new() { Key = TabMap, Label = "Map" },
                 new() { Key = TabAgents, Label = $"Agents ({agents.Count})" },
+                new() { Key = TabMemory, Label = "Memory" },
             },
             Agents = agents,
             WaitingHref = FactoryAgentsFold.WaitingHref(factory),

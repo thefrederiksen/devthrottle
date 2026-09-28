@@ -554,3 +554,114 @@
 .fa-map-link {
   text-decoration: none;
 }
+
+/* The Memory tab (Factory Memory mission, phase 3b): the notes on the left, the open note on the right. The note
+   side is wider than the map's spec column because it holds the note's text and its editor. */
+.fa-memory-head {
+  justify-content: space-between;
+}
+
+.fa-memory-head .fa-save-form input {
+  min-width: 280px;
+}
+
+.fa-memory-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+}
+
+.fa-memory-row.sel td {
+  background: var(--surface-2);
+}
+
+.fa-memory-open {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fa-memory-open:hover {
+  text-decoration: underline;
+}
+
+.fa-memory-note {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fa-memory-text {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: "Cascadia Mono", Consolas, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.fa-memory-edit {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--code-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: "Cascadia Mono", Consolas, Menlo, monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.fa-memory-edit:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.fa-memory-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--needsyou-fyi-bg);
+  color: var(--needsyou-fyi-text);
+  font-size: 13px;
+}
+
+.fa-memory-conflict p,
+.fa-memory-error {
+  margin: 0;
+}
+
+.fa-memory-error {
+  color: var(--danger-text);
+  font-size: 13px;
+}
+
+.fa-memory-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fa-memory-version-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
