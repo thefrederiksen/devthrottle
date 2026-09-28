@@ -56,7 +56,10 @@ public sealed class ContextLessRouteCensusTests
     /// GatewayDbContext's per-entity query filter; GatewayDatabase throws rather than defaulting when no
     /// scope exists). Executed cross-tenant for every family below - see the phase report's table for
     /// which test covers which row:
-    ///   /cron/jobs/{id} (+ DELETE, /runs)          cron_jobs, cron_runs
+    ///   /cron/jobs/{id} (+ /runs)                 cron_jobs, cron_runs
+    ///   DELETE /cron/jobs/{id} is NOT here any more: deleting a schedule that belongs to a factory is limited
+    ///   to a person or a session of that factory (Factory Memory mission), so the route takes the HttpContext
+    ///   it needs to read who is asking and is no longer context-less.
     ///   /gateway/governance/session-spend/{id}     session_spend
     ///   /lists/{name} (+ /consumer, /items/...)    worklists, worklist_items
     ///   /gateway/workflows/{id} and its family     workflows, workflow_versions, workflow_files,
@@ -120,7 +123,6 @@ public sealed class ContextLessRouteCensusTests
     /// </summary>
     private static readonly string[] HostedCensus =
     {
-        "DELETE /cron/jobs/{id}",
         "DELETE /directors/{id}/registration",
         "DELETE /gateway/rules/{id:guid}",
         "DELETE /gateway/skills/{id}",

@@ -120,13 +120,17 @@ public sealed class FactoryNamingOnTriggersAndSchedulesTests
     }
 
     [Fact]
-    public void An_UNIDENTIFIED_caller_is_refused_rather_than_trusted()
+    public void THE_ACCOUNTS_OWN_MACHINE_TOKEN_MAY_NAME_A_FACTORY()
     {
-        // Fail closed: this field hands out membership, so a credential the Gateway cannot place must not set
-        // it. Such a caller can still write the same trigger with no factory on it.
-        Assert.False(Settle(new DefaultHttpContext(), Reads(SessionFactoryLookup.NotKnown),
-            requested: TheFactory, existing: null, out var error, out _));
-        Assert.NotNull(error);
+        // This test asserted the opposite until the phase 2 review pointed out what the first cut had done: a
+        // caller that is neither a person's device nor a session is the account's shared machine token, or a
+        // Director relaying - not an agent's credential at all. Refusing it bought nothing against the threat
+        // this gate exists for (a SESSION KEY joining a factory) and broke three shipped tests that created a
+        // factory's trigger with that token.
+        Assert.True(Settle(new DefaultHttpContext(), Reads(SessionFactoryLookup.NotKnown),
+            requested: TheFactory, existing: null, out var error, out var settled));
+        Assert.Null(error);
+        Assert.Equal(TheFactory, settled);
     }
 
     [Fact]
@@ -229,10 +233,12 @@ public sealed class FactoryNamingOnTriggersAndSchedulesTests
     }
 
     [Fact]
-    public void An_unidentified_caller_may_not_touch_a_factorys_row()
+    public void The_machine_token_may_touch_a_factorys_row_too()
     {
-        Assert.False(Act(new DefaultHttpContext(), Reads(SessionFactoryLookup.NotKnown), TheFactory, out var error));
-        Assert.NotNull(error);
+        // The same reasoning as naming one. A SESSION of another factory is still refused, which is the case
+        // immediately above and the one that matters.
+        Assert.True(Act(new DefaultHttpContext(), Reads(SessionFactoryLookup.NotKnown), TheFactory, out var error));
+        Assert.Null(error);
     }
 
     [Fact]
