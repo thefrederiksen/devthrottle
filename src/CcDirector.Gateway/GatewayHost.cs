@@ -408,6 +408,17 @@ public sealed class GatewayHost : IAsyncDisposable
     public TimeProvider DeliveryClock { get; set; } = TimeProvider.System;
 
     /// <summary>
+    /// The Gateway's driver of held deliveries (Voice Delivery phase 5): once a recording's delivery is taken over, the
+    /// Gateway itself finishes it - when its Director's tunnel comes back, on a steady tick, and when the Gateway starts.
+    /// Created in <see cref="StartAsync"/>; null before it.
+    /// </summary>
+    internal Api.HeldDeliveryDriver? HeldDeliveries { get; private set; }
+
+    /// <summary>How often the held-delivery driver looks for an attempt that is due. A test may set it BEFORE
+    /// <see cref="StartAsync"/> - a long one proves an attempt was woken by something other than the tick.</summary>
+    internal TimeSpan HeldDeliveryTickInterval { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
     /// Production-readiness B2 (process-control): the seam DELETE /directors/{id} FORCE-KILL calls to kill a
     /// Director's process tree by pid. Null (production) uses the real Process.GetProcessById(pid).Kill. A test
     /// injects a recorder that observes the kill WITHOUT killing anything, so a proof can assert the force-kill
@@ -797,16 +808,12 @@ public sealed class GatewayHost : IAsyncDisposable
     private Wingman.TurnVerdictRetentionSweep? _turnVerdictRetentionSweep;
     private System.Threading.Timer? _turnVerdictRetentionTimer;
     private int _turnVerdictRetentionInFlight;
-    // Slice D: the verdict source every fold reads, and the carrying-on clock's sweep, its timer and its overlap guard.
+    // Slice D: the verdict source every fold reads.
     private readonly Wingman.TurnVerdictRowSource _turnVerdictRows;
     // Slice F: the fold's snooze memory. ONE instance for this Gateway, shared by the roster, the single-session
     // read and the display push, because the edge it fires is an edge across ALL of them - a second instance
     // would be a second memory, and each would fire its own "first" expiry for the same session.
     private readonly Wingman.SnoozeExpiryReJudge _snoozeExpiry;
-    private readonly Wingman.TurnVerdictWatchdogSweep _turnVerdictWatchdogSweep;
-    private System.Threading.Timer? _turnVerdictWatchdogTimer;
-    private int _turnVerdictWatchdogInFlight;
-    private static readonly TimeSpan TurnVerdictWatchdogInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan TurnVerdictRetentionInterval = TimeSpan.FromHours(6);
     private static readonly TimeSpan TurnVerdictRetentionStartupDelay = TimeSpan.FromMinutes(7);
 
@@ -1109,10 +1116,6 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Null until StartAsync builds it.</summary>
     internal Wingman.TurnVerdictService? TurnVerdictServiceForTest => _turnVerdictService;
 
-    /// <summary>The live turn-verdict seat, built if it is not yet, so a hosted test can drive a judgement or an expiry
-    /// through the production environment and the production trace writer.</summary>
-    internal Wingman.TurnVerdictService EnsureTurnVerdictServiceForTest() => EnsureTurnVerdictService();
-
     /// <summary>The trace writer, so a hosted test that waits for a trace can say what became of it when it never arrives.</summary>
     internal Wingman.TurnVerdictTraceWriter TurnVerdictTraceWriterForTest => _turnVerdictTraceWriter;
 
@@ -1217,6 +1220,28 @@ public sealed class GatewayHost : IAsyncDisposable
     // inside that partition. Naming Local here reproduces exactly the path this store has always used.
     private readonly Voice.VoiceUploadStore _dictationUploads =
         new(CcDirector.Core.Storage.CcStorage.DictationUploads(), CcDirector.Core.Tenancy.TenantId.Local);
+    // Voice Delivery phase 5, contract section 7: the held TYPED prompts - a typed prompt the Director did not answer as
+    // delivered, kept (per tenant, like the dictation staging) so the Gateway can ask what became of it, after a restart
+    // too. Built on first use rather than here, because it is judged by DeliveryClock, which a test sets after
+    // construction. This is the BASE handle; every reader re-scopes it with ForTenant.
+    private Prompts.TypedPromptStore? _typedPrompts;
+
+    /// <summary>The held typed prompt store (base handle, local partition): the prompt route writes it, the driver drives it.</summary>
+    internal Prompts.TypedPromptStore TypedPrompts
+        => _typedPrompts ??= new Prompts.TypedPromptStore(CcDirector.Core.Storage.CcStorage.TypedPrompts(),
+            CcDirector.Core.Tenancy.TenantId.Local, DeliveryClock);
+
+    private Api.TypedPromptDelivery? _typedPromptDriver;
+
+    /// <summary>
+    /// One attempt at a held typed prompt (<see cref="Api.TypedPromptDelivery.DriveOnceAsync"/>): what the Gateway's driver
+    /// calls on every wake-up - the Director's tunnel back, the tick, the Gateway starting - for each of
+    /// <see cref="Prompts.TypedPromptStore.HeldDeliveries"/> in each of <see cref="Prompts.TypedPromptStore.TenantsWithPartitions"/>.
+    /// </summary>
+    internal Api.TypedPromptDelivery TypedPromptDriver
+        => _typedPromptDriver ??= new Api.TypedPromptDelivery(Registry, SessionOwners, PushedSessions,
+            (directorId, command, ct) => SendCommandAsync(directorId, command, ct),
+            TimeSpan.FromSeconds(Core.Configuration.GatewayConfig.DefaultStreamStaleAfterSeconds), DeliveryClock);
     // Store injection points (Hosted Gateway, Step 1b): the host owns ONE instance of each durable store
     // that was previously reached through a process-wide static, and hands it to the endpoint/service that
     // uses it, so a tenant id can reach the storage layer in a later pull request. Same default paths as
@@ -2122,8 +2147,7 @@ public sealed class GatewayHost : IAsyncDisposable
                                                || _transcribingSessions.IsTranscribing(tenant, sid)
                                                || _dictationUploads.ForTenant(tenant).IsSessionLocked(sid));
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
-        // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
-        // per-tenant seam as the retention above.
+        // display push to the desktop - so all three stamp one answer.
         _turnVerdictRows = new Wingman.TurnVerdictRowSource(
             _tenantSettingsResolver.TurnVerdict, _turnVerdicts, () => _turnVerdictService);
         // The colour each stop produced is folded as its trace is written, on the writer's thread (the Wingman
@@ -2132,8 +2156,6 @@ public sealed class GatewayHost : IAsyncDisposable
             tenant => PushedSessions.SnapshotConnected(tenant), _turnVerdictRows, _displayFold.Record);
         _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append,
             stamp: _turnVerdictTraceRowStamp.Stamp);
-        _turnVerdictWatchdogSweep = new Wingman.TurnVerdictWatchdogSweep(
-            _tenantBoundary, TenantRegistry, _tenantContext, EnsureTurnVerdictService);
         // Slice F (ruling 10): a snooze expiry re-judges. The JUDGEMENT is fire and forget - the fold is the hot
         // path and waits for nothing - and it goes through the seat's ordinary current-screen request, so an
         // unchanged screen reuses the stored verdict and only a changed one costs a model call. What the fold DOES
@@ -2553,7 +2575,8 @@ public sealed class GatewayHost : IAsyncDisposable
         if (stored is null) return null;
         return new History.StoredConversation(
             stored.Value.Head.IsSupported,
-            History.StoredConversationWidgets.From(stored.Value.Messages));
+            History.StoredConversationWidgets.From(stored.Value.Messages),
+            stored.Value.Head.Generation);
     }
 
     /// <summary>
@@ -2841,13 +2864,17 @@ public sealed class GatewayHost : IAsyncDisposable
                 // ONE SNAPSHOT FEEDS BOTH DIRECTIONS. Taking it twice would let a session appear in one
                 // pass and not the other, so the sweep could switch a row on and off across a single tick.
                 var snapshot = PushedSessions.SnapshotFresh(tenant, stale);
+                // WHO OWNS WHOM is judged over everything last known, not only the fresh sessions: an owning session
+                // on a computer that has gone quiet still owns its workers on another computer, and the roster (so
+                // the button) says so. Only fresh sessions are acted on.
+                var ownershipUniverse = PushedSessions.SnapshotLastKnown(tenant);
 
                 // OFF FIRST, and unconditionally - see PlanOff for why it is not gated on the fleet switch.
                 // These are sessions marked for voice BEFORE the supervised rule existed (voice marking is
                 // persisted, so they survive restarts); without this pass they would be narrated at the owner
                 // for ever and the rule would look like it had done nothing.
                 foreach (var (directorId, sid) in Wingman.VoiceModeAllSweep.PlanOff(
-                             snapshot, s => vs.IsVoiceSession(tenant, s)))
+                             snapshot, s => vs.IsVoiceSession(tenant, s), ownershipUniverse))
                 {
                     var offResult = await Api.DirectorCommandRouter.TrySendAsync(
                         sendCommand, directorId, "voice-mode", sid, new { enabled = false }, CancellationToken.None);
@@ -2867,7 +2894,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 var plan = Wingman.VoiceModeAllSweep.Plan(
                     on,
                     snapshot,
-                    sid => vs.IsVoiceSession(tenant, sid));
+                    sid => vs.IsVoiceSession(tenant, sid),
+                    ownershipUniverse);
                 if (plan.Count == 0) return;
 
                 FileLog.Write($"[GatewayHost] voice-mode sweep: {plan.Count} session(s) to switch on for tenant={tenant.ToLogString()}");
@@ -3165,6 +3193,20 @@ public sealed class GatewayHost : IAsyncDisposable
     public async Task StartAsync()
     {
         FileLog.Write($"[GatewayHost] StartAsync: port={(Port == OperatingSystemAssignedPort ? "operating-system-assigned" : Port.ToString())}");
+
+        // Voice Delivery phase 5: the one driver of held deliveries, created before the routes that hand it deliveries
+        // are mapped, woken when a Director's new connection delivers its sessions, and started once the Gateway serves.
+        HeldDeliveries = new Api.HeldDeliveryDriver(_dictationUploads,
+            tenant => _tenantBoundary.EnterScope(tenant),
+            (tenant, sessionId) => PushedSessions.TryLocateIgnoringFreshness(tenant, sessionId)?.DirectorId,
+            GatewayHostedMode.IsHosted)
+        {
+            TickInterval = HeldDeliveryTickInterval,
+        };
+        PushedSessions.SessionsArrivedOnNewConnection += HeldDeliveries.OnSessionsArrived;
+        // Voice Delivery phase 5, contract section 7 (T4): the held typed prompts are driven by the same driver, on the same
+        // three wake-ups, one attempt each through TypedPromptDriver.
+        HeldDeliveries.AttachTypedPrompts(TypedPrompts, () => TypedPromptDriver);
 
         // Seed the central vault from a DevThrottle account-key environment value once when present.
         // The vault is the live source of truth thereafter and SetIfAbsent never clobbers it.
@@ -3958,6 +4000,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // Voice Delivery mission, phase 1: "Send anyway" names its recording; the prompt route checks it here.
             dictationUploads: new Api.DictationTenantGate(_dictationUploads, _tenantBoundary),
             deliveryClock: DeliveryClock,
+            heldDeliveries: HeldDeliveries,
+            // Voice Delivery phase 5: a typed prompt not answered as delivered is held here, and its outcome read here.
+            typedPrompts: TypedPrompts,
             // Parent Control, fix 1: a session types into a session it owns only through a Director that checks first.
             directorChecksBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
@@ -4319,7 +4364,8 @@ public sealed class GatewayHost : IAsyncDisposable
             _dictationTranscription ?? new Transcription.GatewayTranscriptionService(_keyVault, history: _transcriptionHistory, audioArchive: _transcriptionAudioArchive, transcripts: _transcripts), _transcribingSessions, new Api.DictationTenantGate(_dictationUploads, _tenantBoundary), Devices,
             pushedSessions: PushedSessions,
             sendCommand: SendCommandAsync,
-            clock: DeliveryClock);
+            clock: DeliveryClock,
+            heldDeliveries: HeldDeliveries);
         // Durable per-upload-id dictation record (issue #1183): a PENDING upload's chunks are retained
         // until it becomes DELIVERED or ABANDONED, and the delivered/abandoned tombstone (the durable
         // de-dupe marker) is retained until the client acknowledges it - so an undelivered dictation
@@ -5058,10 +5104,6 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdictRetentionTimer = new System.Threading.Timer(_ => SweepTurnVerdictRetention(), null,
             TurnVerdictRetentionStartupDelay, TurnVerdictRetentionInterval);
         FileLog.Write($"[GatewayHost] turn verdict retention sweep started: every {TurnVerdictRetentionInterval.TotalHours:0}h, retention {Wingman.TurnVerdictStore.RetentionPeriod.TotalDays:0} days");
-        // Slice D: the carrying-on clock. Each tick reads the stored verdicts, so nothing it needs lives only in memory.
-        _turnVerdictWatchdogTimer = new System.Threading.Timer(_ => SweepTurnVerdictWatchdog(), null,
-            TurnVerdictWatchdogInterval, TurnVerdictWatchdogInterval);
-        FileLog.Write($"[GatewayHost] carrying-on clock started: every {TurnVerdictWatchdogInterval.TotalSeconds:0}s");
         if (FleetDoorbellHeartbeatEnabled)
         {
             _fleetDoorbellTimer = new System.Threading.Timer(_ => SweepFleetDoorbell(), null,
@@ -5202,6 +5244,9 @@ public sealed class GatewayHost : IAsyncDisposable
                         // leaving it for the next tick six hours later.
                         uploads.ExpireStalePending(StalePendingMaxAge);
                         uploads.SweepResolvedTombstones(DictationTombstoneMaxAge);
+                        // Held typed prompts (Voice Delivery phase 5) are retired by the same thirty-day rule, in the
+                        // same per-tenant pass, so no account's typed prompt records are left unbounded.
+                        TypedPrompts.ForTenant(tenant).SweepOlderThan(DictationTombstoneMaxAge);
                     });
                 }
                 catch (Exception ex) { FileLog.Write($"[GatewayHost] dictation tombstone sweep error: {ex.Message}"); }
@@ -5211,6 +5256,16 @@ public sealed class GatewayHost : IAsyncDisposable
             $"{dictationTombstoneSchedule.TotalHours:0.###}h, retiring unacknowledged terminal records older " +
             $"than {DictationTombstoneMaxAge.TotalDays:0.###} days, and abandoning PENDING records with no " +
             $"activity for {StalePendingMaxAge.TotalHours:0.###}h so their session lock is released");
+
+        // Voice Delivery phase 5: pick up every held delivery from disk and drive it, then keep ticking. Not awaited: an
+        // attempt can wait out a Director's answer, and the Gateway's start must never wait on one. A start that fails is
+        // written to the log, never swallowed.
+        var heldDeliveries = HeldDeliveries ?? throw new InvalidOperationException("the held-delivery driver was not created");
+        _ = Task.Run(async () =>
+        {
+            try { await heldDeliveries.StartAsync(); }
+            catch (Exception ex) { FileLog.Write($"[GatewayHost] held-delivery driver FAILED to start: {ex}"); }
+        });
 
         // Remove-the-network-port phase 1b: retire lapsed session keys. This is HOUSEKEEPING, and saying so
         // matters - a lapsed key is ALREADY refused, because the expiry is checked on every resolution, so
@@ -5612,34 +5667,6 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// The carrying-on clock's timer callback (a boundary - it owns the overlap guard and the try/catch so a failed
-    /// tick never crashes the timer thread). One tick at a time; a skipped tick expires on the next one, fifteen
-    /// seconds later, which the two-minute and ten-minute allowances are indifferent to.
-    /// </summary>
-    private void SweepTurnVerdictWatchdog()
-    {
-        if (Interlocked.CompareExchange(ref _turnVerdictWatchdogInFlight, 1, 0) != 0)
-            return;
-        _ = RunTurnVerdictWatchdogSweepAsync();
-    }
-
-    private async Task RunTurnVerdictWatchdogSweepAsync()
-    {
-        try
-        {
-            await _turnVerdictWatchdogSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[GatewayHost] carrying-on clock tick FAILED: {ex.Message}");
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _turnVerdictWatchdogInFlight, 0);
-        }
-    }
-
-    /// <summary>
     /// The prompt-log retention timer callback (a boundary - it owns the overlap guard and the try/catch so
     /// a purge failure never crashes the timer thread). One sweep at a time; a skipped tick simply purges on
     /// the next one, which retention granularity is indifferent to.
@@ -6004,7 +6031,6 @@ public sealed class GatewayHost : IAsyncDisposable
         _cronTimer = null;
         try { _activityRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] activity retention timer dispose error: {ex.Message}"); }
         try { _turnVerdictRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict retention timer dispose error: {ex.Message}"); }
-        try { _turnVerdictWatchdogTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] carrying-on clock timer dispose error: {ex.Message}"); }
         try { _fleetDoorbellTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet doorbell timer dispose error: {ex.Message}"); }
         _fleetDoorbellTimer = null;
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }
@@ -6018,7 +6044,6 @@ public sealed class GatewayHost : IAsyncDisposable
         _devReportSettleTimer = null;
         _activityRetentionTimer = null;
         _turnVerdictRetentionTimer = null;
-        _turnVerdictWatchdogTimer = null;
         try { _leaseSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] lease sweep timer dispose error: {ex.Message}"); }
         _leaseSweepTimer = null;
         try { _autoDismissTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] auto-dismiss timer dispose error: {ex.Message}"); }
@@ -6029,6 +6054,11 @@ public sealed class GatewayHost : IAsyncDisposable
         _voiceTurnUploadSweepTimer = null;
         try { _dictationTombstoneSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictation tombstone sweep timer dispose error: {ex.Message}"); }
         _dictationTombstoneSweepTimer = null;
+        if (HeldDeliveries is { } driver)
+        {
+            PushedSessions.SessionsArrivedOnNewConnection -= driver.OnSessionsArrived;
+            try { driver.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] held-delivery driver dispose error: {ex.Message}"); }
+        }
         try { _sessionKeySweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session key sweep timer dispose error: {ex.Message}"); }
         _sessionKeySweepTimer = null;
 

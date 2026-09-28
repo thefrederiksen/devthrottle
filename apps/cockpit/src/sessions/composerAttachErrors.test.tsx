@@ -18,7 +18,7 @@ import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/re
 
 const { uploadImage, sendPrompt, enqueuePrompt } = vi.hoisted(() => ({
   uploadImage: vi.fn(),
-  sendPrompt: vi.fn(async () => {}),
+  sendPrompt: vi.fn(async () => ({ delivering: false })),
   enqueuePrompt: vi.fn(async () => []),
 }));
 

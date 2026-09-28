@@ -34,7 +34,10 @@ namespace CcDirector.Gateway.Tests;
 /// locate every session regardless of tenant. Matching the locator's exact error body, rather than a bare
 /// status code, is deliberate: these routes can legitimately answer non-200 for reasons that have nothing to
 /// do with tenancy (a verb the fake Director does not implement, a session in the wrong state), and a
-/// status-code assertion would confuse those with the defect under test.
+/// status-code assertion would confuse those with the defect under test. The ONE exception since Voice
+/// Delivery phase 5 is POST /prompt: a session that cannot be located now is HELD 202 "waiting-for-director"
+/// for every caller (contract section 8), so for that row the cross-tenant proof is that the held answer is
+/// the one B gets for an id no tenant ever had, and that A's Director receives no prompt verb at all.
 ///
 /// Revert-prove: put a literal TenantId.Local back into any one route's locate call - or change
 /// LocateSessionForRequestAsync to ignore the request and pass TenantId.Local - and that route's owner-side
@@ -64,6 +67,10 @@ public sealed class HostedSessionCommandRouteTenancyTests : IAsyncLifetime
     private FakeTunnelDirector _dirB = null!;
     private string _keyA = "";
     private string _keyB = "";
+
+    /// <summary>Every command tenant A's tunnel Director received in this test case, so the cross-tenant prompt row can
+    /// prove behaviourally that B's words never reached A's session (Voice Delivery phase 5).</summary>
+    private readonly List<string> _verbsReceivedByA = new();
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-cmd-" + Guid.NewGuid().ToString("N"));
@@ -98,7 +105,7 @@ public sealed class HostedSessionCommandRouteTenancyTests : IAsyncLifetime
 
         // Both fake Directors answer every verb, so a route that reaches its Director gets a real answer and
         // any not-found body can only have come from the locate step - the step under test.
-        _dirA = await FakeTunnelDirector.StartAsync(_gateway, _keyA, "dir-a", "MA", dispatch: AnswerAnything);
+        _dirA = await FakeTunnelDirector.StartAsync(_gateway, _keyA, "dir-a", "MA", dispatch: RecordAThenAnswerAnything);
         _dirB = await FakeTunnelDirector.StartAsync(_gateway, _keyB, "dir-b", "MB", dispatch: AnswerAnything);
         await _dirA.PushSnapshotAsync(Sample(SessA));
         await _dirB.PushSnapshotAsync(Sample(SessB));
@@ -139,6 +146,12 @@ public sealed class HostedSessionCommandRouteTenancyTests : IAsyncLifetime
 
     private static DirectorCommandResult AnswerAnything(DirectorCommand cmd) =>
         FakeTunnelDirector.Ok(new { ok = true, lines = Array.Empty<string>(), items = Array.Empty<object>() });
+
+    private DirectorCommandResult RecordAThenAnswerAnything(DirectorCommand cmd)
+    {
+        lock (_verbsReceivedByA) _verbsReceivedByA.Add(cmd.Verb);
+        return AnswerAnything(cmd);
+    }
 
     public Task DisposeAsync() => CleanupAsync();
 
@@ -222,16 +235,44 @@ public sealed class HostedSessionCommandRouteTenancyTests : IAsyncLifetime
     public async Task Another_tenant_cannot_reach_it(string method, string suffix, string? body)
     {
         // The other direction, and the reason the test above is not satisfied by "locate everything". Tenant B
-        // naming tenant A's session must still get exactly the locator's not-found answer.
-        var resp = await Send(method, $"sessions/{SessA}{suffix}", _keyB, body);
-        var text = await resp.Content.ReadAsStringAsync();
+        // naming tenant A's session must still get the locator's not-found answer.
+        //
+        // THE PROMPT ROUTE SINCE VOICE DELIVERY PHASE 5 (contract section 8): a prompt to a session that cannot
+        // be located now is HELD 202 "waiting-for-director", never 404 - for an owning tenant whose Director is
+        // stale, and for this cross-tenant call exactly the same way, because the held record is written to the
+        // CALLER'S partition and the driver can only ever locate the session there. The answer is the one B gets
+        // for an id no tenant ever had, so it reveals nothing about A's session - and the proof is behavioural,
+        // not just the status: A's tunnel Director receives no prompt verb at all.
+        if (method == "POST" && suffix == "/prompt")
+        {
+            var resp = await Send(method, $"sessions/{SessA}{suffix}", _keyB, body);
+            var text = await resp.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+            Assert.Contains("waiting-for-director", text, StringComparison.Ordinal);
+            Assert.DoesNotContain(NotLocated, text, StringComparison.Ordinal);
+            Assert.DoesNotContain("director_stale", text, StringComparison.Ordinal);
+
+            // Tenant-blind: B naming A's session and B naming an id that never existed in any tenant get the
+            // SAME held answer, so nothing about A's session can be read out of it.
+            var ghost = await Send(method, $"sessions/no-session-any-tenant-had{suffix}", _keyB, body);
+            var ghostText = await ghost.Content.ReadAsStringAsync();
+            Assert.Equal(HttpStatusCode.Accepted, ghost.StatusCode);
+            Assert.Contains("waiting-for-director", ghostText, StringComparison.Ordinal);
+
+            // The isolation itself: A's Director was asked nothing for B's words.
+            lock (_verbsReceivedByA) Assert.DoesNotContain("prompt", _verbsReceivedByA);
+            return;
+        }
+
+        var respPlain = await Send(method, $"sessions/{SessA}{suffix}", _keyB, body);
+        var textPlain = await respPlain.Content.ReadAsStringAsync();
 
         // Still a 404 carrying the not-found CODE - never the retryable 503 that issue #2188 introduced for a
         // stale Director. Tenant B must not be told "that machine is catching up, try again", because that
         // would confirm the session exists and invite retries against another tenant's id.
-        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        Assert.Contains(NotLocated, text, StringComparison.Ordinal);
-        Assert.DoesNotContain("director_stale", text, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.NotFound, respPlain.StatusCode);
+        Assert.Contains(NotLocated, textPlain, StringComparison.Ordinal);
+        Assert.DoesNotContain("director_stale", textPlain, StringComparison.Ordinal);
     }
 
     [Fact]

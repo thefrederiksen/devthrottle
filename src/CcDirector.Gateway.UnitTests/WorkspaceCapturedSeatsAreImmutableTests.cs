@@ -55,6 +55,7 @@ public sealed class WorkspaceCapturedSeatsAreImmutableTests : IDisposable
                     RepoPath = @"D:\ReposFred\devthrottle_internal",
                     Role = "Manager",
                     ReportsTo = "e777d59f-33d3-4732-8ec8-764e368db408",
+                    OriginKind = "agent",
                     ClaudeSessionId = "cea12a53-460d-4fb3-8133-fb87106cfd07",
                     StateAtDrain = new WorkspaceSeatState { Status = "Running", TurnCount = 7 },
                     SortOrder = 0,
@@ -82,6 +83,8 @@ public sealed class WorkspaceCapturedSeatsAreImmutableTests : IDisposable
         edited.Seats[0].Role = "Architect";
         edited.Seats[0].ReportsTo = "00000000-0000-0000-0000-000000000000";
         edited.Seats[0].ClaudeSessionId = "not its transcript";
+        // A mission seat written back as the owner's would be restored as his and counted in Your Throttle.
+        edited.Seats[0].OriginKind = "human";
         edited.Seats[0].StateAtDrain = new WorkspaceSeatState { Status = "Exited", TurnCount = 0 };
 
         // ...while writing a legitimate judgment at the same time.
@@ -104,8 +107,15 @@ public sealed class WorkspaceCapturedSeatsAreImmutableTests : IDisposable
         Assert.Equal("Manager", seat.Role);
         Assert.Equal("e777d59f-33d3-4732-8ec8-764e368db408", seat.ReportsTo);
         Assert.Equal("cea12a53-460d-4fb3-8133-fb87106cfd07", seat.ClaudeSessionId);
+        Assert.Equal("agent", seat.OriginKind);
         Assert.Equal("Running", seat.StateAtDrain!.Status);
         Assert.Equal(7, seat.StateAtDrain.TurnCount);
+
+        // And a write that leaves the starter out does not erase it.
+        var omitted = Captured();
+        omitted.Seats[0].OriginKind = null;
+        store.Save(omitted, Later.AddMinutes(1));
+        Assert.Equal("agent", Assert.Single(store.Get("director-restart")!.Seats).OriginKind);
     }
 
     [Fact]

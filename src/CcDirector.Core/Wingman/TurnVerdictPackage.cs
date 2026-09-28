@@ -95,8 +95,10 @@ public sealed record TurnVerdictPackage
     /// in this build, for the same reason as <see cref="TurnEndCause"/>.</summary>
     public int? PendingWakeUps { get; init; }
 
-    /// <summary>When the session announced it would next wake up. Null when unknown - every session in
-    /// this build. The purple clock falls back to a fixed ten minutes while this stays null.</summary>
+    /// <summary>When the session will next be woken: the moment its last turn's ScheduleWakeup is due, from the
+    /// seconds the harness confirmed it scheduled, counted from the observed turn end. Null when the last turn
+    /// scheduled no wake-up, or when the one it made has no confirmed time. Recorded for the Wingman inspector only:
+    /// the carrying-on clock that once timed a purple row from it was removed (owner ruling, 2026-09-28).</summary>
     public DateTime? NextScheduledWakeUtc { get; init; }
 
     /// <summary>The states of the sessions this session owns, at every level, as the row's own crew line counts

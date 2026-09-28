@@ -782,8 +782,8 @@ public static class SessionOrdering
             "yellow" => "Wingman reading",   // Director auto-explain base yellow
             "blue" => "Working",
             // A red row the Wingman has judged carries the Wingman's own line where "Needs you" was (ruling 3):
-            // the ask, an ambiguous report that stayed red, or the carrying-on clock's "Said it would continue
-            // and did not". A row with no accepted verdict - never judged, refused, or an account whose colour
+            // the ask, an ambiguous report that stayed red, or - on a row stored before the carrying-on clock was
+            // removed on 2026-09-28 - its "Said it would continue and did not". A row with no accepted verdict - never judged, refused, or an account whose colour
             // switch is off - still reads "Needs you".
             // A red row whose VOICE gave up keeps the fold's own words - "Voice did not arrive after 48m",
             // "Wingman error" - rather than a bare "Needs you". Going red is what makes the owner look;

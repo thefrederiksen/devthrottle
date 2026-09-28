@@ -286,9 +286,6 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     private int _snapshotReads;
     public int SnapshotReads => _snapshotReads;
 
-    /// <summary>The sessions each session owns. Null: it owns none.</summary>
-    public Func<string, OwnedSessionsFacts?> Owned = _ => null;
-    public OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId) => Owned(sessionId);
 
     public IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant)
     {
@@ -378,7 +375,11 @@ internal static class TurnVerdictTestDoubles
     {
         new() { Kind = StoredConversationWidgets.UserTextKind, Content = ask },
         new() { Kind = StoredConversationWidgets.AgentTextKind, Content = reply },
-    });
+    }, Generation: TranscriptGeneration);
+
+    /// <summary>The stored generation <see cref="Reply"/> belongs to: one Claude Code transcript, which the default
+    /// <see cref="FakeTurnVerdictEnvironment.Facts"/> names as the agent - an identity the verdict service trusts to follow the conversation.</summary>
+    public const string TranscriptGeneration = "transcript-1";
 
     public static SessionVerbClient RouteServing(string directorId, Func<ScreenGridResponse?> screen, Action? onRead = null)
         => new(new DirectorDto { DirectorId = directorId, ControlEndpoint = "http://tunnel-only" }, (_, command, _) =>

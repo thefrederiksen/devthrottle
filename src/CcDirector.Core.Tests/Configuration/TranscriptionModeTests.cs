@@ -75,7 +75,7 @@ public sealed class TranscriptionModeTests
         Assert.Equal("DEVTHROTTLE_API_KEY", ep.KeyName);
         Assert.True(ep.IsDevThrottle);
         Assert.Equal(TranscriptionTransport.Batch, ep.Transport);
-        Assert.Equal("gpt-4o-transcribe", ep.Model);
+        Assert.Equal("whisper-large-v3", ep.Model);
         Assert.Equal(TranscriptionMode.DevThrottle, ep.Mode);
     }
 
@@ -87,10 +87,10 @@ public sealed class TranscriptionModeTests
         Assert.Equal("https://devthrottle.com/api/v1", ep.BaseUrl);
         Assert.Equal("DEVTHROTTLE_API_KEY", ep.KeyName);
         Assert.True(ep.IsDevThrottle);
-        // Interim stability route: DevThrottle still owns the key and proxy, but the requested
-        // hosted transcription model is the OpenAI-backed speech-to-text route.
+        // The requested model names the one the hosted proxy really serves: whisper-large-v3, never
+        // the generative gpt-4o-transcribe.
         Assert.Equal(TranscriptionTransport.Batch, ep.Transport);
-        Assert.Equal("gpt-4o-transcribe", ep.Model);
+        Assert.Equal("whisper-large-v3", ep.Model);
         Assert.Equal(TranscriptionEndpointResolver.DevThrottleModel, ep.Model);
         // DevThrottle mode must never present the user's own legacy provider key name.
         Assert.NotEqual("OPENAI_API_KEY", ep.KeyName);

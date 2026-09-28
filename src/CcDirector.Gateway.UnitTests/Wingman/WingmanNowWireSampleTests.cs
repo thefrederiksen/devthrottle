@@ -131,8 +131,8 @@ public sealed class WingmanNowWireSampleTests
             Asked("Carry on with the next slice."), NowUtc: Stopped.AddMinutes(7)));
     }
 
-    /// <summary>A session that said it would carry on by itself: the calm card in purple, and the deadline sentence
-    /// with the instant in the middle of it.</summary>
+    /// <summary>A session that said it would carry on by itself: the calm card in purple, heading only - there is no
+    /// deadline on carrying on.</summary>
     private static WingmanNowResponse CarryingOn()
     {
         var verdict = Verdict(TurnVerdictVocabulary.ContinuesAlone,

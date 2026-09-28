@@ -29,6 +29,7 @@ namespace CcDirector.DeliveryQualification;
 ///   CcDirector.DeliveryQualification --fail-then-send [--thaw-wait 8] [--cpu-load 24]   (a forced failed send, then more sends, same session)
 ///   CcDirector.DeliveryQualification --repeat-short-prompt [--cpu-load 24]   (the same short prompt sent twice in a row, same session)
 ///   CcDirector.DeliveryQualification --codex-composer-capture [--cols 100] [--rows 30]   (dump Codex's composer holding a wrapped prompt; nothing is submitted)
+///   CcDirector.DeliveryQualification --claude-doorbell-capture [--cols 120] [--rows 40]   (dump Claude Code's screens with a background task running)
 /// </summary>
 public static class Program
 {
@@ -53,6 +54,10 @@ public static class Program
             Console.WriteLine(v);
             return v.Found ? 0 : 1;
         }
+
+        // --replay <buffer-json> <cols> <rows>: rebuild a session's grid from its raw output (issue 3289).
+        if (args.Length == 4 && args[0] == "--replay")
+            return ScreenReplay.Run(args[1], short.Parse(args[2]), short.Parse(args[3]));
 
         var opts = Options.Parse(args);
         AgentRecords.RigStartedUtc = DateTime.UtcNow;
@@ -120,6 +125,13 @@ public static class Program
         {
             var cca = opts.ArgsOverride.TryGetValue("codex", out var ccaValue) ? ccaValue : Agents["codex"].Args;
             return await CodexComposerCapture.RunAsync(manager, cca, Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")),
+                opts.Out, opts.CaptureCols, opts.CaptureRows);
+        }
+
+        if (opts.ClaudeDoorbellCapture)
+        {
+            var cda = opts.ArgsOverride.TryGetValue("claude", out var cdaValue) ? cdaValue : Agents["claude"].Args;
+            return await ClaudeDoorbellCapture.RunAsync(manager, cda, Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")),
                 opts.Out, opts.CaptureCols, opts.CaptureRows);
         }
 
@@ -283,6 +295,7 @@ public sealed class Options
     public bool FailThenSend { get; private set; }
     public bool RepeatShortPrompt { get; private set; }
     public bool CodexComposerCapture { get; private set; }
+    public bool ClaudeDoorbellCapture { get; private set; }
     public short CaptureCols { get; private set; } = 100;
     public short CaptureRows { get; private set; } = 30;
     public int ThawWaitSeconds { get; private set; } = 8;
@@ -312,6 +325,7 @@ public sealed class Options
                 case "--fail-then-send": o.FailThenSend = true; break;
                 case "--repeat-short-prompt": o.RepeatShortPrompt = true; break;
                 case "--codex-composer-capture": o.CodexComposerCapture = true; break;
+                case "--claude-doorbell-capture": o.ClaudeDoorbellCapture = true; break;
                 case "--cols": o.CaptureCols = short.Parse(Next()); break;
                 case "--rows": o.CaptureRows = short.Parse(Next()); break;
                 case "--thaw-wait": o.ThawWaitSeconds = int.Parse(Next()); break;

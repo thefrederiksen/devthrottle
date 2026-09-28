@@ -14,7 +14,7 @@ import { useState } from "react";
 // real dialog, the typing goes through the real textarea, and the spans are read off the real sendPrompt call.
 
 const { sendPrompt, transcribeUtterance, listSessions } = vi.hoisted(() => ({
-  sendPrompt: vi.fn(async () => {}),
+  sendPrompt: vi.fn(async () => ({ delivering: false })),
   transcribeUtterance: vi.fn(async () => ({ text: "the dictated words", deliveryId: "utt-77" })),
   listSessions: vi.fn(async () => [{ sessionId: "sess-42", totalBufferBytes: 4321 }]),
 }));

@@ -229,10 +229,10 @@ public sealed class WingmanNowRouteTests : IDisposable
 
     private IResult Read(Caller caller, string sid, TurnVerdictStore? verdicts, PushedSessionStore? pushed,
         SessionTurnStore? turns = null, Func<TenantId, TurnVerdictSettings>? settings = null,
-        TimeSpan? streamStale = null, Func<TenantId, VoiceRowStamp.VoiceFacts>? voiceFacts = null,
+        Func<TenantId, VoiceRowStamp.VoiceFacts>? voiceFacts = null,
         Func<TenantId, string, bool>? startedBySchedule = null)
         => GatewayEndpoints.ReadWingmanNow(Request(caller), sid, SelfHostBoundary(), _registry, pushed, verdicts,
-            turns, null, null, verdicts is null ? null : RowSourceOver(verdicts), null, settings, streamStale,
+            turns, null, null, verdicts is null ? null : RowSourceOver(verdicts), null, settings,
             voiceFacts, startedBySchedule);
 
     /// <summary>This account's pushed roster with voice turned ON for the session - a Director-owned fact, which
@@ -699,51 +699,6 @@ public sealed class WingmanNowRouteTests : IDisposable
         return pushed;
     }
 
-    /// <summary>
-    /// THE ROUTE READS THE SESSION'S OWN SESSIONS, AND THE CLOCK SENTENCE CHANGES BECAUSE OF THEM.
-    ///
-    /// The fold's tests prove what the card says when it is HANDED the owned-session facts. Nothing there watches
-    /// whether the route gathers them at all - and a route that never did would leave every one of them green
-    /// while promising the owner a deadline the clock was not counting towards, on exactly the session that owns a
-    /// running Worker. So this drives the handler with a real roster holding a real owned session.
-    /// </summary>
-    [Theory]
-    [InlineData("Working")]            // the Worker is working
-    [InlineData("WaitingForInput")]    // the Worker is alive but quiet - inside one long silent command
-    public void A_session_with_a_live_session_under_it_is_served_no_deadline(string ownedState)
-    {
-        var verdicts = StoreHolding(CarryingOnVerdict());
-        var pushed = PushedWithAnOwnedSession(ownedState, DateTime.UtcNow);
-
-        var now = BodyOf(Read(Caller.Device, Sid, verdicts, pushed, streamStale: TimeSpan.FromMinutes(5)));
-
-        Assert.Equal(WingmanNowStates.CarryingOn, now.State);
-        Assert.Null(now.CarryingOnDeadline);
-        Assert.Equal("It turns red if it stops working and none of the sessions it owns is still working.",
-            now.CalmCard!.Body);
-    }
-
-    /// <summary>The positive control: the SAME stop on a session that owns nothing is served a real deadline, and
-    /// it is the moment the clock expires on. Without this, the test above would pass on a route that answered
-    /// "no deadline" to everything.</summary>
-    [Fact]
-    public void The_same_stop_with_nothing_under_it_is_served_the_moment_the_clock_expires_on()
-    {
-        var verdict = CarryingOnVerdict();
-        var verdicts = StoreHolding(verdict);
-        var pushed = PushedHolding(Sid);
-
-        var now = BodyOf(Read(Caller.Device, Sid, verdicts, pushed, streamStale: TimeSpan.FromMinutes(5)));
-
-        Assert.Equal(WingmanNowStates.CarryingOn, now.State);
-        Assert.Equal("If it has not worked again by", now.CarryingOnDeadline!.Before);
-        Assert.Null(now.CalmCard!.Body);
-
-        var at = now.CarryingOnDeadline.AtUtc;
-        Assert.True(TurnVerdictWatchdog.IsExpired(verdict, at));
-        Assert.False(TurnVerdictWatchdog.IsExpired(verdict, at.AddTicks(-1)));
-    }
-
     // ------------------------------------------- a working session, served through the real handler
 
     /// <summary>This session, WORKING, pushed by its Director.</summary>
@@ -785,8 +740,7 @@ public sealed class WingmanNowRouteTests : IDisposable
         var askedAt = Stopped.AddMinutes(2);
         var turns = ConversationHolding(("Assistant", "Either merge 3002 yourself, or allow that command."));
 
-        var now = BodyOf(Read(Caller.Device, Sid, verdicts, PushedWorking(askedAt.AddSeconds(2)), turns,
-            streamStale: TimeSpan.FromMinutes(5)));
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, PushedWorking(askedAt.AddSeconds(2)), turns));
 
         Assert.Equal(WingmanNowStates.Working, now.State);
         Assert.Equal("Working", now.PillText);
@@ -820,7 +774,6 @@ public sealed class WingmanNowRouteTests : IDisposable
         var asked = new List<(TenantId Tenant, string SessionId)>();
 
         var now = BodyOf(Read(Caller.Device, Sid, StoreHolding(null), PushedWorking(), turns,
-            streamStale: TimeSpan.FromMinutes(5),
             startedBySchedule: (tenant, sid) =>
             {
                 asked.Add((tenant, sid));
@@ -844,13 +797,12 @@ public sealed class WingmanNowRouteTests : IDisposable
         var turns = ConversationHolding(("User", "Run the daily hygiene audit and report only on drift."));
 
         var never = BodyOf(Read(Caller.Device, Sid, StoreHolding(null), PushedWorking(), turns,
-            streamStale: TimeSpan.FromMinutes(5), startedBySchedule: (_, _) => false));
+            startedBySchedule: (_, _) => false));
         Assert.Null(never.LastAsked!.By);
         Assert.Equal("at", never.LastAsked.WhenLead);
 
         // And a Gateway handed no way to look claims nothing either, rather than guessing in either direction.
-        var unasked = BodyOf(Read(Caller.Device, Sid, StoreHolding(null), PushedWorking(), turns,
-            streamStale: TimeSpan.FromMinutes(5)));
+        var unasked = BodyOf(Read(Caller.Device, Sid, StoreHolding(null), PushedWorking(), turns));
         Assert.Null(unasked.LastAsked!.By);
     }
 
@@ -867,8 +819,7 @@ public sealed class WingmanNowRouteTests : IDisposable
             ("Assistant", "Either merge 3002 yourself, or allow that command."),
             ("User", "Allow the merge, and tag straight after it."));
 
-        var now = BodyOf(Read(Caller.Device, Sid, verdicts, PushedWorking(Stopped.AddSeconds(1)), turns,
-            streamStale: TimeSpan.FromMinutes(5)));
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, PushedWorking(Stopped.AddSeconds(1)), turns));
 
         Assert.Equal("What it was last asked", now.LastAsked!.Heading);
         Assert.Equal("Allow the merge, and tag straight after it.", now.LastAsked.Text);

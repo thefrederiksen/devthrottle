@@ -17,11 +17,17 @@ namespace CcDirector.Gateway.Tests;
 /// keys, across two real accounts, because the rule is split between the guard (which lets the prompt shape through)
 /// and the route (which decides ownership) and only the pair, run together, says what an agent can actually do.
 ///
-/// HOW A PASS IS READ. No Director is connected to the tunnel, so a send that clears every check is answered 502 by the
-/// tunnel - the Director is not connected, or the connection dropped - which is a specific presence: the request got past the guard AND the
+/// HOW A PASS IS READ. No Director is connected to the tunnel, so a session key's send that clears every check is
+/// answered 502 by the tunnel - the Director is not connected, or the connection dropped - which is a specific presence: the request got past the guard AND the
 /// ownership rule and was on its way to the Director. A refusal is a specific presence too: 403 with the rule's own
 /// sentence, or the guard's code. That what the Director then receives is the guarded send, and that the owner's
 /// unsent words stop it, is proven over a real tunnel in <c>PromptAttributionIsGatewayAuthoritativeTests</c>.
+///
+/// THE OWNER'S OWN DEVICE IS THE ONE EXCEPTION (Voice Delivery phase 5, merged 26 September 2026): its prompts go
+/// through the typed prompt route, which no longer answers a tunnel failure with a bare 502. A send that cannot be
+/// confirmed is HELD - 202 "delivering", the delivery id, and the Gateway's driver finishes the words itself - which
+/// is the same specific presence (past the guard, past the ownership rule, out to the Director) in the merged
+/// product's own words: the owner's words are never refused, they are kept and driven.
 /// </summary>
 public sealed class OwnedSessionInputHostTests : IAsyncLifetime
 {
@@ -173,6 +179,17 @@ public sealed class OwnedSessionInputHostTests : IAsyncLifetime
             "expected the tunnel's answer, got: " + answer.Body);
     }
 
+    /// <summary>The owner's own prompt past the ownership rule, answered the merged product's way: the send that
+    /// cannot be confirmed is HELD (202 "delivering", its delivery id) and the Gateway's driver finishes the words -
+    /// never a 403 of the ownership rule, which is the only refusal this test must rule out.</summary>
+    private static void AssertReachedTheSendHeld((HttpStatusCode Status, string Body) answer)
+    {
+        Assert.Equal(HttpStatusCode.Accepted, answer.Status);
+        var root = JsonDocument.Parse(answer.Body).RootElement;
+        Assert.True(root.GetProperty("delivering").GetBoolean(), "expected the held answer, got: " + answer.Body);
+        Assert.Matches("^[0-9a-f]{32}$", root.GetProperty("deliveryId").GetString());
+    }
+
     // ---- prompt --------------------------------------------------------------------------------------------
 
     [Fact]
@@ -264,11 +281,12 @@ public sealed class OwnedSessionInputHostTests : IAsyncLifetime
     public async Task Prompt_TheOwnersOwnDevice_IsNotHeldToTheOwnershipRule()
     {
         // The owner's device types into any session of his account, owned by a session or not, on any Director -
-        // exactly as before. It never reaches the ownership rule.
+        // exactly as before. It never reaches the ownership rule: neither prompt is refused, and each is held as the
+        // Gateway's own delivery to finish (Voice Delivery phase 5) rather than answered by the ownership rule.
         DirectorChecksBeforeTyping(false);
 
-        AssertReachedTheTunnel(await Send(_ownerA, $"sessions/{_childId}/prompt", new { text = "from the owner" }));
-        AssertReachedTheTunnel(await Send(_ownerA, $"sessions/{_ownersOwnId}/prompt", new { text = "from the owner" }));
+        AssertReachedTheSendHeld(await Send(_ownerA, $"sessions/{_childId}/prompt", new { text = "from the owner" }));
+        AssertReachedTheSendHeld(await Send(_ownerA, $"sessions/{_ownersOwnId}/prompt", new { text = "from the owner" }));
     }
 
     // ---- interrupt and escape stay the owner's ------------------------------------------------------------

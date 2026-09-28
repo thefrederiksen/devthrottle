@@ -102,15 +102,13 @@ describe("Now, rendered from the answer the Gateway actually sends", () => {
     expect(onGoToSession).toHaveBeenCalledWith(next.sessionId);
   });
 
-  it("draws the carrying-on deadline as one sentence with the local clock in the middle, and tints the card", () => {
+  it("draws carrying on as a purple card with no deadline sentence", () => {
     const now = SAMPLE.carryingOn;
-    const deadline = now.carryingOnDeadline!;
     const { container } = render(<WingmanNow now={now} at={minutesAfter(now.when!.atUtc, 3)} />);
 
-    expect(
-      screen.getByText(`${deadline.before} ${formatClockTime(deadline.atUtc)}${deadline.after}`),
-    ).toBeTruthy();
+    expect(screen.getByText(now.calmCard!.heading)).toBeTruthy();
     expect(container.querySelector(".wnow-card-calm-purple")).toBeTruthy();
+    expect(screen.queryByText(/turns red/)).toBeNull();
   });
 
   it("tints the finished work with the colour the Gateway named", () => {
@@ -159,7 +157,7 @@ describe("Now, rendered from the answer the Gateway actually sends", () => {
     ]) {
       present(SAMPLE.justAnswered, key);
     }
-    for (const key of ["calmCard.heading", "calmCard.tone", "carryingOnDeadline.before", "carryingOnDeadline.atUtc", "carryingOnDeadline.after"]) {
+    for (const key of ["calmCard.heading", "calmCard.tone"]) {
       present(SAMPLE.carryingOn, key);
     }
   });

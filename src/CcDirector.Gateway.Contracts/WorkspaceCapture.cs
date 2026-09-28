@@ -141,6 +141,7 @@ public static class WorkspaceCapture
 
             ReportsTo = string.IsNullOrWhiteSpace(s.ControllerSessionId) ? null : s.ControllerSessionId,
             ParentSessionId = string.IsNullOrWhiteSpace(s.ParentSessionId) ? null : s.ParentSessionId,
+            OriginKind = string.IsNullOrWhiteSpace(s.OriginKind) ? null : s.OriginKind,
             WorkflowRunId = s.WorkflowRunId?.ToString(),
 
             // The factory, captured so the restore can give it back (Factory Memory mission, phase 1).

@@ -110,6 +110,9 @@
       "browser",
       "report"
     ],
+    "excluded.notStartedByYou": [
+      "browser"
+    ],
     "excluded.unresolved": [
       "browser",
       "report"
@@ -284,6 +287,39 @@
     "sessions": [
       "browser",
       "report"
+    ],
+    "starters.groups[].kind": [
+      "browser"
+    ],
+    "starters.groups[].label": [
+      "browser"
+    ],
+    "starters.groups[].sessionPercent": [
+      "browser"
+    ],
+    "starters.groups[].sessionShare": [
+      "browser"
+    ],
+    "starters.groups[].sessions": [
+      "browser"
+    ],
+    "starters.groups[].turns": [
+      "browser"
+    ],
+    "starters.hasData": [
+      "browser"
+    ],
+    "starters.humanPercent": [
+      "browser"
+    ],
+    "starters.humanShare": [
+      "browser"
+    ],
+    "starters.sessions": [
+      "browser"
+    ],
+    "starters.turns": [
+      "browser"
     ],
     "turns": [
       "browser",

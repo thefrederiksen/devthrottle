@@ -107,6 +107,21 @@ public sealed class PushedSessionStore
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
     }
 
+    /// <summary>
+    /// Raised with the tenant and the Director id when a NEW connection of that Director delivers its first full session
+    /// snapshot - the moment a Director whose tunnel dropped and came back can be reached again (Voice Delivery phase 5:
+    /// the Gateway's driver re-sends the deliveries it holds for that Director's sessions right then).
+    ///
+    /// Why this and not an existing signal. The registry's "Director added" fires only for a Director it did not
+    /// already hold, so a tunnel that drops and reconnects inside the eviction horizon raises nothing. The Hello is sent
+    /// on every ten-second reseed, not only on a connect, and <see cref="RegisterConnection"/> deliberately marks the
+    /// cached sessions stale until the new connection pushes its own snapshot - so at the Hello a session still cannot
+    /// be located. The first snapshot of a connection is the first moment it can.
+    ///
+    /// Raised outside every lock, on the pushing Director's own call; a handler must not block it.
+    /// </summary>
+    public event Action<TenantId, string>? SessionsArrivedOnNewConnection;
+
     /// <summary>The per-Director map for one tenant, created on first use. Fails loud on an invalid tenant.</summary>
     private ConcurrentDictionary<string, DirectorEntry> DirectorsFor(TenantId tenant)
     {
@@ -184,6 +199,7 @@ public sealed class PushedSessionStore
             entry.ActiveConnectionId = connectionId;
             entry.CurrentEpoch = epoch;
             entry.LastSequence = -1;
+            entry.SnapshotSinceConnect = false;
             // Treat the cache as STALE until THIS new connection pushes its own snapshot (inspection
             // round 5). The previous connection's sessions are kept for reconnect continuity, but if we
             // left the old ReceivedAtUtc in place TryGetFresh would serve the PRIOR connection's roster
@@ -305,10 +321,13 @@ public sealed class PushedSessionStore
         if (!DirectorsFor(tenant).TryGetValue(directorId, out var entry))
             return false;
 
+        bool firstOfConnection;
         lock (entry.Gate)
         {
             if (!IsAcceptable(entry, tenant, directorId, connectionId, sequence, "snapshot"))
                 return false;
+            firstOfConnection = !entry.SnapshotSinceConnect;
+            entry.SnapshotSinceConnect = true;
 
             entry.Sessions.Clear();
             foreach (var s in sessions)
@@ -321,6 +340,11 @@ public sealed class PushedSessionStore
             }
             entry.LastSequence = sequence;
             entry.ReceivedAtUtc = _utcNow();
+        }
+        if (firstOfConnection)
+        {
+            FileLog.Write($"[PushedSessionStore] first snapshot of a new connection: tenant={tenant.ToLogString()}, director={directorId}, sessions={sessions.Count}");
+            SessionsArrivedOnNewConnection?.Invoke(tenant, directorId);
         }
         return true;
     }
@@ -674,6 +698,18 @@ public sealed class PushedSessionStore
     /// reason it was added, and only the AGE test is dropped here.
     /// </summary>
     public IReadOnlyList<(string DirectorId, SessionDto Session)> SnapshotConnected(TenantId tenant)
+        => SnapshotWhere(tenant, requireConnection: true);
+
+    /// <summary>
+    /// EVERY SESSION THE GATEWAY LAST HEARD OF across <paramref name="tenant"/>'s Directors, connected or not and
+    /// however old the push - the universe the roster route folds roles over. Same deep-copy rules as
+    /// <see cref="SnapshotFresh"/>. For DECIDING only (who owns whom): an owning session on a machine that has gone
+    /// quiet still owns its workers. Never address a command from this list - use SnapshotFresh for that.
+    /// </summary>
+    public IReadOnlyList<(string DirectorId, SessionDto Session)> SnapshotLastKnown(TenantId tenant)
+        => SnapshotWhere(tenant, requireConnection: false);
+
+    private IReadOnlyList<(string DirectorId, SessionDto Session)> SnapshotWhere(TenantId tenant, bool requireConnection)
     {
         var now = _utcNow();
         var result = new List<(string, SessionDto)>();
@@ -682,9 +718,9 @@ public sealed class PushedSessionStore
             var entry = kvp.Value;
             lock (entry.Gate)
             {
-                if (entry.ActiveConnectionId is null)
+                if (requireConnection && entry.ActiveConnectionId is null)
                     continue;
-                if (entry.ReceivedAtUtc == DateTime.MinValue)
+                if (requireConnection && entry.ReceivedAtUtc == DateTime.MinValue)
                     continue;
                 foreach (var s in entry.Sessions.Values)
                     result.Add((kvp.Key, RecomputeClocks(s.Clone(), now)));
@@ -863,6 +899,8 @@ public sealed class PushedSessionStore
 
         public long LastSequence = -1;
         public DateTime ReceivedAtUtc = DateTime.MinValue;
+        // Whether the ACTIVE connection has delivered a full snapshot yet; reset when a new connection takes over.
+        public bool SnapshotSinceConnect;
         public readonly Dictionary<string, SessionDto> Sessions = new(StringComparer.Ordinal);
     }
 }

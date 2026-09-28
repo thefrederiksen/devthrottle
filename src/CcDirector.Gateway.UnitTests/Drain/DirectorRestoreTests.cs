@@ -402,6 +402,27 @@ public sealed class DirectorRestoreTests : IDisposable
         Assert.Equal("restoring-session", gw.Stored.RestoredBy!.SessionId);
     }
 
+    [Theory]
+    [InlineData("restoring-session", "human")]
+    [InlineData(null, "agent")]
+    [InlineData(null, "schedule")]
+    public async Task RunAsync_ACapturedSeatThatRecordedItsStarter_KeepsIt_WhoeverAskedForTheRestore(string? askedBy, string starter)
+    {
+        // A restore of a captured seat CONTINUES that session, so it keeps the starter the seat recorded. Before,
+        // a mission seat restored by the owner came back as his, and an owner's session restored by an agent came
+        // back as an agent's - which Your Throttle then counted the wrong way round.
+        var seat = Seat("solo", "Solo");
+        seat.OriginKind = starter;
+        var gw = Gateway(seat);
+
+        await NewRestore(gw).RunAsync(Order(askedBy: askedBy));
+
+        var spawn = Assert.Single(gw.Spawns);
+        Assert.Equal(starter, spawn.Origin);
+        // Who asked is still recorded as the parent when a session asked.
+        Assert.Equal(askedBy, spawn.ParentSessionId);
+    }
+
     [Fact]
     public async Task RunAsync_AskedByTheOwner_IsAPersonsSpawn()
     {

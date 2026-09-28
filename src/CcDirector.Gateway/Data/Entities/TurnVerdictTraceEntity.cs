@@ -133,8 +133,8 @@ public sealed class TurnVerdictTraceEntity : TenantScopedEntity
     /// exactly when <see cref="RowColour"/> is.</summary>
     public string? RowLabel { get; set; }
 
-    /// <summary>When a "continues-alone" verdict's carrying-on clock was set to run out, at the moment of judgement
-    /// (<c>TurnVerdictWatchdog.DeadlineFor</c>). It is stored because the deadline depends on the owned sessions' live
+    /// <summary>HISTORY ONLY - nothing writes it since the carrying-on clock was removed (owner ruling, 2026-09-28).
+    /// When a "continues-alone" verdict's carrying-on clock was set to run out, at the moment of judgement. It was stored because the deadline depends on the owned sessions' live
     /// activity, which is kept nowhere; it moves later while those sessions keep working. Null for every other verdict,
     /// for a carrying-on verdict whose clock was not running (a session it owns was working), and for a trace written
     /// before it was recorded.</summary>

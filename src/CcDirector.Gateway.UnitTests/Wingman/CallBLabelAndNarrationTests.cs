@@ -41,6 +41,8 @@ public sealed class CallBLabelAndNarrationTests
         Conversation = _ => Reply("tidy the retention timer", Report),
         Judge = (_, _) => Task.FromResult("done"),
         Narrator = narrator,
+        // Call B runs only for a voice session or a person's request (owner ruling, 28 September 2026).
+        VoiceSession = _ => true,
     };
 
     private static SessionDto RowFor(TurnVerdictDto verdict)
@@ -144,8 +146,8 @@ public sealed class CallBLabelAndNarrationTests
 
     /// <summary>
     /// A MALFORMED CALL B IS A FAILED CALL B, AND CALL A'S COLOUR STANDS. The reading is stored - not failed, still
-    /// cyan - with no label, so the row falls back to its plain state label, and no words. The narration's own
-    /// failure is recorded so the card can say the words are missing.
+    /// cyan - with no label, so the row falls back to its plain state label, and no words. It is NOT a Wingman error:
+    /// no error card and no retry schedule. The narration's own failure is recorded for the debug view only.
     /// </summary>
     [Fact]
     public async Task AMalformedCallB_LeavesCallAsColour_ThePlainStateLabel_AndNoWords()
@@ -163,10 +165,12 @@ public sealed class CallBLabelAndNarrationTests
         Assert.Equal("finished-done", stored.State);
         Assert.Equal("", stored.Label);
         Assert.Null(stored.Narration);
-        Assert.Equal(WingmanFailureKinds.NarrationFailed, stored.FailureKind);
+        Assert.Null(stored.FailureKind);
+        Assert.Null(stored.NextRetryAtUtc);
         Assert.Contains("LABEL:", stored.NarrationFailureReason);
         var row = RowFor(stored);
         Assert.Equal("cyan", SessionOrdering.EffectiveColor(row));
+        Assert.Null(row.WingmanError);
         Assert.Null(row.VerdictLabel);
         Assert.Equal(plainLabel, SessionOrdering.StateLabel(row));
     }
@@ -181,7 +185,33 @@ public sealed class CallBLabelAndNarrationTests
         var stored = env.Latest(Tenant, Sid)!;
         Assert.False(stored.Failed);
         Assert.Equal("", stored.Label);
-        Assert.Equal("cyan", SessionOrdering.EffectiveColor(RowFor(stored)));
+        Assert.Null(stored.NextRetryAtUtc);
+        var row = RowFor(stored);
+        Assert.Equal("cyan", SessionOrdering.EffectiveColor(row));
+        Assert.Null(row.WingmanError);
+    }
+
+    /// <summary>
+    /// A CALL A FAILURE IS STILL A WINGMAN ERROR: the colour was never decided, so the row carries the error card and
+    /// the first retry is booked. Only a Call B failure is quiet.
+    /// </summary>
+    [Fact]
+    public async Task ACallAThatDidNotAnswer_KeepsTheErrorCard_AndTheRetrySchedule()
+    {
+        var env = Env((_, _) => Task.FromResult(Shaped(Label, Words)));
+        env.Judge = (_, _) => throw new TimeoutException("the judge did not answer");
+
+        await new TurnVerdictService(env).StartTurnEnd(Signal());
+
+        var stored = env.Latest(Tenant, Sid)!;
+        Assert.True(stored.Failed);
+        Assert.Equal(WingmanFailureKinds.DidNotAnswer, stored.FailureKind);
+        Assert.NotNull(stored.NextRetryAtUtc);
+        Assert.Equal(0, env.NarratorCalls);
+        var card = RowFor(stored).WingmanError;
+        Assert.NotNull(card);
+        Assert.Equal("Wingman error", card!.Tag);
+        Assert.Equal("retry 1 of 8", card.RetryLabel);
     }
 
     /// <summary>A person asking again after a failed Call B gets the label as well as the words.</summary>

@@ -52,7 +52,6 @@ const NOW: WingmanNow = {
   needs: null,
   replyPlaceholder: "Answer the session directly.",
   calmCard: null,
-  carryingOnDeadline: null,
   lastWords: null,
   failedHeadline: null,
   failedStory: null,

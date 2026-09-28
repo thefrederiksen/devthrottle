@@ -160,7 +160,6 @@ public sealed class CallACodeFirstTests : IDisposable
     public async Task ModelStep_IsGivenTheScreenAndTheReply_AndNothingElse()
     {
         var env = Env(PlainReport);
-        env.Owned = sid => sid == Sid ? new OwnedSessionsFacts(Working: 2, Live: 3, Stopped: 1, NeedYou: 0, LastActivityAtUtc: ObservedAt) : null;
         // A previous reading with a label, on a different screen, so it is not reused.
         env.Store(Tenant, Sid, new TurnVerdictDto
         {

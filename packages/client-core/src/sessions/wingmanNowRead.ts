@@ -79,17 +79,6 @@ export interface WingmanNowCalmCard {
   tone?: "cyan" | "purple" | null;
 }
 
-/**
- * When a carrying-on session turns red if it does not work again. Rendered as `before` + the local clock time +
- * `after`. While a session it owns is still working there is no clock at all: the Gateway then sends NO deadline and
- * puts the sentence that says so in the calm card's `body` instead, so the view never has both to choose between.
- */
-export interface WingmanNowDeadline {
-  before: string;
-  atUtc: string;
-  after: string;
-}
-
 /** A past stop, marked as past: the newest good explanation, or the stop that was answered. */
 export interface WingmanNowPast {
   lead: string;
@@ -197,7 +186,6 @@ export interface WingmanNow {
    */
   snoozedUntil?: WingmanNowWhen | null;
   calmCard?: WingmanNowCalmCard | null;
-  carryingOnDeadline?: WingmanNowDeadline | null;
 
   lastWords?: WingmanNowSaid | null;
   failedHeadline?: string | null;

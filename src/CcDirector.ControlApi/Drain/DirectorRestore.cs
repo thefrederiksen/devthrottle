@@ -767,6 +767,10 @@ public sealed class DirectorRestore
             req.Origin = Core.Sessions.SessionOriginKinds.Agent;
             req.ParentSessionId = order.RequestedBySessionId;
         }
+        // A CAPTURED seat that recorded its starter is a continuation: the restored session keeps that starter,
+        // whoever ran the restore (Your Throttle, 2026-09-27). Who asked is still the parent above.
+        if (Core.Sessions.SessionOriginKinds.Normalize(seat.OriginKind) is { } starter)
+            req.Origin = starter;
         return req;
     }
 

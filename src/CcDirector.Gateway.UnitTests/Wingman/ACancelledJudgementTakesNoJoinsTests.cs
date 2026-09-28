@@ -43,6 +43,7 @@ public sealed class ACancelledJudgementTakesNoJoinsTests
             Screen = () => Screen(Sid, ReplyText, "> "),
             Conversation = _ => Reply("push it", ReplyText),
             Narrator = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.DefaultNarration()),
+            VoiceSession = _ => true,
         };
         env.Judge = async (_, _) =>
         {

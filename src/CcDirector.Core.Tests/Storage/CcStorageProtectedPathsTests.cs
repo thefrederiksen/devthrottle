@@ -69,6 +69,10 @@ public sealed class CcStorageProtectedPathsTests
             ["VoiceTurnArchive"] = DataTheMissionReportsAndNeverOffers,
             ["VoiceTurnUploads"] = DataTheMissionReportsAndNeverOffers,
             ["DictationUploads"] = DataTheMissionReportsAndNeverOffers,
+            // Held typed prompts (Voice Delivery phase 5): the typed twin of DictationUploads - the owner's words
+            // while the Gateway asks what became of them, retired by the Gateway's own thirty-day sweep. No
+            // credential in it, and no reclaim rule matches it.
+            ["TypedPrompts"] = DataTheMissionReportsAndNeverOffers,
             ["BriefFeedback"] = DataTheMissionReportsAndNeverOffers,
             ["Bin"] = TheInstalledProduct,
             ["PythonRuntime"] = TheInstalledProduct,

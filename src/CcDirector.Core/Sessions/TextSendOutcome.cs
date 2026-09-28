@@ -1,11 +1,15 @@
 namespace CcDirector.Core.Sessions;
 
 /// <summary>
-/// How a <see cref="Session.SendTextAsync(string, SubmissionProvenance, SendSource, InputOrigin?)"/> that did NOT throw
+/// How a <see cref="Session.SendTextAsync(string, SubmissionProvenance, SendSource, InputOrigin?, DateTime?)"/> that did NOT throw
 /// ended (Voice Delivery mission, phase 3, review finding 3). A send that throws is not delivered: the words are known
-/// not to have been submitted. A send that returns is one of two things:
+/// not to have been submitted. A send that returns is one of three things:
 ///  - <see cref="Confirmed"/> true: delivered - the agent's records hold the words, or the terminal proved the submit.
-///  - <see cref="Confirmed"/> false: STILL DELIVERING. The Enter was pressed and the words were not seen left behind in the
+///  - <see cref="NothingTyped"/> true: REFUSED BEFORE THE FIRST KEYSTROKE (phase 5, QA finding F6) - the prompt was
+///    older than the delivery age limit, so nothing was typed and the words are KNOWN not submitted. This is never
+///    "still delivering" and carries no late watch: there is nothing to watch for. The caller answers not-delivered
+///    with the too-old reason; it must not retry the same text.
+///  - otherwise (<see cref="Confirmed"/> false): STILL DELIVERING. The Enter was pressed and the words were not seen left behind in the
 ///    composer, but nothing has proven the agent took them - a working Claude Code holds a prompt sent mid-turn and writes
 ///    it to its records only when its running tool ends, which can be after the records window. This is never a failure:
 ///    a caller that retried it would type the words a second time into an agent that already holds them.
@@ -13,14 +17,15 @@ namespace CcDirector.Core.Sessions;
 public sealed class TextSendOutcome
 {
     /// <summary>The send was proven delivered.</summary>
-    public static readonly TextSendOutcome Delivered = new(true, null, null, null);
+    public static readonly TextSendOutcome Delivered = new(true, null, null, null, nothingTyped: false);
 
-    private TextSendOutcome(bool confirmed, string? reason, Task<LateWatchEnd>? lateProof, TimeSpan? lateWatchLimit)
+    private TextSendOutcome(bool confirmed, string? reason, Task<LateWatchEnd>? lateProof, TimeSpan? lateWatchLimit, bool nothingTyped)
     {
         Confirmed = confirmed;
         Reason = reason;
         LateProof = lateProof;
         LateWatchLimit = lateWatchLimit;
+        NothingTyped = nothingTyped;
     }
 
     /// <summary>A send that left the composer but is not yet proven: <paramref name="reason"/> says why, and
@@ -31,13 +36,14 @@ public sealed class TextSendOutcome
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
         ArgumentNullException.ThrowIfNull(lateProof);
-        return new TextSendOutcome(false, reason, lateProof, limit);
+        return new TextSendOutcome(false, reason, lateProof, limit, nothingTyped: false);
     }
 
     /// <summary>True when the send was proven delivered; false when it is still delivering.</summary>
     public bool Confirmed { get; }
 
-    /// <summary>Why a send that is still delivering could not be confirmed. Null when <see cref="Confirmed"/>.</summary>
+    /// <summary>Why a send that is still delivering could not be confirmed, and the reason of a refusal that typed
+    /// nothing. Null when <see cref="Confirmed"/>.</summary>
     public string? Reason { get; }
 
     /// <summary>The late watch that goes on after a still-delivering send returned; null only when <see cref="Confirmed"/>.
@@ -47,6 +53,23 @@ public sealed class TextSendOutcome
 
     /// <summary>How long <see cref="LateProof"/> runs at most; null only when <see cref="Confirmed"/>.</summary>
     public TimeSpan? LateWatchLimit { get; }
+
+    /// <summary>True when NOTHING was typed: the send was refused before the first keystroke because the prompt was
+    /// older than the delivery age limit (phase 5, QA finding F6). The words are known not submitted - never a
+    /// still-delivering send and never a failure. False on every other outcome.</summary>
+    public bool NothingTyped { get; }
+
+    /// <summary>
+    /// A send that typed NOTHING: the prompt was refused at the first keystroke for being strictly older than
+    /// <see cref="Gateway.Contracts.MaxDeliveryAge"/>. <paramref name="reason"/> is the too-old reason with the
+    /// measured age, the same string the verb answers and the delivery record keeps. Not "delivered", not "still
+    /// delivering": no late watch is attached, because nothing was typed and there is nothing to watch for.
+    /// </summary>
+    public static TextSendOutcome RefusedBeforeTyping(string reason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        return new TextSendOutcome(false, reason, null, null, nothingTyped: true);
+    }
 }
 
 /// <summary>How the late watch after a still-delivering send ended (<see cref="TextSendOutcome.LateProof"/>).</summary>

@@ -159,34 +159,12 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     /// <summary>
-    /// A SESSION THAT IS NOT IN VOICE MODE STILL GETS THE WHOLE READING. Until contract v3 the narration call was
-    /// the voice path's to make, so this shape - a refresh that does not enrol the session - got the judge's short
-    /// text and no second call. The reading is now both calls for every stop that answers to the USER, so the words
-    /// exist whether or not anybody is listening, and the clip is those words.
-    ///
-    /// This costs nothing new: a session that answers to the user was already buying a narration call at every stop
-    /// with voice off - see ATurnEndOnASessionThatAnswersToTheUser_WithVoiceOff below, which predates v3. A session
-    /// a LIVE session owns still gets none, which ATurnEndOnASessionAnotherSessionOwns holds.
+    /// A SESSION THAT IS NOT A VOICE SESSION GETS NO NARRATION CALL AT ITS TURN END (owner ruling, 28 September 2026).
+    /// Nobody is listening, so the model is asked only for the colour; the row shows its plain state label, and the
+    /// words are made only when a person asks for them.
     /// </summary>
     [Fact]
-    public async Task ASessionThatIsNotAVoiceSession_StillGetsTheWholeReading_AndItsClipIsTheNarrationsWords()
-    {
-        var rig = Build();
-
-        await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None,
-            showReadingWindow: false, markAsVoiceSession: false);
-
-        Assert.False(rig.Voice.IsVoiceSession(Tenant, Sid));
-        Assert.Equal(1, rig.Env.JudgeCalls);
-        Assert.Equal(1, rig.Env.NarratorCalls);
-        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
-        Assert.Equal(1, rig.Speech.Calls);
-    }
-
-    // ================================================================= every stop of a session that answers to the user
-
-    [Fact]
-    public async Task ATurnEndOnASessionThatAnswersToTheUser_WithVoiceOff_MakesOneNarrationCall_AndSavesItsTextOnTheVerdict()
+    public async Task ATurnEndOnASessionThatIsNotAVoiceSession_MakesNoNarrationCall_AndStoresNoWords()
     {
         var rig = Build();
         rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
@@ -195,16 +173,31 @@ public sealed class NarrationCallTests : IDisposable
 
         Assert.False(rig.Voice.IsVoiceSession(Tenant, Sid));
         Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.Equal(0, rig.Env.NarratorCalls);
+        var verdict = rig.Env.Latest(Tenant, Sid)!;
+        Assert.False(verdict.Failed);
+        Assert.Null(verdict.Narration);
+        Assert.Null(verdict.NarrationFailureReason);
+        Assert.Null(rig.Voice.Get(Tenant, Sid));
+    }
+
+    /// <summary>The same stop on a VOICE session: one narration call, and its text is the reading's one text.</summary>
+    [Fact]
+    public async Task ATurnEndOnAVoiceSession_MakesOneNarrationCall_AndSavesItsTextOnTheVerdict()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
+        rig.Voice.Mark(Tenant, Sid);
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        Assert.Equal(1, rig.Env.JudgeCalls);
         Assert.Equal(1, rig.Env.NarratorCalls);
-        // ONE TEXT, READ OR HEARD (contract v3): the narration IS the summary and IS the spoken text. The judge
-        // answered its own shorter "spoken" field until 2026-09-18, and a row then showed a short version and a
-        // long version of one turn depending on which reader you asked.
+        // ONE TEXT, READ OR HEARD (contract v3): the narration IS the summary and IS the spoken text.
         var verdict = rig.Env.Latest(Tenant, Sid)!;
         Assert.Equal(Narrated, verdict.Narration);
         Assert.Equal(Narrated, verdict.Spoken);
         Assert.Equal(Narrated, verdict.Summary);
-        // Nobody is listening, so no audio was made.
-        Assert.Null(rig.Voice.Get(Tenant, Sid));
     }
 
     [Fact]
@@ -212,12 +205,14 @@ public sealed class NarrationCallTests : IDisposable
     {
         var rig = Build();
         rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
+        rig.Voice.Mark(Tenant, Sid);
         var judged = await rig.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
         Assert.Equal(TurnVerdictOutcomeKind.Judged, judged.Kind);
         Assert.Equal(1, rig.Env.NarratorCalls);   // control: the same stop, owned by the user, is narrated
 
         var owned = Build();
         owned.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
+        owned.Voice.Mark(Tenant, Sid);
         // Owned by a live session from the moment it was judged: a session that becomes owned while its verdict is
         // being formed. The held check before the narration call stops it; ownership is answered here by whether the
         // judge has run.
@@ -237,6 +232,7 @@ public sealed class NarrationCallTests : IDisposable
         var rig = Build();
         rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
         rig.Env.Plan = () => NarrationPlan.NeedsPro;
+        rig.Voice.Mark(Tenant, Sid);
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
 
@@ -273,21 +269,126 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     [Fact]
-    public async Task ASavedNarration_IsNotMadeAgain_AndIsWhatVoiceSpeaksWhenVoiceIsTurnedOnLater()
+    public async Task AStopReadBeforeVoiceWasOn_IsNarratedOnceWhenVoiceIsTurnedOn_AndThenSpoken()
     {
         var rig = Build();
         rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
-        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(0, rig.Env.NarratorCalls);   // not a voice session yet: colour only (owner ruling, 28 September 2026)
 
-        // Voice is switched on afterwards: the saved text is spoken as it is, and no second call is made for this verdict.
+        // Voice is switched on afterwards, on the same unchanged stop: the reading is reused, its words are made once
+        // and saved, and they are spoken.
         rig.Voice.Mark(Tenant, Sid);
         await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: false);
         await rig.Voice.WaitForNarrationCallsAsync();
 
         Assert.Equal(1, rig.Env.NarratorCalls);
         Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
         Assert.EndsWith(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+
+        // A second pass on the same stop makes no second call: the words are saved on the reading.
+        await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+        Assert.Equal(1, rig.Env.NarratorCalls);
+    }
+
+    [Fact]
+    public async Task ExplainOnAStopReadWithoutWords_ReturnsTheWordsInTheSameAnswer_WithOneNarrationCall()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Answer(Narrated));
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+        Assert.Equal(0, rig.Env.NarratorCalls);   // not a voice session: the turn end read the colour only
+
+        // The person presses explain on the unchanged stop: the reading is reused and its words are made while they wait.
+        var narration = await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Null(narration.Error);
+        Assert.EndsWith(Narrated, narration.Spoken);
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+        // One text, read or heard: words made late are stored in the same three fields a reading's own words are.
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Summary);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Spoken);
+        Assert.False(rig.Voice.IsVoiceSession(Tenant, Sid));
+    }
+
+    /// <summary>
+    /// ONE PRESS, ONE PAID CALL, EVEN WHEN IT FAILS. The late narration call is made while the person waits; when it
+    /// gives no words, the press says so and does not start a second call behind it. A second PRESS may ask again.
+    /// </summary>
+    [Fact]
+    public async Task ExplainOnAStopReadWithoutWords_WhoseNarrationFails_PaysOneCall_AndSaysSo()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        var first = await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(WingmanVoiceService.RetryingLine, first.Spoken);
+        Assert.True(first.Retrying);
+        Assert.Null(first.Error);
+
+        // THE CONTROL: the person pressing again is allowed exactly one more call.
+        await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+        Assert.Equal(2, rig.Env.NarratorCalls);
+    }
+
+    /// <summary>
+    /// A PRESS WHILE THE CALL IS STILL RUNNING is told so, never handed an empty answer, and pays for nothing.
+    /// </summary>
+    [Fact]
+    public async Task ExplainWhileTheLateNarrationIsRunning_SaysItIsStillBeingWritten_AndMakesNoSecondCall()
+    {
+        var rig = Build();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Env.Narrator = async (_, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return Answer(Narrated);
+        };
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        var firstPress = rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var second = await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        Assert.Equal(WingmanVoiceService.StillWritingLine, second.Spoken);
+        Assert.Null(second.Error);
+
+        release.SetResult();
+        var first = await firstPress;
+        await rig.Voice.WaitForNarrationCallsAsync();
+        Assert.EndsWith(Narrated, first.Spoken);
+        Assert.Equal(1, rig.Env.NarratorCalls);
+    }
+
+    [Fact]
+    public async Task AStopReadBeforeVoiceWasOn_WhoseLateNarrationFails_IsNotAskedAgainOnEveryPass()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        rig.Voice.Mark(Tenant, Sid);
+        for (var pass = 0; pass < 3; pass++)
+        {
+            await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: false);
+            await rig.Voice.WaitForNarrationCallsAsync();
+        }
+
+        // One attempt, and the idle sweep does not pay for another on every pass; a person asking still can.
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Null(rig.Env.Latest(Tenant, Sid)!.Narration);
     }
 
     [Fact]

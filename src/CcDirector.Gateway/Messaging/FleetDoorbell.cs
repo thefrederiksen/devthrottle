@@ -147,6 +147,11 @@ public sealed class FleetDoorbell
     private readonly Func<TenantId, string, bool> _dictationInFlight;
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _inFlight = new();
 
+    /// <summary>Why each session's last ring did not go through, in words, for the unreachable notice (issue 3289).
+    /// Cleared when a ring goes through. In memory only: after a Gateway restart the notice gives no reason until
+    /// the next ring has been tried.</summary>
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), string> _heldBack = new();
+
     /// <summary>When each session's current run of dictation deferrals began, and whether it was warned about.</summary>
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (DateTime Since, bool Warned)> _dictationHeld = new();
 
@@ -227,7 +232,8 @@ public sealed class FleetDoorbell
 
     /// <summary>
     /// ONE TENANT'S HEARTBEAT, BOUNDED (inspection 4, ruling 6). Whatever the backlog, the database is read a
-    /// fixed number of times: the stuck scan (rows at the ring cap only), the no-reply scan (rows past a reply deadline
+    /// fixed number of times: the stuck scan (rows at the ring cap only), the unreachable scan (unread rows never
+    /// rung, older than the unreachable limit and not yet reported - issue 3289), the no-reply scan (rows past a reply deadline
     /// and not yet marked or answered, slice 3), one read of every unread message with its
     /// recipient and without its text, and - when anything was rung - one read and one save to record the rings.
     /// The rings themselves run <see cref="RingParallelism"/> at a time, each abandoned after the ring timeout,
@@ -237,6 +243,7 @@ public sealed class FleetDoorbell
     {
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
         var stuck = MarkStuckAndNotify(tenant);
+        var unreachable = MarkUnreachableAndNotify(tenant);
         // NO REPLY BY THE DEADLINE (slice 3): marked, and its sender told once, in the same heartbeat - before the
         // unread read below, so a notice written now is rung on this very tick.
         var overdue = _messages.MarkReplyOverdueAndNotify(tenant, sid => _locate(tenant, sid)?.Name);
@@ -289,7 +296,7 @@ public sealed class FleetDoorbell
         {
             foreach (var key in held) _inFlight.TryRemove(key, out _);
             var ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-            FileLog.Write($"[FleetDoorbell] heartbeat tick: tenant={tenant} stuck={stuck.Count} overdue={overdue.Count} unread={unread.Count} " +
+            FileLog.Write($"[FleetDoorbell] heartbeat tick: tenant={tenant} stuck={stuck.Count} unreachable={unreachable.Count} overdue={overdue.Count} unread={unread.Count} " +
                           $"sessions={plans.Count} {string.Join(" ", attempts.OrderBy(k => k.Key).Select(k => $"{k.Key}={k.Value}"))} " +
                           $"took={ms:0}ms");
         }
@@ -340,6 +347,7 @@ public sealed class FleetDoorbell
     {
         var result = await DecideAndAskAsync(tenant, plan, trigger, now, ct).ConfigureAwait(false);
         TrackDictationHold(tenant, plan.SessionId, result.Attempt, now);
+        if (result.Attempt == FleetRingAttempt.Rung) _heldBack.TryRemove((tenant, plan.SessionId), out _);
         return result;
     }
 
@@ -381,6 +389,7 @@ public sealed class FleetDoorbell
         if (target is null)
         {
             FileLog.Write($"[FleetDoorbell] ring SKIPPED (not connected): sid={Short(sid)} trigger={trigger} due={due.Count}");
+            HeldBack(tenant, sid, "the session is not on a connected Director");
             return (FleetRingAttempt.NotConnected, due);
         }
 
@@ -394,6 +403,7 @@ public sealed class FleetDoorbell
             || activity.Equals("Starting", StringComparison.OrdinalIgnoreCase))
         {
             // Not logged: a long turn would write this line every heartbeat. The settled edge asks again.
+            HeldBack(tenant, sid, "the session has been working");
             return (FleetRingAttempt.SkippedWorking, due);
         }
 
@@ -403,6 +413,7 @@ public sealed class FleetDoorbell
         if (_dictationInFlight(tenant, sid))
         {
             FileLog.Write($"[FleetDoorbell] ring DEFERRED ({FleetRingDeferReasons.Dictation}): sid={Short(sid)} trigger={trigger} due={due.Count}");
+            HeldBack(tenant, sid, "the owner's dictation for the session was in flight");
             return (FleetRingAttempt.DeferredDictation, due);
         }
 
@@ -412,6 +423,7 @@ public sealed class FleetDoorbell
         if (answer is null)
         {
             FileLog.Write($"[FleetDoorbell] ring UNREACHABLE: sid={Short(sid)} director={Short(target.DirectorId)} trigger={trigger}");
+            HeldBack(tenant, sid, "its Director did not answer");
             return (FleetRingAttempt.Unreachable, due);
         }
 
@@ -430,6 +442,7 @@ public sealed class FleetDoorbell
         }
 
         FileLog.Write($"[FleetDoorbell] ring DEFERRED ({answer.Reason}): sid={Short(sid)} trigger={trigger} unread={plan.UnreadCount} detail={answer.Detail}");
+        HeldBack(tenant, sid, $"its Director would not type into it: {answer.Detail}");
         return (FleetRingAttempt.Deferred, due);
     }
 
@@ -450,6 +463,61 @@ public sealed class FleetDoorbell
             FileLog.Write($"[FleetDoorbell] ring TIMED OUT after {_ringTimeout.TotalSeconds:0.#}s: sid={Short(sid)} director={Short(directorId)} trigger={trigger}");
             return null;
         }
+    }
+
+    private void HeldBack(TenantId tenant, string sid, string why) => _heldBack[(tenant, sid)] = why;
+
+    /// <summary>
+    /// A MESSAGE WHOSE DOORBELL COULD NOT RING IS REPORTED TO ITS SENDER (issue 3289). A deferred ring is not a ring,
+    /// so a message whose recipient is never idle and safe to type into never reaches stuck, and its sender used to
+    /// wait in silence. Every unread message not rung once in <see cref="FleetMessageLimits.UnreachableAfter"/> is
+    /// reported to its sender once, with the last reason its ring was held back; the message stays due and keeps
+    /// ringing. Returns the rows reported.
+    /// </summary>
+    public IReadOnlyList<FleetMessageEntity> MarkUnreachableAndNotify(TenantId tenant)
+    {
+        var now = _clock();
+        var marked = _store.MarkUnreachableWithNotices(
+            tenant,
+            now,
+            m => m.SenderSessionId is null
+                ? null // a system notice has nobody to tell
+                : new FleetMessageDraft(m.SenderSessionId, null, null, null, FleetMessageKinds.System,
+                    UnreachableNoticeText(m, _locate(tenant, m.RecipientSessionId)?.Name,
+                        _heldBack.TryGetValue((tenant, m.RecipientSessionId), out var why) ? why : null,
+                        _limits, _messages.Limits.MaxTextLength)),
+            _limits);
+        foreach (var (m, notice) in marked)
+        {
+            FileLog.Write($"[FleetDoorbell] UNREACHABLE: id={m.MessageId} to={Short(m.RecipientSessionId)} from={Short(m.SenderSessionId)} " +
+                          $"waited={(now - m.CreatedAtUtc).TotalMinutes:0}m notice={notice?.MessageId ?? "(none)"}");
+        }
+        return marked.Select(x => x.Unreachable).ToList();
+    }
+
+    /// <summary>
+    /// The notice a sender receives when its message's doorbell has not rung once in
+    /// <see cref="FleetMessageLimits.UnreachableAfter"/>. It opens with <see cref="StuckNoticePrefix"/> and the whole
+    /// message id, says why the ring was held back when that is known, and tells a sender that owns the session how
+    /// to reach it now. Cut to <paramref name="maxLength"/> only if the text is longer, which leaves the id whole
+    /// (the cap is never below <see cref="FleetMessageLimits.MinTextLength"/>).
+    /// </summary>
+    public static string UnreachableNoticeText(FleetMessageEntity message, string? recipientName, string? heldBackBecause,
+        FleetMessageLimits limits, int maxLength)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentNullException.ThrowIfNull(limits);
+        var shortId = Short(message.RecipientSessionId);
+        var who = string.IsNullOrWhiteSpace(recipientName) ? shortId : $"{recipientName.Trim()} ({shortId})";
+        var because = string.IsNullOrWhiteSpace(heldBackBecause)
+            ? ""
+            : $" The last try was held back because {heldBackBecause.Trim().TrimEnd('.')}.";
+        var text =
+            $"{StuckNoticePrefix}{message.MessageId} to {who} has not reached it: in {FleetMessagePolicy.Describe(limits.UnreachableAfter)} " +
+            $"its doorbell could not ring once, and the session has not read its inbox.{because} " +
+            "The message stays in that inbox and rings as soon as the session is idle. Do not send it again. " +
+            $"If you own that session, you can type into it while it waits: cc-devthrottle session prompt {shortId} \"<text>\".";
+        return text.Length <= maxLength ? text : text[..maxLength];
     }
 
     /// <summary>

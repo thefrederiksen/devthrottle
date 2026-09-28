@@ -466,6 +466,65 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
         }
     }
 
+    /// <summary>
+    /// A DOORBELL THAT COULD NOT RING IS REPORTED (issue 3289). Every unread message that is not stuck, has never been
+    /// rung, has not been reported yet, and was written at least <see cref="FleetMessageLimits.UnreachableAfter"/>
+    /// before <paramref name="nowUtc"/> is marked, and - in the SAME save - the notice <paramref name="noticeFor"/>
+    /// drafts is written into its sender's inbox, exactly as <see cref="MarkReplyOverdueWithNotices"/> does: the mark
+    /// follows the notice's verdict (queued or a duplicate: marked; refused: nothing written, the next sweep tries
+    /// again), and a null draft (nobody to tell) is marked only. The mark changes nothing about delivery: the message
+    /// stays due and keeps ringing; it only stops a second notice.
+    /// </summary>
+    public IReadOnlyList<(FleetMessageEntity Unreachable, FleetMessageEntity? Notice)> MarkUnreachableWithNotices(
+        TenantId tenant, DateTime nowUtc, Func<FleetMessageEntity, FleetMessageDraft?> noticeFor,
+        FleetMessageLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(noticeFor);
+        var now = Utc(nowUtc);
+        var policyLimits = limits ?? FleetMessageLimits.Default;
+        var cutoff = now - policyLimits.UnreachableAfter;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var waiting = ctx.FleetMessages
+                .Where(m => m.ReadAtUtc == null && m.StuckAtUtc == null && m.RingCount == 0
+                    && m.UnreachableNoticeAtUtc == null && m.CreatedAtUtc <= cutoff)
+                .OrderBy(m => m.CreatedAtUtc)
+                .ToList();
+            var result = new List<(FleetMessageEntity, FleetMessageEntity?)>();
+            foreach (var m in waiting)
+            {
+                var draft = noticeFor(m);
+                if (draft is null)
+                {
+                    m.UnreachableNoticeAtUtc = now;
+                    result.Add((m, null));
+                    continue;
+                }
+                var (verdict, notice) = JudgeSystemNotice(ctx, draft, now, policyLimits);
+                switch (verdict.Outcome)
+                {
+                    case FleetMessageOutcome.Queued:
+                        m.UnreachableNoticeAtUtc = now;
+                        result.Add((m, notice));
+                        break;
+                    case FleetMessageOutcome.DuplicateDropped:
+                        FileLog.Write($"[FleetMessageStore] MarkUnreachable: id={m.MessageId} marked; its notice is already waiting unread, no second one written");
+                        m.UnreachableNoticeAtUtc = now;
+                        result.Add((m, null));
+                        break;
+                    default:
+                        FileLog.Write($"[FleetMessageStore] MarkUnreachable NOTICE REFUSED ({verdict.Outcome}): id={m.MessageId} left open for the next sweep: {verdict.Reason}");
+                        break;
+                }
+            }
+            if (result.Count == 0) return result;
+            ctx.SaveChanges();
+            CountsChanged(tenant);
+            return result;
+        }
+    }
+
     /// <summary>Judge one system notice (a no-reply notice or a stuck notice) by the system-notice policy and, when
     /// it queues, add it to <paramref name="ctx"/> without saving. Returns the verdict, so the caller can tell a
     /// duplicate (the notice is already there) from a refusal (it is not). The one step both the overdue path

@@ -53,7 +53,6 @@ const NOW: WingmanNow = {
   },
   replyPlaceholder: PLACEHOLDER,
   calmCard: null,
-  carryingOnDeadline: null,
   lastWords: null,
   failedHeadline: null,
   failedStory: null,

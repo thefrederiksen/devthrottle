@@ -36,6 +36,11 @@ public sealed class TurnWidgetDto
 
     /// <summary>The Anthropic tool_use_id (for pairing with results in clients).</summary>
     public string ToolUseId { get; set; } = "";
+
+    /// <summary>When the message this widget came from was recorded, if its source carries it. Set by the Gateway's
+    /// stored-conversation adapter, where it is part of what names ONE occurrence of a reply: two stops can end with
+    /// the same words, never at the same place in the conversation at the same moment.</summary>
+    public DateTimeOffset? Timestamp { get; set; }
 }
 
 /// <summary>

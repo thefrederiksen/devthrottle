@@ -30,7 +30,7 @@ public sealed class Issue1139LongClipReliabilityTests
         BaseUrl = "https://devthrottle.example/api/v1",
         ApiKey = "dt_test_key",
         Transport = TranscriptionTransport.Batch,
-        Model = "gpt-4o-transcribe",
+        Model = "whisper-large-v3",
         Mode = TranscriptionMode.DevThrottle,
     };
 

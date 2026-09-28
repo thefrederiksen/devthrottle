@@ -258,6 +258,13 @@ internal static class GatewayWingmanVoiceEndpoint
         // marked, which is a DIFFERENT question - "is at least one session on voice" is true the moment one
         // session is on, and stays true while nine others are off. That wrong answer is what drove the old
         // one-button switch to offer only OFF forever, so a session created later could never be switched on.
+        // The tenant's live roster as (director id, session) rows - the input POST voice-mode/all hands to
+        // VoiceModeAllSweep.OwnerSessions. Copies from the push store, so stamping roles on them touches no cache.
+        List<(string DirectorId, SessionDto Session)> FleetRoster(TenantId tenant) =>
+            GatewayEndpoints.FleetByDirector(registry, pushedSessions, stale, tenant)
+                .SelectMany(kv => kv.Value.Select(x => (kv.Key, x)))
+                .ToList();
+
         app.MapGet("/sessions/voice-mode/all", (HttpContext ctx) =>
         {
             var reqTenant = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
@@ -323,13 +330,26 @@ internal static class GatewayWingmanVoiceEndpoint
             // own sessions, never another tenant's, and a request with no bound tenant is denied above. FleetByDirector
             // itself now builds its Director universe from ListDirectors(reqTenant) (audit H1 Codex residual), so a
             // cross-tenant duplicate id cannot even enter this fold's universe, matching machineByDirector above.
-            var byDirector = GatewayEndpoints.FleetByDirector(registry, pushedSessions, stale, reqTenant.Value);
+            //
+            // ON SWITCHES ONLY THE OWNER'S OWN SESSIONS (owner, 2026-09-27: "voice mode should only be the ones that
+            // are owned by the user"). A session another live session owns is read by that session, not by him -
+            // the same rule the sweep applies, asked through the same VoiceModeAllSweep.OwnerSessions, so the
+            // button never switches on what the sweep switches straight back off. OFF still reaches every
+            // session: switching voice off is always safe, and it clears any stray mark.
+            //
+            // OWNERSHIP IS JUDGED OVER THE LAST-KNOWN ROSTER, the one the roster route and so the button's count are
+            // folded from. The fresh roster alone drops an owning session whose computer has gone quiet, which would
+            // reclassify its workers (fresh on another computer) as the owner's and switch them on while the button
+            // left them out. Only fresh sessions are then written to, exactly as before.
+            var roster = FleetRoster(reqTenant.Value);
+            IReadOnlyList<(string DirectorId, SessionDto Session)> chosen = enabled
+                ? VoiceModeAllSweep.OwnerSessions(roster, pushedSessions?.SnapshotLastKnown(reqTenant.Value) ?? roster)
+                : roster;
             var targets = new List<(string DirectorId, string Machine, string Sid, string? Name)>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var (directorId, sessions) in byDirector)
-                foreach (var s in sessions)
-                    if (!string.IsNullOrEmpty(s.SessionId) && seen.Add(s.SessionId))
-                        targets.Add((directorId, machineByDirector.GetValueOrDefault(directorId, ""), s.SessionId, s.Name));
+            foreach (var (directorId, s) in chosen)
+                if (!string.IsNullOrEmpty(s.SessionId) && seen.Add(s.SessionId))
+                    targets.Add((directorId, machineByDirector.GetValueOrDefault(directorId, ""), s.SessionId, s.Name));
 
             // Set the Director-side flag on every session concurrently: each is an independent tunnel
             // round-trip, so the batch finishes in the slowest single session's time, not the sum.

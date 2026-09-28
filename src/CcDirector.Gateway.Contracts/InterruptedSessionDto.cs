@@ -14,6 +14,8 @@ public sealed class CrashJournalSessionDto
     public DateTimeOffset CreatedAtUtc { get; set; }
     /// <summary>The session that owned this one when the Director died, or null when the user did.</summary>
     public string? ControllerSessionId { get; set; }
+    /// <summary>Who started the session, or null in a journal written before the field existed.</summary>
+    public string? OriginKind { get; set; }
 }
 
 /// <summary>

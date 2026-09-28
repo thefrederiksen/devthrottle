@@ -73,12 +73,8 @@ public interface ITurnVerdictEnvironment
     /// <summary>This session's latest stored verdict in this account, or null.</summary>
     TurnVerdictDto? Latest(TenantId tenant, string sessionId);
 
-    /// <summary>Every session's latest stored verdict in this account, in one read - for the carrying-on clock.</summary>
+    /// <summary>Every session's latest stored verdict in this account, in one read.</summary>
     IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant);
-
-    /// <summary>The sessions this session owns, resolved across the account's whole fresh roster, or null when it
-    /// owns none (or is not in the roster).</summary>
-    OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId);
 
     /// <summary>Store one verdict record, accepted or failed.</summary>
     void Store(TenantId tenant, string sessionId, TurnVerdictDto verdict);
@@ -1167,14 +1163,18 @@ public sealed class TurnVerdictService : IDisposable
         // different stops on a Director that cannot be reached would look like one screen, and the second would
         // be played the first one's words. The sweep is the exception because it comes past every pass, and
         // re-asking the judge about an unreachable session each time would be a paid call on a loop.
-        if (latest is not null && IsReusable(key, latest, hash, trigger,
-                () => WingmanNarrationSource.Select(_env.ReadConversation(tenant, sid)?.Widgets, rows)?.Content))
-            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid);
+        var currentSource = new Lazy<WingmanNarrationSource?>(
+            () => SelectSource(_env.ReadConversation(tenant, sid), rows, facts));
+        if (latest is not null && IsReusable(key, latest, hash, trigger, currentSource))
+            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid,
+                reuseCause: string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
+                    ? ActivityCauses.ScreenUnchanged
+                    : ActivityCauses.SameStop);
 
         // The source this stop is judged from, chosen ONCE, over this one screen read.
         var conversation = _env.ReadConversation(tenant, sid)
                            ?? new StoredConversation(false, Array.Empty<TurnWidgetDto>());
-        var source = WingmanNarrationSource.Select(conversation.Widgets, rows);
+        var source = SelectSource(conversation, rows, facts);
 
         // ---- the account's ceiling ----
         var capped = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.Sweep or TurnVerdictTrigger.SnoozeExpiry
@@ -1230,6 +1230,10 @@ public sealed class TurnVerdictService : IDisposable
 
             // The carrying-on clock's first source travels on the stored record, so it survives a restart.
             record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
+            // WHICH STOP THIS READING IS OF travels on it too, so the sweep can tell a redraw from a new stop.
+            // "" when the stop cannot be named - no source, or an occurrence that is not proven - and "" never
+            // matches anything (IsSameStop), so such a stop is read again rather than taken for this one.
+            record.SourceHash = WingmanNarrationSource.Fingerprint(source) ?? "";
 
             ct.ThrowIfCancellationRequested();
 
@@ -1262,7 +1266,8 @@ public sealed class TurnVerdictService : IDisposable
             // refused record, and a reading that could not be read says so rather than half-speaking.
             var narration = record.Failed
                 ? new NarrationCallResult(null, null, "", 0)
-                : await NarrateForReadingAsync(tenant, sid, record, new Lazy<TurnVerdictPackage>(package), ct)
+                : await NarrateForReadingAsync(tenant, sid, record, new Lazy<TurnVerdictPackage>(package),
+                    askedByPerson: trigger == TurnVerdictTrigger.OnDemand || flight.AskedOnDemand, ct)
                     .ConfigureAwait(false);
             if (narration.Spoken is { Length: > 0 } words)
             {
@@ -1278,15 +1283,13 @@ public sealed class TurnVerdictService : IDisposable
             if (narration.Label is { Length: > 0 } label)
                 record.Label = label;
 
-            // A NARRATION THAT WAS OWED AND DID NOT COME IS A FAILED READING TO THE PERSON LOOKING AT IT. The judge's
-            // answer stands - the row keeps its colour and its label - and the record says the words are missing, so it
-            // shows the same tag and goes on the same schedule as any other failure. A narration that was never owed
-            // (a session another live session owns) carries no failure detail and is not one.
+            // A CALL B THAT FAILED IS NOT A WINGMAN ERROR (the turn pipeline mission, section 5: "If Call B fails, Call
+            // A's colour stands and the reading has no label/narration"). Call A decided the colour, so the row shows it
+            // with its plain state label: no error card, no retry schedule, and no automatic call spent on the words
+            // again. Why the words are missing is kept on the record for the debug view and for a person asking again.
             if (!record.Failed && narration.Spoken is not { Length: > 0 } && narration.FailureDetail is { Length: > 0 } noWords)
                 record.NarrationFailureReason = noWords;
-            record.FailureKind = record.Failed ? FailureKindWord(failure)
-                : record.NarrationFailureReason is not null ? WingmanFailureKinds.NarrationFailed
-                : null;
+            record.FailureKind = record.Failed ? FailureKindWord(failure) : null;
 
             // WHERE THIS STOP IS ON ITS RETRY SCHEDULE is written on the failed record itself, before it is stored, so
             // the record a card is rendered from and the record the sweep retries from are one record.
@@ -1468,7 +1471,8 @@ public sealed class TurnVerdictService : IDisposable
         IReadOnlyList<string> rows,
         TurnVerdictSettings settings,
         SessionDto? facts,
-        ScreenGridResponse? grid)
+        ScreenGridResponse? grid,
+        string reuseCause)
     {
         var (tenant, sid) = key;
         var verdict = latest;
@@ -1487,7 +1491,7 @@ public sealed class TurnVerdictService : IDisposable
         }
 
         var conversation = _env.ReadConversation(tenant, sid);
-        var source = WingmanNarrationSource.Select(conversation?.Widgets, rows);
+        var source = SelectSource(conversation, rows, facts);
         // Built only if the narration call reads it, from this same screen read and conversation: the package the
         // judge would be given for this screen now. Nothing more is read to build it.
         var narrationPackage = new Lazy<TurnVerdictPackage>(() => TurnVerdictPackageBuilder.Build(
@@ -1508,7 +1512,7 @@ public sealed class TurnVerdictService : IDisposable
                 colour => NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Reused, verdict, colour));
 
         _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictReused,
-            ActivityCauses.ScreenUnchanged,
+            reuseCause,
             $"trigger={TriggerWord(trigger)} id={verdict.VerdictId} failed={verdict.Failed}"));
 
         var holdLeft = RateLimitHoldLeft(key, verdict);
@@ -1613,10 +1617,15 @@ public sealed class TurnVerdictService : IDisposable
     /// never throws: a stop that is owed none, or whose call failed, comes back with no words, and the record is
     /// stored without a narration.
     ///
-    /// WHO IS OWED ONE: every stop of a session that answers to the USER. A session another LIVE session owns - a
-    /// Worker under a Manager - is read by that owner rather than by the user, and gets none, exactly as before.
-    /// A voice session is no longer left to the voice path: that path made the same call a second time, against an
-    /// already-published record, and that second call is the seam this ruling removes. It now finds the words
+    /// WHO IS OWED ONE: a VOICE SESSION, or a reading a PERSON asked for (the explain button, a spoken reply). The
+    /// owner's ruling of 28 September 2026 replaced "every stop of a session that answers to the user": on the
+    /// owner's own fleet that ran the narration call about 430 times a day, three in four of them for sessions nobody
+    /// was listening to, at about 18,500 characters of prompt each - and the row's colour waited for it (4 seconds
+    /// typically, 19 at the ninety-fifth percentile). A session that is not a voice session now shows its plain state
+    /// label and gets its words only when a person asks for them.
+    ///
+    /// A session another LIVE session owns - a Worker under a Manager - is read by that owner rather than by the
+    /// user, and gets none, exactly as before. The voice path does not make a second call: it finds the words
     /// already on the record and speaks them.
     ///
     /// IT GETS ONE IMMEDIATE SECOND ATTEMPT, and the reason is that this call changed meaning under it. This leg
@@ -1635,11 +1644,18 @@ public sealed class TurnVerdictService : IDisposable
     /// question. After both attempts, only a PERSON pressing the button buys another.
     /// </summary>
     private async Task<NarrationCallResult> NarrateForReadingAsync(
-        TenantId tenant, string sid, TurnVerdictDto record, Lazy<TurnVerdictPackage> package, CancellationToken ct)
+        TenantId tenant, string sid, TurnVerdictDto record, Lazy<TurnVerdictPackage> package, bool askedByPerson,
+        CancellationToken ct)
     {
         if (_env.ReadSessionState(tenant, sid).Held)
         {
             FileLog.Write($"[TurnVerdictService] narration not owed: sid={sid} verdict={record.VerdictId} - a live session owns this one and reads it");
+            return new NarrationCallResult(null, null, "", 0);
+        }
+        // A person asked: their own request, or an explain that joined this reading before it decided its attempts.
+        if (!askedByPerson && !_env.IsVoiceSession(tenant, sid))
+        {
+            FileLog.Write($"[TurnVerdictService] narration not owed: sid={sid} verdict={record.VerdictId} - not a voice session and nobody asked");
             return new NarrationCallResult(null, null, "", 0);
         }
         // The claim still exists so that the phone's explain button and the voice path cannot ask a second time for
@@ -1730,8 +1746,8 @@ public sealed class TurnVerdictService : IDisposable
 
     /// <summary>
     /// One narration call has finished, however it ended. The claim STAYS - no automatic path narrates this same
-    /// record again, which is what keeps a stop that fails from spending a paid model call on every sweep pass (the
-    /// booked retry makes a NEW reading, with its own record, at most eight times) - but it stops
+    /// record again, which is what keeps a stop that fails from spending a paid model call on every sweep pass (a
+    /// failed write-up is not booked for a retry either; only a failed Call A is) - but it stops
     /// being a RUNNING call, which is what lets a PERSON ask again. See <see cref="ReleaseNarrationClaimForRequest"/>.
     /// </summary>
     internal void NarrationCallFinished(TenantId tenant, string sid, string verdictId)
@@ -1764,12 +1780,13 @@ public sealed class TurnVerdictService : IDisposable
     /// should not be conflated. It is the reason the card's own instruction, "ask for the narration again", can be
     /// followed and still produce nothing new.
     ///
-    /// ONLY A PERSON RELEASES IT, deliberately. The automatic paths - the turn end and the idle sweep - keep the older
-    /// restraint that <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins: a stop whose
-    /// narration failed is not narrated again on every pass, because the sweep comes past every forty-five seconds
-    /// and a stop that keeps failing would keep costing a call. What asks again by itself is the booked retry
-    /// (<see cref="StartDueRetriesAsync"/>), eight times at most and as a new reading; a person asking is bounded by the
-    /// person.
+    /// ONLY A PERSON RELEASES IT, deliberately. Call B gets one immediate second attempt inside the same reading; after
+    /// that, the automatic paths - the turn end, the idle sweep and the booked retry (<see cref="StartDueRetriesAsync"/>)
+    /// - never release this claim and never call Call B again for the stop. A failed write-up is an accepted reading,
+    /// not a failed one, so it is never booked for a retry: the schedule is for a failed Call A only. The restraint
+    /// <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins still holds - the sweep comes
+    /// past every forty-five seconds, and a stop that keeps failing would keep costing a call. The only thing that buys
+    /// another Call B attempt is a person asking, and that is bounded by the person.
     /// </summary>
     internal bool ReleaseNarrationClaimForRequest(TenantId tenant, string sid, string verdictId)
     {
@@ -1789,6 +1806,53 @@ public sealed class TurnVerdictService : IDisposable
     /// <summary>One session's narration claim: which stop it is for, and whether that call is running right now.</summary>
     private sealed record NarrationClaim(string VerdictId, bool Running);
 
+    /// <summary>What <see cref="TryClaimLateNarration"/> answered.</summary>
+    internal enum LateNarrationClaim
+    {
+        /// <summary>The caller holds the claim and must make the call, then report <see cref="NarrationCallFinished"/>.</summary>
+        Claimed,
+        /// <summary>A call for this same stop is running right now; the caller must not make a second one.</summary>
+        AlreadyRunning,
+        /// <summary>No call may be made: the stop is no longer the latest, or an automatic path finds the claim spent.</summary>
+        Refused,
+    }
+
+    /// <summary>
+    /// Claim the narration call for a stop that was read WITHOUT words (a session that was not a voice session, owner
+    /// ruling 2026-09-28), in ONE compare-and-swap - never a release followed by a claim, because another press or a
+    /// sweep pass can take the claim in between and leave this request with no call and no words.
+    ///
+    /// Only the LATEST stop may be claimed: words for an older stop would not be saved (<see cref="SaveNarration"/>),
+    /// and claiming for it could displace the running claim of the newer stop and pay for two calls at once. A spent
+    /// claim for the same stop is taken back only when a PERSON asked, the same rule as
+    /// <see cref="ReleaseNarrationClaimForRequest"/>.
+    /// </summary>
+    internal LateNarrationClaim TryClaimLateNarration(TenantId tenant, string sid, string verdictId, bool personAsked)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId)) return LateNarrationClaim.Refused;
+        if (!string.Equals(_env.Latest(tenant, sid)?.VerdictId, verdictId, StringComparison.Ordinal))
+        {
+            FileLog.Write($"[TurnVerdictService] late narration refused: sid={sid} verdict={verdictId} is no longer the latest stop");
+            return LateNarrationClaim.Refused;
+        }
+        var key = (tenant, sid);
+        var mine = new NarrationClaim(verdictId, Running: true);
+        while (true)
+        {
+            if (!_narrationClaims.TryGetValue(key, out var claimed))
+            {
+                if (_narrationClaims.TryAdd(key, mine)) return LateNarrationClaim.Claimed;
+                continue;
+            }
+            if (string.Equals(claimed.VerdictId, verdictId, StringComparison.Ordinal))
+            {
+                if (claimed.Running) return LateNarrationClaim.AlreadyRunning;
+                if (!personAsked) return LateNarrationClaim.Refused;
+            }
+            if (_narrationClaims.TryUpdate(key, mine, claimed)) return LateNarrationClaim.Claimed;
+        }
+    }
+
     /// <summary>
     /// Save a narration onto the verdict it describes, when that verdict is still this session's latest. A newer verdict
     /// has its own stop and its own narration, so text for an older one is dropped and logged. Returns whether it was saved.
@@ -1805,7 +1869,11 @@ public sealed class TurnVerdictService : IDisposable
                 return false;
             }
             var updated = Copy(latest);
+            // ONE TEXT, READ OR HEARD - the same three fields the reading itself sets, so a stop narrated late reads
+            // exactly like one narrated inside its reading.
             updated.Narration = narration;
+            updated.Summary = narration;
+            updated.Spoken = narration;
             if (!string.IsNullOrWhiteSpace(label)) updated.Label = label;
             // THE WORDS ARRIVED, so this reading is no longer one with no words: the tag clears and nothing stays booked.
             if (updated.NarrationFailureReason is not null)
@@ -1905,11 +1973,12 @@ public sealed class TurnVerdictService : IDisposable
     /// explain may ask again about a failed record once, but not about a failure its own attempts produced. A turn end
     /// and a snooze expiry never reuse a failed record outside a rate limit's wait.
     /// </summary>
-    /// <param name="currentSource">The source this stop would be judged from now, read only when a rate limit's wait is
-    /// running for the stored record - so the wait binds the stop it was named for, and a new reply on the same
-    /// unreadable screen is still a new stop.</param>
+    /// <param name="currentSource">The source this stop would be judged from now, read only when it is needed: when a rate
+    /// limit's wait is running for the stored record - so the wait binds the stop it was named for, and a new reply on
+    /// the same unreadable screen is still a new stop - and when the sweep finds the screen redrawn and asks whether it
+    /// is still the stop that was read.</param>
     private bool IsReusable((TenantId Tenant, string SessionId) key, TurnVerdictDto latest, string hash, TurnVerdictTrigger trigger,
-        Func<string?> currentSource)
+        Lazy<WingmanNarrationSource?> currentSource)
     {
         // INSIDE A RATE LIMIT'S NAMED WAIT NOTHING ASKS AGAIN ABOUT THAT STOP, for every trigger and whatever the screen
         // now reads - an unreadable screen included (slice I inspection, round two). Checked before the screen is compared
@@ -1917,16 +1986,15 @@ public sealed class TurnVerdictService : IDisposable
         // previous one's wait (WingmanVoiceServiceTests.TheProvidersHold_DoesNotDelayANewTurnsNarration).
         if (RateLimitHoldLeft(key, latest) is not null
             && _rateLimitHolds.TryGetValue(key, out var hold)
-            && string.Equals(hold.SourceText, currentSource(), StringComparison.Ordinal))
+            && string.Equals(hold.SourceText, currentSource.Value?.Content, StringComparison.Ordinal))
             return true;
-        if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return false;
+        if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
+            && !(trigger == TurnVerdictTrigger.Sweep && IsSameStop(latest, currentSource.Value)))
+            return false;
         if (hash.Length == 0 && trigger != TurnVerdictTrigger.Sweep) return false;
-        // A READING WITH NO WORDS is asked again by its booked retry exactly as a failed one is. Every other trigger
-        // reuses it: the judge's answer on it is good, and a person asking buys the narration call alone.
-        if (!latest.Failed)
-            return !(trigger == TurnVerdictTrigger.Retry
-                     && latest.NarrationFailureReason is not null
-                     && WingmanRetrySchedule.IsDue(latest.NextRetryAtUtc, _env.NowUtc()));
+        // An accepted reading is reused by every trigger, one with no words included: the judge's answer on it is
+        // good, and a person asking buys the narration call alone.
+        if (!latest.Failed) return true;
         return trigger switch
         {
             // The sweep and a voice session's refresh reuse EVERY failed record, with or without words: a refused
@@ -1944,6 +2012,81 @@ public sealed class TurnVerdictService : IDisposable
             _ => false,
         };
     }
+
+    /// <summary>
+    /// IS THIS STILL THE STOP THE STORED READING WAS MADE OF, though the screen was redrawn? Only the idle sweep asks.
+    ///
+    /// ONE STOP GETS ONE READING (live QA, 26 September 2026). The sweep used to take a changed screen hash to mean a
+    /// new stop, and a stopped session's screen changes without any new work - someone opens it and the terminal is
+    /// redrawn, a status line ticks. One question stop was read four times, each time a paid Call A or Call B and each
+    /// time with a different label; a finished stop was asked about again half an hour later.
+    ///
+    /// The stop is named by what it was judged from - the agent's latest reply, or the failure on the terminal - not
+    /// by the pixels around it - and by WHERE in the conversation that reply or failure happened, not only its words, so
+    /// two stops ending on the same "Done." are two stops. A NEW stop still gets read: new work ends in a new reply at a
+    /// new place in the conversation (a new fingerprint), and a
+    /// Working edge the Gateway did see has already removed the stored reading. A reading with no source fingerprint
+    /// (none was chosen, it was stored before the fingerprint existed, or its occurrence could not be proven) cannot be
+    /// matched, and neither can a current source whose occurrence is unknown: the screen hash stays the only evidence,
+    /// exactly as before. UNKNOWN IS NEVER THE SAME (round 4): reuse needs both sides named.
+    ///
+    /// Why only the sweep: a turn end IS a new stop by definition and is judged on its own screen; a person asking and
+    /// a booked retry are deliberate attempts with their own rules above.
+    /// </summary>
+    internal static bool IsSameStop(TurnVerdictDto latest, WingmanNarrationSource? currentSource)
+    {
+        if (latest.SourceHash.Length == 0) return false;
+        var current = WingmanNarrationSource.Fingerprint(currentSource);
+        return current is not null && string.Equals(latest.SourceHash, current, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The voice sweep's question before it spends a slot: would the sweep answer this screen from the stored reading?
+    /// The same rule <see cref="IsReusable"/> applies - the same screen, or the same stop redrawn - so the two cannot
+    /// disagree about what counts as new.
+    /// </summary>
+    internal bool SweepFindsTheStopItRead(TenantId tenant, string sessionId, TurnVerdictDto latest, string hash, IReadOnlyList<string>? rows)
+    {
+        if (string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return true;
+        var source = SelectSource(_env.ReadConversation(tenant, sessionId), rows, _env.ReadSessionState(tenant, sessionId).Facts);
+        return IsSameStop(latest, source);
+    }
+
+    /// <summary>
+    /// <see cref="WingmanNarrationSource.Select"/> with everything that names WHICH occurrence the source is: the stored
+    /// generation the conversation belongs to - only when it is proven to follow the agent's own conversation - and the
+    /// Director's count of finished turns. Every caller here that stores or compares a fingerprint selects through this,
+    /// so the stored reading and the stop it is compared with are always named the same way.
+    /// </summary>
+    private static WingmanNarrationSource? SelectSource(StoredConversation? conversation, IReadOnlyList<string>? rows, SessionDto? facts)
+        => WingmanNarrationSource.Select(conversation?.Widgets, rows, ProvenGeneration(conversation, facts), facts?.TurnCount);
+
+    /// <summary>
+    /// The agents whose stored generation is PROVEN to be the identity of the conversation the agent is in now, so a new
+    /// conversation is always a new generation (round 4 of the review of pull request 3445). The generation is the
+    /// Director's <c>TurnPushBuilder.GenerationFor</c>:
+    /// <list type="bullet">
+    /// <item>Claude Code - the hook-reported transcript path, which moves on /clear and on a resumed transcript.</item>
+    /// </list>
+    /// Every other agent is "identity unknown", and its stops are never reused on a redrawn screen. Pi is NOT listed
+    /// (round 5): the Director pushes the first stop after a Pi /new before it rebinds the session to the new
+    /// conversation, so that stop can arrive under the old generation (issue #3446). OpenCode, Copilot
+    /// and Gemini are named by the Director SESSION id for the whole session, which survives an OpenCode /new (round 3).
+    /// Codex and Grok are named by a transcript path found by "newest file for this repository" and then cached for the
+    /// session, so a new conversation inside the same session keeps the old path. Any agent not listed here, including
+    /// one added later, fails toward a fresh reading until its generation is shown to follow its conversation.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> AgentsWithAProvenConversationIdentity =
+        new HashSet<string>(StringComparer.Ordinal) { "ClaudeCode" };
+
+    /// <summary>The conversation's stored generation when <see cref="AgentsWithAProvenConversationIdentity"/> vouches for
+    /// it; null (unknown) otherwise - for any other agent, a session whose agent is not known, or no stored conversation.</summary>
+    private static string? ProvenGeneration(StoredConversation? conversation, SessionDto? facts)
+        => conversation is { Generation.Length: > 0 } c
+           && facts is not null
+           && AgentsWithAProvenConversationIdentity.Contains(facts.Agent)
+            ? c.Generation
+            : null;
 
     /// <summary>
     /// Write where a failed stop is on its retry schedule onto the failed record (<see cref="WingmanRetrySchedule"/>).
@@ -2489,12 +2632,6 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             trace = build(settings.ColourEnabled) with { TurnEndObservedAtUtc = observedAt };
-            // THE CARRYING-ON CLOCK AS IT STOOD AT JUDGEMENT (the Wingman inspector, phase 2). The deadline depends on
-            // the owned sessions' live activity, which nothing keeps, so it is read now or never. Only a carrying-on
-            // verdict has a clock, so only one of those costs the roster read.
-            if (trace.Verdict is { Failed: false } carryingOn
-                && string.Equals(carryingOn.Verdict, TurnVerdictVocabulary.ContinuesAlone, StringComparison.Ordinal))
-                trace = trace with { ClockDeadlineUtc = TurnVerdictWatchdog.DeadlineFor(carryingOn, _env.OwnedSessions(tenant, sid)) };
         }
         catch (Exception ex)
         {
@@ -2531,148 +2668,6 @@ public sealed class TurnVerdictService : IDisposable
         };
 
     private static TurnVerdictDto Copy(TurnVerdictDto v) => TurnVerdictDtoCopy.Of(v);
-
-    /// <summary>
-    /// THE CARRYING-ON CLOCK'S TICK for one account (<see cref="TurnVerdictWatchdog"/>): every stored
-    /// "continues-alone" verdict whose deadline has passed is replaced by a "needed-you" verdict labelled "Said it
-    /// would continue and did not". Returns how many expired.
-    ///
-    /// THE SAME TICK UNDOES AN EXPIRY (the owner's ruling, 2026-09-17, and <see cref="UndoExpiry"/>): a record the
-    /// CLOCK wrote, for a session that owns a live session again, goes back to carrying on and the clock starts
-    /// again from that moment. Undos are not counted in the return value, which is what the sweep logs as verdicts
-    /// that ran out of time; they carry their own log line, their own trace outcome and their own ledger row.
-    ///
-    /// For every account whose JUDGE switch is on, whether or not its colour switch is (the Architect's ruling on
-    /// slice D, decision 5 reversed). A shadow account's stored verdicts are what the product would have shown,
-    /// so its purple must expire exactly like a live one; a purple that never expires overstates "carrying on" in
-    /// every grading report. What reaches a screen does not change: the row stamp still reads the colour switch.
-    /// The judge's own answer is never overwritten either way - the expiry is a new, later record.
-    ///
-    /// A WORKING TRANSITION STOPS THE CLOCK, AND IT CANNOT LOSE A RACE WITH THIS. The snapshot is read outside the
-    /// gate; each expiry re-reads the session's latest verdict INSIDE the gate <see cref="OnSessionWorking"/>
-    /// invalidates under, and stores only when it is still the same carrying-on verdict and still past its
-    /// deadline. A session that worked in between has no verdict left, and one judged again has a different one.
-    ///
-    /// A CHILD'S WORKING TRANSITION is not seen through the verdict at all - it invalidates only the child's own
-    /// verdict - so the deadline inside the gate is computed from the owned sessions read AGAIN inside the gate,
-    /// immediately before the store, never from the read taken before it. A child that is Working in the roster
-    /// at that moment stands the expiry down. The read and the store follow each other inside the gate with
-    /// nothing awaited between them.
-    /// </summary>
-    public int ExpireCarryingOn(TenantId tenant)
-    {
-        if (_disposed || !tenant.IsValid) return 0;
-        var settings = _env.Settings(tenant);
-        if (!settings.JudgeEnabled) return 0;
-
-        var now = _env.NowUtc();
-        var expired = 0;
-        var undone = 0;
-        foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
-        {
-            // THE UNDO (the owner's ruling, 2026-09-17) runs on the same tick as the expiry, before it: a record the
-            // clock itself wrote is the one kind of verdict that can be taken back, and a session that owns a live
-            // session again is carrying on after all. Only a record the clock wrote costs a roster read here.
-            if (TurnVerdictWatchdog.IsClockExpiry(snapshot))
-            {
-                if (UndoExpiry(tenant, sid, snapshot, now, settings)) undone++;
-                continue;
-            }
-            // Only a carrying-on verdict has a clock at all, so only one of those costs a roster read.
-            if (TurnVerdictWatchdog.DeadlineFor(snapshot) is null) continue;
-            // THE OWNER'S OWN SESSIONS (owner ruling, 2026-09-15): while any session this one owns is working its
-            // clock does not run, and once none is, it counts from the moment the last one stopped.
-            var owned = _env.OwnedSessions(tenant, sid);
-            if (!TurnVerdictWatchdog.IsExpired(snapshot, now, owned)) continue;
-
-            TurnVerdictDto replacement;
-            lock (_storeGate)
-            {
-                var current = _env.Latest(tenant, sid);
-                if (current is null
-                    || !string.Equals(current.VerdictId, snapshot.VerdictId, StringComparison.Ordinal))
-                    continue;
-
-                // A CHILD'S WORKING TRANSITION DOES NOT TOUCH ITS OWNER'S VERDICT, so the owned sessions read above
-                // can be stale by now: a child that started Working since then must still hold its owner purple.
-                // They are read again here, inside the gate and immediately before the store, and the expiry
-                // stands down when any of them is Working.
-                var ownedNow = _env.OwnedSessions(tenant, sid);
-                if (!TurnVerdictWatchdog.IsExpired(current, now, ownedNow))
-                    continue;
-
-                replacement = TurnVerdictWatchdog.Expire(current, now);
-                _env.Store(tenant, sid, replacement);
-                _knownEmpty.TryRemove((tenant, sid), out _);
-            }
-
-            expired++;
-            var expiredDirectorId = _env.ReadSessionState(tenant, sid).Facts?.DirectorId ?? "";
-            var expiredVerdict = replacement;
-            TraceStop(tenant, sid, ClockTrigger, TurnVerdictTraceOutcomes.Expired, expiredVerdict.TurnEndObservedAtUtc, settings,
-                colour => NewTrace(sid, expiredDirectorId, ClockTrigger, TurnVerdictTraceOutcomes.Expired, expiredVerdict, colour)
-                    with { ReplacedVerdictId = snapshot.VerdictId });
-            _env.Record(new TurnVerdictRecord(tenant, expiredDirectorId, sid,
-                ActivityEventTypes.TurnVerdictExpired, ActivityCauses.CarryingOnExpired,
-                $"expired={snapshot.VerdictId} id={replacement.VerdictId}"));
-            FileLog.Write($"[TurnVerdictService] ExpireCarryingOn: sid={sid} tenant={tenant.ToLogString()} said it would continue and did not; verdict {snapshot.VerdictId} replaced by {replacement.VerdictId}");
-        }
-
-        if (undone > 0)
-            FileLog.Write($"[TurnVerdictService] ExpireCarryingOn: tenant={tenant.ToLogString()} {undone} expiry(ies) undone - the session owns a live session again");
-
-        return expired;
-    }
-
-    /// <summary>
-    /// ONE EXPIRY UNDONE, or false when this one stands. The session owns a LIVE session again - one in the fresh
-    /// roster that has not exited and is not snoozed - so the clock's own red is taken back: a carrying-on verdict
-    /// is stored in its place and the clock runs again from this moment
-    /// (<see cref="TurnVerdictWatchdog.CarryOnAgain"/>).
-    ///
-    /// IT GOES THROUGH THE SAME STORE-IF-CURRENT PATH AS THE EXPIRY, for the same reason: the latest verdict is
-    /// re-read inside the gate <see cref="OnSessionWorking"/> invalidates under, and nothing is stored unless it is
-    /// still the same record this tick read. A session judged again in between has a different verdict, and the
-    /// judge's answer must not be overwritten by a clock. The owned sessions are read again inside the gate too,
-    /// so an undo cannot be written off a roster that went stale while the tick ran.
-    ///
-    /// ONLY A RECORD THE CLOCK WROTE. The caller has already asked <see cref="TurnVerdictWatchdog.IsClockExpiry"/>,
-    /// and it is asked again here against the record read inside the gate.
-    /// </summary>
-    private bool UndoExpiry(TenantId tenant, string sid, TurnVerdictDto snapshot, DateTime now, TurnVerdictSettings settings)
-    {
-        if (!OwnsALiveSession(_env.OwnedSessions(tenant, sid))) return false;
-
-        TurnVerdictDto replacement;
-        lock (_storeGate)
-        {
-            var current = _env.Latest(tenant, sid);
-            if (current is null
-                || !string.Equals(current.VerdictId, snapshot.VerdictId, StringComparison.Ordinal)
-                || !TurnVerdictWatchdog.IsClockExpiry(current))
-                return false;
-            if (!OwnsALiveSession(_env.OwnedSessions(tenant, sid))) return false;
-
-            replacement = TurnVerdictWatchdog.CarryOnAgain(current, now);
-            _env.Store(tenant, sid, replacement);
-            _knownEmpty.TryRemove((tenant, sid), out _);
-        }
-
-        var directorId = _env.ReadSessionState(tenant, sid).Facts?.DirectorId ?? "";
-        TraceStop(tenant, sid, ClockTrigger, TurnVerdictTraceOutcomes.ExpiryUndone, replacement.TurnEndObservedAtUtc, settings,
-            colour => NewTrace(sid, directorId, ClockTrigger, TurnVerdictTraceOutcomes.ExpiryUndone, replacement, colour)
-                with { ReplacedVerdictId = snapshot.VerdictId });
-        _env.Record(new TurnVerdictRecord(tenant, directorId, sid,
-            ActivityEventTypes.TurnVerdictExpiryUndone, ActivityCauses.CarryingOnAgain,
-            $"undone={snapshot.VerdictId} id={replacement.VerdictId}"));
-        FileLog.Write($"[TurnVerdictService] UndoExpiry: sid={sid} tenant={tenant.ToLogString()} owns a live session again; expiry {snapshot.VerdictId} replaced by carrying-on {replacement.VerdictId}");
-        return true;
-    }
-
-    /// <summary>Does this session own a session that is still running underneath it? The one question the undo
-    /// turns on, and the same one the clock stops on - alive, never "worked in the last ten seconds".</summary>
-    private static bool OwnsALiveSession(OwnedSessionsFacts? owned)
-        => owned is { Live: > 0 } or { Working: > 0 };
 
     /// <summary>The three-word screen verdict (the menu cache's words), read off a stored verdict: a picker the
     /// answer selects from is a menu; a stop that needs a person is waiting on an answer; anything else needs
@@ -2747,9 +2742,6 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictFailureKind.Refused => ActivityCauses.JudgeRefused,
         _ => ActivityCauses.JudgeUnavailable,
     };
-
-    /// <summary>The trigger word a trace of the carrying-on clock's expiry carries - it is not a request trigger.</summary>
-    private const string ClockTrigger = "clock";
 
     private TurnVerdictTrace NewTrace(string sid, string directorId, TurnVerdictTrigger trigger, string outcome,
         TurnVerdictDto verdict, bool colourEnabled)

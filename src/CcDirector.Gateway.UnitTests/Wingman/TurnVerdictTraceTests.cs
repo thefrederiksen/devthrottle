@@ -115,6 +115,7 @@ public sealed class TurnVerdictTraceTests : IDisposable
     public async Task AnAcceptedReading_LeavesOneTrace_CarryingBothModelCalls()
     {
         var env = Env();
+        env.VoiceSession = _ => true;   // Call B runs only for a voice session (owner ruling, 28 September 2026)
         // SAID EXPLICITLY, because the assertion below is on the narrated WORDS. The double's default narrator
         // echoes a value the canned judge builders share across the whole test process, so a sibling class judging
         // a different stop can decide what this one hears - which is a flake when it disagrees and, worse, a pass
@@ -772,48 +773,6 @@ public sealed class TurnVerdictTraceTests : IDisposable
     }
 
     // ================================================================= the carrying-on clock
-
-    [Fact]
-    public void ACarryingOnClockThatRunsOut_LeavesAnExpiredTrace_NamingTheVerdictItReplaced()
-    {
-        var now = ObservedAt;
-        var env = new FakeTurnVerdictEnvironment
-        {
-            Knobs = TurnVerdictSettings.Defaults with { JudgeEnabled = true, ColourEnabled = true, SettleMs = 0 },
-            Clock = () => now,
-        };
-        env.Store(Tenant, Sid, new TurnVerdictDto
-        {
-            VerdictId = "carry-1",
-            JudgedAtUtc = ObservedAt,
-            TurnEndObservedAtUtc = ObservedAt.AddSeconds(-30),
-            ScreenHash = "hash-1",
-            Model = FakeTurnVerdictEnvironment.Model,
-            ContractVersion = TurnVerdictContract.Version,
-            PackageKind = "agent-reply",
-            Verdict = TurnVerdictVocabulary.ContinuesAlone,
-            Confidence = "high",
-            Evidence = "I will keep watching the nightly build.",
-            Label = "Watching the nightly build",
-            Summary = "It is watching the nightly build by itself.",
-            AnswerVia = "reply",
-            Risk = "none",
-            Spoken = "The nightly build. It is watching the build.",
-        });
-        var service = new TurnVerdictService(env);
-
-        now = ObservedAt.AddMinutes(10);
-        Assert.Equal(1, service.ExpireCarryingOn(Tenant));
-
-        var trace = Assert.Single(env.Traces);
-        Assert.Equal(TurnVerdictTraceOutcomes.Expired, trace.Outcome);
-        Assert.Equal("clock", trace.Trigger);
-        Assert.Equal("carry-1", trace.ReplacedVerdictId);
-        Assert.Equal(env.Latest(Tenant, Sid)!.VerdictId, trace.VerdictId);
-        Assert.Equal(TurnVerdictVocabulary.NeededYou, trace.Verdict!.Verdict);
-        Assert.Equal(ObservedAt.AddSeconds(-30), trace.TurnEndObservedAtUtc);
-        Assert.True(trace.ColourEnabled);
-    }
 
     // ================================================================= through the production environment
 

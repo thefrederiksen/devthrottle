@@ -41,12 +41,18 @@ not one of the words is not re-attempted for a listener, because at temperature 
 |---|---|---|
 | needs-you | red | needed-you |
 | done | cyan | finished (kind done) |
-| carrying-on | purple, carrying-on clock unchanged | continues-alone |
+| carrying-on | purple | continues-alone |
 
 Every record says which step decided it and why (`DecidedBy`, `DecisionReason`), and so does the debug view.
 
 **Gone from Call A:** the label, what the agent recommends, the menu and the options, and `InventedMenuCheck`,
 which had nothing left to correct. A record stored under v3 keeps its fields and still renders.
+
+**Call B runs only for a voice session, or when a person asks (owner ruling, 28 September 2026).** It used to run
+at every stop of a session that answers to the owner; on his fleet that was about 430 calls a day, three in four for
+sessions nobody was listening to, and every row's colour waited for it. A session that is not a voice session now
+gets the colour only: its row shows the plain state label, and its words are made when a person presses explain or
+when voice is switched on for that stop.
 
 **Call B writes the label and the narration, and nothing else (phase 4).** `NarrationCall.BuildPrompt` is given
 the reply, the recent turns, the screen, the account's narration rules and language, Call A's word, and - when a
@@ -62,8 +68,10 @@ NARRATION:
 `NarrationCall.ParseAnswer` reads the two parts mechanically. Any other shape - no label line, an empty or
 eleven-word label, no narration line, no words - is a failed Call B: Call A's colour stands, the record has no
 label (the row shows its plain state label) and no words, and it carries `NarrationFailureReason`. Nothing is
-stored until both calls are done, so colour, label and words appear together. A person asking again after a
-failed Call B saves the label with the words.
+stored until both calls are done, so colour, label and words appear together. A failed Call B is NOT a failed
+reading: it gets one immediate second attempt inside the same reading, then no Wingman error, no booked retry, and
+no further automatic Call B - the turn end, the sweep and the retry schedule all reuse the record. Only a person
+asking again buys another Call B, and that saves the label with the words.
 
 **A menu is "open the session to choose".** On a stop Call A's picker step decided (or a v3 record answered with
 keys), the code-owned closing sentence tells the narration to say what is being asked and to tell the person to
@@ -140,8 +148,8 @@ that it was blank, which the reader has no way to see through. A session another
 gets no narration call, so it has no summary at all and its `label:` is the whole of what the reading
 says about it - which is thinner than v2 gave, and is what the five-field contract provides.
 
-**A READING IS NOT FINISHED UNTIL BOTH MODEL CALLS ARE DONE.** Nothing is stored, shown or spoken
-until the whole reading exists. The narration call is made inside the judgement, before the
+**A READING IS NOT FINISHED UNTIL BOTH MODEL CALLS ARE DONE** - for a reading that makes both (a voice session,
+or a person's request). Nothing is stored, shown or spoken until the whole reading exists. The narration call is made inside the judgement, before the
 record is stored, so there are exactly three states - being read, ready, could not be read - and
 no half-ready reading and no first draft replaced seconds later.
 
@@ -201,7 +209,6 @@ Where each piece lives:
 | The two switches and the timings | `src/CcDirector.Gateway/Wingman/TurnVerdictSettings.cs` |
 | Colour, label and bucket | `src/CcDirector.Gateway.Contracts/SessionOrdering.cs` |
 | What each colour means, in words | `src/CcDirector.Gateway.Contracts/SessionColourLegend.cs` |
-| The carrying-on clock | `src/CcDirector.Gateway/Wingman/TurnVerdictWatchdog.cs` |
 | The activation route - the owner typing | `src/CcDirector.Gateway/Wingman/TurnVerdictAnswer.cs` |
 | "This verdict is wrong" | `src/CcDirector.Gateway/Wingman/TurnVerdictFeedbackService.cs` |
 
@@ -243,8 +250,8 @@ corpus label and a live verdict mean the same thing.
 
 `finished` and `continues-alone` are the same answer to "wake the owner?" and different answers
 to "should anything have happened next?". That is the whole reason they are two words: a
-finished session staying quiet is correct; one that said it would continue and then stayed quiet
-is stuck, and the clock in section 7 is what catches it.
+finished session staying quiet is correct; one that said it would continue is expected to act again.
+(A clock that turned a quiet carrying-on row red was removed on 28 September 2026 - see section 7.)
 
 ### Validation, which is mechanical and never interpretation
 
@@ -337,7 +344,7 @@ never has to tell "we did not look" apart from "there was nothing" by the shape 
 | The first thing this session was asked to do | the session's opening prompt |
 | The label this session's previous verdict carried | so a repeat reads as a repeat |
 | Why the turn was called ended, and how sure | from the detector, when it says; `(none)` otherwise |
-| Wake-ups pending, and the next one announced | the carrying-on clock's first source |
+| Wake-ups pending, and the next one announced | shown in the Wingman inspector |
 | Sessions this session owns | working, stopped, needing a person |
 | The last four turns before this one | |
 | The agent's latest reply, or the failure text | |
@@ -399,8 +406,8 @@ speech re-attempt refusal and the provider deadline both existed for the voice p
 ladder of booked re-attempts beside the judgement. That ledger was replaced by one retry schedule written on
 the stored reading itself (`TurnVerdictDto.RetriesMade`, `NextRetryAtUtc`) and carried by the idle sweep
 (`TurnVerdictService.StartDueRetries`), so nothing reaches this boundary that may not ask the judge, and a
-provider's named wait is honoured by booking the retry later rather than by a check here. A failed reading is
-asked again ONLY by that booked retry, under the `Retry` trigger, and only once its booked time has passed;
+provider's named wait is honoured by booking the retry later rather than by a check here. A failed reading (a
+failed Call A; a failed Call B alone is an accepted reading and is never booked) is asked again ONLY by that booked retry, under the `Retry` trigger, and only once its booked time has passed;
 every other automatic trigger still reuses a failed record, so an unchanged screen is never paid for twice
 outside the schedule.
 
@@ -491,7 +498,7 @@ calm":
 |---|---|---|---|
 | `finished`, kind `done` | cyan | leads "Done" | No. Listed in the calm band below the reds |
 | `finished`, kind `report` | cyan | leads "Report" | No. Same band |
-| `continues-alone` | purple | the Wingman's line, or "Carrying on" | No. Same band, clock running |
+| `continues-alone` | purple | the Wingman's line, or "Carrying on" | No. Same band |
 | Any other word | red, unchanged | the ask, in the Wingman's words | Yes |
 | Refused, timed out, rate limited, never judged | red, unchanged | as today | Yes |
 
@@ -499,10 +506,7 @@ calm":
 read as a session that had not started yet, which is the opposite of what is true about it, so
 the two never share a colour.
 
-**Purple carries a clock.** The agent's announced next wake-up plus two minutes when it
-announced one, otherwise ten minutes. On expiry the row goes red with "Said it would continue
-and did not". A session whose own owned sessions are still working is carrying on whatever its
-reply says, and the clock does not run while any of them works.
+**Purple has no clock (removed 28 September 2026).** There used to be a carrying-on clock that turned a purple row red after ten minutes (or two minutes past an announced wake-up) and said "It said it would continue, and it did not." Most of what it caught were sessions waiting on real work that takes longer than ten minutes - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred by a rule or the model, not said by the agent. The owner ruled it out. A purple row stays purple until the session stops again.
 
 **A reading stamp comes first.** A stop the Wingman will judge never shows red first: `reading`
 is stamped at the boundary before any wait or read, so the first colour pushed is the yellow

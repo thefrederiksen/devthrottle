@@ -58,7 +58,7 @@ function figure(buckets: ThrottleFigure["buckets"], head?: ThrottleHeadline): Th
   const bySurface: Partial<Record<Surface, number>> = {};
   for (const b of buckets) bySurface[b.surface] = (bySurface[b.surface] ?? 0) + b.turns;
   return {
-    definition: "The shared figure is computed over activity_events rows where EventType is turn-submitted and InputOrigin is present, grouped by the origin's modality and surface.",
+    definition: "The shared figure is computed over activity_events rows where EventType is turn-submitted and InputOrigin is present, in sessions a person started, grouped by the origin's modality and surface.",
     unit: "submitted turns",
     window: {
       fromUtc: "2026-08-29T00:00:00Z",
@@ -88,8 +88,9 @@ function figure(buckets: ThrottleFigure["buckets"], head?: ThrottleHeadline): Th
     agentsSummary: { agentCount: 0, totalTurns: 0, totalSessions: 0, voiceTurns: 0, voiceShare: null, voicePercent: null, topAgentName: null, topShare: null, topPercent: null, agentDrivenTurns: 0, leverage: null, leverageText: null, hasData: false },
     reposSummary: { repoCount: 0, totalTurns: 0, totalSessions: 0, voiceTurns: 0, voiceShare: null, voicePercent: null, topRepoName: null, topShare: null, topPercent: null, hasData: false },
     reposUnattributedTurns: 0,
-    excluded: { noInputOrigin: 0, agentDriven: 0, framework: 0, unresolved: 0 },
+    excluded: { noInputOrigin: 0, agentDriven: 0, framework: 0, unresolved: 0, notStartedByYou: 0 },
     agentDrivenTurns: 0,
+    starters: { sessions: 1, turns: 4, hasData: true, humanShare: 1, humanPercent: 100, groups: [{ kind: "human", label: "Started by you", sessions: 1, turns: 4, sessionShare: 1, sessionPercent: 100 }, { kind: "agent", label: "Run by other sessions", sessions: 0, turns: 0, sessionShare: 0, sessionPercent: 0 }, { kind: "schedule", label: "Run by a schedule", sessions: 0, turns: 0, sessionShare: 0, sessionPercent: 0 }, { kind: "notRecorded", label: "Starter not recorded", sessions: 0, turns: 0, sessionShare: 0, sessionPercent: 0 }] },
   };
 }
 

@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Briefing;
@@ -77,7 +79,7 @@ public static class TurnVerdictPackageBuilder
             TurnEndCause = null,
             TurnEndConfidence = null,
             PendingWakeUps = null,
-            NextScheduledWakeUtc = null,
+            NextScheduledWakeUtc = AnnouncedWake(widgets, signal.ObservedAtUtc),
             OwnedSessions = ownedSessions,
             ConversationAvailable = conversationAvailable,
         };
@@ -86,7 +88,8 @@ public static class TurnVerdictPackageBuilder
             $"[TurnVerdictPackageBuilder] Build: session={signal.SessionId}, "
             + $"kind={TurnVerdictPackage.WireName(kind)}, conversation={conversationAvailable}, "
             + $"screenRows={rows.Count}, replyChars={latestReply?.Length ?? 0}, "
-            + $"failureChars={failureText?.Length ?? 0}, recentTurnsChars={package.RecentTurns.Length}");
+            + $"failureChars={failureText?.Length ?? 0}, recentTurnsChars={package.RecentTurns.Length}, "
+            + $"nextWake={package.NextScheduledWakeUtc?.ToString("o", CultureInfo.InvariantCulture) ?? "none"}");
 
         return package;
     }
@@ -229,6 +232,87 @@ public static class TurnVerdictPackageBuilder
             if (string.Equals(widgets[i].Kind, ToolUseKind, StringComparison.Ordinal))
                 uses.Add(new CallAToolUse(widgets[i].Header ?? "", widgets[i].Content ?? ""));
         return uses;
+    }
+
+    /// <summary>The widget kind the stored conversation gives a tool's answer; its content is the result text and its
+    /// tool id is the id of the call it answers.</summary>
+    internal const string ToolResultKind = "ToolResult";
+
+    /// <summary>The tool whose answer states when the session will be woken.</summary>
+    internal const string ScheduleWakeupTool = "ScheduleWakeup";
+
+    /// <summary>How the harness confirms a wake-up it has scheduled: "Next wakeup scheduled for 10:42:00 (in 1218s).
+    /// ..." The clock time is the machine's local wall clock with no date and no zone, so only the relative seconds
+    /// are read.</summary>
+    private static readonly Regex ScheduledWakeAnswer = new(
+        @"^\s*Next wakeup scheduled for .*?\(in (\d+)s\)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// WHEN THE SESSION SAID IT WOULD BE BACK: the moment its last turn's ScheduleWakeup is due, or null when the last
+    /// turn scheduled none. Shown in the Wingman inspector's facts. (The carrying-on clock that used to wait on it was
+    /// removed by the owner's ruling of 28 September 2026.)
+    ///
+    /// THE HARNESS'S ANSWER, NOT THE REQUEST. The delay is read from the tool's RESULT - the seconds the harness says
+    /// it actually scheduled, after its own clamping and rounding - and not from the delaySeconds the agent asked
+    /// for. A call the harness refused, a call with no answer yet, and a call that stopped the loop schedule nothing,
+    /// and none of them says "Next wakeup scheduled", so none of them yields a time.
+    ///
+    /// ANCHORED AT THE STOP. The result carries no timestamp of its own, so the seconds are counted from the moment
+    /// the turn end was observed. The turn ends after the call answered, so this reads a few seconds LATE,
+    /// which the clock's two-minute grace absorbs; it can never read early.
+    ///
+    /// The last such call in the turn wins: a later ScheduleWakeup replaces the pending one.
+    /// </summary>
+    internal static DateTime? AnnouncedWake(IReadOnlyList<TurnWidgetDto> widgets, DateTime observedAtUtc)
+    {
+        var start = 0;
+        for (var i = widgets.Count - 1; i >= 0; i--)
+        {
+            if (!string.Equals(widgets[i].Kind, StoredConversationWidgets.UserTextKind, StringComparison.Ordinal)) continue;
+            start = i + 1;
+            break;
+        }
+
+        for (var i = widgets.Count - 1; i >= start; i--)
+        {
+            var use = widgets[i];
+            if (!string.Equals(use.Kind, ToolUseKind, StringComparison.Ordinal)
+                || !string.Equals(use.Header, ScheduleWakeupTool, StringComparison.Ordinal))
+                continue;
+
+            var answer = FindResult(widgets, start, use.ToolUseId);
+            if (answer is null)
+            {
+                FileLog.Write($"[TurnVerdictPackageBuilder] AnnouncedWake: the last ScheduleWakeup (id={use.ToolUseId}) has no answer - no wake-up time");
+                return null;
+            }
+
+            var match = ScheduledWakeAnswer.Match(answer);
+            if (!match.Success)
+            {
+                // Not a failure to hide: a refused call, a stop, or a harness whose answer changed shape. Say which text
+                // was seen, so a format change shows up in the log rather than as purple rows going red early.
+                var head = answer.Length <= 160 ? answer : answer[..160];
+                FileLog.Write($"[TurnVerdictPackageBuilder] AnnouncedWake: the last ScheduleWakeup answered without a scheduled time - no wake-up time: \"{head}\"");
+                return null;
+            }
+
+            var seconds = int.Parse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture);
+            var utc = observedAtUtc.Kind == DateTimeKind.Utc ? observedAtUtc : observedAtUtc.ToUniversalTime();
+            return utc.AddSeconds(seconds);
+        }
+
+        return null;
+    }
+
+    private static string? FindResult(IReadOnlyList<TurnWidgetDto> widgets, int start, string toolUseId)
+    {
+        if (string.IsNullOrEmpty(toolUseId)) return null;
+        for (var i = start; i < widgets.Count; i++)
+            if (string.Equals(widgets[i].Kind, ToolResultKind, StringComparison.Ordinal)
+                && string.Equals(widgets[i].ToolUseId, toolUseId, StringComparison.Ordinal))
+                return widgets[i].Content;
+        return null;
     }
 
     /// <summary>The first thing the person asked this session - the seed of what the whole session is

@@ -35,13 +35,16 @@ public sealed record ScreenFrame(IReadOnlyList<string> Rows, int CursorRow, int 
 /// clear (<see cref="ComposerRetention"/>). The next send would press Escape first, which could land on the
 /// owner's words, so a doorbell is never that send.</param>
 /// <param name="Frames">Two frames taken a moment apart. Both must agree before anything is typed.</param>
+/// <param name="DirectorSettledFor">How long the Director's own activity state has said the turn ended
+/// (WaitingForInput), or null when it does not say so. See <see cref="DoorbellSafety.SettledOutranksMarker"/>.</param>
 public sealed record DoorbellFacts(
     AgentKind Agent,
     bool Exited,
     bool DirectorSaysWorking,
     bool HasTerminalGrid,
     bool ProductMayHaveLeftText,
-    IReadOnlyList<ScreenFrame> Frames);
+    IReadOnlyList<ScreenFrame> Frames,
+    TimeSpan? DirectorSettledFor = null);
 
 /// <summary>The safety check's answer.</summary>
 /// <param name="Ring">True when the doorbell line may be typed now.</param>
@@ -67,6 +70,19 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///  3. The product has not left text of its own in the composer (see <see cref="DoorbellFacts.ProductMayHaveLeftText"/>).
 ///  4. The Director does not think the session is working.
 ///  5. In BOTH frames: the screen shows no working marker, no menu, and a composer that is recognised and empty.
+///     For Claude Code only, the working marker is waived when the Director's turn-end signal has held for
+///     <see cref="SettledOutranksMarker"/> AND the two frames are identical (issue 3186, below).
+///
+/// THE TURN-END SIGNAL OUTRANKS A STILL FOOTER (issue 3186). Claude Code has printed "esc to interrupt" in its footer
+/// while IDLE - after the turn ended, at an empty composer - and the marker rule then deferred every ring for hours:
+/// 4,550 deferrals on one Director on 19-20 September 2026, and three Tech Leads on 26 September deferred 1,067, 946
+/// and 822 times with messages unread. The words cannot tell that footer from a running turn, because both draw it.
+/// The Director can: its activity state turns Working the moment the screen above the composer changes, and a
+/// running Claude Code turn changes it every second (the spinner's clock - "Orchestrating... (12s ...)" in the capture
+/// claude-working-monitor). So when the Director has said the turn ended for at least
+/// <see cref="SettledOutranksMarker"/>, and the two frames the check compares are identical, the marker is a stale
+/// footer and does not defer the ring. Every other rule still applies: the composer must read empty and no menu may
+/// be open, so the owner's words and an open menu are protected exactly as before.
 ///
 /// Unknown is never empty. A screen this check does not recognise defers the ring as "screen unreadable"; that
 /// costs a late doorbell, where the opposite mistake costs the owner's words or an answered menu.
@@ -110,7 +126,9 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///    are never rung (their messages wait until they read the inbox on their own, and never go stuck).
 ///  - A Codex placeholder not in <see cref="CodexPlaceholders"/> reads as text, so the ring is deferred until the
 ///    placeholder changes. Safe, but late.
-///  - A Claude Code placeholder suggestion (dim text on an empty prompt row) would read as text, likewise.
+///  - A Claude Code suggestion (dim text on an empty prompt row, e.g. 'Try "fix typecheck errors"' on a new session,
+///    fixture claude-idle-placeholder-fresh) reads as text, so the ring is deferred until it changes. Safe, but late:
+///    it is not told apart from the owner's own words with the cursor moved to the start (review round 1, finding 1).
 ///  - Text the owner has typed but the agent has not yet repainted, and a turn that starts after the last look.
 ///    The ringer (<see cref="Sessions.FleetDoorbellRinger"/>) takes a third frame and re-reads the Director's
 ///    state immediately before the first byte and defers if anything moved; a keystroke or a self-started turn
@@ -139,6 +157,14 @@ public static class DoorbellSafety
 
     /// <summary>The footer text both agents show while a turn is running.</summary>
     public const string WorkingMarker = "esc to interrupt";
+
+    /// <summary>
+    /// How long the Director's turn-end signal must have held before it outranks the working marker on the screen
+    /// (issue 3186). Long enough that a turn which has started has certainly turned the Director's state to Working
+    /// (the spinner's clock changes the screen every second); short enough that the Gateway's fifteen-second
+    /// heartbeat rings an idle session within a minute of its turn ending.
+    /// </summary>
+    public static readonly TimeSpan SettledOutranksMarker = TimeSpan.FromSeconds(30);
 
     /// <summary>Hints only an interactive menu or dialog shows. Compared case-insensitively.</summary>
     public static readonly IReadOnlyList<string> MenuHints =
@@ -170,23 +196,47 @@ public static class DoorbellSafety
         if (facts.Frames is null || facts.Frames.Count < 2)
             return DoorbellVerdict.Defer(FleetRingDeferReasons.ScreenUnreadable, "two screen frames are needed and were not taken");
 
+        // Claude Code only: the idle footer with the marker was seen there, and a running Claude Code turn is
+        // proven to move the screen every second. No mid-turn Codex screen was ever captured (review round 1,
+        // finding 2), so a Codex marker still defers.
+        var markerIsStale = facts.Agent == AgentKind.ClaudeCode
+                            && facts.DirectorSettledFor is { } settled
+                            && settled >= SettledOutranksMarker
+                            && facts.Frames.Skip(1).All(f => SameFrame(facts.Frames[0], f));
         foreach (var frame in facts.Frames)
         {
-            var verdict = CheckFrame(facts.Agent, frame);
+            var verdict = CheckFrame(facts.Agent, frame, markerIsStale);
             if (!verdict.Ring) return verdict;
         }
         return DoorbellVerdict.Safe;
     }
 
+    /// <summary>Two frames are the same when every row and the cursor match exactly.</summary>
+    public static bool SameFrame(ScreenFrame a, ScreenFrame b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        if (a.CursorRow != b.CursorRow || a.CursorCol != b.CursorCol || a.CursorVisible != b.CursorVisible) return false;
+        var ra = a.Rows ?? [];
+        var rb = b.Rows ?? [];
+        if (ra.Count != rb.Count) return false;
+        for (var i = 0; i < ra.Count; i++)
+            if (!string.Equals(ra[i], rb[i], StringComparison.Ordinal)) return false;
+        return true;
+    }
+
     /// <summary>The screen rules for one frame.</summary>
-    public static DoorbellVerdict CheckFrame(AgentKind agent, ScreenFrame frame)
+    /// <param name="markerIsStale">The Director's turn-end signal outranks the working marker (see
+    /// <see cref="SettledOutranksMarker"/>). Only <see cref="Check"/> decides this, from the Director's state and
+    /// both frames.</param>
+    public static DoorbellVerdict CheckFrame(AgentKind agent, ScreenFrame frame, bool markerIsStale = false)
     {
         ArgumentNullException.ThrowIfNull(frame);
         var rows = frame.Rows ?? [];
         if (rows.Count == 0 || rows.All(string.IsNullOrWhiteSpace))
             return DoorbellVerdict.Defer(FleetRingDeferReasons.ScreenUnreadable, "the screen rendered nothing");
 
-        if (ShowsWorking(rows))
+        if (!markerIsStale && ShowsWorking(rows))
             return DoorbellVerdict.Defer(FleetRingDeferReasons.Working, $"the screen shows \"{WorkingMarker}\"");
 
         return ReadComposer(agent, frame) switch
@@ -370,14 +420,18 @@ public static class DoorbellSafety
     /// either the screen shows the working marker or the transcript shows one more doorbell row than
     /// <paramref name="rowsBefore"/> (the count on the frame the check approved). A line the interface
     /// discarded leaves neither; a line still parked keeps the marker in the composer.
+    ///
+    /// A MARKER THAT WAS ALREADY UP PROVES NOTHING (issue 3186). When the approved frame already showed the working
+    /// marker as a stale footer (<paramref name="markerWasUp"/>), the marker cannot say a turn started, so only the
+    /// transcript row counts.
     /// </summary>
-    public static bool ShowsDoorbellSubmitted(AgentKind agent, ScreenFrame frame, int rowsBefore)
+    public static bool ShowsDoorbellSubmitted(AgentKind agent, ScreenFrame frame, int rowsBefore, bool markerWasUp = false)
     {
         ArgumentNullException.ThrowIfNull(frame);
         var (reading, text) = ReadComposerText(agent, frame);
         if (reading is ComposerReading.NotFound or ComposerReading.MenuOpen) return false;
         if (text.Contains(FleetDoorbellLine.Marker, StringComparison.Ordinal)) return false;
-        return ShowsWorking(frame.Rows ?? []) || CountDoorbellRows(frame) > rowsBefore;
+        return (!markerWasUp && ShowsWorking(frame.Rows ?? [])) || CountDoorbellRows(frame) > rowsBefore;
     }
 
     /// <summary>

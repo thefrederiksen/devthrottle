@@ -31,7 +31,7 @@ import { useState } from "react";
 // hoisted phase (vi.hoisted) rather than as ordinary consts.
 const { sendPrompt, transcribeUtterance, backgroundTranscribeAndSend } = vi.hoisted(() => ({
   // The synchronous POST /prompt path: PAUSED-stage Send (text already in hand) and Insert use it.
-  sendPrompt: vi.fn(async () => {}),
+  sendPrompt: vi.fn(async () => ({ delivering: false })),
   // The synchronous /wingman/utterance/* transcription: the Pause checkpoint and Insert use it.
   transcribeUtterance: vi.fn(async () => ({ text: "the dictated words", deliveryId: "utt-77" })),
   // The durable background pipeline (POST /dictation/*) the recording-stage Send now rides.
@@ -111,7 +111,7 @@ vi.mock("@devthrottle/client-core/dictation/readyCue", () => ({
 }));
 
 import { SessionComposer } from "./SessionComposer";
-import { dismissDictationStatus } from "@devthrottle/client-core/dictation/backgroundSend";
+import { dismissDictationStatus, retryPendingDictation } from "@devthrottle/client-core/dictation/backgroundSend";
 import {
   allDictationStatuses,
   clearDictationStatus,
@@ -289,8 +289,11 @@ describe("Cockpit composer: the Still delivering and too-old states", () => {
     // Nothing that could send a second copy.
     expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
     expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
-    // Upload now re-drives the SAME upload id, which the Director refuses to type twice.
-    expect(within(strip).getByRole("button", { name: "Upload now" })).toBeTruthy();
+    // The Gateway drives this delivery itself (phase 5): the one button is "Check now", which reads what the
+    // Gateway ruled for this exact recording and sends nothing.
+    expect(within(strip).queryByRole("button", { name: "Upload now" })).toBeNull();
+    fireEvent.click(within(strip).getByRole("button", { name: "Check now" }));
+    await waitFor(() => expect(retryPendingDictation).toHaveBeenCalledWith("up-delivering"));
   });
 
   it("too old shows the words back with Send anyway and the age wording", async () => {
@@ -333,6 +336,34 @@ describe("Cockpit composer: the Still delivering and too-old states", () => {
     // Dismiss is the one way out, and it goes to the driver's dismiss for this exact recording.
     fireEvent.click(within(strip).getByRole("button", { name: "Dismiss" }));
     await waitFor(() => expect(dismissDictationStatus).toHaveBeenCalledWith("up-unconfirmed"));
+  });
+
+  // QA finding F4, phase 5: a session that really ended is resolved - the words are handed back with the
+  // ended-session label and Dismiss only, because the Gateway offers no "Send anyway" for it (there is no
+  // session left to send anything to) and the label must not invite one.
+  it("the session ended: the words, the ended-session label and Dismiss, with no Send anyway or Retry", async () => {
+    publishDictationStatus({
+      sessionId: "sess-42",
+      uploadId: "up-ended",
+      phase: "dropped",
+      retryable: false,
+      offerSendAnyway: false,
+      recoverableText: "the words for the session that ended",
+      error: "The session has ended, so this recording was not sent. Here is what you said.",
+    });
+    render(<Harness sessionId="sess-42" />);
+    const strip = (await screen.findByText("The session has ended, so this recording was not sent. Here is what you said.")).closest(
+      ".dictate-strip",
+    ) as HTMLElement;
+    expect(within(strip).getByText("the words for the session that ended")).toBeTruthy();
+    expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
+    expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(within(strip).queryByRole("button", { name: "Upload now" })).toBeNull();
+
+    // Dismiss is the one way out, and it goes to the driver's dismiss for this exact recording.
+    fireEvent.click(within(strip).getByRole("button", { name: "Dismiss" }));
+    await waitFor(() => expect(dismissDictationStatus).toHaveBeenCalledWith("up-ended"));
   });
 
   it("a shown-back status that does not carry the Gateway's offer offers no second send", async () => {

@@ -57,8 +57,10 @@ public sealed class TerminalPromptInjectionChokepointTests
         // effectiveSource, not source: a relayed fleet prompt marks itself agent-driven in the DTO, and the
         // executor resolves that before the send (issue #1636). Still the same one chokepoint.
         // The verb answers within its budget and may let the send carry on (Voice Delivery mission, phase 3), so the send
-        // is started, then awaited or handed on - still the one chokepoint.
-        Assert.Contains("var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin);", executor);
+        // is started, then awaited or handed on - still the one chokepoint. Since Voice Delivery phase 5 it also carries
+        // the time the Gateway accepted the words, so the session can refuse a prompt that waited too long before its
+        // first keystroke. The chokepoint is unchanged.
+        Assert.Contains("var sending = session.SendTextAsync(request.Text, provenance, effectiveSource, origin, request.SentAtUtc);", executor);
         // The queue-send and chat submit paths use the SAME chokepoint. (Fleet-message delivery is now
         // Gateway-native and rides the prompt verb above, so it funnels through the same chokepoint; the
         // VoiceTurn endpoint was retired at the cut.)
@@ -93,14 +95,22 @@ public sealed class TerminalPromptInjectionChokepointTests
         // input. Since source logging (2026-09-05) it also carries the composer's spoken character ranges -
         // matched WITHOUT the closing parenthesis, because the CHOKEPOINT is what must not drift and the two
         // shells word that last argument differently (one keeps the projection in a local).
-        Assert.Contains("await sendPrompt(sessionId, text, true, undefined, undefined,", cockpit);
-        Assert.Contains("await sendPrompt(sessionId, text, true, undefined, undefined,", mobileControls);
-        // The dictated send carries the utterance id as its fifth argument since ruling R10 of the "Clean up
-        // Your Throttle" mission (2026-09-05), so the same words count as spoken whichever transcription
-        // path produced them. The CHOKEPOINT is unchanged and is what this pins: still the prompt route,
-        // still with Enter appended (the third argument), never raw terminal input - on both shells.
-        Assert.Contains("await sendPrompt(sessionId, combined, true, undefined, spoken, sent.spans);", cockpit);
-        Assert.Contains("await sendPrompt(sessionId, combined, true, undefined, spoken, sent.spans);", mobileControls);
+        //
+        // Since Voice Delivery phase 5 both shells send through sendTypedPrompt, which holds a prompt the Gateway
+        // answers "still delivering" instead of reporting it sent. Both halves are pinned: the shells call it, and
+        // it calls the prompt route with Enter appended - so the chokepoint is the same one, one hop further in.
+        var typedDelivery = File.ReadAllText(Path.Combine(root, "packages", "client-core", "src", "dictation", "typedPromptDelivery.ts"));
+        Assert.Contains("await sendTypedPrompt(sessionId, text, { spokenSpans:", cockpit);
+        Assert.Contains("await sendTypedPrompt(sessionId, text, { spokenSpans:", mobileControls);
+        // The dictated send carries the utterance id since ruling R10 of the "Clean up Your Throttle" mission
+        // (2026-09-05), so the same words count as spoken whichever transcription path produced them. The
+        // CHOKEPOINT is unchanged and is what this pins: still the prompt route, still with Enter appended,
+        // never raw terminal input - on both shells.
+        Assert.Contains("await sendTypedPrompt(sessionId, combined, { spokenDeliveryId: spoken, spokenSpans: sent.spans });", cockpit);
+        Assert.Contains("await sendTypedPrompt(sessionId, combined, { spokenDeliveryId: spoken, spokenSpans: sent.spans });", mobileControls);
+        Assert.Contains("await sendPrompt(sessionId, text, true, undefined, options.spokenDeliveryId, options.spokenSpans);", typedDelivery);
+        // "Send anyway" on a held prompt is the same route with Enter appended, claiming the original delivery id.
+        Assert.Contains("await sendPrompt(rec.sessionId, rec.text, true, undefined, undefined, undefined, rec.deliveryId);", typedDelivery);
         // The voice reply moved to sendVoicePrompt (issue #2193). The CHOKEPOINT is unchanged and that is
         // what this pins: it is still the prompt route with Enter appended, never raw terminal input - the
         // only difference is that the Gateway is asked to refuse the send outright when a menu owns the
@@ -124,7 +134,15 @@ public sealed class TerminalPromptInjectionChokepointTests
         // the router", not the exact argument count. Stable Release (v1.3.0) added a trailing machineName so the
         // timeout message can name the Director, and pinning the closing parenthesis made that read as a broken
         // chokepoint. The verb, the payload and the route through the router are what must not drift.
-        Assert.Contains("DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, \"prompt\", sid, req, CancellationToken.None", gateway);
+        //
+        // Since Voice Delivery phase 5 the owner's typed prompt goes through TypedPromptDelivery.SendAsync, which sends
+        // through SessionVerbClient.SendPromptAsync - so both hops are pinned: the route hands req to the verb client,
+        // and the verb client sends it as the prompt verb through the router. A session typing into a session it owns
+        // (Parent Control, fix 1) sends the prompt verb from the route itself.
+        var verbClient = File.ReadAllText(Path.Combine(root, "src", "CcDirector.Gateway", "Api", "SessionVerbClient.cs"));
+        Assert.Contains("TypedPromptDelivery.SendAsync(new SessionVerbClient(director, sendCommand), sid, req)", gateway);
+        Assert.Contains("DirectorCommandRouter.TrySendAsync(_sendCommand, _director.DirectorId, \"prompt\", sid, req, ct", verbClient);
+        Assert.Contains("DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, \"prompt\", sid, req,", gateway);
     }
 
     [Fact]

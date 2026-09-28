@@ -18,7 +18,11 @@ namespace CcDirector.Gateway.History;
 /// of waiting or retrying will produce words to narrate.</param>
 /// <param name="Widgets">The conversation, in the shape the wingman already reads. Empty is ordinary - a
 /// session that has not spoken yet.</param>
-public readonly record struct StoredConversation(bool IsSupported, IReadOnlyList<TurnWidgetDto> Widgets);
+/// <param name="Generation">Which stored generation these widgets are the prefix of - the store's key for the
+/// session's current conversation (a new Grok conversation, a cleared context, a resumed transcript each start
+/// one). Positions restart at zero in every generation and not every agent records a time, so a widget's
+/// position names an occurrence only together with this. "" when the reader did not say.</param>
+public readonly record struct StoredConversation(bool IsSupported, IReadOnlyList<TurnWidgetDto> Widgets, string Generation = "");
 
 /// <summary>
 /// Turns the Gateway's STORED conversation into the widget list the wingman already reads (the turn-push
@@ -76,6 +80,7 @@ public static class StoredConversationWidgets
                     Content = text,
                     Header = part.ToolName ?? "",
                     ToolUseId = part.ToolId ?? "",
+                    Timestamp = message.Timestamp,
                 });
             }
         }

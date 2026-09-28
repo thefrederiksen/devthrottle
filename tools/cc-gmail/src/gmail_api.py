@@ -461,6 +461,42 @@ class GmailClient:
             .execute()
         )
 
+    def not_spam(self, message_id: str) -> Dict[str, Any]:
+        """Move one message out of Spam into the Inbox, as Gmail's "Not spam" does.
+
+        Refuses a message that is not in Spam, and one that is also in Trash (someone deleted it:
+        it is not ours to bring back). The labels are read back from Gmail afterwards, and the
+        answer is that read, not the request.
+
+        The contract is "a message that was in Spam when it was checked", not "a message that is
+        in Spam when it is moved": the check and the move are two requests, and Gmail's
+        messages.modify takes no precondition, so nothing in the API can make them one. If a
+        person takes the message out of Spam (or archives or trashes it) between the two, it still
+        gets INBOX added: the SAME message the caller asked to move, never another one. The
+        read-back then fails the command when the message did not end up in the Inbox alone.
+        """
+        before = self.get_message(message_id, format="minimal")
+        labels_before = before.get("labelIds") or []
+        if "SPAM" not in labels_before:
+            raise ValueError(f"message {message_id} is not in Spam (labels {labels_before})")
+        if "TRASH" in labels_before:
+            raise ValueError(f"message {message_id} is in Trash as well as Spam (labels {labels_before}); not moved")
+        (
+            self.service.users()
+            .messages()
+            .modify(
+                userId=self.user_id,
+                id=message_id,
+                body={"removeLabelIds": ["SPAM"], "addLabelIds": ["INBOX"]},
+            )
+            .execute()
+        )
+        after = self.get_message(message_id, format="minimal")
+        labels = after.get("labelIds") or []
+        if "SPAM" in labels or "TRASH" in labels or "INBOX" not in labels:
+            raise ValueError(f"message {message_id} is still not in the Inbox after Not spam (labels {labels})")
+        return {"id": after.get("id"), "thread_id": after.get("threadId"), "labels": list(labels)}
+
     def archive_message(self, message_id: str) -> Dict[str, Any]:
         """
         Archive a message by removing the INBOX label.

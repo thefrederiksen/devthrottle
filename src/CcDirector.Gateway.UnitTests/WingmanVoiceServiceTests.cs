@@ -109,6 +109,10 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
         private bool _supported = true;
 
+        /// <summary>The stored generation the widgets belong to. Setting a new one is a new conversation - a new Grok
+        /// chat, a cleared context - whose positions start again at zero.</summary>
+        public string Generation { get; set; } = "transcript-1";
+
         /// <summary>The delegate the service is constructed with.</summary>
         public Func<TenantId, string, CcDirector.Gateway.History.StoredConversation?> Reader
             => (_, _) =>
@@ -116,7 +120,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
                 Interlocked.Increment(ref _reads);
                 return _widgets is null
                     ? null
-                    : new CcDirector.Gateway.History.StoredConversation(_supported, _widgets);
+                    : new CcDirector.Gateway.History.StoredConversation(_supported, _widgets, Generation);
             };
 
         private static List<CcDirector.Gateway.Contracts.TurnWidgetDto> Build((string Kind, string Content)[] widgets)
@@ -1513,6 +1517,109 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         await svc.GenerateAsync(TenantId.Local, "sid-1", route, CancellationToken.None, showReadingWindow: false,
             onProviderReached: () => reached = true, sweepInput: input);
         return reached;
+    }
+
+    /// <summary>
+    /// ONE STOP, ONE READING, on the voice sweep's own pre-check (live QA, 26 September 2026). A stop that has its reading
+    /// and its clip is redrawn - a status line ticks under the reply - and the sweep must spend no slot and ask no model:
+    /// it is the same stop. Then the agent works and stops on a new reply, with no Working edge seen, and the sweep does
+    /// read that one.
+    /// </summary>
+    [Fact]
+    public async Task TheSweep_OnTheSameStopRedrawn_ReachesNoProvider_ButANewStopIsRead()
+    {
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
+        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-samestop-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var brain = new RecordingBrain();
+            var svc = ServiceWithBrainAndTtsHandler(brain, new TtsStubHandler(HttpStatusCode.OK, "", new byte[] { 1, 2, 3 }),
+                Path.Combine(dir, "voice-sessions.json"), new MovableClock(), conversation.Reader);
+
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));   // control: the stop has its reading and its clip
+            var asks = brain.AskCount;
+            Assert.True(asks > 0);
+
+            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate", "  context 41% | 14:36");
+            Assert.False(await SweepOnceAsync(svc, director));
+            Assert.Equal(asks, brain.AskCount);
+
+            conversation.Store(("Text", "a new reply after new work"));
+            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "a new reply after new work");
+            Assert.True(await SweepOnceAsync(svc, director));
+            Assert.True(brain.AskCount > asks);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+    }
+
+    /// <summary>
+    /// A NEW STOP THAT ENDS ON THE SAME WORDS is still read by the voice sweep (review of pull request 3445): the person
+    /// asked again, the agent stopped on exactly the reply it gave before, and no Working edge was seen. The pre-check
+    /// must not take it for the stop already read.
+    /// </summary>
+    [Fact]
+    public async Task TheSweep_ANewStopEndingOnTheSameWords_IsRead()
+    {
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "Done.") };
+        var conversation = StoredConversationStub.Of(("UserMessage", "push it"), ("Text", "Done."));
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-samewords-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var brain = new RecordingBrain();
+            var svc = ServiceWithBrainAndTtsHandler(brain, new TtsStubHandler(HttpStatusCode.OK, "", new byte[] { 1, 2, 3 }),
+                Path.Combine(dir, "voice-sessions.json"), new MovableClock(), conversation.Reader);
+
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));   // control: the first stop has its reading and its clip
+            var asks = brain.AskCount;
+            Assert.True(asks > 0);
+
+            conversation.Store(("UserMessage", "push it"), ("Text", "Done."), ("UserMessage", "and the other branch"), ("Text", "Done."));
+            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "and the other branch", "Done.");
+            Assert.True(await SweepOnceAsync(svc, director));
+            Assert.True(brain.AskCount > asks);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+    }
+
+    /// <summary>
+    /// A NEW CONVERSATION THAT ENDS ON THE SAME WORDS AT THE SAME PLACE is still read by the voice sweep (round 2 of the
+    /// review of pull request 3445). Grok records no time on its messages, and a new Grok conversation is a new stored
+    /// generation that starts again at position zero, so the same ask and the same "Done." sit exactly where they sat
+    /// before, with no timestamp to tell them apart. With the Working edge missed, only the generation says this is
+    /// another stop - and the pre-check must not take it for the stop already read.
+    /// </summary>
+    [Fact]
+    public async Task TheSweep_ANewConversationWithNoTimesEndingOnTheSameWordsAtTheSamePlace_IsRead()
+    {
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "Done.") };
+        var conversation = StoredConversationStub.Of(("UserMessage", "push it"), ("Text", "Done."));
+        conversation.Generation = "grok-chat-a";
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-newgeneration-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var brain = new RecordingBrain();
+            var svc = ServiceWithBrainAndTtsHandler(brain, new TtsStubHandler(HttpStatusCode.OK, "", new byte[] { 1, 2, 3 }),
+                Path.Combine(dir, "voice-sessions.json"), new MovableClock(), conversation.Reader);
+
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));   // control: the first stop has its reading and its clip
+            var asks = brain.AskCount;
+            Assert.True(asks > 0);
+
+            // CONTROL: the same stop redrawn in the same generation is still not read again.
+            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "Done.", "  context 41% | 14:36");
+            Assert.False(await SweepOnceAsync(svc, director));
+            Assert.Equal(asks, brain.AskCount);
+
+            conversation.Generation = "grok-chat-b";
+            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "push it", "Done.");
+            Assert.True(await SweepOnceAsync(svc, director));
+            Assert.True(brain.AskCount > asks);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
 
     /// <summary>

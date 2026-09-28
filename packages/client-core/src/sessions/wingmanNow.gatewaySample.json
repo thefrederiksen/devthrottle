@@ -36,7 +36,6 @@
     "failedStory": null,
     "lastGood": null,
     "switchedOff": null,
-    "carryingOnDeadline": null,
     "lastAsked": null,
     "lastStop": null,
     "answered": null,
@@ -78,7 +77,6 @@
     "failedStory": null,
     "lastGood": null,
     "switchedOff": null,
-    "carryingOnDeadline": null,
     "lastAsked": {
       "heading": "What it was last asked",
       "text": "Carry on with the next slice.",
@@ -130,7 +128,6 @@
     "failedStory": null,
     "lastGood": null,
     "switchedOff": null,
-    "carryingOnDeadline": null,
     "lastAsked": null,
     "lastStop": {
       "lead": "The stop you answered",
@@ -195,11 +192,6 @@
     "failedStory": null,
     "lastGood": null,
     "switchedOff": null,
-    "carryingOnDeadline": {
-      "before": "If it has not worked again by",
-      "atUtc": "2026-09-17T11:22:04Z",
-      "after": ", and none of the sessions it owns is still working, this turns red and says so."
-    },
     "lastAsked": null,
     "lastStop": null,
     "answered": null,
@@ -248,7 +240,6 @@
     "failedStory": null,
     "lastGood": null,
     "switchedOff": null,
-    "carryingOnDeadline": null,
     "lastAsked": null,
     "lastStop": null,
     "answered": null,
@@ -298,7 +289,6 @@
     "failedStory": null,
     "lastGood": null,
     "switchedOff": null,
-    "carryingOnDeadline": null,
     "lastAsked": null,
     "lastStop": {
       "lead": "The stop you snoozed over",

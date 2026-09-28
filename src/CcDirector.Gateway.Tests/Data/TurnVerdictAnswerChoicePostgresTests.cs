@@ -82,7 +82,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20260921131114_IndexFactoryActivityReads", all[index + 7]);
             // The name a trigger's pending start used, stored with its lock (the trigger's live check) after that.
             Assert.Equal("20260921203258_AddTriggerStartName", all[index + 8]);
-            Assert.Equal(index + 9, all.Count);
+            // The fleet message's unreachable-notice mark (issue 3289).
+            Assert.Equal("20260927212206_AddFleetMessageUnreachableNotice", all[index + 9]);
+            Assert.Equal(index + 10, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

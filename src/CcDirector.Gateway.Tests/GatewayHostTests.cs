@@ -140,10 +140,14 @@ public sealed class GatewayHostTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Prompt_with_correct_token_but_unknown_session_returns_404()
+    public async Task Prompt_with_correct_token_but_a_session_not_located_is_held_not_404()
     {
+        // The token is accepted. The session is not located now, and since Voice Delivery phase 5 (contract section 8) a
+        // typed prompt to a session the Gateway cannot prove ended is HELD waiting for its Director, never "gone".
         var resp = await _http.PostAsJsonAsync($"sessions/{Guid.NewGuid()}/prompt", new PromptRequest { Text = "x" });
-        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        Assert.Equal("waiting-for-director", body.GetProperty("directorState").GetString());
     }
 
     [Fact]

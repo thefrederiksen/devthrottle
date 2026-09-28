@@ -272,7 +272,9 @@ function VoiceAllButton({ sessions }: { sessions: SessionDto[] }) {
 
   const anyOn = sessions.some((s) => Boolean(s.voiceMode));
   const enable = !anyOn;
-  const count = sessions.length;
+  // YOUR sessions, not the roster's length: voice mode only switches on a session no other live session owns
+  // (the Gateway's rule, stamped on every row as hasLiveSupervisor), so the button counts exactly those.
+  const count = sessions.filter((s) => s.hasLiveSupervisor !== true).length;
 
   const onClick = async () => {
     setBusy(true);
@@ -289,7 +291,7 @@ function VoiceAllButton({ sessions }: { sessions: SessionDto[] }) {
     }
   };
 
-  const label = enable ? `Turn on voice for all ${count}` : "Turn voice off for all";
+  const label = enable ? `Turn on voice for your ${count}` : "Turn voice off for all";
   const busyLabel = enable ? "Turning voice on..." : "Turning voice off...";
 
   return (
@@ -299,7 +301,7 @@ function VoiceAllButton({ sessions }: { sessions: SessionDto[] }) {
         className={`roster-voice-all-btn${enable ? "" : " off"}`}
         onClick={() => void onClick()}
         disabled={busy}
-        title="Turn voice mode on or off for every session at once"
+        title="Turn voice mode on for every session you own, or off for all of them"
       >
         {busy ? busyLabel : label}
       </button>

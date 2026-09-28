@@ -1088,6 +1088,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("UnreachableNoticeAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("TenantId", "MessageId");
 
                     b.HasIndex("TenantId");

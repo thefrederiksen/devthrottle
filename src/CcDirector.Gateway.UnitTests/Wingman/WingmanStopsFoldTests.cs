@@ -212,7 +212,7 @@ public sealed class WingmanStopsFoldTests
         var carryingOn = Verdict("v-carry", TurnVerdictVocabulary.ContinuesAlone, "Watching the test run");
         var deadline = T0.AddMinutes(10);
         var expiredAt = T0.AddMinutes(11);
-        var expiredVerdict = Verdict("v-expired", TurnVerdictVocabulary.NeededYou, TurnVerdictWatchdog.ExpiredLabel, judgedAt: expiredAt);
+        var expiredVerdict = Verdict("v-expired", TurnVerdictVocabulary.NeededYou, "Said it would continue and did not", judgedAt: expiredAt);
         var judged = Trace(TurnVerdictTraceOutcomes.Judged, carryingOn, minute: 0) with { ClockDeadlineUtc = deadline };
         var expiry = Trace(TurnVerdictTraceOutcomes.Expired, expiredVerdict, minute: 11) with
         {
@@ -239,7 +239,7 @@ public sealed class WingmanStopsFoldTests
     }
 
     [Fact]
-    public void A_carrying_on_stop_that_has_not_run_out_says_so_and_one_with_no_deadline_says_why()
+    public void A_historic_carrying_on_stop_with_a_deadline_says_it_did_not_run_out_and_a_new_one_shows_no_clock()
     {
         var carryingOn = Verdict("v-carry", TurnVerdictVocabulary.ContinuesAlone);
 
@@ -248,9 +248,9 @@ public sealed class WingmanStopsFoldTests
         Assert.Null(running.Did.Clock.RanOutTraceId);
         Assert.Contains("did not run out", running.Did.Clock.Text);
 
+        // A stop judged since the clock was removed (owner ruling, 2026-09-28) records no deadline: no clock to show.
         var noDeadline = One(Trace(TurnVerdictTraceOutcomes.Judged, carryingOn));
-        Assert.Null(noDeadline.Did.Clock!.SetToRunOutAtUtc);
-        Assert.StartsWith("No deadline was recorded", noDeadline.Did.Clock.Text);
+        Assert.Null(noDeadline.Did.Clock);
 
         // Any other verdict has no clock at all.
         Assert.Null(One(Trace(TurnVerdictTraceOutcomes.Judged, Verdict("v", "finished"))).Did.Clock);

@@ -155,8 +155,9 @@ describe("sendPrompt with a recording id", () => {
   });
 
   it("an ordinary prompt carries no recording claim", async () => {
-    // Proves every other caller's body is unchanged.
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }) as unknown as Response);
+    // Proves every other caller's body is unchanged. A real Response: since phase 5 every prompt answer's body is
+    // read for its deliveryId.
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await sendPrompt("sid-1", "hello", true);

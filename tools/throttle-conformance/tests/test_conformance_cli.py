@@ -33,7 +33,7 @@ ANSWER = {
     "turns": 10, "voiceTurns": 8, "typedTurns": 2, "sessions": 3,
     "headline": {"voice": {"percent": 80}, "phone": {"percent": 80}},
     "buckets": [{"modality": "voice", "surface": "phone", "turns": 8}, {"modality": "typed", "surface": "desktop", "turns": 2}],
-    "excluded": {"noInputOrigin": 0, "agentDriven": 0, "framework": 0, "unresolved": 0},
+    "excluded": {"noInputOrigin": 0, "agentDriven": 0, "framework": 0, "unresolved": 0, "notStartedByYou": 0},
 }
 MENTOR = {"turns": 10, "voiceTurns": 8, "typedTurns": 2, "sessions": 3, "buckets": {}, "excluded": ANSWER["excluded"]}
 RAW = {"agents": [], "repos": [], "hourlyTurns": []}
