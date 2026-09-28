@@ -371,6 +371,7 @@ public static class SessionKeyGuard
             if (s.Length == 3 && s[0] == "gateway" && s[1] == "workflow-runs") return true;
             if (IsScheduleRoute(verb, s)) return true;
             if (IsTriggerRoute(verb, s)) return true;
+            if (IsFactoryMemoryRoute(verb, s)) return true;
 
             // What is installed on another machine, and which files it can see - the "start something over
             // there" discovery pair. Reads only; the start itself is a POST below.
@@ -535,6 +536,7 @@ public static class SessionKeyGuard
             // Create a scheduled job, or run one now.
             if (IsScheduleRoute(verb, s)) return true;
             if (IsTriggerRoute(verb, s)) return true;
+            if (IsFactoryMemoryRoute(verb, s)) return true;
 
             // Create, start, stop, sign in to or rename an automation browser.
             if (IsBrowserRoute(verb, s)) return true;
@@ -560,6 +562,7 @@ public static class SessionKeyGuard
             if (IsCatalogueWrite(verb, s)) return true;
             if (IsScheduleRoute(verb, s)) return true;
             if (IsTriggerRoute(verb, s)) return true;
+            if (IsFactoryMemoryRoute(verb, s)) return true;
 
             // Write a workspace - including writing the drain's judgments and, afterwards, what the
             // restart actually produced, back onto a captured one.
@@ -616,6 +619,7 @@ public static class SessionKeyGuard
             if (IsCatalogueWrite(verb, s)) return true;
             if (IsScheduleRoute(verb, s)) return true;
             if (IsTriggerRoute(verb, s)) return true;
+            if (IsFactoryMemoryRoute(verb, s)) return true;
 
             // Delete a handover. Beyond the literal words of the owner's ruling, which named handovers as
             // content an agent produces without saying who may remove one - and recorded as a judgement call
@@ -984,6 +988,40 @@ public static class SessionKeyGuard
         {
             if (s[2] is "pause" or "resume") return verb == "POST";
             if (s[2] == "runs") return verb is "GET" or "HEAD";
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// A FACTORY AGENT'S OWN MEMORY (Factory Memory mission, phase 2). Allowed to every session key, and safe to
+    /// be: these routes never take the factory from the caller. A session's call is always about its OWN factory's
+    /// memory, read from its record, and a session in no factory is refused by the route - so there is nothing
+    /// here a session key can aim at somebody else's memory.
+    ///
+    /// RESTORE is allowed THROUGH THIS GUARD and refused BY THE ROUTE, deliberately. The guard can only say "not
+    /// for a session key"; the route can say "a person restores a note - write the text you want as a new version
+    /// instead", and an agent told what to do next does not sit red waiting for the owner. The rule itself is
+    /// still enforced in exactly one place.
+    ///
+    /// Verb by verb, because this guard is split by verb: the read routes fall in the GET arm, the write in PUT,
+    /// the delete in DELETE and the restore in POST.
+    /// </summary>
+    private static bool IsFactoryMemoryRoute(string verb, string[] s)
+    {
+        if (s.Length < 2 || s[0] != "factory-memory" || s[1] != "notes") return false;
+
+        // /factory-memory/notes - what this factory knows.
+        if (s.Length == 2) return verb is "GET" or "HEAD";
+
+        // /factory-memory/notes/{name} - read it, write it, delete it.
+        if (s.Length == 3) return verb is "GET" or "HEAD" or "PUT" or "DELETE";
+
+        // /factory-memory/notes/{name}/history - every kept version. /restore - refused by the route.
+        if (s.Length == 4)
+        {
+            if (s[3] == "history") return verb is "GET" or "HEAD";
+            if (s[3] == "restore") return verb == "POST";
         }
 
         return false;

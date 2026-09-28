@@ -64,7 +64,23 @@ internal static class FactoryNaming
         out string? settled)
     {
         error = null;
-        var want = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
+        // ONE SPELLING (phase 2 review, finding 1). A trigger's or a schedule's factory is the OTHER place an id
+        // first comes into being, and the Gateway stamps the session it starts from it - so a second spelling
+        // stored here becomes sessions in a factory whose memory is a separate partition from its siblings'.
+        string? want = null;
+        if (!string.IsNullOrWhiteSpace(requested))
+        {
+            if (!Factory.FactoryNames.TryFactory(requested, out var foldedWant, out var refusal))
+            {
+                FileLog.Write($"[FactoryNaming] {route}: REFUSED - '{requested}' is not one spelling of a factory id");
+                error = Results.BadRequest(new { error = refusal, detail = SpawnFactory.OneSpelling });
+                settled = null;
+                return false;
+            }
+            want = foldedWant;
+        }
+        // What is STORED may predate this rule, so it is folded for comparison but never refused: refusing here
+        // would lock a caller out of editing a row it is allowed to edit, over a value it did not write.
         var have = string.IsNullOrWhiteSpace(existing) ? null : existing.Trim();
 
         // Said nothing about the factory: keep what is stored. This is the ordinary edit, and it is the common case.
