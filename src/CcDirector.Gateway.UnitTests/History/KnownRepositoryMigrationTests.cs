@@ -35,18 +35,21 @@ public sealed class KnownRepositoryMigrationTests
             migrator.Migrate("20260902003414_AddSessionTurns");
             var lastSeen = new DateTime(2026, 8, 31, 14, 30, 0, DateTimeKind.Utc);
             const string machineName = "Søren_North";
-            context.SessionHistory.Add(new SessionHistoryEntity
-            {
-                TenantId = TenantId.Local.Value,
-                SessionId = "backfill-session",
-                DirectorId = "backfill-director",
-                MachineName = machineName,
-                RepoPath = @"D:\Repositories\historical",
-                RepoName = "Historical repository",
-                StartedAtUtc = lastSeen.AddHours(-1),
-                LastSeenUtc = lastSeen,
-            });
-            context.SaveChanges();
+            // WRITTEN AS SQL, NOT THROUGH THE MODEL, and that is the point of this test rather than a detail of it:
+            // the row has to be the row that EXISTED at the old schema. Inserting it with the current entity makes
+            // the test assert against today's columns, so it failed the moment session_history gained one (the
+            // Factory Memory mission's Factory column was the one that caught it). Only the columns this migration
+            // reads, plus the ones that were NOT NULL back then, are named.
+            context.Database.ExecuteSqlRaw("""
+                INSERT INTO "session_history"
+                    ("tenant_id", "SessionId", "DirectorId", "MachineName", "RepoPath", "RepoName",
+                     "StartedAtUtc", "LastSeenUtc", "SummaryIsPartial", "SummaryAttempts")
+                VALUES (@p0, 'backfill-session', 'backfill-director', @p1, 'D:\Repositories\historical',
+                     'Historical repository', @p2, @p3, 0, 0);
+                """,
+                TenantId.Local.Value, machineName,
+                lastSeen.AddHours(-1).ToString("yyyy-MM-dd HH:mm:ss"),
+                lastSeen.ToString("yyyy-MM-dd HH:mm:ss"));
 
             migrator.Migrate();
             context.ChangeTracker.Clear();

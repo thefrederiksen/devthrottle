@@ -116,6 +116,26 @@ public sealed class SessionHistoryEntity : TenantScopedEntity
     /// </summary>
     public string? ParentSessionId { get; set; }
 
+    /// <summary>
+    /// The FACTORY this session belongs to (Factory Memory mission, phase 1), or null when it is in no
+    /// factory. Lower-case factory id, as a factory is spelled everywhere else (e.g. <c>website-factory</c>).
+    ///
+    /// THIS ROW IS THE SOURCE OF TRUTH FOR MEMBERSHIP, and deliberately so (review finding 4). The Gateway
+    /// holds a session's facts in two places: this table, and the pushed roster held in memory. The roster
+    /// is EMPTY for a moment after a Gateway restart, so a membership check reading it would refuse every
+    /// factory session's write in that window and - worse - copy an empty factory onto any child spawned in
+    /// it, putting that child outside the factory for life. This row survives the restart, so the check and
+    /// the child-copy both read it here.
+    ///
+    /// An ABSENT row is its own answer, not "in no factory": a session younger than its first push has no
+    /// row yet, and that is a "try again in a moment", never a refusal that reads as "you do not belong".
+    ///
+    /// WRITE-ONCE, like <see cref="ParentSessionId"/> and the origin pair beside it: it describes the create
+    /// call, so the first push carrying it is as good as the last, and a push from a Director that predates
+    /// the field must not be able to blank it.
+    /// </summary>
+    public string? Factory { get; set; }
+
     /// <summary>Director-measured session creation time (SessionDto.CreatedAt) - a real measurement.</summary>
     public DateTime StartedAtUtc { get; set; }
 

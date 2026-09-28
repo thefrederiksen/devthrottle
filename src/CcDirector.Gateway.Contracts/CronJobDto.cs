@@ -40,6 +40,22 @@ public sealed class CronJobDto
     /// <summary>IANA/Windows time-zone id (e.g. <c>America/Chicago</c>). All computed times are UTC.</summary>
     public string TimeZoneId { get; set; } = "";
 
+    /// <summary>
+    /// The FACTORY this schedule's sessions are born into (Factory Memory mission, phase 1), or null for a
+    /// schedule that belongs to no factory - which is every schedule that exists today. Lower-case factory id,
+    /// the way a factory is spelled everywhere else (e.g. <c>website-factory</c>).
+    ///
+    /// It exists because the Website Factory's Scout is a SCHEDULED session: without a factory here, the one
+    /// agent that most needs the factory's memory would be born outside the factory every morning.
+    ///
+    /// NAMING OR CHANGING IT IS NOT AN ORDINARY EDIT. Any session key may create and change schedules, so if
+    /// this field were writable by anyone, writing a schedule would BE joining a factory - the Gateway itself
+    /// stamps the started session, so one hop through here would launder membership (review finding 1). Only a
+    /// person, or a session already in that factory, may set it or change it; everyone else may still create and
+    /// edit schedules with no factory.
+    /// </summary>
+    public string? Factory { get; set; }
+
     /// <summary>Which machine the job runs on.</summary>
     public CronJobTarget Target { get; set; } = new();
 

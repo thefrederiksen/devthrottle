@@ -48,7 +48,10 @@ internal static class TriggerEndpoints
     /// <param name="directorMachine">The machine a Director of this account is registered on, or null when the
     /// account has no such Director.</param>
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, TriggerService service,
-        Func<TenantId, string, string?> directorMachine, Func<DateTime> nowUtc)
+        Func<TenantId, string, string?> directorMachine, Func<DateTime> nowUtc,
+        // Factory Memory mission (phase 1): reads a calling session's own factory, so this route can tell whether
+        // a session naming a factory on a trigger is already in it. Null fails closed - see FactoryNaming.
+        Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(service);
@@ -64,6 +67,14 @@ internal static class TriggerEndpoints
             if (bad is not null) return bad;
             if (TriggerDefinition.Validate(req!, isCreate: true) is { } error)
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_trigger", error);
+
+            // WHO MAY PUT A FACTORY ON A TRIGGER (Factory Memory mission, phase 1). The sessions this trigger
+            // starts are born into its factory, so naming one here is joining a factory rather than labelling a
+            // row - and every session key may write this route.
+            if (!FactoryNaming.TrySettle(ctx, sessionFactoryOf, req!.Factory, existing: null, "trigger",
+                    "POST /triggers", out var factoryError, out var settledFactory))
+                return factoryError!;
+            req!.Factory = settledFactory;
 
             var (created, refused) = store.Create(tenant, req!, CallerOf(ctx), nowUtc());
             if (created is null)
@@ -94,6 +105,15 @@ internal static class TriggerEndpoints
             if (bad is not null) return bad;
             if (TriggerDefinition.Validate(req!, isCreate: false) is { } error)
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_trigger", error);
+
+            // The same gate on the way in, and it also guards taking a factory OFF a trigger: an outside session
+            // that cannot add itself to the Website Factory must equally not be able to take its Sender out of it.
+            // A body that says nothing about the factory keeps the stored one, so an ordinary edit is unaffected.
+            var storedFactory = store.Find(tenant, id)?.Factory;
+            if (!FactoryNaming.TrySettle(ctx, sessionFactoryOf, req!.Factory, storedFactory, "trigger",
+                    $"PUT /triggers/{id}", out var factoryError, out var settledFactory))
+                return factoryError!;
+            req!.Factory = settledFactory;
 
             var (updated, refused) = store.Update(tenant, id, req!);
             if (refused is not null) return Refuse(StatusCodes.Status409Conflict, "trigger_name_taken", refused);

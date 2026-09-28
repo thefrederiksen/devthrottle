@@ -823,6 +823,20 @@ public sealed class SessionDto
     public string? ParentSessionId { get; set; }
 
     /// <summary>
+    /// RAW FACT: which FACTORY this session belongs to (Factory Memory mission, phase 1), or null when it
+    /// is in no factory. Mirrors <c>Session.Factory</c>.
+    ///
+    /// A BIRTH FACT THAT TRAVELS WITH THE SEAT, not a relation resolved through the parent. It is settled
+    /// at the spawn doors, stamped by the Director before launch, persisted, and pushed here - so it
+    /// survives a Director restart, a drain/restore and a Smart Restart reopen, all three of which build a
+    /// NEW session for an existing seat and would otherwise lose it (review finding 2). The Gateway keeps
+    /// it WRITE-ONCE on the history row and decides memory access from that row alone, never by walking the
+    /// parent chain: a parent's row is pruned 90 days after it ends, and a grandchild must still be able to
+    /// write long after that.
+    /// </summary>
+    public string? Factory { get; set; }
+
+    /// <summary>
     /// RAW FACT: the sticky EXPLICIT role a human/session declared for this session (mirrors
     /// <c>Session.ExplicitRole</c>), or null when none was set. When present it WINS over auto-derivation in
     /// the aggregation's role resolution (so an explicit <see cref="SessionRoles.Architect"/> - which can

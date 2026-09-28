@@ -53,6 +53,11 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
             // firing, so it knows both facts for certain.
             Origin = SessionOriginKinds.Schedule,
             OriginSurface = SessionOriginSurfaces.Cron,
+            // THE SESSION IS BORN INTO THE SCHEDULE'S FACTORY (Factory Memory mission, phase 1). The Website
+            // Factory's Scout runs on a schedule, so without this the one agent with the most to remember would
+            // start outside its factory every morning and could neither read nor write its memory. The Gateway
+            // stamps it from the schedule row; a create body never carries it here.
+            Factory = job.Factory,
         };
 
         FileLog.Write($"[DirectorCronSessionStarter] start: job={job.Id}, machine={job.Target.Machine}, repo={job.Action.RepoPath}, seed={job.Action.Seed}");

@@ -205,6 +205,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<bool>("Enabled")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Factory")
+                        .HasColumnType("text");
+
                     b.Property<DateTime?>("LastFiredUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1596,6 +1599,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("EndingLabel")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Factory")
                         .HasColumnType("text");
 
                     b.Property<string>("FirstPromptLine")

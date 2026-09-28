@@ -4009,6 +4009,11 @@ public sealed class GatewayHost : IAsyncDisposable
             fleetMessages: _fleetMessageService,
             // The Message Load mission, inspection 7, ruling 3: the spawn door records a restore's create by its token.
             workspaces: _workspaces,
+            // Factory Memory mission (phase 1): the spawn door settles the new session's factory from the calling
+            // session's OWN recorded factory, read from the history row rather than the in-memory roster - the row
+            // survives a Gateway restart, and a check reading the roster would exile any child spawned in the
+            // seconds after one from its parent's factory for life.
+            sessionFactoryOf: _sessionHistory.FactoryOf,
             requestShutdown: () =>
             {
                 var handler = OnShutdownRequested;
@@ -4586,7 +4591,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 TimeSpan.FromSeconds(5), Fleet.FleetManagerReplacementSweep.Interval);
         FleetManagerPlacementEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-            service: _fleetManagerPlacement);
+            service: _fleetManagerPlacement,
+            // Factory Memory mission (phase 1): the same factory stamp the other two spawn doors apply.
+            sessionFactoryOf: _sessionHistory.FactoryOf);
 
         // Raise and lower a session (the Fleet Manager Improvement mission, phase 1). The owner's own device only:
         // SessionKeyGuard lists neither route, so every session key - a raised one included - is refused first.
@@ -4762,7 +4769,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // store. Manages definitions only - the background firing engine is part 2 (#483).
         // Persisted to cronjobs.json across restarts (write-through + reload-on-start with
         // next-run recompute). Inherits the host-wide token middleware above.
-        CronJobEndpoints.Map(_app, _cronJobs);
+        // Factory Memory mission (phase 1): a schedule may name the factory its sessions are born into, and only a
+        // person or a session already in that factory may name it - read through the history row like everywhere else.
+        CronJobEndpoints.Map(_app, _cronJobs, sessionFactoryOf: _sessionHistory.FactoryOf);
 
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.
@@ -4779,7 +4788,10 @@ public sealed class GatewayHost : IAsyncDisposable
             directorMachine: (tenant, directorId) => Registry.ListDirectors(tenant)
                 .FirstOrDefault(d => string.Equals(d.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))
                 ?.MachineName,
-            nowUtc: () => DateTime.UtcNow);
+            nowUtc: () => DateTime.UtcNow,
+            // Factory Memory mission (phase 1): only a person or a session already in that factory may name a
+            // trigger's factory - the sessions it starts are born into it.
+            sessionFactoryOf: _sessionHistory.FactoryOf);
 
         // The queue runner (issue #274, child 3 of #270): the thin orchestration that turns a named
         // work list into unattended, ordered runs - one implementation session per github item,
@@ -4814,7 +4826,10 @@ public sealed class GatewayHost : IAsyncDisposable
             // and pushed-session store the roster serves from, and the newest release this Gateway has read.
             directors: Registry,
             pushedSessions: PushedSessions,
-            newestRelease: _newestRelease);
+            newestRelease: _newestRelease,
+            // Factory Memory mission (phase 1): the factory stamp for "start a session on another computer",
+            // read from the calling session's history row like the other two doors.
+            sessionFactoryOf: _sessionHistory.FactoryOf);
 
         // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
         // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,

@@ -102,6 +102,13 @@ public sealed class SessionHistoryStore
                 entity.OriginSurface = session.OriginSurface;
             if (string.IsNullOrEmpty(entity.ParentSessionId) && !string.IsNullOrWhiteSpace(session.ParentSessionId))
                 entity.ParentSessionId = session.ParentSessionId;
+            // The factory is a birth fact on exactly the same write-once terms (Factory Memory mission,
+            // phase 1) - and it is the one this table is READ for: the memory routes decide who may write a
+            // factory's notes from this column and nothing else. A push that lost it (an older Director
+            // taking over mid-upgrade) must not be able to blank it, or a live factory session would fall
+            // out of its factory because of which build happened to report it last.
+            if (string.IsNullOrEmpty(entity.Factory) && !string.IsNullOrWhiteSpace(session.Factory))
+                entity.Factory = session.Factory;
             // CreatedAt is the Director-measured start and is stable; keep the first non-default value.
             if (entity.StartedAtUtc == default && session.CreatedAt != default)
                 entity.StartedAtUtc = Utc(session.CreatedAt);
@@ -552,6 +559,34 @@ public sealed class SessionHistoryStore
     /// <summary>The bucket key for a row written before the origin fields existed. Deliberately NOT
     /// "unknown", which is a recorded answer.</summary>
     public const string NotRecorded = "notRecorded";
+
+    /// <summary>
+    /// WHICH FACTORY a session belongs to, read from its history row - the ONE place membership is decided
+    /// from (Factory Memory mission, phase 1; review finding 4). The three answers are kept apart on
+    /// purpose, because they mean different things to a caller:
+    ///
+    ///  - <see cref="SessionFactoryLookup.NotKnown"/> - there is no row yet. The session is younger than its
+    ///    first push. This is "try again in a moment", NOT "you are in no factory", and a spawn from such a
+    ///    session is refused rather than given an empty factory to copy onto its child.
+    ///  - a row with no factory - the session is in no factory, which is a settled answer.
+    ///  - a row with a factory - membership, and the only thing that grants it.
+    /// </summary>
+    public SessionFactoryLookup FactoryOf(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) return SessionFactoryLookup.NotKnown;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var row = ctx.SessionHistory.AsNoTracking()
+                .Where(e => e.SessionId == sessionId)
+                .Select(e => new { e.Factory })
+                .FirstOrDefault();
+            if (row is null) return SessionFactoryLookup.NotKnown;
+            return string.IsNullOrWhiteSpace(row.Factory)
+                ? SessionFactoryLookup.InNoFactory
+                : SessionFactoryLookup.In(row.Factory!);
+        }
+    }
 
     /// <summary>One session's folded record, or null.</summary>
     public WorkHistorySessionDto? Get(string sessionId)

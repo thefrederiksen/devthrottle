@@ -34,6 +34,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260921105211_AddFactoryTriggers",
         "20260921131049_IndexFactoryActivityReads",
         "20260921203243_AddTriggerStartName",
+        "20260928020815_AddSessionAndScheduleFactory",
     })]
     [InlineData("postgres", new[]
     {
@@ -50,6 +51,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260921105238_AddFactoryTriggers",
         "20260921131114_IndexFactoryActivityReads",
         "20260921203258_AddTriggerStartName",
+        "20260928020837_AddSessionAndScheduleFactory",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {
@@ -78,9 +80,9 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         // record's two stop columns, then the narration call's six trace columns, then the repository catalog's
         // nullable last-used time and its two discovered columns, then the raised sessions table and its two indexes,
         // then the factory activity table and its four indexes, then the factory triggers' two tables and their four
-        // indexes, then the factory activity record's two read indexes, then the trigger's start-name column: an
-        // empty comparison proves nothing.
-        Assert.Equal(38, changes);
+        // indexes, then the factory activity record's two read indexes, then the trigger's start-name column, then
+        // the session's factory and the schedule's: an empty comparison proves nothing.
+        Assert.Equal(40, changes);
     }
 
     /// <summary>The schema operations, as sorted "kind table.name" lines. Data operations are not schema.</summary>

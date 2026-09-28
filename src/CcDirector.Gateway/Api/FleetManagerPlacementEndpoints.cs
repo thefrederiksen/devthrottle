@@ -40,16 +40,19 @@ internal static class FleetManagerPlacementEndpoints
 
     private static readonly JsonSerializerOptions BodyJsonOptions = new(JsonSerializerDefaults.Web);
 
-    public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, FleetManagerPlacementService service)
+    public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, FleetManagerPlacementService service,
+        // Factory Memory mission (phase 1): reads a calling session's own factory from its history row, for the
+        // factory stamp the other two spawn doors apply. Null fails closed on that one field and nothing else.
+        Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(service);
 
         app.MapGet(PlacementRoute, (Func<HttpContext, Task<IResult>>)(ctx => ReadAsync(ctx, resolveTenant, service)));
         app.MapPut(PlacementRoute, (Func<HttpContext, Task<IResult>>)(ctx => SaveAsync(ctx, resolveTenant, service)));
-        app.MapPost(StartRoute, (Func<HttpContext, Task<IResult>>)(ctx => StartAsync(ctx, resolveTenant, service)));
-        app.MapPost(RestartRoute, (Func<HttpContext, Task<IResult>>)(ctx => RestartAsync(ctx, resolveTenant, service)));
-        app.MapPost(MoveRoute, (Func<HttpContext, Task<IResult>>)(ctx => MoveAsync(ctx, resolveTenant, service)));
+        app.MapPost(StartRoute, (Func<HttpContext, Task<IResult>>)(ctx => StartAsync(ctx, resolveTenant, service, sessionFactoryOf)));
+        app.MapPost(RestartRoute, (Func<HttpContext, Task<IResult>>)(ctx => RestartAsync(ctx, resolveTenant, service, sessionFactoryOf)));
+        app.MapPost(MoveRoute, (Func<HttpContext, Task<IResult>>)(ctx => MoveAsync(ctx, resolveTenant, service, sessionFactoryOf)));
 
         FileLog.Write($"[FleetManagerPlacementEndpoints] mapped {PlacementRoute}, {StartRoute}, {RestartRoute} and {MoveRoute}");
     }
@@ -91,14 +94,14 @@ internal static class FleetManagerPlacementEndpoints
     }
 
     internal static async Task<IResult> StartAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        FleetManagerPlacementService service)
+        FleetManagerPlacementService service, Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null)
     {
         FileLog.Write("[FleetManagerPlacementEndpoints] POST start");
         try
         {
             if (resolveTenant(ctx) is not { } tenant) return NoTenant();
             if (SessionCaller(ctx) is { } refused) return refused;
-            return Answer("POST start", await service.StartAsync(tenant, StampOrigin(ctx, StartRoute), ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx)));
+            return Answer("POST start", await service.StartAsync(tenant, StampOrigin(ctx, StartRoute, sessionFactoryOf), ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx)));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -108,14 +111,14 @@ internal static class FleetManagerPlacementEndpoints
     }
 
     internal static async Task<IResult> RestartAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        FleetManagerPlacementService service)
+        FleetManagerPlacementService service, Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null)
     {
         FileLog.Write("[FleetManagerPlacementEndpoints] POST restart");
         try
         {
             if (resolveTenant(ctx) is not { } tenant) return NoTenant();
             if (SessionCaller(ctx) is { } refused) return refused;
-            return Answer("POST restart", await service.RestartAsync(tenant, StampOrigin(ctx, RestartRoute), ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx)));
+            return Answer("POST restart", await service.RestartAsync(tenant, StampOrigin(ctx, RestartRoute, sessionFactoryOf), ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx)));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -125,7 +128,7 @@ internal static class FleetManagerPlacementEndpoints
     }
 
     internal static async Task<IResult> MoveAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        FleetManagerPlacementService service)
+        FleetManagerPlacementService service, Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null)
     {
         FileLog.Write("[FleetManagerPlacementEndpoints] POST move");
         try
@@ -134,7 +137,7 @@ internal static class FleetManagerPlacementEndpoints
             if (SessionCaller(ctx) is { } refused) return refused;
             var (body, error) = await ReadBodyAsync(ctx);
             if (error is not null) return error;
-            return Answer("POST move", await service.MoveAsync(tenant, body, StampOrigin(ctx, MoveRoute), ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx)));
+            return Answer("POST move", await service.MoveAsync(tenant, body, StampOrigin(ctx, MoveRoute, sessionFactoryOf), ctx.RequestAborted, FleetManagerOwnerDevice.Caller(ctx)));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -150,13 +153,21 @@ internal static class FleetManagerPlacementEndpoints
     /// say who owns the result, and for a Fleet Manager there is one answer: the owner. It answers to nobody else, and
     /// <see cref="FleetManagerSessions.IsFleetManager"/> does not treat a session another session owns as one.
     /// </summary>
-    private static Action<NewSessionRequest> StampOrigin(HttpContext ctx, string route)
+    private static Action<NewSessionRequest> StampOrigin(HttpContext ctx, string route,
+        Func<string, History.SessionFactoryLookup>? sessionFactoryOf)
         => req =>
         {
             if (AuthMiddleware.CallingSession(ctx) is not null)
                 req.ControllerSessionId = SpawnOrigin.UserOwned;
             if (!SpawnOrigin.TryEstablish(req, ctx, route, out _))
                 throw new InvalidOperationException($"{route}: the spawn origin was refused for a Fleet Manager start");
+            // The FACTORY, settled by the same helper as at the other two doors (Factory Memory mission, phase 1).
+            // In practice this settles to none: a Fleet Manager start names no factory, and the Fleet Manager is
+            // the owner's own seat rather than any factory's agent. The call is here so that no door forwards a
+            // body unchecked - which is the whole reason the helper exists - and so a raised session key cannot
+            // start a Fleet Manager into a factory it is not in.
+            if (!SpawnFactory.TryEstablish(req, ctx, route, sessionFactoryOf, out _))
+                throw new InvalidOperationException($"{route}: the spawn factory was refused for a Fleet Manager start");
         };
 
     /// <summary>A second line behind <see cref="SessionKeyGuard"/>: a session key never reaches a start - unless the
