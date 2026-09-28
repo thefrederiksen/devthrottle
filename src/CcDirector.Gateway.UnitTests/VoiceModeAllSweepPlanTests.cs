@@ -38,6 +38,56 @@ public sealed class VoiceModeAllSweepPlanTests
         (directorId, new SessionDto { SessionId = sid, Name = sid, Status = "Working", ActivityState = "Working" });
 
     [Fact]
+    public void OwnerSessions_leavesOutASessionAnotherLiveSessionOwns()
+    {
+        // THE FLEET BUTTON'S BUG (owner, 2026-09-27). The button switched on every row on the roster and said
+        // "all 13"; the sweep then switched the workers back off. OwnerSessions is what the button now asks, so a
+        // worker under a live manager must not be in it - and the manager, and a session nobody owns, must be.
+        var roster = new[]
+        {
+            LiveSupervisorRow("d1", "the-manager"),
+            SupervisedRow("d1", "the-worker", "the-manager"),
+            Row("d2", "a-standalone"),
+        };
+
+        var owned = VoiceModeAllSweep.OwnerSessions(roster).Select(r => r.Session.SessionId).ToArray();
+
+        Assert.Equal(new[] { "the-manager", "a-standalone" }, owned);
+    }
+
+    [Fact]
+    public void OwnerSessions_keepsASessionWhoseOwnerIsNoLongerOnTheRoster()
+    {
+        // Ownership is a LIVE owning session. When the owner has gone, the session answers to the user again and
+        // voice mode must reach it - otherwise a finished manager would leave its workers silent for ever.
+        var roster = new[] { SupervisedRow("d1", "orphan", "gone-manager") };
+
+        var owned = VoiceModeAllSweep.OwnerSessions(roster).Select(r => r.Session.SessionId).ToArray();
+
+        Assert.Equal(new[] { "orphan" }, owned);
+    }
+
+    [Fact]
+    public void OwnerAndPlan_judgeOwnershipOverTheLastKnownUniverse_notOnlyTheFreshRoster()
+    {
+        // Review finding, round 1 and 2. The manager is on a computer that has gone quiet, so it is NOT in the
+        // fresh roster; its worker is fresh on another computer. Judged over the fresh roster alone the worker looks
+        // ownerless and would be switched on - while the roster (and so the button) still shows it owned.
+        var manager = LiveSupervisorRow("quiet-machine", "the-manager");
+        var worker = SupervisedRow("fresh-machine", "the-worker", "the-manager");
+        var fresh = new[] { worker };
+        var universe = new[] { manager, SupervisedRow("fresh-machine", "the-worker", "the-manager") };
+
+        Assert.Empty(VoiceModeAllSweep.OwnerSessions(fresh, universe));
+        Assert.Empty(VoiceModeAllSweep.Plan(true, fresh, On(), universe));
+        Assert.Equal(new[] { ("fresh-machine", "the-worker") },
+            VoiceModeAllSweep.PlanOff(new[] { SupervisedRow("fresh-machine", "the-worker", "the-manager") }, On("the-worker"), universe));
+
+        // Control: without the universe the same fresh roster DOES yield the worker - the case the fix closes.
+        Assert.Single(VoiceModeAllSweep.OwnerSessions(new[] { SupervisedRow("fresh-machine", "the-worker", "the-manager") }));
+    }
+
+    [Fact]
     public void PlanOff_clearsASupervisedSessionThatWasAlreadyMarkedForVoice()
     {
         // THE CASE THE ON-DIRECTION CANNOT REACH. Voice marking is PERSISTED, so a worker enrolled before the

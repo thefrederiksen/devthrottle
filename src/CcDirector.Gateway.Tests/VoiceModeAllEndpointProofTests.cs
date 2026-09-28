@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -139,6 +139,57 @@ public sealed class VoiceModeAllEndpointProofTests : IAsyncLifetime
         Assert.Contains(voiceModeCmds, c => c.SessionId == sid2);
         foreach (var c in voiceModeCmds)
             Assert.True(JsonNode.Parse(c.PayloadJson)?["enabled"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public async Task VoiceModeAll_enable_leavesASessionAnotherLiveSessionOwnsAlone()
+    {
+        // Owner, 2026-09-27: "voice mode should only be the ones that are owned by the user". The button used to
+        // switch every row on, workers included, and report them as changed. A worker under a LIVE manager is read
+        // by that manager, so it gets no voice-mode write at all, and is not counted.
+        var manager = Guid.NewGuid().ToString();
+        var worker = Guid.NewGuid().ToString();
+        var workerRow = Session(worker, "worker");
+        workerRow.IsControlled = true;
+        workerRow.ControllerSessionId = manager;
+        var managerRow = Session(manager, "manager");
+        managerRow.Status = "Working";
+        managerRow.ActivityState = "Working";
+        await PushAsync(1L, managerRow, workerRow);
+
+        var resp = await _http.PostAsJsonAsync("sessions/voice-mode/all", new { enabled = true });
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
+        Assert.Equal(1, node?["total"]?.GetValue<int>());
+        Assert.Equal(1, node?["changed"]?.GetValue<int>());
+        var voiceModeCmds = _commands.Where(c => c.Verb == "voice-mode").ToList();
+        Assert.Single(voiceModeCmds);
+        Assert.Equal(manager, voiceModeCmds[0].SessionId);
+    }
+
+    [Fact]
+    public async Task VoiceModeAll_disable_stillReachesEverySession()
+    {
+        // Off is always safe and must clear every mark, including one a worker picked up before this rule.
+        var manager = Guid.NewGuid().ToString();
+        var worker = Guid.NewGuid().ToString();
+        var workerRow = Session(worker, "worker");
+        workerRow.IsControlled = true;
+        workerRow.ControllerSessionId = manager;
+        var managerRow = Session(manager, "manager");
+        managerRow.Status = "Working";
+        managerRow.ActivityState = "Working";
+        await PushAsync(1L, managerRow, workerRow);
+
+        var resp = await _http.PostAsJsonAsync("sessions/voice-mode/all", new { enabled = false });
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var node = await resp.Content.ReadFromJsonAsync<JsonNode>();
+        Assert.Equal(2, node?["total"]?.GetValue<int>());
+        var sids = _commands.Where(c => c.Verb == "voice-mode").Select(c => c.SessionId).ToHashSet();
+        Assert.Contains(manager, sids);
+        Assert.Contains(worker, sids);
     }
 
     [Fact]

@@ -653,7 +653,10 @@ function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
   // The action is always the opposite of the state the Gateway reports. Before the first read lands the
   // state is unknown, and the button says so rather than guessing a direction and acting on the guess.
   const enable = voice.enabled !== true;
-  const count = sessions.length;
+  // YOUR sessions, not the roster's length (owner, 2026-09-27). Voice mode only ever switches on a session no
+  // other live session owns - the Gateway's rule, stamped on every row as hasLiveSupervisor - so the button
+  // counts exactly those. It used to say "all 13" while four of the thirteen belonged to other sessions.
+  const count = sessions.filter((s) => s.hasLiveSupervisor !== true).length;
 
   const onClick = async () => {
     setError(null);
@@ -675,15 +678,15 @@ function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
   };
 
   const label = enable
-    ? `Turn on voice mode for all ${count} ${count === 1 ? "session" : "sessions"}`
+    ? `Turn on voice mode for your ${count} ${count === 1 ? "session" : "sessions"}`
     : "Turn voice mode off for all sessions";
   const busyLabel = enable ? "Turning voice mode on..." : "Turning voice mode off...";
 
   return (
     <div className="voice-all">
       <p className="voice-all-line">
-        Voice mode is about the fleet: every session narrates its turns, including ones started later.
-        Auto-speak, below, is about this phone.
+        Voice mode is about your sessions: every session you own narrates its turns, including ones started
+        later. Sessions another session runs stay quiet. Auto-speak, below, is about this phone.
       </p>
       <button
         type="button"
