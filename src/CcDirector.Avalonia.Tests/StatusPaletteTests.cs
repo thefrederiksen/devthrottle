@@ -92,7 +92,8 @@ public sealed class StatusPaletteTests
         // So: NEVER grey (grey MEANS snoozed or exited - an affirmative lie that the session is parked),
         // and NEVER the magenta sentinel (which now means only "the Gateway stamped nothing"). The neutral,
         // which is not a state and does not claim to be one.
-        foreach (var nonsense in new[] { "something-nobody-folds", "chartreuse", "", null })
+        // "purple" is here on purpose: it was a live colour until 2026-09-28, and an older Gateway may still send it.
+        foreach (var nonsense in new[] { "something-nobody-folds", "chartreuse", "purple", "", null })
         {
             Assert.False(StatusPalette.Knows(nonsense));
 

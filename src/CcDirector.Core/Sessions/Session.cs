@@ -1441,8 +1441,8 @@ public sealed class Session : IDisposable
     /// it tracks a live read of the screen, not durable state.
     ///
     /// This is a RAW FACT. It is reported on <c>SessionDto.IsBackgroundRunning</c>, and NO COLOUR READS IT: the
-    /// Gateway's background purple was deleted by the Wingman-on-every-turn mission, so purple has one producer,
-    /// the calm verdict arm. <c>SessionStatusWingman</c> does not "paint the badge Purple" and has not since
+    /// Gateway's background purple was deleted by the Wingman-on-every-turn mission, and purple is gone altogether
+    /// since 2026-09-28 (carrying on is cyan). <c>SessionStatusWingman</c> does not "paint the badge Purple" and has not since
     /// Phase 2.3 - it emits blue, red and unknown only. <see cref="OnIsBackgroundRunningChanged"/> had ZERO
     /// subscribers anywhere until defect 14 wired the push.
     /// </summary>
@@ -1457,13 +1457,13 @@ public sealed class Session : IDisposable
         }
     }
 
-    /// <summary>Short reason for the Purple background state, shown as the badge tooltip,
-    /// e.g. "running in background". Set alongside <see cref="IsBackgroundRunning"/>.</summary>
+    /// <summary>Short reason for the background state, e.g. "running in background". No colour reads it; it once
+    /// tinted a purple badge that no longer exists. Set alongside <see cref="IsBackgroundRunning"/>.</summary>
     public string BackgroundReason => _backgroundReason;
 
     /// <summary>Fires when <see cref="IsBackgroundRunning"/> changes. Arg: new value. Subscribed by
-    /// <c>ControlApiHost.WireDoorbellPush</c>, which pushes the fact up so the Gateway can fold the purple
-    /// promptly (defect 14). NOT by the SessionStatusWingman, which this comment used to name and which has
+    /// <c>ControlApiHost.WireDoorbellPush</c>, which pushes the fact up to the Gateway as a raw fact
+    /// (defect 14); no colour is folded from it any more. NOT by the SessionStatusWingman, which this comment used to name and which has
     /// never subscribed to it - before defect 14 this event had no subscribers at all.</summary>
     public event Action<bool>? OnIsBackgroundRunningChanged;
 

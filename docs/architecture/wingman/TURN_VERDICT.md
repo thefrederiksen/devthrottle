@@ -508,7 +508,7 @@ calm":
 | Verdict | Colour | Label | Counted in "needs you"? |
 |---|---|---|---|
 | `finished`, kind `done` | cyan | leads "Done" | No. Listed in the calm band below the reds |
-| `finished`, kind `report` | cyan | leads "Report" | No. Same band |
+| `finished`, kind `report` | cyan | leads "Telling you" | No. Same band |
 | `continues-alone` | cyan | the Wingman's line, or "Carrying on" | No. Same band |
 | Any other word | red, unchanged | the ask, in the Wingman's words | Yes |
 | Refused, timed out, rate limited, never judged | red, unchanged | as today | Yes |
@@ -573,7 +573,7 @@ the agents' words are all invented, in the house style of
 [`examples/`](examples/) beside this file. They exist to show the shape of the judgement, not to
 be evidence about any fleet.
 
-## Twin 1 - a report. Cyan, "Report", not counted
+## Twin 1 - a report. Cyan, "Telling you", not counted
 
 ### The screen the judge was given (last rows, sanitised)
 
@@ -616,7 +616,7 @@ Yes. Shape: `agent-reply`.
 
 ### What the owner sees
 
-Cyan. Label **"Report - Read the migration; nothing needs deciding"**. In the calm band below the
+Cyan. Label **"Telling you - Read the migration; nothing needs deciding"**. In the calm band below the
 reds, and NOT in the "needs you" count. The receipt sentence shows above the summary in the
 panel, so he can check the judgement against the agent's own words in one glance.
 

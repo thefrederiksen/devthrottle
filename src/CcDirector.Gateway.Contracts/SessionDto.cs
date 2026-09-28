@@ -971,8 +971,8 @@ public sealed class SessionDto
     /// <summary>
     /// RAW FACT: the Wingman determined this session is parked on its OWN background task (a build, a
     /// running shell) rather than on the user (mirrors <c>Session.IsBackgroundRunning</c>). NO COLOUR READS IT:
-    /// the fold's background purple was deleted by the Wingman-on-every-turn mission, so purple has one
-    /// producer, the calm verdict arm in <see cref="SessionOrdering.EffectiveColor"/>.
+    /// the fold's background purple was deleted by the Wingman-on-every-turn mission, and nothing produces purple
+    /// since 2026-09-28: every calm verdict is cyan in <see cref="SessionOrdering.EffectiveColor"/>.
     /// </summary>
     public bool IsBackgroundRunning { get; set; }
 

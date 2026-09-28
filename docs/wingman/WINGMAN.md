@@ -482,7 +482,7 @@ the detector made it.
 | Verdict | Colour | Label | In the "needs you" count? |
 |---|---|---|---|
 | `finished`, kind `done` | cyan | leads "Done" | No. Listed in the calm band below the reds |
-| `finished`, kind `report` | cyan | leads "Report" | No. Same band |
+| `finished`, kind `report` | cyan | leads "Telling you" | No. Same band |
 | `continues-alone` | cyan | the Wingman's line, or "Carrying on" | No. Same band |
 | `needed-you`, `stuck-needs-person`, `stuck-recoverable`, `cannot-tell` | red, unchanged | the ask, in the Wingman's words | Yes |
 | refused, timed out, rate limited, or never judged | red, unchanged | as today | Yes |

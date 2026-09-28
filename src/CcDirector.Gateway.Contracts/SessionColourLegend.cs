@@ -86,7 +86,7 @@ public static class SessionColourLegend
 
     public static readonly IReadOnlyList<string> NoteClaims =
     [
-        "Nothing needed from you appears only when the Wingman's verdicts are switched on for your account",
+        "Apart from a snooze that ended quietly, Nothing needed from you appears only when the Wingman's verdicts are switched on for your account",
         "With them off, those sessions show red instead",
     ];
 
@@ -159,8 +159,11 @@ public static class SessionColourLegend
         ["blue"] = new("The agent is running a turn right now, and a working session is always blue", []),
 
         // ONE CALM COLOUR (the simpler session colours ruling, 2026-09-28): carrying on was purple, and is cyan now.
-        ["cyan"] = new("The session stopped and the Wingman judged it needs nothing from you",
-            ["the work is done", "it is only reporting something and asks you nothing", "it will carry on by itself"]),
+        // A snooze that ended with nothing new is cyan too, with no verdict behind it (SnoozeEndedNothingNewColor), so
+        // the sentence does not say the Wingman judged every cyan row.
+        ["cyan"] = new("The session stopped and nothing is needed from you",
+            ["the Wingman judged the work done", "the Wingman judged it only reporting something that asks you nothing",
+             "the Wingman judged it will carry on by itself", "your snooze ended and nothing happened while it ran"]),
 
         ["yellow"] = new("The session stopped and is being looked at before it is shown to you",
             ["the Wingman or the Director is reading the stop", "its voice summary is not ready yet"]),

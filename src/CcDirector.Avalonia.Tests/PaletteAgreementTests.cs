@@ -53,6 +53,20 @@ public sealed class PaletteAgreementTests
         }
     }
 
+    /// <summary>
+    /// PURPLE IS GONE, ON EVERY SURFACE (the simpler session colours ruling, 2026-09-28: one calm colour, cyan). The
+    /// Gateway's palette, the desktop's and the web's must all refuse it, so it cannot come back on one of them alone.
+    /// </summary>
+    [AvaloniaFact]
+    public void Purple_IsKnownToNoPalette()
+    {
+        Assert.False(SessionColorPalette.Knows("purple"));
+        Assert.Equal(SessionColorPalette.Broken, SessionColorPalette.HexFor("purple"));
+        Assert.False(StatusPalette.Knows("purple"));
+        Assert.False(ClientPalette.Read(RepoRoot()).ContainsKey("purple"),
+            $"the web COLORS table ({ClientPalette.RelativePath}) still has purple");
+    }
+
     private static string RepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);

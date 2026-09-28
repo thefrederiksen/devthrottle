@@ -201,7 +201,7 @@ public static class TurnVerdictContract
     /// <summary>The turn is over and nothing is asked: cyan, stored as finished (kind done).</summary>
     public const string DoneWord = "done";
 
-    /// <summary>Nothing is asked and the session will act again by itself: purple, stored as continues-alone.</summary>
+    /// <summary>Nothing is asked and the session will act again by itself: cyan (one calm colour since 2026-09-28), stored as continues-alone.</summary>
     public const string CarryingOnWord = TurnVerdictStates.CarryingOn;
 
     /// <summary>The three words Call A may answer, and the only three.</summary>
