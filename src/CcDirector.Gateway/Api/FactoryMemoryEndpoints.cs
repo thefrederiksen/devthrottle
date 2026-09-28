@@ -70,9 +70,14 @@ internal static class FactoryMemoryEndpoints
             var note = store.Get(tenant, caller.Factory, name);
             if (note is null)
                 return Results.NotFound(new { error = $"this factory has no note called '{name}'", factory = caller.Factory, name });
-            // A DELETED note answers 200 with the delete on it, not 404. "It was deleted in version 4 by that
-            // session, and a person can restore it" is a different and more useful fact than "there is no such
-            // note", and an agent that gets 404 would write a fresh note and lose what the history holds.
+            // A DELETED note answers 200 with the delete on it, not 404 - and SAYS SO IN WORDS as well as in
+            // fields (phase 2 review, finding 10). The design promises the sentence "deleted in version N by X,
+            // restorable in the Cockpit"; an agent reading a bare deleted:true has to work the rest out, and an
+            // agent that got 404 would write a fresh note and lose what the history holds.
+            //
+            // The sentence rides ON THE NOTE rather than reshaping the answer, which was the first attempt: the
+            // command line and the Cockpit are both written against the bare note, and a second shape for one
+            // case would have broken them for no gain.
             return Results.Json(ToDto(note));
         });
 
@@ -129,7 +134,7 @@ internal static class FactoryMemoryEndpoints
             var (body, bad) = await ReadBody<RestoreFactoryMemoryNoteRequest>(ctx);
             if (bad is not null) return bad;
             var write = store.Restore(tenant, caller.Factory, name, body!.Version,
-                caller.AuthorKind, caller.AuthorId, nowUtc());
+                caller.AuthorKind, caller.AuthorId, nowUtc(), body.ExpectedVersion);
             return Answer(write);
         });
 
@@ -248,6 +253,11 @@ internal static class FactoryMemoryEndpoints
 
     private static FactoryMemoryNoteDto ToDto(FactoryMemoryNoteEntity n) => new()
     {
+        DeletedNotice = !n.Deleted ? null
+            : $"'{n.Name}' was deleted in version {n.Version} by " +
+              $"{(n.AuthorKind == FactoryMemoryAuthorKinds.Person ? "a person" : $"session {n.AuthorId}")}" +
+              $" on {n.WrittenAtUtc:yyyy-MM-dd HH:mm} and can be restored by a person in the Cockpit. " +
+              "Writing this name again continues the same history rather than starting a new note.",
         Factory = n.Factory,
         Name = n.Name,
         Version = n.Version,

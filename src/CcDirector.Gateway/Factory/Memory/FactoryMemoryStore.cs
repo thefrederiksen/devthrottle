@@ -132,7 +132,7 @@ public sealed class FactoryMemoryStore
     /// rewind: the history keeps showing what happened, including the delete or the mistake being undone.
     /// </summary>
     public FactoryMemoryWrite Restore(TenantId tenant, string factory, string name, int version,
-        string authorKind, string? authorId, DateTime nowUtc)
+        string authorKind, string? authorId, DateTime nowUtc, int? expectedVersion = null)
     {
         lock (_gate)
         {
@@ -147,8 +147,13 @@ public sealed class FactoryMemoryStore
                     $"version {version} of '{name}' is the delete itself, so there is no text in it to put back; " +
                     "restore the version before it", null);
             var head = Head(ctx, factory, name);
+            // THE VERSION THE PERSON WAS LOOKING AT, when they said (finding 6). A restore is a write like any
+            // other and must be able to lose a race: an agent can add a version between the owner reading the
+            // history and pressing restore, and burying that silently is the same lost lesson with a kinder face.
+            // A caller that states nothing is taken at its word, so an older client keeps working.
+            var expected = expectedVersion is > 0 ? expectedVersion.Value : head?.Version ?? 0;
             return AppendInside(ctx, tenant, factory, name, wanted.Text, deleted: false,
-                expectedVersion: head?.Version ?? 0, authorKind, authorId, nowUtc);
+                expectedVersion: expected, authorKind, authorId, nowUtc);
         }
     }
 
