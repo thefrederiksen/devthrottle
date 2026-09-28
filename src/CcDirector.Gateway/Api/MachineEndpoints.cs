@@ -151,6 +151,14 @@ internal static class MachineEndpoints
         // is a security argument, and when it was optional a forgotten argument silently served the Local
         // partition on hosted. A self-host-only caller must state the absence with an explicit null.
         HostedTenantBoundary? boundary,
+        // Factory Memory mission (phase 1): reads the CALLING session's own factory from its history row, so
+        // the spawn door can settle the new session's factory from the credential instead of the body.
+        //
+        // REQUIRED AND NON-NULLABLE (phase 1 review, finding 1). When it was optional, a wiring line that forgot
+        // it failed nothing: the ordinary child spawn, which names no factory, went through with none, so every
+        // child of a factory session was born outside its factory for life and no test went red. A harness that
+        // genuinely cannot read membership says so with an explicit reader, `_ => SessionFactoryLookup.NotKnown`.
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf,
         LauncherCommandRouter.SendLauncherCommandAsync? sendLauncherCommand = null,
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store. When non-null, a
         // mission-scoped spawn (req.MissionId set) is validated against it here - the Gateway is the source
@@ -180,15 +188,10 @@ internal static class MachineEndpoints
         // busy Director idle, or a behind one current.
         DirectorRegistry? directors = null,
         Streaming.PushedSessionStore? pushedSessions = null,
-        NewestReleaseWatch? newestRelease = null,
-        // Factory Memory mission (phase 1): reads the CALLING session's own factory from its history row, so
-        // the spawn door can settle the new session's factory from the credential instead of the body.
-        //
-        // NULL FAILS CLOSED, and only this field is affected: a session key then inherits no factory and is
-        // refused if it names one. A Gateway that cannot read membership must not be one that hands it out.
-        Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null)
+        NewestReleaseWatch? newestRelease = null)
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
+        ArgumentNullException.ThrowIfNull(sessionFactoryOf);
 
         FileLog.Write($"[MachineEndpoints] mapping {LauncherPrefix} + {MachinePrefix}; hosted={GatewayHostedMode.IsHosted} - every route authorizes against the CALLING tenant, resolved from the authenticated device key");
 
@@ -282,7 +285,7 @@ internal static class MachineEndpoints
         DirectorRegistry? directors,
         Streaming.PushedSessionStore? pushedSessions,
         NewestReleaseWatch? newestRelease,
-        Func<string, History.SessionFactoryLookup>? sessionFactoryOf)
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf)
     {
         // ===== Machine relay surface =====
         // The target machine name is in the path; the caller's TENANT comes from the authenticated key, and

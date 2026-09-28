@@ -136,7 +136,7 @@ internal static class FactoryMemoryEndpoints
             var (body, bad) = await ReadBody<RestoreFactoryMemoryNoteRequest>(ctx);
             if (bad is not null) return bad;
             var write = store.Restore(tenant, caller.Factory, name, body!.Version,
-                caller.AuthorKind, caller.AuthorId, nowUtc());
+                caller.AuthorKind, caller.AuthorId, nowUtc(), body.ExpectedVersion);
             return Answer(write);
         });
 
@@ -176,7 +176,14 @@ internal static class FactoryMemoryEndpoints
             }
             // WHICH person, as far as this Gateway can tell: the device that authenticated. It is recorded as the
             // author so "who changed the memory" has an answer for a person's edit as well as a session's.
-            caller = new Caller(stated, FactoryMemoryAuthorKinds.Person, FleetManagerOwnerDevice.Caller(ctx)?.Actor);
+            // Folded and checked (phase 2 review, finding 1): a person reading 'Website-Factory' in the Cockpit
+            // must be shown the same memory an agent of website-factory writes, not an empty second one.
+            if (!Factory.FactoryNames.TryFactory(stated, out var folded, out var refusal))
+            {
+                error = Results.BadRequest(new { error = refusal, detail = SpawnFactory.OneSpelling });
+                return false;
+            }
+            caller = new Caller(folded, FactoryMemoryAuthorKinds.Person, FleetManagerOwnerDevice.Caller(ctx)?.Actor);
             return true;
         }
 
@@ -273,6 +280,11 @@ internal static class FactoryMemoryEndpoints
 
     private static FactoryMemoryNoteDto ToDto(FactoryMemoryNoteEntity n) => new()
     {
+        DeletedNotice = !n.Deleted ? null
+            : $"'{n.Name}' was deleted in version {n.Version} by " +
+              $"{(n.AuthorKind == FactoryMemoryAuthorKinds.Person ? "a person" : $"session {n.AuthorId}")}" +
+              $" on {n.WrittenAtUtc:yyyy-MM-dd HH:mm} and can be restored by a person in the Cockpit. " +
+              "Writing this name again continues the same history rather than starting a new note.",
         Factory = n.Factory,
         Name = n.Name,
         Version = n.Version,

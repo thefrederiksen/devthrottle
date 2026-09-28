@@ -23,6 +23,11 @@ public sealed class DirectorCrashJournalSession
     /// born with the same starter and Your Throttle keeps counting the owner's own sessions as his (2026-09-27).
     /// Null in a journal written before the field existed.</summary>
     public string? OriginKind { get; set; }
+    /// <summary>The factory this session belongs to, or null when it is in no factory (Factory Memory mission,
+    /// phase 1 review, finding 3). Recorded so a session continued from the Interrupted list after this Director
+    /// crashes comes back in its factory rather than outside it. A journal written before this field existed reads
+    /// as null, which continues the session in no factory - the behaviour every continuation had until now.</summary>
+    public string? Factory { get; set; }
 }
 
 /// <summary>The on-disk shape of a Director crash journal.</summary>

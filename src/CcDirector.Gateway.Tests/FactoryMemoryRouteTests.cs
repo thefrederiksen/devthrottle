@@ -386,6 +386,10 @@ public sealed class FactoryMemoryRouteTests : IDisposable
         var got = await http.GetFromJsonAsync<FactoryMemoryNoteDto>("/factory-memory/notes/domains");
         Assert.True(got!.Deleted);
         Assert.Equal(2, got.Version);
+        // And it says so in words, not only in a flag: an agent reading deleted:true has to work out what to do.
+        Assert.Contains("was deleted in version 2", got.DeletedNotice);
+        Assert.Contains("restored by a person in the Cockpit", got.DeletedNotice);
+        Assert.Contains("continues the same history", got.DeletedNotice);
 
         Assert.Empty((await http.GetFromJsonAsync<FactoryMemoryListResponse>("/factory-memory/notes"))!.Notes);
     }

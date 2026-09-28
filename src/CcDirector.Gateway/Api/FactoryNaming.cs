@@ -21,7 +21,8 @@ namespace CcDirector.Gateway.Api;
 /// test and the goal "a session cannot put itself into a factory by claiming it in a request" would still
 /// fail.
 ///
-/// THE RULE: a person, or a session already in that factory. Everyone else may still create and edit
+/// THE RULE: a person, or a session already in that factory - and the account's own shared machine token, which
+/// is not an agent's credential at all (phase 2 review, finding 5). Everyone else may still create and edit
 /// triggers and schedules freely - with no factory on them. Nothing that works today stops working, because
 /// nothing today names a factory on a schedule at all and a trigger's factory is a label nothing reads for
 /// access yet.
@@ -63,7 +64,23 @@ internal static class FactoryNaming
         out string? settled)
     {
         error = null;
-        var want = string.IsNullOrWhiteSpace(requested) ? null : requested.Trim();
+        // ONE SPELLING (phase 2 review, finding 1). A trigger's or a schedule's factory is the OTHER place an id
+        // first comes into being, and the Gateway stamps the session it starts from it - so a second spelling
+        // stored here becomes sessions in a factory whose memory is a separate partition from its siblings'.
+        string? want = null;
+        if (!string.IsNullOrWhiteSpace(requested))
+        {
+            if (!Factory.FactoryNames.TryFactory(requested, out var foldedWant, out var refusal))
+            {
+                FileLog.Write($"[FactoryNaming] {route}: REFUSED - '{requested}' is not one spelling of a factory id");
+                error = Results.BadRequest(new { error = refusal, detail = SpawnFactory.OneSpelling });
+                settled = null;
+                return false;
+            }
+            want = foldedWant;
+        }
+        // What is STORED may predate this rule, so it is folded for comparison but never refused: refusing here
+        // would lock a caller out of editing a row it is allowed to edit, over a value it did not write.
         var have = string.IsNullOrWhiteSpace(existing) ? null : existing.Trim();
 
         // Said nothing about the factory: keep what is stored. This is the ordinary edit, and it is the common case.
@@ -128,16 +145,17 @@ internal static class FactoryNaming
             return false;
         }
 
-        // NEITHER A PERSON NOR A SESSION. Refused, and this is the fail-closed choice on purpose: this field
-        // hands out membership, so a credential the Gateway cannot place must not be able to set it. A caller
-        // that cannot be identified can still write the same trigger or schedule with no factory on it.
-        FileLog.Write($"[FactoryNaming] {route}: REFUSED - an unidentified caller named factory '{want}' on a {what}");
-        error = Results.Json(new
-        {
-            error = $"only a person, or a session already in '{want}', may put a {what} into it",
-            detail = Detail(what),
-        }, statusCode: StatusCodes.Status403Forbidden);
-        return false;
+        // NEITHER A PERSON'S DEVICE NOR A SESSION - so the account's own shared machine token, or a Director
+        // relaying. ALLOWED, and the first cut of this gate had it wrong (phase 2 review, finding 5).
+        //
+        // The whole point of this gate is that a SESSION KEY must not be able to join a factory: that is the one
+        // credential an agent holds, and the one hop by which work could stop being the factory's own. A machine
+        // token is not that. It is the account's own secret, held by the product's components and by the owner,
+        // and whoever holds it can already do far more to this Gateway than write a trigger. Refusing it bought
+        // no safety against the threat this gate exists for, and it took away something that worked the week
+        // before: three shipped tests created a factory's trigger with that token and began failing with 403.
+        FileLog.Write($"[FactoryNaming] {route}: a non-session credential named factory '{want}' on a {what}");
+        return true;
     }
 
     /// <summary>
@@ -182,9 +200,11 @@ internal static class FactoryNaming
             return false;
         }
 
-        FileLog.Write($"[FactoryNaming] {route}: REFUSED - an unidentified caller acted on a {what} of '{owner}'");
-        error = Refuse(what, owner);
-        return false;
+        // A non-session credential - the account's shared machine token, or a Director relaying. Allowed, for the
+        // reason given in the naming arm above: this gate exists to stop a SESSION KEY from reaching a factory's
+        // work, and a machine token is the account's own credential rather than an agent's.
+        FileLog.Write($"[FactoryNaming] {route}: a non-session credential acted on a {what} of '{owner}'");
+        return true;
     }
 
     private static IResult Refuse(string what, string owner) => Results.Json(new

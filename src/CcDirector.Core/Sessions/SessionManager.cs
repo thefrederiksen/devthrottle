@@ -302,6 +302,7 @@ public sealed class SessionManager : IDisposable
         CreatedAtUtc = s.CreatedAt,
         ControllerSessionId = s.ControllerSessionId?.ToString(),
         OriginKind = s.OriginKind,
+        Factory = s.Factory,
     };
 
     /// <summary>Invoke OnSessionCreated. Public so external endpoint mappers (web Control API)

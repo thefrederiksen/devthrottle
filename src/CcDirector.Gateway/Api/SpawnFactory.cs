@@ -69,6 +69,20 @@ internal static class SpawnFactory
         var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
         if (SessionOriginSurfaces.FromDeviceType(deviceType) != SessionOriginSurfaces.Unknown)
         {
+            // ONE SPELLING (phase 2 review, finding 1). A person's hand spawn is one of the two places a factory
+            // id first comes into being, so it is folded here and refused if it is not one: membership compares
+            // ids without regard to case while the memory is keyed on the exact string, so 'Website-Factory'
+            // typed here would be the same factory for access and a SECOND, silently separate memory.
+            if (req.Factory is not null)
+            {
+                if (!Factory.FactoryNames.TryFactory(req.Factory, out var folded, out var refusal))
+                {
+                    FileLog.Write($"[SpawnFactory] {route}: REFUSED - a person named '{req.Factory}': {refusal}");
+                    error = Results.BadRequest(new { error = refusal, detail = OneSpelling });
+                    return false;
+                }
+                req.Factory = folded;
+            }
             FileLog.Write($"[SpawnFactory] {route}: factory kept from a person's device key: {req.Factory ?? "(none)"}");
             return true;
         }
@@ -186,6 +200,12 @@ internal static class SpawnFactory
         FileLog.Write($"[SpawnFactory] handover: factory={inherited ?? "(none)"} (byPerson={byPerson}, bySourceItself={bySourceItself}, source={sourceFactory ?? "(none)"})");
         return inherited;
     }
+
+    /// <summary>Why one spelling matters, in words a person can act on.</summary>
+    internal const string OneSpelling =
+        "A factory is one name, spelled one way: lower-case letters and digits joined by hyphens. Membership " +
+        "ignores capitals but the memory does not, so a second spelling would be the same factory for access and " +
+        "a separate memory nobody could see from the other side.";
 
     /// <summary>The refusal when this Gateway holds no way to read a session's factory, so a stated one cannot be
     /// checked against the caller's own. Membership is never granted on trust.</summary>

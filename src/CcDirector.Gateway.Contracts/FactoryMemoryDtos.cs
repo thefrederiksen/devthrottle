@@ -19,6 +19,14 @@ public sealed class FactoryMemoryNoteDto
     /// <summary>True when the note is deleted. It is still restorable by a person.</summary>
     public bool Deleted { get; set; }
 
+    /// <summary>
+    /// When the note is deleted, the sentence that says so: which version deleted it, who, when, that a person can
+    /// restore it, and that writing the name again continues the same history (phase 2 review, finding 10). Null
+    /// when the note is not deleted. It is a sentence rather than a shape so an agent is told what to do next,
+    /// and it rides on the note so that one answer serves every reader.
+    /// </summary>
+    public string? DeletedNotice { get; set; }
+
     /// <summary>Who wrote this version: <c>session</c> or <c>person</c>.</summary>
     public string AuthorKind { get; set; } = "";
 
@@ -70,5 +78,14 @@ public sealed class DeleteFactoryMemoryNoteRequest
 /// <summary>Body of a person's restore: which version's text to put back as a new version.</summary>
 public sealed class RestoreFactoryMemoryNoteRequest
 {
+    /// <summary>The version whose text to put back.</summary>
     public int Version { get; set; }
+
+    /// <summary>
+    /// The CURRENT version the person was looking at when they decided to restore, on the same terms as a write
+    /// (phase 2 review, finding 6). Without it a restore is the one write that cannot lose a race: an agent can
+    /// add a version between the owner reading the history and pressing the button, and the restore would bury it
+    /// without anybody seeing. Zero means "I did not check", which is accepted so an older client keeps working.
+    /// </summary>
+    public int ExpectedVersion { get; set; }
 }
