@@ -111,6 +111,13 @@ public static class SessionPreambleFile
         if (!string.IsNullOrEmpty(seat))
             text = string.IsNullOrEmpty(text) ? seat : text + "\n\n" + seat;
 
+        // Factory Memory mission (phase 3a): a factory session whose notes are in place is told where they are.
+        // Appended like the seat, because it is an operational fact about this session rather than our injectable
+        // prose - and it is a courtesy: the environment variable is what makes the memory work.
+        var memory = FactoryMemoryFiles.StartupLine(session);
+        if (!string.IsNullOrEmpty(memory))
+            text = string.IsNullOrEmpty(text) ? memory : text + "\n\n" + memory;
+
         // BuildForSession already collapses whitespace-only text to empty, so an empty envelope is
         // impossible by construction rather than by coincidence.
         if (string.IsNullOrEmpty(text))

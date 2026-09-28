@@ -1673,6 +1673,38 @@ The Gateway stamps the calling session as the actor and as the row's session.
 `activity` reads newest first; `--from` is inclusive and `--to` exclusive. `--count` defaults to 50
 (at most 1000); when more rows match it says which `--offset` shows the next page.
 
+#### Factory memory
+
+A factory's memory: small named notes, one idea each, kept on the Gateway and shared by every session of
+the factory. Only a session in a factory can use these commands, and always for its OWN factory - the
+Gateway reads the factory from the session's own record, so there is no `--factory` flag.
+
+```
+USAGE: cc-devthrottle factory memory COMMAND [ARGS]...
+
+COMMANDS:
+  list                                   the notes as they stand
+  get NAME                               one note, including one that was deleted
+  set NAME TEXT [--expected-version N]   write a note (TEXT of - reads standard input)
+  delete NAME [--expected-version N]     delete a note; a person can restore it in the Cockpit
+  history NAME                           every kept version, newest first
+```
+
+`--json` is available on every command, and is the way to get a note's exact text: plain output prints
+anything that is not printable ASCII as an escape.
+
+**Before the agent starts.** The Director downloads the factory's notes into
+`<storage>/factory-memory/<session id>/` - one file per note plus `index.md` - and puts that folder in the
+session's `CC_FACTORY_MEMORY_DIR`. The folder is a copy: editing a file there changes nothing. If the
+download fails, the session does not start, and the create fails with the reason.
+
+**Two writers on one note.** `set` and `delete` send the version this session last READ, taken from
+`.read-versions.json` in that folder, which the Director writes at start and every `list`, `get`, `set`
+and `delete` keeps current. A note this session never read is sent as version 0 ("I believe it does not
+exist yet"). When another session wrote the note since, nothing is written: the command exits 1, prints
+the current text, says another writer got there first, and records that version - so the next `set`,
+carrying the merged text, goes through. Without the folder, pass `--expected-version`.
+
 ### Trigger
 
 A trigger is a check with no model in it that a Director runs on an interval. When the check counts

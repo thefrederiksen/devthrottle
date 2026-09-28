@@ -317,6 +317,13 @@ public sealed class Session : IDisposable
     public string? Factory { get; internal set; }
 
     /// <summary>
+    /// Where this factory session's copy of its factory's memory was put before its agent started (Factory Memory
+    /// mission, phase 3a), or null for a session in no factory. Set by <see cref="SessionManager"/> only after the
+    /// download succeeded, so the start-up text never points an agent at a folder that is not there.
+    /// </summary>
+    public string? FactoryMemoryDirectory { get; internal set; }
+
+    /// <summary>
     /// Stamp the factory once, before launch. A birth fact does not move: a second stamp naming a DIFFERENT
     /// factory is refused and logged rather than applied, because the only ways that could happen are a bug
     /// and an attempt, and both should be visible instead of silently changing who may write a factory's

@@ -32,6 +32,13 @@ namespace CcDirector.Gateway.Api;
 /// Architect's recommendation, on the condition that a delete is undoable; letting the same session undo its own
 /// delete would not add anything, and restoring is the act that decides which version of the truth stands. So it
 /// belongs to the person, as section 5.3 says.
+///
+/// A DIRECTOR MAY READ THE LIST, AND NOTHING ELSE (phase 3a, section 5.4). The Director puts a factory session's
+/// memory in place BEFORE the agent starts, and at that moment the session has no key of its own yet - the key is
+/// minted a few lines later, and the Gateway has no history row for the session either. So the download is made
+/// with the Director's own credential, naming the factory the Gateway itself settled on the create request. That
+/// credential already has authority over the whole account; reading a factory's notes adds nothing a person could
+/// not already see. Writing, deleting, history and restore stay closed to it: a Director writes nobody's memory.
 /// </summary>
 internal static class FactoryMemoryEndpoints
 {
@@ -51,7 +58,7 @@ internal static class FactoryMemoryEndpoints
         app.MapGet($"{Prefix}/notes", (HttpContext ctx, string? factory) =>
         {
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
-            if (!TryCaller(ctx, sessionFactoryOf, factory, out var caller, out var error)) return error!;
+            if (!TryCaller(ctx, sessionFactoryOf, factory, out var caller, out var error, directorMayRead: true)) return error!;
             var notes = store.List(tenant, caller.Factory);
             return Results.Json(new FactoryMemoryListResponse
             {
@@ -136,6 +143,10 @@ internal static class FactoryMemoryEndpoints
         FileLog.Write($"[FactoryMemoryEndpoints] mapped {Prefix}/notes and its note, history and restore routes");
     }
 
+    /// <summary>The caller kind of a Director's download. Deliberately NOT one of <see cref="FactoryMemoryAuthorKinds"/>:
+    /// a Director only ever reads, so it can never be the author of a version.</summary>
+    private const string DirectorReader = "director";
+
     /// <summary>Who is asking, and whose memory that means.</summary>
     private readonly record struct Caller(string Factory, string AuthorKind, string? AuthorId);
 
@@ -145,7 +156,7 @@ internal static class FactoryMemoryEndpoints
     /// read from them; anything else is refused.
     /// </summary>
     private static bool TryCaller(HttpContext ctx, Func<string, SessionFactoryLookup> factoryOf,
-        string? statedFactory, out Caller caller, out IResult? error)
+        string? statedFactory, out Caller caller, out IResult? error, bool directorMayRead = false)
     {
         caller = default;
         error = null;
@@ -207,8 +218,29 @@ internal static class FactoryMemoryEndpoints
             return true;
         }
 
-        // Neither a person nor a session. Refused: a factory's memory is not readable by a credential the Gateway
-        // cannot place, and a Director has no business reading one.
+        // A DIRECTOR, downloading a factory session's memory before that session's agent starts (see the class
+        // summary). Only a VERIFIED credential counts - a request that carried nothing is not a Director - and only
+        // on the list route; every other route falls through to the refusal below.
+        if (directorMayRead
+            && ctx.Items.ContainsKey(AuthMiddleware.AuthenticatedCredentialItemKey)
+            && WorkspaceEndpoints.IsDirectorCredential(ctx))
+        {
+            if (stated is null)
+            {
+                error = Results.BadRequest(new
+                {
+                    error = "name the factory whose memory you are downloading",
+                    detail = "A Director downloads a factory session's memory for the factory on that session's create: pass ?factory=<id>.",
+                });
+                return false;
+            }
+            FileLog.Write($"[FactoryMemoryEndpoints] a Director is downloading the memory of '{stated}'");
+            caller = new Caller(stated, DirectorReader, null);
+            return true;
+        }
+
+        // Neither a person nor a session, or a Director on a route other than the list. Refused: a factory's memory
+        // is not readable by a credential the Gateway cannot place, and a Director writes nobody's memory.
         error = Results.Json(new
         {
             error = "a factory's memory is read and written by that factory's own sessions, or by a person",
