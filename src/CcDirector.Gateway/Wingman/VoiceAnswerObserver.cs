@@ -61,12 +61,34 @@ public sealed class VoiceAnswerObserver
             _lastOwnerTurn[key] = seen;   // first sight: where the stamp stands now, judged against nothing
             return null;
         }
-        if (seen is null || (previous is not null && seen.Value <= previous.Value)) return null;
+        var ownerTurnMoved = seen is not null && (previous is null || seen.Value > previous.Value);
+        if (!ownerTurnMoved)
+        {
+            // The session is working and the owner did not start it: the stop it was on has had its next turn, and
+            // that turn was not his answer. Retired, so a later owner message is never judged against it (review of
+            // step 2). A working push of the owner's OWN turn carries his new stamp and is judged below instead.
+            if (IsWorking(session.ActivityState))
+                _voice.Listening.RetireUnanswered(tenant, sid, "its next turn began without a message from the owner");
+            return null;
+        }
         if (!_lastOwnerTurn.TryUpdate(key, seen, previous)) return null;   // a concurrent push already took this turn
 
-        FileLog.Write($"[VoiceAnswerObserver] owner drove a turn on a voice session: tenant={tenant.ToLogString()} sid={sid} ownerTurn={seen.Value:O}");
+        // The Gateway's own prompts - a supervisor's "continue", a Session Rule firing - reach the Director as ordinary
+        // prompts and are stamped as the owner's turn. The Gateway recorded that it sent one; this stamp is that one.
+        if (_voice.Listening.TakeAutomaticPrompt(tenant, sid))
+        {
+            FileLog.Write($"[VoiceAnswerObserver] owner-turn stamp moved by the Gateway's own prompt, not the owner: tenant={tenant.ToLogString()} sid={sid}");
+            return null;
+        }
+
+        FileLog.Write($"[VoiceAnswerObserver] owner drove a turn on a voice session: tenant={tenant.ToLogString()} sid={sid} ownerTurn={seen!.Value:O}");
         return _voice.Listening.NoteOwnerAnswered(tenant, sid);
     }
+
+    /// <summary>Working or Starting: there is a turn in progress. The same two states the snooze machine calls work.</summary>
+    private static bool IsWorking(string? activity) =>
+        string.Equals(activity, "Working", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(activity, "Starting", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Observe a whole pushed snapshot - the reconnect path.</summary>
     public void ObserveSnapshot(TenantId tenant, IReadOnlyList<SessionDto>? sessions)

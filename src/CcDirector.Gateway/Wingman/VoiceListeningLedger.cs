@@ -46,6 +46,11 @@ public sealed class VoiceListeningLedger
     // newer stop, and an older one that went unplayed and unanswered counts for nothing (the owner's rule).
     private readonly ConcurrentDictionary<TenantId, ConcurrentDictionary<string, NarrationStop>> _stops = new();
 
+    // (tenant, sid) for each session the Gateway itself has just typed into - a supervisor's "continue", a Session
+    // Rule firing. Those reach the Director as ordinary prompts and it stamps them as the owner's turn, so the next
+    // owner-turn stamp on that session is the Gateway's, not his. One entry is spent by the next stamp.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string Sid), byte> _automaticPrompts = new();
+
     private ConcurrentDictionary<string, NarrationStop> StopsFor(TenantId tenant)
     {
         if (!tenant.IsValid)
@@ -105,6 +110,42 @@ public sealed class VoiceListeningLedger
         var outcome = stop.Played ? AnswerOutcome.Heard : AnswerOutcome.Unheard;
         FileLog.Write($"[VoiceListeningLedger] owner answered: tenant={tenant.ToLogString()} sid={sid} narration={stop.NarrationAtUtc:O} outcome={outcome}");
         return outcome;
+    }
+
+    /// <summary>
+    /// The stop's next turn began and the owner did not start it - the agent carried on by itself, or another agent or
+    /// the product woke it. That stop was not answered, and it never will be: an unplayed, unanswered narration counts
+    /// for nothing (the owner's rule), so it is retired, and a later owner message is not judged against it.
+    /// </summary>
+    public void RetireUnanswered(TenantId tenant, string sid, string why)
+    {
+        if (string.IsNullOrEmpty(sid)) return;
+        if (StopsFor(tenant).TryRemove(sid, out var stop))
+            FileLog.Write($"[VoiceListeningLedger] stop retired unanswered ({why}): tenant={tenant.ToLogString()} sid={sid} narration={stop.NarrationAtUtc:O} played={stop.Played}");
+    }
+
+    /// <summary>
+    /// The Gateway is about to type into this session by itself - a supervisor's "continue", a Session Rule firing.
+    /// The Director stamps such a prompt as the owner's turn, so the stop is retired now and the next owner-turn stamp
+    /// on this session is taken as the Gateway's (<see cref="TakeAutomaticPrompt"/>). If the prompt never lands, that
+    /// one stamp is a real answer left uncounted - the direction that can only delay a switch-off.
+    /// </summary>
+    public void NoteAutomaticPrompt(TenantId tenant, string sid)
+    {
+        if (string.IsNullOrEmpty(sid)) return;
+        RequireValid(tenant);
+        _automaticPrompts[(tenant, sid)] = 1;
+        RetireUnanswered(tenant, sid, "the Gateway typed into it");
+    }
+
+    /// <summary>True, once, when the owner-turn stamp that just moved on this session was the Gateway's own prompt.</summary>
+    public bool TakeAutomaticPrompt(TenantId tenant, string sid) =>
+        !string.IsNullOrEmpty(sid) && _automaticPrompts.TryRemove((tenant, sid), out _);
+
+    private static void RequireValid(TenantId tenant)
+    {
+        if (!tenant.IsValid)
+            throw new ArgumentException("The listening ledger needs a valid tenant; an unresolved tenant is denied, never defaulted.", nameof(tenant));
     }
 
     /// <summary>The session is no longer a voice session: its narration is about nothing anyone asked to hear.</summary>

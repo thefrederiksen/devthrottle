@@ -3131,7 +3131,9 @@ public sealed class GatewayHost : IAsyncDisposable
             },
             session: (tenant, sessionId) => PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter)?.Session,
             brainProvider: WingmanBrainAsync,
-            enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
+            enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant),
+            // Voice mode auto-off: a rule firing is the Gateway typing, not the owner answering.
+            onAutomaticPrompt: (tenant, sid) => _voiceService?.Listening.NoteAutomaticPrompt(tenant, sid));
 
     private Supervision.GatewaySupervisorEnvironment BuildSupervisorEnvironment()
     {
@@ -3165,7 +3167,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 }
                 var result = await notify.SendOwnerAsync(token, subject, body, null, null, ct).ConfigureAwait(false);
                 return result.Sent;
-            });
+            },
+            // Voice mode auto-off: a recovery "continue" is the Gateway typing, not the owner answering.
+            onAutomaticPrompt: (tenant, sid) => _voiceService?.Listening.NoteAutomaticPrompt(tenant, sid));
     }
 
     /// <summary>

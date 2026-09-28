@@ -93,27 +93,48 @@ public sealed class VoiceAnswerObserverTests : IDisposable
     }
 
     /// <summary>THE CONTROL the brief requires: the agent carries on by itself. It works again, but nobody submitted
-    /// anything, so the owner-turn stamp does not move - and the stop is not answered, and stays on the ledger.</summary>
+    /// anything, so the owner-turn stamp does not move - the stop is not answered. Its next turn has begun, so it is
+    /// retired, and an owner message later is never judged against it (review of step 2).</summary>
     [Fact]
-    public void Observe_ASessionThatResumesByItself_IsNotAnAnswer()
+    public void Observe_ASessionThatResumesByItself_IsNotAnAnswerAndRetiresTheStop()
     {
         var (voice, observer, sid) = AtAStop();
 
         Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn1, workingOrigin: null)));
         Assert.Null(observer.Observe(Tenant, Row(sid, "WaitingForInput", OwnerTurn1)));
+        Assert.Null(voice.Listening.StopFor(Tenant, sid));
 
-        Assert.NotNull(voice.Listening.StopFor(Tenant, sid));
+        Assert.Equal(Outcome.NoNarration, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
     }
 
     /// <summary>A fleet message or another agent's prompt wakes the session: agent-driven work, owner stamp untouched.</summary>
     [Fact]
-    public void Observe_ASessionWokenByAnAgent_IsNotAnAnswer()
+    public void Observe_ASessionWokenByAnAgent_IsNotAnAnswerAndRetiresTheStop()
     {
         var (voice, observer, sid) = AtAStop();
 
         Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn1, WorkingOrigins.Agent)));
 
-        Assert.NotNull(voice.Listening.StopFor(Tenant, sid));
+        Assert.Null(voice.Listening.StopFor(Tenant, sid));
+        Assert.Equal(Outcome.NoNarration, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
+    }
+
+    /// <summary>
+    /// The Gateway's own prompts - a supervisor's "continue", a Session Rule firing - reach the Director as ordinary
+    /// prompts, and it stamps them as the owner's turn. The Gateway says it sent one, so that stamp is not counted as
+    /// him answering; the next genuine answer is.
+    /// </summary>
+    [Fact]
+    public void Observe_TheOwnerStampMovedByTheGatewaysOwnPrompt_IsNotAnAnswer()
+    {
+        var (voice, observer, sid) = AtAStop();
+
+        voice.Listening.NoteAutomaticPrompt(Tenant, sid);
+        Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
+        Assert.Null(voice.Listening.StopFor(Tenant, sid));
+
+        voice.StoreReadyAudioForTest(Tenant, sid, "Next.", "Next reply.", Encoding.ASCII.GetBytes("ID3b"));
+        Assert.Equal(Outcome.Unheard, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2.AddMinutes(5), WorkingOrigins.Owner)));
     }
 
     [Fact]
@@ -191,9 +212,11 @@ public sealed class VoiceAnswerObserverTests : IDisposable
             voice.StoreReadyAudioForTest(Tenant, sid, "Spoken.", "Reply.", Encoding.ASCII.GetBytes("ID3a"));
 
             hub.PushDelta(2, Row(sid, "Working", OwnerTurn1, workingOrigin: null));   // carries on by itself
-            Assert.NotNull(voice.Listening.StopFor(Tenant, sid));
+            Assert.Null(voice.Listening.StopFor(Tenant, sid));                       // retired, not answered
 
             hub.PushDelta(3, Row(sid, "WaitingForInput", OwnerTurn1));
+            voice.StoreReadyAudioForTest(Tenant, sid, "Next.", "Next reply.", Encoding.ASCII.GetBytes("ID3b"));
+            Assert.NotNull(voice.Listening.StopFor(Tenant, sid));
             hub.PushDelta(4, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)); // the owner answers
             Assert.Null(voice.Listening.StopFor(Tenant, sid));
         }
