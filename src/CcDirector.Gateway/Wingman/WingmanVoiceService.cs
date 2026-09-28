@@ -1455,6 +1455,10 @@ public sealed class WingmanVoiceService
             // the naming and false of the pair.
             // A SAVED NARRATION IS SPOKEN AS IT IS (owner ruling, 2026-09-17): it was written for this stop by the narration
             // call and already ends with its own open-the-session sentence on a menu, so the suffix is not added to it.
+            // A STOP READ BEFORE THIS SESSION WAS A VOICE SESSION HAS NO WORDS YET: voice was switched on after it was
+            // read, the screen is unchanged, and the stored reading was reused. Its words are made here, once.
+            (verdict, _) = await WordsForUnnarratedReadingAsync(tenant, sid, outcome, verdict, personAsked: false, ct).ConfigureAwait(false);
+
             var saved = HasSavedNarration(verdict);
             var spoken = saved
                 ? Speech.SpokenForEar.Assemble(_sessionTitleResolver?.Invoke(tenant, sid), verdict.Narration!)
@@ -1515,6 +1519,65 @@ public sealed class WingmanVoiceService
             return true;
         }
         finally { if (showReadingWindow) EndGenerating(tenant, sid); }
+    }
+
+    /// <summary>
+    /// THE WORDS FOR A READING THAT WAS NEVER NARRATED (owner ruling, 28 September 2026: the narration call runs inside a
+    /// reading only for a voice session or a person's request). Such a reading is stored with no words and no narration
+    /// failure. When voice is switched on for that stop, or a person asks for it, the words are made here - once, under
+    /// the same claim every narration path takes, so two paths never pay for the same call. A call that fails keeps its
+    /// claim, so the idle sweep does not ask again on every pass; a PERSON asking gives a spent claim back first, which is
+    /// the rule the explain button has always followed.
+    ///
+    /// Returns the verdict to speak - a copy carrying the words when they were made and saved, else the one handed in -
+    /// and what happened, so a person's request never pays for a second call after this one. A reading that already has
+    /// words, whose narration was attempted and failed, or that failed itself, is returned untouched as
+    /// <see cref="LateWords.NotNeeded"/> - those have their own paths.
+    /// </summary>
+    private async Task<(TurnVerdictDto Verdict, LateWords Outcome)> WordsForUnnarratedReadingAsync(
+        TenantId tenant, string sid, TurnVerdictOutcome outcome, TurnVerdictDto verdict, bool personAsked, CancellationToken ct)
+    {
+        if (HasSavedNarration(verdict) || verdict.NarrationFailureReason is not null
+            || !string.IsNullOrWhiteSpace(verdict.Spoken) || verdict.Failed)
+            return (verdict, LateWords.NotNeeded);
+        var verdicts = RequireVerdicts();
+        switch (verdicts.TryClaimLateNarration(tenant, sid, verdict.VerdictId, personAsked))
+        {
+            case TurnVerdictService.LateNarrationClaim.AlreadyRunning: return (verdict, LateWords.InFlight);
+            case TurnVerdictService.LateNarrationClaim.Refused: return (verdict, LateWords.Refused);
+        }
+
+        FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: the reading carries no words - making its narration now (personAsked={personAsked})");
+        NarrationCallResult written;
+        try { written = await verdicts.NarrateAsync(tenant, sid, outcome, ct).ConfigureAwait(false); }
+        finally { verdicts.NarrationCallFinished(tenant, sid, verdict.VerdictId); }
+        if (written.Spoken is not { Length: > 0 } words
+            || !verdicts.SaveNarration(tenant, sid, verdict.VerdictId, words, written.Label))
+        {
+            FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: that narration call gave no words ({written.FailureDetail})");
+            return (verdict, LateWords.Failed);
+        }
+        var narrated = TurnVerdictDtoCopy.Of(verdict);
+        narrated.Narration = words;
+        narrated.Summary = words;
+        narrated.Spoken = words;
+        if (!string.IsNullOrWhiteSpace(written.Label)) narrated.Label = written.Label;
+        return (narrated, LateWords.Made);
+    }
+
+    /// <summary>What <see cref="WordsForUnnarratedReadingAsync"/> did.</summary>
+    private enum LateWords
+    {
+        /// <summary>The reading did not need late words: it has them, or its narration has its own path.</summary>
+        NotNeeded,
+        /// <summary>The call was made and its words saved.</summary>
+        Made,
+        /// <summary>The call was made and gave no words. Its claim is spent, so nothing pays for another automatically.</summary>
+        Failed,
+        /// <summary>A call for this same stop is running right now.</summary>
+        InFlight,
+        /// <summary>No call was allowed: the stop is no longer the latest, or the claim is spent and nobody asked.</summary>
+        Refused,
     }
 
     /// <summary>True when the narration call's text is already saved on this verdict, so it is spoken as it is.</summary>
@@ -1649,6 +1712,9 @@ public sealed class WingmanVoiceService
     /// <summary>The line played when a person asked and the judge did not answer. It promises nothing.</summary>
     internal const string RetryingLine = "The Wingman could not read this stop just now.";
 
+    /// <summary>The line played when a person asked while this stop's narration call is still running.</summary>
+    internal const string StillWritingLine = "The Wingman is still writing this stop up. Ask again in a moment.";
+
     /// <summary>The line played when the session went back to work while its verdict was being formed.</summary>
     internal const string WorkingAgainLine = "This session started working again, so there is nothing settled to read yet.";
 
@@ -1774,6 +1840,27 @@ public sealed class WingmanVoiceService
 
             var verdict = outcome.Verdict!;
             SetNothingToNarrate(tenant, sid, false);
+            // A PERSON ASKED, and a reading of a session that is not a voice session carries no words (owner ruling,
+            // 28 September 2026): make them now, while the person waits, so what they asked for is what they get.
+            var (withWords, late) = await WordsForUnnarratedReadingAsync(tenant, sid, outcome, verdict, personAsked: true, ct).ConfigureAwait(false);
+            verdict = withWords;
+            // THE PERSON GETS AN HONEST ANSWER, AND ONE PAID CALL AT MOST. A late call that failed has already been paid
+            // for in this press, so no second one is started below; a call that is still running is not joined with an
+            // empty answer; and a stop that moved on while this was asked is not narrated at all.
+            switch (late)
+            {
+                case LateWords.Failed:
+                    FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: the late narration call gave no words - not asking again in this press");
+                    return new StopNarration("", RetryingLine, 0, Retrying: true, NothingYet: false, Error: null,
+                        VerdictId: verdict.VerdictId, PackageKind: verdict.PackageKind);
+                case LateWords.InFlight:
+                    FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: this stop's narration call is still running");
+                    return new StopNarration("", StillWritingLine, 0, Retrying: true, NothingYet: false, Error: null,
+                        VerdictId: verdict.VerdictId, PackageKind: verdict.PackageKind);
+                case LateWords.Refused:
+                    FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: verdict={verdict.VerdictId} is no longer the latest stop - nothing narrated");
+                    return new StopNarration("", WorkingAgainLine, 0, Retrying: false, NothingYet: true, Error: null, VerdictId: null, PackageKind: null);
+            }
             string spokenNow;
             if (!ShouldRegenerate(tenant, sid, verdict.VerdictId) && StateFor(tenant).Ready.TryGetValue(sid, out var current))
             {
@@ -1820,7 +1907,8 @@ public sealed class WingmanVoiceService
             // never the fuller narration. (A stop that HAS moved on mints a new verdict id and was never affected.)
             // ReleaseNarrationClaimForRequest answers false only while a call for this same stop is genuinely in
             // flight, and then this joins it rather than paying for a second one.
-            if (!HasSavedNarration(verdict)
+            if (late == LateWords.NotNeeded
+                && !HasSavedNarration(verdict)
                 && verdicts.ReleaseNarrationClaimForRequest(tenant, sid, verdict.VerdictId)
                 && verdicts.TryClaimNarration(tenant, sid, verdict.VerdictId))
                 StartNarrationCall(tenant, sid, outcome);

@@ -223,14 +223,15 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Equal(OwnedReason, Assert.Single(Open()).NoVerdictReason);
     }
 
-    /// <summary>CONTROL for the test above, in the same fixture: the owner's own session IS read - one verdict call and
-    /// one narration call - so the Wingman is proven running here, and it simply stands down for the owned one.</summary>
+    /// <summary>CONTROL for the test above, in the same fixture: the owner's own session IS read - one verdict call - so
+    /// the Wingman is proven running here, and it simply stands down for the owned one. No narration call: this fixture's
+    /// sessions are not voice sessions, and only a voice session's reading is narrated (owner ruling, 28 September 2026).</summary>
     [Fact]
-    public async Task Stop_OfTheOwnersOwnSession_IsReadAndNarrated_AndIsNoFleetManagerEvent()
+    public async Task Stop_OfTheOwnersOwnSession_IsRead_AndIsNoFleetManagerEvent()
     {
         await TurnEndAsync("plain");
 
-        Assert.Equal((1, 1), (_brain.Asks, _brain.Narrations));
+        Assert.Equal((1, 0), (_brain.Asks, _brain.Narrations));
         Assert.NotNull(_verdicts.Latest(Tenant, "plain"));
         Assert.Empty(Open());
     }

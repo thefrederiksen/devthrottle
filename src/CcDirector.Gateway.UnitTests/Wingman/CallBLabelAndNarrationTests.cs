@@ -41,6 +41,8 @@ public sealed class CallBLabelAndNarrationTests
         Conversation = _ => Reply("tidy the retention timer", Report),
         Judge = (_, _) => Task.FromResult("done"),
         Narrator = narrator,
+        // Call B runs only for a voice session or a person's request (owner ruling, 28 September 2026).
+        VoiceSession = _ => true,
     };
 
     private static SessionDto RowFor(TurnVerdictDto verdict)

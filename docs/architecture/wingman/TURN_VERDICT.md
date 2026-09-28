@@ -48,6 +48,12 @@ Every record says which step decided it and why (`DecidedBy`, `DecisionReason`),
 **Gone from Call A:** the label, what the agent recommends, the menu and the options, and `InventedMenuCheck`,
 which had nothing left to correct. A record stored under v3 keeps its fields and still renders.
 
+**Call B runs only for a voice session, or when a person asks (owner ruling, 28 September 2026).** It used to run
+at every stop of a session that answers to the owner; on his fleet that was about 430 calls a day, three in four for
+sessions nobody was listening to, and every row's colour waited for it. A session that is not a voice session now
+gets the colour only: its row shows the plain state label, and its words are made when a person presses explain or
+when voice is switched on for that stop.
+
 **Call B writes the label and the narration, and nothing else (phase 4).** `NarrationCall.BuildPrompt` is given
 the reply, the recent turns, the screen, the account's narration rules and language, Call A's word, and - when a
 code step decided - that step's reason. It is no longer given a menu, options, a recommendation or a "keys or
@@ -142,8 +148,8 @@ that it was blank, which the reader has no way to see through. A session another
 gets no narration call, so it has no summary at all and its `label:` is the whole of what the reading
 says about it - which is thinner than v2 gave, and is what the five-field contract provides.
 
-**A READING IS NOT FINISHED UNTIL BOTH MODEL CALLS ARE DONE.** Nothing is stored, shown or spoken
-until the whole reading exists. The narration call is made inside the judgement, before the
+**A READING IS NOT FINISHED UNTIL BOTH MODEL CALLS ARE DONE** - for a reading that makes both (a voice session,
+or a person's request). Nothing is stored, shown or spoken until the whole reading exists. The narration call is made inside the judgement, before the
 record is stored, so there are exactly three states - being read, ready, could not be read - and
 no half-ready reading and no first draft replaced seconds later.
 

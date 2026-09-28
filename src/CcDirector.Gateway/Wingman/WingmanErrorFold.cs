@@ -9,8 +9,9 @@ namespace CcDirector.Gateway.Wingman;
 /// verbatim by every client.
 ///
 /// IT DOES NOT DEPEND ON VOICE MODE. The owner's words were "it now has to run every time": a reading that failed
-/// is an error whether or not anybody is listening, because the narration text on the card is how he reads a
-/// stop without opening the terminal.
+/// is an error whether or not anybody is listening. (The narration itself runs only for a voice session or a
+/// person's request since the owner's ruling of 28 September 2026; a failed COLOUR reading is still an error for
+/// every session.)
 ///
 /// EVERY SENTENCE ABOUT A COMING RETRY IS RENDERED FROM ONE FIELD, the record's own
 /// <see cref="TurnVerdictDto.NextRetryAtUtc"/> - the same field the sweep retries from. So the card cannot say an
