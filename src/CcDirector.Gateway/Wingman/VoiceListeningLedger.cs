@@ -107,9 +107,23 @@ public sealed class VoiceListeningLedger
     public bool NotePlayed(TenantId tenant, string sid, DateTime narrationAtUtc)
     {
         if (string.IsNullOrEmpty(sid)) return false;
-        // ANY narration played sets the count back to zero - including one a newer stop has since replaced, or one from
-        // before a restart. The owner listened; that is the whole question the count asks.
-        ResetUnheard(tenant, $"a narration was played on {sid}");
+        // ONE STEP WITH AN ANSWER (review of step 3). A play report and the owner's answer to the same stop arrive on
+        // different paths - an HTTP request and a hub push - and can overlap. Taken apart, the reset could land first,
+        // the answer then take the still-unplayed stop and count it, and the play find nothing: a real play leaving a
+        // non-zero count. Under the account's lock, either order ends at zero.
+        var record = RecordFor(tenant);
+        lock (record)
+        {
+            var played = MarkPlayed(tenant, sid, narrationAtUtc);
+            // ANY narration played sets the count back to zero - including one a newer stop has since replaced, or one
+            // from before a restart. The owner listened; that is the whole question the count asks.
+            ResetUnheard(tenant, $"a narration was played on {sid}");
+            return played;
+        }
+    }
+
+    private bool MarkPlayed(TenantId tenant, string sid, DateTime narrationAtUtc)
+    {
         var stops = StopsFor(tenant);
         while (stops.TryGetValue(sid, out var current))
         {
@@ -139,15 +153,19 @@ public sealed class VoiceListeningLedger
     public AnswerOutcome NoteOwnerAnswered(TenantId tenant, string sid)
     {
         if (string.IsNullOrEmpty(sid)) return AnswerOutcome.NoNarration;
-        if (!StopsFor(tenant).TryRemove(sid, out var stop))
+        var record = RecordFor(tenant);
+        lock (record)   // one step with a play report - see NotePlayed
         {
-            FileLog.Write($"[VoiceListeningLedger] owner answered with no narration on record: tenant={tenant.ToLogString()} sid={sid}");
-            return AnswerOutcome.NoNarration;
+            if (!StopsFor(tenant).TryRemove(sid, out var stop))
+            {
+                FileLog.Write($"[VoiceListeningLedger] owner answered with no narration on record: tenant={tenant.ToLogString()} sid={sid}");
+                return AnswerOutcome.NoNarration;
+            }
+            var outcome = stop.Played ? AnswerOutcome.Heard : AnswerOutcome.Unheard;
+            var count = outcome == AnswerOutcome.Unheard ? AddUnheard(tenant) : record.UnheardInARow;
+            FileLog.Write($"[VoiceListeningLedger] owner answered: tenant={tenant.ToLogString()} sid={sid} narration={stop.NarrationAtUtc:O} outcome={outcome} unheardInARow={count}");
+            return outcome;
         }
-        var outcome = stop.Played ? AnswerOutcome.Heard : AnswerOutcome.Unheard;
-        var count = outcome == AnswerOutcome.Unheard ? AddUnheard(tenant) : UnheardInARow(tenant);
-        FileLog.Write($"[VoiceListeningLedger] owner answered: tenant={tenant.ToLogString()} sid={sid} narration={stop.NarrationAtUtc:O} outcome={outcome} unheardInARow={count}");
-        return outcome;
     }
 
     /// <summary>

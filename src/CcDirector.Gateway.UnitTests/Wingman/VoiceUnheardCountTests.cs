@@ -75,6 +75,30 @@ public sealed class VoiceUnheardCountTests : IDisposable
         Assert.Equal(1, voice.Listening.UnheardInARow(Tenant));
     }
 
+    /// <summary>
+    /// Review of step 3: a play report and the owner's answer to the same stop arrive on different paths and can
+    /// overlap. Whichever lands first, a narration that WAS played must leave the count at zero - never at one because
+    /// the reset slipped in between the answer taking the stop and the play marking it.
+    /// </summary>
+    [Fact]
+    public async Task NotePlayed_RacingTheOwnersAnswerToTheSameStop_AlwaysEndsAtZero()
+    {
+        var voice = Voice();
+        for (var round = 0; round < 100; round++)
+        {
+            var sid = Guid.NewGuid().ToString();
+            voice.Mark(Tenant, sid);
+            voice.StoreReadyAudioForTest(Tenant, sid, "Spoken.", "Reply.", Encoding.ASCII.GetBytes("ID3a"));
+            var at = voice.Get(Tenant, sid)!.AtUtc;
+            using var start = new Barrier(2);
+            var play = Task.Run(() => { start.SignalAndWait(); voice.Listening.NotePlayed(Tenant, sid, at); });
+            var answer = Task.Run(() => { start.SignalAndWait(); voice.Listening.NoteOwnerAnswered(Tenant, sid); });
+            await Task.WhenAll(play, answer);
+
+            Assert.True(voice.Listening.UnheardInARow(Tenant) == 0, $"round {round}: a played narration left the count at {voice.Listening.UnheardInARow(Tenant)}");
+        }
+    }
+
     [Fact]
     public void NotePlayed_APlayOnAnotherSession_SetsTheCountBackToZero()
     {
