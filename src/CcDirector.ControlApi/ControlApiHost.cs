@@ -617,6 +617,13 @@ public sealed class ControlApiHost : IAsyncDisposable
                 _streamClient?.RevokeSessionKey(sessionId.ToString());
         };
         _sessionManager.SignedInUserAccessor = () => signedInUserProvider.CurrentSnapshot;
+
+        // Factory Memory mission, phase 3a: a factory session's notes are downloaded with THIS Director's own
+        // credential, before the agent starts. Reads the client FIELD on every call, because a settings change
+        // rebuilds the client. CreateSession is synchronous and must not start the agent until the notes are in
+        // place, so this blocks - on a pool thread, so no caller's synchronisation context can deadlock it - and
+        // only for a session that is in a factory; every other session never reaches it.
+        _sessionManager.FactoryMemoryDownload = FactoryMemoryDownloadThrough(() => _gatewayClient);
         _ = Task.Run(async () =>
         {
             try { await signedInUserProvider.ResolveAsync(CancellationToken.None); }
@@ -1050,6 +1057,23 @@ public sealed class ControlApiHost : IAsyncDisposable
     /// own-port probe was already dead once the Director stopped self-provisioning a serve front door
     /// (the wiring here was gated on a serve provisioner this Director never creates), so it is removed.
     /// </summary>
+    /// <summary>
+    /// The Director's download of a factory session's memory (Factory Memory mission, phase 3a), as the session
+    /// manager calls it: synchronous, through whichever Gateway client is current at the moment of the call.
+    /// Internal so a test can drive the very function the host installs, end to end against real routes.
+    /// </summary>
+    internal static Func<string, Guid, IReadOnlyList<Gateway.Contracts.FactoryMemoryNoteDto>> FactoryMemoryDownloadThrough(
+        Func<GatewayClient?> currentClient)
+    {
+        ArgumentNullException.ThrowIfNull(currentClient);
+        return (factory, sessionId) =>
+        {
+            var client = currentClient()
+                ?? throw new InvalidOperationException("this Director is not connected to a Gateway");
+            return Task.Run(() => client.DownloadFactoryMemoryAsync(factory, sessionId)).GetAwaiter().GetResult();
+        };
+    }
+
     private GatewayClient BuildGatewayClient(GatewayConfig gatewayConfig)
         => new(gatewayConfig, DirectorId, _version, SnapshotSessionStates, GatewayMonitor);
 

@@ -541,6 +541,14 @@ public static class CcStorage
     /// </summary>
     public static string SessionPointers() => Path.Combine(Base(), "session-pointers");
 
+    /// <summary>
+    /// Factory Memory mission, phase 3a: the copy of a factory's notes the Director downloads for a factory
+    /// session before its agent starts, one folder per session: base/factory-memory/&lt;session id&gt;/.
+    /// Never inside the checkout or a pooled worktree - files there would be untracked, dirty the tree, could be
+    /// committed by the agent, and two sessions in one shared checkout would overwrite each other's copies.
+    /// </summary>
+    public static string FactoryMemory() => Path.Combine(Base(), "factory-memory");
+
     /// <summary>Recorded terminal sessions: base/session-recordings/.</summary>
     public static string SessionRecordings() => Path.Combine(Base(), "session-recordings");
 

@@ -367,8 +367,10 @@ def put_json(path: str, body: dict, timeout: float = 30) -> Any:
     return _request("PUT", path, body, timeout=timeout)
 
 
-def delete(path: str, timeout: float = 30) -> Any:
-    return _request("DELETE", path, None, timeout=timeout)
+def delete(path: str, timeout: float = 30, body: Optional[dict] = None) -> Any:
+    """DELETE, with a body only for a route that asks for one (a factory memory delete carries the version the
+    caller last read)."""
+    return _request("DELETE", path, body, timeout=timeout)
 
 
 # --- The fleet roster, and the verdicts that come with it ---------------------------------------
