@@ -1,4 +1,6 @@
+using System.Text.Json;
 using CcDirector.AgentBrain;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
@@ -14,10 +16,12 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// <summary>
 /// Voice mode auto-off, step 2 (review finding): the Gateway's OWN prompts must not be counted as the owner answering.
 ///
-/// A supervisor's recovery "continue" and a Session Rule firing both reach the Director as ordinary prompts, and it
-/// stamps each as the owner's turn. So each sender says so, before it types, through the hook the host wires to the
-/// listening ledger. These drive both through a real <see cref="SessionVerbClient"/> over a fake tunnel and pin that
-/// the window opens, for the right session, before the prompt leaves, and closes after the send has finished.
+/// A supervisor's recovery "continue" and a Session Rule firing reach the Director as ordinary prompts, and unless told
+/// otherwise it stamps each as the owner's turn - which the Gateway reads as the owner answering a voice session. The
+/// Director may hold such a prompt queued for minutes, so nothing on the Gateway can tell its stamp from his afterwards.
+/// So each is labelled at the source: agent-driven, which the Director never stamps, with framework provenance. These
+/// drive both senders through a real <see cref="SessionVerbClient"/> over a fake tunnel and read the prompt as it went
+/// onto the wire.
 /// </summary>
 public sealed class VoiceAutomaticPromptSendersTests : IDisposable
 {
@@ -28,27 +32,16 @@ public sealed class VoiceAutomaticPromptSendersTests : IDisposable
 
     public void Dispose() => _data.Dispose();
 
-    /// <summary>A tunnel that records the order of events and answers every command Ok.</summary>
-    private static Func<TenantId, string, SessionVerbClient?> Route(List<string> events)
+    /// <summary>A tunnel that keeps every prompt it is handed and answers every command Ok.</summary>
+    private static Func<TenantId, string, SessionVerbClient?> Route(List<PromptRequest> sent)
     {
         DirectorCommandRouter.SendDirectorCommandAsync send = (_, cmd, _) =>
         {
-            events.Add($"sent {cmd.Verb}");
+            if (cmd.Verb == "prompt")
+                sent.Add(JsonSerializer.Deserialize<PromptRequest>(cmd.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!);
             return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success("{}"));
         };
         return (_, directorId) => new SessionVerbClient(new DirectorDto { DirectorId = directorId }, send);
-    }
-
-    /// <summary>Records the start of the automatic window, and its end when the sender disposes the handle.</summary>
-    private static IDisposable Began(List<string> events, TenantId t, string sid)
-    {
-        events.Add($"automatic {t.Value} {sid}");
-        return new Finished(events);
-    }
-
-    private sealed class Finished(List<string> events) : IDisposable
-    {
-        public void Dispose() => events.Add("automatic finished");
     }
 
     private static Task<IAgentBrain> NoBrain(TenantId t, Core.Configuration.WingmanModelRole r, string f, CancellationToken c) =>
@@ -65,32 +58,35 @@ public sealed class VoiceAutomaticPromptSendersTests : IDisposable
             throw new NotSupportedException();
     }
 
-    [Fact]
-    public async Task TypeIntoSessionAsync_ARuleFiring_SaysItIsTheGatewayTypingBeforeItTypes()
+    private static void AssertLabelledAsTheGateway(PromptRequest prompt, string text)
     {
-        var events = new List<string>();
-        var env = new GatewayRuleEnvironment(new UnusedStore(), Route(events), (_, _) => new SessionDto { SessionId = SessionId }, NoBrain,
-            onAutomaticPrompt: (t, sid) => Began(events, t, sid));
-
-        await env.TypeIntoSessionAsync(Tenant, DirectorId, SessionId, "yes", CancellationToken.None);
-
-        Assert.Equal($"automatic {Tenant.Value} {SessionId}", events[0]);
-        Assert.StartsWith("sent ", events[1], StringComparison.Ordinal);
-        Assert.Equal("automatic finished", events[^1]);
+        Assert.Equal(text, prompt.Text);
+        Assert.True(prompt.AgentDriven, "a prompt the Gateway wrote must reach the Director as not the owner's, or it is stamped as his turn");
+        Assert.NotNull(prompt.Provenance);
+        Assert.Equal(SubmissionRoutes.Framework, prompt.Provenance!.Route);
+        Assert.Equal(SubmissionIdentityKinds.Framework, prompt.Provenance.IdentityKind);
     }
 
     [Fact]
-    public async Task SendContinueAsync_ARecoveryContinue_SaysItIsTheGatewayTypingBeforeItTypes()
+    public async Task TypeIntoSessionAsync_ARuleFiring_ReachesTheDirectorAsTheGatewaysOwnText()
     {
-        var events = new List<string>();
+        var sent = new List<PromptRequest>();
+        var env = new GatewayRuleEnvironment(new UnusedStore(), Route(sent), (_, _) => new SessionDto { SessionId = SessionId }, NoBrain);
+
+        await env.TypeIntoSessionAsync(Tenant, DirectorId, SessionId, "yes", CancellationToken.None);
+
+        AssertLabelledAsTheGateway(Assert.Single(sent), "yes");
+    }
+
+    [Fact]
+    public async Task SendContinueAsync_ARecoveryContinue_ReachesTheDirectorAsTheGatewaysOwnText()
+    {
+        var sent = new List<PromptRequest>();
         var env = new GatewaySupervisorEnvironment(
-            new TenantSettingsResolver(new TenantSettingsStore(_data.Open())), Route(events), (_, _) => "WaitingForInput", NoBrain,
-            onAutomaticPrompt: (t, sid) => Began(events, t, sid));
+            new TenantSettingsResolver(new TenantSettingsStore(_data.Open())), Route(sent), (_, _) => "WaitingForInput", NoBrain);
 
         await env.SendContinueAsync(Tenant, DirectorId, SessionId, CancellationToken.None);
 
-        Assert.Equal($"automatic {Tenant.Value} {SessionId}", events[0]);
-        Assert.StartsWith("sent ", events[1], StringComparison.Ordinal);
-        Assert.Equal("automatic finished", events[^1]);
+        AssertLabelledAsTheGateway(Assert.Single(sent), SessionSupervisor.ContinueText);
     }
 }

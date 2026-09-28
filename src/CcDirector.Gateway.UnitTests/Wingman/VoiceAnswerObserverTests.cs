@@ -119,48 +119,6 @@ public sealed class VoiceAnswerObserverTests : IDisposable
         Assert.Equal(Outcome.NoNarration, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
     }
 
-    /// <summary>
-    /// The Gateway's own prompts - a supervisor's "continue", a Session Rule firing - reach the Director as ordinary
-    /// prompts, and it stamps them as the owner's turn. While one is in flight, and for the settle time after it
-    /// finishes, no owner-turn stamp is judged; after that, the next genuine answer is.
-    /// </summary>
-    [Fact]
-    public void Observe_TheOwnerStampMovedByTheGatewaysOwnPrompt_IsNotAnAnswer()
-    {
-        var (voice, observer, sid) = AtAStop();
-        var now = new DateTime(2026, 9, 28, 12, 0, 0, DateTimeKind.Utc);
-        voice.Listening.UtcNow = () => now;
-
-        using (voice.Listening.BeginAutomaticPrompt(Tenant, sid))
-            Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
-        Assert.Null(voice.Listening.StopFor(Tenant, sid));
-
-        now += VoiceListeningLedger.AutomaticPromptSettle + TimeSpan.FromSeconds(1);
-        voice.StoreReadyAudioForTest(Tenant, sid, "Next.", "Next reply.", Encoding.ASCII.GetBytes("ID3b"));
-        Assert.Equal(Outcome.Unheard, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2.AddMinutes(5), WorkingOrigins.Owner)));
-    }
-
-    /// <summary>
-    /// Review of step 2: the push carrying an automatic prompt's stamp can arrive AFTER a genuine owner answer. A
-    /// one-shot mark would be spent by the owner's stamp and the Gateway's late one then judged as him. Inside the
-    /// window neither is judged - the owner's answer is left uncounted, the only direction that is allowed to err.
-    /// </summary>
-    [Fact]
-    public void Observe_AnAutomaticStampArrivingAfterAGenuineAnswer_IsNeverJudgedAsTheOwner()
-    {
-        var (voice, observer, sid) = AtAStop();
-        var now = new DateTime(2026, 9, 28, 12, 0, 0, DateTimeKind.Utc);
-        voice.Listening.UtcNow = () => now;
-
-        var automatic = voice.Listening.BeginAutomaticPrompt(Tenant, sid);
-        Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));   // the owner, first
-        voice.StoreReadyAudioForTest(Tenant, sid, "Next.", "Next reply.", Encoding.ASCII.GetBytes("ID3b"));
-        automatic.Dispose();
-        now += TimeSpan.FromSeconds(30);
-
-        Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2.AddMinutes(1), WorkingOrigins.Owner)));   // the Gateway's, late
-    }
-
     [Fact]
     public void Observe_ASecondPushOfTheSameOwnerTurn_SettlesTheStopOnlyOnce()
     {

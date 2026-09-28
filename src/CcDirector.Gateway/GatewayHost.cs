@@ -3131,9 +3131,7 @@ public sealed class GatewayHost : IAsyncDisposable
             },
             session: (tenant, sessionId) => PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter)?.Session,
             brainProvider: WingmanBrainAsync,
-            enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant),
-            // Voice mode auto-off: a rule firing is the Gateway typing, not the owner answering.
-            onAutomaticPrompt: (tenant, sid) => (_voiceService ?? throw new InvalidOperationException("The voice service is not built; an automatic prompt cannot be recorded.")).Listening.BeginAutomaticPrompt(tenant, sid));
+            enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
 
     private Supervision.GatewaySupervisorEnvironment BuildSupervisorEnvironment()
     {
@@ -3167,9 +3165,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 }
                 var result = await notify.SendOwnerAsync(token, subject, body, null, null, ct).ConfigureAwait(false);
                 return result.Sent;
-            },
-            // Voice mode auto-off: a recovery "continue" is the Gateway typing, not the owner answering.
-            onAutomaticPrompt: (tenant, sid) => (_voiceService ?? throw new InvalidOperationException("The voice service is not built; an automatic prompt cannot be recorded.")).Listening.BeginAutomaticPrompt(tenant, sid));
+            });
     }
 
     /// <summary>

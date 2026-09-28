@@ -41,10 +41,6 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<DateTime> _nowUtc;
 
-    /// <summary>Opens a window around each prompt the Gateway types into a session by itself, closed when the send has
-    /// finished (voice mode auto-off: that prompt is not the owner answering). Null tells nobody.</summary>
-    private readonly Func<TenantId, string, IDisposable>? _onAutomaticPrompt;
-
     /// <param name="store">The phase 1 rule store, seen through the NARROW seam: reading the rules,
     /// counting a rule's firings, writing one down. There is deliberately no promotion on it, so the
     /// evaluation path cannot move a rule out of dry run even by mistake (owner ruling 14, bound 6).</param>
@@ -66,10 +62,8 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
         Func<TenantId, string, SessionDto?> session,
         Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         Func<TenantId, IDisposable>? enterTenantScope = null,
-        Func<DateTime>? nowUtc = null,
-        Func<TenantId, string, IDisposable>? onAutomaticPrompt = null)
+        Func<DateTime>? nowUtc = null)
     {
-        _onAutomaticPrompt = onAutomaticPrompt;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _route = route ?? throw new ArgumentNullException(nameof(route));
         _session = session ?? throw new ArgumentNullException(nameof(session));
@@ -174,10 +168,8 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
             return RuleSendResult.NotSent($"the machine running this session ({directorId}) is not connected.");
         }
 
-        // Voice mode auto-off: a rule firing reaches the Director as an ordinary prompt and is stamped as the owner's
-        // turn. The window opens first and closes when the send has finished, so the stamp it moves is never judged.
-        using var automatic = _onAutomaticPrompt?.Invoke(tenant, sessionId);
-        var request = new PromptRequest { Text = text, AppendEnter = true, WaitForIdle = false };
+        // Labelled as the Gateway's own text, so the Director never stamps it as the owner's turn (GatewayAuthoredPrompt).
+        var request = GatewayAuthoredPrompt.For(text);
         var sent = await route.SendPromptAsync(sessionId, request, ct).ConfigureAwait(false);
 
         switch (sent.Kind)
