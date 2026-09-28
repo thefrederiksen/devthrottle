@@ -208,6 +208,69 @@ public sealed class GatewayClient : IGatewayHold, IGatewayColourLegend, Triggers
     }
 
     /// <summary>
+    /// DOWNLOAD A FACTORY'S MEMORY for a factory session this Director is about to start
+    /// (GET /factory-memory/notes?factory=; Factory Memory mission, phase 3a).
+    ///
+    /// The credential is this Director's own Gateway token, because the session's own key does not exist yet and
+    /// the Gateway has no record of the session. The Gateway lets a Director read the list and nothing else.
+    ///
+    /// UNLIKE THE REST OF THIS CLIENT IT THROWS, and never answers null. Its caller is the one start-up step that
+    /// stops a launch: a factory session never runs without its memory, so "could not download" must reach the
+    /// person as the reason the session did not open - never as an empty memory the agent would take for the truth.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No Gateway is configured, it could not be reached, it refused,
+    /// or its answer could not be read. The message says which, in words.</exception>
+    public async Task<IReadOnlyList<FactoryMemoryNoteDto>> DownloadFactoryMemoryAsync(
+        string factory, Guid sessionId, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(factory);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("no Gateway is configured on this Director");
+
+        var route = $"factory-memory/notes?factory={Uri.EscapeDataString(factory)}";
+        FileLog.Write($"[GatewayClient] DownloadFactoryMemoryAsync: session={sessionId}, GET /{route}");
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await _http.GetAsync(route, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            FileLog.Write($"[GatewayClient] DownloadFactoryMemoryAsync UNREACHABLE: session={sessionId}: {ex.Message}");
+            throw new InvalidOperationException($"the Gateway could not be reached: {ex.Message}", ex);
+        }
+
+        using (resp)
+        {
+            if (!resp.IsSuccessStatusCode)
+            {
+                var said = await ReadGatewayErrorAsync(resp, ct);
+                FileLog.Write($"[GatewayClient] DownloadFactoryMemoryAsync REFUSED: session={sessionId}, HTTP {(int)resp.StatusCode}: {said}");
+                throw new InvalidOperationException($"the Gateway refused the download (HTTP {(int)resp.StatusCode}): {said}");
+            }
+
+            FactoryMemoryListResponse? list;
+            try
+            {
+                list = await resp.Content.ReadFromJsonAsync<FactoryMemoryListResponse>(ct);
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[GatewayClient] DownloadFactoryMemoryAsync UNREADABLE: session={sessionId}: {ex.Message}");
+                throw new InvalidOperationException($"the Gateway's answer could not be read: {ex.Message}", ex);
+            }
+            if (list is null)
+                throw new InvalidOperationException("the Gateway's answer carried no notes list");
+            if (!string.Equals(list.Factory, factory, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"the Gateway answered with the notes of '{list.Factory}' when '{factory}' was asked for");
+
+            FileLog.Write($"[GatewayClient] DownloadFactoryMemoryAsync: session={sessionId}, factory={factory}, notes={list.Notes.Count}");
+            return list.Notes;
+        }
+    }
+
+    /// <summary>
     /// The Gateway's own words from a failed answer - its <c>error</c> key when it sent one, otherwise the
     /// status line, which is the only fact available. Never throws: this runs while reporting a failure.
     /// </summary>

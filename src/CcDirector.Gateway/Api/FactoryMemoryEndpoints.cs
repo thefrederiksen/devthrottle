@@ -32,6 +32,13 @@ namespace CcDirector.Gateway.Api;
 /// Architect's recommendation, on the condition that a delete is undoable; letting the same session undo its own
 /// delete would not add anything, and restoring is the act that decides which version of the truth stands. So it
 /// belongs to the person, as section 5.3 says.
+///
+/// A DIRECTOR MAY READ THE LIST, AND NOTHING ELSE (phase 3a, section 5.4). The Director puts a factory session's
+/// memory in place BEFORE the agent starts, and at that moment the session has no key of its own yet - the key is
+/// minted a few lines later, and the Gateway has no history row for the session either. So the download is made
+/// with the Director's own credential, naming the factory the Gateway itself settled on the create request. That
+/// credential already has authority over the whole account; reading a factory's notes adds nothing a person could
+/// not already see. Writing, deleting, history and restore stay closed to it: a Director writes nobody's memory.
 /// </summary>
 internal static class FactoryMemoryEndpoints
 {
@@ -48,10 +55,38 @@ internal static class FactoryMemoryEndpoints
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(nowUtc);
 
-        app.MapGet($"{Prefix}/notes", (HttpContext ctx, string? factory) =>
+        app.MapGet($"{Prefix}/notes", (HttpContext ctx, string? factory, bool? deleted) =>
         {
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
-            if (!TryCaller(ctx, sessionFactoryOf, factory, out var caller, out var error)) return error!;
+            if (!TryCaller(ctx, sessionFactoryOf, factory, out var caller, out var error, directorMayRead: true)) return error!;
+
+            // WHAT WAS DELETED, FOR THE PERSON WHO CAN PUT IT BACK (review finding 5). The ordinary listing hides
+            // deleted notes so that "what does this factory know" is answerable at a glance - but restoring one is a
+            // person's act, and until this existed the only way to reach a deleted note was to already know its
+            // name. A delete nobody can find is not the undoable delete the owner's decision rested on.
+            //
+            // A session cannot ask: its business is what the factory knows now, and a deleted note is the owner's to
+            // judge. A Director cannot ask either - it downloads what a session should start with.
+            if (deleted == true)
+            {
+                if (caller.AuthorKind != FactoryMemoryAuthorKinds.Person)
+                    return Results.Json(new
+                    {
+                        error = "only a person can see a factory's deleted notes",
+                        detail = "A deleted note is kept so the owner can put it back, and putting it back is his " +
+                                 "call. What this factory knows now is the ordinary listing.",
+                    }, statusCode: StatusCodes.Status403Forbidden);
+                var gone = store.ListDeleted(tenant, caller.Factory);
+                return Results.Json(new FactoryMemoryListResponse
+                {
+                    Factory = caller.Factory,
+                    Notes = gone.Select(ToDto).ToList(),
+                    Bytes = 0,
+                    MaxBytes = FactoryMemoryStore.MaxFactoryBytes,
+                    MaxNotes = FactoryMemoryStore.MaxNotes,
+                });
+            }
+
             var notes = store.List(tenant, caller.Factory);
             return Results.Json(new FactoryMemoryListResponse
             {
@@ -70,14 +105,9 @@ internal static class FactoryMemoryEndpoints
             var note = store.Get(tenant, caller.Factory, name);
             if (note is null)
                 return Results.NotFound(new { error = $"this factory has no note called '{name}'", factory = caller.Factory, name });
-            // A DELETED note answers 200 with the delete on it, not 404 - and SAYS SO IN WORDS as well as in
-            // fields (phase 2 review, finding 10). The design promises the sentence "deleted in version N by X,
-            // restorable in the Cockpit"; an agent reading a bare deleted:true has to work the rest out, and an
-            // agent that got 404 would write a fresh note and lose what the history holds.
-            //
-            // The sentence rides ON THE NOTE rather than reshaping the answer, which was the first attempt: the
-            // command line and the Cockpit are both written against the bare note, and a second shape for one
-            // case would have broken them for no gain.
+            // A DELETED note answers 200 with the delete on it, not 404. "It was deleted in version 4 by that
+            // session, and a person can restore it" is a different and more useful fact than "there is no such
+            // note", and an agent that gets 404 would write a fresh note and lose what the history holds.
             return Results.Json(ToDto(note));
         });
 
@@ -141,6 +171,10 @@ internal static class FactoryMemoryEndpoints
         FileLog.Write($"[FactoryMemoryEndpoints] mapped {Prefix}/notes and its note, history and restore routes");
     }
 
+    /// <summary>The caller kind of a Director's download. Deliberately NOT one of <see cref="FactoryMemoryAuthorKinds"/>:
+    /// a Director only ever reads, so it can never be the author of a version.</summary>
+    private const string DirectorReader = "director";
+
     /// <summary>Who is asking, and whose memory that means.</summary>
     private readonly record struct Caller(string Factory, string AuthorKind, string? AuthorId);
 
@@ -150,7 +184,7 @@ internal static class FactoryMemoryEndpoints
     /// read from them; anything else is refused.
     /// </summary>
     private static bool TryCaller(HttpContext ctx, Func<string, SessionFactoryLookup> factoryOf,
-        string? statedFactory, out Caller caller, out IResult? error)
+        string? statedFactory, out Caller caller, out IResult? error, bool directorMayRead = false)
     {
         caller = default;
         error = null;
@@ -219,8 +253,40 @@ internal static class FactoryMemoryEndpoints
             return true;
         }
 
-        // Neither a person nor a session. Refused: a factory's memory is not readable by a credential the Gateway
-        // cannot place, and a Director has no business reading one.
+        // A DIRECTOR, downloading a factory session's memory before that session's agent starts (see the class
+        // summary). Only a VERIFIED credential counts - a request that carried nothing is not a Director - and only
+        // on the list route; every other route falls through to the refusal below.
+        if (directorMayRead
+            && ctx.Items.ContainsKey(AuthMiddleware.AuthenticatedCredentialItemKey)
+            && WorkspaceEndpoints.IsDirectorCredential(ctx))
+        {
+            if (stated is null)
+            {
+                error = Results.BadRequest(new
+                {
+                    error = "name the factory whose memory you are downloading",
+                    detail = "A Director downloads a factory session's memory for the factory on that session's create: pass ?factory=<id>.",
+                });
+                return false;
+            }
+            FileLog.Write($"[FactoryMemoryEndpoints] a Director is downloading the memory of '{stated}'");
+            // AN UNUSABLE FACTORY ID IS REFUSED, NOT ANSWERED EMPTY (phases 3 and 4 review, finding 3). The store
+            // cannot hold a factory that is not one spelling, so it answers nothing for one - and nothing, to the
+            // Director, is a memory with no notes in it. The hard stop would then be satisfied: the session starts,
+            // its folder holds an index and no lessons, and the agent is told nothing is known. A factory session
+            // running with a silently empty memory is exactly what the hard stop exists to prevent.
+            if (!Factory.FactoryNames.TryFactory(stated, out var directorFactory, out var directorRefusal))
+            {
+                FileLog.Write($"[FactoryMemoryEndpoints] REFUSED a Director's download of '{stated}': {directorRefusal}");
+                error = Results.BadRequest(new { error = directorRefusal, detail = SpawnFactory.OneSpelling });
+                return false;
+            }
+            caller = new Caller(directorFactory, DirectorReader, null);
+            return true;
+        }
+
+        // Neither a person nor a session, or a Director on a route other than the list. Refused: a factory's memory
+        // is not readable by a credential the Gateway cannot place, and a Director writes nobody's memory.
         error = Results.Json(new
         {
             error = "a factory's memory is read and written by that factory's own sessions, or by a person",

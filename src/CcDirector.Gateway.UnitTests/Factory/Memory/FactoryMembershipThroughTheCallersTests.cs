@@ -403,6 +403,12 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
     private async Task<(Session session, SessionDto pushed)> DirectorCreatesAsync(NewSessionRequest req)
     {
         var sm = new SessionManager(new Core.Configuration.AgentOptions());
+        // A FACTORY SESSION NEVER STARTS WITHOUT ITS MEMORY (phase 3a). The Director fetches the notes inside
+        // CreateSession and a failure is a hard stop, so a test that creates a real session INTO a factory has to
+        // stand in for that fetch or the create is refused - which is the product being right, not the test being
+        // awkward. These tests are about which factory the session carries, so an empty memory is the whole of
+        // what they need.
+        sm.FactoryMemoryDownload = (_, _) => Array.Empty<Gateway.Contracts.FactoryMemoryNoteDto>();
         _directors.Add(sm);
         var command = new DirectorCommand
         {
@@ -559,6 +565,12 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
         // create set none, so a factory session continued after a crash came back outside its factory.
         await StartGatewayAsync();
         var sm = new SessionManager(new Core.Configuration.AgentOptions());
+        // A FACTORY SESSION NEVER STARTS WITHOUT ITS MEMORY (phase 3a). The Director fetches the notes inside
+        // CreateSession and a failure is a hard stop, so a test that creates a real session INTO a factory has to
+        // stand in for that fetch or the create is refused - which is the product being right, not the test being
+        // awkward. These tests are about which factory the session carries, so an empty memory is the whole of
+        // what they need.
+        sm.FactoryMemoryDownload = (_, _) => Array.Empty<Gateway.Contracts.FactoryMemoryNoteDto>();
         _directors.Add(sm);
         var dying = sm.CreateEmbeddedSession(Path.GetTempPath(), null, new ExecuteActionTestBackend());
         dying.StampFactory(TheFactory);

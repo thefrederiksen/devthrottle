@@ -42,6 +42,11 @@ import { useDismissOnBackdrop } from "../components";
 //      model comes from the chosen agent's own configured default, exactly like the desktop dialog
 //      (issue #1497). The client sends only the agent kind and the Bypass-permissions choice; the
 //      Director applies that agent's configured default model and permission preset.
+//   3. FACTORY (Factory Memory mission, phase 3b), optional and empty every time the dialog opens. It is the only
+//      way a person starts a session into a factory by hand: the command line holds a session key, and a session
+//      may only name its own factory; the desktop New Session deliberately has no factory. A session started into
+//      a factory reads and writes that factory's memory. It is never remembered between opens, because putting a
+//      session into a factory by accident would hand it that factory's memory.
 // Clicking a repository SELECTS it; the footer's "Create session" button is what starts a session.
 // On success the parent is told the new session id so it can refresh the roster and open it.
 //
@@ -325,12 +330,14 @@ export function addOutcome(result: RepoAddResult, listedNow: boolean): string {
 }
 
 // The one-line summary of what will launch, e.g. "Claude Code . Opus 4.8 . skips permission prompts".
-// Mirrors the desktop dialog telling you the agent and the model it will use (issue #1497).
-function launchSummary(agent: AgentChoice | null, bypass: boolean): string {
+// Mirrors the desktop dialog telling you the agent and the model it will use (issue #1497). A factory, when one is
+// named, is said too, so the owner sees before starting it that the session will be in that factory.
+export function launchSummary(agent: AgentChoice | null, bypass: boolean, factory = ""): string {
   if (agent === null) return "Pick an agent above.";
   const model = agent.modelLabel.trim() || "its default model";
   const permission = bypass ? "skips permission prompts" : "asks for permissions";
-  return `${agent.displayName} . ${model} . ${permission}`;
+  const inFactory = factory.trim().length > 0 ? ` . in factory ${factory.trim()}` : "";
+  return `${agent.displayName} . ${model} . ${permission}${inFactory}`;
 }
 
 export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewSessionDialogProps) {
@@ -356,6 +363,8 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
   // selecting a row writes that row's path here, and a row reads as selected while it matches. One
   // piece of state cannot disagree with itself about which repository is about to be used.
   const [manualPath, setManualPath] = useState("");
+  // The factory to start the session into; empty means none, and it starts empty on every open.
+  const [factory, setFactory] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -527,6 +536,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
         const session = await createSession(selectedId, path, {
           agent: agentType,
           bypassPermissions: permission.bypass,
+          factory,
           signal: undefined,
         });
         const sid = session.sessionId;
@@ -539,7 +549,7 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
         setCreating(false);
       }
     },
-    [creating, selectedId, agents, selectedAgentType, permission.bypass, permissionKey, onCreated],
+    [creating, selectedId, agents, selectedAgentType, permission.bypass, permissionKey, factory, onCreated],
   );
 
   // Register the path in the box on the selected machine, then RE-READ the one list and say what
@@ -844,9 +854,30 @@ export function NewSessionDialog({ onClose, onCreated, initialDirectorId }: NewS
               ))}
             </div>
 
+            <label className="newsess-opt-label" htmlFor="newsess-factory">
+              Factory (optional)
+            </label>
+            <input
+              id="newsess-factory"
+              className="newsess-input mono"
+              type="text"
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="None"
+              value={factory}
+              disabled={creating}
+              onChange={(e) => setFactory(e.target.value)}
+            />
+            <div className="newsess-status">
+              Leave empty for a session in no factory. A factory id, such as website-factory, starts the session in
+              that factory, where it reads and writes the factory's memory.
+            </div>
+
             <div className="newsess-opt-label">This session will start as</div>
             <div className="newsess-args mono" aria-live="polite">
-              {launchSummary(selectedAgent, permission.bypass)}
+              {launchSummary(selectedAgent, permission.bypass, factory)}
             </div>
           </div>
 

@@ -1,5 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
+using CcDirector.ControlApi;
+using CcDirector.Core.Agents;
+using CcDirector.Core.Backends;
+using CcDirector.Core.Configuration;
+using CcDirector.Core.Git;
+using SessionManager = CcDirector.Core.Sessions.SessionManager;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
@@ -50,7 +57,9 @@ public sealed class FactoryMemoryRouteTests : IDisposable
     /// the REAL one, reading the history row, so a test has to write a row to be in a factory - the same way a
     /// session gets there in life.
     /// </summary>
-    private async Task<HttpClient> StartAsync(string? sessionId = null, string? deviceType = null)
+    /// <param name="verifiedCredential">Stands in for AuthMiddleware having verified SOME credential. With no session
+    /// and no person's device type, that is a Director: its workstation key, or the machine token.</param>
+    private async Task<HttpClient> StartAsync(string? sessionId = null, string? deviceType = null, bool verifiedCredential = false)
     {
         var store = new FactoryMemoryStore(_h.Open());
         var history = new SessionHistoryStore(_h.Open());
@@ -61,6 +70,7 @@ public sealed class FactoryMemoryRouteTests : IDisposable
         _app.Urls.Add("http://127.0.0.1:0");
         _app.Use(async (ctx, next) =>
         {
+            if (verifiedCredential) ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "the-verified-credential";
             if (deviceType is not null) ctx.Items[AuthMiddleware.DeviceTypeItemKey] = deviceType;
             if (sessionId is not null)
                 ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] =
@@ -199,6 +209,143 @@ public sealed class FactoryMemoryRouteTests : IDisposable
         Assert.Empty(with.Notes);
     }
 
+    // ---------- a Director, downloading a factory session's memory before its agent starts (phase 3a) ----------
+
+    /// <summary>A person writes the notes a Director will then download; the app is restarted as the Director.</summary>
+    private async Task<HttpClient> APersonWroteTwoNotesThenStartAsADirector(string? directorDeviceType)
+    {
+        var person = await StartAsync(deviceType: "browser");
+        await person.PutAsync($"/factory-memory/notes/domains?factory={TheFactory}",
+            Body(new SetFactoryMemoryNoteRequest { Text = "this registry wants a telephone number", ExpectedVersion = 0 }));
+        await person.PutAsync($"/factory-memory/notes/deliverability?factory={TheFactory}",
+            Body(new SetFactoryMemoryNoteRequest { Text = "fix DMARC first", ExpectedVersion = 0 }));
+        await _app!.StopAsync();
+        return await StartAsync(deviceType: directorDeviceType, verifiedCredential: true);
+    }
+
+    private static bool OnWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+
+    [Theory]
+    [InlineData("workstation")]   // what a Director enrols with
+    [InlineData(null)]            // the machine token of a self-hosted Gateway
+    public async Task A_DIRECTOR_DOWNLOADS_THE_NOTES_OF_THE_FACTORY_IT_NAMES(string? directorDeviceType)
+    {
+        var director = await APersonWroteTwoNotesThenStartAsADirector(directorDeviceType);
+
+        var list = await director.GetFromJsonAsync<FactoryMemoryListResponse>($"/factory-memory/notes?factory={TheFactory}");
+
+        Assert.Equal(TheFactory, list!.Factory);
+        Assert.Equal(new[] { "deliverability", "domains" }, list.Notes.Select(n => n.Name).OrderBy(n => n, StringComparer.Ordinal));
+        Assert.Contains(list.Notes, n => n.Text == "this registry wants a telephone number" && n.Version == 1);
+    }
+
+    [Fact]
+    public async Task A_Director_must_name_the_factory_it_is_downloading()
+    {
+        var director = await StartAsync(deviceType: "workstation", verifiedCredential: true);
+
+        var resp = await director.GetAsync("/factory-memory/notes");
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Contains("name the factory whose memory you are downloading", await resp.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task A_DIRECTOR_READS_THE_LIST_AND_NOTHING_ELSE()
+    {
+        // A Director writes nobody's memory. Every route but the list is closed to it, including the single note and
+        // its history: the download needs the list, and nothing wider was asked for.
+        var director = await APersonWroteTwoNotesThenStartAsADirector("workstation");
+        var q = $"?factory={TheFactory}";
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await director.GetAsync($"/factory-memory/notes/domains{q}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await director.GetAsync($"/factory-memory/notes/domains/history{q}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await director.PutAsync($"/factory-memory/notes/domains{q}",
+            Body(new SetFactoryMemoryNoteRequest { Text = "a Director's opinion", ExpectedVersion = 1 }))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await director.SendAsync(new HttpRequestMessage(HttpMethod.Delete, $"/factory-memory/notes/domains{q}")
+        {
+            Content = Body(new DeleteFactoryMemoryNoteRequest { ExpectedVersion = 1 }),
+        })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await director.PostAsync($"/factory-memory/notes/domains/restore{q}",
+            Body(new RestoreFactoryMemoryNoteRequest { Version = 1 }))).StatusCode);
+    }
+
+    [Fact]
+    public async Task A_request_with_no_verified_credential_is_not_a_Director_even_naming_a_factory()
+    {
+        var nobody = await StartAsync();
+
+        Assert.Equal(HttpStatusCode.Forbidden, (await nobody.GetAsync($"/factory-memory/notes?factory={TheFactory}")).StatusCode);
+    }
+
+    [Fact]
+    public async Task THE_DIRECTORS_OWN_CLIENT_AND_THE_HOSTS_WIRING_PUT_THE_NOTES_IN_PLACE_BEFORE_THE_AGENT_STARTS()
+    {
+        // The whole chain, with nothing hand-built in the middle: the Director's real Gateway client, through the
+        // exact function ControlApiHost installs, called by the real CreateSession for a session stamped into the
+        // factory the way the create verb stamps it - against the real routes over the real store.
+        var director = await APersonWroteTwoNotesThenStartAsADirector("workstation");
+        using var client = new GatewayClient(
+            new GatewayConfig { Url = director.BaseAddress!.ToString().TrimEnd('/'), Token = "director-key" }, "dir-1", "1.0.0");
+
+        var root = Path.Combine(Path.GetTempPath(), "ccd-fm-chain-" + Guid.NewGuid().ToString("N")[..8]);
+        var repo = Path.Combine(root, "repo");
+        Directory.CreateDirectory(repo);
+        var manager = new SessionManager(
+            new AgentOptions { DefaultBufferSizeBytes = 65536, GracefulShutdownTimeoutSeconds = 2 },
+            reservations: new WorktreeReservationStore(Path.Combine(root, "reservations")),
+            worktreePoolSetting: _ => new WorktreePoolSetting(Enabled: false, PoolSize: 4))
+        {
+            FactoryMemoryRoot = Path.Combine(root, "factory-memory"),
+        };
+        manager.FactoryMemoryDownload = ControlApiHost.FactoryMemoryDownloadThrough(() => client);
+        try
+        {
+            var session = manager.CreateSession(repo,
+                new RawCliAgent(OnWindows ? "cmd.exe" : "/bin/sh"),
+                userArgs: OnWindows ? "/c exit" : "-c true",
+                SessionBackendType.ConPty, resumeSessionId: null,
+                beforeLaunch: s => s.StampFactory(TheFactory));
+
+            var dir = session.FactoryMemoryDirectory!;
+            Assert.Equal("this registry wants a telephone number", File.ReadAllText(Path.Combine(dir, "domains.md")));
+            Assert.Equal("fix DMARC first", File.ReadAllText(Path.Combine(dir, "deliverability.md")));
+            Assert.True(File.Exists(Path.Combine(dir, "index.md")));
+        }
+        finally
+        {
+            try { await manager.KillAllSessionsAsync(); } catch (Exception) { /* best effort */ }
+            manager.Dispose();
+            try { Directory.Delete(root, recursive: true); } catch (Exception) { /* best effort */ }
+        }
+    }
+
+    [Fact]
+    public async Task A_REFUSED_DOWNLOAD_REACHES_THE_CALLER_IN_THE_GATEWAYS_OWN_WORDS()
+    {
+        // A credential the Gateway cannot place is refused; the Director's download carries that refusal, word for
+        // word, to the create that asked for it.
+        var nobody = await StartAsync();
+        using var client = new GatewayClient(
+            new GatewayConfig { Url = nobody.BaseAddress!.ToString().TrimEnd('/'), Token = "director-key" }, "dir-1", "1.0.0");
+        var download = ControlApiHost.FactoryMemoryDownloadThrough(() => client);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => download(TheFactory, Guid.NewGuid()));
+
+        Assert.Contains("the Gateway refused the download (HTTP 403)", ex.Message);
+        Assert.Contains("read and written by that factory's own sessions, or by a person", ex.Message);
+    }
+
+    [Fact]
+    public void With_no_Gateway_client_the_download_says_so()
+    {
+        var download = ControlApiHost.FactoryMemoryDownloadThrough(() => null);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => download(TheFactory, Guid.NewGuid()));
+
+        Assert.Contains("not connected to a Gateway", ex.Message);
+    }
+
     // ---------- two writers, through the route ----------
 
     [Fact]
@@ -245,6 +392,48 @@ public sealed class FactoryMemoryRouteTests : IDisposable
         Assert.Contains("continues the same history", got.DeletedNotice);
 
         Assert.Empty((await http.GetFromJsonAsync<FactoryMemoryListResponse>("/factory-memory/notes"))!.Notes);
+    }
+
+    [Fact]
+    public async Task A_PERSON_CAN_SEE_WHAT_WAS_DELETED_SO_A_DELETE_IS_REALLY_UNDOABLE()
+    {
+        // The owner let factory sessions delete because a delete can be undone. Until this existed, undoing one
+        // meant already knowing the name of a note somebody else had removed (review finding 5).
+        InFactory(Scout, TheFactory);
+        var agent = await StartAsync(sessionId: Scout);
+        await agent.PutAsync("/factory-memory/notes/domains", Body(new SetFactoryMemoryNoteRequest { Text = "v1", ExpectedVersion = 0 }));
+        await agent.PutAsync("/factory-memory/notes/deliverability", Body(new SetFactoryMemoryNoteRequest { Text = "keep me", ExpectedVersion = 0 }));
+        await agent.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/factory-memory/notes/domains")
+        {
+            Content = Body(new DeleteFactoryMemoryNoteRequest { ExpectedVersion = 1 }),
+        });
+        await _app!.StopAsync();
+
+        var person = await StartAsync(deviceType: "browser");
+        var gone = await person.GetFromJsonAsync<FactoryMemoryListResponse>($"/factory-memory/notes?factory={TheFactory}&deleted=true");
+
+        var only = Assert.Single(gone!.Notes);
+        Assert.Equal("domains", only.Name);
+        Assert.True(only.Deleted);
+        Assert.Contains("restored by a person", only.DeletedNotice);
+
+        // And the ordinary listing still hides it: "what does this factory know" stays answerable at a glance.
+        var current = await person.GetFromJsonAsync<FactoryMemoryListResponse>($"/factory-memory/notes?factory={TheFactory}");
+        Assert.Equal("deliverability", Assert.Single(current!.Notes).Name);
+    }
+
+    [Fact]
+    public async Task A_SESSION_MAY_NOT_ASK_WHAT_WAS_DELETED()
+    {
+        // Its business is what the factory knows now; a deleted note is the owner's to judge, and he is the only
+        // one who can put it back.
+        InFactory(Scout, TheFactory);
+        var agent = await StartAsync(sessionId: Scout);
+
+        var resp = await agent.GetAsync("/factory-memory/notes?deleted=true");
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Contains("only a person can see", await resp.Content.ReadAsStringAsync());
     }
 
     [Fact]

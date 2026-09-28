@@ -14,6 +14,7 @@ from . import browser_ops
 from . import diag_ops
 from . import email_ops
 from . import factory_ops
+from . import factory_memory_ops
 from . import fleet_manager_ops
 from . import fleet_ops
 from . import mission_ops
@@ -120,6 +121,13 @@ factory_app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+factory_memory_app = typer.Typer(
+    cls=AxiGroup,
+    help="Your factory's memory: the notes every session of the factory starts with.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_memory_app, name="memory")
 trigger_app = typer.Typer(
     cls=AxiGroup,
     help="Checks with no model that start a session when there is work.",
@@ -937,6 +945,48 @@ _ACTIONS = [
             {"name": "version", "required": False},
             {"name": "corrects", "required": False},
         ],
+    },
+    {
+        "id": "factory-memory-list",
+        "description": "List your factory's memory: the notes every session of this factory starts with.",
+        "command": "cc-devthrottle factory memory list",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "factory-memory-get",
+        "description": "Read one note of your factory's memory, including one that was deleted.",
+        "command": "cc-devthrottle factory memory get <name>",
+        "mutatesState": False,
+        "args": [{"name": "name", "required": True}],
+    },
+    {
+        "id": "factory-memory-set",
+        "description": "Write a note to your factory's memory; sends the version you last read, and on a clash prints the current text to merge.",
+        "command": "cc-devthrottle factory memory set <name> <text>",
+        "mutatesState": True,
+        "args": [
+            {"name": "name", "required": True},
+            {"name": "text", "required": True},
+            {"name": "expected-version", "required": False},
+        ],
+    },
+    {
+        "id": "factory-memory-delete",
+        "description": "Delete a note from your factory's memory; a person can restore it.",
+        "command": "cc-devthrottle factory memory delete <name>",
+        "mutatesState": True,
+        "args": [
+            {"name": "name", "required": True},
+            {"name": "expected-version", "required": False},
+        ],
+    },
+    {
+        "id": "factory-memory-history",
+        "description": "Every kept version of one note of your factory's memory, newest first.",
+        "command": "cc-devthrottle factory memory history <name>",
+        "mutatesState": False,
+        "args": [{"name": "name", "required": True}],
     },
     {
         "id": "factory-activity",
@@ -3380,6 +3430,66 @@ def factory_activity(
 ) -> None:
     """Read the factory activity record, newest first."""
     factory_ops.activity(factory, agent, outcome, since, until, oldest_first, offset, limit, json_output)
+
+
+@factory_memory_app.command("list")
+def factory_memory_list(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """List your factory's notes as they stand.
+
+    Always your own factory: the Gateway reads it from this session's record, and you never name it.
+    """
+    factory_memory_ops.list_notes(json_output)
+
+
+@factory_memory_app.command("get")
+def factory_memory_get(
+    name: str = typer.Argument(..., help="The note's name."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the note as JSON, with its exact text."),
+) -> None:
+    """Read one note, including one that was deleted. Records the version you read."""
+    factory_memory_ops.get_note(name, json_output)
+
+
+@factory_memory_app.command("set")
+def factory_memory_set(
+    name: str = typer.Argument(..., help="The note's name - one idea per note."),
+    text: str = typer.Argument(..., help="The note's whole new text. Pass - to read it from standard input."),
+    expected_version: Optional[int] = typer.Option(
+        None, "--expected-version", min=0,
+        help="The version you last read. Normally left out: it is taken from what this session last read.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the written note as JSON."),
+) -> None:
+    """Write a note, sending the version you last read.
+
+    If another session wrote the note since you read it, nothing is written: the current text is printed, and you
+    merge what you learned into it and set again.
+    """
+    factory_memory_ops.set_note(name, text, expected_version, json_output)
+
+
+@factory_memory_app.command("delete")
+def factory_memory_delete(
+    name: str = typer.Argument(..., help="The note's name."),
+    expected_version: Optional[int] = typer.Option(
+        None, "--expected-version", min=0,
+        help="The version you last read. Normally left out: it is taken from what this session last read.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the delete as JSON."),
+) -> None:
+    """Delete a note, sending the version you last read; a person can restore it."""
+    factory_memory_ops.delete_note(name, expected_version, json_output)
+
+
+@factory_memory_app.command("history")
+def factory_memory_history(
+    name: str = typer.Argument(..., help="The note's name."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output every version as JSON."),
+) -> None:
+    """Every kept version of a note, newest first."""
+    factory_memory_ops.history(name, json_output)
 
 
 @trigger_app.callback()

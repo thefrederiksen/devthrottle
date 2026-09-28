@@ -211,6 +211,23 @@ public sealed class FactoryMapTests
     }
 
     [Fact]
+    [Trait("Category", "FactoryMemory")]
+    public void View_OffersTheMemoryTab_AfterMapAndAgents_WithOrWithoutAPublishedMap()
+    {
+        var card = Card(("scout", "IDLE", FactoryTone.Idle));
+
+        foreach (var view in new[]
+                 {
+                     FactoryMapFold.View("website-business", null, card, TimeZoneInfo.Utc),
+                     FactoryMapFold.View("website-business", null, null, TimeZoneInfo.Utc),
+                 })
+        {
+            Assert.Equal(new[] { "map", "agents", "memory" }, view.Tabs.Select(t => t.Key).ToArray());
+            Assert.Equal("Memory", view.Tabs[2].Label);
+        }
+    }
+
+    [Fact]
     public void View_AgentBoxesCarryTheirCardStatus_AndThePlannedOneIsDashedAndGrey()
     {
         var stored = new StoredFactoryMap(Map(), Now, "session s1");

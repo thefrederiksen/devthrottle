@@ -115,6 +115,19 @@ public sealed class SessionManager : IDisposable
     public Func<Account.SignedInUser?>? SignedInUserAccessor { get; set; }
 
     /// <summary>
+    /// Downloads a factory's notes for a factory session that is about to start (Factory Memory mission, phase 3a),
+    /// with the DIRECTOR's own Gateway credential - the session's own key is minted later in the create and the
+    /// Gateway has no record of the session yet. Given the factory and the new session's id; throws with the reason
+    /// when the notes cannot be had. Set by ControlApiHost when a Gateway is configured; null otherwise, and then a
+    /// factory session cannot start, because a factory session never runs without its memory.
+    /// </summary>
+    public Func<string, Guid, IReadOnlyList<Gateway.Contracts.FactoryMemoryNoteDto>>? FactoryMemoryDownload { get; set; }
+
+    /// <summary>Where factory sessions' notes folders go. Null is the real storage root
+    /// (<see cref="Storage.CcStorage.FactoryMemory"/>); a test points it at a scratch folder.</summary>
+    public string? FactoryMemoryRoot { get; init; }
+
+    /// <summary>
     /// Resolves a session's folder to the repository it is a linked WORKTREE of, or null when it is not
     /// one (the one-repository-list mission, "a worktree is not a repository"). The default is
     /// <see cref="Git.LinkedWorktree.ParentRepositoryOf"/> and it is the only one production uses; it is
@@ -767,6 +780,18 @@ public sealed class SessionManager : IDisposable
 
         try
         {
+            // A FACTORY SESSION'S MEMORY, IN PLACE BEFORE ITS AGENT STARTS (Factory Memory mission, phase 3a).
+            //
+            // THIS IS THE ONE START-UP STEP THAT STOPS A LAUNCH. Every other step below - the preamble, the pointer
+            // box, the skills - is logged and never stops a session, because each is additional to it. This one is
+            // not: the owner decided that a factory session never runs without its memory, so a download that fails
+            // throws here, the catch below marks the session failed and gives back its worktree slot, and the caller
+            // gets the reason in words. It runs first, before a Gateway key is minted, so a refused create has
+            // nothing to revoke. A session in no factory skips it entirely.
+            var factoryMemoryDir = session.Factory is { } sessionFactory
+                ? PutFactoryMemoryInPlace(session, sessionFactory)
+                : null;
+
             // Inject CC_SESSION_ID so skills (e.g. /handover) can look up the session name, and
             // CC_DIRECTOR_ID so the session knows WHICH Director it belongs to (identity only).
             //
@@ -782,6 +807,11 @@ public sealed class SessionManager : IDisposable
             };
             if (!string.IsNullOrEmpty(DirectorId))
                 envVars["CC_DIRECTOR_ID"] = DirectorId;
+
+            // The notes folder travels in the environment, the way the preamble path does, so it reaches every
+            // agent kind - including those that get no start-up text - and the command line reads it too.
+            if (factoryMemoryDir is not null)
+                envVars[FactoryMemoryFiles.DirectoryEnvVar] = factoryMemoryDir;
 
             // Put the machine's installed cc-* tools first on the session's PATH.
             //
@@ -984,8 +1014,13 @@ public sealed class SessionManager : IDisposable
                 // that hook runs before this block - Pi's file is immutable after launch.
                 var piSeatParagraph = WorkflowSeatParagraph.Build(
                     session.WorkflowRunId, session.WorkflowId, session.WorkflowVersion, session.ExplicitRole);
+                // A factory session's Pi file also says where its notes are (phase 3a) - appended like the seat,
+                // because it is an operational fact about this session rather than our injectable prose.
+                var piOperationalFacts = string.Join("\n\n",
+                    new[] { piSeatParagraph, FactoryMemoryFiles.StartupLine(session) }.Where(p => !string.IsNullOrEmpty(p)));
                 var preambleFile = CcDirector.Core.Pi.PiPreambleWriter.WriteForSession(
-                    id.ToString(), piName, Environment.MachineName, workingDirectory, signedInUser, piSeatParagraph);
+                    id.ToString(), piName, Environment.MachineName, workingDirectory, signedInUser,
+                    piOperationalFacts.Length == 0 ? null : piOperationalFacts);
                 args = $"{args} --append-system-prompt \"{preambleFile}\"".Trim();
                 _log?.Invoke("Wrote Pi fleet preamble and passed it via --append-system-prompt.");
             }
@@ -1142,9 +1177,53 @@ public sealed class SessionManager : IDisposable
             // so it is safe whether or not we got as far as minting one.
             GatewaySessionCredentialRevoker?.Invoke(id);
 
+            // A factory session that did not start leaves no copy of its factory's notes behind.
+            if (session.Factory is not null)
+                FactoryMemoryFiles.DeleteFor(id, FactoryMemoryRoot);
+
             session.Dispose();
             throw;
         }
+    }
+
+    /// <summary>
+    /// Download a factory session's notes and write them to its folder in storage (Factory Memory mission, phase
+    /// 3a). Returns the folder. Throws <see cref="FactoryMemoryUnavailableException"/> - which ends the create - when
+    /// there is no way to download them, when the download fails, or when they cannot be written.
+    /// </summary>
+    private string PutFactoryMemoryInPlace(Session session, string factory)
+    {
+        FileLog.Write($"[SessionManager] PutFactoryMemoryInPlace: session={session.Id}, factory={factory}");
+        if (FactoryMemoryDownload is not { } download)
+            throw new FactoryMemoryUnavailableException(factory,
+                "this Director is not connected to a Gateway, so there is nowhere to download the memory from");
+
+        IReadOnlyList<Gateway.Contracts.FactoryMemoryNoteDto> notes;
+        try
+        {
+            notes = download(factory, session.Id);
+        }
+        catch (Exception ex) when (ex is not FactoryMemoryUnavailableException)
+        {
+            // Rethrown with the factory named, in a sentence a person can act on; the original is kept inside.
+            throw new FactoryMemoryUnavailableException(factory, ex.Message, ex);
+        }
+
+        string dir;
+        try
+        {
+            dir = FactoryMemoryFiles.Write(session.Id, factory, notes, DateTime.UtcNow, FactoryMemoryRoot);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new FactoryMemoryUnavailableException(factory,
+                $"it was downloaded but could not be written to {FactoryMemoryFiles.DirectoryFor(session.Id, FactoryMemoryRoot)}: {ex.Message}", ex);
+        }
+
+        session.FactoryMemoryDirectory = dir;
+        FileLog.Write($"[SessionManager] PutFactoryMemoryInPlace: session={session.Id}, factory={factory}, notes={notes.Count}, dir={dir}");
+        _log?.Invoke($"The memory of the factory '{factory}' is in place: {notes.Count} notes in {dir}.");
+        return dir;
     }
 
     /// <summary>
@@ -1492,6 +1571,11 @@ public sealed class SessionManager : IDisposable
             FleetNumberRelease?.Invoke(id);
 
             session.Dispose();
+
+            // The session's copy of its factory's notes goes with it (Factory Memory mission, phase 3a).
+            if (session.Factory is not null)
+                FactoryMemoryFiles.DeleteFor(id, FactoryMemoryRoot);
+
             _log?.Invoke($"Session {id} removed.");
             return true;
         }

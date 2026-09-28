@@ -78,6 +78,27 @@ public sealed class FactoryMemoryStore
     }
 
     /// <summary>
+    /// The factory's DELETED notes - the highest version of each name whose latest version is a delete (phases 3
+    /// and 4 review, finding 5).
+    ///
+    /// The ordinary listing hides these, by design: "what does this factory know" must be answerable at a glance.
+    /// But the owner's decision to let factory sessions delete at all rested on a delete being undoable, and until
+    /// this existed the only way to undo one was to remember the name of a note somebody else had removed. A delete
+    /// that can only be found by guessing is not really undoable.
+    /// </summary>
+    public IReadOnlyList<FactoryMemoryNoteEntity> ListDeleted(TenantId tenant, string factory)
+    {
+        if (!FactoryNames.TryFactory(factory, out factory, out _)) return Array.Empty<FactoryMemoryNoteEntity>();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return Current(ctx, factory).Where(n => n.Deleted)
+                .OrderBy(n => n.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
+    /// <summary>
     /// One note as it stands - its highest version - or null when the name has never been written. A DELETED
     /// note is returned rather than hidden, with <see cref="FactoryMemoryNoteEntity.Deleted"/> set, so the caller
     /// can say "deleted in version N by X, restorable in the Cockpit" instead of the less true "no such note".
