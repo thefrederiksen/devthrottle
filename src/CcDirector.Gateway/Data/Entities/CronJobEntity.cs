@@ -25,6 +25,11 @@ public sealed class CronJobEntity : TenantScopedEntity
     public string? RunAt { get; set; }
     public string TimeZoneId { get; set; } = "";
 
+    /// <summary>The factory this schedule's sessions are born into (Factory Memory mission, phase 1), or null.
+    /// See <see cref="Contracts.CronJobDto.Factory"/> for why writing it is limited to a person or a session
+    /// already in that factory.</summary>
+    public string? Factory { get; set; }
+
     /// <summary>The target machine. Mapped as an owned type serialized to a JSON column.</summary>
     public CronJobTarget Target { get; set; } = new();
 

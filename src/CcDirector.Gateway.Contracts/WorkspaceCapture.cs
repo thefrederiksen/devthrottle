@@ -144,6 +144,9 @@ public static class WorkspaceCapture
             OriginKind = string.IsNullOrWhiteSpace(s.OriginKind) ? null : s.OriginKind,
             WorkflowRunId = s.WorkflowRunId?.ToString(),
 
+            // The factory, captured so the restore can give it back (Factory Memory mission, phase 1).
+            Factory = string.IsNullOrWhiteSpace(s.Factory) ? null : s.Factory,
+
             // A live session does not carry the prompt it was started with, so a captured seat has no
             // opening prompt. Left null rather than filled with something plausible: a restart seeds each
             // seat from its own handover, and a cold start of a captured workspace needs a prompt written

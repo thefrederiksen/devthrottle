@@ -272,6 +272,13 @@ internal static class GatewayEndpoints
         // workspace seat by the start token the create carries. Null (a harness with no database) refuses any
         // create carrying a restore claim, because a start that cannot be recorded is a start that can happen twice.
         Workspaces.WorkspaceStore? workspaces = null,
+        // Factory Memory mission (phase 1): reads the CALLING session's own factory from its history row, so
+        // POST /directors/{id}/sessions can settle the new session's factory from the credential rather than the
+        // body. This is the door an unqualified `cc-devthrottle session spawn` uses.
+        //
+        // NULL FAILS CLOSED on that one field: a session key inherits no factory and is refused if it names one.
+        // Nothing else on this door changes.
+        Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null,
         // The Fleet Manager mission, step 7: handed the stop handler below, so the walkthrough's close runs this one
         // stop - its fold, its audit row, its answer - after deciding whether the session may be closed.
         SessionStopDoor? stopDoor = null,
@@ -4693,6 +4700,12 @@ internal static class GatewayEndpoints
             if (!SpawnOrigin.TryEstablish(req, ctx, spawnRoute, out var originError))
                 return originError!;
 
+            // WHICH FACTORY the new session belongs to (Factory Memory mission, phase 1), settled from the same
+            // credential, in the same one place, for the same reason: this door is the one an unqualified
+            // `cc-devthrottle session spawn` uses, so it is the door a session would join a factory through.
+            if (!SpawnFactory.TryEstablish(req, ctx, spawnRoute, sessionFactoryOf, out var factoryError))
+                return factoryError!;
+
             // A RESTORE'S CREATE (the Message Load mission, inspection 7, ruling 3) carries the token its Director
             // stored on the workspace seat before sending it. Only a Director restores, so only a Director's
             // credential may carry one - a claim from anyone else could mark a seat restored as a session of the
@@ -5362,6 +5375,12 @@ internal static class GatewayEndpoints
             if (sourceSession is null || sourceDirector is null)
                 return SessionUnavailable(ctx, tenantBoundary, pushedSessions, req.FromSessionId);
 
+            // WHETHER THE TARGET INHERITS THE SOURCE'S FACTORY (Factory Memory mission, phase 1). Settled once,
+            // here, for BOTH legs below - the same-Director proxy and the cross-Director spawn - because only
+            // this door sees the credential, and whatever the body said is overwritten. The rule itself lives
+            // beside the spawn-door rule, in SpawnFactory, where it can be tested as a function.
+            req.Factory = SpawnFactory.ForHandover(ctx, req.FromSessionId, sourceSession.Factory);
+
             DirectorDto? targetDirector = null;
             if (!string.IsNullOrEmpty(req.ToDirectorId)
                 && !string.Equals(req.ToDirectorId, sourceDirector.DirectorId, StringComparison.OrdinalIgnoreCase))
@@ -5438,6 +5457,11 @@ internal static class GatewayEndpoints
                 // being LEFT, which is a different relationship; putting it here would make the lineage
                 // tree quietly mean two things at once.
                 OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
+
+                // The factory settled above. The cross-Director leg builds its own create rather than proxying
+                // the handover request, so it has to carry the same answer - otherwise the same act of handing
+                // work over would keep membership on one Director and drop it between two.
+                Factory = req.Factory,
             };
             // Gateway Cleanup Phase 2: create the target over the tunnel (create verb, director-level), tunnel-first;
             // the dedicated 20s HTTP client is the fallback pre-cut (the tunnel unary has no 2s aggregate timeout).

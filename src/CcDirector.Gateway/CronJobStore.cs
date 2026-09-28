@@ -283,6 +283,7 @@ public sealed class CronJobStore
         entity.CronExpression = job.CronExpression;
         entity.RunAt = job.RunAt;
         entity.TimeZoneId = job.TimeZoneId;
+        entity.Factory = job.Factory;
         entity.Target = new CronJobTarget { Machine = job.Target.Machine };
         entity.Action = new CronJobAction
         {
@@ -305,6 +306,7 @@ public sealed class CronJobStore
         CronExpression = e.CronExpression,
         RunAt = e.RunAt,
         TimeZoneId = e.TimeZoneId,
+        Factory = e.Factory,
         Target = new CronJobTarget { Machine = e.Target.Machine },
         Action = new CronJobAction
         {

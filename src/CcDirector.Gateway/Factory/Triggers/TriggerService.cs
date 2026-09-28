@@ -475,6 +475,12 @@ public sealed class TriggerService
             AutoDismiss = true,
             Origin = SessionOriginKinds.Schedule,
             OriginSurface = SessionOriginSurfaces.Trigger,
+            // THE SESSION IS BORN INTO THE TRIGGER'S FACTORY (Factory Memory mission, phase 1). This is one of the
+            // two ways membership begins - the other is a person naming a factory by hand - and it is the way the
+            // Website Factory's Sender gets it. The Gateway sets it here from the trigger row rather than letting
+            // the create body carry it, which is why naming a trigger's factory is itself limited to a person or a
+            // session already in that factory: without that limit, writing a trigger would BE joining a factory.
+            Factory = trigger.Factory,
         });
     }
 

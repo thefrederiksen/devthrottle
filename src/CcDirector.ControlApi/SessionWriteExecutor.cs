@@ -563,9 +563,19 @@ internal sealed class SessionWriteExecutor : ISessionCommandArea
                 // The SOURCE session is deliberately not recorded as the parent. ParentSessionId means
                 // "the session that asked for this one"; in a handover the source is the session being
                 // LEFT, and putting it here would make the lineage tree mean two things at once.
+                // The FACTORY the Gateway settled for this handover (Factory Memory mission, phase 1), stamped in
+                // the same pre-launch window as the origin. The Director does not decide it and does not check
+                // it: whether the target inherits the source's membership depends on who asked, and only the
+                // Gateway saw the credential. Null means none, which is what an unrelated session's handover
+                // produces.
                 target = sessionManager.CreateSession(repo, agent, userArgs: null, SessionBackendType.ConPty, resumeSessionId: null,
-                    beforeLaunch: s => s.StampOrigin(new SessionOrigin(
-                        SessionOriginKinds.Normalize(source.OriginKind) ?? SessionOriginKinds.Unknown, SessionOriginSurfaces.Api)));
+                    beforeLaunch: s =>
+                    {
+                        s.StampOrigin(new SessionOrigin(
+                            SessionOriginKinds.Normalize(source.OriginKind) ?? SessionOriginKinds.Unknown,
+                            SessionOriginSurfaces.Api));
+                        s.StampFactory(req.Factory);
+                    });
             }
             catch (Exception ex)
             {

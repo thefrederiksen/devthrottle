@@ -180,7 +180,13 @@ internal static class MachineEndpoints
         // busy Director idle, or a behind one current.
         DirectorRegistry? directors = null,
         Streaming.PushedSessionStore? pushedSessions = null,
-        NewestReleaseWatch? newestRelease = null)
+        NewestReleaseWatch? newestRelease = null,
+        // Factory Memory mission (phase 1): reads the CALLING session's own factory from its history row, so
+        // the spawn door can settle the new session's factory from the credential instead of the body.
+        //
+        // NULL FAILS CLOSED, and only this field is affected: a session key then inherits no factory and is
+        // refused if it names one. A Gateway that cannot read membership must not be one that hands it out.
+        Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null)
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
 
@@ -188,7 +194,7 @@ internal static class MachineEndpoints
 
         MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
         MapMachineRoutes(outer.MapGroup(MachinePrefix), launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections,
-            directors, pushedSessions, newestRelease);
+            directors, pushedSessions, newestRelease, sessionFactoryOf);
     }
 
     /// <summary>The calling tenant, resolved from the authenticated device key. Null means no tenant is
@@ -275,7 +281,8 @@ internal static class MachineEndpoints
         Streaming.LauncherConnectionRegistry? launcherConnections,
         DirectorRegistry? directors,
         Streaming.PushedSessionStore? pushedSessions,
-        NewestReleaseWatch? newestRelease)
+        NewestReleaseWatch? newestRelease,
+        Func<string, History.SessionFactoryLookup>? sessionFactoryOf)
     {
         // ===== Machine relay surface =====
         // The target machine name is in the path; the caller's TENANT comes from the authenticated key, and
@@ -452,6 +459,12 @@ internal static class MachineEndpoints
             var route = $"POST /machines/{machine}/sessions";
             if (!SpawnOrigin.TryEstablish(req, ctx, route, out var originError))
                 return originError!;
+
+            // WHICH FACTORY the new session belongs to, settled from the same credential in the same one place
+            // (Factory Memory mission, phase 1). It sits beside the origin stamp because it is the same rule
+            // about the same thing: a fact that decides access may not be chosen by the caller.
+            if (!SpawnFactory.TryEstablish(req, ctx, route, sessionFactoryOf, out var factoryError))
+                return factoryError!;
 
             // The mission NAME and the workflow SEAT, resolved in the ONE place both spawn doors share
             // (issue #2629 - this route and POST /directors/{id}/sessions had drifted, and the Director

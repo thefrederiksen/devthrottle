@@ -197,6 +197,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Factory")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("LastFiredUtc")
                         .HasColumnType("TEXT");
 
@@ -1562,6 +1565,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("EndingLabel")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Factory")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("FirstPromptLine")

@@ -299,6 +299,56 @@ public sealed class Session : IDisposable
     /// </summary>
     public Guid? ParentSessionId { get; internal set; }
 
+    /// <summary>
+    /// WHICH FACTORY this session belongs to (Factory Memory mission, phase 1), or null when it belongs to
+    /// none. A birth fact like the three above, and the one that decides access: a factory's memory may be
+    /// read and written only by that factory's own sessions.
+    ///
+    /// SETTLED BY THE GATEWAY, STAMPED HERE. The Director never decides it - a create reaches a Director only
+    /// over the Gateway tunnel, or in-process from the desktop, which is a person and names no factory - so
+    /// this always holds what the Gateway established from the caller's credential.
+    ///
+    /// IT TRAVELS WITH THE SEAT, which is the whole reason it is a field here rather than a lookup through
+    /// <see cref="ParentSessionId"/>. Three paths build a NEW session for an existing seat - a Director
+    /// restart, a drain and restore, a Smart Restart reopen - and in two of them the parent is absent or is
+    /// the restoring session rather than the original. A factory agent that lived through one of those would
+    /// come back outside its factory, unable to read the memory it had a moment earlier.
+    /// </summary>
+    public string? Factory { get; internal set; }
+
+    /// <summary>
+    /// Stamp the factory once, before launch. A birth fact does not move: a second stamp naming a DIFFERENT
+    /// factory is refused and logged rather than applied, because the only ways that could happen are a bug
+    /// and an attempt, and both should be visible instead of silently changing who may write a factory's
+    /// memory. Re-stamping the same value (the restore path replaying it) is fine.
+    /// </summary>
+    public void StampFactory(string? factory)
+    {
+        var settled = string.IsNullOrWhiteSpace(factory) ? null : factory.Trim();
+        if (Factory is not null && settled is not null)
+        {
+            if (!string.Equals(Factory, settled, StringComparison.OrdinalIgnoreCase))
+            {
+                FileLog.Write($"[Session] {Id} REFUSED a second factory stamp: it is in '{Factory}' and '{settled}' was offered");
+                return;
+            }
+            // The same factory said again - the restore path replaying the stamp. Accepted, and the FIRST
+            // spelling is kept: the stored spelling is the Gateway's, and a later caller's capitalisation is not
+            // a reason to rewrite a birth fact.
+            FileLog.Write($"[Session] {Id} factory re-stamped unchanged: {Factory}");
+            return;
+        }
+        if (settled is null && Factory is not null)
+        {
+            // A restore that lost the value must not blank a live membership either - the same reasoning as
+            // the write-once column on the Gateway's history row.
+            FileLog.Write($"[Session] {Id} kept factory '{Factory}': a stamp of nothing does not clear a birth fact");
+            return;
+        }
+        Factory = settled;
+        FileLog.Write($"[Session] {Id} factory stamped: {Factory ?? "(none)"}");
+    }
+
     /// <summary>The three birth facts read back together. Stamped through
     /// <see cref="StampOrigin"/>.</summary>
     public SessionOrigin Origin => new(OriginKind, OriginSurface, ParentSessionId);

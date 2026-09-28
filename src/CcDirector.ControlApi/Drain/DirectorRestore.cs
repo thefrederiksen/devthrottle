@@ -747,6 +747,13 @@ public sealed class DirectorRestore
             // slot named without its lease would look like a seat that had been restored properly
             // while close silently did nothing.
             PooledWorktree = seat.PooledWorktree is { } pooled && pooled.IsComplete() ? pooled : null,
+
+            // THE SEAT'S FACTORY, HANDED BACK (Factory Memory mission, phase 1). A restore is the seat
+            // continuing, not a new session that happens to look like it, so its membership continues too.
+            // This is one of the three paths the review found losing it: without this line a restored factory
+            // agent is refused by its own factory's memory the next time it writes. The Gateway keeps the body
+            // as it arrives for a Director's credential, which is exactly what a restore needs.
+            Factory = seat.Factory,
         };
         if (Guid.TryParse(seat.Mission?.Id, out var missionId)) req.MissionId = missionId;
         if (Guid.TryParse(seat.WorkflowRunId, out var runId)) req.WorkflowRunId = runId;

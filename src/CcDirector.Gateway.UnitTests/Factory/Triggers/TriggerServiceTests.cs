@@ -130,6 +130,28 @@ public sealed class TriggerServiceTests : IDisposable
         Assert.Equal(run.SessionId, service.Store.Find(Tenant, t.Id)!.LastSessionId);
     }
 
+    /// <summary>
+    /// THE STARTED SESSION IS BORN INTO THE TRIGGER'S FACTORY (Factory Memory mission, phase 1; the mission
+    /// document's section 7). This is one of the only two ways membership begins, and it is how the Website
+    /// Factory's Sender gets it.
+    ///
+    /// The Gateway states it here rather than letting the create body carry it, which is why naming a trigger's
+    /// factory is itself limited to a person or a session already in that factory: without that limit, writing a
+    /// trigger would BE joining a factory, since this line then hands the started session membership.
+    /// </summary>
+    [Fact]
+    [Trait("Category", "FactoryMemory")]
+    public async Task AStartedSession_IsBornIntoTheTriggersFactory()
+    {
+        var service = Service();
+        var t = Add(service);
+
+        await Report(service, t, Counted(2));
+
+        var (_, request) = Assert.Single(_starts);
+        Assert.Equal("website-factory", request.Factory);
+    }
+
     [Fact]
     public async Task ASecondCheckWhileThatSessionLives_IsSkippedRunning_AndAfterItEnds_ANewOneStarts()
     {

@@ -157,6 +157,13 @@ internal static class FleetManagerPlacementEndpoints
                 req.ControllerSessionId = SpawnOrigin.UserOwned;
             if (!SpawnOrigin.TryEstablish(req, ctx, route, out _))
                 throw new InvalidOperationException($"{route}: the spawn origin was refused for a Fleet Manager start");
+            // THE FLEET MANAGER IS IN NO FACTORY, AND THAT IS SET RATHER THAN INFERRED (review finding 5). The
+            // earlier version called the spawn-door helper here and said in a comment that it "settles to none in
+            // practice" - which was not true: a RAISED session key reaches this door, and if that session were in
+            // a factory the helper would faithfully stamp its factory onto the owner's own Fleet Manager, after
+            // which every session the Fleet Manager started would inherit it. The Fleet Manager answers to the
+            // owner and to nobody's factory, so the answer is none for every caller and there is nothing to read.
+            req.Factory = null;
         };
 
     /// <summary>A second line behind <see cref="SessionKeyGuard"/>: a session key never reaches a start - unless the

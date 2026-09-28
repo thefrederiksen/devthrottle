@@ -1757,6 +1757,9 @@ public sealed class SessionManager : IDisposable
                 OriginKind = s.OriginKind,
                 OriginSurface = s.OriginSurface,
                 ParentSessionId = s.ParentSessionId,
+                // The factory is a birth fact on the same terms (Factory Memory mission, phase 1): lose it in a
+                // snapshot and the seat comes back unable to read the memory it was written to serve.
+                Factory = s.Factory,
                 IsAutoNamed = s.IsAutoNamed,
                 MissionId = s.MissionId,
                 MissionName = s.MissionName,
@@ -1849,6 +1852,9 @@ public sealed class SessionManager : IDisposable
         // existed carries nulls, and the composer turns those into the honest "unknown" rather than
         // leaving the session claiming an origin it never had.
         session.StampOrigin(SessionOrigin.Compose(ps.OriginKind, ps.OriginSurface, ps.ParentSessionId));
+        // The factory comes back with the seat, so a plain Director restart keeps a factory agent inside its
+        // factory. A snapshot written before the field existed carries null, which restores as no factory.
+        session.StampFactory(ps.Factory);
         session.IsAutoNamed = ps.IsAutoNamed;
         session.MissionId = ps.MissionId;
         session.MissionName = ps.MissionName;

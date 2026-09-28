@@ -329,6 +329,19 @@ public sealed class WorkspaceSeat
     /// <summary>The workflow run this seat is seated on, passed to --workflow-run.</summary>
     public string? WorkflowRunId { get; set; }
 
+    /// <summary>
+    /// The FACTORY this seat belongs to (Factory Memory mission, phase 1), or null for none. Carried on the
+    /// seat so a restore and a Smart Restart reopen can hand the membership back: both build a NEW session for
+    /// this seat, and without it a factory agent would come back outside its factory, unable to read the memory
+    /// it had a moment earlier - which for a daily Scout that runs for hours is ordinary operation, not an edge
+    /// case (review finding 2).
+    ///
+    /// AN OBSERVATION, NOT A SETTING. The Gateway restores it from its stored copy on every write, like the
+    /// pooled worktree beside it, because an unrelated session key can write a workspace document: a writer who
+    /// could set this could aim a restore at a factory of its choosing and be handed that factory's memory.
+    /// </summary>
+    public string? Factory { get; set; }
+
     /// <summary>The prompt this seat is started with when the workspace is started COLD. Null when the
     /// seat is started SEEDED instead, where the seed points at <see cref="HandoverPath"/>.
     ///

@@ -175,6 +175,34 @@ public sealed class NewSessionRequest
     public string? ParentSessionId { get; set; }
 
     /// <summary>
+    /// WHICH FACTORY the new session belongs to (Factory Memory mission, phase 1), or null for a session
+    /// in no factory. A factory's memory is readable and writable only by that factory's own sessions, and
+    /// this field is the whole basis of that decision - so it is SETTLED AT THE SPAWN DOORS from the
+    /// verified credential and never taken from the body, exactly as <see cref="Origin"/> and
+    /// <see cref="ParentSessionId"/> are. <c>SpawnFactory.TryEstablish</c> is the one place that does it:
+    ///
+    ///  - A SESSION key: the factory is the CALLER'S OWN recorded factory, read from its history row. A
+    ///    stated factory that differs is REFUSED rather than dropped. This is how a child, a grandchild
+    ///    and every level below inherit membership, and it is why a session cannot put itself in a
+    ///    factory by asking.
+    ///  - A PERSON'S device key (the Cockpit or the phone): the stated factory is KEPT. A person may put a
+    ///    session into a factory by hand; there is no ambiguity about who is asking.
+    ///  - A DIRECTOR key (a relay, a drain/restore, a Smart Restart reopen): the body is kept as it
+    ///    arrives, the same line the parent link already draws. A restore MUST be able to hand a seat its
+    ///    factory back, and a create reaches a Director only over the Gateway tunnel or in-process from
+    ///    the desktop, so the Director only ever stamps what the Gateway settled.
+    ///
+    /// The two starters set it from their own record: a trigger's session gets the trigger's factory, a
+    /// schedule's session gets the schedule's. Naming or changing either one's factory is limited to a
+    /// person or a session already in that factory - without that rule a session could join a factory by
+    /// creating a trigger for it, which is membership by one hop (review finding 1).
+    ///
+    /// Lower-case factory id, as a factory is spelled everywhere else in the product (e.g.
+    /// <c>website-factory</c>); it is not a Guid and there is no factory record to resolve it against yet.
+    /// </summary>
+    public string? Factory { get; set; }
+
+    /// <summary>
     /// Optional EXPLICIT role for the new session (automatic session roles). One of the
     /// <see cref="SessionRoles"/> values (Standalone / Manager / Worker / Architect); case-insensitive. An
     /// unknown value is REJECTED as a bad request (so a mistyped --role never silently drops). When set it

@@ -88,6 +88,10 @@ public sealed class GatewayHostBootSmokeTests
     // The fleet message's unreachable-notice mark (issue 3289): a sender is told once when its doorbell cannot ring.
     private const string UnreachableNoticePostgresMigration = "20260927212206_AddFleetMessageUnreachableNotice";
     private const string UnreachableNoticeSqliteMigration = "20260927212143_AddFleetMessageUnreachableNotice";
+    // Factory Memory mission, phase 1: which factory a session belongs to, and the factory a schedule's
+    // sessions are born into.
+    private const string SessionAndScheduleFactoryPostgresMigration = "20260928123825_AddSessionAndScheduleFactory";
+    private const string SessionAndScheduleFactorySqliteMigration = "20260928123819_AddSessionAndScheduleFactory";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -141,7 +145,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FactoryActivityIndexesPostgresMigration, migrations);
         Assert.Contains(TriggerStartNamePostgresMigration, migrations);
         Assert.Contains(UnreachableNoticePostgresMigration, migrations);
-        Assert.Equal(UnreachableNoticePostgresMigration, migrations[^1]);
+        Assert.Contains(SessionAndScheduleFactoryPostgresMigration, migrations);
+        Assert.Equal(SessionAndScheduleFactoryPostgresMigration, migrations[^1]);
     }
 
     /// <summary>
@@ -193,7 +198,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FactoryActivityIndexesSqliteMigration, sqliteAll);
         Assert.Contains(TriggerStartNameSqliteMigration, sqliteAll);
         Assert.Contains(UnreachableNoticeSqliteMigration, sqliteAll);
-        Assert.Equal(UnreachableNoticeSqliteMigration, sqliteAll[^1]);
+        Assert.Contains(SessionAndScheduleFactorySqliteMigration, sqliteAll);
+        Assert.Equal(SessionAndScheduleFactorySqliteMigration, sqliteAll[^1]);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
@@ -289,8 +295,9 @@ public sealed class GatewayHostBootSmokeTests
             FactoryTriggersSqliteMigration,
             FactoryActivityIndexesSqliteMigration,
             TriggerStartNameSqliteMigration,
-            UnreachableNoticeSqliteMigration);
-        Assert.Equal(UnreachableNoticeSqliteMigration, applied[^1]);
+            UnreachableNoticeSqliteMigration,
+            SessionAndScheduleFactorySqliteMigration);
+        Assert.Equal(SessionAndScheduleFactorySqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
@@ -339,8 +346,9 @@ public sealed class GatewayHostBootSmokeTests
             FactoryTriggersPostgresMigration,
             FactoryActivityIndexesPostgresMigration,
             TriggerStartNamePostgresMigration,
-            UnreachableNoticePostgresMigration);
-        Assert.Equal(UnreachableNoticePostgresMigration, migrations[^1]);
+            UnreachableNoticePostgresMigration,
+            SessionAndScheduleFactoryPostgresMigration);
+        Assert.Equal(SessionAndScheduleFactoryPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }
