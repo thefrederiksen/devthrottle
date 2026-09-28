@@ -115,6 +115,7 @@ public sealed class TurnVerdictTraceTests : IDisposable
     public async Task AnAcceptedReading_LeavesOneTrace_CarryingBothModelCalls()
     {
         var env = Env();
+        env.VoiceSession = _ => true;   // Call B runs only for a voice session (owner ruling, 28 September 2026)
         // SAID EXPLICITLY, because the assertion below is on the narrated WORDS. The double's default narrator
         // echoes a value the canned judge builders share across the whole test process, so a sibling class judging
         // a different stop can decide what this one hears - which is a flake when it disagrees and, worse, a pass

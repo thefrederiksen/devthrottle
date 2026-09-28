@@ -1266,7 +1266,8 @@ public sealed class TurnVerdictService : IDisposable
             // refused record, and a reading that could not be read says so rather than half-speaking.
             var narration = record.Failed
                 ? new NarrationCallResult(null, null, "", 0)
-                : await NarrateForReadingAsync(tenant, sid, record, new Lazy<TurnVerdictPackage>(package), ct)
+                : await NarrateForReadingAsync(tenant, sid, record, new Lazy<TurnVerdictPackage>(package),
+                    askedByPerson: trigger == TurnVerdictTrigger.OnDemand || flight.AskedOnDemand, ct)
                     .ConfigureAwait(false);
             if (narration.Spoken is { Length: > 0 } words)
             {
@@ -1616,10 +1617,15 @@ public sealed class TurnVerdictService : IDisposable
     /// never throws: a stop that is owed none, or whose call failed, comes back with no words, and the record is
     /// stored without a narration.
     ///
-    /// WHO IS OWED ONE: every stop of a session that answers to the USER. A session another LIVE session owns - a
-    /// Worker under a Manager - is read by that owner rather than by the user, and gets none, exactly as before.
-    /// A voice session is no longer left to the voice path: that path made the same call a second time, against an
-    /// already-published record, and that second call is the seam this ruling removes. It now finds the words
+    /// WHO IS OWED ONE: a VOICE SESSION, or a reading a PERSON asked for (the explain button, a spoken reply). The
+    /// owner's ruling of 28 September 2026 replaced "every stop of a session that answers to the user": on the
+    /// owner's own fleet that ran the narration call about 430 times a day, three in four of them for sessions nobody
+    /// was listening to, at about 18,500 characters of prompt each - and the row's colour waited for it (4 seconds
+    /// typically, 19 at the ninety-fifth percentile). A session that is not a voice session now shows its plain state
+    /// label and gets its words only when a person asks for them.
+    ///
+    /// A session another LIVE session owns - a Worker under a Manager - is read by that owner rather than by the
+    /// user, and gets none, exactly as before. The voice path does not make a second call: it finds the words
     /// already on the record and speaks them.
     ///
     /// IT GETS ONE IMMEDIATE SECOND ATTEMPT, and the reason is that this call changed meaning under it. This leg
@@ -1638,11 +1644,18 @@ public sealed class TurnVerdictService : IDisposable
     /// question. After both attempts, only a PERSON pressing the button buys another.
     /// </summary>
     private async Task<NarrationCallResult> NarrateForReadingAsync(
-        TenantId tenant, string sid, TurnVerdictDto record, Lazy<TurnVerdictPackage> package, CancellationToken ct)
+        TenantId tenant, string sid, TurnVerdictDto record, Lazy<TurnVerdictPackage> package, bool askedByPerson,
+        CancellationToken ct)
     {
         if (_env.ReadSessionState(tenant, sid).Held)
         {
             FileLog.Write($"[TurnVerdictService] narration not owed: sid={sid} verdict={record.VerdictId} - a live session owns this one and reads it");
+            return new NarrationCallResult(null, null, "", 0);
+        }
+        // A person asked: their own request, or an explain that joined this reading before it decided its attempts.
+        if (!askedByPerson && !_env.IsVoiceSession(tenant, sid))
+        {
+            FileLog.Write($"[TurnVerdictService] narration not owed: sid={sid} verdict={record.VerdictId} - not a voice session and nobody asked");
             return new NarrationCallResult(null, null, "", 0);
         }
         // The claim still exists so that the phone's explain button and the voice path cannot ask a second time for

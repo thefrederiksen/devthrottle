@@ -305,6 +305,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
     public async Task Sweep_ANewStopWithTheSameFinalWords_IsRead_EvenWhenTheWorkingEdgeWasMissed()
     {
         var env = Env();
+        env.VoiceSession = _ => true;   // Call B runs only for a voice session (owner ruling, 28 September 2026)
         var service = new TurnVerdictService(env);
         var first = await service.StartTurnEnd(Signal());
         Assert.Equal(1, env.JudgeCalls);
@@ -372,6 +373,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
     public async Task Sweep_ANewGenerationWithNoTimesAndTheSameFinalWords_IsRead_EvenWhenTheWorkingEdgeWasMissed()
     {
         var env = Env();
+        env.VoiceSession = _ => true;   // Call B runs only for a voice session (owner ruling, 28 September 2026)
         env.Conversation = _ => NoTimesConversation("grok-chat-a");
         var service = new TurnVerdictService(env);
         var first = await service.StartTurnEnd(Signal());
@@ -1067,6 +1069,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
     public async Task ThePromptTheNarrationCallIsAsked_CarriesTheAccountsLanguage_AndTheJudgesDoesNot()
     {
         var env = Env();
+        env.VoiceSession = _ => true;   // Call B runs only for a voice session (owner ruling, 28 September 2026)
         env.LanguageValue = SpokenLanguages.French;
         await new TurnVerdictService(env).StartTurnEnd(Signal());
 

@@ -39,6 +39,12 @@ Every record says which step decided it and why (`DecidedBy`, `DecisionReason`),
 **Gone from Call A:** the label, what the agent recommends, the menu and the options, and `InventedMenuCheck`,
 which had nothing left to correct. A record stored under v3 keeps its fields and still renders.
 
+**Call B runs only for a voice session, or when a person asks (owner ruling, 28 September 2026).** It used to run
+at every stop of a session that answers to the owner; on his fleet that was about 430 calls a day, three in four for
+sessions nobody was listening to, and every row's colour waited for it. A session that is not a voice session now
+gets the colour only: its row shows the plain state label, and its words are made when a person presses explain or
+when voice is switched on for that stop.
+
 **Call B writes the label and the narration, and nothing else (phase 4).** `NarrationCall.BuildPrompt` is given
 the reply, the recent turns, the screen, the account's narration rules and language, Call A's word, and - when a
 code step decided - that step's reason. It is no longer given a menu, options, a recommendation or a "keys or

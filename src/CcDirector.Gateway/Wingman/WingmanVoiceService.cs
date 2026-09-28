@@ -1455,6 +1455,10 @@ public sealed class WingmanVoiceService
             // the naming and false of the pair.
             // A SAVED NARRATION IS SPOKEN AS IT IS (owner ruling, 2026-09-17): it was written for this stop by the narration
             // call and already ends with its own open-the-session sentence on a menu, so the suffix is not added to it.
+            // A STOP READ BEFORE THIS SESSION WAS A VOICE SESSION HAS NO WORDS YET: voice was switched on after it was
+            // read, the screen is unchanged, and the stored reading was reused. Its words are made here, once.
+            verdict = await WordsForUnnarratedReadingAsync(tenant, sid, outcome, verdict, personAsked: false, ct).ConfigureAwait(false);
+
             var saved = HasSavedNarration(verdict);
             var spoken = saved
                 ? Speech.SpokenForEar.Assemble(_sessionTitleResolver?.Invoke(tenant, sid), verdict.Narration!)
@@ -1515,6 +1519,46 @@ public sealed class WingmanVoiceService
             return true;
         }
         finally { if (showReadingWindow) EndGenerating(tenant, sid); }
+    }
+
+    /// <summary>
+    /// THE WORDS FOR A READING THAT WAS NEVER NARRATED (owner ruling, 28 September 2026: the narration call runs inside a
+    /// reading only for a voice session or a person's request). Such a reading is stored with no words and no narration
+    /// failure. When voice is switched on for that stop, or a person asks for it, the words are made here - once, under
+    /// the same claim every narration path takes, so two paths never pay for the same call. A call that fails keeps its
+    /// claim, so the idle sweep does not ask again on every pass; a PERSON asking gives a spent claim back first, which is
+    /// the rule the explain button has always followed.
+    ///
+    /// Returns the verdict to speak: a copy carrying the words when they were made and saved, else the one handed in.
+    /// A reading that already has words, whose narration was attempted and failed, or that failed itself, is returned
+    /// untouched - those have their own paths.
+    /// </summary>
+    private async Task<TurnVerdictDto> WordsForUnnarratedReadingAsync(
+        TenantId tenant, string sid, TurnVerdictOutcome outcome, TurnVerdictDto verdict, bool personAsked, CancellationToken ct)
+    {
+        if (HasSavedNarration(verdict) || verdict.NarrationFailureReason is not null
+            || !string.IsNullOrWhiteSpace(verdict.Spoken) || verdict.Failed)
+            return verdict;
+        var verdicts = RequireVerdicts();
+        if (personAsked && !verdicts.ReleaseNarrationClaimForRequest(tenant, sid, verdict.VerdictId)) return verdict;
+        if (!verdicts.TryClaimNarration(tenant, sid, verdict.VerdictId)) return verdict;
+
+        FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: the reading carries no words - making its narration now (personAsked={personAsked})");
+        NarrationCallResult written;
+        try { written = await verdicts.NarrateAsync(tenant, sid, outcome, ct).ConfigureAwait(false); }
+        finally { verdicts.NarrationCallFinished(tenant, sid, verdict.VerdictId); }
+        if (written.Spoken is not { Length: > 0 } words
+            || !verdicts.SaveNarration(tenant, sid, verdict.VerdictId, words, written.Label))
+        {
+            FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: that narration call gave no words ({written.FailureDetail})");
+            return verdict;
+        }
+        var narrated = TurnVerdictDtoCopy.Of(verdict);
+        narrated.Narration = words;
+        narrated.Summary = words;
+        narrated.Spoken = words;
+        if (!string.IsNullOrWhiteSpace(written.Label)) narrated.Label = written.Label;
+        return narrated;
     }
 
     /// <summary>True when the narration call's text is already saved on this verdict, so it is spoken as it is.</summary>
@@ -1774,6 +1818,9 @@ public sealed class WingmanVoiceService
 
             var verdict = outcome.Verdict!;
             SetNothingToNarrate(tenant, sid, false);
+            // A PERSON ASKED, and a reading of a session that is not a voice session carries no words (owner ruling,
+            // 28 September 2026): make them now, while the person waits, so what they asked for is what they get.
+            verdict = await WordsForUnnarratedReadingAsync(tenant, sid, outcome, verdict, personAsked: true, ct).ConfigureAwait(false);
             string spokenNow;
             if (!ShouldRegenerate(tenant, sid, verdict.VerdictId) && StateFor(tenant).Ready.TryGetValue(sid, out var current))
             {

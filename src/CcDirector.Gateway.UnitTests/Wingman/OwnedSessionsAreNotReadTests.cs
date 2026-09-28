@@ -237,8 +237,9 @@ public sealed class OwnedSessionsAreNotReadTests : IDisposable
     public async Task TurnEnd_SessionTheOwnerOwns_StillGetsTheVerdictCallAndTheNarrationCall(string sid)
     {
         // THE NEGATIVE CONTROL: the same fixture, a session nobody else owns. Without it, a Wingman switched off
-        // altogether would pass every test above.
-        var (seat, env, _) = Seat();
+        // altogether would pass every test above. A voice session, because only a voice session's reading makes the
+        // narration call (owner ruling, 28 September 2026).
+        var (seat, env, _) = Seat(voice: true);
 
         var outcome = await seat.StartTurnEnd(Signal(sid));
 
