@@ -372,7 +372,7 @@ public sealed class WingmanNowFoldTests
         var carryingOn = Verdict(TurnVerdictVocabulary.ContinuesAlone,
             label: "Waiting for its Worker to finish the test run");
         Assert.Equal("Waiting for its Worker to finish the test run",
-            Fold(Row(carryingOn, colour: "purple", label: "Carrying on"), carryingOn).Headline);
+            Fold(Row(carryingOn, colour: "cyan", label: "Carrying on"), carryingOn).Headline);
     }
 
     /// <summary>
@@ -434,11 +434,11 @@ public sealed class WingmanNowFoldTests
     {
         var verdict = Verdict(TurnVerdictVocabulary.ContinuesAlone,
             label: "Waiting for its Worker to finish the test run");
-        var now = Fold(Row(verdict, colour: "purple", label: "Carrying on"), verdict);
+        var now = Fold(Row(verdict, colour: "cyan", label: "Carrying on"), verdict);
 
         Assert.Equal(WingmanNowStates.CarryingOn, now.State);
         Assert.Equal("Carrying on", now.PillText);
-        Assert.Equal("purple", now.PillColour);
+        Assert.Equal("cyan", now.PillColour);
         Assert.Equal("Waiting for its Worker to finish the test run", now.Headline);
         Assert.Equal("Nothing needed from you", now.CalmCard!.Heading);
         Assert.Null(now.ReplyPlaceholder);
@@ -447,13 +447,13 @@ public sealed class WingmanNowFoldTests
 
     /// <summary>
     /// THE CARRYING-ON CARD PROMISES NOTHING. The carrying-on clock was removed (owner ruling, 2026-09-28): nothing
-    /// turns a purple row red on a timer any more, so the card names no deadline and threatens no red.
+    /// turns a calm row red on a timer any more, so the card names no deadline and threatens no red.
     /// </summary>
     [Fact]
     public void The_carrying_on_card_promises_no_deadline()
     {
         var verdict = Verdict(TurnVerdictVocabulary.ContinuesAlone);
-        var now = Fold(Row(verdict, colour: "purple", label: "Carrying on"), verdict);
+        var now = Fold(Row(verdict, colour: "cyan", label: "Carrying on"), verdict);
 
         Assert.Equal("Nothing needed from you", now.CalmCard!.Heading);
         Assert.Null(now.CalmCard.Body);
@@ -483,8 +483,8 @@ public sealed class WingmanNowFoldTests
     }
 
     /// <summary>
-    /// THE CALM CARD'S COLOUR IS THE GATEWAY'S, not a branch on the state name in the client. The approved mockup
-    /// tints the finished work and the report cyan and carrying on purple; a client that worked that out for itself
+    /// THE CALM CARD'S COLOUR IS THE GATEWAY'S, not a branch on the state name in the client. Every calm card is cyan
+    /// since the simpler session colours ruling (2026-09-28) removed purple; a client that worked that out for itself
     /// from <c>state</c> would be deciding what a state means, which is the one thing the Now view may not do.
     /// </summary>
     [Fact]
@@ -497,8 +497,8 @@ public sealed class WingmanNowFoldTests
         Assert.Equal(WingmanNowCardTones.Cyan, Fold(Row(done, colour: "cyan", label: "Done"), done).CalmCard!.Tone);
         Assert.Equal(WingmanNowCardTones.Cyan,
             Fold(Row(report, colour: "cyan", label: "Report"), report).CalmCard!.Tone);
-        Assert.Equal(WingmanNowCardTones.Purple,
-            Fold(Row(carryingOn, colour: "purple", label: "Carrying on"), carryingOn).CalmCard!.Tone);
+        Assert.Equal(WingmanNowCardTones.Cyan,
+            Fold(Row(carryingOn, colour: "cyan", label: "Carrying on"), carryingOn).CalmCard!.Tone);
     }
 
     /// <summary>A stop that needs him has no calm card at all, so there is no colour to name either.</summary>
@@ -1970,7 +1970,7 @@ public sealed class WingmanNowFoldTests
             Fold(Numbered(Row(needsYou)), needsYou),
             Fold(Numbered(Row(done, colour: "cyan", label: "Done")), done),
             Fold(Numbered(Row(report, colour: "cyan", label: "Telling you")), report),
-            Fold(Numbered(Row(carryingOn, colour: "purple", label: "Carrying on")), carryingOn),
+            Fold(Numbered(Row(carryingOn, colour: "cyan", label: "Carrying on")), carryingOn),
             Fold(Numbered(WorkingRow()), null),
             FoldWith(Numbered(ReadingRow()), NoHistory),
             FoldWith(Numbered(FailedRow()), NoHistory),
@@ -2023,7 +2023,7 @@ public sealed class WingmanNowFoldTests
         // Carrying on is now the one state with no box: it is about to work again on its own, so a box there
         // invites him to interrupt it over a question nobody asked.
         var carryingOn = Verdict(TurnVerdictVocabulary.ContinuesAlone);
-        var carryingOnView = Fold(Row(carryingOn, colour: "purple", label: "Carrying on"), carryingOn);
+        var carryingOnView = Fold(Row(carryingOn, colour: "cyan", label: "Carrying on"), carryingOn);
         Assert.Null(carryingOnView.ReplyPlaceholder);
         Assert.Null(carryingOnView.ReplyHint);
     }

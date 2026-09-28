@@ -131,14 +131,14 @@ public sealed class WingmanNowWireSampleTests
             Asked("Carry on with the next slice."), NowUtc: Stopped.AddMinutes(7)));
     }
 
-    /// <summary>A session that said it would carry on by itself: the calm card in purple, heading only - there is no
+    /// <summary>A session that said it would carry on by itself: the calm card in cyan, heading only - there is no
     /// deadline on carrying on.</summary>
     private static WingmanNowResponse CarryingOn()
     {
         var verdict = Verdict(TurnVerdictVocabulary.ContinuesAlone,
             label: "Waiting for its Worker to finish the test run");
         return WingmanNowFold.Fold(new WingmanNowInputs(
-            Sid, Row(verdict, colour: "purple", hex: "#a855f7", label: "Carrying on"),
+            Sid, Row(verdict, colour: "cyan", hex: "#06b6d4", label: "Carrying on"),
             [new AnsweredTurnVerdict(verdict, null)], null, NowUtc: Stopped.AddMinutes(3)));
     }
 

@@ -616,10 +616,11 @@ public sealed class SessionOrderingTests
 
     // EffectiveColor_BackgroundRunningAtTurnEnd_IsPurple_FromRawFacts and StateLabel_BackgroundRunning_IsBackground
     // lived here. Deleted with the arm they pinned (the Wingman-on-every-turn mission, ruling 3): the Director's
-    // background purple had one feed, a switched-off service, and the calm verdict arm now owns purple. The test
-    // below is what goes red if the arm is restored.
+    // background purple had one feed, a switched-off service, and nothing produces purple any more (carrying on is
+    // cyan since the simpler session colours ruling, 2026-09-28). The test below is what goes red if the arm is
+    // restored.
     [Fact]
-    public void EffectiveColor_BackgroundRunning_WithTheWingmanOn_IsRed_BecausePurpleHasOneProducer()
+    public void EffectiveColor_BackgroundRunning_WithTheWingmanOn_IsRed_BecauseNothingProducesPurple()
     {
         var s = Raw("WaitingForInput", wingmanEnabled: true, backgroundRunning: true);
 

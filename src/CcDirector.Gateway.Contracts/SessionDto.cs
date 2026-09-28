@@ -169,8 +169,7 @@ public sealed class SessionDto
     /// SessionStatusWingman. The UI renders this verbatim and never derives it
     /// from other fields.
     /// Values: "blue" (agent is working), "red" (needs the user - input/permission/idle),
-    /// "yellow" (the Wingman is reading the screen and narrating), "purple" (parked on its
-    /// own background task, will resume itself), "supporting" (a SUPERVISED session that has STOPPED -
+    /// "yellow" (the Wingman is reading the screen and narrating), "supporting" (a SUPERVISED session that has STOPPED -
     /// one that answers to another live session, or that a schedule started - so it parks instead of
     /// asking the owner; issue #815, rendered as a recessive slate #64748B), "unknown"
     /// (process exited, or source unreachable/unparseable - rendered gray). On-hold is separate:
@@ -972,8 +971,8 @@ public sealed class SessionDto
     /// <summary>
     /// RAW FACT: the Wingman determined this session is parked on its OWN background task (a build, a
     /// running shell) rather than on the user (mirrors <c>Session.IsBackgroundRunning</c>). NO COLOUR READS IT:
-    /// the fold's background purple was deleted by the Wingman-on-every-turn mission, so purple has one
-    /// producer, the calm verdict arm in <see cref="SessionOrdering.EffectiveColor"/>.
+    /// the fold's background purple was deleted by the Wingman-on-every-turn mission, and nothing produces purple
+    /// since 2026-09-28: every calm verdict is cyan in <see cref="SessionOrdering.EffectiveColor"/>.
     /// </summary>
     public bool IsBackgroundRunning { get; set; }
 

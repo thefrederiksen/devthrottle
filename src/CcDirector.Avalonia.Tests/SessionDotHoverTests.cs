@@ -33,13 +33,13 @@ public sealed class SessionDotHoverTests
     [Fact]
     public void TheHover_IsTheLegendsNameForTheColour_ThenTheGatewaysLabel()
     {
-        // A purple row's stamped label is the Wingman's own line for the session (SessionOrdering.CalmLabel),
+        // A calm row's stamped label is the Wingman's own line for the session (SessionOrdering.CalmLabel),
         // so the hover names the colour and then says what THIS session is doing.
-        var hover = SessionDotHover.For(Stamped("purple"), "Monitor fix round 2 progress", Legend());
+        var hover = SessionDotHover.For(Stamped("cyan"), "Monitor fix round 2 progress", Legend());
 
-        Assert.Equal("Carrying on: Monitor fix round 2 progress", hover);
-        // "Carrying on" is the Gateway's own title for purple - read from its legend, not typed here.
-        Assert.StartsWith(Legend().Entries.Single(e => e.Colour == "purple").Title, hover, StringComparison.Ordinal);
+        Assert.Equal("Nothing needed from you: Monitor fix round 2 progress", hover);
+        // "Nothing needed from you" is the Gateway's own title for cyan - read from its legend, not typed here.
+        Assert.StartsWith(Legend().Entries.Single(e => e.Colour == "cyan").Title, hover, StringComparison.Ordinal);
     }
 
     [Fact]

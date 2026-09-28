@@ -122,7 +122,7 @@ public sealed class TurnVerdictRowStampTests : IDisposable
         Assert.Equal("Pushed the branch", Get(rows, "finished").StateLabel);
         Assert.Equal("active", Get(rows, "finished").TriageBucket);
 
-        Assert.Equal("purple", Get(rows, "carrying").EffectiveColor);
+        Assert.Equal("cyan", Get(rows, "carrying").EffectiveColor);
         Assert.Equal("Watching the nightly build", Get(rows, "carrying").StateLabel);
         Assert.Equal("active", Get(rows, "carrying").TriageBucket);
 

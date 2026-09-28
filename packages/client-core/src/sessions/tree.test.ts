@@ -113,7 +113,7 @@ describe("attentionSections", () => {
   });
 
   it("keeps the needs-you section when only calm rows are in it, with nothing counted", () => {
-    const done = session({ sessionId: "done", effectiveColor: "purple", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto> & { sessionId: string });
+    const done = session({ sessionId: "done", effectiveColor: "cyan", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto> & { sessionId: string });
     const sections = attentionSections([done, s112]);
 
     expect(sections.map((g) => g.title)).toEqual(["Needs you", "Working"]);

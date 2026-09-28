@@ -63,11 +63,13 @@ public sealed class SessionOrderingVerdictTests
     }
 
     [Fact]
-    public void EffectiveColor_EveryGateSatisfied_ContinuesAlone_IsPurpleWithTheWingmansLabel_AndNotCounted()
+    public void EffectiveColor_EveryGateSatisfied_ContinuesAlone_IsCyanWithTheWingmansLabel_AndNotCounted()
     {
+        // ONE CALM COLOUR (the simpler session colours ruling, 2026-09-28): carrying on is cyan, not purple. The
+        // words still say which kind of calm it is.
         var s = Calm(verdict: SessionOrdering.VerdictContinuesAlone, label: "Watching the nightly build");
 
-        Assert.Equal("purple", SessionOrdering.EffectiveColor(s));
+        Assert.Equal("cyan", SessionOrdering.EffectiveColor(s));
         Assert.Equal("Watching the nightly build", SessionOrdering.StateLabel(s));
         Assert.Equal(SessionOrdering.TriageBucket.Active, SessionOrdering.Classify(s));
     }

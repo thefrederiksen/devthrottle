@@ -43,7 +43,7 @@ not one of the words is not re-attempted for a listener, because at temperature 
 |---|---|---|
 | needs-you | red | needed-you |
 | done | cyan | finished (kind done) |
-| carrying-on | purple | continues-alone |
+| carrying-on | cyan | continues-alone |
 
 Every record says which step decided it and why (`DecidedBy`, `DecisionReason`), and so does the debug view.
 
@@ -482,12 +482,12 @@ the detector made it.
 | Verdict | Colour | Label | In the "needs you" count? |
 |---|---|---|---|
 | `finished`, kind `done` | cyan | leads "Done" | No. Listed in the calm band below the reds |
-| `finished`, kind `report` | cyan | leads "Report" | No. Same band |
-| `continues-alone` | purple | the Wingman's line, or "Carrying on" | No. Same band |
+| `finished`, kind `report` | cyan | leads "Telling you" | No. Same band |
+| `continues-alone` | cyan | the Wingman's line, or "Carrying on" | No. Same band |
 | `needed-you`, `stuck-needs-person`, `stuck-recoverable`, `cannot-tell` | red, unchanged | the ask, in the Wingman's words | Yes |
 | refused, timed out, rate limited, or never judged | red, unchanged | as today | Yes |
 
-**Purple has no clock (removed 28 September 2026).** There used to be a carrying-on clock that turned a purple row red after ten minutes (or two minutes past an announced wake-up) and said "It said it would continue, and it did not." Most of what it caught were sessions waiting on real work that takes longer than ten minutes - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred by a rule or the model, not said by the agent. The owner ruled it out. A purple row stays purple until the session stops again.
+**One calm colour (28 September 2026).** Carrying on used to be purple. The owner only ever asks one question of a stopped row - do I need to go there? - so every calm verdict is now cyan, and only the row's words say which kind of calm it is. There is no clock on carrying on either: a carrying-on clock that turned the row red after ten minutes (or two minutes past an announced wake-up) was removed the same day, because most of what it caught were sessions waiting on real work - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred, not said by the agent. A carrying-on row stays cyan until the session stops again.
 
 A snooze that ends with no new turn end comes back CYAN with "Snooze ended, nothing new" rather
 than red - nothing happened, so there is nothing to bring him. If a stop DID happen while the
@@ -747,7 +747,7 @@ to it (invariant 2).
   the fact, for an account that has switched it on; the detector itself is unchanged and is
   still not allowed a second classifier.
 - **Two colours from the detector.** The Director's own badge is blue or red, plus grey for an
-  exited session. Cyan, purple and the reading yellow come from the Gateway's fold, not from
+  exited session. Cyan and the reading yellow come from the Gateway's fold, not from
   the detector, and they appear only where the account's colour switch is on.
 - **A genuinely stuck session reads red the same as one waiting for you.** The silence clock
   in the Wingman tab is how you tell a long-running-but-alive turn from a finished one at a

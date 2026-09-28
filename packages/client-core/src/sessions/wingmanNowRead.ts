@@ -72,11 +72,11 @@ export interface WingmanNowCalmCard {
   heading: string;
   body?: string | null;
   /**
-   * The card's colour, NAMED by the Gateway. The approved mockup tints done and report cyan and carrying on purple,
-   * and that is the owner's done-versus-report distinction made visible - so the choice belongs to the same fold
-   * that chose the words, never to a branch on the state name here. A card with no tone keeps the neutral card.
+   * The card's colour, NAMED by the Gateway: cyan for every calm card - done, report and carrying on alike (the
+   * simpler session colours ruling, 2026-09-28, removed purple). The choice belongs to the same fold that chose the
+   * words, never to a branch on the state name here. A card with no tone keeps the neutral card.
    */
-  tone?: "cyan" | "purple" | null;
+  tone?: "cyan" | null;
 }
 
 /** A past stop, marked as past: the newest good explanation, or the stop that was answered. */

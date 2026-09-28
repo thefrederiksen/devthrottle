@@ -244,8 +244,8 @@ export function WingmanNow({
 
         {now.calmCard && (
           <section
-            /* The card's colour is the Gateway's own choice of tone, named not decided here: the approved mockup
-               tints done and report cyan and carrying on purple. A card with no tone keeps the neutral one. */
+            /* The card's colour is the Gateway's own choice of tone, named not decided here: cyan for every calm
+               card. A card with no tone keeps the neutral one. */
             className={`wnow-card wnow-card-calm${now.calmCard.tone ? ` wnow-card-calm-${now.calmCard.tone}` : ""}`}
             aria-label={now.calmCard.heading}
           >

@@ -46,7 +46,7 @@ public sealed class SessionViewModelFoldCacheTests
 
         var raised = new List<string?>();
         vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
-        session.ApplyGatewayDisplayState("purple", "Working", "active", null, null, false);
+        session.ApplyGatewayDisplayState("cyan", "Working", "active", null, null, false);
         Dispatcher.UIThread.RunJobs();
 
         Assert.Contains(nameof(SessionViewModel.StatusColorBrush), raised);
@@ -219,7 +219,7 @@ public sealed class SessionViewModelFoldCacheTests
                 var colour = (i++ % 2 == 0) ? "red" : "blue";
                 session.ApplyGatewayDisplayState(colour, "Working", "active", null, null, false);
             }
-            session.ApplyGatewayDisplayState("purple", "Working", "active", null, null, false);
+            session.ApplyGatewayDisplayState("cyan", "Working", "active", null, null, false);
         });
         writer.Start();
 
@@ -234,7 +234,7 @@ public sealed class SessionViewModelFoldCacheTests
         writer.Join();
 
         Assert.True(reads > 100, $"only {reads} reads overlapped the writer, so this proved nothing");
-        Assert.Equal("purple", vm.FoldInput.EffectiveColor);
+        Assert.Equal("cyan", vm.FoldInput.EffectiveColor);
         Dispatcher.UIThread.RunJobs();
     }
 

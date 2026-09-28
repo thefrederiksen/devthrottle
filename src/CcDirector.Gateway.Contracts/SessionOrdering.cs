@@ -53,8 +53,9 @@ public static class SessionOrdering
     // TurnVerdictVocabulary in Core, and SessionOrderingVerdictWordsTests pins these to it, so the fold cannot
     // come to calm a word the contract never emits.
 
-    /// <summary>The words a calm row reads when its verdict carries no label of its own: cyan is "Done",
-    /// purple is "Carrying on" (ruling 1). The Wingman's own label is used whenever there is one.</summary>
+    /// <summary>The words a calm row reads when its verdict carries no label of its own: "Done" for finished,
+    /// "Carrying on" for continues-alone (ruling 1). The Wingman's own label is used whenever there is one. Both are
+    /// cyan: there is ONE calm colour (the simpler session colours ruling, 2026-09-28).</summary>
     public const string CalmFinishedLabel = "Done";
 
     /// <inheritdoc cref="CalmFinishedLabel"/>
@@ -165,7 +166,7 @@ public static class SessionOrdering
     public const string CalmReportLabel = "Telling you";
 
     /// <summary>
-    /// THE WORDS ON A CALM ROW. Purple reads the Wingman's own line, or "Carrying on". Cyan LEADS WITH "Done" or
+    /// THE WORDS ON A CALM ROW. Carrying on reads the Wingman's own line, or "Carrying on". Finished LEADS WITH "Done" or
     /// "Telling you" (owner ruling, 2026-09-15: "an informational state where I'm not needed but I'm just given
     /// information"), followed by the Wingman's line when there is one. The two kinds are the same colour, the same
     /// band and equally uncounted; only the words differ.
@@ -176,7 +177,8 @@ public static class SessionOrdering
     private static string CalmLabel(SessionDto s)
     {
         var line = JudgedLabel(s);
-        if (CalmColor(s) == "purple") return line ?? CalmContinuesLabel;
+        if (string.Equals(s.TurnVerdict?.Verdict, VerdictContinuesAlone, StringComparison.Ordinal))
+            return line ?? CalmContinuesLabel;
 
         var lead = s.TurnVerdict?.FinishedKind switch
         {
@@ -187,14 +189,6 @@ public static class SessionOrdering
         if (lead is null) return line ?? CalmFinishedLabel;
         return line is null ? lead : $"{lead} - {line}";
     }
-
-    /// <summary>Cyan for finished, purple for continues-alone. Asked only after <see cref="IsCalmVerdict"/>.
-    ///
-    /// NOT GREEN (issue #2892). Green is the brand-new session's "Ready", and a finished row painted that same green
-    /// read as a new session that had not started yet. A finished row and a new one say opposite things, so they
-    /// never share a colour.</summary>
-    private static string CalmColor(SessionDto s) =>
-        string.Equals(s.TurnVerdict?.Verdict, VerdictContinuesAlone, StringComparison.Ordinal) ? "purple" : "cyan";
 
     /// <summary>
     /// The Wingman's one-line label for a row carrying an ACCEPTED verdict, verbatim, or null when the row carries
@@ -566,16 +560,20 @@ public static class SessionOrdering
         // what it needs - and below the two earlier yellows so the Director's own briefing and a voice session's
         // missing audio keep the words they already had.
         : IsVerdictReading(s) ? "yellow"
-        // Calm: the Wingman judged the stop a REPORT, with high confidence. Cyan "Done" for finished, purple
+        // Calm: the Wingman judged the stop a REPORT, with high confidence. Cyan, with "Done" for finished and
         // "Carrying on" for continues-alone. BELOW everything above - working, a snooze, a dictation in flight, a
         // supervised session and both yellows each describe something a verdict does not outrank - and ABOVE
         // BaseColor, whose red is the one colour a verdict may calm. The four gates are in IsCalmVerdict. Classify
         // reads this colour, so a calm row leaves the needs-you bucket, the needs-you clock and every needs-you
         // count without any of them learning a rule.
         //
-        // PURPLE HAS ONE PRODUCER, and it is this line. The Director's "background running" purple in
-        // ResolveActivity is deleted - see the tombstone there.
-        : IsCalmVerdict(s) ? CalmColor(s)
+        // ONE CALM COLOUR (the simpler session colours ruling, 2026-09-28). Carrying on used to be purple here; the
+        // owner only ever asks one question of a stopped row - do I need to go there? - and purple lost its meaning
+        // when the carrying-on clock was removed (pull request 3461). The row's WORDS still say which kind it is.
+        //
+        // NOT GREEN (issue #2892). Green is the brand-new session's "Ready", and a finished row painted that same green
+        // read as a new session that had not started yet.
+        : IsCalmVerdict(s) ? "cyan"
         // THE SNOOZE-EXPIRY ARM (the Wingman-on-every-turn mission, slice F, ruling 10). The owner's quiet ran
         // out and nothing happened while it did, so the row comes back calm instead of as a red the clock
         // manufactured. BELOW the verdict arms on purpose: a stop that WAS judged while the snooze ran is ruled
@@ -776,8 +774,8 @@ public static class SessionOrdering
             // switch. A "supporting" => something mapping here would be a second answer to a question that
             // has already been answered, which is how this file previously came to label a blue dot "Snoozed".
             //
-            // NO "purple" ARM EITHER. BaseColor no longer produces purple (the background arm is deleted), and
-            // the calm arm that does has already returned its label above.
+            // NO "purple" ARM EITHER. Nothing produces purple any more: the background arm is deleted, and the calm
+            // arm paints carrying on cyan (the simpler session colours ruling, 2026-09-28).
             "green" => "Ready",
             "yellow" => "Wingman reading",   // Director auto-explain base yellow
             "blue" => "Working",
@@ -1045,7 +1043,7 @@ public static class SessionOrdering
     public static bool IsInCalmBand(SessionDto s)
     {
         var color = EffectiveColor(s);
-        return (string.Equals(color, "cyan", StringComparison.Ordinal) || string.Equals(color, "purple", StringComparison.Ordinal))
+        return string.Equals(color, "cyan", StringComparison.Ordinal)
                && string.Equals(s.VerdictState, VerdictStates.Judged, StringComparison.Ordinal);
     }
 

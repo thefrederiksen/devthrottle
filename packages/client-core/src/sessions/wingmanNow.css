@@ -205,18 +205,10 @@
   border-left-color: var(--attention);
 }
 
-.wnow-card-calm {
-  border-left-color: #a855f7;
-}
-
-/* The calm card's colour, as the Gateway named it: cyan for done and for report, purple for carrying on - the
-   approved mockup's own palette. A card the Gateway gave no tone keeps the line above. */
+/* The calm card's colour, as the Gateway named it: cyan for every calm card (the simpler session colours ruling,
+   2026-09-28, removed purple). A card the Gateway gave no tone keeps the neutral card border. */
 .wnow-card-calm-cyan {
   border-left-color: #06b6d4;
-}
-
-.wnow-card-calm-purple {
-  border-left-color: #a855f7;
 }
 
 /* What a write action answered, shown beside the control that started it. A refusal is the Gateway's sentence in

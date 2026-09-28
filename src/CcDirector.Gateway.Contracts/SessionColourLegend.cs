@@ -86,7 +86,7 @@ public static class SessionColourLegend
 
     public static readonly IReadOnlyList<string> NoteClaims =
     [
-        "Done and Carrying on appear only when the Wingman's verdicts are switched on for your account",
+        "Apart from a snooze that ended quietly, Nothing needed from you appears only when the Wingman's verdicts are switched on for your account",
         "With them off, those sessions show red instead",
     ];
 
@@ -120,14 +120,13 @@ public static class SessionColourLegend
 
     /// <summary>The order a person meets the colours in: what needs them, then what does not.</summary>
     private static readonly string[] Order =
-        { "red", "blue", "cyan", "purple", "yellow", "green", "orange", "supporting", "grey", "error" };
+        { "red", "blue", "cyan", "yellow", "green", "orange", "supporting", "grey", "error" };
 
     private static readonly Dictionary<string, string> Titles = new(StringComparer.Ordinal)
     {
         ["red"] = "Needs you",
         ["blue"] = "Working",
-        ["cyan"] = "Done",
-        ["purple"] = "Carrying on",
+        ["cyan"] = "Nothing needed from you",
         ["yellow"] = "Being read",
         ["green"] = "Ready",
         ["orange"] = "Transcribing",
@@ -141,7 +140,6 @@ public static class SessionColourLegend
         ["red"] = AsksYes,
         ["blue"] = AsksNo,
         ["cyan"] = AsksNo,
-        ["purple"] = AsksNo,
         ["yellow"] = AsksNotYet,
         ["green"] = AsksNo,
         ["orange"] = AsksNo,
@@ -160,10 +158,12 @@ public static class SessionColourLegend
 
         ["blue"] = new("The agent is running a turn right now, and a working session is always blue", []),
 
-        ["cyan"] = new("The session stopped and the Wingman judged it finished",
-            ["the work is done", "it is only reporting something and asks you nothing"]),
-
-        ["purple"] = new("The session stopped, but the Wingman judged it will continue on its own", []),
+        // ONE CALM COLOUR (the simpler session colours ruling, 2026-09-28): carrying on was purple, and is cyan now.
+        // A snooze that ended with nothing new is cyan too, with no verdict behind it (SnoozeEndedNothingNewColor), so
+        // the sentence does not say the Wingman judged every cyan row.
+        ["cyan"] = new("The session stopped and nothing is needed from you",
+            ["the Wingman judged the work done", "the Wingman judged it only reporting something that asks you nothing",
+             "the Wingman judged it will carry on by itself", "your snooze ended and nothing happened while it ran"]),
 
         ["yellow"] = new("The session stopped and is being looked at before it is shown to you",
             ["the Wingman or the Director is reading the stop", "its voice summary is not ready yet"]),

@@ -103,7 +103,7 @@ export function parseSessionColourLegend(body: unknown): SessionColourLegend {
  *
  * The hover used to be `lastStatusReason`, the DIRECTOR's reason for its local colour, written before the Wingman has
  * judged the turn. The Director only knows running or stopped, so every dot hovered "working" or "needs you" - a
- * purple "Carrying on" dot said "needs you". Both words here come from the Gateway's one fold, so the hover cannot
+ * calm "Carrying on" dot said "needs you". Both words here come from the Gateway's one fold, so the hover cannot
  * disagree with the dot. Until the legend has loaded, the hover is the stamped label alone.
  */
 export function dotTitle(s: SessionDto, legend: SessionColourLegend | null): string {

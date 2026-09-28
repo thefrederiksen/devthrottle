@@ -186,7 +186,7 @@ public sealed class OfflineFloorRailColorTests
     [AvaloniaTheory]
     [InlineData("grey", "Snoozed")]
     [InlineData("yellow", "Preparing voice")]
-    [InlineData("purple", "Monitor fix round 2 progress")]
+    [InlineData("cyan", "Monitor fix round 2 progress")]
     [InlineData("cyan", "Done")]
     [InlineData("orange", "Waiting on a permission")]
     public void Offline_AWorkingSession_NeverHoversTheFrozenLabel(string frozenStamp, string frozenLabel)
@@ -210,7 +210,7 @@ public sealed class OfflineFloorRailColorTests
     public void Offline_AnIdleSessionWhoseFrozenStampSaysItWasCarryingOn_HoversOnlyTheColourItWears()
     {
         var dot = SessionViewModel.RailDotFor(
-            gatewayOffline: true, gatewayStamp: "purple", localActivity: ActivityState.WaitingForInput,
+            gatewayOffline: true, gatewayStamp: "cyan", localActivity: ActivityState.WaitingForInput,
             gatewaySettled: false, isHeld: false);
 
         var hover = SessionDotHover.For(dot, "Monitor fix round 2 progress", SessionColourLegend.Build());
@@ -247,7 +247,7 @@ public sealed class OfflineFloorRailColorTests
     [InlineData("blue")]
     [InlineData("red")]
     [InlineData("grey")]
-    [InlineData("purple")]
+    [InlineData("cyan")]
     public void Online_TheDotIsTheGatewaysStamp_SoItsLabelIsStillAppended(string stamp)
     {
         var dot = SessionViewModel.RailDotFor(

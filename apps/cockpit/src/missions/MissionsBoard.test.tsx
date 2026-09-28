@@ -104,7 +104,7 @@ describe("MissionsBoard", () => {
     expect(screen.getByText("2 sessions")).toBeTruthy();
   });
 
-  // The owner's screenshot, 16 September: session 144 read "Proof Worker running safety checks" in purple on
+  // The owner's screenshot, 16 September: session 144 read "Proof Worker running safety checks" as carrying on, on
   // the right and "needs you" under its name. The line under the name was the Director's pre-Wingman reason.
   it("never shows the Director's 'needs you' under a row the Gateway says is carrying on or snoozed", async () => {
     renderBoard({
@@ -114,7 +114,7 @@ describe("MissionsBoard", () => {
           number: 144,
           sessionId: "s-144",
           missionId: "45e28f0c",
-          effectiveColor: "purple",
+          effectiveColor: "cyan",
           stateLabel: "Proof Worker running safety checks",
           lastStatusReason: "needs you",
         }),
