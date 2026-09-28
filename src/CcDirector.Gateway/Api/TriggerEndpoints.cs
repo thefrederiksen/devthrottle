@@ -50,10 +50,13 @@ internal static class TriggerEndpoints
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant, TriggerService service,
         Func<TenantId, string, string?> directorMachine, Func<DateTime> nowUtc,
         // Factory Memory mission (phase 1): reads a calling session's own factory, so this route can tell whether
-        // a session naming a factory on a trigger is already in it. Null fails closed - see FactoryNaming.
-        Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null)
+        // a session naming a factory on a trigger is already in it. REQUIRED (phase 1 review, finding 1): a
+        // wiring line that forgot it used to compile and fail nothing. A harness that cannot read membership
+        // passes `_ => SessionFactoryLookup.NotKnown`.
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
+        ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(service);
         ArgumentNullException.ThrowIfNull(directorMachine);
         ArgumentNullException.ThrowIfNull(nowUtc);

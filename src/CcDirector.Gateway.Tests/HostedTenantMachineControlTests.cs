@@ -642,7 +642,7 @@ internal sealed class MachineGroupProbeHost : IAsyncDisposable
         // Self-host control harness: SelfHostMachineControlTests sets CC_GATEWAY_HOSTED to the non-hosted
         // values before starting this host, so there is no boundary to pass. The parameter is required
         // (finding CR-7), so the absence is stated rather than defaulted.
-        MachineEndpoints.Map(app, launchers, spawner, boundary: null, sendLauncherCommand: sendLauncherCommand);
+        MachineEndpoints.Map(app, launchers, spawner, boundary: null, sendLauncherCommand: sendLauncherCommand, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
 
         await app.StartAsync();
         return new MachineGroupProbeHost

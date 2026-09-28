@@ -882,7 +882,7 @@ public sealed class SessionStopEndpointTests : IDisposable
                     sent.Add(command);
                     return sendOverride is null ? killAnswer : await sendOverride(directorId, command, token);
                 },
-                governanceAudit: audit);
+                governanceAudit: audit, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
 
             await app.StartAsync();
             started = true;

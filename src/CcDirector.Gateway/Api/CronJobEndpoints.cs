@@ -26,9 +26,12 @@ internal static class CronJobEndpoints
 
     public static void Map(IEndpointRouteBuilder app, CronJobStore store,
         // Factory Memory mission (phase 1): reads a calling session's own factory, so this route can tell whether
-        // a session naming a factory on a schedule is already in it. Null fails closed - see FactoryNaming.
-        Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null)
+        // a session naming a factory on a schedule is already in it. REQUIRED (phase 1 review, finding 1): a
+        // wiring line that forgot it used to compile and fail nothing. A harness that cannot read membership
+        // passes `_ => SessionFactoryLookup.NotKnown`.
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf)
     {
+        ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         app.MapPost("/cron/jobs", async (HttpContext ctx) =>
         {
             CronJobDto? job;

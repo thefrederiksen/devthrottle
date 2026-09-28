@@ -222,7 +222,7 @@ public sealed class NullBoundaryHostedGateFailClosedTests
             builder.Logging.ClearProviders();
             var app = builder.Build();
             app.Urls.Add("http://127.0.0.1:0");
-            GatewayEndpoints.Map(app, registry, "test", "test-token", tenantBoundary: null!);
+            GatewayEndpoints.Map(app, registry, "test", "test-token", tenantBoundary: null!, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
             await app.StartAsync();
 
             return new NullBoundaryHost(app, new HttpClient
