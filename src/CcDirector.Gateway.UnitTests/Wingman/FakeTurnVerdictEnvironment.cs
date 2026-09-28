@@ -2,6 +2,7 @@
 using System.Text.Json;
 using CcDirector.AgentBrain;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.History;
@@ -22,6 +23,9 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     public TurnVerdictSettings Knobs = TurnVerdictSettings.Defaults with { JudgeEnabled = true, SettleMs = 0 };
     public Func<string, bool> Held = _ => false;
+    /// <summary>The sessions a session owns, as the roster snapshot answers it. Null (the default) is "not known",
+    /// which leaves every stop to the rules that do not read owned sessions.</summary>
+    public Func<string, OwnedSessionCounts?> Owned = _ => null;
     public Func<string, SessionDto?> Facts = sid => new SessionDto
     {
         SessionId = sid,
@@ -80,7 +84,7 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     {
         Interlocked.Increment(ref _stateReads);
         Steps.Enqueue("state");
-        return new TurnVerdictSessionState(Facts(sessionId), Held(sessionId));
+        return new TurnVerdictSessionState(Facts(sessionId), Held(sessionId), Owned(sessionId));
     }
 
     public Task<ScreenGridResponse?> ReadScreenGridAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct)

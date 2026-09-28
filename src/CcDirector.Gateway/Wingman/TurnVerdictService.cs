@@ -122,13 +122,16 @@ public interface ITurnVerdictEnvironment
     DateTime NowUtc();
 }
 
-/// <summary>One snapshot's answer about one session: its facts (null when it is not in the fresh roster), and
-/// whether a live owning session holds it.</summary>
+/// <summary>One snapshot's answer about one session: its facts (null when it is not in the fresh roster), whether a
+/// live owning session holds it, and the sessions it owns - all three out of the one roster snapshot, so they cannot
+/// describe different moments.</summary>
 /// <param name="Held">A live owning session holds this one. The automatic Wingman then stands down entirely: no
 /// verdict call, no narration call and no speech, WHOEVER holds it - the account's Fleet Manager included (owner
 /// ruling, 2026-09-25: "one rule for every owned session ... The Fleet Manager reads its own sessions"). Only a
 /// person's own request reads a held session.</param>
-public sealed record TurnVerdictSessionState(SessionDto? Facts, bool Held);
+/// <param name="Owned">The sessions it owns at every level and how many are still working, or null when not known
+/// (it is not in the fresh roster).</param>
+public sealed record TurnVerdictSessionState(SessionDto? Facts, bool Held, OwnedSessionCounts? Owned = null);
 
 /// <summary>What one narration call (Call B) produced: the finished spoken text and the row's label, or why there is
 /// none. The prompt is kept so a test can read what the call was given.</summary>
@@ -1191,14 +1194,16 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             var signal = new TurnEndSignal(sid, directorId, tenant, observedAt, IsNewTurn: trigger == TurnVerdictTrigger.TurnEnd);
-            // No previous label and no owned-sessions counts (contract v4, design v2): Call A is given the screen and
-            // the latest reply and nothing else, and the narration call never read either.
+            // No previous label (contract v4, design v2). The owned sessions travel on the package for Call A's code
+            // steps and the debug view; the model is still given the screen and the latest reply and nothing else.
+            // They come from the SAME snapshot as the facts and the held answer.
             var package = TurnVerdictPackageBuilder.Build(
                 signal,
                 facts ?? new SessionDto { SessionId = sid },
                 conversation,
                 grid,
-                previousVerdictLabel: null);
+                previousVerdictLabel: null,
+                ownedSessions: state.Owned);
             flight.Package = package;
 
             var failure = TurnVerdictFailureKind.None;

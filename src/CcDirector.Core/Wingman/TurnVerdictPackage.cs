@@ -101,9 +101,11 @@ public sealed record TurnVerdictPackage
     /// the carrying-on clock that once timed a purple row from it was removed (owner ruling, 2026-09-28).</summary>
     public DateTime? NextScheduledWakeUtc { get; init; }
 
-    /// <summary>The states of the sessions this session owns, at every level, as the row's own crew line counts
-    /// them. Null when it owns no session. The owner's ruling of 2026-09-15: an owner whose reply waits on its
-    /// own working sessions is carrying on, whatever else the reply says.</summary>
+    /// <summary>The sessions this session owns, at every level, and how many of them are still working - read from
+    /// the same roster snapshot as the held check (see <see cref="OwnedSessionCounts"/>). A session that owns none
+    /// carries a count of zero. NULL MEANS NOT KNOWN - the session was not in the fresh roster - and then no rule
+    /// about owned sessions fires and the stop is left to the model. It is never shown to the model: Call A's code
+    /// steps read it.</summary>
     public OwnedSessionCounts? OwnedSessions { get; init; }
 
     /// <summary>False when this agent keeps no readable conversation, or keeps one that is still empty.

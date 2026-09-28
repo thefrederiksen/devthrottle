@@ -4,6 +4,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Activity;
 using CcDirector.Gateway.Api;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Fleet;
 using CcDirector.Gateway.History;
@@ -124,7 +125,32 @@ internal static class TurnVerdictHeldCheck
         var sessions = roster.Select(r => r.Session).Where(s => s is not null).ToList();
         FleetRoleResolver.Stamp(sessions);
         var session = sessions.FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.Ordinal));
-        return new TurnVerdictSessionState(session, session?.HasLiveSupervisor == true);
+        return new TurnVerdictSessionState(session, session?.HasLiveSupervisor == true,
+            session is null ? null : OwnedUnder(sessions, session));
+    }
+
+    /// <summary>
+    /// THE SESSIONS UNDER ONE SESSION, at every level, out of the SAME stamped roster the held answer came from - one
+    /// reading of ownership, not a second. The edge is the ownership tree's (<see cref="SessionTree"/>, the controller
+    /// a session answers to), which is the edge the held check's supervisor liveness is read over and the one the row's
+    /// crew line ("5 under it") is drawn from. The prior shape of this walk is the removed TurnVerdictOwnedSessions
+    /// (pull request 3461).
+    ///
+    /// Working is <see cref="SessionOrdering.IsWorkingSession"/>, the one definition of working. GAP, STATED: that
+    /// answer comes from terminal output, so a child inside a long command that prints nothing reads as stopped (issue
+    /// 2992). A session owning only such a child can therefore be read as having nothing running under it.
+    /// </summary>
+    internal static OwnedSessionCounts OwnedUnder(IReadOnlyList<SessionDto> stampedRoster, SessionDto root)
+    {
+        var tree = SessionTree.Build(stampedRoster);
+        int working = 0, stopped = 0, needYou = 0;
+        foreach (var d in SessionTree.DescendantsOf(tree, root))
+        {
+            if (SessionOrdering.IsWorkingSession(d.Session)) working++;
+            else if (SessionOrdering.Classify(d.Session) == SessionOrdering.TriageBucket.NeedsYou) needYou++;
+            else stopped++;
+        }
+        return new OwnedSessionCounts(working, stopped, needYou);
     }
 }
 
