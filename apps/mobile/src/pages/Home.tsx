@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { setVoiceModeAllSessions, type SessionDto } from "@devthrottle/client-core/api/client";
 import { getAutoSpeak, queueTouchMs, setAutoSpeak } from "@devthrottle/client-core/voice/queueTouch";
 import { useVoiceModeAll } from "@devthrottle/client-core/voice/useVoiceModeAll";
+import { VoiceAutoOffNote } from "@devthrottle/client-core/voice/VoiceAutoOffNote";
 import { getSessionsEnvelope } from "@devthrottle/client-core/fleet/fleetClient";
 import { emptyRetentionCache, mergeRosterRetention, type RosterSessionMark } from "@devthrottle/client-core/fleet/rosterRetention";
 import { classify, contextLine, deletionReason, dotHex, inDesktopOrder, isWorking, machineCanBeActedOn, needsYouBadgeCount, pendingDeletion, repoLeaf, snoozeCountdown, snoozeExpired } from "@devthrottle/client-core/sessions/ordering";
@@ -697,6 +698,7 @@ function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
         {voice.enabled === null ? "Checking voice mode..." : voice.busy ? busyLabel : label}
       </button>
       {note && <p className="voice-all-note" role="status">{note}</p>}
+      <VoiceAutoOffNote className="voice-all-note" />
       {error && <p className="voice-all-error" role="alert">{error}</p>}
       {voice.error !== null && <p className="voice-all-error" role="alert">{voice.error}</p>}
     </div>

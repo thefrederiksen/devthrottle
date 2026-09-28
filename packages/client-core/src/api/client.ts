@@ -3280,15 +3280,24 @@ export interface VoiceModeAllResult {
 // others are off. Clients guessing it that way is exactly why the fleet switch offered only "turn it all
 // off" forever, so a session created later could never be switched on, and why nothing on screen could
 // honestly say which state you were in. The Gateway holds the intent; this reads it.
-export async function getVoiceModeAllSessions(signal?: AbortSignal): Promise<boolean> {
+//
+// It also carries the QUIET LINE (voice mode auto-off, owner ruling 2026-09-28): when voice mode switched itself off
+// because the owner answered five sessions without listening, the Gateway's finished sentence saying so, rendered
+// verbatim beside the switch. Null when there is nothing to say.
+export interface VoiceModeAllState {
+  enabled: boolean;
+  note: string | null;
+}
+
+export async function getVoiceModeAllState(signal?: AbortSignal): Promise<VoiceModeAllState> {
   const res = await gatewayFetch(`/sessions/voice-mode/all`, {
     method: "GET",
     headers: { Accept: "application/json", ...authHeaders() },
     signal,
   });
   if (!res.ok) throw await GatewayError.from(res, "load the voice-mode states");
-  const body = (await res.json()) as { enabled?: unknown };
-  return Boolean(body.enabled);
+  const body = (await res.json()) as { enabled?: unknown; note?: unknown };
+  return { enabled: Boolean(body.enabled), note: typeof body.note === "string" && body.note.length > 0 ? body.note : null };
 }
 
 // POST /sessions/voice-mode/all { enabled } - turn voice mode on (enabled=true) or off (false) for EVERY

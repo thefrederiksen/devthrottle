@@ -315,7 +315,12 @@ internal static class GatewayWingmanVoiceEndpoint
             var reqTenant = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
             if (reqTenant is null)
                 return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
-            return Results.Json(new { enabled = tenantSettings.VoiceModeAll(reqTenant.Value) });
+            var enabled = tenantSettings.VoiceModeAll(reqTenant.Value);
+            // The quiet line (voice mode auto-off): the finished sentence, in the account's own time zone, or null.
+            // Clients render it verbatim beside the switch; they never format it.
+            var note = VoiceAutoOffLine.For(voice.Listening.SwitchedOff(reqTenant.Value), enabled,
+                TimeZoneInfo.FindSystemTimeZoneById(tenantSettings.TimeZone(reqTenant.Value)), DateTime.UtcNow);
+            return Results.Json(new { enabled, note });
         });
 
         // Turn voice mode on or off for EVERY session at once (issue #1765). The fleet-wide counterpart
@@ -368,6 +373,11 @@ internal static class GatewayWingmanVoiceEndpoint
             // successful fan-out would silently downgrade "my fleet is on voice" to "the reachable part of
             // my fleet is on voice", which is the exact class of quiet gap this change exists to close.
             tenantSettings.SetVoiceModeAll(tenant, enabled, DateTime.UtcNow);
+            // Switching voice mode back on starts the unheard count again and retires the quiet line. Each session's
+            // latest stop is then narrated once by the idle voice sweep, through the late-narration path
+            // (WingmanVoiceService.WordsForUnnarratedReadingAsync) - nothing extra is needed for that here.
+            if (enabled)
+                voice.Listening.ClearForVoiceOn(tenant);
 
             // The machine each Director runs on, so a skipped session names where it lives in plain English.
             // Hosted Multi-Tenancy (audit H1, gap audit-b): scope this to the caller's OWN partition, not the

@@ -127,6 +127,24 @@ public sealed class VoiceListeningLedger
     public void UseSwitchOff(Func<TenantId, Task> switchOff) =>
         _switchOff = switchOff ?? throw new ArgumentNullException(nameof(switchOff));
 
+    /// <summary>
+    /// The owner switched voice mode back on (step 5): the count starts again from zero and the switch-off is no longer
+    /// news, so the quiet line goes with it.
+    /// </summary>
+    public void ClearForVoiceOn(TenantId tenant)
+    {
+        var record = RecordFor(tenant);
+        lock (record)
+        {
+            if (record.UnheardInARow == 0 && record.SwitchedOffAtUtc is null) return;
+            FileLog.Write($"[VoiceListeningLedger] voice mode switched on: count {record.UnheardInARow} and switch-off {record.SwitchedOffAtUtc:O} cleared for tenant={tenant.ToLogString()}");
+            record.UnheardInARow = 0;
+            record.SwitchedOffAtUtc = null;
+            record.SwitchedOffReason = null;
+            Save(tenant, record);
+        }
+    }
+
     /// <summary>When and why voice mode last switched itself off, or null when it has not.</summary>
     public SwitchOff? SwitchedOff(TenantId tenant)
     {

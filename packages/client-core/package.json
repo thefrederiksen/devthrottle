@@ -11,6 +11,7 @@
     "./auth/AccountSwitcher": "./src/auth/AccountSwitcher.tsx",
     "./dictation/DictationDialog": "./src/dictation/DictationDialog.tsx",
     "./dictation/DictationStatusStrip": "./src/dictation/DictationStatusStrip.tsx",
+    "./voice/VoiceAutoOffNote": "./src/voice/VoiceAutoOffNote.tsx",
     "./dictation/MicTestPanel": "./src/dictation/MicTestPanel.tsx",
     "./dictation/TranscriptionTestPanel": "./src/dictation/TranscriptionTestPanel.tsx",
     "./settings/SettingsTabs": "./src/settings/SettingsTabs.tsx",

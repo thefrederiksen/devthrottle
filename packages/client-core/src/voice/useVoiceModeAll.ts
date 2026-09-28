@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getVoiceModeAllSessions, setVoiceModeAllSessions } from "../api/client";
+import { getVoiceModeAllState, setVoiceModeAllSessions } from "../api/client";
 import { setAutoSpeak } from "./queueTouch";
 
 // VOICE MODE - the fleet-wide switch, read from the Gateway and never derived (owner, 2026-07-24).
@@ -21,6 +21,9 @@ import { setAutoSpeak } from "./queueTouch";
 const POLL_MS = 15000;
 
 let current: boolean | null = null;
+// The Gateway's quiet line about voice mode switching itself off (voice mode auto-off), read in the same poll as the
+// state it sits beside. Rendered verbatim; never composed here.
+let currentNote: string | null = null;
 let writing = false;
 // Each read remembers the write counter it started under. A read that started BEFORE a write and lands
 // AFTER it has finished sees writing=false and would otherwise sail through carrying the pre-write answer -
@@ -28,19 +31,22 @@ let writing = false;
 // the app refusing to let you leave. The in-flight flag alone does not catch that one.
 let writeSeq = 0;
 const listeners = new Set<(v: boolean | null) => void>();
+const noteListeners = new Set<(note: string | null) => void>();
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-function publish(v: boolean | null): void {
+function publish(v: boolean | null, note: string | null): void {
   current = v;
+  currentNote = note;
   for (const fn of listeners) fn(v);
+  for (const fn of noteListeners) fn(note);
 }
 
 async function readOnce(): Promise<void> {
   if (writing) return;
   const startedUnder = writeSeq;
   try {
-    const on = await getVoiceModeAllSessions();
-    if (!writing && writeSeq === startedUnder) publish(on);
+    const state = await getVoiceModeAllState();
+    if (!writing && writeSeq === startedUnder) publish(state.enabled, state.note);
   } catch {
     // A failed read leaves the last known answer standing rather than guessing a new one. An unreachable
     // Gateway is not evidence that voice mode was turned off.
@@ -62,12 +68,20 @@ function subscribe(fn: (v: boolean | null) => void): () => void {
   };
 }
 
+/** Read the Gateway's answer now rather than at the next poll - for a surface that changed voice mode without going
+ *  through this hook, so the shared state (and the quiet line) catches up at once. */
+export function refreshVoiceModeAll(): Promise<void> {
+  return readOnce();
+}
+
 /** Test-only: forget the shared state between cases, so one test's answer cannot leak into the next. */
 export function __resetVoiceModeAllForTests(): void {
   if (pollTimer !== null) clearInterval(pollTimer);
   pollTimer = null;
   listeners.clear();
+  noteListeners.clear();
   current = null;
+  currentNote = null;
   writing = false;
   writeSeq = 0;
 }
@@ -75,6 +89,8 @@ export function __resetVoiceModeAllForTests(): void {
 export interface VoiceModeAll {
   /** Whether the fleet is in voice mode. Null until the first read lands - the banner must not flash. */
   enabled: boolean | null;
+  /** The Gateway's line saying voice mode switched itself off, and when and why - or null. Render it verbatim. */
+  note: string | null;
   /** A write is in flight. */
   busy: boolean;
   /** The last write failure, in plain English, or null. Never swallowed - a silent failure here means the
@@ -88,10 +104,17 @@ export interface VoiceModeAll {
 
 export function useVoiceModeAll(): VoiceModeAll {
   const [enabled, setEnabled] = useState<boolean | null>(current);
+  const [note, setNote] = useState<string | null>(currentNote);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => subscribe(setEnabled), []);
+  useEffect(() => {
+    noteListeners.add(setNote);
+    return () => {
+      noteListeners.delete(setNote);
+    };
+  }, []);
 
   const set = useCallback(async (next: boolean): Promise<boolean> => {
     writing = true;
@@ -100,7 +123,9 @@ export function useVoiceModeAll(): VoiceModeAll {
     setError(null);
     try {
       await setVoiceModeAllSessions(next);
-      publish(next);
+      // Switching it yourself, either way, leaves nothing for the line to say: on clears it at the Gateway, and an
+      // off you pressed is not one the Gateway made.
+      publish(next, null);
       if (!next) setAutoSpeak(false);
       return true;
     } catch (err) {
@@ -112,5 +137,5 @@ export function useVoiceModeAll(): VoiceModeAll {
     }
   }, []);
 
-  return { enabled, busy, error, set };
+  return { enabled, note, busy, error, set };
 }
