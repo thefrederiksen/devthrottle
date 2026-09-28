@@ -76,6 +76,15 @@ public static class CallACodeSteps
     /// <summary>The reason step 5 gives, as the owner worded it.</summary>
     public const string NothingUnderItReason = "stopped - nothing running under it";
 
+    /// <summary>
+    /// True for the two steps that call a stop red because nothing is moving the session - nothing under it, or all of
+    /// it stopped - rather than because the session asks anything. They run only after the picker, the agent's own
+    /// verdict and the question steps have all found nothing to ask. A reader that asks "is it asking the owner
+    /// something?" (the Fleet Manager's event delivery) reads these as no.
+    /// </summary>
+    public static bool IsRedWithNothingAsked(string? step)
+        => step is NothingUnderItStep or AllUnderItStoppedStep;
+
     /// <summary>No code step fired, so the model decided.</summary>
     public const string ModelStep = "model";
 

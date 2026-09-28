@@ -786,6 +786,9 @@ public sealed class TurnVerdictTraceTests : IDisposable
         Assert.True(pushed.ApplySnapshot(Tenant, "dir-1", "conn-1", 1, new[]
         {
             new SessionDto { SessionId = Sid, Name = "the pushing session", Agent = "ClaudeCode", ActivityState = "WaitingForInput" },
+            // A session still working under it, so the stop reaches the model and the trace carries a prompt.
+            new SessionDto { SessionId = "worker-under-it", Agent = "ClaudeCode", ActivityState = "Working",
+                IsControlled = true, ControllerSessionId = Sid },
         }));
 
         var db = _harness.Open();
