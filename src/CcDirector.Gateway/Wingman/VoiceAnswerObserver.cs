@@ -52,6 +52,10 @@ public sealed class VoiceAnswerObserver
     /// before his began: none if his turn is still running, exactly one (his own) if it has settled. Anything else - a
     /// turn that completed with no owner stamp, more turns than his, a count that went backwards or is unknown - means
     /// the stop's next turn was not (or cannot be shown to be) his, and the stop is retired unjudged (review of step 2).
+    ///
+    /// What it cannot see: the agent resuming by itself AND the owner then messaging it, both inside one gap between
+    /// pushes, with no turn completing. That needs the owner to have sent a message without playing the narration,
+    /// which is the very thing the count measures; only which of two unplayed stops it is charged to can be wrong.
     /// </summary>
     public VoiceListeningLedger.AnswerOutcome? Observe(TenantId tenant, SessionDto? session)
     {
@@ -73,10 +77,12 @@ public sealed class VoiceAnswerObserver
         }
         if (now == before)
         {
-            // Nothing completed and the owner did not start anything. A turn in progress here was started by someone
-            // else: the stop has had its next turn, and it was not his answer.
-            if (IsWorking(session.ActivityState))
-                _voice.Listening.RetireUnanswered(tenant, sid, "its next turn began without a message from the owner");
+            // Nothing completed and the owner did not start anything. A session no longer sitting at its stop - working,
+            // at a permission prompt, anything but waiting for input - has moved on without him: the stop has had its
+            // next turn, and it was not his answer. Retired on the FIRST push that shows it, whatever state that push
+            // carries, so a missed Working push does not hide it (review of step 2).
+            if (!IsAtAStop(session.ActivityState))
+                _voice.Listening.RetireUnanswered(tenant, sid, $"it moved on to {session.ActivityState} without a message from the owner");
             return null;
         }
         if (!_seen.TryUpdate(key, now, before)) return null;   // a concurrent push already took this change
@@ -96,6 +102,10 @@ public sealed class VoiceAnswerObserver
         FileLog.Write($"[VoiceAnswerObserver] owner drove a turn on a voice session: tenant={tenant.ToLogString()} sid={sid} ownerTurn={now.OwnerTurn!.Value:O}");
         return _voice.Listening.NoteOwnerAnswered(tenant, sid);
     }
+
+    /// <summary>Waiting for input: the one state a narrated stop sits in until someone gives the session its next turn.</summary>
+    private static bool IsAtAStop(string? activity) =>
+        string.Equals(activity, "WaitingForInput", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Working or Starting: there is a turn in progress. The same two states the snooze machine calls work.</summary>
     private static bool IsWorking(string? activity) =>

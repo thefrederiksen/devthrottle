@@ -174,6 +174,24 @@ public sealed class VoiceAnswerObserverTests : IDisposable
         Assert.Null(voice.Listening.StopFor(Tenant, sid));
     }
 
+    /// <summary>
+    /// Review of step 2: the agent resumes by itself and the Working push is missed; the next push the Gateway sees
+    /// already has it waiting on a permission prompt, or still working. Either retires the stop, so the owner's
+    /// approval or message that follows is not judged against it.
+    /// </summary>
+    [Theory]
+    [InlineData("WaitingForPerm")]
+    [InlineData("Working")]
+    public void Observe_ASessionFirstSeenMovedOnWithoutTheOwner_RetiresTheStop(string activity)
+    {
+        var (voice, observer, sid) = AtAStop();
+
+        Assert.Null(observer.Observe(Tenant, Row(sid, activity, OwnerTurn1)));
+
+        Assert.Null(voice.Listening.StopFor(Tenant, sid));
+        Assert.Equal(Outcome.NoNarration, observer.Observe(Tenant, Row(sid, activity, OwnerTurn2, WorkingOrigins.Owner)));
+    }
+
     [Fact]
     public void Observe_ASecondPushOfTheSameOwnerTurn_SettlesTheStopOnlyOnce()
     {
