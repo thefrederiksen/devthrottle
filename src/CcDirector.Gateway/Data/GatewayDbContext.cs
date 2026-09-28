@@ -274,6 +274,9 @@ public sealed class GatewayDbContext : DbContext
     /// the Gateway-ruled ending and the summary sealed at close or generated from the prompt log.</summary>
     public DbSet<SessionHistoryEntity> SessionHistory => Set<SessionHistoryEntity>();
 
+    /// <summary>Every version of every note in every factory's memory (Factory Memory mission, phase 2).</summary>
+    public DbSet<FactoryMemoryNoteEntity> FactoryMemoryNotes => Set<FactoryMemoryNoteEntity>();
+
     /// <summary>The durable repository catalog used by machine-scoped session creation search.</summary>
     public DbSet<KnownRepositoryEntity> KnownRepositories => Set<KnownRepositoryEntity>();
 
@@ -1015,6 +1018,24 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.DirectorId });
         });
 
+        modelBuilder.Entity<FactoryMemoryNoteEntity>(b =>
+        {
+            b.ToTable("factory_memory_notes");
+            // THE KEY IS THE CONCURRENCY CONTROL (Factory Memory mission, phase 2; review finding 7). Two
+            // Gateway replicas writing the same note at the same moment both compute the same next version;
+            // with this key the second insert cannot exist, so the loser is told to re-read and merge instead of
+            // silently superseding the winner. A process-local lock could not do this - the hosted Gateway runs
+            // several replicas over one database.
+            b.HasKey(e => new { e.TenantId, e.Factory, e.Name, e.Version });
+            // The two reads that matter: a factory's current notes (the listing, and the caps), and one note's
+            // history. Both cut by factory within the tenant.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.Name });
+            b.Property(e => e.Factory).HasMaxLength(200);
+            b.Property(e => e.Name).HasMaxLength(200);
+            b.Property(e => e.AuthorKind).HasMaxLength(20);
+            b.Property(e => e.AuthorId).HasMaxLength(200);
+        });
+
         modelBuilder.Entity<KnownRepositoryEntity>(b =>
         {
             b.ToTable("known_repositories");
@@ -1430,6 +1451,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<RepoStateEntity>(modelBuilder);
         ApplyTenantScope<SkillPlacementStateEntity>(modelBuilder);
         ApplyTenantScope<SessionHistoryEntity>(modelBuilder);
+        ApplyTenantScope<FactoryMemoryNoteEntity>(modelBuilder);
         ApplyTenantScope<KnownRepositoryEntity>(modelBuilder);
         ApplyTenantScope<SessionHistoryRollupEntity>(modelBuilder);
         ApplyTenantScope<SessionTurnEntity>(modelBuilder);
