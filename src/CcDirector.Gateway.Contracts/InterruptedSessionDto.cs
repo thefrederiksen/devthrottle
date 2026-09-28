@@ -14,6 +14,8 @@ public sealed class CrashJournalSessionDto
     public DateTimeOffset CreatedAtUtc { get; set; }
     /// <summary>The session that owned this one when the Director died, or null when the user did.</summary>
     public string? ControllerSessionId { get; set; }
+    /// <summary>The factory the session belonged to when the Director died, or null when it was in none.</summary>
+    public string? Factory { get; set; }
 }
 
 /// <summary>
@@ -45,6 +47,10 @@ public sealed class InterruptedSessionDto
     public string Agent { get; set; } = "ClaudeCode";
     public string? ClaudeSessionId { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
+
+    /// <summary>The factory the session belonged to, from the dead Director's journal, or null when it was in none
+    /// (Factory Memory mission). A continuation is created back into it.</summary>
+    public string? Factory { get; set; }
 
     /// <summary>The Director that died holding this session.</summary>
     public string DeadDirectorId { get; set; } = "";

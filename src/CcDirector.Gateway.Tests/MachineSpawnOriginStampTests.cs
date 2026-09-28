@@ -74,7 +74,7 @@ public sealed class MachineSpawnOriginStampTests : IDisposable
 
         // Self-host-only harness: this host never runs hosted, so there is no boundary to pass. The
         // parameter is required (finding CR-7), so the absence is stated rather than defaulted.
-        MachineEndpoints.Map(app, new LauncherRegistry(), spawner, boundary: null);
+        MachineEndpoints.Map(app, new LauncherRegistry(), spawner, boundary: null, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
         await app.StartAsync();
         return (app, new HttpClient { BaseAddress = new Uri(app.Urls.First()) }, () => seen);
     }

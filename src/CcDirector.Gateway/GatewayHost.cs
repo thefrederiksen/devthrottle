@@ -3914,6 +3914,11 @@ public sealed class GatewayHost : IAsyncDisposable
             // The auth-boundary tenant binder - REQUIRED (finding CR-7): request-scoped reads resolve the
             // caller's tenant through it, and on hosted a request with no bound tenant is denied, never Local.
             _tenantBoundary,
+            // Factory Memory mission (phase 1): the spawn door settles the new session's factory from the calling
+            // session's OWN recorded factory, read from the history row rather than the in-memory roster - the row
+            // survives a Gateway restart, and a check reading the roster would exile any child spawned in the
+            // seconds after one from its parent's factory for life. REQUIRED: forgetting it is a compile error.
+            _sessionHistory.FactoryOf,
             AuthEnabled,
             netDiagRollup: _netDiagRollup,
             // Issue #2017: the snooze-default consumer at POST /sessions/{sid}/hold reads the caller tenant's
@@ -4009,11 +4014,6 @@ public sealed class GatewayHost : IAsyncDisposable
             fleetMessages: _fleetMessageService,
             // The Message Load mission, inspection 7, ruling 3: the spawn door records a restore's create by its token.
             workspaces: _workspaces,
-            // Factory Memory mission (phase 1): the spawn door settles the new session's factory from the calling
-            // session's OWN recorded factory, read from the history row rather than the in-memory roster - the row
-            // survives a Gateway restart, and a check reading the roster would exile any child spawned in the
-            // seconds after one from its parent's factory for life.
-            sessionFactoryOf: _sessionHistory.FactoryOf,
             requestShutdown: () =>
             {
                 var handler = OnShutdownRequested;
@@ -4815,6 +4815,10 @@ public sealed class GatewayHost : IAsyncDisposable
             // Tenant boundary - REQUIRED (finding CR-7): every launcher-registry read/write and relay is
             // scoped to the calling tenant, and on hosted an unbound request is denied, never Local.
             _tenantBoundary,
+            // Factory Memory mission (phase 1): the factory stamp for "start a session on another computer",
+            // read from the calling session's history row like the other door. REQUIRED: forgetting it is a
+            // compile error.
+            _sessionHistory.FactoryOf,
             SendLauncherCommandAsync,
             // Gateway Cleanup mission (Wave 4b): validate a mission-scoped spawn against the Gateway store and
             // stamp the resolved mission name onto the create request forwarded to the Director.
@@ -4830,10 +4834,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // and pushed-session store the roster serves from, and the newest release this Gateway has read.
             directors: Registry,
             pushedSessions: PushedSessions,
-            newestRelease: _newestRelease,
-            // Factory Memory mission (phase 1): the factory stamp for "start a session on another computer",
-            // read from the calling session's history row like the other two doors.
-            sessionFactoryOf: _sessionHistory.FactoryOf);
+            newestRelease: _newestRelease);
 
         // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
         // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,

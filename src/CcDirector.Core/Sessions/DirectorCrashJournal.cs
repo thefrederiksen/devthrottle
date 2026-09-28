@@ -18,6 +18,12 @@ public sealed class DirectorCrashJournalSession
     /// Written the moment the owner changes (<see cref="DirectorCrashJournal.SetSessionOwner"/>), so a Director that
     /// dies right after a hand over still says who owned the session.</summary>
     public string? ControllerSessionId { get; set; }
+
+    /// <summary>The factory this session belongs to, or null when it is in no factory (Factory Memory mission,
+    /// phase 1 review, finding 3). Recorded so a session continued from the Interrupted list after this Director
+    /// crashes comes back in its factory rather than outside it. A journal written before this field existed reads
+    /// as null, which continues the session in no factory - the behaviour every continuation had until now.</summary>
+    public string? Factory { get; set; }
 }
 
 /// <summary>The on-disk shape of a Director crash journal.</summary>

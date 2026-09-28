@@ -89,6 +89,16 @@ internal static class GatewayEndpoints
         // error too. A self-host process constructs the boundary over the SingleTenantContext, which always
         // resolves Local - so there is no legitimate caller with nothing to pass.
         Tenancy.HostedTenantBoundary tenantBoundary,
+        // Factory Memory mission (phase 1): reads the CALLING session's own factory from its history row, so
+        // POST /directors/{id}/sessions can settle the new session's factory from the credential rather than the
+        // body. This is the door an unqualified `cc-devthrottle session spawn` uses.
+        //
+        // REQUIRED AND NON-NULLABLE (phase 1 review, finding 1), for the same reason the boundary above is. When
+        // it was optional, a wiring line that forgot it failed nothing: a spawn that names no factory - the
+        // ordinary child spawn - went through with none, so every child of a factory session was born outside
+        // its factory for life and no test went red. A harness that genuinely cannot read membership says so
+        // with an explicit reader, `_ => SessionFactoryLookup.NotKnown`.
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf,
         bool authEnabled = false, Func<bool>? requestShutdown = null,
         Action<string, string, string>? onSessionState = null,
         Func<TenantId, string, bool>? voiceGeneratingFor = null,
@@ -272,13 +282,6 @@ internal static class GatewayEndpoints
         // workspace seat by the start token the create carries. Null (a harness with no database) refuses any
         // create carrying a restore claim, because a start that cannot be recorded is a start that can happen twice.
         Workspaces.WorkspaceStore? workspaces = null,
-        // Factory Memory mission (phase 1): reads the CALLING session's own factory from its history row, so
-        // POST /directors/{id}/sessions can settle the new session's factory from the credential rather than the
-        // body. This is the door an unqualified `cc-devthrottle session spawn` uses.
-        //
-        // NULL FAILS CLOSED on that one field: a session key inherits no factory and is refused if it names one.
-        // Nothing else on this door changes.
-        Func<string, History.SessionFactoryLookup>? sessionFactoryOf = null,
         // The Fleet Manager mission, step 7: handed the stop handler below, so the walkthrough's close runs this one
         // stop - its fold, its audit row, its answer - after deciding whether the session may be closed.
         SessionStopDoor? stopDoor = null,
@@ -324,6 +327,7 @@ internal static class GatewayEndpoints
         // check, so nothing is typed for a session key - the refusal says why.
         Func<TenantId, string, bool>? directorChecksBeforeTyping = null)
     {
+        ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         if ((raisedSessions is null) != (raisedRecord is null))
             throw new ArgumentException(
                 "The list of raised sessions and its record are given together: a raised session whose actions cannot be "
@@ -1840,6 +1844,7 @@ internal static class GatewayEndpoints
                             Agent = s.Agent,
                             ClaudeSessionId = s.ClaudeSessionId,
                             CreatedAtUtc = s.CreatedAtUtc,
+                            Factory = s.Factory,
                             DeadDirectorId = j.DirectorId,
                             DeadPid = j.Pid,
                             MachineName = j.MachineName,
@@ -1958,6 +1963,12 @@ internal static class GatewayEndpoints
                 // Cockpit or by an agent cleaning up after a crash, and this handler cannot tell which.
                 // Left unstated, so it records "unknown", which is exactly what we know.
                 OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
+                // The dead session's factory, from the dead Director's own journal (Factory Memory phase 1 review,
+                // finding 3). A continuation is the same seat carrying on, like a restore or a reopen, so it keeps
+                // the seat's membership rather than coming back outside its factory. Taken from the journal and
+                // never from the request body, and a session key cannot reach this route at all (SessionKeyGuard
+                // lists no /interrupted route), so only a person or a Director can continue a factory's session.
+                Factory = string.IsNullOrWhiteSpace(row.Factory) ? null : row.Factory.Trim(),
             };
             var createSr = await DirectorCommandRouter.TrySendAsync(sendCommand, target.DirectorId, "create", "", spawnReq, CancellationToken.None, machineName: target.MachineName);
             if (createSr is null)
