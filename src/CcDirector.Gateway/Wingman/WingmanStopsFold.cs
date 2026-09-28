@@ -234,7 +234,9 @@ public static class WingmanStopsFold
         Fact("Wake-ups pending", p.PendingWakeUps?.ToString(CultureInfo.InvariantCulture));
         Fact("Next announced wake-up (UTC)", p.NextScheduledWakeUtc?.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
         if (p.OwnedSessions is { } owned)
-            Fact("Sessions it owns", $"{owned.Working} working, {owned.Stopped} stopped, {owned.NeedYou} need you");
+            Fact("Sessions it owns", owned.Total == 0
+                ? "None"
+                : $"{owned.Working} working, {owned.Stopped} stopped, {owned.NeedYou} need you");
         Fact("Conversation", p.ConversationAvailable ? "Shown" : "Not available");
         Fact("Alternate screen", p.IsAlternateScreen ? "Yes" : "No");
         Fact("Screen hash", p.ScreenHash);
