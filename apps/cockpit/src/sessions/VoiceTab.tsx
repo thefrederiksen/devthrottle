@@ -24,6 +24,7 @@ export function VoiceTab({ sessionId }: { sessionId: string | undefined }) {
         onLoadedMetadata={v.onLoadedMeta}
         onTimeUpdate={v.onTimeUpdate}
         onPlay={() => v.setPlaying(true)}
+        onPlaying={v.onPlayingAudio}
         onPause={() => v.setPlaying(false)}
         onEnded={v.onEndedAudio}
         style={{ display: "none" }}

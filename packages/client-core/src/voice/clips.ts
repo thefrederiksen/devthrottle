@@ -13,7 +13,7 @@
 // layer beneath it (a cold start re-reads bytes from the cache with no network).
 
 import { useEffect, useState } from "react";
-import { fetchWingmanVoiceAudio, getWingmanVoice, type SessionDto, type WingmanVoice } from "../api/client";
+import { fetchWingmanVoiceAudio, getWingmanVoice, reportNarrationPlayed, type SessionDto, type WingmanVoice } from "../api/client";
 import { type VoiceRowInputs } from "./voiceRowState";
 
 export type ClipPhase = "none" | "downloading" | "ready" | "error";
@@ -296,6 +296,29 @@ export function playingSid(): string | null {
   return _currentAudio !== null && !_currentAudio.paused ? _currentSid : null;
 }
 
+// Plays this page has already told the Gateway about, so pausing and resuming one clip is one report, not many.
+const _reportedPlays = new Set<string>();
+
+/**
+ * Tell the Gateway a narration started playing on this device (voice mode auto-off, owner ruling 2026-09-28). Every
+ * player calls this the moment audio actually starts - the roster and Now-view player below, and the Voice screen's
+ * own audio element - naming the clip by the generatedAt stamp it was downloaded under. A download is never a play,
+ * so nothing else reports one. The phone reports the fact and decides nothing.
+ *
+ * A failed report is logged and forgotten, so the next play of the same clip reports it again; the audio itself is
+ * already playing and is not affected.
+ */
+export function reportClipPlaying(sid: string, generatedAt: string): void {
+  if (sid.length === 0 || generatedAt.length === 0) return;
+  const key = `${sid}|${generatedAt}`;
+  if (_reportedPlays.has(key)) return;
+  _reportedPlays.add(key);
+  void reportNarrationPlayed(sid, generatedAt).catch((err: unknown) => {
+    _reportedPlays.delete(key);
+    console.warn(`[voice/clips] play report failed sid=${sid} generatedAt=${generatedAt}: ${err instanceof Error ? err.message : String(err)}`);
+  });
+}
+
 // Play a session's locally-stored clip immediately (the roster triangle tap). Stops any clip already
 // playing first, so playback never overlaps and is always stoppable. Returns false when no phone-ready
 // clip is held, so the caller never implies playback that did not happen.
@@ -318,6 +341,8 @@ export function playClip(sid: string): boolean {
   };
   audio.addEventListener("ended", clear);
   audio.addEventListener("pause", clear);
+  // Reported when audio actually starts, not when play is asked for: a play the browser refuses was never heard.
+  audio.addEventListener("playing", () => reportClipPlaying(sid, s.generatedAt));
   void audio.play().catch(() => {
     // A user tap already provided the gesture; ignore the rare autoplay-policy rejection.
   });

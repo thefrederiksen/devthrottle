@@ -217,6 +217,11 @@ public sealed class WingmanVoiceService
     /// slice C). Null only in tests that never generate; any generation without it fails loud.</summary>
     private readonly TurnVerdictService? _verdicts;
 
+    /// <summary>Which narration each voice session is on and whether it was played - the half of voice mode
+    /// auto-off only the player can report (see <see cref="VoiceListeningLedger"/>). Every narration this service
+    /// makes ready is entered here, and a session switched off voice is forgotten.</summary>
+    public VoiceListeningLedger Listening { get; } = new();
+
     /// <summary>
     /// True only for the EXACT form <see cref="Tenancy.TenantRegistry"/> mints: a canonical lowercase GUID.
     ///
@@ -1004,6 +1009,7 @@ public sealed class WingmanVoiceService
         state.PreferBackupUntil.TryRemove(sid, out _);  // voice is off, so the backup-routing window is moot too (issue devthrottle_internal#405)
         state.SpeechRetries.TryRemove(sid, out _);      // ...and nobody is owed a speech retry for a turn nobody wants narrated
         SupersedeStop(state, sid);                      // ...and a narration call still running is about a stop nobody is listening to
+        Listening.Forget(tenant, sid);                  // ...and whether its narration was heard is about a session no longer on voice
         if (state.Ready.TryRemove(sid, out _))
             DeleteReadyAudio(tenant, sid);   // keep the durable cache in step so a stale tap can't 404
         if (wasVoice)
@@ -1127,6 +1133,7 @@ public sealed class WingmanVoiceService
         state.DirectorCannotSend.TryRemove(sid, out _); // ...and a narration proves that computer CAN send its conversation
         state.SpeechRetries.TryRemove(sid, out _);      // ...and the audio ARRIVED, so the speech retry schedule ends on its first success
         SaveReadyAudio(tenant, sid, ready);
+        Listening.NoteNarrationReady(tenant, sid, ready.AtUtc);   // this is now the session's stop, and nobody has played it yet
     }
 
     /// <summary>Test seam: store ready audio exactly as a successful synthesis would (in-memory +

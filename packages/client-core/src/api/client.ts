@@ -3143,6 +3143,24 @@ export async function fetchWingmanVoiceAudio(sessionId: string, signal?: AbortSi
   return res.arrayBuffer();
 }
 
+// POST /sessions/{sid}/wingman/voice/played { generatedAt } - a narration STARTED PLAYING on this device (voice mode
+// auto-off, owner ruling 2026-09-28). The phone pre-downloads every clip, so the audio download above is not a play;
+// this is the only report of one. It names the clip by the generatedAt stamp the Gateway served it under and decides
+// nothing - whether it was the session's current narration, and what a play means for voice mode, are the Gateway's
+// ruling. Resolves the Gateway's answer: true when the report named the session's current narration.
+export async function reportNarrationPlayed(sessionId: string, generatedAt: string, signal?: AbortSignal): Promise<boolean> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/wingman/voice/played`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ generatedAt }),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "report that the narration played");
+  const body = (await res.json()) as { played?: boolean };
+  return Boolean(body.played);
+}
+
 // GET /sessions/{sid}/wingman/menu - is the agent showing an on-screen menu right now, and what are
 // its options? The Voice screen reads this to render pressable option buttons. The Gateway returns
 // isMenu=false cheaply (no model call) when the terminal does not look like a menu.

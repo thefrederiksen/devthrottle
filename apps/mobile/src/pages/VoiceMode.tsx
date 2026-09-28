@@ -97,6 +97,7 @@ export function VoiceMode() {
     responding,
     setResponding,
     setPlaying,
+    onPlayingAudio,
     clipUrl,
     onSwitchOn,
     onSwitchOff,
@@ -254,6 +255,7 @@ export function VoiceMode() {
           setPlaying(true);
           markListened();
         }}
+        onPlaying={onPlayingAudio}
         onPause={() => setPlaying(false)}
         onEnded={onEndedAudio}
         style={{ display: "none" }}
