@@ -698,6 +698,18 @@ public sealed class PushedSessionStore
     /// reason it was added, and only the AGE test is dropped here.
     /// </summary>
     public IReadOnlyList<(string DirectorId, SessionDto Session)> SnapshotConnected(TenantId tenant)
+        => SnapshotWhere(tenant, requireConnection: true);
+
+    /// <summary>
+    /// EVERY SESSION THE GATEWAY LAST HEARD OF across <paramref name="tenant"/>'s Directors, connected or not and
+    /// however old the push - the universe the roster route folds roles over. Same deep-copy rules as
+    /// <see cref="SnapshotFresh"/>. For DECIDING only (who owns whom): an owning session on a machine that has gone
+    /// quiet still owns its workers. Never address a command from this list - use SnapshotFresh for that.
+    /// </summary>
+    public IReadOnlyList<(string DirectorId, SessionDto Session)> SnapshotLastKnown(TenantId tenant)
+        => SnapshotWhere(tenant, requireConnection: false);
+
+    private IReadOnlyList<(string DirectorId, SessionDto Session)> SnapshotWhere(TenantId tenant, bool requireConnection)
     {
         var now = _utcNow();
         var result = new List<(string, SessionDto)>();
@@ -706,9 +718,9 @@ public sealed class PushedSessionStore
             var entry = kvp.Value;
             lock (entry.Gate)
             {
-                if (entry.ActiveConnectionId is null)
+                if (requireConnection && entry.ActiveConnectionId is null)
                     continue;
-                if (entry.ReceivedAtUtc == DateTime.MinValue)
+                if (requireConnection && entry.ReceivedAtUtc == DateTime.MinValue)
                     continue;
                 foreach (var s in entry.Sessions.Values)
                     result.Add((kvp.Key, RecomputeClocks(s.Clone(), now)));

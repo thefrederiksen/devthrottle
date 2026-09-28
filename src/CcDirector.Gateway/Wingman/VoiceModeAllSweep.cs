@@ -88,12 +88,13 @@ public static class VoiceModeAllSweep
     /// <param name="isVoiceSession">Whether a session is currently marked as a voice session.</param>
     public static IReadOnlyList<(string DirectorId, string SessionId)> PlanOff(
         IReadOnlyList<(string DirectorId, SessionDto Session)> roster,
-        Func<string, bool> isVoiceSession)
+        Func<string, bool> isVoiceSession,
+        IReadOnlyList<(string DirectorId, SessionDto Session)>? ownershipUniverse = null)
     {
         ArgumentNullException.ThrowIfNull(roster);
         ArgumentNullException.ThrowIfNull(isVoiceSession);
 
-        Fleet.FleetRoleResolver.Stamp(roster.Select(r => r.Session).Where(x => x is not null).ToList());
+        var supervised = SupervisedIds(ownershipUniverse ?? roster);
 
         var plan = new List<(string DirectorId, string SessionId)>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -104,44 +105,75 @@ public static class VoiceModeAllSweep
             if (string.IsNullOrWhiteSpace(directorId)) continue;
             if (!seen.Add(sid)) continue;
             if (!isVoiceSession(sid)) continue;                    // already off: nothing to do
-            if (!SessionOrdering.IsSupervised(session!)) continue;  // the owner's own sessions are untouched
+            if (!supervised.Contains(sid)) continue;                // the owner's own sessions are untouched
             plan.Add((directorId, sid));
         }
         return plan;
     }
 
-    public static IReadOnlyList<(string DirectorId, string SessionId)> Plan(
-        bool voiceModeOn,
+    /// <summary>
+    /// THE OWNER'S OWN SESSIONS: every session on this roster that no live session owns. This is the one answer
+    /// to "which sessions does voice mode for all switch on?" - the fleet button, the count it shows and the
+    /// sweep all ask it, so the button can never switch on a session the sweep would switch straight back off.
+    ///
+    /// The button used to walk the WHOLE roster. It put every worker on voice, reported "13 sessions on", and
+    /// fifteen seconds later <see cref="PlanOff"/> switched the workers back off - the count was wrong and the
+    /// sessions flapped. Roles are resolved here for the reason given on <see cref="Plan"/>.
+    /// </summary>
+    /// <param name="roster">The sessions that may be acted on - the fresh ones.</param>
+    /// <param name="ownershipUniverse">Every session the Gateway last knew of, connected or not, that ownership is
+    /// judged over. The fresh roster alone drops an owning session whose computer has gone quiet, which would make
+    /// its workers on another computer look ownerless and switch them on. Null means the roster itself.</param>
+    public static IReadOnlyList<(string DirectorId, SessionDto Session)> OwnerSessions(
         IReadOnlyList<(string DirectorId, SessionDto Session)> roster,
-        Func<string, bool> isVoiceSession)
+        IReadOnlyList<(string DirectorId, SessionDto Session)>? ownershipUniverse = null)
     {
         ArgumentNullException.ThrowIfNull(roster);
-        ArgumentNullException.ThrowIfNull(isVoiceSession);
+        var supervised = SupervisedIds(ownershipUniverse ?? roster);
 
-        if (!voiceModeOn) return Array.Empty<(string, string)>();
-
-        // Resolve the roles across this roster before any of them is read - see the remark above for why a
-        // check without this line would be blind rather than merely incomplete. Stamps in place; the store
-        // hands out deep copies (PushedSessionStore.SnapshotFresh), so nothing cached is touched.
-        Fleet.FleetRoleResolver.Stamp(roster.Select(r => r.Session).Where(x => x is not null).ToList());
-
-        var plan = new List<(string DirectorId, string SessionId)>();
+        var owned = new List<(string DirectorId, SessionDto Session)>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (directorId, session) in roster)
         {
             var sid = session?.SessionId;
             if (string.IsNullOrWhiteSpace(sid)) continue;
             if (string.IsNullOrWhiteSpace(directorId)) continue;
-            // A session belongs to exactly one Director, but a duplicated roster entry must not be switched
-            // (and counted) twice - the same guard the fan-out endpoint applies.
             if (!seen.Add(sid)) continue;
-            if (isVoiceSession(sid)) continue;
-            // Supervised: not the owner's to be read aloud. Asked through SessionOrdering so the sweep and
-            // the roster fold answer this from ONE definition - a second copy here would drift from the dot
-            // on the screen, and the two disagreeing is precisely how a receded row still spoke.
-            if (SessionOrdering.IsSupervised(session!)) continue;
-            plan.Add((directorId, sid));
+            if (supervised.Contains(sid)) continue;   // another live session owns it and reads it
+            owned.Add((directorId, session!));
         }
+        return owned;
+    }
+
+    /// <summary>The ids of the sessions another live session owns, with roles resolved across the whole universe
+    /// first (see the remark on <see cref="Plan"/> for why an unresolved row is blind). Stamps the copies it is
+    /// given; the push store hands out deep copies, so nothing cached is touched.</summary>
+    private static HashSet<string> SupervisedIds(IReadOnlyList<(string DirectorId, SessionDto Session)> universe)
+    {
+        var sessions = universe.Select(r => r.Session).Where(x => x is not null).ToList();
+        Fleet.FleetRoleResolver.Stamp(sessions);
+        return sessions
+            .Where(x => !string.IsNullOrWhiteSpace(x.SessionId) && SessionOrdering.IsSupervised(x))
+            .Select(x => x.SessionId!)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    public static IReadOnlyList<(string DirectorId, string SessionId)> Plan(
+        bool voiceModeOn,
+        IReadOnlyList<(string DirectorId, SessionDto Session)> roster,
+        Func<string, bool> isVoiceSession,
+        IReadOnlyList<(string DirectorId, SessionDto Session)>? ownershipUniverse = null)
+    {
+        ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(isVoiceSession);
+
+        if (!voiceModeOn) return Array.Empty<(string, string)>();
+
+        // Only the owner's own sessions are ever switched on - see OwnerSessions, the one definition the fleet
+        // button shares. Sessions already on are left alone, so a steady fleet produces an empty sweep.
+        var plan = new List<(string DirectorId, string SessionId)>();
+        foreach (var (directorId, session) in OwnerSessions(roster, ownershipUniverse))
+            if (!isVoiceSession(session.SessionId!)) plan.Add((directorId, session.SessionId!));
         return plan;
     }
 }

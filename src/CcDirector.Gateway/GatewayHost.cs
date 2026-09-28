@@ -2875,13 +2875,17 @@ public sealed class GatewayHost : IAsyncDisposable
                 // ONE SNAPSHOT FEEDS BOTH DIRECTIONS. Taking it twice would let a session appear in one
                 // pass and not the other, so the sweep could switch a row on and off across a single tick.
                 var snapshot = PushedSessions.SnapshotFresh(tenant, stale);
+                // WHO OWNS WHOM is judged over everything last known, not only the fresh sessions: an owning session
+                // on a computer that has gone quiet still owns its workers on another computer, and the roster (so
+                // the button) says so. Only fresh sessions are acted on.
+                var ownershipUniverse = PushedSessions.SnapshotLastKnown(tenant);
 
                 // OFF FIRST, and unconditionally - see PlanOff for why it is not gated on the fleet switch.
                 // These are sessions marked for voice BEFORE the supervised rule existed (voice marking is
                 // persisted, so they survive restarts); without this pass they would be narrated at the owner
                 // for ever and the rule would look like it had done nothing.
                 foreach (var (directorId, sid) in Wingman.VoiceModeAllSweep.PlanOff(
-                             snapshot, s => vs.IsVoiceSession(tenant, s)))
+                             snapshot, s => vs.IsVoiceSession(tenant, s), ownershipUniverse))
                 {
                     var offResult = await Api.DirectorCommandRouter.TrySendAsync(
                         sendCommand, directorId, "voice-mode", sid, new { enabled = false }, CancellationToken.None);
@@ -2901,7 +2905,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 var plan = Wingman.VoiceModeAllSweep.Plan(
                     on,
                     snapshot,
-                    sid => vs.IsVoiceSession(tenant, sid));
+                    sid => vs.IsVoiceSession(tenant, sid),
+                    ownershipUniverse);
                 if (plan.Count == 0) return;
 
                 FileLog.Write($"[GatewayHost] voice-mode sweep: {plan.Count} session(s) to switch on for tenant={tenant.ToLogString()}");
