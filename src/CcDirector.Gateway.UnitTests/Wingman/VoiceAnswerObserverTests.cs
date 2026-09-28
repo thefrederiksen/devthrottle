@@ -51,12 +51,16 @@ public sealed class VoiceAnswerObserverTests : IDisposable
         return new WingmanVoiceService(brain, new KeyVault(Path.Combine(_dir, "vault.json")), settings, Path.Combine(_dir, "voice-sessions.json"));
     }
 
-    private static SessionDto Row(string sid, string activity, DateTime? ownerTurn, string? workingOrigin = null) => new()
+    /// <summary>The completed-turn count the session stands at while it sits at the stop under test.</summary>
+    private const int TurnsAtTheStop = 3;
+
+    private static SessionDto Row(string sid, string activity, DateTime? ownerTurn, string? workingOrigin = null, int? turns = TurnsAtTheStop) => new()
     {
         SessionId = sid,
         ActivityState = activity,
         LastOwnerTurnAtUtc = ownerTurn,
         WorkingOrigin = workingOrigin,
+        TurnCount = turns,
     };
 
     /// <summary>A voice session sitting at a stop with a ready narration, already seen once by the observer.</summary>
@@ -101,10 +105,10 @@ public sealed class VoiceAnswerObserverTests : IDisposable
         var (voice, observer, sid) = AtAStop();
 
         Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn1, workingOrigin: null)));
-        Assert.Null(observer.Observe(Tenant, Row(sid, "WaitingForInput", OwnerTurn1)));
+        Assert.Null(observer.Observe(Tenant, Row(sid, "WaitingForInput", OwnerTurn1, turns: TurnsAtTheStop + 1)));
         Assert.Null(voice.Listening.StopFor(Tenant, sid));
 
-        Assert.Equal(Outcome.NoNarration, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
+        Assert.Equal(Outcome.NoNarration, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner, turns: TurnsAtTheStop + 1)));
     }
 
     /// <summary>A fleet message or another agent's prompt wakes the session: agent-driven work, owner stamp untouched.</summary>
@@ -119,6 +123,57 @@ public sealed class VoiceAnswerObserverTests : IDisposable
         Assert.Equal(Outcome.NoNarration, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
     }
 
+    /// <summary>
+    /// Review of step 2: pushes can be missed. The agent carries on by itself and finishes while the tunnel is down, so
+    /// no Working push is ever seen; the next push already shows the owner's later message. The stop's next turn was
+    /// not his - the completed-turn count gives that away - so it is retired, not judged.
+    /// </summary>
+    [Fact]
+    public void Observe_AMissedSelfResumeThenAnOwnerMessage_IsNotAnAnswer()
+    {
+        var (voice, observer, sid) = AtAStop();
+
+        Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner, turns: TurnsAtTheStop + 1)));
+
+        Assert.Null(voice.Listening.StopFor(Tenant, sid));
+    }
+
+    /// <summary>The owner's own whole turn missed - he answered and the agent finished before the next push: one turn
+    /// completed, and it was his. Still his answer.</summary>
+    [Fact]
+    public void Observe_AMissedOwnerTurnThatHasFinished_IsStillHisAnswer()
+    {
+        var (_, observer, sid) = AtAStop();
+
+        Assert.Equal(Outcome.Unheard, observer.Observe(Tenant, Row(sid, "WaitingForInput", OwnerTurn2, turns: TurnsAtTheStop + 1)));
+    }
+
+    /// <summary>Two turns completed across the gap and one was the owner's: which came first cannot be read, so nothing
+    /// is judged.</summary>
+    [Fact]
+    public void Observe_MoreTurnsCompletedThanTheOwnersOwn_IsNotJudged()
+    {
+        var (voice, observer, sid) = AtAStop();
+
+        Assert.Null(observer.Observe(Tenant, Row(sid, "WaitingForInput", OwnerTurn2, turns: TurnsAtTheStop + 2)));
+
+        Assert.Null(voice.Listening.StopFor(Tenant, sid));
+    }
+
+    /// <summary>A Director that does not report the completed-turn count (older than the field), or a count that went
+    /// backwards (the session restarted): the history cannot be read, so the owner's message is never judged.</summary>
+    [Theory]
+    [InlineData(null)]
+    [InlineData(TurnsAtTheStop - 1)]
+    public void Observe_ATurnCountThatCannotBeRead_IsNeverJudged(int? turns)
+    {
+        var (voice, observer, sid) = AtAStop();
+
+        Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner, turns: turns)));
+
+        Assert.Null(voice.Listening.StopFor(Tenant, sid));
+    }
+
     [Fact]
     public void Observe_ASecondPushOfTheSameOwnerTurn_SettlesTheStopOnlyOnce()
     {
@@ -126,7 +181,7 @@ public sealed class VoiceAnswerObserverTests : IDisposable
 
         Assert.Equal(Outcome.Unheard, observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
         Assert.Null(observer.Observe(Tenant, Row(sid, "Working", OwnerTurn2, WorkingOrigins.Owner)));
-        Assert.Null(observer.Observe(Tenant, Row(sid, "WaitingForInput", OwnerTurn2)));
+        Assert.Null(observer.Observe(Tenant, Row(sid, "WaitingForInput", OwnerTurn2, turns: TurnsAtTheStop + 1)));
     }
 
     [Fact]

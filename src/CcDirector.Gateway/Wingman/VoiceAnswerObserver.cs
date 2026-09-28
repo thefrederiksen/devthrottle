@@ -31,8 +31,11 @@ public sealed class VoiceAnswerObserver
 {
     private readonly WingmanVoiceService _voice;
 
-    // (tenant, sid) -> the LastOwnerTurnAtUtc this observer last saw for that voice session (null when it had none).
-    private readonly ConcurrentDictionary<(TenantId Tenant, string Sid), DateTime?> _lastOwnerTurn = new();
+    // (tenant, sid) -> what this observer last saw of that voice session: its owner-turn stamp and its completed-turn
+    // count (either null when the Director did not report it).
+    private readonly ConcurrentDictionary<(TenantId Tenant, string Sid), Seen> _seen = new();
+
+    private readonly record struct Seen(DateTime? OwnerTurn, int? Turns);
 
     public VoiceAnswerObserver(WingmanVoiceService voice)
     {
@@ -41,7 +44,14 @@ public sealed class VoiceAnswerObserver
 
     /// <summary>
     /// Observe one pushed session. Returns what the owner's answer settled, or null when this push is not the owner
-    /// answering a voice session (not a voice session, first sight, or no new owner turn).
+    /// answering a voice session (not a voice session, first sight, no new owner turn, or a history it cannot read).
+    ///
+    /// A push can be missed - a dropped delta, a tunnel down for a whole turn - so nothing here depends on SEEING a
+    /// transient state. What it reads are the Director's two monotonic facts: the owner-turn stamp and the count of
+    /// completed turns. Between two pushes, the owner answered the stop only if his stamp moved and NO turn completed
+    /// before his began: none if his turn is still running, exactly one (his own) if it has settled. Anything else - a
+    /// turn that completed with no owner stamp, more turns than his, a count that went backwards or is unknown - means
+    /// the stop's next turn was not (or cannot be shown to be) his, and the stop is retired unjudged (review of step 2).
     /// </summary>
     public VoiceListeningLedger.AnswerOutcome? Observe(TenantId tenant, SessionDto? session)
     {
@@ -51,29 +61,39 @@ public sealed class VoiceAnswerObserver
 
         if (!_voice.IsVoiceSession(tenant, sid))
         {
-            _lastOwnerTurn.TryRemove(key, out _);
+            _seen.TryRemove(key, out _);
             return null;
         }
 
-        var seen = session.LastOwnerTurnAtUtc;
-        if (!_lastOwnerTurn.TryGetValue(key, out var previous))
+        var now = new Seen(session.LastOwnerTurnAtUtc, session.TurnCount);
+        if (!_seen.TryGetValue(key, out var before))
         {
-            _lastOwnerTurn[key] = seen;   // first sight: where the stamp stands now, judged against nothing
+            _seen[key] = now;   // first sight: where the facts stand now, judged against nothing
             return null;
         }
-        var ownerTurnMoved = seen is not null && (previous is null || seen.Value > previous.Value);
-        if (!ownerTurnMoved)
+        if (now == before)
         {
-            // The session is working and the owner did not start it: the stop it was on has had its next turn, and
-            // that turn was not his answer. Retired, so a later owner message is never judged against it (review of
-            // step 2). A working push of the owner's OWN turn carries his new stamp and is judged below instead.
+            // Nothing completed and the owner did not start anything. A turn in progress here was started by someone
+            // else: the stop has had its next turn, and it was not his answer.
             if (IsWorking(session.ActivityState))
                 _voice.Listening.RetireUnanswered(tenant, sid, "its next turn began without a message from the owner");
             return null;
         }
-        if (!_lastOwnerTurn.TryUpdate(key, seen, previous)) return null;   // a concurrent push already took this turn
+        if (!_seen.TryUpdate(key, now, before)) return null;   // a concurrent push already took this change
 
-        FileLog.Write($"[VoiceAnswerObserver] owner drove a turn on a voice session: tenant={tenant.ToLogString()} sid={sid} ownerTurn={seen!.Value:O}");
+        var ownerTurnMoved = now.OwnerTurn is not null && (before.OwnerTurn is null || now.OwnerTurn.Value > before.OwnerTurn.Value);
+        int? completed = now.Turns is int n && before.Turns is int b && n >= b ? n - b : null;
+        var ownTurnOnly = IsWorking(session.ActivityState) ? 0 : 1;
+
+        if (!ownerTurnMoved || completed is null || completed.Value > ownTurnOnly)
+        {
+            _voice.Listening.RetireUnanswered(tenant, sid, ownerTurnMoved
+                ? $"another turn completed around the owner's (completed={completed?.ToString() ?? "unknown"})"
+                : "a turn completed without a message from the owner");
+            return null;
+        }
+
+        FileLog.Write($"[VoiceAnswerObserver] owner drove a turn on a voice session: tenant={tenant.ToLogString()} sid={sid} ownerTurn={now.OwnerTurn!.Value:O}");
         return _voice.Listening.NoteOwnerAnswered(tenant, sid);
     }
 
