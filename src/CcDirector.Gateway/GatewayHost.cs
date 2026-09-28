@@ -835,6 +835,7 @@ public sealed class GatewayHost : IAsyncDisposable
     // ticks every two minutes so an interrupted ruling lands within minutes of the threshold; guarded
     // against overlap like the cron sweep. Created in StartAsync, disposed in StopAsync.
     private readonly History.SessionHistoryStore _sessionHistory;
+    private readonly Factory.Memory.FactoryMemoryStore _factoryMemory;
     private readonly History.KnownRepositoryStore _knownRepositories;
     /// <summary>The one-repository-list mission, phase 2: the third observer on the repository snapshot a
     /// Director already pushes, which folds the root-folder scan into <see cref="_knownRepositories"/> as
@@ -2072,6 +2073,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // through, resolved at call time (the dictionary-screening precedent) - summarisation is a
         // background digest, and the fast leg is the cheap one. The per-pass caps live in the sweep.
         _sessionHistory = new History.SessionHistoryStore(_gatewayDb);
+        _factoryMemory = new Factory.Memory.FactoryMemoryStore(_gatewayDb);
         _devReports = new DevReports.DevReportStore(_gatewayDb);
         _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
             route: (tenant, directorId) =>
@@ -4775,6 +4777,15 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.
+        // A factory's MEMORY (Factory Memory mission, phase 2): the notes its agents read at the start of a run and
+        // write when they learn something. The factory is never taken from the caller - it is read from the calling
+        // session's own record, which is what phase 1 exists for.
+        Api.FactoryMemoryEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            store: _factoryMemory,
+            sessionFactoryOf: _sessionHistory.FactoryOf,
+            nowUtc: () => DateTime.UtcNow);
+
         CronRunEndpoints.Map(_app, _cronEngine, _cronRuns,
             // Factory Memory mission: running a factory's schedule on demand is limited to a person or a session
             // of that factory, so this route needs the schedule's factory and the caller's.
