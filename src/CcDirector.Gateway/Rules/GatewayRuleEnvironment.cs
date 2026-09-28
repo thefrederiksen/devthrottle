@@ -168,7 +168,8 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
             return RuleSendResult.NotSent($"the machine running this session ({directorId}) is not connected.");
         }
 
-        var request = new PromptRequest { Text = text, AppendEnter = true, WaitForIdle = false };
+        // Labelled as the Gateway's own text, so the Director never stamps it as the owner's turn (GatewayAuthoredPrompt).
+        var request = GatewayAuthoredPrompt.For(text);
         var sent = await route.SendPromptAsync(sessionId, request, ct).ConfigureAwait(false);
 
         switch (sent.Kind)

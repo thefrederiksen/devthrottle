@@ -124,7 +124,8 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
             FileLog.Write($"[GatewaySupervisorEnvironment] continue NOT sent sid={sessionId}: director {directorId} is not connected");
             return false;
         }
-        var request = new PromptRequest { Text = SessionSupervisor.ContinueText, AppendEnter = true, WaitForIdle = false };
+        // Labelled as the Gateway's own text, so the Director never stamps it as the owner's turn (GatewayAuthoredPrompt).
+        var request = GatewayAuthoredPrompt.For(SessionSupervisor.ContinueText);
         var (ok, _, error) = await route.PostPromptAsync(sessionId, request, ct).ConfigureAwait(false);
         if (!ok)
             FileLog.Write($"[GatewaySupervisorEnvironment] continue send FAILED sid={sessionId}: {error}");

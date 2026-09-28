@@ -70,8 +70,10 @@ public sealed class DirectorHub : Hub
         Briefing.TurnEndWatcher? turnEnds = null,
         FleetManagerHomeCapabilityRegistry? fleetManagerHomeCapabilities = null,
         History.DiscoveredRepositoryObserver? discoveredRepositories = null,
-        Fleet.RaisedSessionStore? raisedSessions = null)
+        Fleet.RaisedSessionStore? raisedSessions = null,
+        Wingman.VoiceAnswerObserver? voiceAnswers = null)
     {
+        _voiceAnswers = voiceAnswers;
         _raisedSessions = raisedSessions;
         _discoveredRepositories = discoveredRepositories;
         _fleetManagerHomeCapabilities = fleetManagerHomeCapabilities;
@@ -95,6 +97,10 @@ public sealed class DirectorHub : Hub
     }
 
     private readonly PushedRepositoryStore? _repositoryStore;
+
+    /// <summary>Voice mode auto-off: sees the owner answer a voice session, from the owner-turn stamp each accepted push
+    /// carries. Null (older callers, tests that do not exercise voice) judges nothing.</summary>
+    private readonly Wingman.VoiceAnswerObserver? _voiceAnswers;
 
     /// <summary>The turn-end watcher an accepted delta feeds before the display fold. Null (older callers, tests that
     /// do not exercise turn ends) leaves the watcher to its 15-second reconcile sweep alone.</summary>
@@ -629,6 +635,10 @@ public sealed class DirectorHub : Hub
         // missed until the sweep's backstop notices.
         if (accepted)
             _snoozeLandings?.ObserveSnapshot(set);
+        // Voice mode auto-off: a reconnect snapshot can carry an owner turn made while the tunnel was down. Gated on
+        // acceptance like the snooze observer - a rejected stale push is not authoritative about who drove a turn.
+        if (accepted)
+            ObserveVoiceAnswers(() => _voiceAnswers?.ObserveSnapshot(RequireBoundTenant(), set));
         // Defect 5: a reconnecting Director's whole roster can change roles across the FLEET (its sessions
         // re-enter the liveness set, so their controllers' and workers' roles move with them). Re-resolve
         // and stamp down whatever changed, or the desktop keeps folding a role from before the reconnect.
@@ -651,6 +661,24 @@ public sealed class DirectorHub : Hub
         if (accepted && _sessionState is not null)
             foreach (var s in set)
                 _sessionState.Observe(directorId, s.SessionId ?? "", s.ActivityState);
+    }
+
+    /// <summary>
+    /// Run the voice-answer observer, CONTAINED. It runs after the push has been applied to the store, so a fault in it
+    /// escaping here would tell the Director its push failed when its sessions had in fact landed - the same reason the
+    /// turn-end seam is contained. Contained, never swallowed: the fault is logged.
+    /// </summary>
+    private void ObserveVoiceAnswers(Action observe)
+    {
+        if (_voiceAnswers is null) return;
+        try
+        {
+            observe();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorHub] voice answer observer FAILED: director={RequireBoundDirector()}: {ex.Message}");
+        }
     }
 
     /// <summary>A single-session delta: upserts one session for the bound Director.</summary>
@@ -697,6 +725,9 @@ public sealed class DirectorHub : Hub
         // of the turn ending, which is the exact moment a deferred snooze's clock must start.
         if (accepted)
             _snoozeLandings?.Observe(session);
+        // Voice mode auto-off: THE ANSWER SEAM. The owner-turn stamp moves on the push that reports his submission.
+        if (accepted)
+            ObserveVoiceAnswers(() => _voiceAnswers?.Observe(RequireBoundTenant(), session));
         // Defect 5: THE ROLE SEAM. This session's own facts may have changed its role (it gained a
         // controller), and its arrival may change ANOTHER session's role on ANOTHER Director (this session
         // just exited, so the worker it controlled is no longer a Worker and its red must surface). Either
