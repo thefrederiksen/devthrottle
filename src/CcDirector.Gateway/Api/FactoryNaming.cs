@@ -28,7 +28,18 @@ namespace CcDirector.Gateway.Api;
 ///
 /// AN ORDINARY EDIT NEVER STRIPS MEMBERSHIP. A request that says nothing about the factory KEEPS the stored
 /// one, rather than clearing it: changing an interval must not quietly take the Website Factory's Scout out
-/// of its factory, and a caller that meant to remove it can say so and be checked like any other change.
+/// of its factory. TAKING A FACTORY OFF ALTOGETHER IS NOT SUPPORTED, by anyone, in this phase - a blank value
+/// means "said nothing", so there is no way to spell removal (review finding 6, which caught this file claiming
+/// otherwise). Moving a row to another factory works, and so does deleting and recreating it; a spelling for
+/// removal belongs with the Cockpit's Memory tab, not invented here.
+///
+/// AND THE FACTORY FIELD IS NOT THE ONLY WAY IN (review finding 2, and the owner's decision of 28 September).
+/// Every session key may also rewrite what a trigger or a schedule RUNS - its prompt, its seed, its repository,
+/// its check command - and then run it. The Gateway stamps the session it starts into that row's factory, so an
+/// outsider who could edit the Website Factory's Scout could have a factory member run its own instructions and,
+/// from phase 2, write that factory's memory. So <see cref="TryAct"/> guards the whole definition: acting at all
+/// on a row that HAS a factory is limited to a person or a session of that factory. Rows with no factory are
+/// unaffected, which is every trigger and schedule that is not a factory's.
 /// </summary>
 internal static class FactoryNaming
 {
@@ -128,6 +139,66 @@ internal static class FactoryNaming
         }, statusCode: StatusCodes.Status403Forbidden);
         return false;
     }
+
+    /// <summary>
+    /// MAY THIS CALLER ACT ON THIS ROW AT ALL - write it, delete it, pause it, resume it, or run it now (review
+    /// finding 2; the owner's decision of 28 September). Returns false with <paramref name="error"/> when not.
+    ///
+    /// A row with NO factory is open to anyone, exactly as before: this closes a door into a factory, it does not
+    /// put triggers and schedules behind a new permission in general. A row WITH one is that factory's business,
+    /// because everything on it decides what a session of that factory will be told to do.
+    /// </summary>
+    internal static bool TryAct(
+        HttpContext ctx,
+        Func<string, SessionFactoryLookup>? factoryOf,
+        string? rowFactory,
+        string what,
+        string route,
+        out IResult? error)
+    {
+        error = null;
+        var owner = string.IsNullOrWhiteSpace(rowFactory) ? null : rowFactory.Trim();
+        if (owner is null) return true;
+
+        var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
+        if (SessionOriginSurfaces.FromDeviceType(deviceType) != SessionOriginSurfaces.Unknown)
+            return true;
+
+        if (ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedSessionItemKey, out var si)
+            && si is Pairing.SessionCredentialIdentity caller)
+        {
+            var lookup = factoryOf is null ? SessionFactoryLookup.NotKnown : factoryOf(caller.SessionId.ToString());
+            if (!lookup.IsKnown)
+            {
+                error = Results.Json(new { error = SpawnFactory.NotYetKnown, detail = SpawnFactory.NotYetKnownDetail },
+                    statusCode: StatusCodes.Status409Conflict);
+                return false;
+            }
+            if (lookup.Factory is { } mine && string.Equals(mine, owner, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            FileLog.Write($"[FactoryNaming] {route}: REFUSED - session {caller.SessionId} (factory {lookup.Factory ?? "none"}) acted on a {what} of '{owner}'");
+            error = Refuse(what, owner);
+            return false;
+        }
+
+        FileLog.Write($"[FactoryNaming] {route}: REFUSED - an unidentified caller acted on a {what} of '{owner}'");
+        error = Refuse(what, owner);
+        return false;
+    }
+
+    private static IResult Refuse(string what, string owner) => Results.Json(new
+    {
+        error = $"this {what} belongs to factory '{owner}', so only a person or a session of '{owner}' may change or run it",
+        detail = ActDetail(what, owner),
+    }, statusCode: StatusCodes.Status403Forbidden);
+
+    /// <summary>Why acting on another factory's row is refused. Held here so tests can pin it.</summary>
+    internal static string ActDetail(string what, string factory) =>
+        $"Everything on a {what} decides what a session of '{factory}' will be told to do - its prompt, where it " +
+        $"runs, and when - and that session may read and write that factory's memory. Changing or running it from " +
+        $"outside the factory would therefore direct one of its members. A {what} with no factory on it is open to " +
+        $"any session, as before.";
 
     /// <summary>Why the refusal happened and what to do instead. Held here so tests can pin it.</summary>
     internal static string Detail(string what) =>

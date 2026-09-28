@@ -295,7 +295,14 @@ public sealed class SessionHistoryRecorder
             // this the fill-in waits for the five-minute freshness heartbeat; with it the row is
             // corrected on the next push. The store's write-once guard is what makes adding them here
             // safe - a change in these can only ever fill a blank, never overwrite a recorded value.
-            s.OriginKind, s.OriginSurface, s.ParentSessionId);
+            s.OriginKind, s.OriginSurface, s.ParentSessionId,
+            // The FACTORY belongs on that list for the same reason and one sharper one (Factory Memory mission,
+            // review finding 4): it is read to decide who may write a factory's memory, so a row still missing it
+            // does not merely lack a line of history - every spawn from that session is refused as "not yet
+            // known" until the row catches up. Waiting five minutes for the freshness heartbeat to fill it in is
+            // exactly the wrong cost to pay. Write-once on the column keeps this safe: it can fill a blank and
+            // never overwrite a recorded value.
+            s.Factory);
 
     private static string Key(TenantId tenant, string id) => $"{tenant.Value}|{id}";
 }

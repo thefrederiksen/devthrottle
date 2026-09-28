@@ -106,6 +106,14 @@ internal static class TriggerEndpoints
             if (TriggerDefinition.Validate(req!, isCreate: false) is { } error)
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_trigger", error);
 
+            // MAY THIS CALLER TOUCH THIS TRIGGER AT ALL (review finding 2; the owner's decision of 28 September)?
+            // The same request replaces the prompt, the repository, the machine and the check command, and the
+            // session this trigger starts is stamped into its factory - so an outsider editing it would be
+            // directing a factory member without ever naming a factory.
+            if (!FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, "trigger",
+                    $"PUT /triggers/{id}", out var actError))
+                return actError!;
+
             // The same gate on the way in, and it also guards taking a factory OFF a trigger: an outside session
             // that cannot add itself to the Website Factory must equally not be able to take its Sender out of it.
             // A body that says nothing about the factory keeps the stored one, so an ordinary edit is unaffected.
@@ -124,6 +132,11 @@ internal static class TriggerEndpoints
         {
             FileLog.Write($"[TriggerEndpoints] DELETE /triggers/{id}");
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+            // Deleting a factory's trigger stops its agent running at all, which is interference of the plainest
+            // kind, so it follows the same rule as editing it.
+            if (!FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, "trigger",
+                    $"DELETE /triggers/{id}", out var actError))
+                return actError!;
             return store.Delete(tenant, id) ? Results.Json(new { id, deleted = true }) : NoSuchTrigger(id);
         });
 
@@ -133,6 +146,9 @@ internal static class TriggerEndpoints
         {
             FileLog.Write($"[TriggerEndpoints] POST /triggers/{id}/resume");
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+            if (!FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, "trigger",
+                    $"POST /triggers/{id}/resume", out var actError))
+                return actError!;
             return await service.ResumeAsync(tenant, id, CallerOf(ctx), ctx.RequestAborted) is { } t
                 ? Results.Json(service.ToDto(t))
                 : NoSuchTrigger(id);
@@ -142,6 +158,11 @@ internal static class TriggerEndpoints
         {
             FileLog.Write($"[TriggerEndpoints] POST /triggers/{id}/{(paused ? "pause" : "resume")}");
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
+            // Pausing a factory's trigger is how you stop its agent without deleting anything, so it is guarded
+            // like the rest of the definition.
+            if (!FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Find(tenant, id)?.Factory, "trigger",
+                    $"POST /triggers/{id}/{(paused ? "pause" : "resume")}", out var actError))
+                return actError!;
             return store.SetPaused(tenant, id, paused) is { } t ? Results.Json(service.ToDto(t)) : NoSuchTrigger(id);
         }
 

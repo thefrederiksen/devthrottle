@@ -180,6 +180,78 @@ public sealed class FactoryNamingOnTriggersAndSchedulesTests
         Assert.Equal(TheFactory, settled);
     }
 
+    // ---------- acting on a row that already belongs to a factory (review finding 2) ----------
+
+    private static bool Act(HttpContext ctx, Func<string, SessionFactoryLookup>? reader, string? rowFactory, out IResult? error)
+        => FactoryNaming.TryAct(ctx, reader, rowFactory, "schedule", "test", out error);
+
+    [Fact]
+    public void AN_OUTSIDE_SESSION_MAY_NOT_TOUCH_A_FACTORYS_SCHEDULE_AT_ALL()
+    {
+        // THE TEST FOR THE SECOND HOLE. Gating only the factory FIELD left this open: an outsider rewrites the
+        // Scout's seed, runs it, and the Gateway starts a session in website-factory running the outsider's
+        // instructions - which from phase 2 may write that factory's memory. The owner closed it on 28 September.
+        Assert.False(Act(AsSession(CallerId), Reads(SessionFactoryLookup.InNoFactory), TheFactory, out var error));
+        var status = Assert.IsAssignableFrom<IStatusCodeHttpResult>(error);
+        Assert.Equal(StatusCodes.Status403Forbidden, status.StatusCode);
+        var text = System.Text.Json.JsonSerializer.Serialize(Assert.IsAssignableFrom<IValueHttpResult>(error).Value!);
+        Assert.Contains(TheFactory, text);
+    }
+
+    [Fact]
+    public void A_session_of_ANOTHER_factory_may_not_touch_it_either()
+    {
+        Assert.False(Act(AsSession(CallerId), Reads(SessionFactoryLookup.In(AnotherFactory)), TheFactory, out var error));
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void A_SESSION_OF_THAT_FACTORY_MAY()
+    {
+        Assert.True(Act(AsSession(CallerId), Reads(SessionFactoryLookup.In(TheFactory)), TheFactory, out var error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void A_person_may_touch_any_of_their_factories_rows()
+    {
+        Assert.True(Act(AsDevice(), Reads(SessionFactoryLookup.NotKnown), TheFactory, out var error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void A_ROW_WITH_NO_FACTORY_IS_OPEN_TO_ANYONE_EXACTLY_AS_BEFORE()
+    {
+        // The limit of this rule, said as a test: it closes a door into a factory, it does not put triggers and
+        // schedules behind a new permission in general. Every schedule that is not a factory's is unaffected.
+        Assert.True(Act(AsSession(CallerId), Reads(SessionFactoryLookup.InNoFactory), rowFactory: null, out _));
+        Assert.True(Act(new DefaultHttpContext(), Reads(SessionFactoryLookup.NotKnown), rowFactory: "  ", out _));
+    }
+
+    [Fact]
+    public void An_unidentified_caller_may_not_touch_a_factorys_row()
+    {
+        Assert.False(Act(new DefaultHttpContext(), Reads(SessionFactoryLookup.NotKnown), TheFactory, out var error));
+        Assert.NotNull(error);
+    }
+
+    [Fact]
+    public void A_caller_with_no_row_yet_gets_the_try_again_answer_here_too()
+    {
+        Assert.False(Act(AsSession(CallerId), Reads(SessionFactoryLookup.NotKnown), TheFactory, out var error));
+        var status = Assert.IsAssignableFrom<IStatusCodeHttpResult>(error);
+        Assert.Equal(StatusCodes.Status409Conflict, status.StatusCode);
+    }
+
+    [Fact]
+    public void The_refusal_for_acting_says_why_the_whole_definition_is_guarded()
+    {
+        var detail = FactoryNaming.ActDetail("schedule", TheFactory);
+        Assert.Contains("will be told to do", detail);
+        Assert.Contains("read and write that factory's memory", detail);
+        Assert.Contains("no factory on it is open to", detail);
+    }
+
     [Fact]
     public void The_refusal_explains_that_naming_the_factory_is_joining_it()
     {

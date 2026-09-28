@@ -4591,9 +4591,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 TimeSpan.FromSeconds(5), Fleet.FleetManagerReplacementSweep.Interval);
         FleetManagerPlacementEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-            service: _fleetManagerPlacement,
-            // Factory Memory mission (phase 1): the same factory stamp the other two spawn doors apply.
-            sessionFactoryOf: _sessionHistory.FactoryOf);
+            // Factory Memory mission: the Fleet Manager is in no factory by definition, so this door needs no
+            // reader - it sets none for every caller (review finding 5).
+            service: _fleetManagerPlacement);
 
         // Raise and lower a session (the Fleet Manager Improvement mission, phase 1). The owner's own device only:
         // SessionKeyGuard lists neither route, so every session key - a raised one included - is refused first.
@@ -4775,7 +4775,11 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.
-        CronRunEndpoints.Map(_app, _cronEngine, _cronRuns);
+        CronRunEndpoints.Map(_app, _cronEngine, _cronRuns,
+            // Factory Memory mission: running a factory's schedule on demand is limited to a person or a session
+            // of that factory, so this route needs the schedule's factory and the caller's.
+            jobById: id => _cronJobs.Get(id),
+            sessionFactoryOf: _sessionHistory.FactoryOf);
 
         // Factory triggers (Website Business Factory, product track): the definitions, the run history, and the
         // Director's half - fetch its checks, report each result. Behind the factory agents switch PER ACCOUNT: for
