@@ -161,7 +161,7 @@ public sealed class AFilteredRosterReadNeverPrunesTests : IDisposable
                 streamStaleAfter: TimeSpan.FromSeconds(20),
                 snoozeRegistry: snoozes,
                 turnVerdictRows: new ColourOn(),
-                snoozeExpiry: watch);
+                snoozeExpiry: watch, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
 
             await app.StartAsync();
             var port = BoundPort.Of(app);

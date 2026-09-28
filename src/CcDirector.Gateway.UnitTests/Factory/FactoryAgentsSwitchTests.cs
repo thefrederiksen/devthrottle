@@ -162,7 +162,7 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
         FactoryMapEndpoints.Map(gate, new FactoryMapStore(new TenantSettingsStore(Db)), resolve);
         FactoryAgentsViewEndpoints.Map(gate, resolve, sources);
         TriggerEndpoints.Map(FactoryAgentsGate.Group(app, sw, resolve), resolve, triggers,
-            directorMachine: (_, _) => "NORTH", nowUtc: () => _now);
+            directorMachine: (_, _) => "NORTH", nowUtc: () => _now, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
         return (app, sw);
     }
 
