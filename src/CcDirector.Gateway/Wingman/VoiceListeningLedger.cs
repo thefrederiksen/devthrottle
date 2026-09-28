@@ -56,6 +56,12 @@ public sealed class VoiceListeningLedger
     {
         /// <summary>Stops handled without voice since a narration was last played.</summary>
         public int UnheardInARow { get; set; }
+
+        /// <summary>True from the moment the record changes until a save of it succeeds. A reset whose write failed
+        /// leaves the OLD count on disk, and a Gateway restart would bring it back - so the next reset must write
+        /// again even though memory already says zero (review of step 3).</summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        public bool Unsaved { get; set; }
     }
 
     private const string FileName = "voice-listening.json";
@@ -210,20 +216,22 @@ public sealed class VoiceListeningLedger
         lock (record)
         {
             record.UnheardInARow++;
+            record.Unsaved = true;
             Save(tenant, record);
             return record.UnheardInARow;
         }
     }
 
-    /// <summary>Set the count back to zero. No write when it already is zero.</summary>
+    /// <summary>Set the count back to zero. No write when it already is zero AND that zero is on disk.</summary>
     private void ResetUnheard(TenantId tenant, string why)
     {
         var record = RecordFor(tenant);
         lock (record)
         {
-            if (record.UnheardInARow == 0) return;
+            if (record.UnheardInARow == 0 && !record.Unsaved) return;
             FileLog.Write($"[VoiceListeningLedger] unheard count reset from {record.UnheardInARow}: tenant={tenant.ToLogString()} ({why})");
             record.UnheardInARow = 0;
+            record.Unsaved = true;
             Save(tenant, record);
         }
     }
@@ -253,19 +261,22 @@ public sealed class VoiceListeningLedger
         }
     }
 
+    /// <summary>
+    /// Write the record. A failure is NOT swallowed: it leaves <see cref="AccountRecord.Unsaved"/> set, so the next
+    /// change writes again, and it goes up to the caller - the play report answers an error the player retries on its
+    /// next play, and the hub push logs it. Written to a temporary file and moved into place, so a failed write never
+    /// leaves half a record.
+    /// </summary>
     private void Save(TenantId tenant, AccountRecord record)
     {
-        if (_stateDirectory is null) return;
-        try
-        {
-            var dir = _stateDirectory(tenant);
-            Directory.CreateDirectory(dir);
-            File.WriteAllText(Path.Combine(dir, FileName), JsonSerializer.Serialize(record));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            FileLog.Write($"[VoiceListeningLedger] save FAILED: tenant={tenant.ToLogString()}: {ex.GetType().Name}: {Redact(ex.Message, tenant)}");
-        }
+        if (_stateDirectory is null) { record.Unsaved = false; return; }
+        var dir = _stateDirectory(tenant);
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, FileName);
+        var temp = path + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(record));
+        File.Move(temp, path, overwrite: true);
+        record.Unsaved = false;
     }
 
     /// <summary>The partition directory IS the tenant id, so a path in an exception message carries it; log the hashed

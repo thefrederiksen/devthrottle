@@ -136,7 +136,18 @@ internal static class GatewayWingmanVoiceEndpoint
         if (string.IsNullOrWhiteSpace(generatedAtText)
             || !DateTime.TryParse(generatedAtText, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var generatedAt))
             return Results.Json(new { error = "generatedAt must name the clip that started playing" }, statusCode: StatusCodes.Status400BadRequest);
-        var played = listening.NotePlayed(tenant, sid, generatedAt.ToUniversalTime());
+        bool played;
+        try
+        {
+            played = listening.NotePlayed(tenant, sid, generatedAt.ToUniversalTime());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The play is recorded in memory but the reset count could not be saved. Answered as an error, not a
+            // success, so the player reports again on its next play and the save is tried again.
+            FileLog.Write($"[GatewayWingmanVoice] voice/played sid={sid} FAILED to save the listening record: {ex.GetType().Name}");
+            return Results.Json(new { error = "the play was noted but could not be saved; it will be reported again" }, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
         FileLog.Write($"[GatewayWingmanVoice] voice/played sid={sid} generatedAt={generatedAtText} played={played}");
         return Results.Json(new { played });
     }

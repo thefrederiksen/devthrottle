@@ -138,6 +138,34 @@ public sealed class VoiceUnheardCountTests : IDisposable
         Assert.True(File.Exists(Path.Combine(after.PartitionDirectoryFor(Tenant), "voice-listening.json")));
     }
 
+    /// <summary>
+    /// Review of step 3: a reset whose write fails leaves the OLD count on disk, and memory already says zero. The
+    /// failure must reach the caller, and the next play must write again - otherwise a restart brings the stale count
+    /// back and a switch-off fires early despite the play in between.
+    /// </summary>
+    [Fact]
+    public void NotePlayed_AResetWhoseSaveFailed_IsWrittenAgainByTheNextPlay()
+    {
+        var voice = Voice();
+        for (var i = 0; i < 4; i++) AnswerUnheard(voice);
+        var sid = Guid.NewGuid().ToString();
+        voice.Mark(Tenant, sid);
+        voice.StoreReadyAudioForTest(Tenant, sid, "Spoken.", "Reply.", Encoding.ASCII.GetBytes("ID3a"));
+        var at = voice.Get(Tenant, sid)!.AtUtc;
+        var path = Path.Combine(voice.PartitionDirectoryFor(Tenant), "voice-listening.json");
+
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var failure = Record.Exception(() => voice.Listening.NotePlayed(Tenant, sid, at));
+            Assert.True(failure is IOException or UnauthorizedAccessException, $"expected the save failure to reach the caller, got {failure?.GetType().Name ?? "nothing"}");
+        }
+        Assert.Equal(4, Voice().Listening.UnheardInARow(Tenant));   // the failed reset left the old count on disk
+
+        voice.Listening.NotePlayed(Tenant, sid, at);
+
+        Assert.Equal(0, Voice().Listening.UnheardInARow(Tenant));   // a restart now reads the zero
+    }
+
     [Fact]
     public void UnheardInARow_ACountFileThatCannotBeRead_StartsTheAccountAtZero()
     {
