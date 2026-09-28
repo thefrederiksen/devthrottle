@@ -48,7 +48,8 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
             Assert.Equal("20260921131049_IndexFactoryActivityReads", all[index + 8]); // the only migrations after it
             Assert.Equal("20260921203243_AddTriggerStartName", all[index + 9]);
             Assert.Equal("20260928020815_AddSessionAndScheduleFactory", all[index + 10]);
-            Assert.Equal(index + 11, all.Count);
+            Assert.Equal("20260928112725_AddFactoryMemoryNotes", all[index + 11]);
+            Assert.Equal(index + 12, all.Count);
 
             // From an EMPTY database to the schema just before, with a stop stored as step 4 stores it.
             Assert.Empty(context.Database.GetAppliedMigrations());
