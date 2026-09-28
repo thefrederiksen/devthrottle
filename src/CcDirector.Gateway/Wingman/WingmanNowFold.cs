@@ -904,11 +904,25 @@ public static class WingmanNowFold
     }
 
     /// <summary>
+    /// The model stamp the removed carrying-on clock wrote on its own records. HISTORY ONLY: nothing writes it since
+    /// the clock was removed (owner ruling, 2026-09-28), but a record it wrote before then stays in the store for the
+    /// retention period, and its label is the clock's reason code rather than anything the Wingman read.
+    /// </summary>
+    internal const string HistoricClockModel = "carrying-on-clock";
+
+    /// <summary>
     /// What a past stop SAYS, as one line: the pill's words, a dash, and the Wingman's own headline.
+    ///
+    /// EXCEPT FOR A RECORD THE REMOVED CARRYING-ON CLOCK WROTE, which shows the pill's words alone. Its label,
+    /// "Said it would continue and did not", is the clock's, not the Wingman's, and the owner does not want it shown.
+    /// It is recognised by the model stamped on the record - a fact on the record, never a match on the label.
     /// </summary>
     private static string PastText(TurnVerdictDto verdict)
     {
         var words = PastPillWords(verdict)!;
+        if (string.Equals(verdict.Model, HistoricClockModel, StringComparison.Ordinal))
+            return words;
+
         var label = NullIfBlank(verdict.Label);
         return label is null ? words : words + " - " + label;
     }

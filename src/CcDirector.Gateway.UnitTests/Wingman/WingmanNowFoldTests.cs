@@ -460,6 +460,29 @@ public sealed class WingmanNowFoldTests
     }
 
     /// <summary>
+    /// A STOP THE REMOVED CLOCK WROTE SHOWS NO CLOCK WORDS. A record the carrying-on clock stored before its removal
+    /// stays for the retention period; its "last stop" line shows the pill's words alone, never the clock's label.
+    /// </summary>
+    [Fact]
+    public void A_stop_the_removed_clock_wrote_shows_the_pill_words_without_its_label()
+    {
+        var clocked = Verdict(TurnVerdictVocabulary.NeededYou, label: "Said it would continue and did not");
+        clocked.Model = WingmanNowFold.HistoricClockModel;
+        clocked.SupersededAtUtc = Stopped.AddMinutes(1);
+
+        var lastStop = FoldWith(WorkingRow(), new[] { new AnsweredTurnVerdict(clocked, null) }).LastStop!;
+
+        Assert.DoesNotContain("Said it would continue", lastStop.Text);
+        Assert.DoesNotContain(" - ", lastStop.Text);
+
+        // THE CONTROL: an ordinary judged stop in the same place keeps the state word and the ask.
+        var judged = Verdict(TurnVerdictVocabulary.NeededYou);
+        judged.SupersededAtUtc = Stopped.AddMinutes(1);
+        Assert.Equal("Needs you - Merge pull request 3002, or allow me to merge it",
+            FoldWith(WorkingRow(), new[] { new AnsweredTurnVerdict(judged, null) }).LastStop!.Text);
+    }
+
+    /// <summary>
     /// THE CALM CARD'S COLOUR IS THE GATEWAY'S, not a branch on the state name in the client. The approved mockup
     /// tints the finished work and the report cyan and carrying on purple; a client that worked that out for itself
     /// from <c>state</c> would be deciding what a state means, which is the one thing the Now view may not do.

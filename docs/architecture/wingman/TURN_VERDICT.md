@@ -338,7 +338,7 @@ never has to tell "we did not look" apart from "there was nothing" by the shape 
 | The first thing this session was asked to do | the session's opening prompt |
 | The label this session's previous verdict carried | so a repeat reads as a repeat |
 | Why the turn was called ended, and how sure | from the detector, when it says; `(none)` otherwise |
-| Wake-ups pending, and the next one announced | the carrying-on clock's first source |
+| Wake-ups pending, and the next one announced | shown in the Wingman inspector |
 | Sessions this session owns | working, stopped, needing a person |
 | The last four turns before this one | |
 | The agent's latest reply, or the failure text | |

@@ -774,5 +774,5 @@ so that nobody re-opens them against this charter:
   The durable fix is to store the arming moment on the snooze itself, which costs a migration on
   both providers.
 - **A shadow account does not re-judge on a snooze expiry**, because its rows carry no verdict
-  to read. The re-judge should read the store, as the carrying-on clock does, so that shadow
-  records reflect what the product would have done.
+  to read. The re-judge should read the store, so that shadow records reflect what the
+  product would have done.

@@ -808,7 +808,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private Wingman.TurnVerdictRetentionSweep? _turnVerdictRetentionSweep;
     private System.Threading.Timer? _turnVerdictRetentionTimer;
     private int _turnVerdictRetentionInFlight;
-    // Slice D: the verdict source every fold reads, and the carrying-on clock's sweep, its timer and its overlap guard.
+    // Slice D: the verdict source every fold reads.
     private readonly Wingman.TurnVerdictRowSource _turnVerdictRows;
     // Slice F: the fold's snooze memory. ONE instance for this Gateway, shared by the roster, the single-session
     // read and the display push, because the edge it fires is an edge across ALL of them - a second instance
@@ -1115,10 +1115,6 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Test-only: the turn-verdict seat, so a test on a real host can read what a stop was judged.
     /// Null until StartAsync builds it.</summary>
     internal Wingman.TurnVerdictService? TurnVerdictServiceForTest => _turnVerdictService;
-
-    /// <summary>The live turn-verdict seat, built if it is not yet, so a hosted test can drive a judgement or an expiry
-    /// through the production environment and the production trace writer.</summary>
-    internal Wingman.TurnVerdictService EnsureTurnVerdictServiceForTest() => EnsureTurnVerdictService();
 
     /// <summary>The trace writer, so a hosted test that waits for a trace can say what became of it when it never arrives.</summary>
     internal Wingman.TurnVerdictTraceWriter TurnVerdictTraceWriterForTest => _turnVerdictTraceWriter;
@@ -2151,8 +2147,7 @@ public sealed class GatewayHost : IAsyncDisposable
                                                || _transcribingSessions.IsTranscribing(tenant, sid)
                                                || _dictationUploads.ForTenant(tenant).IsSessionLocked(sid));
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
-        // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
-        // per-tenant seam as the retention above.
+        // display push to the desktop - so all three stamp one answer.
         _turnVerdictRows = new Wingman.TurnVerdictRowSource(
             _tenantSettingsResolver.TurnVerdict, _turnVerdicts, () => _turnVerdictService);
         // The colour each stop produced is folded as its trace is written, on the writer's thread (the Wingman

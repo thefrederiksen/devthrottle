@@ -71,8 +71,7 @@ public sealed class SessionColourLegendTests
         ("cyan", "it is only reporting something and asks you nothing") =>
             new(Judged("cyan-report", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindReport), SessionOrdering.CalmReportLabel + " - Pushed the branch"),
 
-        // The row is purple NOW; that it turns red is the carrying-on clock's promise, executed against the real
-        // watchdog in TheCarryingOnPromise_IsKeptByTheRealClock below.
+        // The row is purple and stays purple until the session's next stop: there is no timer on carrying on.
         ("purple", PurpleClaim) => new(CarryingOn("purple-continues"), "Pushed the branch"),
 
         ("yellow", "The session stopped and is being looked at before it is shown to you") => new(

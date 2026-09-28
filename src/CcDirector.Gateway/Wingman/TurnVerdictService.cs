@@ -73,12 +73,8 @@ public interface ITurnVerdictEnvironment
     /// <summary>This session's latest stored verdict in this account, or null.</summary>
     TurnVerdictDto? Latest(TenantId tenant, string sessionId);
 
-    /// <summary>Every session's latest stored verdict in this account, in one read - for the carrying-on clock.</summary>
+    /// <summary>Every session's latest stored verdict in this account, in one read.</summary>
     IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant);
-
-    /// <summary>The sessions this session owns, resolved across the account's whole fresh roster, or null when it
-    /// owns none (or is not in the roster).</summary>
-    OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId);
 
     /// <summary>Store one verdict record, accepted or failed.</summary>
     void Store(TenantId tenant, string sessionId, TurnVerdictDto verdict);
