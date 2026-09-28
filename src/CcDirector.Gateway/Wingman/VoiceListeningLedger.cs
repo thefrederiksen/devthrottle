@@ -31,6 +31,17 @@ public sealed class VoiceListeningLedger
     /// <summary>One voice session's latest narration: when it became ready, and whether it has been played.</summary>
     public readonly record struct NarrationStop(DateTime NarrationAtUtc, bool Played);
 
+    /// <summary>What the owner answering a voice session settled about the stop it was on.</summary>
+    public enum AnswerOutcome
+    {
+        /// <summary>No narration was on record for the stop, so there was nothing to hear and nothing is judged.</summary>
+        NoNarration,
+        /// <summary>The narration was played before the owner answered: the stop was handled WITH voice.</summary>
+        Heard,
+        /// <summary>The narration was never played and the owner answered anyway: the stop was handled WITHOUT voice.</summary>
+        Unheard,
+    }
+
     // tenant -> (sid -> the session's latest narration). Only the latest per session is kept: a newer narration is a
     // newer stop, and an older one that went unplayed and unanswered counts for nothing (the owner's rule).
     private readonly ConcurrentDictionary<TenantId, ConcurrentDictionary<string, NarrationStop>> _stops = new();
@@ -75,6 +86,25 @@ public sealed class VoiceListeningLedger
         }
         FileLog.Write($"[VoiceListeningLedger] play report for a session with no narration on record: tenant={tenant.ToLogString()} sid={sid} reported={narrationAtUtc:O}");
         return false;
+    }
+
+    /// <summary>
+    /// The owner answered this session - its next turn began with a message from him. That settles the stop it was
+    /// on, exactly once: the narration on record is taken off the ledger and judged heard or unheard, and a second
+    /// answer to the same stop finds nothing to judge. Who started the turn is not decided here; the caller has
+    /// already established it was the owner (see <see cref="VoiceAnswerObserver"/>).
+    /// </summary>
+    public AnswerOutcome NoteOwnerAnswered(TenantId tenant, string sid)
+    {
+        if (string.IsNullOrEmpty(sid)) return AnswerOutcome.NoNarration;
+        if (!StopsFor(tenant).TryRemove(sid, out var stop))
+        {
+            FileLog.Write($"[VoiceListeningLedger] owner answered with no narration on record: tenant={tenant.ToLogString()} sid={sid}");
+            return AnswerOutcome.NoNarration;
+        }
+        var outcome = stop.Played ? AnswerOutcome.Heard : AnswerOutcome.Unheard;
+        FileLog.Write($"[VoiceListeningLedger] owner answered: tenant={tenant.ToLogString()} sid={sid} narration={stop.NarrationAtUtc:O} outcome={outcome}");
+        return outcome;
     }
 
     /// <summary>The session is no longer a voice session: its narration is about nothing anyone asked to hear.</summary>

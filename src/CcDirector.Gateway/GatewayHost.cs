@@ -3635,6 +3635,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // not only from the legacy HTTP legs that are 403 on hosted. THE SAME INSTANCE is bound to the one
         // delegate below (one funnel, two ingress planes) and handed to the SignalR-constructed DirectorHub.
         builder.Services.AddSingleton(SessionStateSink);
+        // Voice mode auto-off: the hub hands every accepted push to this observer, which sees the owner answer a voice
+        // session. Built over the voice service built above in this method, so it judges against the same ledger the
+        // play reports write.
+        builder.Services.AddSingleton(new Wingman.VoiceAnswerObserver(_voiceService
+            ?? throw new InvalidOperationException("[GatewayHost] the voice service must be built before the hub's services are registered")));
         // The turn-end watcher, built above in this method: the hub feeds it each accepted delta immediately before the
         // display fold, so a stop the Wingman will read is stamped "reading" before its first colour is pushed.
         builder.Services.AddSingleton(_turnEndWatcher
