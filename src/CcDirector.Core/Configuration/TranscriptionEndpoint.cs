@@ -91,10 +91,12 @@ public static class TranscriptionEndpointResolver
     public const string DevThrottleKeyName = "DEVTHROTTLE_API_KEY";
 
     /// <summary>
-    /// The DevThrottle transcription model. The hosted DevThrottle API owns the upstream provider;
-    /// this model id requests the interim OpenAI-backed speech-to-text route.
+    /// The DevThrottle transcription model: whisper-large-v3, an acoustic, non-generative model. The
+    /// hosted DevThrottle API owns the upstream provider and serves every request with whisper-large-v3
+    /// (whisper-1 as its fallback) whatever model a client names, so this id is what the Gateway sends,
+    /// logs and stores - it must name the model that really transcribes.
     /// </summary>
-    public const string DevThrottleModel = "gpt-4o-transcribe";
+    public const string DevThrottleModel = "whisper-large-v3";
 
     /// <summary>
     /// The dictation dictionary-cleanup model id. Kept separate from the general Wingman fast model so
