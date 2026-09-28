@@ -36,9 +36,9 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
     private readonly Func<string, string, CancellationToken, Task<bool>>? _sendOwnerEmail;
     private readonly Func<DateTime> _nowUtc;
 
-    /// <summary>Told the moment the Gateway types into a session by itself (voice mode auto-off: that prompt is not the
-    /// owner answering). Null tells nobody.</summary>
-    private readonly Action<TenantId, string>? _onAutomaticPrompt;
+    /// <summary>Opens a window around each prompt the Gateway types into a session by itself, closed when the send has
+    /// finished (voice mode auto-off: that prompt is not the owner answering). Null tells nobody.</summary>
+    private readonly Func<TenantId, string, IDisposable>? _onAutomaticPrompt;
 
     private readonly object _emailGate = new();
     private DateOnly _emailDay;
@@ -75,7 +75,7 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
         Func<TenantId, IDisposable>? enterTenantScope = null,
         Func<string, string, CancellationToken, Task<bool>>? sendOwnerEmail = null,
         Func<DateTime>? nowUtc = null,
-        Action<TenantId, string>? onAutomaticPrompt = null)
+        Func<TenantId, string, IDisposable>? onAutomaticPrompt = null)
     {
         _onAutomaticPrompt = onAutomaticPrompt;
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -131,8 +131,8 @@ internal sealed class GatewaySupervisorEnvironment : ISupervisorEnvironment
             return false;
         }
         // Voice mode auto-off: this "continue" reaches the Director as an ordinary prompt and is stamped as the owner's
-        // turn. Said first, so the owner-turn stamp it moves is never counted as him answering.
-        _onAutomaticPrompt?.Invoke(tenant, sessionId);
+        // turn. The window opens first and closes when the send has finished, so the stamp it moves is never judged.
+        using var automatic = _onAutomaticPrompt?.Invoke(tenant, sessionId);
         var request = new PromptRequest { Text = SessionSupervisor.ContinueText, AppendEnter = true, WaitForIdle = false };
         var (ok, _, error) = await route.PostPromptAsync(sessionId, request, ct).ConfigureAwait(false);
         if (!ok)

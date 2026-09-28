@@ -74,10 +74,11 @@ public sealed class VoiceAnswerObserver
         if (!_lastOwnerTurn.TryUpdate(key, seen, previous)) return null;   // a concurrent push already took this turn
 
         // The Gateway's own prompts - a supervisor's "continue", a Session Rule firing - reach the Director as ordinary
-        // prompts and are stamped as the owner's turn. The Gateway recorded that it sent one; this stamp is that one.
-        if (_voice.Listening.TakeAutomaticPrompt(tenant, sid))
+        // prompts and are stamped as the owner's turn. A stamp that arrives around one of those may be it, so it is
+        // not judged at all.
+        if (_voice.Listening.InAutomaticPromptWindow(tenant, sid))
         {
-            FileLog.Write($"[VoiceAnswerObserver] owner-turn stamp moved by the Gateway's own prompt, not the owner: tenant={tenant.ToLogString()} sid={sid}");
+            FileLog.Write($"[VoiceAnswerObserver] owner-turn stamp moved while the Gateway was typing into the session, not judged: tenant={tenant.ToLogString()} sid={sid}");
             return null;
         }
 

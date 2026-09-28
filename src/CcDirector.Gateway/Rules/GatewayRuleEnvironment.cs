@@ -41,9 +41,9 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<DateTime> _nowUtc;
 
-    /// <summary>Told the moment the Gateway types into a session by itself (voice mode auto-off: that prompt is not the
-    /// owner answering). Null tells nobody.</summary>
-    private readonly Action<TenantId, string>? _onAutomaticPrompt;
+    /// <summary>Opens a window around each prompt the Gateway types into a session by itself, closed when the send has
+    /// finished (voice mode auto-off: that prompt is not the owner answering). Null tells nobody.</summary>
+    private readonly Func<TenantId, string, IDisposable>? _onAutomaticPrompt;
 
     /// <param name="store">The phase 1 rule store, seen through the NARROW seam: reading the rules,
     /// counting a rule's firings, writing one down. There is deliberately no promotion on it, so the
@@ -67,7 +67,7 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
         Func<TenantId, WingmanModelRole, string, CancellationToken, Task<IAgentBrain>> brainProvider,
         Func<TenantId, IDisposable>? enterTenantScope = null,
         Func<DateTime>? nowUtc = null,
-        Action<TenantId, string>? onAutomaticPrompt = null)
+        Func<TenantId, string, IDisposable>? onAutomaticPrompt = null)
     {
         _onAutomaticPrompt = onAutomaticPrompt;
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -175,8 +175,8 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
         }
 
         // Voice mode auto-off: a rule firing reaches the Director as an ordinary prompt and is stamped as the owner's
-        // turn. Said first, so the owner-turn stamp it moves is never counted as him answering.
-        _onAutomaticPrompt?.Invoke(tenant, sessionId);
+        // turn. The window opens first and closes when the send has finished, so the stamp it moves is never judged.
+        using var automatic = _onAutomaticPrompt?.Invoke(tenant, sessionId);
         var request = new PromptRequest { Text = text, AppendEnter = true, WaitForIdle = false };
         var sent = await route.SendPromptAsync(sessionId, request, ct).ConfigureAwait(false);
 

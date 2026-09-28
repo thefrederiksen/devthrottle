@@ -17,7 +17,7 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// A supervisor's recovery "continue" and a Session Rule firing both reach the Director as ordinary prompts, and it
 /// stamps each as the owner's turn. So each sender says so, before it types, through the hook the host wires to the
 /// listening ledger. These drive both through a real <see cref="SessionVerbClient"/> over a fake tunnel and pin that
-/// the notice is given, for the right session, before the prompt leaves.
+/// the window opens, for the right session, before the prompt leaves, and closes after the send has finished.
 /// </summary>
 public sealed class VoiceAutomaticPromptSendersTests : IDisposable
 {
@@ -39,6 +39,18 @@ public sealed class VoiceAutomaticPromptSendersTests : IDisposable
         return (_, directorId) => new SessionVerbClient(new DirectorDto { DirectorId = directorId }, send);
     }
 
+    /// <summary>Records the start of the automatic window, and its end when the sender disposes the handle.</summary>
+    private static IDisposable Began(List<string> events, TenantId t, string sid)
+    {
+        events.Add($"automatic {t.Value} {sid}");
+        return new Finished(events);
+    }
+
+    private sealed class Finished(List<string> events) : IDisposable
+    {
+        public void Dispose() => events.Add("automatic finished");
+    }
+
     private static Task<IAgentBrain> NoBrain(TenantId t, Core.Configuration.WingmanModelRole r, string f, CancellationToken c) =>
         Task.FromException<IAgentBrain>(new NotSupportedException("these tests never ask the model."));
 
@@ -58,12 +70,13 @@ public sealed class VoiceAutomaticPromptSendersTests : IDisposable
     {
         var events = new List<string>();
         var env = new GatewayRuleEnvironment(new UnusedStore(), Route(events), (_, _) => new SessionDto { SessionId = SessionId }, NoBrain,
-            onAutomaticPrompt: (t, sid) => events.Add($"automatic {t.Value} {sid}"));
+            onAutomaticPrompt: (t, sid) => Began(events, t, sid));
 
         await env.TypeIntoSessionAsync(Tenant, DirectorId, SessionId, "yes", CancellationToken.None);
 
         Assert.Equal($"automatic {Tenant.Value} {SessionId}", events[0]);
-        Assert.Contains(events, e => e.StartsWith("sent ", StringComparison.Ordinal));
+        Assert.StartsWith("sent ", events[1], StringComparison.Ordinal);
+        Assert.Equal("automatic finished", events[^1]);
     }
 
     [Fact]
@@ -72,11 +85,12 @@ public sealed class VoiceAutomaticPromptSendersTests : IDisposable
         var events = new List<string>();
         var env = new GatewaySupervisorEnvironment(
             new TenantSettingsResolver(new TenantSettingsStore(_data.Open())), Route(events), (_, _) => "WaitingForInput", NoBrain,
-            onAutomaticPrompt: (t, sid) => events.Add($"automatic {t.Value} {sid}"));
+            onAutomaticPrompt: (t, sid) => Began(events, t, sid));
 
         await env.SendContinueAsync(Tenant, DirectorId, SessionId, CancellationToken.None);
 
         Assert.Equal($"automatic {Tenant.Value} {SessionId}", events[0]);
-        Assert.Contains(events, e => e.StartsWith("sent ", StringComparison.Ordinal));
+        Assert.StartsWith("sent ", events[1], StringComparison.Ordinal);
+        Assert.Equal("automatic finished", events[^1]);
     }
 }

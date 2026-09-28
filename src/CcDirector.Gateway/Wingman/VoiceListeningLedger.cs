@@ -46,10 +46,28 @@ public sealed class VoiceListeningLedger
     // newer stop, and an older one that went unplayed and unanswered counts for nothing (the owner's rule).
     private readonly ConcurrentDictionary<TenantId, ConcurrentDictionary<string, NarrationStop>> _stops = new();
 
-    // (tenant, sid) for each session the Gateway itself has just typed into - a supervisor's "continue", a Session
-    // Rule firing. Those reach the Director as ordinary prompts and it stamps them as the owner's turn, so the next
-    // owner-turn stamp on that session is the Gateway's, not his. One entry is spent by the next stamp.
-    private readonly ConcurrentDictionary<(TenantId Tenant, string Sid), byte> _automaticPrompts = new();
+    // (tenant, sid) -> the window around the Gateway's OWN prompts into that session - a supervisor's "continue", a
+    // Session Rule firing. Those reach the Director as ordinary prompts and it stamps them as the owner's turn, and the
+    // stamp comes back on a hub push whose timing the Gateway does not control. So no one stamp is named as the
+    // Gateway's (a delayed automatic stamp could otherwise be judged as the owner, after a real answer had spent the
+    // mark - review of step 2): EVERY owner-turn stamp that arrives while a send is in flight, or within
+    // AutomaticPromptSettle after the last one finished, is left unjudged. Leaving one unjudged can only delay a
+    // switch-off, never cause one.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string Sid), AutomaticWindow> _automaticPrompts = new();
+
+    private sealed class AutomaticWindow
+    {
+        public int InFlight;
+        public DateTime QuietUntilUtc;
+    }
+
+    /// <summary>How long after an automatic send finishes an owner-turn stamp is still taken as possibly its own. The
+    /// Director stamps at submission, before it answers the send, so the push carrying the stamp is normally seconds
+    /// behind; two minutes is generous, and generosity here only ever leaves a real answer uncounted.</summary>
+    public static readonly TimeSpan AutomaticPromptSettle = TimeSpan.FromMinutes(2);
+
+    /// <summary>The Gateway's clock. Settable for tests only.</summary>
+    internal Func<DateTime> UtcNow { get; set; } = () => DateTime.UtcNow;
 
     private ConcurrentDictionary<string, NarrationStop> StopsFor(TenantId tenant)
     {
@@ -126,21 +144,46 @@ public sealed class VoiceListeningLedger
 
     /// <summary>
     /// The Gateway is about to type into this session by itself - a supervisor's "continue", a Session Rule firing.
-    /// The Director stamps such a prompt as the owner's turn, so the stop is retired now and the next owner-turn stamp
-    /// on this session is taken as the Gateway's (<see cref="TakeAutomaticPrompt"/>). If the prompt never lands, that
-    /// one stamp is a real answer left uncounted - the direction that can only delay a switch-off.
+    /// The Director stamps such a prompt as the owner's turn, so the stop is retired now, and every owner-turn stamp
+    /// that arrives until <see cref="AutomaticPromptSettle"/> after the returned handle is disposed is left unjudged
+    /// (<see cref="InAutomaticPromptWindow"/>). Dispose it when the send has finished, whatever its outcome.
     /// </summary>
-    public void NoteAutomaticPrompt(TenantId tenant, string sid)
+    public IDisposable BeginAutomaticPrompt(TenantId tenant, string sid)
     {
-        if (string.IsNullOrEmpty(sid)) return;
+        if (string.IsNullOrEmpty(sid)) throw new ArgumentException("An automatic prompt names the session it types into.", nameof(sid));
         RequireValid(tenant);
-        _automaticPrompts[(tenant, sid)] = 1;
+        var window = _automaticPrompts.GetOrAdd((tenant, sid), _ => new AutomaticWindow());
+        lock (window) window.InFlight++;
         RetireUnanswered(tenant, sid, "the Gateway typed into it");
+        return new AutomaticPromptHandle(this, window);
     }
 
-    /// <summary>True, once, when the owner-turn stamp that just moved on this session was the Gateway's own prompt.</summary>
-    public bool TakeAutomaticPrompt(TenantId tenant, string sid) =>
-        !string.IsNullOrEmpty(sid) && _automaticPrompts.TryRemove((tenant, sid), out _);
+    private void EndAutomaticPrompt(AutomaticWindow window)
+    {
+        var quietUntil = UtcNow() + AutomaticPromptSettle;
+        lock (window)
+        {
+            window.InFlight--;
+            if (quietUntil > window.QuietUntilUtc) window.QuietUntilUtc = quietUntil;
+        }
+    }
+
+    private sealed class AutomaticPromptHandle(VoiceListeningLedger ledger, AutomaticWindow window) : IDisposable
+    {
+        private int _disposed;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0) ledger.EndAutomaticPrompt(window);
+        }
+    }
+
+    /// <summary>True while an owner-turn stamp on this session may be the Gateway's own prompt: a send is in flight,
+    /// or the last one finished less than <see cref="AutomaticPromptSettle"/> ago.</summary>
+    public bool InAutomaticPromptWindow(TenantId tenant, string sid)
+    {
+        if (string.IsNullOrEmpty(sid) || !_automaticPrompts.TryGetValue((tenant, sid), out var window)) return false;
+        lock (window) return window.InFlight > 0 || UtcNow() < window.QuietUntilUtc;
+    }
 
     private static void RequireValid(TenantId tenant)
     {
