@@ -1362,6 +1362,13 @@ internal static class SessionCommandExecutor
                     // and the row that lost the race would record "unknown" for a session whose origin
                     // was known all along - permanently, since first sight only happens once.
                     s.StampOrigin(origin);
+                    // The factory, in the same pre-launch window and for a sharper version of the same reason
+                    // (Factory Memory mission, phase 1). It must be on the session before the first roster push
+                    // leaves, because the Gateway writes the write-once factory column from that first sight -
+                    // and before the agent process starts, because a factory session's first act may be to read
+                    // its memory. The value is whatever the Gateway settled at the spawn door; the Director does
+                    // not decide it and does not check it.
+                    s.StampFactory(req.Factory);
                 },
                 reattachPooledWorktree: reattachPooledWorktree);
         }

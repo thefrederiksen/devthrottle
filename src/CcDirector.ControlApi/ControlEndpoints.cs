@@ -346,6 +346,12 @@ internal static class ControlEndpoints
             OriginKind = s.OriginKind,
             OriginSurface = s.OriginSurface,
             ParentSessionId = s.ParentSessionId?.ToString(),
+            // The factory this session belongs to (Factory Memory mission, phase 1), on exactly those terms and
+            // for a stronger reason: the Gateway's factory column is WRITE-ONCE and is written from first
+            // sight, so a push that omitted it would be the push that recorded "no factory" for a factory
+            // agent, permanently. It rides every push so any later push can also fill a row an older Director
+            // created before this field existed.
+            Factory = s.Factory,
             // Automatic session roles (chunk 2.5): the sticky explicit role, so the Gateway aggregation can
             // apply the explicit-wins precedence. The RESOLVED SessionRole is computed at the aggregation.
             ExplicitRole = s.ExplicitRole,

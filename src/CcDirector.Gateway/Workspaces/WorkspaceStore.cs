@@ -326,6 +326,11 @@ public sealed class WorkspaceStore
             seat.ReportsTo = from.ReportsTo;
             seat.ParentSessionId = from.ParentSessionId;
             seat.WorkflowRunId = from.WorkflowRunId;
+            // The factory is an observation for the same reason the pooled worktree is, and with a sharper
+            // consequence: the Director hands it straight to the restore's create, and the Gateway then decides
+            // who may write that factory's memory from it. A writer who could set it here could put a restored
+            // seat into a factory it was never in.
+            seat.Factory = from.Factory;
             seat.SortOrder = from.SortOrder;
             seat.StateAtDrain = from.StateAtDrain;
             seat.ClaudeSessionId = from.ClaudeSessionId;

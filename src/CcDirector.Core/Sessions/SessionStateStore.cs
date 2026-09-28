@@ -72,6 +72,12 @@ public class PersistedSession
     /// sessions.</summary>
     public Guid? ParentSessionId { get; set; }
 
+    /// <summary>Which factory this session belongs to (Factory Memory mission, phase 1), or null for none.
+    /// Persisted because it is a birth fact that decides access and cannot be recovered once lost: after a
+    /// Director restart nothing else about a running session says which factory it serves. Sessions persisted
+    /// before this field existed restore as null, which is the truth about them - they were in no factory.</summary>
+    public string? Factory { get; set; }
+
     /// <summary>True when the name was auto-composed at birth (automatic session roles, chunk 3). Persisted
     /// so an explicit human/self rename is never re-auto-named after a restart.</summary>
     public bool IsAutoNamed { get; set; }

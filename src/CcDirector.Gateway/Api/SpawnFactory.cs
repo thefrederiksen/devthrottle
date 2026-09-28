@@ -157,6 +157,36 @@ internal static class SpawnFactory
         return true;
     }
 
+    /// <summary>
+    /// WHICH FACTORY A HANDOVER'S TARGET IS BORN INTO: the source's, when the handover was asked for by a
+    /// PERSON or by the SOURCE SESSION ITSELF, and otherwise none.
+    ///
+    /// A handover is the work moving on, so membership moves with it when the session hands ITSELF over. Any
+    /// other session moving somebody else's work gets a target in no factory - it could otherwise mint a
+    /// member of a factory it does not belong to and read that factory's memory through it.
+    ///
+    /// It lives here, beside the spawn-door rule, because a handover's target is a session being born and this
+    /// is the one place that decides what a newborn session belongs to. It is a function of the credential and
+    /// two strings so that it can be tested as one, rather than read out of an endpoint by eye.
+    /// </summary>
+    internal static string? ForHandover(HttpContext ctx, string fromSessionId, string? sourceFactory)
+    {
+        if (ctx is null) return null;
+
+        var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
+        var byPerson = SessionOriginSurfaces.FromDeviceType(deviceType) != SessionOriginSurfaces.Unknown;
+
+        var bySourceItself = ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedSessionItemKey, out var si)
+            && si is Pairing.SessionCredentialIdentity caller
+            && string.Equals(caller.SessionId.ToString(), fromSessionId, StringComparison.OrdinalIgnoreCase);
+
+        var inherited = (byPerson || bySourceItself) && !string.IsNullOrWhiteSpace(sourceFactory)
+            ? sourceFactory!.Trim()
+            : null;
+        FileLog.Write($"[SpawnFactory] handover: factory={inherited ?? "(none)"} (byPerson={byPerson}, bySourceItself={bySourceItself}, source={sourceFactory ?? "(none)"})");
+        return inherited;
+    }
+
     /// <summary>The refusal when this Gateway holds no way to read a session's factory, so a stated one cannot be
     /// checked against the caller's own. Membership is never granted on trust.</summary>
     internal const string CannotVerify =

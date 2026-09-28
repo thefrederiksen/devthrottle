@@ -5116,6 +5116,12 @@ internal static class GatewayEndpoints
             if (sourceSession is null || sourceDirector is null)
                 return SessionUnavailable(ctx, tenantBoundary, pushedSessions, req.FromSessionId);
 
+            // WHETHER THE TARGET INHERITS THE SOURCE'S FACTORY (Factory Memory mission, phase 1). Settled once,
+            // here, for BOTH legs below - the same-Director proxy and the cross-Director spawn - because only
+            // this door sees the credential, and whatever the body said is overwritten. The rule itself lives
+            // beside the spawn-door rule, in SpawnFactory, where it can be tested as a function.
+            req.Factory = SpawnFactory.ForHandover(ctx, req.FromSessionId, sourceSession.Factory);
+
             DirectorDto? targetDirector = null;
             if (!string.IsNullOrEmpty(req.ToDirectorId)
                 && !string.Equals(req.ToDirectorId, sourceDirector.DirectorId, StringComparison.OrdinalIgnoreCase))
@@ -5188,6 +5194,11 @@ internal static class GatewayEndpoints
                 // being LEFT, which is a different relationship; putting it here would make the lineage
                 // tree quietly mean two things at once.
                 OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
+
+                // The factory settled above. The cross-Director leg builds its own create rather than proxying
+                // the handover request, so it has to carry the same answer - otherwise the same act of handing
+                // work over would keep membership on one Director and drop it between two.
+                Factory = req.Factory,
             };
             // Gateway Cleanup Phase 2: create the target over the tunnel (create verb, director-level), tunnel-first;
             // the dedicated 20s HTTP client is the fallback pre-cut (the tunnel unary has no 2s aggregate timeout).

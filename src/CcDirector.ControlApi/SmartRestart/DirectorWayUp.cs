@@ -1023,6 +1023,11 @@ public sealed class DirectorWayUp : IDirectorWayUp
             Origin = Core.Sessions.SessionOriginKinds.Human,
             OriginSurface = Core.Sessions.SessionOriginSurfaces.Api,
             PooledWorktree = seat.PooledWorktree is { } pooled && pooled.IsComplete() ? pooled : null,
+
+            // The seat's factory, handed back for the reason DirectorRestore.BuildRequest gives. It matters
+            // most here: a reopen RESUMES the same conversation, so the agent comes back believing it is the
+            // same session mid-task - and would find its own factory's memory closed to it.
+            Factory = seat.Factory,
         };
         if (Guid.TryParse(seat.Mission?.Id, out var missionId)) request.MissionId = missionId;
         return request;

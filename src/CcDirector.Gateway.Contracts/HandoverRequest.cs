@@ -13,6 +13,20 @@ public sealed class HandoverRequest
     public string FromSessionId { get; set; } = "";
 
     /// <summary>
+    /// The FACTORY the target session is born into (Factory Memory mission, phase 1), or null for none.
+    ///
+    /// SETTLED BY THE GATEWAY, NEVER BY THE CALLER, and the Director applies it without checking - the same
+    /// line every other membership stamp follows. The Gateway overwrites whatever arrives here: a caller that
+    /// could set it could hand itself another factory's memory by handing a session over into it.
+    ///
+    /// The rule it carries: the target inherits the source's factory when the handover was asked for BY A
+    /// PERSON or BY THE SOURCE SESSION ITSELF, and otherwise gets none. A handover is the work moving on, so
+    /// when the source hands itself over the membership moves with it; but an unrelated session moving
+    /// somebody else's work must not be able to mint a new member of a factory it does not belong to.
+    /// </summary>
+    public string? Factory { get; set; }
+
+    /// <summary>
     /// Existing target session id. Mutually exclusive with ToRepoPath.
     /// When set, the context is pushed into this session as a new prompt.
     /// </summary>
