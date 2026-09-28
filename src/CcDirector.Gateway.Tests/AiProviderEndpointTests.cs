@@ -62,7 +62,7 @@ public sealed class AiProviderEndpointTests : IAsyncLifetime
         Assert.Equal("devthrottle", (string?)obj!["provider"]);
         Assert.Equal("devthrottle/wingman", (string?)obj["wingmanModel"]);
         Assert.Equal("devthrottle/wingman-fast", (string?)obj["wingmanFastModel"]);
-        Assert.Equal("gpt-4o-transcribe", (string?)obj["transcriptionModel"]);
+        Assert.Equal("whisper-large-v3", (string?)obj["transcriptionModel"]);
         Assert.Equal("af_bella", (string?)obj["ttsVoice"]);   // DevThrottle (Kokoro) default voice
         var voices = obj["voices"] as JsonArray;
         Assert.NotNull(voices);

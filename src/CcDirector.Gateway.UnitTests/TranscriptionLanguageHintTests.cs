@@ -39,7 +39,7 @@ public sealed class TranscriptionLanguageHintTests
         BaseUrl = "https://example.invalid/api/v1",
         ApiKey = "dt_test",
         Transport = TranscriptionTransport.Batch,
-        Model = "gpt-4o-transcribe",
+        Model = "whisper-large-v3",
         Mode = TranscriptionMode.DevThrottle,
         Language = language,
     };
