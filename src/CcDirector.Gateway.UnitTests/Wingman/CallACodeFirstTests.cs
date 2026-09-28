@@ -129,6 +129,87 @@ public sealed class CallACodeFirstTests : IDisposable
         Assert.Equal("the agent set itself a way back in its last turn: a ScheduleWakeup call", stored.DecisionReason);
     }
 
+    // ================================================================= the sessions under it (simpler session colours)
+
+    [Fact]
+    public async Task NothingUnderIt_APlainReportFromASessionOwningNothing_IsNeedsYou_WithNoModelCall()
+    {
+        var env = Env(PlainReport);
+        env.Owned = _ => new OwnedSessionCounts(0, 0, 0);
+
+        await new TurnVerdictService(env).StartTurnEnd(Signal());
+
+        Assert.Equal(0, env.JudgeCalls);
+        var stored = env.Latest(Tenant, Sid)!;
+        Assert.Equal("needed-you", stored.Verdict);
+        Assert.Equal(CallACodeSteps.NothingUnderItStep, stored.DecidedBy);
+        Assert.Equal("stopped - nothing running under it", stored.DecisionReason);
+    }
+
+    [Fact]
+    public async Task AllUnderItStopped_EverySessionUnderItStopped_IsNeedsYou_WithNoModelCall()
+    {
+        var env = Env(PlainReport);
+        env.Owned = _ => new OwnedSessionCounts(Working: 0, Stopped: 2, NeedYou: 0);
+
+        await new TurnVerdictService(env).StartTurnEnd(Signal());
+
+        Assert.Equal(0, env.JudgeCalls);
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, env.Latest(Tenant, Sid)!.DecidedBy);
+    }
+
+    [Fact]
+    public async Task Control_ASessionStillWorkingUnderIt_SendsTheStopToTheModel()
+    {
+        var env = Env(PlainReport);
+        env.Owned = _ => new OwnedSessionCounts(Working: 1, Stopped: 1, NeedYou: 0);
+
+        await new TurnVerdictService(env).StartTurnEnd(Signal());
+
+        Assert.Equal(1, env.JudgeCalls);
+        var stored = env.Latest(Tenant, Sid)!;
+        Assert.Equal(CallACodeSteps.ModelStep, stored.DecidedBy);
+        Assert.Equal("finished", stored.Verdict);
+    }
+
+    [Fact]
+    public async Task AModelReading_IsDecidedAgainByCode_WhenTheWorkUnderItHasStopped()
+    {
+        // The model called the stop calm while a worker ran. The worker then stops; the parent has not worked, so its
+        // screen is unchanged - and the sweep must not keep reusing the calm reading, or "all under it stopped" could
+        // never fire. It is decided again, by code, with no second model call.
+        var working = 1;
+        var env = Env(PlainReport);
+        env.Owned = _ => new OwnedSessionCounts(Working: working, Stopped: 1 - working, NeedYou: 0);
+        var service = new TurnVerdictService(env);
+
+        await service.StartTurnEnd(Signal());
+        Assert.Equal(CallACodeSteps.ModelStep, env.Latest(Tenant, Sid)!.DecidedBy);
+
+        working = 0;
+        await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(1, env.JudgeCalls);
+        var stored = env.Latest(Tenant, Sid)!;
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, stored.DecidedBy);
+        Assert.Equal("needed-you", stored.Verdict);
+    }
+
+    [Fact]
+    public async Task AModelReading_IsStillReused_WhileWorkUnderItIsRunning()
+    {
+        var env = Env(PlainReport);
+        env.Owned = _ => new OwnedSessionCounts(Working: 1, Stopped: 0, NeedYou: 0);
+        var service = new TurnVerdictService(env);
+
+        await service.StartTurnEnd(Signal());
+        var first = env.Latest(Tenant, Sid)!.VerdictId;
+        await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal(first, env.Latest(Tenant, Sid)!.VerdictId);
+    }
+
     [Fact]
     public async Task WayBackStep_AWakeUpBeforeThePersonsLatestMessage_DoesNotCount()
     {

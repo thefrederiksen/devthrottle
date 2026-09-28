@@ -190,6 +190,87 @@ public sealed class CallACodeStepsTests
         Assert.Null(CallACodeSteps.Decide(failure, new[] { new CallAToolUse("ScheduleWakeup", "{}") }));
     }
 
+    // ================================================================= steps 5 and 6: the sessions under it
+
+    private static TurnVerdictPackage Owning(string reply, OwnedSessionCounts? owned) => Stop(reply) with { OwnedSessions = owned };
+
+    private const string Report = "The retention sweep now deletes rows older than seven days. Tests are green.";
+
+    [Fact]
+    public void NothingUnderIt_ASessionOwningNoSession_IsNeedsYou_WithTheOwnersReason()
+    {
+        var decision = CallACodeSteps.Decide(Owning(Report, new OwnedSessionCounts(0, 0, 0)), NoTools);
+
+        Assert.NotNull(decision);
+        Assert.Equal(CallACodeSteps.NothingUnderItStep, decision!.Step);
+        Assert.Equal("needs-you", decision.Word);
+        Assert.Equal("stopped - nothing running under it", decision.Reason);
+    }
+
+    [Fact]
+    public void AllUnderItStopped_EverySessionUnderItStopped_IsNeedsYou()
+    {
+        var decision = CallACodeSteps.Decide(Owning(Report, new OwnedSessionCounts(Working: 0, Stopped: 2, NeedYou: 1)), NoTools);
+
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, decision!.Step);
+        Assert.Equal("needs-you", decision.Word);
+        Assert.Equal("stopped - all 3 sessions under it have stopped", decision.Reason);
+    }
+
+    [Fact]
+    public void AllUnderItStopped_OneSessionUnderIt_ReadsInTheSingular()
+    {
+        var decision = CallACodeSteps.Decide(Owning(Report, new OwnedSessionCounts(0, 1, 0)), NoTools);
+
+        Assert.Equal("stopped - the one session under it has stopped", decision!.Reason);
+    }
+
+    [Fact]
+    public void Control_ASessionStillWorkingUnderIt_ReachesTheModel()
+    {
+        Assert.Null(CallACodeSteps.Decide(Owning(Report, new OwnedSessionCounts(Working: 1, Stopped: 4, NeedYou: 0)), NoTools));
+    }
+
+    [Fact]
+    public void NotKnown_NoOwnedSessionsAnswer_FiresNeitherRule_AndReachesTheModel()
+    {
+        Assert.Null(CallACodeSteps.Decide(Owning(Report, null), NoTools));
+    }
+
+    [Fact]
+    public void Order_AQuestion_ComesBeforeNothingUnderIt()
+    {
+        var decision = CallACodeSteps.Decide(Owning("Shall I merge it?", new OwnedSessionCounts(0, 0, 0)), NoTools);
+
+        Assert.Equal(CallACodeSteps.QuestionStep, decision!.Step);
+    }
+
+    [Fact]
+    public void Order_AWayBack_ComesBeforeNothingUnderIt_AndIsCalm()
+    {
+        var decision = CallACodeSteps.Decide(
+            Owning("Started the build; I will pick it up when it lands.", new OwnedSessionCounts(0, 2, 0)),
+            new[] { new CallAToolUse("ScheduleWakeup", "{\"delaySeconds\":600}") });
+
+        Assert.Equal(CallACodeSteps.WayBackStep, decision!.Step);
+        Assert.Equal("carrying-on", decision.Word);
+    }
+
+    [Fact]
+    public void NothingUnderIt_OnAFailureWithNoReply_IsNeedsYou()
+    {
+        var failure = new TurnVerdictPackage
+        {
+            Kind = TurnVerdictPackageKind.TerminalFailure,
+            AgentKind = "ClaudeCode",
+            FailureText = "API Error: 529 overloaded",
+            ScreenRows = new[] { "API Error: 529 overloaded", "" },
+            OwnedSessions = new OwnedSessionCounts(0, 0, 0),
+        };
+
+        Assert.Equal(CallACodeSteps.NothingUnderItStep, CallACodeSteps.Decide(failure, NoTools)!.Step);
+    }
+
     // ================================================================= what is deliberately NOT a step
 
     [Theory]
@@ -219,6 +300,8 @@ public sealed class CallACodeStepsTests
     [Fact]
     public void Steps_AreInTheirOrder_ThenTheModel()
     {
-        Assert.Equal(new[] { "picker", "agent-verdict", "question", "way-back", "model" }, CallACodeSteps.Steps);
+        Assert.Equal(
+            new[] { "picker", "agent-verdict", "question", "way-back", "nothing-under-it", "all-under-it-stopped", "model" },
+            CallACodeSteps.Steps);
     }
 }
