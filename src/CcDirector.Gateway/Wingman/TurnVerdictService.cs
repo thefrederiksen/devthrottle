@@ -1806,6 +1806,53 @@ public sealed class TurnVerdictService : IDisposable
     /// <summary>One session's narration claim: which stop it is for, and whether that call is running right now.</summary>
     private sealed record NarrationClaim(string VerdictId, bool Running);
 
+    /// <summary>What <see cref="TryClaimLateNarration"/> answered.</summary>
+    internal enum LateNarrationClaim
+    {
+        /// <summary>The caller holds the claim and must make the call, then report <see cref="NarrationCallFinished"/>.</summary>
+        Claimed,
+        /// <summary>A call for this same stop is running right now; the caller must not make a second one.</summary>
+        AlreadyRunning,
+        /// <summary>No call may be made: the stop is no longer the latest, or an automatic path finds the claim spent.</summary>
+        Refused,
+    }
+
+    /// <summary>
+    /// Claim the narration call for a stop that was read WITHOUT words (a session that was not a voice session, owner
+    /// ruling 2026-09-28), in ONE compare-and-swap - never a release followed by a claim, because another press or a
+    /// sweep pass can take the claim in between and leave this request with no call and no words.
+    ///
+    /// Only the LATEST stop may be claimed: words for an older stop would not be saved (<see cref="SaveNarration"/>),
+    /// and claiming for it could displace the running claim of the newer stop and pay for two calls at once. A spent
+    /// claim for the same stop is taken back only when a PERSON asked, the same rule as
+    /// <see cref="ReleaseNarrationClaimForRequest"/>.
+    /// </summary>
+    internal LateNarrationClaim TryClaimLateNarration(TenantId tenant, string sid, string verdictId, bool personAsked)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId)) return LateNarrationClaim.Refused;
+        if (!string.Equals(_env.Latest(tenant, sid)?.VerdictId, verdictId, StringComparison.Ordinal))
+        {
+            FileLog.Write($"[TurnVerdictService] late narration refused: sid={sid} verdict={verdictId} is no longer the latest stop");
+            return LateNarrationClaim.Refused;
+        }
+        var key = (tenant, sid);
+        var mine = new NarrationClaim(verdictId, Running: true);
+        while (true)
+        {
+            if (!_narrationClaims.TryGetValue(key, out var claimed))
+            {
+                if (_narrationClaims.TryAdd(key, mine)) return LateNarrationClaim.Claimed;
+                continue;
+            }
+            if (string.Equals(claimed.VerdictId, verdictId, StringComparison.Ordinal))
+            {
+                if (claimed.Running) return LateNarrationClaim.AlreadyRunning;
+                if (!personAsked) return LateNarrationClaim.Refused;
+            }
+            if (_narrationClaims.TryUpdate(key, mine, claimed)) return LateNarrationClaim.Claimed;
+        }
+    }
+
     /// <summary>
     /// Save a narration onto the verdict it describes, when that verdict is still this session's latest. A newer verdict
     /// has its own stop and its own narration, so text for an older one is dropped and logged. Returns whether it was saved.
@@ -1822,7 +1869,11 @@ public sealed class TurnVerdictService : IDisposable
                 return false;
             }
             var updated = Copy(latest);
+            // ONE TEXT, READ OR HEARD - the same three fields the reading itself sets, so a stop narrated late reads
+            // exactly like one narrated inside its reading.
             updated.Narration = narration;
+            updated.Summary = narration;
+            updated.Spoken = narration;
             if (!string.IsNullOrWhiteSpace(label)) updated.Label = label;
             // THE WORDS ARRIVED, so this reading is no longer one with no words: the tag clears and nothing stays booked.
             if (updated.NarrationFailureReason is not null)

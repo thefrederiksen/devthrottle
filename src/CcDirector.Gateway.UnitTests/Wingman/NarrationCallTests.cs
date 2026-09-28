@@ -310,7 +310,66 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(1, rig.Env.NarratorCalls);
         Assert.Equal(1, rig.Env.JudgeCalls);
         Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
+        // One text, read or heard: words made late are stored in the same three fields a reading's own words are.
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Summary);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Spoken);
         Assert.False(rig.Voice.IsVoiceSession(Tenant, Sid));
+    }
+
+    /// <summary>
+    /// ONE PRESS, ONE PAID CALL, EVEN WHEN IT FAILS. The late narration call is made while the person waits; when it
+    /// gives no words, the press says so and does not start a second call behind it. A second PRESS may ask again.
+    /// </summary>
+    [Fact]
+    public async Task ExplainOnAStopReadWithoutWords_WhoseNarrationFails_PaysOneCall_AndSaysSo()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => throw new TimeoutException("the narration call did not answer");
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        var first = await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(WingmanVoiceService.RetryingLine, first.Spoken);
+        Assert.True(first.Retrying);
+        Assert.Null(first.Error);
+
+        // THE CONTROL: the person pressing again is allowed exactly one more call.
+        await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+        Assert.Equal(2, rig.Env.NarratorCalls);
+    }
+
+    /// <summary>
+    /// A PRESS WHILE THE CALL IS STILL RUNNING is told so, never handed an empty answer, and pays for nothing.
+    /// </summary>
+    [Fact]
+    public async Task ExplainWhileTheLateNarrationIsRunning_SaysItIsStillBeingWritten_AndMakesNoSecondCall()
+    {
+        var rig = Build();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Env.Narrator = async (_, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return Answer(Narrated);
+        };
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        var firstPress = rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var second = await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), markAsVoiceSession: false);
+        Assert.Equal(WingmanVoiceService.StillWritingLine, second.Spoken);
+        Assert.Null(second.Error);
+
+        release.SetResult();
+        var first = await firstPress;
+        await rig.Voice.WaitForNarrationCallsAsync();
+        Assert.EndsWith(Narrated, first.Spoken);
+        Assert.Equal(1, rig.Env.NarratorCalls);
     }
 
     [Fact]
