@@ -1020,22 +1020,25 @@ public sealed class WingmanVoiceService
     {
         var state = StateFor(tenant);
         bool wasVoice;
+        // The whole switch-off is one step against Mark and a narration being stored (see ListeningGate): released
+        // before the clip is removed, a re-mark and a fresh narration could land in between and be torn half down -
+        // its clip deleted, its ledger stop kept - leaving a stop that can be counted unheard with nothing to play.
         lock (state.ListeningGate)
         {
             wasVoice = state.VoiceSessions.TryRemove(sid, out _);
-            Listening.Forget(tenant, sid);              // whether its narration was heard is about a session no longer on voice
+            Listening.Forget(tenant, sid);                  // whether its narration was heard is about a session no longer on voice
+            state.Generating.TryRemove(sid, out _);
+            state.Unavailable.TryRemove(sid, out _);        // voice is off, so its unavailable-state is moot (issue #939)
+            state.ReadFailed.TryRemove(sid, out _);         // ...and so is whatever the last transcript read recorded
+            state.NothingToNarrate.TryRemove(sid, out _);   // voice is off, so "nothing to narrate" is moot too
+            state.DirectorCannotSend.TryRemove(sid, out _); // ...and so is "update that computer to hear this session"
+            state.PreferBackupUntil.TryRemove(sid, out _);  // voice is off, so the backup-routing window is moot too (issue devthrottle_internal#405)
+            state.SpeechRetries.TryRemove(sid, out _);      // ...and nobody is owed a speech retry for a turn nobody wants narrated
+            SupersedeStop(state, sid);                      // ...and a narration call still running is about a stop nobody is listening to
+            if (state.Ready.TryRemove(sid, out _))
+                DeleteReadyAudio(tenant, sid);   // keep the durable cache in step so a stale tap can't 404; inside, so a clip stored next is never deleted by this
         }
         if (wasVoice) SaveVoiceSessions(tenant);
-        state.Generating.TryRemove(sid, out _);
-        state.Unavailable.TryRemove(sid, out _);        // voice is off, so its unavailable-state is moot (issue #939)
-        state.ReadFailed.TryRemove(sid, out _);         // ...and so is whatever the last transcript read recorded
-        state.NothingToNarrate.TryRemove(sid, out _);   // voice is off, so "nothing to narrate" is moot too
-        state.DirectorCannotSend.TryRemove(sid, out _); // ...and so is "update that computer to hear this session"
-        state.PreferBackupUntil.TryRemove(sid, out _);  // voice is off, so the backup-routing window is moot too (issue devthrottle_internal#405)
-        state.SpeechRetries.TryRemove(sid, out _);      // ...and nobody is owed a speech retry for a turn nobody wants narrated
-        SupersedeStop(state, sid);                      // ...and a narration call still running is about a stop nobody is listening to
-        if (state.Ready.TryRemove(sid, out _))
-            DeleteReadyAudio(tenant, sid);   // keep the durable cache in step so a stale tap can't 404
         if (wasVoice)
             FileLog.Write($"[WingmanVoiceService] voice unmarked (turned off): tenant={tenant.ToLogString()} sid={sid}");
     }

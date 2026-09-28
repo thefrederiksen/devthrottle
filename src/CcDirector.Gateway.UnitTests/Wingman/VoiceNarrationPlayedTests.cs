@@ -141,6 +141,26 @@ public sealed class VoiceNarrationPlayedTests : IDisposable
         Assert.Null(voice.Listening.StopFor(Tenant, sid));
     }
 
+    /// <summary>Switched off, switched back on, and narrated again: the new narration is both playable and on the
+    /// ledger - never one without the other. The review found interleavings of exactly this sequence that tore it half
+    /// down; they are closed by running each step under one lock, which a sequential test can only pin the end state of.</summary>
+    [Fact]
+    public void UnmarkMarkStore_SwitchedOffAndBackOnAndNarrated_TheNarrationIsPlayableAndOnTheLedger()
+    {
+        var voice = Service();
+        var sid = Guid.NewGuid().ToString();
+        voice.Mark(Tenant, sid);
+        voice.StoreReadyAudioForTest(Tenant, sid, "First.", "First reply.", Mp3("a"));
+
+        voice.Unmark(Tenant, sid);
+        voice.Mark(Tenant, sid);
+        voice.StoreReadyAudioForTest(Tenant, sid, "Second.", "Second reply.", Mp3("b"));
+
+        var ready = voice.Get(Tenant, sid);
+        Assert.NotNull(ready);
+        Assert.Equal(ready.AtUtc, voice.Listening.StopFor(Tenant, sid)!.Value.NarrationAtUtc);
+    }
+
     [Theory]
     [InlineData("not-a-session", "2026-09-28T10:00:00Z")]
     [InlineData("11111111-1111-4111-8111-111111111111", null)]
