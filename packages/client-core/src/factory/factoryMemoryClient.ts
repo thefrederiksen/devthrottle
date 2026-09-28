@@ -150,18 +150,27 @@ export function deleteFactoryMemoryNote(
   return send<FactoryMemoryNote>("DELETE", notePath(factory, name), `Delete the note '${name}'`, { expectedVersion }, signal);
 }
 
-/** Put an old version's text back as a new version, written by this person. Only a person may do this. */
+/**
+ * Put an old version's text back as a new version, written by this person. Only a person may do this.
+ *
+ * `expectedVersion` is the CURRENT version the person was looking at when they chose to restore, and sending it is
+ * the whole point: an agent can write a new version between the owner opening a note's history and pressing the
+ * button, and without it the restore would bury that agent's lesson with nobody seeing (phases 3 and 4 review,
+ * finding 4 - the Gateway learned to refuse a stale restore and this client was not telling it which version it
+ * had seen, which made that refusal unreachable from the Cockpit).
+ */
 export function restoreFactoryMemoryNote(
   factory: string,
   name: string,
   version: number,
+  expectedVersion: number,
   signal?: AbortSignal,
 ): Promise<FactoryMemoryNote> {
   return send<FactoryMemoryNote>(
     "POST",
     notePath(factory, name, "/restore"),
     `Restore version ${version} of '${name}'`,
-    { version },
+    { version, expectedVersion },
     signal,
   );
 }

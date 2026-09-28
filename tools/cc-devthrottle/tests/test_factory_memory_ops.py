@@ -273,7 +273,11 @@ def test_set_NoFolderButAnExpectedVersion_Writes(gateway, monkeypatch):
 # list, get, delete, history.
 # ---------------------------------------------------------------------------------------------------
 
-def test_list_PrintsTheNotesAndRecordsEveryVersion(gateway, memory_folder):
+def test_list_PrintsTheNotes_AndRECORDSNOTHING_becauseItShowsOnlyOneLineOfEach(gateway, memory_folder):
+    """THE REVIEW'S FINDING 2, PINNED. A plain listing shows one line of each note, cut at 70 characters, so it
+    must NOT record those versions as read: doing so made the next `set` claim to have read a version nobody had
+    seen, and the Gateway then replaced it - the lost lesson this mission exists to end, reached by two ordinary
+    commands. The recorded versions must be exactly what they were before the listing ran."""
     folder = memory_folder({"domains": 1})
     gw = gateway((200, {
         "factory": FACTORY, "bytes": 30, "maxBytes": 524288, "maxNotes": 100,
@@ -288,6 +292,21 @@ def test_list_PrintsTheNotesAndRecordsEveryVersion(gateway, memory_folder):
     assert "Factory website-factory: 2 notes, 30 of 524288 bytes" in result.stdout
     assert "domains  v4" in result.stdout
     assert str(folder) in result.stdout
+    assert "does not count as having read them" in result.stdout
+    assert recorded(folder) == {"domains": 1}
+
+
+def test_listJson_RecordsEveryVersion_becauseItShowsTheWholeText(gateway, memory_folder):
+    """--json prints the answer whole, so it IS a read."""
+    folder = memory_folder({"domains": 1})
+    gateway((200, {
+        "factory": FACTORY, "bytes": 30, "maxBytes": 524288, "maxNotes": 100,
+        "notes": [note("domains", 4, "telephone number"), note("deliverability", 2, "fix DMARC first")],
+    }))
+
+    result = runner.invoke(app, ["factory", "memory", "list", "--json"])
+
+    assert result.exit_code == 0, result.output
     assert recorded(folder) == {"domains": 4, "deliverability": 2}
 
 

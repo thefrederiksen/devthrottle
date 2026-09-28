@@ -390,7 +390,10 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
         action="restore this version"
         onConfirm={async () => {
           if (note === null || restoreTarget === null) return;
-          setNote(await restoreFactoryMemoryNote(factory, note.name, restoreTarget.version));
+          // The version this person is LOOKING AT goes with the restore (review finding 4). An agent can write a
+          // new version between the history opening and this button being pressed, and without telling the Gateway
+          // which version was seen, the restore would bury that agent's lesson and nobody would know.
+          setNote(await restoreFactoryMemoryNote(factory, note.name, restoreTarget.version, note.version));
           reloadList();
           await loadHistory(note.name);
         }}

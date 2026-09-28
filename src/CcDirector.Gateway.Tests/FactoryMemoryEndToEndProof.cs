@@ -7,6 +7,7 @@ using CcDirector.ControlApi;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Security;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -124,12 +125,27 @@ public sealed class FactoryMemoryEndToEndProof : IAsyncLifetime
         _repo = Path.Combine(_root, "repo");
         Directory.CreateDirectory(_repo);
 
+        var url = $"http://127.0.0.1:{_gateway.Port}";
+
+        // THE DIRECTOR IS GIVEN A GATEWAY IN ITS OWN CONFIGURATION FILE, BEFORE IT STARTS - the way an installed
+        // one has one. It then builds its own Gateway client, which is what phase 3a downloads a factory session's
+        // notes with, inside CreateSession, before the agent process starts.
+        //
+        // WITHOUT THIS LINE THIS PROOF STANDS UP 0 OF 8 and the product is right to refuse it: a factory session
+        // never starts without its memory, so every create is refused with "no Gateway is configured on this
+        // Director". That is what the phases 3 and 4 review found, and it found the pull request claiming 8 of 8
+        // about a branch where the answer was none of them. Setting SessionManager.GatewayUrl below is enough for
+        // a session's OWN key; it is not enough for the DIRECTOR's download, and the difference is the whole of
+        // finding 1.
+        Directory.CreateDirectory(Path.GetDirectoryName(CcStorage.ConfigJson())!);
+        File.WriteAllText(CcStorage.ConfigJson(),
+            System.Text.Json.JsonSerializer.Serialize(new { gateway = new { url, token = Token, streamMode = true } }));
+
         _sessions = new SessionManager(new AgentOptions());
         _director = new ControlApiHost(_sessions, "factory-memory-proof", () => Task.CompletedTask,
             directorId: DirectorId, instancesDirectory: Path.Combine(_root, "dir-instances"));
         await _director.StartAsync();
 
-        var url = $"http://127.0.0.1:{_gateway.Port}";
         _sessions.GatewayUrl = url;
         _sessions.GatewaySessionCredentialSource = id =>
         {
@@ -674,8 +690,11 @@ public sealed class FactoryMemoryEndToEndProof : IAsyncLifetime
         sb.AppendLine("The sessions ran a stand-in command, not a coding agent: this proof is about the Gateway");
         sb.AppendLine("calls and who may make them. No model was asked anything, so nothing here shows an agent");
         sb.AppendLine("CHOOSING to write a note - that is the mission's phase 4. The Director's download of the");
-        sb.AppendLine("notes into a session's folder before the agent starts is phase 3a and does not exist yet,");
-        sb.AppendLine("so case 03 shows a fresh session READING the note through the Gateway, not a file on disk.");
+        sb.AppendLine("notes into a session's folder before the agent starts is now in place (phase 3a), and this");
+        sb.AppendLine("proof's Director is given a Gateway in its own configuration file so that it happens: without");
+        sb.AppendLine("that, every create here is refused and this proof stands up none of its eight cases, which is");
+        sb.AppendLine("the product being right. Case 03 still shows a fresh session READING the note through the");
+        sb.AppendLine("Gateway; the file on disk before an agent's first turn is what the phase 4 proof shows.");
         sb.AppendLine();
         foreach (var (number, name, verdict, why) in _cases)
             sb.AppendLine($"  {number}  {verdict,-4}  {name}{(why is null ? "" : "   <- " + why)}");

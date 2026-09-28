@@ -77,13 +77,20 @@ def _read_record(folder: Path) -> Dict[str, Any]:
     return record
 
 
+def _fold(name: str) -> str:
+    """A note's name as the Gateway holds it: lower case. The store folds names, so recording or looking one up by
+    the capitals somebody typed would miss it - and a miss means sending version 0, which the Gateway then refuses as
+    stale. Safe, but a refusal nobody can explain (phases 3 and 4 review, finding 6)."""
+    return name.strip().lower()
+
+
 def _remember(versions: Dict[str, int]) -> None:
     """Record the versions just read or written. Nothing to do for a session with no notes folder."""
     folder = memory_dir()
     if folder is None or not versions:
         return
     record = _read_record(folder)
-    record["versions"].update(versions)
+    record["versions"].update({_fold(name): version for name, version in versions.items()})
     path = folder / VERSIONS_FILE
     tmp = path.with_suffix(".tmp")
     try:
@@ -108,7 +115,7 @@ def last_read_version(name: str) -> int:
             "and pass the version it shows with --expected-version.",
             [f"{_TOOL} get <name>", f"{_TOOL} set <name> <text> --expected-version <n>"],
         )
-    value = _read_record(folder)["versions"].get(name, 0)
+    value = _read_record(folder)["versions"].get(_fold(name), 0)
     return value if isinstance(value, int) and value >= 0 else 0
 
 
@@ -187,10 +194,19 @@ def list_notes(json_output: bool) -> None:
         axi_cli.fail("the Gateway answered with no list of notes; this command will not report that as no notes.",
                      [axi_cli.CHECK_GATEWAY])
         return
-    _remember({n["name"]: n["version"] for n in notes
-               if isinstance(n, dict) and isinstance(n.get("name"), str) and isinstance(n.get("version"), int)})
-
+    # A VERSION IS RECORDED AS READ ONLY WHERE THE WHOLE TEXT WAS SHOWN (phases 3 and 4 review, finding 2).
+    #
+    # The plain listing prints one line of each note, cut at 70 characters. Recording those versions as read made
+    # the next `set` claim to have read a version nobody had seen - and the review reproduced the consequence: a
+    # note at version 3 in this session's folder, another session writes version 4, the agent runs `list`, sees a
+    # truncated first line, writes from its version 3 copy, and the command line sends expectedVersion 4. The
+    # Gateway does its part and replaces version 4, because a writer said it had read it. Version 4's lesson is
+    # gone and nobody is told: the exact failure this mission exists to end, reached by an ordinary command.
+    #
+    # With --json the whole text IS shown, so that form records.
     if json_output:
+        _remember({n["name"]: n["version"] for n in notes
+                   if isinstance(n, dict) and isinstance(n.get("name"), str) and isinstance(n.get("version"), int)})
         print(json.dumps(page, indent=2))
         return
     factory = page.get("factory") or "?"
@@ -202,6 +218,8 @@ def list_notes(json_output: bool) -> None:
     folder = memory_dir()
     if folder is not None:
         lines.append(f"The copy this session started with is in {folder}.")
+    lines.append("This listing shows one line of each note, so it does not count as having read them: "
+                 "run 'get <name>' before writing one, or your write will be refused as stale.")
     axi_cli.write_lines(*lines)
     axi_cli.print_next([f"{_TOOL} get <name>", f"{_TOOL} set <name> <text>"])
 

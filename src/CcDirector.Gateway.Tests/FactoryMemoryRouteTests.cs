@@ -395,6 +395,48 @@ public sealed class FactoryMemoryRouteTests : IDisposable
     }
 
     [Fact]
+    public async Task A_PERSON_CAN_SEE_WHAT_WAS_DELETED_SO_A_DELETE_IS_REALLY_UNDOABLE()
+    {
+        // The owner let factory sessions delete because a delete can be undone. Until this existed, undoing one
+        // meant already knowing the name of a note somebody else had removed (review finding 5).
+        InFactory(Scout, TheFactory);
+        var agent = await StartAsync(sessionId: Scout);
+        await agent.PutAsync("/factory-memory/notes/domains", Body(new SetFactoryMemoryNoteRequest { Text = "v1", ExpectedVersion = 0 }));
+        await agent.PutAsync("/factory-memory/notes/deliverability", Body(new SetFactoryMemoryNoteRequest { Text = "keep me", ExpectedVersion = 0 }));
+        await agent.SendAsync(new HttpRequestMessage(HttpMethod.Delete, "/factory-memory/notes/domains")
+        {
+            Content = Body(new DeleteFactoryMemoryNoteRequest { ExpectedVersion = 1 }),
+        });
+        await _app!.StopAsync();
+
+        var person = await StartAsync(deviceType: "browser");
+        var gone = await person.GetFromJsonAsync<FactoryMemoryListResponse>($"/factory-memory/notes?factory={TheFactory}&deleted=true");
+
+        var only = Assert.Single(gone!.Notes);
+        Assert.Equal("domains", only.Name);
+        Assert.True(only.Deleted);
+        Assert.Contains("restored by a person", only.DeletedNotice);
+
+        // And the ordinary listing still hides it: "what does this factory know" stays answerable at a glance.
+        var current = await person.GetFromJsonAsync<FactoryMemoryListResponse>($"/factory-memory/notes?factory={TheFactory}");
+        Assert.Equal("deliverability", Assert.Single(current!.Notes).Name);
+    }
+
+    [Fact]
+    public async Task A_SESSION_MAY_NOT_ASK_WHAT_WAS_DELETED()
+    {
+        // Its business is what the factory knows now; a deleted note is the owner's to judge, and he is the only
+        // one who can put it back.
+        InFactory(Scout, TheFactory);
+        var agent = await StartAsync(sessionId: Scout);
+
+        var resp = await agent.GetAsync("/factory-memory/notes?deleted=true");
+
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Contains("only a person can see", await resp.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task A_note_that_was_never_written_is_a_NOT_FOUND()
     {
         InFactory(Scout, TheFactory);

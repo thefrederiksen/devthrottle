@@ -76,12 +76,14 @@ describe("the factory memory client", () => {
     expect(call().body).toEqual({ expectedVersion: 3 });
   });
 
-  it("asks for a restore by the version to put back", async () => {
+  it("asks for a restore by the version to put back, AND says which version it was looking at", async () => {
+    // The second number is what makes a stale restore refusable: an agent can write while the owner is reading the
+    // history, and without it the restore would bury that version with nobody seeing (review finding 4).
     const call = capture(() => jsonResponse({ ...NOTE, version: 5, authorKind: "person" }));
-    const restored = await restoreFactoryMemoryNote("website-factory", "domains", 2);
+    const restored = await restoreFactoryMemoryNote("website-factory", "domains", 2, 4);
     expect(call().url).toBe("/factory-memory/notes/domains/restore?factory=website-factory");
     expect(call().init.method).toBe("POST");
-    expect(call().body).toEqual({ version: 2 });
+    expect(call().body).toEqual({ version: 2, expectedVersion: 4 });
     expect(restored.authorKind).toBe("person");
   });
 

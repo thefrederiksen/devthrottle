@@ -55,10 +55,38 @@ internal static class FactoryMemoryEndpoints
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(nowUtc);
 
-        app.MapGet($"{Prefix}/notes", (HttpContext ctx, string? factory) =>
+        app.MapGet($"{Prefix}/notes", (HttpContext ctx, string? factory, bool? deleted) =>
         {
             if (resolveTenant(ctx) is not { } tenant) return NoAccount();
             if (!TryCaller(ctx, sessionFactoryOf, factory, out var caller, out var error, directorMayRead: true)) return error!;
+
+            // WHAT WAS DELETED, FOR THE PERSON WHO CAN PUT IT BACK (review finding 5). The ordinary listing hides
+            // deleted notes so that "what does this factory know" is answerable at a glance - but restoring one is a
+            // person's act, and until this existed the only way to reach a deleted note was to already know its
+            // name. A delete nobody can find is not the undoable delete the owner's decision rested on.
+            //
+            // A session cannot ask: its business is what the factory knows now, and a deleted note is the owner's to
+            // judge. A Director cannot ask either - it downloads what a session should start with.
+            if (deleted == true)
+            {
+                if (caller.AuthorKind != FactoryMemoryAuthorKinds.Person)
+                    return Results.Json(new
+                    {
+                        error = "only a person can see a factory's deleted notes",
+                        detail = "A deleted note is kept so the owner can put it back, and putting it back is his " +
+                                 "call. What this factory knows now is the ordinary listing.",
+                    }, statusCode: StatusCodes.Status403Forbidden);
+                var gone = store.ListDeleted(tenant, caller.Factory);
+                return Results.Json(new FactoryMemoryListResponse
+                {
+                    Factory = caller.Factory,
+                    Notes = gone.Select(ToDto).ToList(),
+                    Bytes = 0,
+                    MaxBytes = FactoryMemoryStore.MaxFactoryBytes,
+                    MaxNotes = FactoryMemoryStore.MaxNotes,
+                });
+            }
+
             var notes = store.List(tenant, caller.Factory);
             return Results.Json(new FactoryMemoryListResponse
             {
@@ -242,7 +270,18 @@ internal static class FactoryMemoryEndpoints
                 return false;
             }
             FileLog.Write($"[FactoryMemoryEndpoints] a Director is downloading the memory of '{stated}'");
-            caller = new Caller(stated, DirectorReader, null);
+            // AN UNUSABLE FACTORY ID IS REFUSED, NOT ANSWERED EMPTY (phases 3 and 4 review, finding 3). The store
+            // cannot hold a factory that is not one spelling, so it answers nothing for one - and nothing, to the
+            // Director, is a memory with no notes in it. The hard stop would then be satisfied: the session starts,
+            // its folder holds an index and no lessons, and the agent is told nothing is known. A factory session
+            // running with a silently empty memory is exactly what the hard stop exists to prevent.
+            if (!Factory.FactoryNames.TryFactory(stated, out var directorFactory, out var directorRefusal))
+            {
+                FileLog.Write($"[FactoryMemoryEndpoints] REFUSED a Director's download of '{stated}': {directorRefusal}");
+                error = Results.BadRequest(new { error = directorRefusal, detail = SpawnFactory.OneSpelling });
+                return false;
+            }
+            caller = new Caller(directorFactory, DirectorReader, null);
             return true;
         }
 

@@ -239,7 +239,10 @@ describe("The factory page's Memory tab (Factory Memory mission, phase 3b)", () 
     expect(client.restoreFactoryMemoryNote).not.toHaveBeenCalled();
     fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Restore" }));
 
-    await waitFor(() => expect(client.restoreFactoryMemoryNote).toHaveBeenCalledWith("website-business", "domains", 1));
+    // The fourth argument is the version the person was looking at: without it the Gateway cannot refuse a
+    // restore that would bury a version written while the history was open (review finding 4).
+    await waitFor(() =>
+      expect(client.restoreFactoryMemoryNote).toHaveBeenCalledWith("website-business", "domains", 1, 3));
     await waitFor(() => expect(screen.getByTestId("fa-memory-byline").textContent).toContain("Version 4, written by person OWNER"));
     expect(client.getFactoryMemoryHistory).toHaveBeenCalledTimes(2);
   });
