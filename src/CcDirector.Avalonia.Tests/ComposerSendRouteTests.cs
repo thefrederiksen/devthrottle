@@ -394,6 +394,36 @@ public sealed class ComposerSendRouteTests
     }
 
     [AvaloniaFact]
+    public async Task SendHandoverCommandAsync_SessionRefusesTheSend_ShowsTheRefusalAndDoesNotThrow()
+    {
+        using var rig = new Rig(backend: () => new RefusingBackend());
+        var shown = new List<(string Title, string Message)>();
+        rig.Window.SendRefusedShownForTests = (title, message) => shown.Add((title, message));
+
+        await rig.Window.SendHandoverCommandAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        var (title, message) = Assert.Single(shown);
+        Assert.Equal("Handover not sent", title);
+        Assert.Contains(RefusingBackend.Refusal, message);
+    }
+
+    [AvaloniaFact]
+    public async Task InjectHandoverPromptAsync_SessionRefusesTheSend_ShowsTheRefusalAndDoesNotThrow()
+    {
+        using var rig = new Rig(backend: () => new RefusingBackend());
+        var shown = new List<(string Title, string Message)>();
+        rig.Window.SendRefusedShownForTests = (title, message) => shown.Add((title, message));
+
+        await rig.Window.InjectHandoverPromptAsync(rig.Sessions[0], @"C:\handovers\h.md", TimeSpan.Zero);
+        Dispatcher.UIThread.RunJobs();
+
+        var (title, message) = Assert.Single(shown);
+        Assert.Equal("Handover not sent", title);
+        Assert.Contains(@"C:\handovers\h.md", message);
+    }
+
+    [AvaloniaFact]
     public async Task SendPromptCoreAsync_RefusedDictation_IsShownAsADictationAndPutBackAsSpoken()
     {
         // Arrange: one untouched dictation in the box, refused.

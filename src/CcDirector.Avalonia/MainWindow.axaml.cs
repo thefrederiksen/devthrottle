@@ -6097,7 +6097,10 @@ public partial class MainWindow : Window
         UpdateQueueButtonStyle();
     }
 
-    private async void BtnHandover_Click(object? sender, RoutedEventArgs e)
+    private async void BtnHandover_Click(object? sender, RoutedEventArgs e) => await SendHandoverCommandAsync();
+
+    /// <summary>The Handover button's send of /handover to the session on screen. Never throws: a refusal is shown.</summary>
+    internal async Task SendHandoverCommandAsync()
     {
         FileLog.Write("[MainWindow] BtnHandover_Click");
         if (_activeSession == null)
@@ -6106,8 +6109,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        await _activeSession.Session.SendTextAsync("/handover", SubmissionProvenance.FrameworkText(), SendSource.Framework);
-        FileLog.Write($"[MainWindow] BtnHandover_Click: sent /handover to session {_activeSession.Session.Id}");
+        var target = _activeSession.Session;
+        try
+        {
+            await target.SendTextAsync("/handover", SubmissionProvenance.FrameworkText(), SendSource.Framework);
+        }
+        catch (Exception ex)
+        {
+            // A refused send ends in a message, never an unhandled UI-thread exception (issue 3481).
+            FileLog.Write($"[MainWindow] BtnHandover_Click FAILED: session={target.Id}: {ex.Message}");
+            ReportSendRefused("Handover not sent", $"/handover was not sent: {ex.Message}");
+            return;
+        }
+        FileLog.Write($"[MainWindow] BtnHandover_Click: sent /handover to session {target.Id}");
     }
 
     private void UpdateQueueButtonStyle()
@@ -7059,19 +7073,33 @@ public partial class MainWindow : Window
     /// After a new session starts from a handover, wait for Claude Code to be ready
     /// and then send the handover file as a prompt asking it to review and plan next steps.
     /// </summary>
-    private async Task InjectHandoverPromptAsync(Session session, string handoverPath)
+    /// <summary>Send the handover prompt into a session started from a handover. Never throws: its caller discards the
+    /// task, so a refusal is shown instead. <paramref name="startupWait"/> is five seconds except in tests.</summary>
+    internal async Task InjectHandoverPromptAsync(Session session, string handoverPath, TimeSpan? startupWait = null)
     {
         FileLog.Write($"[MainWindow] InjectHandoverPromptAsync: waiting for session {session.Id}, handover={handoverPath}");
 
         // Wait for Claude Code to finish starting up
-        await Task.Delay(TimeSpan.FromSeconds(5));
+        await Task.Delay(startupWait ?? TimeSpan.FromSeconds(5));
 
         var prompt = $"@{handoverPath} This is a handover document from a previous session. "
             + "Please read it carefully, then give me a high-level summary of what was done "
             + "and what you think we should work on next. Show the scope of remaining work "
             + "and suggest priorities.";
 
-        await session.SendTextAsync(prompt, SubmissionProvenance.FrameworkText(), SendSource.Framework);
+        try
+        {
+            await session.SendTextAsync(prompt, SubmissionProvenance.FrameworkText(), SendSource.Framework);
+        }
+        catch (Exception ex)
+        {
+            // Nobody awaits this task (the caller discards it), so a refusal that escaped here was an unobserved task and
+            // the owner never heard the handover did not go in (issue 3481). It is reported instead.
+            FileLog.Write($"[MainWindow] InjectHandoverPromptAsync FAILED: session={session.Id}: {ex.Message}");
+            Dispatcher.UIThread.Post(() => ReportSendRefused("Handover not sent",
+                $"The handover prompt was not sent to the new session: {ex.Message}\n\nThe handover document is {handoverPath}."));
+            return;
+        }
         FileLog.Write($"[MainWindow] InjectHandoverPromptAsync: sent handover prompt for session {session.Id}");
     }
 

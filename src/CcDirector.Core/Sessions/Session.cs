@@ -852,6 +852,10 @@ public sealed class Session : IDisposable
         // file that never existed: every later prompt was judged against the missing file and called not arrived.
         // Refused only while the conversation the pointer names EXISTS, so a first report that was itself wrong -
         // a child that won the race - is still replaced by the real one, whose file does exist.
+        // WHAT THIS CANNOT TELL APART (review of issue 3480): the hook event names no writer process, so a child whose
+        // startup was applied FIRST and whose own conversation file exists would hold the pointer against the real
+        // one. The ordering makes that the unlikely case: a background agent is launched from inside a turn, and the
+        // session's own startup is reported when it launched, before it took any prompt.
         if (string.Equals(source, "startup", StringComparison.OrdinalIgnoreCase)
             && _startupReportedByProcess is { } startedBy && startedBy == ProcessId && !_backend.HasExited
             && !string.Equals(claudeSessionId, ClaudeSessionId, StringComparison.OrdinalIgnoreCase)
@@ -3655,6 +3659,17 @@ public sealed class Session : IDisposable
     private string? _codexRollout;
 
     /// <summary>
+    /// A cannot-tell send's late watch that runs out has NOT shown the prompt missing from the records - there were no
+    /// records to read - so it ends as a failed watch carrying that reason ("could not be confirmed: ..."), never as
+    /// "never in the agent's records" (review of issue 3480).
+    /// </summary>
+    private static async Task<LateWatchEnd> EndAsUnreadable(Task<LateWatchEnd> watch, string reason)
+    {
+        var end = await watch;
+        return end.Ended == LateArrival.LimitEnded ? new LateWatchEnd(LateArrival.WatchFailed, reason) : end;
+    }
+
+    /// <summary>
     /// False when the proof reads files, not one of them exists, and this session's conversation HAS been readable
     /// before - so the pointer now names a conversation that was never written (issue 3480) and an absence in it
     /// proves nothing. A session whose conversation has never been seen on disk is different: Claude Code writes the
@@ -3780,7 +3795,7 @@ public sealed class Session : IDisposable
                              (release == ComposerRelease.Left ? "the text has left the composer" : "the composer cannot be read");
                 FileLog.Write($"[Session] CANNOT TELL: session={Id}: {reason}. Nothing is typed again and no retention mark is set; " +
                               $"the records are watched for up to {lateLimit.TotalMinutes:F1} minutes. len={current.Length}");
-                return TextSendOutcome.StillDelivering(reason, WatchLateArrivalAsync(proof, current, label, lateLimit), lateLimit);
+                return TextSendOutcome.StillDelivering(reason, EndAsUnreadable(WatchLateArrivalAsync(proof, current, label, lateLimit), reason), lateLimit);
             }
         }
         if (outcome == Drivers.PromptArrivalOutcome.NotArrived)

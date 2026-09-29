@@ -76,6 +76,21 @@ public sealed class ClaudeTitledComposerTests
         Assert.Equal(FleetRingDeferReasons.ComposerHoldsText, verdict.Reason);
     }
 
+    [Fact]
+    public void ReadComposerText_SelectedOptionUnderATitledRule_IsAMenuNotTheComposer()
+    {
+        // The reviewer's frame: a picker that draws its heading into a rule, with a selected option under it and a plain
+        // rule below, and no menu hint in the footer.
+        var frame = Load("claude-titled-owner-text");
+        frame = DoorbellCaptures.WithRow(frame, 9, "──────────── Select model ─");
+        frame = DoorbellCaptures.WithRow(frame, 10, "❯ 2. Opus");
+
+        var (reading, text) = DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, frame);
+
+        Assert.Equal(ComposerReading.MenuOpen, reading);
+        Assert.Equal("", text);
+    }
+
     // The titled rule is recognised by its SHAPE, not loosely: rows that only look a little like it still do not frame
     // a composer, so a '❯' under them stays a picker or transcript line (NotFound), exactly as before.
     [Theory]

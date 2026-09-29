@@ -317,7 +317,9 @@ public sealed class PromptArrivalTests : IDisposable
         Assert.Equal(1, enters);
         Assert.False(ComposerRetention.MayHoldText(terminal));
         Assert.False(PromptDeliveryFailures.Tally(session.Id).Unresolved);
-        Assert.Equal(LateArrival.LimitEnded, (await outcome.LateProof!).Ended);
+        var end = await outcome.LateProof!;
+        Assert.Equal(LateArrival.WatchFailed, end.Ended);
+        Assert.Contains("cannot be told", end.WatchFailure);
     }
 
     [Fact]

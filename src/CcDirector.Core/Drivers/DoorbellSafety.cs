@@ -321,6 +321,10 @@ public static class DoorbellSafety
                 if (IsTopRule(row)) break; // reached another rule without a prompt row: not a composer block
                 if (!row.StartsWith('❯')) continue;
                 if (!IsTopRule(rows[prompt - 1])) break; // a '❯' that is not framed from above: a picker or a transcript line
+                // A TITLED FRAME AROUND A SELECTED OPTION IS A PICKER (review of issue 3481). A picker can draw its own
+                // heading into a rule ("──── Select model ─") above "❯ 2. Opus"; the titled rule must not turn that into
+                // a composer holding "2. Opus". Only the titled case is narrowed: a plain frame reads as it always did.
+                if (!IsRule(rows[prompt - 1]) && IsSelectedOption(row)) break;
 
                 var footer = rows.Skip(close + 1).ToList();
                 if (footer.Any(IsMenuHint)) return (ComposerReading.MenuOpen, -1, -1);
