@@ -309,7 +309,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment, I
         return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
     }
 
-    public SessionDto? ReadSessionFacts(TenantId tenant, string sessionId) => ReadSessionState(tenant, sessionId).Facts;
+    public bool JudgeEnabled(TenantId tenant) => _settings(tenant).JudgeEnabled;
 
     public async Task<string> AskNamerAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
     {

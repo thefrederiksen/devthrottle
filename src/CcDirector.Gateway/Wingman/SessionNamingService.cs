@@ -14,9 +14,13 @@ namespace CcDirector.Gateway.Wingman;
 /// </summary>
 public interface ISessionNamingEnvironment
 {
-    /// <summary>The session's facts from one fresh snapshot of the account's pushed roster, or null when it is not
-    /// in the roster.</summary>
-    SessionDto? ReadSessionFacts(TenantId tenant, string sessionId);
+    /// <summary>The session's facts and whether a live owning session holds it, from one fresh snapshot of the
+    /// account's pushed roster (the same read the turn-verdict seat makes).</summary>
+    TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId);
+
+    /// <summary>Whether this account's Wingman judge switch is on. A voice session is read with it off, and naming
+    /// must not add a paid call the account switched off.</summary>
+    bool JudgeEnabled(TenantId tenant);
 
     /// <summary>The session's stored conversation, read inside the account's scope. Null: nothing stored yet.</summary>
     StoredConversation? ReadConversation(TenantId tenant, string sessionId);
@@ -88,7 +92,11 @@ public sealed class SessionNamingService
 
         try
         {
-            var facts = _env.ReadSessionFacts(completed.Tenant, completed.SessionId);
+            if (!_env.JudgeEnabled(completed.Tenant)) return null;
+            var state = _env.ReadSessionState(completed.Tenant, completed.SessionId);
+            // Owned since the reading's own held check: an owned session is never read, so never named either.
+            if (state.Held) return null;
+            var facts = state.Facts;
             if (facts is null) return null;
             if (!IsUnnamed(facts))
             {
@@ -114,8 +122,9 @@ public sealed class SessionNamingService
             }
 
             // The user may have renamed it while the model was answering: their name wins.
-            var now = _env.ReadSessionFacts(completed.Tenant, completed.SessionId);
-            if (now is null || !IsUnnamed(now) || !string.Equals(now.Name, facts.Name, StringComparison.Ordinal))
+            var nowState = _env.ReadSessionState(completed.Tenant, completed.SessionId);
+            var now = nowState.Facts;
+            if (nowState.Held || now is null || !IsUnnamed(now) || !string.Equals(now.Name, facts.Name, StringComparison.Ordinal))
             {
                 FileLog.Write($"[SessionNamingService] renamed by someone else while naming, left alone sid={completed.SessionId}");
                 return null;
@@ -147,9 +156,9 @@ public sealed class SessionNamingService
     /// <summary>
     /// The first thing the user typed or said in the session, or null when none is stored. A transcript also
     /// records machine text on the user's side - a <c>&lt;system-reminder&gt;</c> block, a slash command's
-    /// <c>&lt;command-name&gt;</c> or its output, the "Caveat:" line before local command output - and none of it is
-    /// what the person asked for, so tagged blocks are cut out and an entry left empty, or that is only a caveat,
-    /// is passed over.
+    /// <c>&lt;command-name&gt;</c> or its output, the "Caveat:" line before local command output, a loaded skill's
+    /// body - and none of it is what the person asked for, so tagged blocks are cut out and an entry left empty, or
+    /// that is only harness text, is passed over.
     /// </summary>
     public static string? FirstUserPrompt(StoredConversation? conversation)
     {
@@ -158,11 +167,15 @@ public sealed class SessionNamingService
         {
             if (w is null || !string.Equals(w.Kind, StoredConversationWidgets.UserTextKind, StringComparison.Ordinal)) continue;
             var text = MachineBlock.Replace(w.Content ?? "", "").Trim();
-            if (text.Length == 0 || text.StartsWith("Caveat:", StringComparison.Ordinal)) continue;
+            if (text.Length == 0 || HarnessPrefixes.Any(p => text.StartsWith(p, StringComparison.Ordinal))) continue;
             return text.Length <= MaxPromptChars ? text : text[..MaxPromptChars];
         }
         return null;
     }
+
+    // Whole entries the harness writes as the user: the caveat before local command output, and a loaded skill's
+    // body. The stored conversation does not keep the transcript's meta flag, so they are known by how they start.
+    private static readonly string[] HarnessPrefixes = { "Caveat:", "Base directory for this skill:" };
 
     // A tagged block the harness writes into the user's side of a transcript: <tag ...>...</tag>, across lines.
     private static readonly Regex MachineBlock = new(
