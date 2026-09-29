@@ -1157,6 +1157,11 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     public async Task AFleetManagerWhoseReadingIsPending_HoldsTheEvents_UntilTheReadingSaysItAskedNothing()
     {
         await TurnEndAsync("worker-1");
+        // A session still WORKING under the Fleet Manager, so its reading goes to the model - which is held below - and
+        // is genuinely still being formed. With everything under it stopped, the reading is decided by code at once (the
+        // simpler session colours ruling, 2026-09-28) and nothing would be pending: that raced, and failed in
+        // continuous integration.
+        SetState("worker-2", "Working");
         _brain.Hold();
         SetState("fm", "WaitingForInput");
         var signal = Signal("fm");
