@@ -82,8 +82,16 @@
   gap: 6px;
 }
 /* The words handed back. Long dictations must wrap rather than push the strip sideways - the page body
-   never scrolls horizontally. */
+   never scrolls horizontally. The strip sits ABOVE each screen's own scroll area (the phone's Voice,
+   Chat and Terminal screens are fixed-height), so an uncapped quote of a long dictation grew past the
+   bottom of the phone and took Send anyway, Dismiss and the whole screen with it - nothing could scroll.
+   The quote is capped and scrolls inside itself, so the buttons and the screen below stay reachable. */
 .dictate-strip-quote {
+  max-height: 30vh;
+  max-height: 30dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   margin: 0;
   padding: 6px 10px;
   border-left: 3px solid rgba(241, 76, 76, 0.5);
