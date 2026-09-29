@@ -228,7 +228,7 @@ public sealed class WingmanVoiceService
     /// <summary>Which narration each voice session is on and whether it was played - the half of voice mode
     /// auto-off only the player can report (see <see cref="VoiceListeningLedger"/>). Every narration this service
     /// makes ready is entered here, and a session switched off voice is forgotten.</summary>
-    public VoiceListeningLedger Listening { get; } = new();
+    public VoiceListeningLedger Listening { get; }
 
     /// <summary>
     /// True only for the EXACT form <see cref="Tenancy.TenantRegistry"/> mints: a canonical lowercase GUID.
@@ -458,6 +458,8 @@ public sealed class WingmanVoiceService
         var baseDir = Path.GetDirectoryName(_legacyPersistPath);
         if (string.IsNullOrWhiteSpace(baseDir)) baseDir = CcStorage.Root();
         _baseDir = baseDir;
+        // The listening record persists in each account's own partition, beside its voice-sessions.json.
+        Listening = new VoiceListeningLedger(PartitionDirectoryFor);
         MigrateLegacyUnpartitionedState();
         LoadAllPartitions();
     }
