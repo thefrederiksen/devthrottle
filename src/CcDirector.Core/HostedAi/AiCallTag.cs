@@ -104,6 +104,8 @@ public static class AiFeature
     public const string TurnVerdict = "turn-verdict";
     /// <summary>The minimal call that proves the turn-verdict model host is answering after a timeout.</summary>
     public const string TurnVerdictProbe = "turn-verdict.probe";
+    /// <summary>The Wingman naming a session the user did not name, from its first prompt (<c>SessionNamingService</c>).</summary>
+    public const string WingmanSessionName = "wingman.session-name";
     /// <summary>Supervision.</summary>
     public const string Supervision = "supervision";
     /// <summary>Session rules.</summary>

@@ -2999,8 +2999,19 @@ public sealed class GatewayHost : IAsyncDisposable
         if (_turnVerdictService is { } built) return built;
         var seat = new Wingman.TurnVerdictService(EnsureTurnVerdictEnvironment());
         SubscribeFleetManagerEvents(seat);
+        SubscribeSessionNaming(seat);
         return _turnVerdictService = seat;
     }
+
+    /// <summary>The Wingman names a session the user did not name, after a turn-end reading (issue #3488). Made where
+    /// the seat is built, once.</summary>
+    private void SubscribeSessionNaming(Wingman.TurnVerdictService seat)
+    {
+        var namer = _sessionNaming ??= new Wingman.SessionNamingService(EnsureTurnVerdictEnvironment());
+        seat.ReadingCompleted += namer.OnReadingCompleted;
+    }
+
+    private Wingman.SessionNamingService? _sessionNaming;
 
     /// <summary>The Fleet Manager's events (step 4) hear EVERY reading the seat finishes - at a turn end or at a
     /// snooze expiry. Made where the seat is built, once. The handler reads the events service when it fires, so the
