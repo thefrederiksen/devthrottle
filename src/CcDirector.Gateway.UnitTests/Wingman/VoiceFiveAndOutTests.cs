@@ -94,6 +94,32 @@ public sealed class VoiceFiveAndOutTests : IDisposable
         Assert.Equal(new VoiceListeningLedger.SwitchOff(Now, VoiceListeningLedger.UnheardSwitchOffReason), after.SwitchedOff(Tenant));
     }
 
+    /// <summary>
+    /// Review of step 4: the switch-off is saved before the press runs. A Gateway that stops in between must not come
+    /// back believing voice was switched off - that would stop every later press. An unconfirmed switch-off is withdrawn
+    /// at start-up, and the next unheard stop presses the switch.
+    /// </summary>
+    [Fact]
+    public async Task SwitchedOff_AGatewayThatStoppedBeforeThePressFinished_WithdrawsItAndPressesAgain()
+    {
+        var before = Ledger();
+        var neverFinishes = new TaskCompletionSource();
+        before.UseSwitchOff(_ => neverFinishes.Task);   // the Gateway stops while the switch is still being pressed
+        for (var i = 0; i < VoiceListeningLedger.UnheardLimit; i++) AnswerUnheard(before);
+        Assert.NotNull(before.SwitchedOff(Tenant));
+
+        var after = Ledger();   // a restart over the same directory
+        var presses = 0;
+        after.UseSwitchOff(_ => { presses++; return Task.CompletedTask; });
+
+        Assert.Null(after.SwitchedOff(Tenant));
+        AnswerUnheard(after);
+        await after.SwitchOffInFlight;
+        Assert.Equal(1, presses);
+        Assert.NotNull(after.SwitchedOff(Tenant));
+        Assert.NotNull(Ledger().SwitchedOff(Tenant));   // and this one, confirmed, survives the next restart
+    }
+
     [Fact]
     public async Task NoteOwnerAnswered_ASwitchThatCannotBePressed_WithdrawsTheSwitchOffAndTriesAgainNextStop()
     {
