@@ -212,12 +212,13 @@ public sealed class DeliveryRecordTests : IDisposable
     [Fact]
     public void Write_LeavesNoTemporaryFileBehind()
     {
-        // Proves the atomic write replaces the file in one move and leaves only the record itself.
+        // Proves the atomic write replaces the file in one move and leaves only the record itself - beside the session's
+        // lock file, which two Directors on the same files take turns on (review of pull request 3491).
         var record = new DeliveryRecord(_dir);
         record.TryBeginDelivery(_session, "upload-1");
         record.MarkDelivered(_session, "upload-1");
 
-        Assert.Equal(new[] { record.FileFor(_session) }, Directory.GetFiles(_dir));
+        Assert.Equal(new[] { record.FileFor(_session), record.LockFileFor(_session) }.Order(), Directory.GetFiles(_dir).Order());
     }
 
     [Fact]

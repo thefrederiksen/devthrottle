@@ -466,12 +466,73 @@ public sealed class DeliveryRecord
 
     private object LockFor(Guid sessionId) => _sessionLocks.GetOrAdd(sessionId, _ => new object());
 
+    /// <summary>How long taking a session's lock file may take before it is reported as a record that cannot be used. Its
+    /// holder keeps it only for one small read or rewrite, so a wait this long means something is wrong, not busy.</summary>
+    internal static readonly TimeSpan LockFileGiveUp = TimeSpan.FromSeconds(60);
+
+    /// <summary>The lock file for <paramref name="sessionId"/>: beside its record, named so no <c>*.jsonl</c> sweep reads it.</summary>
+    public string LockFileFor(Guid sessionId) => Path.Combine(_directory, $"{sessionId:D}.lock");
+
     /// <summary>
     /// Runs <paramref name="body"/> under this session's lock. A wait for the lock that runs past a few seconds says what
     /// it waits for and, when it gets the lock, how long it waited (the phase 3 lines, <see cref="Drivers.SendWaitNotice"/>)
     /// - so a slow answer from the delivery-state verb can be told apart from a slow file or a starved process (phase 6).
+    ///
+    /// TWO LOCKS, BECAUSE TWO DIRECTORS CAN SHARE THESE FILES (review of pull request 3491). The in-process lock orders
+    /// this process's own callers; the lock file (<see cref="LockFileFor"/>, opened with no sharing) orders this process
+    /// against any other Director on the same state files. Every read-then-rewrite goes through here, so without the
+    /// second lock one Director could rewrite a session's file from a snapshot taken before another Director wrote a
+    /// claim, and erase that claim - after which the same words could begin, and be typed, again. The operating system
+    /// drops the lock file's lock when its holder exits, so a Director that dies holding it blocks nobody.
     /// </summary>
     private T UnderSessionLock<T>(Guid sessionId, string doing, Func<T> body)
+    {
+        return UnderProcessLock(sessionId, doing, () =>
+        {
+            using var acrossProcesses = TakeLockFile(sessionId, doing);
+            return body();
+        });
+    }
+
+    private FileStream TakeLockFile(Guid sessionId, string doing)
+    {
+        Directory.CreateDirectory(_directory);
+        var path = LockFileFor(sessionId);
+        Drivers.SendWaitNotice? notice = null;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            try
+            {
+                var held = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                notice?.End("got the lock file");
+                return held;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                FileLog.Write($"[DeliveryRecord] TakeLockFile FAILED: {path}: {ex.Message}");
+                throw new DeliveryRecordUnreadableException(path, $"its lock file cannot be opened: {ex.Message}", ex);
+            }
+            catch (IOException ex)
+            {
+                // Another Director holds it for its own read or rewrite. It is kept only for that, so the wait is short.
+                if (clock.Elapsed >= LockFileGiveUp)
+                {
+                    notice?.End($"GAVE UP: {ex.Message}");
+                    FileLog.Write($"[DeliveryRecord] TakeLockFile FAILED: {path}: not free after {LockFileGiveUp.TotalSeconds:0}s: {ex.Message}");
+                    throw new DeliveryRecordUnreadableException(path,
+                        $"its lock file was not free after {LockFileGiveUp.TotalSeconds:0} seconds ({ex.Message})", ex);
+                }
+                notice ??= new Drivers.SendWaitNotice("DeliveryRecord",
+                    $"the delivery record lock file {path} (session {sessionId}), for {doing}",
+                    $"{LockFileGiveUp.TotalSeconds:0}s - another Director holds it for one read or rewrite");
+                notice.Check();
+                Thread.Sleep(20);
+            }
+        }
+    }
+
+    private T UnderProcessLock<T>(Guid sessionId, string doing, Func<T> body)
     {
         var gate = LockFor(sessionId);
         if (!Monitor.TryEnter(gate))

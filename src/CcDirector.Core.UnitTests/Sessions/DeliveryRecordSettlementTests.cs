@@ -110,6 +110,67 @@ public sealed class DeliveryRecordSettlementTests : IDisposable
     }
 
     [Fact]
+    public async Task Settle_ASecondDirectorBeginningADeliveryMidSettlement_WaitsForIt_AndItsClaimIsNeverErased()
+    {
+        // Arrange: two records on one directory, each with its own in-process locks - two Director processes sharing
+        // state files. The settling one pauses right after it opens the session's file (the reviewer's interleaving).
+        RecordAs(StoppedDirector).TryBeginDelivery(_session, "orphan");
+        var otherLiveDirector = new DeliveryOwner(737373, StartingDirector.StartedAtUtc.AddMinutes(-5));
+        var other = RecordAs(otherLiveDirector);
+        var settling = RecordAs(StartingDirector, owner => owner == StoppedDirector ? DeliveryOwnerLiveness.Gone : DeliveryOwnerLiveness.Alive);
+        Task<DeliveryClaim>? secondBegin = null;
+        var finishedWhileSettling = false;
+        settling.BeforeFileReadForTests = () =>
+        {
+            if (secondBegin is not null) return;
+            secondBegin = Task.Run(() => other.TryBeginDelivery(_session, "live-send"));
+            finishedWhileSettling = secondBegin.Wait(TimeSpan.FromMilliseconds(500));
+        };
+
+        // Act
+        var report = settling.SettleOrphanedDeliveries();
+        var claim = await secondBegin!.WaitAsync(TimeSpan.FromSeconds(30));
+
+        // Assert: the other Director's claim waited for the settlement, then began - and both entries are on disk.
+        Assert.False(finishedWhileSettling, "the second Director wrote its claim while the settlement held a stale snapshot");
+        Assert.True(claim.Began);
+        Assert.Equal(1, report.Settled);
+        Assert.Equal(DeliveryState.Unconfirmed, settling.Read(_session, "orphan").State);
+        Assert.Equal(DeliveryState.Delivering, settling.Read(_session, "live-send").State);
+        Assert.False(RecordAs(StartingDirector).TryBeginDelivery(_session, "live-send").Began);
+    }
+
+    [Fact]
+    public void TheDirectorsStartUp_SettlesTheRecord_BeforeItsCommandChannelStarts_AndCatchesAFailure()
+    {
+        // Proves the wiring the unit tests above cannot: the Director's start-up calls the settlement on its one shared
+        // record, inside a guard, before the channel that carries prompts is started.
+        var app = File.ReadAllText(Path.Combine(RepoRoot(), "src", "CcDirector.Avalonia", "App.axaml.cs"));
+        var start = app.IndexOf("private void InitializeServices(", StringComparison.Ordinal);
+        Assert.True(start >= 0, "InitializeServices not found in App.axaml.cs");
+        var settle = app.IndexOf("DeliveryRecord.Shared.SettleOrphanedDeliveries()", start, StringComparison.Ordinal);
+        var channel = app.IndexOf("StartControlApi(log);", start, StringComparison.Ordinal);
+
+        Assert.True(settle > start, "the Director's start-up does not settle the delivery record");
+        Assert.True(channel > settle, "the settlement runs after the command channel starts, or the channel start moved");
+        var guard = app.LastIndexOf("try", settle, StringComparison.Ordinal);
+        var caught = app.IndexOf("Delivery-record settlement FAILED", settle, StringComparison.Ordinal);
+        Assert.True(guard > start && caught > settle && caught < channel, "the settlement is not guarded at start-up");
+    }
+
+    private static string RepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, "cc-director.sln")))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find the repository root from " + AppContext.BaseDirectory);
+    }
+
+    [Fact]
     public void Settle_AnOwnerThatCannotBeRead_IsLeftAlone_NeverReadAsGone()
     {
         RecordAs(StoppedDirector).TryBeginDelivery(_session, "upload-1");
