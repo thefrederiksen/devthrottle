@@ -186,12 +186,6 @@ public sealed class VoiceListeningLedger
             FileLog.Write($"[VoiceListeningLedger] stop retired unanswered ({why}): tenant={tenant.ToLogString()} sid={sid} narration={stop.NarrationAtUtc:O} played={stop.Played}");
     }
 
-    private static void RequireValid(TenantId tenant)
-    {
-        if (!tenant.IsValid)
-            throw new ArgumentException("The listening ledger needs a valid tenant; an unresolved tenant is denied, never defaulted.", nameof(tenant));
-    }
-
     /// <summary>The session is no longer a voice session: its narration is about nothing anyone asked to hear.</summary>
     public void Forget(TenantId tenant, string sid)
     {
