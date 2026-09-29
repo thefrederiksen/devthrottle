@@ -141,6 +141,7 @@ public sealed class VoiceListeningLedger
             record.UnheardInARow = 0;
             record.SwitchedOffAtUtc = null;
             record.SwitchedOffReason = null;
+            record.SwitchOffConfirmed = false;
             record.Unsaved = true;
             try
             {
