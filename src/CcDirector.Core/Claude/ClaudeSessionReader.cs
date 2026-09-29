@@ -429,8 +429,9 @@ public static class ClaudeSessionReader
 
     /// <summary>
     /// Check if content is system-injected (not typed by the user) and should be excluded from matching.
+    /// Public so the Gateway's session namer skips the same harness text (issue #3488).
     /// </summary>
-    internal static bool IsSystemInjectedContent(string content)
+    public static bool IsSystemInjectedContent(string content)
     {
         // Command invocations: <command-message>..., <command-name>...
         if (content.StartsWith("<command-message>", StringComparison.Ordinal) ||

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
+using CcDirector.Core.Claude;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -157,8 +158,10 @@ public sealed class SessionNamingService
     /// The first thing the user typed or said in the session, or null when none is stored. A transcript also
     /// records machine text on the user's side - a <c>&lt;system-reminder&gt;</c> block, a slash command's
     /// <c>&lt;command-name&gt;</c> or its output, the "Caveat:" line before local command output, a loaded skill's
-    /// body - and none of it is what the person asked for, so tagged blocks are cut out and an entry left empty, or
-    /// that is only harness text, is passed over.
+    /// body, a task notification, the continuation summary after compaction - and none of it is what the person
+    /// asked for. The stored conversation does not keep the transcript's meta flag, so tagged blocks are cut out and
+    /// what is left is passed over when it is empty, the caveat, or what
+    /// <see cref="ClaudeSessionReader.IsSystemInjectedContent"/> already knows as injected.
     /// </summary>
     public static string? FirstUserPrompt(StoredConversation? conversation)
     {
@@ -167,15 +170,13 @@ public sealed class SessionNamingService
         {
             if (w is null || !string.Equals(w.Kind, StoredConversationWidgets.UserTextKind, StringComparison.Ordinal)) continue;
             var text = MachineBlock.Replace(w.Content ?? "", "").Trim();
-            if (text.Length == 0 || HarnessPrefixes.Any(p => text.StartsWith(p, StringComparison.Ordinal))) continue;
+            if (text.Length == 0
+                || text.StartsWith("Caveat:", StringComparison.Ordinal)
+                || ClaudeSessionReader.IsSystemInjectedContent(text)) continue;
             return text.Length <= MaxPromptChars ? text : text[..MaxPromptChars];
         }
         return null;
     }
-
-    // Whole entries the harness writes as the user: the caveat before local command output, and a loaded skill's
-    // body. The stored conversation does not keep the transcript's meta flag, so they are known by how they start.
-    private static readonly string[] HarnessPrefixes = { "Caveat:", "Base directory for this skill:" };
 
     // A tagged block the harness writes into the user's side of a transcript: <tag ...>...</tag>, across lines.
     private static readonly Regex MachineBlock = new(
