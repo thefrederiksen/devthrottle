@@ -305,7 +305,17 @@ public sealed class VoiceListeningLedger
             {
                 record.SwitchedOffAtUtc = null;
                 record.SwitchedOffReason = null;
-                Save(tenant, record);
+                record.Unsaved = true;
+                try
+                {
+                    Save(tenant, record);
+                }
+                catch (Exception saveEx) when (saveEx is IOException or UnauthorizedAccessException)
+                {
+                    // Nobody awaits this task, so this is where the failure is reported. The record stays unsaved and
+                    // the next change writes it again.
+                    FileLog.Write($"[VoiceListeningLedger] saving the withdrawn switch-off FAILED: tenant={tenant.ToLogString()}: {saveEx.GetType().Name}: {Redact(saveEx.Message, tenant)}");
+                }
             }
         }
     }
