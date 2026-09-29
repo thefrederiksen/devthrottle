@@ -524,11 +524,13 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     }
 
     [Fact]
-    public async Task ARecordingHeldAsDelivering_IsNeverShownBack_HoweverLongItHasBeen()
+    public async Task ARecordingHeldAsDelivering_IsNeverShownBackAsTooOld_WhileTheDirectorSaysSo()
     {
         // Proves the age rule applies only to words known not to be in, and that "could not confirm it arrived" is for a
         // Director that gives NO answer: a recording the Director keeps saying it is delivering is held at ten minutes
-        // and at an hour - never shown back as too old, never ruled unconfirmed. The Director's own watch ends it.
+        // and at an hour - never shown back as too old, never ruled unconfirmed by the Gateway. The Director ends it: its
+        // own late watch while it runs, or - when it stopped while typing - its next start-up, which settles the entry as
+        // unconfirmed (issue #3487; ARecordingADirectorStoppedWhileTyping_... below).
         var sid = Seat();
         var uploadId = await StagedClipAsync(sid);
         _prompt = _ => Refused(DeliveryState.Delivering);
@@ -548,6 +550,99 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
         Assert.True(_store.IsPending(uploadId));
         Assert.DoesNotContain(DeliveryDecisions.TooOld, Names(uploadId));
         Assert.DoesNotContain(DeliveryDecisions.Unconfirmed, Names(uploadId));
+        Assert.Single(_commands, c => c.Verb == "prompt");
+    }
+
+    [Fact]
+    public async Task ARecordingADirectorStoppedWhileTyping_IsHeldWhileItRuns_ThenUnconfirmedAfterItsRestart_WithNoSendAnyway()
+    {
+        // Arrange: the REAL Director record and delivery-state verb. The Director that took the prompt began typing it
+        // and then stopped before its late watch could write an end.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        var stoppedDirector = new DeliveryOwner(424242, T0.UtcDateTime.AddHours(-1));
+        var directorAlive = true;
+        var directory = Path.Combine(_root, "director-deliveries");
+        var before = new DeliveryRecord(directory, owner: stoppedDirector,
+            ownerLiveness: _ => throw new InvalidOperationException("the first Director does not settle"));
+        string? deliveryId = null;
+        _prompt = cmd =>
+        {
+            deliveryId = JsonSerializer.Deserialize<PromptRequest>(cmd.PayloadJson, Json)!.DeliveryId!;
+            before.TryBeginDelivery(Guid.Parse(sid), deliveryId);
+            return Answer(new PromptResponse { Accepted = true, DeliveryState = DeliveryState.Delivering });
+        };
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+        var after = new DeliveryRecord(directory, owner: new DeliveryOwner(515151, T0.UtcDateTime.AddMinutes(20)),
+            ownerLiveness: owner => owner == stoppedDirector && directorAlive ? DeliveryOwnerLiveness.Alive : DeliveryOwnerLiveness.Gone);
+        var asked = new List<DeliveryStateRequest>();
+        _deliveryState = cmd => RealDirector(cmd, after, askedByAnOldGateway: false, asked);
+
+        // Act 1: a start-up while the first Director still runs (a second Director on the same files) leaves it alone.
+        Assert.Equal(1, after.SettleOrphanedDeliveries().KeptLiveOwner);
+        _clock.Now = T0 + TimeSpan.FromMinutes(10);
+        var held = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        // Assert 1: held as delivering, never shown back.
+        Assert.Equal(202, held.Status);
+        Assert.Equal("delivering", held.Body.GetProperty("directorState").GetString());
+
+        // Act 2: the first Director has stopped; the next start-up settles its entry.
+        directorAlive = false;
+        Assert.Equal(1, after.SettleOrphanedDeliveries().Settled);
+        _clock.Now = T0 + TimeSpan.FromMinutes(30);
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        // Assert 2: could not confirm it, no "Send anyway", never typed a second time - and the Director's own reason
+        // is what it answered.
+        Assert.All(asked, q => Assert.True(q.ReadsUnconfirmed));
+        AssertShownBackUnconfirmed(uploadId, status, body);
+        Assert.Equal(DeliveryRecord.DirectorStoppedWhileTypingReason, after.Read(Guid.Parse(sid), deliveryId!).Reason);
+        Assert.Single(_commands, c => c.Verb == "prompt");
+    }
+
+    [Fact]
+    public async Task NewDirectorAndOldGateway_ARecordingADirectorStoppedWhileTyping_IsUnconfirmedPastTheLimit_NeverSendAnyway()
+    {
+        // Arrange: as above, but the question arrives the way a Gateway older than the "unconfirmed" word sends it. The
+        // restarted Director answers it a failure, which that Gateway reads as no answer.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        var directory = Path.Combine(_root, "director-deliveries");
+        var before = new DeliveryRecord(directory, owner: new DeliveryOwner(424242, T0.UtcDateTime.AddHours(-1)));
+        _prompt = cmd =>
+        {
+            before.TryBeginDelivery(Guid.Parse(sid), JsonSerializer.Deserialize<PromptRequest>(cmd.PayloadJson, Json)!.DeliveryId!);
+            return Answer(new PromptResponse { Accepted = true, DeliveryState = DeliveryState.Delivering });
+        };
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+        var after = new DeliveryRecord(directory, owner: new DeliveryOwner(515151, T0.UtcDateTime.AddMinutes(1)),
+            ownerLiveness: _ => DeliveryOwnerLiveness.Gone);
+        Assert.Equal(1, after.SettleOrphanedDeliveries().Settled);
+        var answers = new List<DirectorCommandResult>();
+        _deliveryState = cmd =>
+        {
+            var answer = RealDirector(cmd, after, askedByAnOldGateway: true, null);
+            answers.Add(answer);
+            return answer;
+        };
+
+        // Act 1: inside the five-minute limit - held.
+        _clock.Now = T0 + TimeSpan.FromMinutes(2);
+        var held = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        // Assert 1: the word never reached the older Gateway; it holds, never "not delivered".
+        Assert.False(answers.Last().Ok);
+        Assert.Contains(DeliveryRecord.DirectorStoppedWhileTypingReason, answers.Last().Error);
+        Assert.Equal(202, held.Status);
+        Assert.Equal("no-answer", held.Body.GetProperty("directorState").GetString());
+
+        // Act 2: past the limit.
+        _clock.Now = T0 + TimeSpan.FromSeconds(301);
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        // Assert 2: could not confirm it, no "Send anyway", one prompt in all.
+        AssertShownBackUnconfirmed(uploadId, status, body);
         Assert.Single(_commands, c => c.Verb == "prompt");
     }
 

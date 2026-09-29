@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -21,7 +22,63 @@ public sealed class DeliveryRecordEntry
 
     /// <summary>When the state was written, in UTC.</summary>
     public DateTime At { get; set; }
+
+    /// <summary>The process id of the Director that wrote this <c>delivering</c> line (issue #3487). Written on
+    /// <c>delivering</c> lines only; null on every other state, and on a <c>delivering</c> line written by a Director older
+    /// than the field.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? OwnerProcessId { get; set; }
+
+    /// <summary>When that process started, in UTC - so a later process that reuses the id is not taken for the writer.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? OwnerStartedAt { get; set; }
 }
+
+/// <summary>The Director process that began a delivery: its process id and when it started, in UTC. The pair names one
+/// process for the life of the machine; the id alone does not, because the operating system reuses it.</summary>
+public sealed record DeliveryOwner(int ProcessId, DateTime StartedAtUtc)
+{
+    /// <summary>How far apart two readings of one process's start time may be and still name the same process. The
+    /// operating system reports the start time to a fraction of a second, and on Linux derives it from the boot time; a
+    /// different process given the same id inside this window is not a real case.</summary>
+    public static readonly TimeSpan StartTimeTolerance = TimeSpan.FromSeconds(2);
+
+    private static readonly Lazy<DeliveryOwner> CurrentInstance = new(() =>
+    {
+        using var self = System.Diagnostics.Process.GetCurrentProcess();
+        return new DeliveryOwner(self.Id, self.StartTime.ToUniversalTime());
+    });
+
+    /// <summary>This process.</summary>
+    public static DeliveryOwner Current => CurrentInstance.Value;
+
+    /// <summary>True when <paramref name="startedAtUtc"/> is this owner's start time, within <see cref="StartTimeTolerance"/>.</summary>
+    public bool StartedAt(DateTime startedAtUtc) => (StartedAtUtc - startedAtUtc).Duration() <= StartTimeTolerance;
+}
+
+/// <summary>What asking the operating system about a delivery's owner established. THREE answers: a process that could not
+/// be read is neither alive nor gone, and only <see cref="Gone"/> lets a <c>delivering</c> entry be settled.</summary>
+public enum DeliveryOwnerLiveness
+{
+    /// <summary>That process is running: its send may still be typing, or its late watch still watching.</summary>
+    Alive,
+
+    /// <summary>The operating system says no such process is running: no such id, an exited one, or the id now belongs to
+    /// a process that started at another time.</summary>
+    Gone,
+
+    /// <summary>The question could not be answered. Never read as gone.</summary>
+    Unreadable,
+}
+
+/// <summary>What <see cref="DeliveryRecord.SettleOrphanedDeliveries"/> found and did, for the start-up log.</summary>
+/// <param name="Settled">Delivering entries whose owner is gone, now unconfirmed.</param>
+/// <param name="KeptLiveOwner">Delivering entries left alone because the process that began them is running.</param>
+/// <param name="KeptUnprovable">Delivering entries left alone because their owner could not be shown to be gone: a line with
+/// no owner (written by a Director older than the field), or an owner the operating system could not be asked about.</param>
+/// <param name="UnreadableFiles">Session files that could not be read, with why; their deliveries are refused as before.</param>
+public sealed record DeliverySettleReport(
+    int Settled, int KeptLiveOwner, int KeptUnprovable, IReadOnlyList<string> UnreadableFiles);
 
 /// <summary>What the record says about one delivery id for one session.</summary>
 public sealed record DeliveryLookup(DeliveryState State, string? Reason, DateTime? At);
@@ -72,10 +129,19 @@ public sealed class DeliveryRecordUnreadableException : Exception
 /// <c>Delivered</c> does, and the Gateway answers it with no "Send anyway". <c>Delivering</c> is written BEFORE the first
 /// character is typed, so a Director that dies while typing leaves <c>Delivering</c> on disk.
 ///
-/// A <c>Delivering</c> ENTRY FOUND AT START-UP STAYS <c>Delivering</c>. It is the honest answer: the words may be in,
-/// wholly or partly, and nothing on this side can tell. It never becomes <c>Unknown</c> (which would let a retry type
-/// it again) and never becomes <c>NotDelivered</c> (which would too). The recording is kept by the client and shown
-/// back to the owner, who can read the conversation and decide; the Director does not guess for him.
+/// A <c>Delivering</c> ENTRY WHOSE DIRECTOR STOPPED BECOMES <c>Unconfirmed</c> AT START-UP (issue #3487, the owner's
+/// ruling of 29 September 2026, replacing the earlier ruling that it stays <c>Delivering</c>). The late watch that would
+/// have settled it died with the process, so left alone it would be held forever. The words may be in, wholly or partly,
+/// and nothing on this side can tell - which is exactly what <c>Unconfirmed</c> says: the id never begins again, and the
+/// Gateway shows the owner his words with no "Send anyway". It still never becomes <c>Unknown</c> or <c>NotDelivered</c>,
+/// either of which would let a retry type it a second time. See <see cref="SettleOrphanedDeliveries"/>.
+///
+/// WHO OWNS A <c>Delivering</c> ENTRY: every <c>delivering</c> line carries the process that wrote it
+/// (<see cref="DeliveryOwner"/>: process id and start time). A send and its late watch run in that same process and write
+/// the final state while it runs, so while that process runs the entry is owned by a live send, and once it has gone
+/// nothing will ever settle the entry. That is why only an entry whose owner the operating system says is GONE is
+/// settled: one this process wrote, one another live Director on the same state files wrote, one whose owner cannot be
+/// read, and one written by a Director older than the stamp are all left as they are.
 ///
 /// ON DISK: one file per session, <c>&lt;sessionId&gt;.jsonl</c>, one JSON line per state change, the last line for an id
 /// wins. Every write rewrites the whole file to a temporary file, flushes it, and moves it over the old one, so a crash
@@ -112,13 +178,22 @@ public sealed class DeliveryRecord
 
     private readonly string _directory;
     private readonly Func<DateTime> _utcNow;
+    private readonly DeliveryOwner _owner;
+    private readonly Func<DeliveryOwner, DeliveryOwnerLiveness> _ownerLiveness;
     private readonly ConcurrentDictionary<Guid, object> _sessionLocks = new();
 
-    public DeliveryRecord(string directory, Func<DateTime>? utcNow = null)
+    /// <param name="owner">The process this record writes <c>delivering</c> lines as. Null in the Director - this process;
+    /// a made-up one in tests, to stand in for a Director that has since stopped.</param>
+    /// <param name="ownerLiveness">How another owner's liveness is asked. Null in the Director - the operating system
+    /// (<see cref="AskTheOperatingSystem"/>).</param>
+    public DeliveryRecord(string directory, Func<DateTime>? utcNow = null, DeliveryOwner? owner = null,
+        Func<DeliveryOwner, DeliveryOwnerLiveness>? ownerLiveness = null)
     {
         if (string.IsNullOrWhiteSpace(directory)) throw new ArgumentException("A directory is required.", nameof(directory));
         _directory = directory;
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        _owner = owner ?? DeliveryOwner.Current;
+        _ownerLiveness = ownerLiveness ?? AskTheOperatingSystem;
     }
 
     /// <summary>The file that holds <paramref name="sessionId"/>'s deliveries.</summary>
@@ -215,6 +290,139 @@ public sealed class DeliveryRecord
         => reason is not null
            && (string.Equals(reason, NoRecordsToWatchReason, StringComparison.Ordinal)
                || UnprovenEndingPrefixes.Any(p => reason.StartsWith(p, StringComparison.Ordinal)));
+
+    /// <summary>The reason written at start-up for a delivery the Director was typing when it stopped (issue #3487): the
+    /// entry was left <c>delivering</c> by a process that is gone, so nothing would ever settle it otherwise.</summary>
+    public const string DirectorStoppedWhileTypingReason =
+        "could not be confirmed: the Director stopped while it was being typed";
+
+    /// <summary>
+    /// THE START-UP SETTLEMENT (issue #3487). Every session file is read, and every id whose latest line is
+    /// <c>delivering</c> is settled by its owner:
+    /// - owned by this process: left alone - a send in this process began it and will write its end;
+    /// - owned by another process the operating system says is running: left alone - a second Director on the same state
+    ///   files, whose send or late watch is still live;
+    /// - owned by a process the operating system says is gone: written <c>Unconfirmed</c> with
+    ///   <see cref="DirectorStoppedWhileTypingReason"/>;
+    /// - no owner on the line (a Director older than the stamp), or an owner that cannot be read: left alone, and counted,
+    ///   because nothing shows the writer has gone.
+    /// Each session is settled under its own lock, so a send that begins in this process at the same moment is never
+    /// overwritten. A file that cannot be read is named in the report and left untouched; every other file is still settled.
+    /// </summary>
+    public DeliverySettleReport SettleOrphanedDeliveries()
+    {
+        FileLog.Write($"[DeliveryRecord] SettleOrphanedDeliveries: directory={_directory}, this process={_owner.ProcessId} started {_owner.StartedAtUtc:O}");
+        var settled = 0;
+        var keptLive = 0;
+        var keptUnprovable = 0;
+        var unreadable = new List<string>();
+        if (!Directory.Exists(_directory))
+        {
+            FileLog.Write("[DeliveryRecord] SettleOrphanedDeliveries: no delivery records yet; nothing to settle");
+            return new DeliverySettleReport(0, 0, 0, unreadable);
+        }
+
+        foreach (var path in Directory.GetFiles(_directory, "*.jsonl").OrderBy(p => p, StringComparer.Ordinal))
+        {
+            if (!Guid.TryParse(Path.GetFileNameWithoutExtension(path), out var sessionId))
+            {
+                FileLog.Write($"[DeliveryRecord] SettleOrphanedDeliveries: {path} is not named for a session; not read");
+                unreadable.Add($"{path}: not named for a session");
+                continue;
+            }
+            try
+            {
+                var counts = UnderSessionLock(sessionId, "the start-up settlement", () => SettleSession(sessionId));
+                settled += counts.Settled;
+                keptLive += counts.KeptLive;
+                keptUnprovable += counts.KeptUnprovable;
+            }
+            catch (DeliveryRecordUnreadableException ex)
+            {
+                unreadable.Add(ex.Message);
+            }
+        }
+
+        FileLog.Write($"[DeliveryRecord] SettleOrphanedDeliveries: settled={settled}, keptLiveOwner={keptLive}, " +
+                      $"keptUnprovable={keptUnprovable}, unreadableFiles={unreadable.Count}");
+        return new DeliverySettleReport(settled, keptLive, keptUnprovable, unreadable);
+    }
+
+    private (int Settled, int KeptLive, int KeptUnprovable) SettleSession(Guid sessionId)
+    {
+        var entries = ReadEntries(sessionId);
+        var delivering = entries
+            .GroupBy(e => e.Id, StringComparer.Ordinal)
+            .Select(g => g.Last())
+            .Where(e => DeliveryStates.TryParse(e.State, out var state) && state == DeliveryState.Delivering)
+            .ToList();
+        int settled = 0, keptLive = 0, keptUnprovable = 0;
+        foreach (var entry in delivering)
+        {
+            var writer = entry.OwnerProcessId is { } pid && entry.OwnerStartedAt is { } started
+                ? new DeliveryOwner(pid, started)
+                : null;
+            if (writer is null)
+            {
+                FileLog.Write($"[DeliveryRecord] SettleOrphanedDeliveries: KEPT session={sessionId}, deliveryId={entry.Id}: " +
+                              $"delivering since {entry.At:O} with no owner on the line (a Director older than the stamp), " +
+                              "so nothing shows its writer has gone");
+                keptUnprovable++;
+                continue;
+            }
+            var liveness = writer.ProcessId == _owner.ProcessId && _owner.StartedAt(writer.StartedAtUtc)
+                ? DeliveryOwnerLiveness.Alive
+                : _ownerLiveness(writer);
+            switch (liveness)
+            {
+                case DeliveryOwnerLiveness.Alive:
+                    FileLog.Write($"[DeliveryRecord] SettleOrphanedDeliveries: KEPT session={sessionId}, deliveryId={entry.Id}: " +
+                                  $"its owner, process {writer.ProcessId} started {writer.StartedAtUtc:O}, is running");
+                    keptLive++;
+                    break;
+                case DeliveryOwnerLiveness.Gone:
+                    entries = Append(sessionId, entries, entry.Id, DeliveryState.Unconfirmed, DirectorStoppedWhileTypingReason);
+                    FileLog.Write($"[DeliveryRecord] SettleOrphanedDeliveries: SETTLED session={sessionId}, deliveryId={entry.Id}: " +
+                                  $"delivering since {entry.At:O}; its owner, process {writer.ProcessId} started " +
+                                  $"{writer.StartedAtUtc:O}, is gone; now unconfirmed");
+                    settled++;
+                    break;
+                default:
+                    FileLog.Write($"[DeliveryRecord] SettleOrphanedDeliveries: KEPT session={sessionId}, deliveryId={entry.Id}: " +
+                                  $"its owner, process {writer.ProcessId}, could not be read, so it is not known to have gone");
+                    keptUnprovable++;
+                    break;
+            }
+        }
+        return (settled, keptLive, keptUnprovable);
+    }
+
+    /// <summary>The operating system's answer about <paramref name="owner"/>: <see cref="DeliveryOwnerLiveness.Gone"/> when
+    /// no process has its id, the process has exited, or the process with its id started at another time (the id was
+    /// reused); <see cref="DeliveryOwnerLiveness.Unreadable"/> when the question itself failed.</summary>
+    public static DeliveryOwnerLiveness AskTheOperatingSystem(DeliveryOwner owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        if (owner.ProcessId <= 0) return DeliveryOwnerLiveness.Gone;
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(owner.ProcessId);
+            if (process.HasExited) return DeliveryOwnerLiveness.Gone;
+            return owner.StartedAt(process.StartTime.ToUniversalTime()) ? DeliveryOwnerLiveness.Alive : DeliveryOwnerLiveness.Gone;
+        }
+        catch (ArgumentException)
+        {
+            return DeliveryOwnerLiveness.Gone;   // no such process: the operating system looked and said so
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            // Includes a process that exits between the lookup and the read - but that is not proven, so it is reported
+            // unreadable rather than guessed gone.
+            FileLog.Write($"[DeliveryRecord] AskTheOperatingSystem: could not read process {owner.ProcessId} " +
+                          $"({ex.GetType().Name}: {ex.Message}); unreadable, not gone");
+            return DeliveryOwnerLiveness.Unreadable;
+        }
+    }
 
     /// <summary>The reason written, at once, when the session ended while a send was still delivering (round 2c, case 3). A
     /// retry into an ended session cannot double anything.</summary>
@@ -354,13 +562,23 @@ public sealed class DeliveryRecord
         return entries;
     }
 
-    /// <summary>Adds one entry, drops entries older than <see cref="Retention"/>, and replaces the file in one move.</summary>
-    private void Append(Guid sessionId, List<DeliveryRecordEntry> entries, string deliveryId, DeliveryState state, string? reason)
+    /// <summary>Adds one entry, drops entries older than <see cref="Retention"/>, and replaces the file in one move. A
+    /// <c>delivering</c> entry carries this record's owner. Returns the entries now on disk.</summary>
+    private List<DeliveryRecordEntry> Append(Guid sessionId, List<DeliveryRecordEntry> entries, string deliveryId, DeliveryState state, string? reason)
     {
         var now = _utcNow();
         var cutoff = now - Retention;
         var kept = entries.Where(e => e.At >= cutoff).ToList();
-        kept.Add(new DeliveryRecordEntry { Id = deliveryId, State = DeliveryStates.Format(state), Reason = reason, At = now });
+        var delivering = state == DeliveryState.Delivering;
+        kept.Add(new DeliveryRecordEntry
+        {
+            Id = deliveryId,
+            State = DeliveryStates.Format(state),
+            Reason = reason,
+            At = now,
+            OwnerProcessId = delivering ? _owner.ProcessId : null,
+            OwnerStartedAt = delivering ? _owner.StartedAtUtc : null,
+        });
 
         Directory.CreateDirectory(_directory);
         var path = FileFor(sessionId);
@@ -378,5 +596,6 @@ public sealed class DeliveryRecord
         var dropped = entries.Count - (kept.Count - 1);
         FileLog.Write($"[DeliveryRecord] wrote session={sessionId}, deliveryId={deliveryId}, state={DeliveryStates.Format(state)}, entries={kept.Count}" +
                       (dropped > 0 ? $", dropped {dropped} older than {Retention.TotalDays:0} days" : ""));
+        return kept;
     }
 }
