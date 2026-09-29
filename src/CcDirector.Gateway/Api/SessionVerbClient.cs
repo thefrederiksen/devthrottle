@@ -1,4 +1,6 @@
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Streaming;
@@ -201,6 +203,16 @@ internal sealed class SessionVerbClient
         {
             var answer = DirectorCommandRouter.ReadBody<DeliveryStateResponse>(result)
                 ?? throw new InvalidOperationException($"The Director answered the {DeliveryStateRequest.Verb} verb with no body.");
+            if (answer.State == DeliveryState.NotDelivered && DeliveryRecord.IsAnUnprovenEnding(answer.Reason))
+            {
+                // A DIRECTOR OLDER THAN THE "unconfirmed" WORD (issue #3484) wrote a late watch that ended without proof
+                // either way as not-delivered, and it still lets that id begin again. Read as what it is - could not be
+                // confirmed - so this Gateway neither offers "Send anyway" nor sends it again itself. Its reason words are
+                // the proof; a newer Director writes "unconfirmed" and never reaches this.
+                FileLog.Write($"[SessionVerbClient] GetDeliveryStateAsync: sid={sid} delivery={deliveryId}: an older Director said " +
+                    $"not-delivered with an unproven ending ({answer.Reason}); read as {DeliveryStates.Unconfirmed}");
+                answer.State = DeliveryState.Unconfirmed;
+            }
             return new DeliveryStateAsk(DeliveryStateAskKind.Answered, answer, "");
         }
 

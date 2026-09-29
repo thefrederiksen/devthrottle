@@ -244,27 +244,60 @@ public sealed class TypedPromptDeliveryTests : IDisposable
         Assert.False(body.Json.GetProperty("offerSendAnyway").GetBoolean());
     }
 
-    [Fact]
-    public async Task Drive_OldDirector_ReadsTheNewQuestion_AndItsNotDeliveredIsStillShownBackWithSendAnyway()
+    [Theory]
+    [InlineData("could not be confirmed: the Director had no records to watch for this agent")]
+    [InlineData("could not be confirmed: the records watch failed: the records file is locked")]
+    [InlineData("never appeared in the agent's records within 15 minutes")]
+    public async Task Drive_OldDirector_NotDeliveredWithAnUnprovenEnding_IsRuledUnconfirmed_WithNoSendAnyway(string oldReason)
     {
         // Arrange: a Director older than the word. It reads the question with its own request shape, which has no
-        // ReadsUnconfirmed field - the new field must not break that read - and it still writes a could-not-confirm ending
-        // as "not-delivered", as every Director did before issue #3484.
+        // ReadsUnconfirmed field - the new field must not break that read - and it still writes a late watch that ended
+        // without proof either way as "not-delivered", with these exact words, and would let the id begin again.
         var (store, id, _) = HeldPrompt("delivering");
         string? oldDirectorRead = null;
         lock (_answers) _answers.Enqueue(cmd =>
         {
             var question = JsonSerializer.Deserialize<OldDeliveryStateRequest>(cmd.PayloadJson, Json)!;
             oldDirectorRead = question.DeliveryId;
-            return StateAnswer(cmd, DeliveryState.NotDelivered);
+            var result = DirectorCommandResult.Success(JsonSerializer.Serialize(
+                new DeliveryStateResponse { DeliveryId = question.DeliveryId, State = DeliveryState.NotDelivered, Reason = oldReason }, Json));
+            result.CommandId = cmd.CommandId;
+            return result;
         });
 
         // Act
         var result = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
 
-        // Assert: the old Director read the question, and the Gateway behaves exactly as it did before - shown back with
-        // "Send anyway". That order cannot be better than today until the Director updates; it is not worse.
+        // Assert: the old Director read the question, and its unproven not-delivered is ruled could-not-confirm - no
+        // "Send anyway", so the old Director is never asked to type it a second time. Nothing sent.
         Assert.Equal(id, oldDirectorRead);
+        Assert.Equal(TypedDriveResult.Finished, result);
+        var held = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.Unconfirmed, held.State);
+        Assert.Equal(0, _prompts);
+        var body = await ExecuteAsync(TypedPromptDelivery.OutcomeResult(held));
+        Assert.False(body.Json.GetProperty("offerSendAnyway").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Drive_OldDirector_ProvablyNotDelivered_IsStillShownBackWithSendAnyway()
+    {
+        // Proves the older Director's provable endings are untouched: its session-ended not-delivered keeps "Send anyway".
+        var (store, id, _) = HeldPrompt("delivering");
+        lock (_answers) _answers.Enqueue(cmd =>
+        {
+            var question = JsonSerializer.Deserialize<OldDeliveryStateRequest>(cmd.PayloadJson, Json)!;
+            var result = DirectorCommandResult.Success(JsonSerializer.Serialize(new DeliveryStateResponse
+            {
+                DeliveryId = question.DeliveryId, State = DeliveryState.NotDelivered,
+                Reason = "the session ended before the words appeared in its records",
+            }, Json));
+            result.CommandId = cmd.CommandId;
+            return result;
+        });
+
+        var result = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
+
         Assert.Equal(TypedDriveResult.Finished, result);
         var held = store.Read(id).Record!;
         Assert.Equal(TypedPromptState.NotDelivered, held.State);

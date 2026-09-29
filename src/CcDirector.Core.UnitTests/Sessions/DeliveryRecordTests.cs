@@ -93,6 +93,22 @@ public sealed class DeliveryRecordTests : IDisposable
     }
 
     [Fact]
+    public void IsAnUnprovenEnding_EveryUnprovenReasonTheWatchWrites_AndNoProvableOne()
+    {
+        // Proves the words a Gateway reads an older Director's unproven not-delivered by are the words the watch writes -
+        // and that no provable ending (the session ended, a refusal for age, a send that threw) is mistaken for one.
+        Assert.True(DeliveryRecord.IsAnUnprovenEnding(DeliveryRecord.NoRecordsToWatchReason));
+        Assert.True(DeliveryRecord.IsAnUnprovenEnding(DeliveryRecord.RecordsWatchFailedReason("the file is locked")));
+        Assert.True(DeliveryRecord.IsAnUnprovenEnding(DeliveryRecord.NeverInAgentRecordsReason(TimeSpan.FromMinutes(15))));
+        Assert.True(DeliveryRecord.IsAnUnprovenEnding(DeliveryRecord.NeverInAgentRecordsReason(TimeSpan.FromSeconds(2))));
+        Assert.False(DeliveryRecord.IsAnUnprovenEnding(DeliveryRecord.SessionEndedReason));
+        Assert.False(DeliveryRecord.IsAnUnprovenEnding("too-old: the prompt was 5m 01s old from Send"));
+        Assert.False(DeliveryRecord.IsAnUnprovenEnding("the composer never echoed the text"));
+        Assert.False(DeliveryRecord.IsAnUnprovenEnding("the send failed: could not be confirmed: quoted"));
+        Assert.False(DeliveryRecord.IsAnUnprovenEnding(null));
+    }
+
+    [Fact]
     public void Record_SurvivesARestart_IncludingADeliveringLeftByACrash()
     {
         // Proves a fresh record over the same directory - a restarted Director - reads back every state, and that an

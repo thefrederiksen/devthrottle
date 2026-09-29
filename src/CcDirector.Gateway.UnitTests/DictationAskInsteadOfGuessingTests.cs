@@ -423,6 +423,25 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
         Assert.Single(_commands, c => c.Verb == "prompt");
     }
 
+    [Fact]
+    public async Task OldDirectorAndNewGateway_ARetryTheDirectorCallsNotDeliveredWithAnUnprovenEnding_IsUnconfirmed_NeverSentAgain()
+    {
+        // Proves the other order of an upgrade: a Director older than the word writes a late watch that ended without
+        // proof as "not-delivered" with its fixed words, and would type a second copy. The new Gateway reads those words
+        // as could-not-confirm - it neither sends the recording again itself nor offers "Send anyway".
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _prompt = _ => Answer(new PromptResponse { Accepted = true, DeliveryState = DeliveryState.Delivering });
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+
+        _clock.Now = T0 + TimeSpan.FromMinutes(1);
+        _deliveryState = _ => StateIs(DeliveryState.NotDelivered, "never appeared in the agent's records within 15 minutes");
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        AssertShownBackUnconfirmed(uploadId, status, body);
+        Assert.Single(_commands, c => c.Verb == "prompt");
+    }
+
     private void AssertShownBackUnconfirmed(string uploadId, int status, JsonElement body)
     {
         Assert.Equal(200, status);

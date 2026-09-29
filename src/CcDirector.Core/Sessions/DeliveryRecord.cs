@@ -190,6 +190,25 @@ public sealed class DeliveryRecord
         return $"could not be confirmed: the records watch failed: {failure}";
     }
 
+    /// <summary>
+    /// The start of every reason a late watch writes when it ended WITHOUT PROOF EITHER WAY: "could not be confirmed: ..."
+    /// (<see cref="NoRecordsToWatchReason"/>, <see cref="RecordsWatchFailedReason"/>) and "never appeared in the agent's
+    /// records within ..." (<see cref="NeverInAgentRecordsReason"/>). A Director released before issue #3484 wrote these
+    /// endings as not-delivered with exactly these words, so they are what tells a Gateway that such a not-delivered
+    /// proves nothing (<see cref="IsAnUnprovenEnding"/>).
+    /// </summary>
+    public static readonly IReadOnlyList<string> UnprovenEndingPrefixes = new[]
+    {
+        "could not be confirmed: ",
+        "never appeared in the agent's records within ",
+    };
+
+    /// <summary>True when <paramref name="reason"/> is one a late watch writes when it ended without proof either way -
+    /// matched at the start of the reason, never as a contains-match, which would catch any reason that happens to quote
+    /// the words.</summary>
+    public static bool IsAnUnprovenEnding(string? reason)
+        => reason is not null && UnprovenEndingPrefixes.Any(p => reason.StartsWith(p, StringComparison.Ordinal));
+
     /// <summary>The reason written, at once, when the session ended while a send was still delivering (round 2c, case 3). A
     /// retry into an ended session cannot double anything.</summary>
     public const string SessionEndedReason = "the session ended before the words appeared in its records";
