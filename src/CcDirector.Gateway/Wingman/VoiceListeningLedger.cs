@@ -127,6 +127,35 @@ public sealed class VoiceListeningLedger
     public void UseSwitchOff(Func<TenantId, Task> switchOff) =>
         _switchOff = switchOff ?? throw new ArgumentNullException(nameof(switchOff));
 
+    /// <summary>
+    /// The owner switched voice mode back on (step 5): the count starts again from zero and the switch-off is no longer
+    /// news, so the quiet line goes with it.
+    /// </summary>
+    public void ClearForVoiceOn(TenantId tenant)
+    {
+        var record = RecordFor(tenant);
+        lock (record)
+        {
+            if (record.UnheardInARow == 0 && record.SwitchedOffAtUtc is null && !record.Unsaved) return;
+            FileLog.Write($"[VoiceListeningLedger] voice mode switched on: count {record.UnheardInARow} and switch-off {record.SwitchedOffAtUtc:O} cleared for tenant={tenant.ToLogString()}");
+            record.UnheardInARow = 0;
+            record.SwitchedOffAtUtc = null;
+            record.SwitchedOffReason = null;
+            record.SwitchOffConfirmed = false;
+            record.Unsaved = true;
+            try
+            {
+                Save(tenant, record);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Switching voice on must not fail because this record could not be written: the owner's switch is the
+                // thing he asked for. Reported here; the record stays unsaved and the next change writes it again.
+                FileLog.Write($"[VoiceListeningLedger] saving the cleared record FAILED: tenant={tenant.ToLogString()}: {ex.GetType().Name}: {Redact(ex.Message, tenant)}");
+            }
+        }
+    }
+
     /// <summary>When and why voice mode last switched itself off, or null when it has not.</summary>
     public SwitchOff? SwitchedOff(TenantId tenant)
     {

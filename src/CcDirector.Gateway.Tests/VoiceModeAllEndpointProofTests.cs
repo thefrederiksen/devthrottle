@@ -371,5 +371,19 @@ public sealed class VoiceModeAllEndpointProofTests : IAsyncLifetime
         Assert.False(voice.IsVoiceSession(tenant, sid1));
         Assert.False(voice.IsVoiceSession(tenant, sid2));
         Assert.Equal(Wingman.VoiceListeningLedger.UnheardSwitchOffReason, voice.Listening.SwitchedOff(tenant)?.Reason);
+
+        // Step 5: the quiet line rides on the switch's own read, finished by the Gateway...
+        var note = state?["note"]?.GetValue<string>();
+        Assert.NotNull(note);
+        Assert.StartsWith("Voice mode switched off at ", note);
+        Assert.EndsWith(" - you answered five sessions without listening", note);
+
+        // ...and switching voice mode back on clears the count and the line.
+        (await _http.PostAsJsonAsync("sessions/voice-mode/all", new { enabled = true })).EnsureSuccessStatusCode();
+        var on = await _http.GetFromJsonAsync<JsonNode>("sessions/voice-mode/all");
+        Assert.True(on?["enabled"]?.GetValue<bool>());
+        Assert.Null(on?["note"]);
+        Assert.Equal(0, voice.Listening.UnheardInARow(tenant));
+        Assert.Null(voice.Listening.SwitchedOff(tenant));
     }
 }

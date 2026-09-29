@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { setVoiceModeAllSessions, type SessionDto } from "@devthrottle/client-core/api/client";
+import { type SessionDto } from "@devthrottle/client-core/api/client";
+import { VoiceAutoOffNote } from "@devthrottle/client-core/voice/VoiceAutoOffNote";
+import { writeVoiceModeAll } from "@devthrottle/client-core/voice/useVoiceModeAll";
 import {
   classify,
   contextLine,
@@ -281,7 +283,9 @@ function VoiceAllButton({ sessions }: { sessions: SessionDto[] }) {
     setError(null);
     setNote(null);
     try {
-      const result = await setVoiceModeAllSessions(enable);
+      // Through the shared switch, so the quiet line beside this button goes at once and a poll already in flight
+      // cannot bring it back.
+      const result = await writeVoiceModeAll(enable);
       const changedLabel = `${result.changed} ${result.changed === 1 ? "session" : "sessions"} ${enable ? "on" : "off"}`;
       setNote(result.skipped > 0 ? `${changedLabel}, ${result.skipped} skipped (computer offline)` : changedLabel);
     } catch (err) {
@@ -306,6 +310,7 @@ function VoiceAllButton({ sessions }: { sessions: SessionDto[] }) {
         {busy ? busyLabel : label}
       </button>
       {note && <span className="roster-voice-all-note" role="status">{note}</span>}
+      <VoiceAutoOffNote className="roster-voice-all-note" />
       {error && <span className="roster-voice-all-error" role="alert">{error}</span>}
     </div>
   );

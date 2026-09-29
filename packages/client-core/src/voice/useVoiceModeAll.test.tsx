@@ -8,15 +8,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { getAutoSpeak, setAutoSpeak } from "./queueTouch";
-import { __resetVoiceModeAllForTests, useVoiceModeAll } from "./useVoiceModeAll";
+import { __resetVoiceModeAllForTests, useVoiceModeAll, writeVoiceModeAll } from "./useVoiceModeAll";
+import { VoiceAutoOffNote } from "./VoiceAutoOffNote";
 
 vi.mock("../api/client", () => ({
-  getVoiceModeAllSessions: vi.fn(),
+  getVoiceModeAllState: vi.fn(),
   setVoiceModeAllSessions: vi.fn(),
 }));
 
 const api = await import("../api/client");
-const getMock = api.getVoiceModeAllSessions as unknown as ReturnType<typeof vi.fn>;
+const getMock = api.getVoiceModeAllState as unknown as ReturnType<typeof vi.fn>;
+const state = (enabled: boolean, note: string | null = null) => ({ enabled, note });
 const setMock = api.setVoiceModeAllSessions as unknown as ReturnType<typeof vi.fn>;
 
 function Probe({ onReady }: { onReady: (v: ReturnType<typeof useVoiceModeAll>) => void }) {
@@ -48,21 +50,21 @@ afterEach(() => {
 
 describe("useVoiceModeAll", () => {
   it("renders the Gateway's answer, and starts unknown rather than guessing", async () => {
-    let resolve: (v: boolean) => void = () => {};
-    getMock.mockReturnValue(new Promise<boolean>((r) => { resolve = r; }));
+    let resolve: (v: ReturnType<typeof state>) => void = () => {};
+    getMock.mockReturnValue(new Promise<ReturnType<typeof state>>((r) => { resolve = r; }));
 
     render(<Probe onReady={() => {}} />);
     // Before the first read lands the state is UNKNOWN. A banner that guessed "off" here would flash on
     // and off on every app open, which teaches you to ignore it.
     expect(screen.getByTestId("state").textContent).toBe("unknown");
 
-    await act(async () => { resolve(true); });
+    await act(async () => { resolve(state(true)); });
     expect(screen.getByTestId("state").textContent).toBe("on");
   });
 
   it("turning voice mode OFF also switches auto-speak off on this phone", async () => {
     setAutoSpeak(true);
-    getMock.mockResolvedValue(true);
+    getMock.mockResolvedValue(state(true));
     setMock.mockResolvedValue({ enabled: false, total: 0, changed: 0, skipped: 0, sessions: [] });
 
     let hook!: ReturnType<typeof useVoiceModeAll>;
@@ -79,7 +81,7 @@ describe("useVoiceModeAll", () => {
 
   it("turning voice mode ON leaves auto-speak alone - they are two different things", async () => {
     setAutoSpeak(false);
-    getMock.mockResolvedValue(false);
+    getMock.mockResolvedValue(state(false));
     setMock.mockResolvedValue({ enabled: true, total: 0, changed: 0, skipped: 0, sessions: [] });
 
     let hook!: ReturnType<typeof useVoiceModeAll>;
@@ -103,10 +105,10 @@ describe("useVoiceModeAll", () => {
     // flag alone does not catch, because by then the write is no longer in flight.
     vi.useFakeTimers();
     try {
-      let landStalePoll: (v: boolean) => void = () => {};
+      let landStalePoll: (v: ReturnType<typeof state>) => void = () => {};
       getMock
-        .mockReturnValueOnce(Promise.resolve(true))
-        .mockReturnValueOnce(new Promise<boolean>((r) => { landStalePoll = r; }));
+        .mockReturnValueOnce(Promise.resolve(state(true)))
+        .mockReturnValueOnce(new Promise<ReturnType<typeof state>>((r) => { landStalePoll = r; }));
       setMock.mockResolvedValue({ enabled: false, total: 0, changed: 0, skipped: 0, sessions: [] });
 
       let hook!: ReturnType<typeof useVoiceModeAll>;
@@ -122,7 +124,7 @@ describe("useVoiceModeAll", () => {
       expect(screen.getByTestId("state").textContent).toBe("off");
 
       // NOW the old read lands, carrying the pre-write answer.
-      await act(async () => { landStalePoll(true); });
+      await act(async () => { landStalePoll(state(true)); });
 
       expect(screen.getByTestId("state").textContent).toBe("off");
     } finally {
@@ -135,7 +137,7 @@ describe("useVoiceModeAll", () => {
     // If each held its own copy with its own poll they would disagree for up to fifteen seconds: you tap
     // "Turn off" on the banner and the roster goes on saying voice mode is on. Two copies of one truth is
     // the same mistake as deriving the answer from the roster, just later in the stack.
-    getMock.mockResolvedValue(true);
+    getMock.mockResolvedValue(state(true));
     setMock.mockResolvedValue({ enabled: false, total: 0, changed: 0, skipped: 0, sessions: [] });
 
     let banner!: ReturnType<typeof useVoiceModeAll>;
@@ -157,7 +159,7 @@ describe("useVoiceModeAll", () => {
   });
 
   it("a failed write says so and does not claim the state changed", async () => {
-    getMock.mockResolvedValue(true);
+    getMock.mockResolvedValue(state(true));
     setMock.mockRejectedValue(new Error("gateway unreachable"));
 
     let hook!: ReturnType<typeof useVoiceModeAll>;
@@ -171,5 +173,67 @@ describe("useVoiceModeAll", () => {
     expect(ok).toBe(false);
     expect(hook.error).not.toBeNull();
     expect(screen.getByTestId("state").textContent).toBe("on");
+  });
+
+  // Voice mode auto-off (owner ruling 2026-09-28): the Gateway writes the quiet line; the client renders it verbatim.
+  it("renders the Gateway's quiet line word for word beside the switch, and nothing when there is none", async () => {
+    const line = "Voice mode switched off at 14:32 - you answered five sessions without listening";
+    getMock.mockResolvedValue(state(false, line));
+
+    render(<VoiceAutoOffNote className="note" />);
+    await act(async () => {});
+
+    expect(screen.getByRole("status").textContent).toBe(line);
+  });
+
+  it("renders nothing when the Gateway has no line", async () => {
+    getMock.mockResolvedValue(state(false, null));
+
+    render(<VoiceAutoOffNote className="note" />);
+    await act(async () => {});
+
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("switching voice mode yourself retires the line at once", async () => {
+    getMock.mockResolvedValue(state(false, "Voice mode switched off at 14:32 - you answered five sessions without listening"));
+    setMock.mockResolvedValue({ enabled: true, total: 1, changed: 1, skipped: 0, sessions: [] });
+
+    let hook!: ReturnType<typeof useVoiceModeAll>;
+    render(<Probe onReady={(v) => { hook = v; }} />);
+    await act(async () => {});
+    expect(hook.note).not.toBeNull();
+
+    await act(async () => { await hook.set(true); });
+
+    expect(hook.note).toBeNull();
+  });
+
+  it("a write made OUTSIDE the hook - the Cockpit's roster button - also stops a stale poll bringing the line back", async () => {
+    // The Cockpit throws the switch through writeVoiceModeAll, not the hook's set, because it reports what changed.
+    // A poll already in the air when voice goes back on must not land afterwards and repaint the old line.
+    vi.useFakeTimers();
+    try {
+      const line = "Voice mode switched off at 14:32 - you answered five sessions without listening";
+      let landStalePoll: (v: ReturnType<typeof state>) => void = () => {};
+      getMock
+        .mockReturnValueOnce(Promise.resolve(state(false, line)))
+        .mockReturnValueOnce(new Promise<ReturnType<typeof state>>((r) => { landStalePoll = r; }));
+      setMock.mockResolvedValue({ enabled: true, total: 1, changed: 1, skipped: 0, sessions: [] });
+
+      render(<VoiceAutoOffNote className="note" />);
+      await act(async () => {});
+      expect(screen.getByRole("status").textContent).toBe(line);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); });   // the poll goes out, unanswered
+      await act(async () => { await writeVoiceModeAll(true); });                // voice back on, from the Cockpit
+      expect(screen.queryByRole("status")).toBeNull();
+
+      await act(async () => { landStalePoll(state(false, line)); });           // the old answer lands late
+
+      expect(screen.queryByRole("status")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
