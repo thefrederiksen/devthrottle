@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { setVoiceModeAllSessions, type SessionDto } from "@devthrottle/client-core/api/client";
+import { type SessionDto } from "@devthrottle/client-core/api/client";
 import { getAutoSpeak, queueTouchMs, setAutoSpeak } from "@devthrottle/client-core/voice/queueTouch";
-import { useVoiceModeAll } from "@devthrottle/client-core/voice/useVoiceModeAll";
+import { useVoiceModeAll, writeVoiceModeAll } from "@devthrottle/client-core/voice/useVoiceModeAll";
 import { VoiceAutoOffNote } from "@devthrottle/client-core/voice/VoiceAutoOffNote";
 import { getSessionsEnvelope } from "@devthrottle/client-core/fleet/fleetClient";
 import { emptyRetentionCache, mergeRosterRetention, type RosterSessionMark } from "@devthrottle/client-core/fleet/rosterRetention";
@@ -650,6 +650,7 @@ export function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
   const voice = useVoiceModeAll();
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [writing, setWriting] = useState(false);
 
   // The action is always the opposite of the state the Gateway reports. Before the first read lands the
   // state is unknown, and the button says so rather than guessing a direction and acting on the guess.
@@ -662,9 +663,12 @@ export function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
   const onClick = async () => {
     setError(null);
     setNote(null);
+    setWriting(true);
     try {
-      const result = await setVoiceModeAllSessions(enable);
-      await voice.set(enable);
+      // ONE write, through the shared switch: it moves the shared state and the quiet line together, turns auto-speak
+      // off with voice mode, and hands back the per-session result this button reports. It used to post twice - once
+      // here and again through the hook - so a second post failing after the first had landed left the screen wrong.
+      const result = await writeVoiceModeAll(enable);
       const changedLabel = `${result.changed} ${result.changed === 1 ? "session" : "sessions"} ${enable ? "on" : "off"}`;
       // Fail loud, the mobile rule: name what was passed over. A skipped session is not lost - the
       // Gateway's sweep picks it up when its computer comes back, because voice mode is a standing intent.
@@ -675,6 +679,8 @@ export function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not change voice mode for all sessions");
+    } finally {
+      setWriting(false);
     }
   };
 
@@ -693,9 +699,9 @@ export function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
         type="button"
         className={`voice-all-btn${enable ? "" : " voice-all-btn-off"}`}
         onClick={() => void onClick()}
-        disabled={voice.busy || voice.enabled === null}
+        disabled={writing || voice.busy || voice.enabled === null}
       >
-        {voice.enabled === null ? "Checking voice mode..." : voice.busy ? busyLabel : label}
+        {voice.enabled === null ? "Checking voice mode..." : writing || voice.busy ? busyLabel : label}
       </button>
       {note && <p className="voice-all-note" role="status">{note}</p>}
       <VoiceAutoOffNote className="voice-all-note" />
