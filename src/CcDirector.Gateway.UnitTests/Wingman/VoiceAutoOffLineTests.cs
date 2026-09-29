@@ -67,4 +67,42 @@ public sealed class VoiceAutoOffLineTests
         Assert.Null(ledger.SwitchedOff(tenant));
         Assert.Equal(0, ledger.UnheardInARow(tenant));
     }
+
+    /// <summary>
+    /// Switching voice on must not fail because the cleared record could not be written, and the next voice-on writes
+    /// it - otherwise a restart would bring back the old count and the old line.
+    /// </summary>
+    [Fact]
+    public async Task ClearForVoiceOn_WhenTheSaveFails_DoesNotThrowAndTheNextVoiceOnWritesIt()
+    {
+        var tenant = new TenantId("aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa");
+        var dir = Path.Combine(Path.GetTempPath(), "cc-voice-line-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var ledger = new VoiceListeningLedger(_ => dir, () => OffAtUtc);
+            ledger.UseSwitchOff(_ => Task.CompletedTask);
+            for (var i = 0; i < VoiceListeningLedger.UnheardLimit; i++)
+            {
+                var sid = Guid.NewGuid().ToString();
+                ledger.NoteNarrationReady(tenant, sid, OffAtUtc);
+                ledger.NoteOwnerAnswered(tenant, sid);
+            }
+            await ledger.SwitchOffInFlight;
+            var path = Path.Combine(dir, "voice-listening.json");
+
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+                ledger.ClearForVoiceOn(tenant);
+            Assert.NotNull(new VoiceListeningLedger(_ => dir, () => OffAtUtc).SwitchedOff(tenant));   // still the old record on disk
+
+            ledger.ClearForVoiceOn(tenant);
+
+            var restarted = new VoiceListeningLedger(_ => dir, () => OffAtUtc);
+            Assert.Null(restarted.SwitchedOff(tenant));
+            Assert.Equal(0, restarted.UnheardInARow(tenant));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* best-effort cleanup */ }
+        }
+    }
 }
