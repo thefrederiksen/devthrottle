@@ -175,7 +175,7 @@ public sealed class DeliveryRecord
         var within = watch.TotalMinutes >= 1 && watch.TotalMinutes == Math.Floor(watch.TotalMinutes)
             ? $"{watch.TotalMinutes:F0} minute{(watch.TotalMinutes == 1 ? "" : "s")}"
             : $"{watch.TotalSeconds:0.#} second{(watch.TotalSeconds == 1 ? "" : "s")}";
-        return $"never appeared in the agent's records within {within}";
+        return $"{NeverInAgentRecordsPrefix}{within}";
     }
 
     /// <summary>The reason written when a still-delivering send had no records to watch - the agent keeps none the Director
@@ -187,27 +187,34 @@ public sealed class DeliveryRecord
     public static string RecordsWatchFailedReason(string failure)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(failure);
-        return $"could not be confirmed: the records watch failed: {failure}";
+        return $"{RecordsWatchFailedPrefix}{failure}";
     }
 
     /// <summary>
-    /// The start of every reason a late watch writes when it ended WITHOUT PROOF EITHER WAY: "could not be confirmed: ..."
-    /// (<see cref="NoRecordsToWatchReason"/>, <see cref="RecordsWatchFailedReason"/>) and "never appeared in the agent's
-    /// records within ..." (<see cref="NeverInAgentRecordsReason"/>). A Director released before issue #3484 wrote these
-    /// endings as not-delivered with exactly these words, so they are what tells a Gateway that such a not-delivered
-    /// proves nothing (<see cref="IsAnUnprovenEnding"/>).
+    /// The start of the two built reasons a late watch writes when it ended WITHOUT PROOF EITHER WAY:
+    /// <see cref="RecordsWatchFailedReason"/> and <see cref="NeverInAgentRecordsReason"/>. The third,
+    /// <see cref="NoRecordsToWatchReason"/>, is matched whole. A Director released before issue #3484 wrote these endings as
+    /// not-delivered with exactly these words, so they are what tells a Gateway that such a not-delivered proves nothing
+    /// (<see cref="IsAnUnprovenEnding"/>). Each prefix is specific to the watch on purpose: a send that throws stores its
+    /// exception message verbatim as the reason, and a shorter prefix such as "could not be confirmed: " could match an
+    /// exception's own words and take "Send anyway" away from a send that provably never arrived (review of pull request 3486).
     /// </summary>
     public static readonly IReadOnlyList<string> UnprovenEndingPrefixes = new[]
     {
-        "could not be confirmed: ",
-        "never appeared in the agent's records within ",
+        RecordsWatchFailedPrefix,
+        NeverInAgentRecordsPrefix,
     };
 
-    /// <summary>True when <paramref name="reason"/> is one a late watch writes when it ended without proof either way -
-    /// matched at the start of the reason, never as a contains-match, which would catch any reason that happens to quote
-    /// the words.</summary>
+    private const string RecordsWatchFailedPrefix = "could not be confirmed: the records watch failed: ";
+    private const string NeverInAgentRecordsPrefix = "never appeared in the agent's records within ";
+
+    /// <summary>True when <paramref name="reason"/> is one a late watch writes when it ended without proof either way:
+    /// <see cref="NoRecordsToWatchReason"/> exactly, or one of <see cref="UnprovenEndingPrefixes"/> at the start - never
+    /// a contains-match, which would catch any reason that happens to quote the words.</summary>
     public static bool IsAnUnprovenEnding(string? reason)
-        => reason is not null && UnprovenEndingPrefixes.Any(p => reason.StartsWith(p, StringComparison.Ordinal));
+        => reason is not null
+           && (string.Equals(reason, NoRecordsToWatchReason, StringComparison.Ordinal)
+               || UnprovenEndingPrefixes.Any(p => reason.StartsWith(p, StringComparison.Ordinal)));
 
     /// <summary>The reason written, at once, when the session ended while a send was still delivering (round 2c, case 3). A
     /// retry into an ended session cannot double anything.</summary>

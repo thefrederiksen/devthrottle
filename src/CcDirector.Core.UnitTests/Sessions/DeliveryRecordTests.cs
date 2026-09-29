@@ -105,6 +105,10 @@ public sealed class DeliveryRecordTests : IDisposable
         Assert.False(DeliveryRecord.IsAnUnprovenEnding("too-old: the prompt was 5m 01s old from Send"));
         Assert.False(DeliveryRecord.IsAnUnprovenEnding("the composer never echoed the text"));
         Assert.False(DeliveryRecord.IsAnUnprovenEnding("the send failed: could not be confirmed: quoted"));
+        // A send that throws stores its exception message verbatim as the reason - one that happens to open with the
+        // watch's words is still a provable failure and keeps "Send anyway" (review of pull request 3486, round 2).
+        Assert.False(DeliveryRecord.IsAnUnprovenEnding("could not be confirmed: terminal transport failed"));
+        Assert.False(DeliveryRecord.IsAnUnprovenEnding(DeliveryRecord.NoRecordsToWatchReason + " and more"));
         Assert.False(DeliveryRecord.IsAnUnprovenEnding(null));
     }
 
