@@ -202,13 +202,12 @@ public sealed class SessionNamingService
         => string.Equals(facts.Agent, "ClaudeCode", StringComparison.Ordinal);
 
     /// <summary>
-    /// True unless the session was started by a schedule or by another agent session: their first prompt is a seed
-    /// the automation wrote, not something a person asked for. A session from before the origin was recorded (null or
-    /// "unknown") counts as a person's, which is what it almost always is.
+    /// True only for a session a person started (origin "human" - the Director stamps it on every session opened from
+    /// the desktop, the Cockpit or the phone). A schedule's or another agent's session carries a seed the automation
+    /// wrote, and an unknown origin cannot show that its first prompt came from a person, so neither is named.
     /// </summary>
     public static bool IsStartedByAPerson(SessionDto facts)
-        => !string.Equals(facts.OriginKind, "schedule", StringComparison.Ordinal)
-           && !string.Equals(facts.OriginKind, "agent", StringComparison.Ordinal);
+        => string.Equals(facts.OriginKind, "human", StringComparison.Ordinal);
 
     /// <summary>True when the session has no name a person or the session itself gave it.</summary>
     public static bool IsUnnamed(SessionDto facts)
