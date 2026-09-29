@@ -311,6 +311,17 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment, I
 
     public bool JudgeEnabled(TenantId tenant) => _settings(tenant).JudgeEnabled;
 
+    public async Task<TurnsResponse?> ReadTurnsAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct)
+    {
+        var owner = string.IsNullOrWhiteSpace(directorId)
+            ? _pushedSessions.TryLocate(tenant, sessionId, _streamStale)?.DirectorId
+            : directorId;
+        if (string.IsNullOrWhiteSpace(owner)) return null;
+        var route = _route(tenant, owner);
+        if (route is null) return null;
+        return await route.GetTurnsAsync(sessionId, ct).ConfigureAwait(false);
+    }
+
     public async Task<string> AskNamerAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
     {
         // The Wingman's own model and builder, under its own usage feature so naming is its own line on the bill.

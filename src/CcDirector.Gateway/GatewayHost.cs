@@ -2999,17 +2999,13 @@ public sealed class GatewayHost : IAsyncDisposable
         if (_turnVerdictService is { } built) return built;
         var seat = new Wingman.TurnVerdictService(EnsureTurnVerdictEnvironment());
         SubscribeFleetManagerEvents(seat);
-        SubscribeSessionNaming(seat);
         return _turnVerdictService = seat;
     }
 
-    /// <summary>The Wingman names a session the user did not name, after a turn-end reading (issue #3488). Made where
-    /// the seat is built, once.</summary>
-    private void SubscribeSessionNaming(Wingman.TurnVerdictService seat)
-    {
-        var namer = _sessionNaming ??= new Wingman.SessionNamingService(EnsureTurnVerdictEnvironment());
-        seat.ReadingCompleted += namer.OnReadingCompleted;
-    }
+    /// <summary>The Wingman names a session the user did not name, from the user's first prompt (issue #3488). Built
+    /// once, on the same environment as the turn-verdict seat; driven by the Working edge.</summary>
+    private Wingman.SessionNamingService EnsureSessionNaming()
+        => _sessionNaming ??= new Wingman.SessionNamingService(EnsureTurnVerdictEnvironment());
 
     private Wingman.SessionNamingService? _sessionNaming;
 
@@ -3531,6 +3527,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 // death is raised even across a restart.
                 if (tenant.IsValid)
                     _fleetManagerEvents?.OnSessionWorking(tenant, sid, directorId);
+                // Issue #3488: the user has just sent a prompt - a session nobody named is named from its first
+                // prompt now, while the agent works, not after the agent's turn ends.
+                if (tenant.IsValid)
+                    EnsureSessionNaming().OnSessionWorking(tenant, sid, directorId);
             },
             // Gateway Cleanup mission, Phase 2: under stream mode the catch-up / reconcile reads the push
             // store instead of HTTP-pulling each Director's session list (no dial).

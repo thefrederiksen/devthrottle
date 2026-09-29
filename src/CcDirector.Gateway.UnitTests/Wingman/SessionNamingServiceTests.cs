@@ -1,15 +1,14 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
-using CcDirector.Gateway.History;
 using CcDirector.Gateway.Wingman;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Wingman;
 
 /// <summary>
-/// THE WINGMAN NAMES A SESSION THE USER DID NOT NAME (issue #3488): after an accepted turn-end reading, an unnamed
-/// session gets a short name from its first prompt; a name a person gave is never touched, and a session is named at
-/// most once.
+/// THE WINGMAN NAMES A SESSION THE USER DID NOT NAME, FROM THE USER'S FIRST PROMPT (issue #3488): on the Working edge
+/// that follows the user pressing Enter, an unnamed session gets a short name from its first prompt; a name a person
+/// gave is never touched, and a session is asked about at most once.
 /// </summary>
 public sealed class SessionNamingServiceTests
 {
@@ -18,16 +17,31 @@ public sealed class SessionNamingServiceTests
     private const string Director = "dir-1";
 
     [Fact]
-    public async Task AnUnnamedSession_IsNamedFromItsFirstPrompt()
+    public async Task AnUnnamedSession_IsNamedFromItsFirstPrompt_OnTheWorkingEdge()
     {
         var env = new FakeNamingEnvironment { Reply = "Wingman Session Naming" };
         var sut = new SessionNamingService(env);
 
-        var name = await sut.NameIfUnnamedAsync(TurnEnd());
+        var name = await sut.NameIfUnnamedAsync(Tenant, Sid, Director);
 
         Assert.Equal("Wingman Session Naming", name);
         Assert.Equal(new[] { (Director, Sid, "Wingman Session Naming") }, env.Renames);
         Assert.Contains("add a github issue and implement naming", env.Prompts.Single());
+    }
+
+    [Fact]
+    public async Task OnlyTheFirstPrompt_IsUsed_NeverTheAgentsWords()
+    {
+        var env = new FakeNamingEnvironment { Reply = "A Name" };
+        env.Turns = Turns(("Text", "agent preamble"), ("UserMessage", "first ask"), ("Text", "reply"), ("UserMessage", "second ask"));
+        var sut = new SessionNamingService(env);
+
+        await sut.NameIfUnnamedAsync(Tenant, Sid, Director);
+
+        var prompt = env.Prompts.Single();
+        Assert.Contains("first ask", prompt);
+        Assert.DoesNotContain("second ask", prompt);
+        Assert.DoesNotContain("agent preamble", prompt);
     }
 
     [Fact]
@@ -37,7 +51,7 @@ public sealed class SessionNamingServiceTests
         env.Facts = new SessionDto { SessionId = Sid, DirectorId = Director, Name = "devthrottle / 1fb5", IsAutoNamed = true };
         var sut = new SessionNamingService(env);
 
-        Assert.Equal("Fix The Login Page", await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Equal("Fix The Login Page", await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
     }
 
     [Fact]
@@ -47,46 +61,10 @@ public sealed class SessionNamingServiceTests
         env.Facts = new SessionDto { SessionId = Sid, DirectorId = Director, Name = "My Own Name", IsAutoNamed = false };
         var sut = new SessionNamingService(env);
 
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
         Assert.Empty(env.Prompts);
         Assert.Empty(env.Renames);
-    }
-
-    [Theory]
-    [InlineData(TurnVerdictTrigger.Voice)]
-    [InlineData(TurnVerdictTrigger.Sweep)]
-    [InlineData(TurnVerdictTrigger.OnDemand)]
-    [InlineData(TurnVerdictTrigger.SnoozeExpiry)]
-    [InlineData(TurnVerdictTrigger.Retry)]
-    public async Task OnlyATurnEndNamesASession(TurnVerdictTrigger trigger)
-    {
-        var env = new FakeNamingEnvironment { Reply = "A Name" };
-        var sut = new SessionNamingService(env);
-
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd(trigger: trigger)));
-        Assert.Empty(env.Prompts);
-    }
-
-    [Theory]
-    [InlineData(TurnVerdictOutcomeKind.Skipped, false)]
-    [InlineData(TurnVerdictOutcomeKind.Failed, true)]
-    [InlineData(TurnVerdictOutcomeKind.Cancelled, false)]
-    [InlineData(TurnVerdictOutcomeKind.Judged, true)]
-    public async Task AReadingThatWasNotAccepted_NamesNothing(TurnVerdictOutcomeKind kind, bool failedVerdict)
-    {
-        // Judged with a FAILED verdict is not accepted either: the Wingman did not answer for this account.
-        var env = new FakeNamingEnvironment { Reply = "A Name" };
-        var sut = new SessionNamingService(env);
-        var outcome = new TurnVerdictOutcome
-        {
-            Kind = kind,
-            Verdict = kind is TurnVerdictOutcomeKind.Skipped or TurnVerdictOutcomeKind.Cancelled
-                ? null
-                : new TurnVerdictDto { Failed = failedVerdict },
-        };
-
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd(outcome: outcome)));
-        Assert.Empty(env.Prompts);
+        Assert.Equal(0, env.TurnReads);
     }
 
     [Fact]
@@ -95,19 +73,62 @@ public sealed class SessionNamingServiceTests
         var env = new FakeNamingEnvironment { Reply = "A Name", Held = true };
         var sut = new SessionNamingService(env);
 
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
         Assert.Empty(env.Prompts);
     }
 
     [Fact]
     public async Task AnAccountWithTheJudgeSwitchOff_PaysForNoNamingCall()
     {
-        // A voice session is read with the switch off; naming must not add a call the account turned off.
         var env = new FakeNamingEnvironment { Reply = "A Name", Judge = false };
         var sut = new SessionNamingService(env);
 
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
         Assert.Empty(env.Prompts);
+    }
+
+    [Fact]
+    public async Task APromptThatLandsAMomentAfterTheEdge_IsWaitedFor()
+    {
+        // The Working edge can come before the prompt reaches the transcript.
+        var env = new FakeNamingEnvironment { Reply = "Late Name" };
+        var full = env.Turns;
+        env.Turns = Turns();
+        env.OnDelay = n => { if (n == 2) env.Turns = full; };
+        var sut = new SessionNamingService(env);
+
+        Assert.Equal("Late Name", await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
+        Assert.Equal(3, env.TurnReads);
+    }
+
+    [Fact]
+    public async Task AFailedRead_IsNotTakenAsNoPrompt_AndIsReadAgain()
+    {
+        var env = new FakeNamingEnvironment { Reply = "A Name" };
+        var full = env.Turns;
+        env.Turns = new TurnsResponse { Status = "no_jsonl", Widgets = full!.Widgets };
+        env.OnDelay = _ => env.Turns = full;
+        var sut = new SessionNamingService(env);
+
+        Assert.Equal("A Name", await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
+        Assert.Equal(2, env.TurnReads);
+    }
+
+    [Fact]
+    public async Task AnEdgeWithNoPromptBehindIt_NamesNothing_AndLeavesTheSessionForTheNextEdge()
+    {
+        // The agent starting up goes Working with no user prompt in the conversation.
+        var env = new FakeNamingEnvironment { Reply = "Next Edge Name" };
+        var full = env.Turns;
+        env.Turns = Turns(("Text", "agent starting"));
+        var sut = new SessionNamingService(env);
+
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
+        Assert.Equal(SessionNamingService.PromptWaitAttempts, env.TurnReads);
+        Assert.Empty(env.Prompts);
+
+        env.Turns = full;
+        Assert.Equal("Next Edge Name", await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
     }
 
     [Fact]
@@ -116,25 +137,29 @@ public sealed class SessionNamingServiceTests
         var env = new FakeNamingEnvironment { Reply = "   " }; // an unusable reply
         var sut = new SessionNamingService(env);
 
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
         env.Reply = "A Good Name";
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
 
         Assert.Single(env.Prompts);
         Assert.Empty(env.Renames);
     }
 
     [Fact]
-    public async Task NoStoredPromptYet_AsksAgainAtTheNextTurnEnd()
+    public async Task TwoEdgesAtOnce_AskOnce()
     {
-        var env = new FakeNamingEnvironment { Reply = "Late Name", Conversation = Conversation() };
+        var env = new FakeNamingEnvironment { Reply = "A Name" };
+        var gate = new TaskCompletionSource();
+        env.AskGate = gate.Task;
         var sut = new SessionNamingService(env);
 
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd()));
-        Assert.Empty(env.Prompts);
+        var first = sut.NameIfUnnamedAsync(Tenant, Sid, Director);
+        var second = await sut.NameIfUnnamedAsync(Tenant, Sid, Director);
+        gate.SetResult();
 
-        env.Conversation = Conversation(("UserMessage", "now do the thing"));
-        Assert.Equal("Late Name", await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Null(second);
+        Assert.Equal("A Name", await first);
+        Assert.Single(env.Prompts);
     }
 
     [Fact]
@@ -144,7 +169,7 @@ public sealed class SessionNamingServiceTests
         env.OnAsk = () => env.Facts = new SessionDto { SessionId = Sid, DirectorId = Director, Name = "Typed By Hand" };
         var sut = new SessionNamingService(env);
 
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
         Assert.Empty(env.Renames);
     }
 
@@ -154,7 +179,7 @@ public sealed class SessionNamingServiceTests
         var env = new FakeNamingEnvironment { Throw = new TimeoutException("no answer") };
         var sut = new SessionNamingService(env);
 
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
         Assert.Empty(env.Renames);
     }
 
@@ -164,14 +189,14 @@ public sealed class SessionNamingServiceTests
         var env = new FakeNamingEnvironment { Reply = "A Name", RenameError = "session not found" };
         var sut = new SessionNamingService(env);
 
-        Assert.Null(await sut.NameIfUnnamedAsync(TurnEnd()));
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
         Assert.Single(env.Renames);
     }
 
     [Fact]
     public void FirstUserPrompt_SkipsMachineTextOnTheUsersSide()
     {
-        var c = Conversation(
+        var widgets = Turns(
             ("UserMessage", "<system-reminder>\nhook context\n</system-reminder>"),
             ("UserMessage", "Caveat: The messages below were generated by the user while running local commands."),
             ("UserMessage", "<command-name>/clear</command-name>\n<command-message>clear</command-message>"),
@@ -179,16 +204,16 @@ public sealed class SessionNamingServiceTests
             ("UserMessage", "This session is being continued from a previous conversation that ran out of context."),
             ("UserMessage", "<task-notification>\n<task-id>b1</task-id>\n</task-notification>"),
             ("Text", "agent words"),
-            ("UserMessage", "<system-reminder>x</system-reminder>\nplease fix the build"));
+            ("UserMessage", "<system-reminder>x</system-reminder>\nplease fix the build")).Widgets;
 
-        Assert.Equal("please fix the build", SessionNamingService.FirstUserPrompt(c));
+        Assert.Equal("please fix the build", SessionNamingService.FirstUserPrompt(widgets));
     }
 
     [Fact]
     public void FirstUserPrompt_IsCapped()
     {
-        var c = Conversation(("UserMessage", new string('a', SessionNamingService.MaxPromptChars + 50)));
-        Assert.Equal(SessionNamingService.MaxPromptChars, SessionNamingService.FirstUserPrompt(c)!.Length);
+        var widgets = Turns(("UserMessage", new string('a', SessionNamingService.MaxPromptChars + 50))).Widgets;
+        Assert.Equal(SessionNamingService.MaxPromptChars, SessionNamingService.FirstUserPrompt(widgets)!.Length);
     }
 
     [Theory]
@@ -196,7 +221,7 @@ public sealed class SessionNamingServiceTests
     [InlineData("\"Fix The Login Page\"", "Fix The Login Page")]
     [InlineData("Name: Fix The Login Page.", "Fix The Login Page")]
     [InlineData("\n\n  **Fix   the  build**  \nbecause the user asked", "Fix the build")]
-    [InlineData("Café Menu Redesign", "Caf Menu Redesign")]
+    [InlineData("Caf\u00e9 Menu Redesign", "Caf Menu Redesign")]
     [InlineData("   ", null)]
     [InlineData("\"...\"", null)]
     [InlineData(null, null)]
@@ -212,47 +237,60 @@ public sealed class SessionNamingServiceTests
         Assert.EndsWith("Word", name);
     }
 
-    private static TurnVerdictReadingCompleted TurnEnd(
-        TurnVerdictTrigger trigger = TurnVerdictTrigger.TurnEnd, TurnVerdictOutcome? outcome = null)
-        => new(Tenant, Sid, Director, trigger, DateTime.UtcNow,
-            outcome ?? new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Judged, Verdict = new TurnVerdictDto() });
-
-    private static StoredConversation Conversation(params (string Kind, string Content)[] widgets)
-        => new(true, widgets.Select(w => new TurnWidgetDto { Kind = w.Kind, Content = w.Content }).ToList());
+    private static TurnsResponse Turns(params (string Kind, string Content)[] widgets)
+        => new()
+        {
+            SessionId = Sid,
+            Status = "ok",
+            Widgets = widgets.Select(w => new TurnWidgetDto { Kind = w.Kind, Content = w.Content }).ToList(),
+        };
 
     private sealed class FakeNamingEnvironment : ISessionNamingEnvironment
     {
         public SessionDto? Facts = new() { SessionId = Sid, DirectorId = Director, Name = null };
-        public StoredConversation? Conversation =
-            SessionNamingServiceTests.Conversation(("UserMessage", "add a github issue and implement naming"));
+        public TurnsResponse? Turns = SessionNamingServiceTests.Turns(("UserMessage", "add a github issue and implement naming"));
+        public bool Held;
+        public bool Judge = true;
         public string? Reply;
         public Exception? Throw;
         public string? RenameError;
         public Action? OnAsk;
+        public Task? AskGate;
+        public Action<int>? OnDelay;
+        public int TurnReads;
+        private int _delays;
         public readonly List<string> Prompts = new();
         public readonly List<(string Director, string Sid, string Name)> Renames = new();
-
-        public bool Held;
-        public bool Judge = true;
 
         public TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId) => new(Facts, Held);
 
         public bool JudgeEnabled(TenantId tenant) => Judge;
 
-        public StoredConversation? ReadConversation(TenantId tenant, string sessionId) => Conversation;
+        public Task<TurnsResponse?> ReadTurnsAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct)
+        {
+            TurnReads++;
+            return Task.FromResult(Turns);
+        }
 
-        public Task<string> AskNamerAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
+        public async Task<string> AskNamerAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
         {
             Prompts.Add(prompt);
+            if (AskGate is not null) await AskGate;
             OnAsk?.Invoke();
             if (Throw is not null) throw Throw;
-            return Task.FromResult(Reply ?? "");
+            return Reply ?? "";
         }
 
         public Task<string?> RenameSessionAsync(TenantId tenant, string directorId, string sessionId, string name, CancellationToken ct)
         {
             Renames.Add((directorId, sessionId, name));
             return Task.FromResult(RenameError);
+        }
+
+        public Task DelayAsync(TimeSpan delay, CancellationToken ct)
+        {
+            OnDelay?.Invoke(++_delays);
+            return Task.CompletedTask;
         }
     }
 }

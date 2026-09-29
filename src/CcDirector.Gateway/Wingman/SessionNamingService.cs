@@ -19,12 +19,14 @@ public interface ISessionNamingEnvironment
     /// account's pushed roster (the same read the turn-verdict seat makes).</summary>
     TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId);
 
-    /// <summary>Whether this account's Wingman judge switch is on. A voice session is read with it off, and naming
-    /// must not add a paid call the account switched off.</summary>
+    /// <summary>Whether this account's Wingman judge switch is on. Naming must not add a paid call the account
+    /// switched off.</summary>
     bool JudgeEnabled(TenantId tenant);
 
-    /// <summary>The session's stored conversation, read inside the account's scope. Null: nothing stored yet.</summary>
-    StoredConversation? ReadConversation(TenantId tenant, string sessionId);
+    /// <summary>The session's conversation read LIVE from its Director over the tunnel (the <c>turns</c> verb). The
+    /// Gateway's stored copy arrives by push and can lag the moment the user presses Enter, so the namer reads the
+    /// source. Null when the Director cannot be reached.</summary>
+    Task<TurnsResponse?> ReadTurnsAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct);
 
     /// <summary>Ask the Wingman's model for a name. Throws on no answer, exactly as the judge does.</summary>
     Task<string> AskNamerAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct);
@@ -32,24 +34,32 @@ public interface ISessionNamingEnvironment
     /// <summary>Rename the session on its Director (the <c>patch</c> verb). Returns null on success, else why it
     /// failed.</summary>
     Task<string?> RenameSessionAsync(TenantId tenant, string directorId, string sessionId, string name, CancellationToken ct);
+
+    /// <summary>Wait. The namer's only clock, so a test runs the wait for the first prompt instantly.</summary>
+    Task DelayAsync(TimeSpan delay, CancellationToken ct);
 }
 
 /// <summary>
-/// THE WINGMAN NAMES A SESSION THE USER DID NOT NAME (issue #3488).
+/// THE WINGMAN NAMES A SESSION THE USER DID NOT NAME, FROM THE USER'S FIRST PROMPT (issue #3488).
 ///
 /// A session born without a name shows "&lt;repo&gt; / &lt;id4&gt;" for its whole life, so a fleet of them cannot be
-/// told apart. After the Wingman's turn-end reading, if the session still has no name a person gave it, one small
-/// model call turns the user's FIRST prompt into a short name and the Gateway applies it over the <c>patch</c> verb.
+/// told apart. THE MOMENT THE USER SENDS THE FIRST PROMPT - the session's Working edge, not the agent's turn end -
+/// the Gateway reads that prompt, one small model call turns it into a short name, and the Gateway applies it over
+/// the <c>patch</c> verb. The name is there while the agent is still working on the request.
 ///
 /// The rules:
 /// <list type="bullet">
-/// <item>NOT NAMED BY THE USER means an empty name (the display fallback) or one still marked
-/// <see cref="SessionDto.IsAutoNamed"/>. Any other name is a person's or the session's own and is never touched.</item>
+/// <item>NOT NAMED BY THE USER means an empty name (the Director shows the "&lt;repo&gt; / &lt;id4&gt;" fallback) or
+/// one still marked <see cref="SessionDto.IsAutoNamed"/> (composed at birth). Any other name is a person's or the
+/// session's own and is never touched.</item>
 /// <item>AT MOST ONCE. The <c>patch</c> verb clears <c>IsAutoNamed</c> on the Director, so once named a session is
 /// never named again; the in-memory attempt set stops a second call for the same session in this process.</item>
-/// <item>ONLY WHERE THE WINGMAN ALREADY RUNS: a <see cref="TurnVerdictTrigger.TurnEnd"/> reading that was accepted.
-/// A held (owned) session is never read, and an account whose Wingman is off produces no accepted reading, so
-/// neither is named and neither pays for a call.</item>
+/// <item>WAITS FOR THE PROMPT, NOT FOR THE ANSWER. The Working edge can come a moment before the prompt reaches the
+/// transcript, so the namer re-reads for up to <see cref="PromptWaitAttempts"/> x <see cref="PromptWaitInterval"/>.
+/// A Working edge with no user prompt behind it (the agent starting up) names nothing and leaves the session to the
+/// next edge.</item>
+/// <item>NEVER A HELD SESSION, NEVER WITH THE WINGMAN OFF. An owned session is never read (owner ruling,
+/// 2026-09-25), and an account whose judge switch is off pays for no naming call.</item>
 /// <item>THE USER'S RENAME WINS. The facts are read again right before the rename, and a name that changed while
 /// the model was answering is left alone.</item>
 /// </list>
@@ -65,9 +75,16 @@ public sealed class SessionNamingService
     /// <summary>How long the one naming call may take.</summary>
     public static readonly TimeSpan NamerTimeout = TimeSpan.FromSeconds(30);
 
+    /// <summary>How many times the conversation is read waiting for the first prompt to land in the transcript.</summary>
+    public const int PromptWaitAttempts = 10;
+
+    /// <summary>The wait between those reads.</summary>
+    public static readonly TimeSpan PromptWaitInterval = TimeSpan.FromSeconds(2);
+
     private readonly ISessionNamingEnvironment _env;
 
-    // (tenant, session) pairs this process has already tried to name. Bounded by the sessions a Gateway sees.
+    // (tenant, session) pairs that are settled - named, named by someone else, or asked about once - plus any pair
+    // whose naming is in flight, so two Working edges never both ask. Bounded by the sessions a Gateway sees.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _attempted = new();
 
     public SessionNamingService(ISessionNamingEnvironment environment)
@@ -75,79 +92,96 @@ public sealed class SessionNamingService
         _env = environment ?? throw new ArgumentNullException(nameof(environment));
     }
 
-    /// <summary>The event handler: starts the naming and never throws into the seat that raised the event.</summary>
-    public void OnReadingCompleted(TurnVerdictReadingCompleted completed) => _ = NameIfUnnamedAsync(completed);
+    /// <summary>The Working-edge handler: starts the naming and never throws into the watcher that raised it.</summary>
+    public void OnSessionWorking(TenantId tenant, string sessionId, string directorId)
+        => _ = NameIfUnnamedAsync(tenant, sessionId, directorId);
 
     /// <summary>
-    /// Name the session the reading was about when it has no name a person gave it. Returns the name applied, or
-    /// null when none was. Never throws.
+    /// Name the session from the user's first prompt when it has no name a person gave it. Returns the name applied,
+    /// or null when none was. Never throws.
     /// </summary>
-    public async Task<string?> NameIfUnnamedAsync(TurnVerdictReadingCompleted completed, CancellationToken ct = default)
+    public async Task<string?> NameIfUnnamedAsync(TenantId tenant, string sessionId, string directorId,
+        CancellationToken ct = default)
     {
-        if (completed is null) return null;
-        if (completed.Trigger != TurnVerdictTrigger.TurnEnd) return null;
-        if (!completed.Outcome.HasAcceptedVerdict) return null;
+        if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return null;
+        var key = (tenant, sessionId);
+        if (!_attempted.TryAdd(key, 0)) return null;
 
-        var key = (completed.Tenant, completed.SessionId);
-        if (_attempted.ContainsKey(key)) return null;
-
+        var settled = false;
         try
         {
-            if (!_env.JudgeEnabled(completed.Tenant)) return null;
-            var state = _env.ReadSessionState(completed.Tenant, completed.SessionId);
-            // Owned since the reading's own held check: an owned session is never read, so never named either.
-            if (state.Held) return null;
-            var facts = state.Facts;
-            if (facts is null) return null;
+            if (!_env.JudgeEnabled(tenant)) return null;
+            var state = _env.ReadSessionState(tenant, sessionId);
+            if (state.Held || state.Facts is not { } facts) return null;
             if (!IsUnnamed(facts))
             {
                 // A person's or the session's own name: settled for good, never ask again.
-                _attempted.TryAdd(key, 0);
+                settled = true;
                 return null;
             }
 
-            var firstPrompt = FirstUserPrompt(_env.ReadConversation(completed.Tenant, completed.SessionId));
-            // Nothing the user said is stored yet: try again at the next turn end.
-            if (firstPrompt is null) return null;
+            var owner = string.IsNullOrWhiteSpace(facts.DirectorId) ? directorId : facts.DirectorId;
+            var firstPrompt = await WaitForFirstPromptAsync(tenant, owner, sessionId, ct).ConfigureAwait(false);
+            if (firstPrompt is null)
+            {
+                FileLog.Write($"[SessionNamingService] no user prompt yet sid={sessionId} tenant={tenant.ToLogString()} - left for the next Working edge");
+                return null;
+            }
 
-            if (!_attempted.TryAdd(key, 0)) return null;
-
-            var reply = await _env.AskNamerAsync(completed.Tenant, BuildPrompt(firstPrompt), NamerTimeout, ct)
-                .ConfigureAwait(false);
+            // From here the session has been asked about: a failed or unusable answer is not paid for twice.
+            settled = true;
+            var reply = await _env.AskNamerAsync(tenant, BuildPrompt(firstPrompt), NamerTimeout, ct).ConfigureAwait(false);
             var name = CleanName(reply);
             if (name is null)
             {
-                FileLog.Write($"[SessionNamingService] no usable name from the model sid={completed.SessionId} " +
-                              $"tenant={completed.Tenant.ToLogString()} replyLength={reply?.Length ?? 0}");
+                FileLog.Write($"[SessionNamingService] no usable name from the model sid={sessionId} " +
+                              $"tenant={tenant.ToLogString()} replyLength={reply?.Length ?? 0}");
                 return null;
             }
 
             // The user may have renamed it while the model was answering: their name wins.
-            var nowState = _env.ReadSessionState(completed.Tenant, completed.SessionId);
+            var nowState = _env.ReadSessionState(tenant, sessionId);
             var now = nowState.Facts;
             if (nowState.Held || now is null || !IsUnnamed(now) || !string.Equals(now.Name, facts.Name, StringComparison.Ordinal))
             {
-                FileLog.Write($"[SessionNamingService] renamed by someone else while naming, left alone sid={completed.SessionId}");
+                FileLog.Write($"[SessionNamingService] renamed by someone else while naming, left alone sid={sessionId}");
                 return null;
             }
 
-            var directorId = string.IsNullOrWhiteSpace(now.DirectorId) ? completed.DirectorId : now.DirectorId;
-            var error = await _env.RenameSessionAsync(completed.Tenant, directorId, completed.SessionId, name, ct)
-                .ConfigureAwait(false);
+            var target = string.IsNullOrWhiteSpace(now.DirectorId) ? owner : now.DirectorId;
+            var error = await _env.RenameSessionAsync(tenant, target, sessionId, name, ct).ConfigureAwait(false);
             if (error is not null)
             {
-                FileLog.Write($"[SessionNamingService] rename FAILED sid={completed.SessionId} director={directorId}: {error}");
+                FileLog.Write($"[SessionNamingService] rename FAILED sid={sessionId} director={target}: {error}");
                 return null;
             }
 
-            FileLog.Write($"[SessionNamingService] named sid={completed.SessionId} tenant={completed.Tenant.ToLogString()} name=\"{name}\"");
+            FileLog.Write($"[SessionNamingService] named sid={sessionId} tenant={tenant.ToLogString()} name=\"{name}\"");
             return name;
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[SessionNamingService] naming FAILED sid={completed.SessionId}: {ex.GetType().Name}: {ex.Message}");
+            FileLog.Write($"[SessionNamingService] naming FAILED sid={sessionId}: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
+        finally
+        {
+            // Not settled: nothing was asked, so the next Working edge may try again.
+            if (!settled) _attempted.TryRemove(key, out _);
+        }
+    }
+
+    /// <summary>Read the live conversation until the user's first prompt is in it, or the wait runs out.</summary>
+    private async Task<string?> WaitForFirstPromptAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct)
+    {
+        for (var attempt = 1; attempt <= PromptWaitAttempts; attempt++)
+        {
+            var turns = await _env.ReadTurnsAsync(tenant, directorId, sessionId, ct).ConfigureAwait(false);
+            // Only "ok" is a real read; anything else is a failed read that says nothing about the prompt.
+            if (turns is { Status: "ok" } && FirstUserPrompt(turns.Widgets) is { } prompt) return prompt;
+            if (attempt < PromptWaitAttempts) await _env.DelayAsync(PromptWaitInterval, ct).ConfigureAwait(false);
+        }
+        return null;
     }
 
     /// <summary>True when the session has no name a person or the session itself gave it.</summary>
@@ -159,14 +193,14 @@ public sealed class SessionNamingService
     /// records machine text on the user's side - a <c>&lt;system-reminder&gt;</c> block, a slash command's
     /// <c>&lt;command-name&gt;</c> or its output, the "Caveat:" line before local command output, a loaded skill's
     /// body, a task notification, the continuation summary after compaction - and none of it is what the person
-    /// asked for. The stored conversation does not keep the transcript's meta flag, so tagged blocks are cut out and
+    /// asked for. The widgets do not keep the transcript's meta flag, so tagged blocks are cut out and
     /// what is left is passed over when it is empty, the caveat, or what
     /// <see cref="ClaudeSessionReader.IsSystemInjectedContent"/> already knows as injected.
     /// </summary>
-    public static string? FirstUserPrompt(StoredConversation? conversation)
+    public static string? FirstUserPrompt(IReadOnlyList<TurnWidgetDto>? widgets)
     {
-        if (conversation is not { IsSupported: true } c || c.Widgets is null) return null;
-        foreach (var w in c.Widgets)
+        if (widgets is null) return null;
+        foreach (var w in widgets)
         {
             if (w is null || !string.Equals(w.Kind, StoredConversationWidgets.UserTextKind, StringComparison.Ordinal)) continue;
             var text = MachineBlock.Replace(w.Content ?? "", "").Trim();
