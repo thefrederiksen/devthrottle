@@ -127,7 +127,8 @@ public sealed class DeliveryRecordUnreadableException : Exception
 /// either way proves nothing. <c>NotDelivered</c> is kept for words that provably never arrived, because it lets the id
 /// begin again and the Gateway offers "Send anyway" for it; <c>Unconfirmed</c> refuses a second copy exactly as
 /// <c>Delivered</c> does, and the Gateway answers it with no "Send anyway". <c>Delivering</c> is written BEFORE the first
-/// character is typed, so a Director that dies while typing leaves <c>Delivering</c> on disk.
+/// character is typed, so a Director that dies while typing leaves <c>Delivering</c> on disk - which the next start-up
+/// settles, below.
 ///
 /// A <c>Delivering</c> ENTRY WHOSE DIRECTOR STOPPED BECOMES <c>Unconfirmed</c> AT START-UP (issue #3487, the owner's
 /// ruling of 29 September 2026, replacing the earlier ruling that it stays <c>Delivering</c>). The late watch that would
