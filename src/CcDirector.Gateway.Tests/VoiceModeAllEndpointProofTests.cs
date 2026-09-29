@@ -316,4 +316,60 @@ public sealed class VoiceModeAllEndpointProofTests : IAsyncLifetime
         Assert.False(_gateway.VoiceService?.IsVoiceSession(Core.Tenancy.TenantId.Local, sid));
     }
 
+    // ---- voice mode auto-off (owner ruling 2026-09-28): five stops answered unheard press THIS switch ---------------
+
+    /// <summary>
+    /// The owner answers five stops without playing their narration, and all of voice mode goes off exactly as if he
+    /// had pressed this switch: the persisted intent reads off, each Director is sent the voice-mode write with
+    /// enabled=false, and no session is left marked. Driven end to end through the real hub: the owner's answers arrive
+    /// as the owner-turn stamp on pushed deltas, the way a Director reports them.
+    /// </summary>
+    [Fact]
+    public async Task FiveStopsAnsweredUnheard_SwitchVoiceModeOff_ExactlyAsTheSwitchDoes()
+    {
+        var tenant = Core.Tenancy.TenantId.Local;
+        var voice = _gateway.VoiceService!;
+        var sid1 = Guid.NewGuid().ToString();
+        var sid2 = Guid.NewGuid().ToString();
+        var ownerTurn = new DateTime(2026, 9, 28, 9, 0, 0, DateTimeKind.Utc);
+        var turns = new Dictionary<string, int> { [sid1] = 3, [sid2] = 3 };
+        SessionDto Row(string sid, string activity) => new()
+        {
+            SessionId = sid, Name = sid[..4], Status = activity, ActivityState = activity, RepoPath = @"D:\repo",
+            LastOwnerTurnAtUtc = ownerTurn, TurnCount = turns[sid],
+        };
+
+        await PushAsync(1L, Row(sid1, "WaitingForInput"), Row(sid2, "WaitingForInput"));
+        (await _http.PostAsJsonAsync("sessions/voice-mode/all", new { enabled = true })).EnsureSuccessStatusCode();
+        Assert.True(voice.IsVoiceSession(tenant, sid1));
+        await PushAsync(2L, Row(sid1, "WaitingForInput"), Row(sid2, "WaitingForInput"));   // the observer's baseline, now on voice
+        _commands.Clear();
+
+        var sequence = 3L;
+        for (var stop = 0; stop < 5; stop++)
+        {
+            var sid = stop % 2 == 0 ? sid1 : sid2;
+            if (stop >= 2)
+            {
+                // The owner's previous turn on this session finishes: the Director counts it and reports the stop.
+                turns[sid]++;
+                await _conn.InvokeAsync("PushDelta", sequence++, Row(sid, "WaitingForInput"));
+            }
+            voice.StoreReadyAudioForTest(tenant, sid, "Spoken.", "Reply.", new byte[] { 0x49, 0x44, 0x33 });
+            ownerTurn = ownerTurn.AddMinutes(1);   // the owner types a reply without listening
+            var answered = Row(sid, "Working");
+            answered.WorkingOrigin = WorkingOrigins.Owner;
+            await _conn.InvokeAsync("PushDelta", sequence++, answered);
+        }
+        await voice.Listening.SwitchOffInFlight;
+
+        var state = await _http.GetFromJsonAsync<JsonNode>("sessions/voice-mode/all");
+        Assert.False(state?["enabled"]?.GetValue<bool>());
+        var writes = _commands.Where(c => c.Verb == "voice-mode").ToList();
+        Assert.Equal(new[] { sid1, sid2 }.OrderBy(s => s), writes.Select(c => c.SessionId).OrderBy(s => s));
+        Assert.All(writes, c => Assert.False(JsonNode.Parse(c.PayloadJson)?["enabled"]?.GetValue<bool>()));
+        Assert.False(voice.IsVoiceSession(tenant, sid1));
+        Assert.False(voice.IsVoiceSession(tenant, sid2));
+        Assert.Equal(Wingman.VoiceListeningLedger.UnheardSwitchOffReason, voice.Listening.SwitchedOff(tenant)?.Reason);
+    }
 }

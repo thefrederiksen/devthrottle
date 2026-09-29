@@ -34,9 +34,21 @@ namespace CcDirector.Gateway.Wingman;
 /// persisted to <c>voice-listening.json</c> in the account's voice partition, beside <c>voice-sessions.json</c>, so a
 /// Gateway restart does not reset it. A count file that cannot be read starts the account at zero and says so in the
 /// log - the direction that can only delay a switch-off, never cause one.
+///
+/// FIVE AND OUT (step 4). The stop that brings the count to <see cref="UnheardLimit"/> switches all of voice mode off,
+/// by pressing the account-wide voice switch itself (<see cref="UseSwitchOff"/>) - no second mechanism. The time and
+/// the reason are recorded with the count, once per switch-off.
 /// </summary>
 public sealed class VoiceListeningLedger
 {
+    /// <summary>Stops handled without voice, in a row, that switch voice mode off (owner ruling 28 September 2026).</summary>
+    public const int UnheardLimit = 5;
+
+    /// <summary>Why voice mode switched itself off, in the owner's words for it.</summary>
+    public const string UnheardSwitchOffReason = "you answered five sessions without listening";
+
+    /// <summary>When and why voice mode switched itself off.</summary>
+    public readonly record struct SwitchOff(DateTime AtUtc, string Reason);
     /// <summary>One voice session's latest narration: when it became ready, and whether it has been played.</summary>
     public readonly record struct NarrationStop(DateTime NarrationAtUtc, bool Played);
 
@@ -62,9 +74,30 @@ public sealed class VoiceListeningLedger
         /// again even though memory already says zero (review of step 3).</summary>
         [System.Text.Json.Serialization.JsonIgnore]
         public bool Unsaved { get; set; }
+
+        /// <summary>When voice mode last switched itself off, or null when it has not since it was last switched on.</summary>
+        public DateTime? SwitchedOffAtUtc { get; set; }
+
+        /// <summary>Why it switched itself off, with <see cref="SwitchedOffAtUtc"/>.</summary>
+        public string? SwitchedOffReason { get; set; }
+
+        /// <summary>True once the account switch has actually been pressed for <see cref="SwitchedOffAtUtc"/>. The
+        /// switch-off is recorded, and saved, BEFORE the press runs; a Gateway that stops in between would otherwise
+        /// restart believing voice was switched off when it never was, and never press again (review of step 4). An
+        /// unconfirmed switch-off read at start-up is withdrawn, so the next unheard stop presses the switch.</summary>
+        public bool SwitchOffConfirmed { get; set; }
     }
 
     private const string FileName = "voice-listening.json";
+
+    // The account-wide voice switch, pressed with "off" at the limit. Wired by the voice endpoint to the same function
+    // POST /sessions/voice-mode/all runs.
+    private Func<TenantId, Task>? _switchOff;
+
+    private readonly Func<DateTime> _utcNow;
+
+    /// <summary>The last switch-off pressed, so a test can wait for it. Production never awaits it.</summary>
+    internal Task SwitchOffInFlight { get; private set; } = Task.CompletedTask;
 
     // tenant -> (sid -> the session's latest narration). Only the latest per session is kept: a newer narration is a
     // newer stop, and an older one that went unplayed and unanswered counts for nothing (the owner's rule).
@@ -79,9 +112,27 @@ public sealed class VoiceListeningLedger
 
     /// <param name="stateDirectory">The directory one account's record is persisted in. The voice service passes its
     /// tenant partition, so the count sits beside that account's voice-sessions.json. Null keeps it in memory.</param>
-    public VoiceListeningLedger(Func<TenantId, string>? stateDirectory = null)
+    /// <param name="utcNow">The clock the switch-off time is read from; the system clock when null.</param>
+    public VoiceListeningLedger(Func<TenantId, string>? stateDirectory = null, Func<DateTime>? utcNow = null)
     {
         _stateDirectory = stateDirectory;
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
+    }
+
+    /// <summary>
+    /// Hand the ledger the account-wide voice switch, pressed with "off" when the count reaches the limit. It is the
+    /// function <c>POST /sessions/voice-mode/all</c> runs, so reaching five does exactly what the owner pressing the
+    /// switch does.
+    /// </summary>
+    public void UseSwitchOff(Func<TenantId, Task> switchOff) =>
+        _switchOff = switchOff ?? throw new ArgumentNullException(nameof(switchOff));
+
+    /// <summary>When and why voice mode last switched itself off, or null when it has not.</summary>
+    public SwitchOff? SwitchedOff(TenantId tenant)
+    {
+        var record = RecordFor(tenant);
+        lock (record)
+            return record.SwitchedOffAtUtc is { } at ? new SwitchOff(at, record.SwitchedOffReason ?? "") : null;
     }
 
     private ConcurrentDictionary<string, NarrationStop> StopsFor(TenantId tenant)
@@ -207,12 +258,98 @@ public sealed class VoiceListeningLedger
     private int AddUnheard(TenantId tenant)
     {
         var record = RecordFor(tenant);
+        int count;
+        bool reachedLimit;
         lock (record)
         {
             record.UnheardInARow++;
             record.Unsaved = true;
-            Save(tenant, record);
-            return record.UnheardInARow;
+            count = record.UnheardInARow;
+            // Recorded here, under the lock, so the stop that reaches the limit is the ONLY one that presses the switch.
+            reachedLimit = count >= UnheardLimit && record.SwitchedOffAtUtc is null;
+            if (reachedLimit)
+            {
+                record.SwitchedOffAtUtc = _utcNow();
+                record.SwitchedOffReason = UnheardSwitchOffReason;
+                record.SwitchOffConfirmed = false;
+            }
+            try
+            {
+                Save(tenant, record);
+            }
+            finally
+            {
+                // Pressed even when the save failed: the five stops happened, and the owner's rule does not wait on the
+                // disk. Started on the thread pool, never on this stack: the caller may hold this account's lock (an
+                // answer settles its stop and the count in one step), and the switch walks every voice session.
+                if (reachedLimit)
+                    SwitchOffInFlight = Task.Run(() => PressSwitchOffAsync(tenant));
+            }
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Press the account-wide voice switch off. Runs apart from the push that reached the limit - the switch fans out to
+    /// every Director and the push must not wait on that. If the switch cannot be pressed, the recorded switch-off is
+    /// withdrawn, so the quiet line never claims an off that did not happen, and the next unheard stop presses it again.
+    /// </summary>
+    private async Task PressSwitchOffAsync(TenantId tenant)
+    {
+        FileLog.Write($"[VoiceListeningLedger] {UnheardLimit} stops handled without voice: switching voice mode off for tenant={tenant.ToLogString()}");
+        var pressed = false;
+        try
+        {
+            var switchOff = _switchOff
+                ?? throw new InvalidOperationException("no account-wide voice switch was handed to the listening ledger");
+            await switchOff(tenant).ConfigureAwait(false);
+            FileLog.Write($"[VoiceListeningLedger] voice mode switched off: tenant={tenant.ToLogString()}");
+            pressed = true;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[VoiceListeningLedger] switching voice mode off FAILED, the switch-off is withdrawn: tenant={tenant.ToLogString()}: {ex.GetType().Name}: {Redact(ex.Message, tenant)}");
+            var record = RecordFor(tenant);
+            lock (record)
+            {
+                record.SwitchedOffAtUtc = null;
+                record.SwitchedOffReason = null;
+                record.Unsaved = true;
+                try
+                {
+                    Save(tenant, record);
+                }
+                catch (Exception saveEx) when (saveEx is IOException or UnauthorizedAccessException)
+                {
+                    // Nobody awaits this task, so this is where the failure is reported. The record stays unsaved and
+                    // the next change writes it again.
+                    FileLog.Write($"[VoiceListeningLedger] saving the withdrawn switch-off FAILED: tenant={tenant.ToLogString()}: {saveEx.GetType().Name}: {Redact(saveEx.Message, tenant)}");
+                }
+            }
+        }
+        if (pressed) ConfirmSwitchOff(tenant);
+    }
+
+    /// <summary>The switch was pressed: record that on disk, so a restart keeps the switch-off rather than withdrawing
+    /// it. A failed save is reported here, since nobody awaits the press; the record stays unsaved and the next change
+    /// writes it, and until then a restart withdraws a switch-off that did happen - the next unheard stop presses the
+    /// already-off switch again, which changes nothing.</summary>
+    private void ConfirmSwitchOff(TenantId tenant)
+    {
+        var record = RecordFor(tenant);
+        lock (record)
+        {
+            if (record.SwitchedOffAtUtc is null || record.SwitchOffConfirmed) return;
+            record.SwitchOffConfirmed = true;
+            record.Unsaved = true;
+            try
+            {
+                Save(tenant, record);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                FileLog.Write($"[VoiceListeningLedger] saving the confirmed switch-off FAILED: tenant={tenant.ToLogString()}: {ex.GetType().Name}: {Redact(ex.Message, tenant)}");
+            }
         }
     }
 
@@ -246,6 +383,15 @@ public sealed class VoiceListeningLedger
             var record = JsonSerializer.Deserialize<AccountRecord>(File.ReadAllText(path))
                 ?? throw new InvalidDataException("the file holds no record");
             FileLog.Write($"[VoiceListeningLedger] loaded: tenant={tenant.ToLogString()} unheardInARow={record.UnheardInARow}");
+            if (record.SwitchedOffAtUtc is not null && !record.SwitchOffConfirmed)
+            {
+                // Recorded but never confirmed pressed: the Gateway stopped between the two. Withdrawn, so the quiet line
+                // does not claim an off that may not have happened and the next unheard stop presses the switch.
+                FileLog.Write($"[VoiceListeningLedger] an unconfirmed switch-off from {record.SwitchedOffAtUtc:O} is withdrawn: tenant={tenant.ToLogString()}");
+                record.SwitchedOffAtUtc = null;
+                record.SwitchedOffReason = null;
+                record.Unsaved = true;
+            }
             return record;
         }
         catch (Exception ex) when (ex is IOException or JsonException or InvalidDataException or UnauthorizedAccessException)

@@ -349,13 +349,25 @@ internal static class GatewayWingmanVoiceEndpoint
                 return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
             var enabled = req?.Enabled ?? true;
             FileLog.Write($"[GatewayWingmanVoice] voice-mode/all requested: enabled={enabled}");
+            return Results.Json(await SwitchVoiceModeAllAsync(reqTenant.Value, enabled, ct));
+        });
 
+        // VOICE MODE AUTO-OFF PRESSES THIS SAME SWITCH (owner ruling 28 September 2026): when the owner has answered five
+        // stops in a row without listening, all of voice mode goes off exactly as if he had pressed the account-wide
+        // switch himself - the intent persisted off, every voice session unmarked, each Director told. No second
+        // mechanism: the listening ledger is handed THIS function, the one the route above runs.
+        voice.Listening.UseSwitchOff(tenant => SwitchVoiceModeAllAsync(tenant, enabled: false, CancellationToken.None));
+
+        // THE ACCOUNT-WIDE VOICE SWITCH, whoever presses it: the route above for the owner, the listening ledger for voice
+        // mode auto-off. Returns the per-session report the route answers with.
+        async Task<object> SwitchVoiceModeAllAsync(TenantId tenant, bool enabled, CancellationToken ct)
+        {
             // Persist the intent BEFORE the fan-out. The fan-out can partly fail (an offline computer is
             // skipped), and the intent must survive that - those sessions are meant to be on voice, and the
             // sweep puts them on it when their computer comes back. Recording the intent only on a fully
             // successful fan-out would silently downgrade "my fleet is on voice" to "the reachable part of
             // my fleet is on voice", which is the exact class of quiet gap this change exists to close.
-            tenantSettings.SetVoiceModeAll(reqTenant.Value, enabled, DateTime.UtcNow);
+            tenantSettings.SetVoiceModeAll(tenant, enabled, DateTime.UtcNow);
 
             // The machine each Director runs on, so a skipped session names where it lives in plain English.
             // Hosted Multi-Tenancy (audit H1, gap audit-b): scope this to the caller's OWN partition, not the
@@ -365,7 +377,7 @@ internal static class GatewayWingmanVoiceEndpoint
             // voice-mode/all toggle. It would also map the caller's id to ANOTHER tenant's machine name.
             // ListDirectors(tenant) yields ids unique within the partition (no duplicate-key throw) and only this
             // tenant's machine names - which is all the fan-out below, itself tenant-scoped, ever looks up.
-            var machineByDirector = registry.ListDirectors(reqTenant.Value)
+            var machineByDirector = registry.ListDirectors(tenant)
                 .ToDictionary(d => d.DirectorId, d => d.MachineName, StringComparer.Ordinal);
 
             // Every session the Gateway can see right now, de-duplicated by id. A session belongs to exactly
@@ -386,9 +398,9 @@ internal static class GatewayWingmanVoiceEndpoint
             // folded from. The fresh roster alone drops an owning session whose computer has gone quiet, which would
             // reclassify its workers (fresh on another computer) as the owner's and switch them on while the button
             // left them out. Only fresh sessions are then written to, exactly as before.
-            var roster = FleetRoster(reqTenant.Value);
+            var roster = FleetRoster(tenant);
             IReadOnlyList<(string DirectorId, SessionDto Session)> chosen = enabled
-                ? VoiceModeAllSweep.OwnerSessions(roster, pushedSessions?.SnapshotLastKnown(reqTenant.Value) ?? roster)
+                ? VoiceModeAllSweep.OwnerSessions(roster, pushedSessions?.SnapshotLastKnown(tenant) ?? roster)
                 : roster;
             var targets = new List<(string DirectorId, string Machine, string Sid, string? Name)>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -415,7 +427,7 @@ internal static class GatewayWingmanVoiceEndpoint
                 var ok = result is { Ok: true };
                 if (ok)
                 {
-                    if (enabled) voice.Mark(reqTenant.Value, t.Sid); else voice.Unmark(reqTenant.Value, t.Sid);
+                    if (enabled) voice.Mark(tenant, t.Sid); else voice.Unmark(tenant, t.Sid);
                     changed++;
                 }
                 var reason = ok
@@ -429,15 +441,15 @@ internal static class GatewayWingmanVoiceEndpoint
             }
 
             FileLog.Write($"[GatewayWingmanVoice] voice-mode/all done: enabled={enabled}, total={sends.Length}, changed={changed}, skipped={sends.Length - changed}");
-            return Results.Json(new
+            return new
             {
                 enabled,
                 total = sends.Length,
                 changed,
                 skipped = sends.Length - changed,
                 sessions = sessionResults,
-            });
-        });
+            };
+        }
 
         // Resumable, idempotent piece-by-piece upload store (the same one the native app path uses):
         // chunks land on disk under a stable upload id and survive between retry attempts, so the
