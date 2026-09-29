@@ -59,7 +59,11 @@ public interface ISessionNamingEnvironment
 /// A Working edge with no user prompt behind it (the agent starting up) names nothing and leaves the session to the
 /// next edge.</item>
 /// <item>NEVER A HELD SESSION, NEVER WITH THE WINGMAN OFF. An owned session is never read (owner ruling,
-/// 2026-09-25), and an account whose judge switch is off pays for no naming call.</item>
+/// 2026-09-25), and an account whose judge switch is off pays for no naming call. Both are read again after the
+/// wait, before the call.</item>
+/// <item>CLAUDE CODE SESSIONS A PERSON STARTED. Only Claude Code's conversation is read from a transcript bound to the
+/// session itself (<see cref="IsNameableAgent"/>), and a session a schedule or another agent started has a seed the
+/// automation wrote, not a person's prompt (<see cref="IsStartedByAPerson"/>).</item>
 /// <item>THE USER'S RENAME WINS. The facts are read again right before the rename, and a name that changed while
 /// the model was answering is left alone.</item>
 /// </list>
@@ -113,9 +117,10 @@ public sealed class SessionNamingService
             if (!_env.JudgeEnabled(tenant)) return null;
             var state = _env.ReadSessionState(tenant, sessionId);
             if (state.Held || state.Facts is not { } facts) return null;
-            if (!IsUnnamed(facts))
+            if (!IsUnnamed(facts) || !IsNameableAgent(facts) || !IsStartedByAPerson(facts))
             {
-                // A person's or the session's own name: settled for good, never ask again.
+                // A person's or the session's own name, an agent whose conversation cannot be read as its own, or a
+                // session no person started: settled for good, never ask again.
                 settled = true;
                 return null;
             }
@@ -127,6 +132,9 @@ public sealed class SessionNamingService
                 FileLog.Write($"[SessionNamingService] no user prompt yet sid={sessionId} tenant={tenant.ToLogString()} - left for the next Working edge");
                 return null;
             }
+
+            // The wait can be twenty seconds: the switch and the owner are read again before anything is paid for.
+            if (!_env.JudgeEnabled(tenant) || _env.ReadSessionState(tenant, sessionId).Held) return null;
 
             // From here the session has been asked about: a failed or unusable answer is not paid for twice.
             settled = true;
@@ -183,6 +191,24 @@ public sealed class SessionNamingService
         }
         return null;
     }
+
+    /// <summary>
+    /// True for Claude Code only: its conversation is read from the transcript file bound to its own session id. The
+    /// other agents' readers locate a transcript by repository (Codex takes the newest rollout for the folder, Copilot
+    /// and OpenCode the newest conversation, Gemini exposes only a terminal), so with two sessions in one repository
+    /// one could be named from the other's words.
+    /// </summary>
+    public static bool IsNameableAgent(SessionDto facts)
+        => string.Equals(facts.Agent, "ClaudeCode", StringComparison.Ordinal);
+
+    /// <summary>
+    /// True unless the session was started by a schedule or by another agent session: their first prompt is a seed
+    /// the automation wrote, not something a person asked for. A session from before the origin was recorded (null or
+    /// "unknown") counts as a person's, which is what it almost always is.
+    /// </summary>
+    public static bool IsStartedByAPerson(SessionDto facts)
+        => !string.Equals(facts.OriginKind, "schedule", StringComparison.Ordinal)
+           && !string.Equals(facts.OriginKind, "agent", StringComparison.Ordinal);
 
     /// <summary>True when the session has no name a person or the session itself gave it.</summary>
     public static bool IsUnnamed(SessionDto facts)

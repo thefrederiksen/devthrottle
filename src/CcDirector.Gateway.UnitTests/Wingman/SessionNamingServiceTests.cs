@@ -48,7 +48,7 @@ public sealed class SessionNamingServiceTests
     public async Task ASessionStillMarkedAutoNamed_IsNamed()
     {
         var env = new FakeNamingEnvironment { Reply = "Fix The Login Page" };
-        env.Facts = new SessionDto { SessionId = Sid, DirectorId = Director, Name = "devthrottle / 1fb5", IsAutoNamed = true };
+        env.Facts = new SessionDto { SessionId = Sid, DirectorId = Director, Agent = "ClaudeCode", Name = "devthrottle / 1fb5", IsAutoNamed = true };
         var sut = new SessionNamingService(env);
 
         Assert.Equal("Fix The Login Page", await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
@@ -58,7 +58,7 @@ public sealed class SessionNamingServiceTests
     public async Task ANameThePersonGave_IsNeverTouched_AndNeverAskedAbout()
     {
         var env = new FakeNamingEnvironment { Reply = "Something Else" };
-        env.Facts = new SessionDto { SessionId = Sid, DirectorId = Director, Name = "My Own Name", IsAutoNamed = false };
+        env.Facts = new SessionDto { SessionId = Sid, DirectorId = Director, Agent = "ClaudeCode", Name = "My Own Name", IsAutoNamed = false };
         var sut = new SessionNamingService(env);
 
         Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
@@ -81,6 +81,76 @@ public sealed class SessionNamingServiceTests
     public async Task AnAccountWithTheJudgeSwitchOff_PaysForNoNamingCall()
     {
         var env = new FakeNamingEnvironment { Reply = "A Name", Judge = false };
+        var sut = new SessionNamingService(env);
+
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
+        Assert.Empty(env.Prompts);
+    }
+
+    [Theory]
+    [InlineData("Codex")]
+    [InlineData("Copilot")]
+    [InlineData("OpenCode")]
+    [InlineData("Gemini")]
+    [InlineData("Pi")]
+    public async Task AnAgentWhoseConversationIsFoundByRepository_IsNotNamed(string agent)
+    {
+        // Two sessions in one repository could read each other's conversation, so only Claude Code is named.
+        var env = new FakeNamingEnvironment { Reply = "A Name" };
+        env.Facts!.Agent = agent;
+        var sut = new SessionNamingService(env);
+
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
+        Assert.Equal(0, env.TurnReads);
+        Assert.Empty(env.Prompts);
+    }
+
+    [Theory]
+    [InlineData("schedule")]
+    [InlineData("agent")]
+    public async Task ASessionNoPersonStarted_IsNotNamed(string origin)
+    {
+        var env = new FakeNamingEnvironment { Reply = "A Name" };
+        env.Facts!.OriginKind = origin;
+        var sut = new SessionNamingService(env);
+
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
+        Assert.Empty(env.Prompts);
+    }
+
+    [Theory]
+    [InlineData("human")]
+    [InlineData("unknown")]
+    [InlineData(null)]
+    public async Task ASessionAPersonStarted_OrFromBeforeOriginsWereRecorded_IsNamed(string? origin)
+    {
+        var env = new FakeNamingEnvironment { Reply = "A Name" };
+        env.Facts!.OriginKind = origin;
+        var sut = new SessionNamingService(env);
+
+        Assert.Equal("A Name", await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
+    }
+
+    [Fact]
+    public async Task TheSwitchTurnedOffDuringTheWait_StopsTheCall()
+    {
+        var env = new FakeNamingEnvironment { Reply = "A Name" };
+        var full = env.Turns;
+        env.Turns = Turns();
+        env.OnDelay = _ => { env.Turns = full; env.Judge = false; };
+        var sut = new SessionNamingService(env);
+
+        Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
+        Assert.Empty(env.Prompts);
+    }
+
+    [Fact]
+    public async Task ASessionHeldDuringTheWait_IsNotAskedAbout()
+    {
+        var env = new FakeNamingEnvironment { Reply = "A Name" };
+        var full = env.Turns;
+        env.Turns = Turns();
+        env.OnDelay = _ => { env.Turns = full; env.Held = true; };
         var sut = new SessionNamingService(env);
 
         Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
@@ -166,7 +236,7 @@ public sealed class SessionNamingServiceTests
     public async Task ARenameWhileTheModelAnswers_Wins()
     {
         var env = new FakeNamingEnvironment { Reply = "Model Name" };
-        env.OnAsk = () => env.Facts = new SessionDto { SessionId = Sid, DirectorId = Director, Name = "Typed By Hand" };
+        env.OnAsk = () => env.Facts = new SessionDto { SessionId = Sid, DirectorId = Director, Agent = "ClaudeCode", Name = "Typed By Hand" };
         var sut = new SessionNamingService(env);
 
         Assert.Null(await sut.NameIfUnnamedAsync(Tenant, Sid, Director));
@@ -247,7 +317,7 @@ public sealed class SessionNamingServiceTests
 
     private sealed class FakeNamingEnvironment : ISessionNamingEnvironment
     {
-        public SessionDto? Facts = new() { SessionId = Sid, DirectorId = Director, Name = null };
+        public SessionDto? Facts = new() { SessionId = Sid, DirectorId = Director, Agent = "ClaudeCode", Name = null };
         public TurnsResponse? Turns = SessionNamingServiceTests.Turns(("UserMessage", "add a github issue and implement naming"));
         public bool Held;
         public bool Judge = true;
