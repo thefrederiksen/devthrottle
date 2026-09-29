@@ -332,10 +332,11 @@ public sealed class VoiceModeAllEndpointProofTests : IAsyncLifetime
         var sid1 = Guid.NewGuid().ToString();
         var sid2 = Guid.NewGuid().ToString();
         var ownerTurn = new DateTime(2026, 9, 28, 9, 0, 0, DateTimeKind.Utc);
+        var turns = new Dictionary<string, int> { [sid1] = 3, [sid2] = 3 };
         SessionDto Row(string sid, string activity) => new()
         {
             SessionId = sid, Name = sid[..4], Status = activity, ActivityState = activity, RepoPath = @"D:\repo",
-            LastOwnerTurnAtUtc = ownerTurn,
+            LastOwnerTurnAtUtc = ownerTurn, TurnCount = turns[sid],
         };
 
         await PushAsync(1L, Row(sid1, "WaitingForInput"), Row(sid2, "WaitingForInput"));
@@ -348,6 +349,12 @@ public sealed class VoiceModeAllEndpointProofTests : IAsyncLifetime
         for (var stop = 0; stop < 5; stop++)
         {
             var sid = stop % 2 == 0 ? sid1 : sid2;
+            if (stop >= 2)
+            {
+                // The owner's previous turn on this session finishes: the Director counts it and reports the stop.
+                turns[sid]++;
+                await _conn.InvokeAsync("PushDelta", sequence++, Row(sid, "WaitingForInput"));
+            }
             voice.StoreReadyAudioForTest(tenant, sid, "Spoken.", "Reply.", new byte[] { 0x49, 0x44, 0x33 });
             ownerTurn = ownerTurn.AddMinutes(1);   // the owner types a reply without listening
             var answered = Row(sid, "Working");
