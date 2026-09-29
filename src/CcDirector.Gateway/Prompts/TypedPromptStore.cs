@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Prompts;
 
@@ -724,6 +725,21 @@ public sealed class TypedPromptStore
             SessionId = r.SessionId,
             AgeSeconds = (long)Math.Floor(age.TotalSeconds),
             DirectorNoAnswer = noAnswerKind,
+        });
+
+    /// <summary>Rule a held record could-not-confirm because the DIRECTOR said so (issue #3484: its watch of the agent's records
+    /// ended without proof either way), and write <c>unconfirmed</c> with the Director's state and reason. The text is kept.</summary>
+    public void ResolveUnconfirmedByDirector(string deliveryId, string? directorReason)
+        => Transition(deliveryId, r => r with
+        {
+            State = TypedPromptState.Unconfirmed,
+            Reason = "unconfirmed",
+            ResolvedAtUtc = _clock.GetUtcNow().UtcDateTime,
+        }, TypedPromptDecisions.Unconfirmed, r => new TypedPromptDecisionFacts
+        {
+            SessionId = r.SessionId,
+            State = DeliveryStates.Unconfirmed,
+            Reason = directorReason,
         });
 
     /// <summary>Resolve a held record as session-ended (the text is kept, no "Send anyway"), and write <c>session-exited</c>.</summary>

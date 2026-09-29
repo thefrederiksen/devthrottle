@@ -85,6 +85,15 @@ public sealed class PromptRequest
     public string? DeliveryIdClaim { get; set; }
 
     /// <summary>
+    /// True when the Gateway sending this can read <see cref="Contracts.DeliveryState.Unconfirmed"/> in the answer
+    /// (issue #3484). Set by the Gateway's one prompt send (<c>SessionVerbClient.SendPromptAsync</c>). A copy of a delivery
+    /// id the Director could not confirm is refused either way; to a sender without this flag - a Gateway older than the
+    /// word, whose reader throws on it - the refusal is a failure rather than an answer carrying the word, which that
+    /// Gateway reads as unanswered, asks about, and rules "could not confirm it arrived" with no "Send anyway".
+    /// </summary>
+    public bool ReadsUnconfirmed { get; set; }
+
+    /// <summary>
     /// Wingman menu guard (issue #2193). When true, the GATEWAY reads the session's live screen immediately
     /// before forwarding this prompt and REFUSES to send it if a menu owns that screen - answering
     /// <see cref="PromptResponse.BlockedByMenu"/> instead. Typing a spoken sentence into an on-screen picker
@@ -261,7 +270,9 @@ public sealed class PromptResponse
     /// For a prompt with a <see cref="PromptRequest.DeliveryId"/> it is also what the Director's record says of a copy
     /// that was refused with nothing typed (<see cref="Accepted"/> false): <see cref="Contracts.DeliveryState.Delivered"/>
     /// when that id had ALREADY been delivered, <see cref="Contracts.DeliveryState.Delivering"/> when another copy is still
-    /// being delivered, and <see cref="Contracts.DeliveryState.NotDelivered"/> when nothing was typed for a reason
+    /// being delivered, <see cref="Contracts.DeliveryState.Unconfirmed"/> when an earlier copy could not be confirmed
+    /// either way (only to a sender that set <see cref="PromptRequest.ReadsUnconfirmed"/>), and
+    /// <see cref="Contracts.DeliveryState.NotDelivered"/> when nothing was typed for a reason
     /// (<see cref="DeliveryStateReason"/>).
     ///
     /// Null for a prompt sent without Enter that carries no delivery id, for a prompt refused because the session was

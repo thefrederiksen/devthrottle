@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
@@ -157,6 +158,139 @@ public sealed class TypedPromptDeliveryTests : IDisposable
         Assert.Equal("hello agent", record.Text);
         Assert.Equal(0, _prompts);
         Assert.Equal("not-delivered", DecisionsAfterHold(store, id).Last());
+    }
+
+    // ===== issue #3484: a delivery the Director could not confirm is never offered "Send anyway" =============
+    // These answer the question with the REAL Director's delivery-state verb over a real delivery record, so the word on
+    // the wire is the one the Director actually writes - in both orders of an upgrade.
+
+    [Fact]
+    public void ReadSend_ARefusedCopyTheDirectorCouldNotConfirm_IsAnsweredNotTyped_NeverNotIn()
+    {
+        // Proves a refused copy carrying "unconfirmed" is today's 200 with the Director's answer - never "not in" (502),
+        // which would hand the words back to be sent again.
+        var reading = TypedPromptDelivery.ReadSend(Accepted(new PromptResponse
+        {
+            Accepted = false, DeliveryState = DeliveryState.Unconfirmed, DeliveryStateReason = "could not be confirmed",
+        }));
+
+        Assert.Equal(TypedSendKind.AnsweredNotTyped, reading.Kind);
+        Assert.Equal(DeliveryState.Unconfirmed, reading.Body!.DeliveryState);
+    }
+
+    [Fact]
+    public async Task Drive_NewDirector_SaysUnconfirmed_IsRuledUnconfirmedAtOnce_WithNoSendAnyway_AndSendsNothing()
+    {
+        // Arrange: well inside the five-minute limit, the Director's record says the words could not be confirmed.
+        var (store, id, sid) = HeldPrompt("delivering");
+        var record = DirectorRecord();
+        record.TryBeginDelivery(Guid.Parse(sid), id);
+        record.MarkUnconfirmed(Guid.Parse(sid), id, DeliveryRecord.NoRecordsToWatchReason);
+        var asked = new List<DeliveryStateRequest>();
+        lock (_answers) _answers.Enqueue(cmd => RealDirector(cmd, record, askedByAnOldGateway: false, asked));
+
+        // Act
+        var result = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
+
+        // Assert: this Gateway said it reads the word; the Director answered it; the prompt is resolved could-not-confirm
+        // at once with its text and NO "Send anyway", and nothing was sent.
+        Assert.True(Assert.Single(asked).ReadsUnconfirmed);
+        Assert.Equal(TypedDriveResult.Finished, result);
+        var held = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.Unconfirmed, held.State);
+        Assert.Equal("hello agent", held.Text);
+        Assert.Equal(0, _prompts);
+        var line = store.ReadDecisions(id).Last();
+        Assert.Equal(TypedPromptDecisions.Unconfirmed, line.Decision);
+        Assert.Equal(DeliveryStates.Unconfirmed, line.Facts!.State);
+        Assert.Equal(DeliveryRecord.NoRecordsToWatchReason, line.Facts.Reason);
+        var body = await ExecuteAsync(TypedPromptDelivery.OutcomeResult(held));
+        Assert.Equal("unconfirmed", body.Json.GetProperty("reason").GetString());
+        Assert.False(body.Json.GetProperty("offerSendAnyway").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Drive_NewDirector_AskedAsAnOldGatewayAsks_GivesNoAnswer_SoItIsHeldThenUnconfirmedWithNoSendAnyway()
+    {
+        // Arrange: the same unconfirmed record, asked the way a Gateway older than the word asks - without the field. That
+        // Gateway's reader throws on "unconfirmed", so the Director must not send it; its failure answer is read by the same
+        // reading code the older Gateway has (only the field was added to this client).
+        var (store, id, sid) = HeldPrompt("delivering");
+        var record = DirectorRecord();
+        record.TryBeginDelivery(Guid.Parse(sid), id);
+        record.MarkUnconfirmed(Guid.Parse(sid), id, DeliveryRecord.NoRecordsToWatchReason);
+        var driver = Driver();
+        lock (_answers) _answers.Enqueue(cmd => RealDirector(cmd, record, askedByAnOldGateway: true, null));
+
+        // Act 1: inside the limit.
+        var first = await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
+
+        // Assert 1: no answer - held, never "not-delivered".
+        Assert.Equal(TypedDriveResult.Held, first);
+        Assert.Equal(TypedPromptState.Held, store.Read(id).Record!.State);
+        Assert.Equal("no-answer", store.ReadDecisions(id).Single(l => l.Decision == "delivery-state-answer").Facts!.Reason);
+
+        // Act 2: past the five-minute limit from the send.
+        _clock.Ahead = TimeSpan.FromMinutes(5) + TimeSpan.FromSeconds(1);
+        lock (_answers) _answers.Enqueue(cmd => RealDirector(cmd, record, askedByAnOldGateway: true, null));
+        var second = await driver.DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
+
+        // Assert 2: could not confirm it, with NO "Send anyway" - the same verdict, reached the older way. Nothing sent.
+        Assert.Equal(TypedDriveResult.Finished, second);
+        var held = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.Unconfirmed, held.State);
+        Assert.Equal(0, _prompts);
+        var body = await ExecuteAsync(TypedPromptDelivery.OutcomeResult(held));
+        Assert.False(body.Json.GetProperty("offerSendAnyway").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Drive_OldDirector_ReadsTheNewQuestion_AndItsNotDeliveredIsStillShownBackWithSendAnyway()
+    {
+        // Arrange: a Director older than the word. It reads the question with its own request shape, which has no
+        // ReadsUnconfirmed field - the new field must not break that read - and it still writes a could-not-confirm ending
+        // as "not-delivered", as every Director did before issue #3484.
+        var (store, id, _) = HeldPrompt("delivering");
+        string? oldDirectorRead = null;
+        lock (_answers) _answers.Enqueue(cmd =>
+        {
+            var question = JsonSerializer.Deserialize<OldDeliveryStateRequest>(cmd.PayloadJson, Json)!;
+            oldDirectorRead = question.DeliveryId;
+            return StateAnswer(cmd, DeliveryState.NotDelivered);
+        });
+
+        // Act
+        var result = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
+
+        // Assert: the old Director read the question, and the Gateway behaves exactly as it did before - shown back with
+        // "Send anyway". That order cannot be better than today until the Director updates; it is not worse.
+        Assert.Equal(id, oldDirectorRead);
+        Assert.Equal(TypedDriveResult.Finished, result);
+        var held = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.NotDelivered, held.State);
+        var body = await ExecuteAsync(TypedPromptDelivery.OutcomeResult(held));
+        Assert.True(body.Json.GetProperty("offerSendAnyway").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Drive_NewDirector_ProvablyNotDelivered_IsStillShownBackWithSendAnyway()
+    {
+        // Proves issue #3484 narrows only the unproven endings: a send that provably never arrived - here the session
+        // ended before the words reached its records - is still "not-delivered", and still offered "Send anyway".
+        var (store, id, sid) = HeldPrompt("delivering");
+        var record = DirectorRecord();
+        record.TryBeginDelivery(Guid.Parse(sid), id);
+        record.MarkNotDelivered(Guid.Parse(sid), id, DeliveryRecord.SessionEndedReason);
+        lock (_answers) _answers.Enqueue(cmd => RealDirector(cmd, record, askedByAnOldGateway: false, null));
+
+        var result = await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick);
+
+        Assert.Equal(TypedDriveResult.Finished, result);
+        var held = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.NotDelivered, held.State);
+        var body = await ExecuteAsync(TypedPromptDelivery.OutcomeResult(held));
+        Assert.Equal("not-delivered", body.Json.GetProperty("reason").GetString());
+        Assert.True(body.Json.GetProperty("offerSendAnyway").GetBoolean());
     }
 
     [Fact]
@@ -672,6 +806,34 @@ public sealed class TypedPromptDeliveryTests : IDisposable
     private void Answer(DeliveryState state)
     {
         lock (_answers) _answers.Enqueue(cmd => StateAnswer(cmd, state));
+    }
+
+    /// <summary>The Director's own delivery record, in this test's folder.</summary>
+    private DeliveryRecord DirectorRecord() => new(Path.Combine(_root, "director-deliveries"));
+
+    /// <summary>
+    /// The REAL Director's answer to the delivery-state question (<see cref="ControlApi.SessionReadExecutor.DeliveryStateOf"/>).
+    /// <paramref name="askedByAnOldGateway"/> sends the question exactly as a Gateway older than the unconfirmed word does:
+    /// without the field. <paramref name="asked"/>, when given, collects each question as this Gateway sent it.
+    /// </summary>
+    private static DirectorCommandResult RealDirector(DirectorCommand cmd, DeliveryRecord record, bool askedByAnOldGateway,
+        List<DeliveryStateRequest>? asked)
+    {
+        var question = JsonSerializer.Deserialize<DeliveryStateRequest>(cmd.PayloadJson, Json)!;
+        asked?.Add(question);
+        var payload = askedByAnOldGateway
+            ? JsonSerializer.Serialize(new OldDeliveryStateRequest { DeliveryId = question.DeliveryId }, Json)
+            : cmd.PayloadJson;
+        var result = ControlApi.SessionReadExecutor.DeliveryStateOf(
+            new DirectorCommand { CommandId = cmd.CommandId, Verb = cmd.Verb, SessionId = cmd.SessionId, PayloadJson = payload }, record);
+        result.CommandId = cmd.CommandId;
+        return result;
+    }
+
+    /// <summary>The delivery-state question as it was before issue #3484: the delivery id alone.</summary>
+    private sealed class OldDeliveryStateRequest
+    {
+        public string DeliveryId { get; set; } = "";
     }
 
     private static DirectorCommandResult StateAnswer(DirectorCommand cmd, DeliveryState state)

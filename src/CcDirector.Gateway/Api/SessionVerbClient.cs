@@ -139,6 +139,8 @@ internal sealed class SessionVerbClient
     public async Task<PromptSendOutcome> SendPromptAsync(
         string sid, PromptRequest req, CancellationToken ct = default)
     {
+        // This Gateway reads "unconfirmed" (issue #3484), so a Director may answer a refused copy with it.
+        req.ReadsUnconfirmed = true;
         var result = await DirectorCommandRouter.TrySendAsync(_sendCommand, _director.DirectorId, "prompt", sid, req, ct,
             machineName: _director.MachineName);
 
@@ -189,7 +191,7 @@ internal sealed class SessionVerbClient
         if (string.IsNullOrWhiteSpace(deliveryId)) throw new ArgumentException("A delivery id is required.", nameof(deliveryId));
 
         var result = await DirectorCommandRouter.TrySendAsync(_sendCommand, _director.DirectorId, DeliveryStateRequest.Verb, sid,
-            new DeliveryStateRequest { DeliveryId = deliveryId }, ct, machineName: _director.MachineName);
+            new DeliveryStateRequest { DeliveryId = deliveryId, ReadsUnconfirmed = true }, ct, machineName: _director.MachineName);
 
         if (result is null)
             return new DeliveryStateAsk(DeliveryStateAskKind.NeverLeftTheGateway, null,

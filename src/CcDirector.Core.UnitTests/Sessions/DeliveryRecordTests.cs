@@ -75,6 +75,24 @@ public sealed class DeliveryRecordTests : IDisposable
     }
 
     [Fact]
+    public void TryBeginDelivery_Unconfirmed_IsRefusedAndTypesNothing()
+    {
+        // Proves issue #3484: a delivery whose words left the composer and could not be confirmed either way never begins
+        // again - the agent may hold it, so a second copy could double it - and it stays unconfirmed with its reason.
+        var record = new DeliveryRecord(_dir);
+        record.TryBeginDelivery(_session, "upload-1");
+        record.MarkUnconfirmed(_session, "upload-1", DeliveryRecord.NoRecordsToWatchReason);
+
+        var claim = record.TryBeginDelivery(_session, "upload-1");
+
+        Assert.False(claim.Began);
+        Assert.Equal(DeliveryState.Unconfirmed, claim.Existing.State);
+        Assert.Equal(DeliveryRecord.NoRecordsToWatchReason, claim.Existing.Reason);
+        var after = new DeliveryRecord(_dir).Read(_session, "upload-1");
+        Assert.Equal(DeliveryState.Unconfirmed, after.State);
+    }
+
+    [Fact]
     public void Record_SurvivesARestart_IncludingADeliveringLeftByACrash()
     {
         // Proves a fresh record over the same directory - a restarted Director - reads back every state, and that an
@@ -203,9 +221,10 @@ public sealed class DeliveryRecordTests : IDisposable
     [InlineData(DeliveryState.Delivering, "delivering")]
     [InlineData(DeliveryState.Delivered, "delivered")]
     [InlineData(DeliveryState.NotDelivered, "not-delivered")]
+    [InlineData(DeliveryState.Unconfirmed, "unconfirmed")]
     public void DeliveryState_TravelsAsItsWord(DeliveryState state, string word)
     {
-        // Proves the wire carries the four words, never the enum's number, and reads them back.
+        // Proves the wire carries the five words, never the enum's number, and reads them back.
         var json = System.Text.Json.JsonSerializer.Serialize(new DeliveryStateResponse { DeliveryId = "x", State = state },
             new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
 

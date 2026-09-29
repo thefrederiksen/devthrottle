@@ -6,6 +6,7 @@ using CcDirector.ControlApi;
 using CcDirector.Core;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Dictation.Models;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
@@ -287,6 +288,154 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
         Assert.Equal(1, _transcriber.Calls);
         Assert.Equal(2, _commands.Count(c => c.Verb == "prompt"));
         Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
+    }
+
+    // ===== issue #3484: a recording the Director could not confirm is never offered "Send anyway" ===========
+
+    [Fact]
+    public async Task ARetryTheDirectorSaysItCouldNotConfirm_IsShownBackUnconfirmedAtOnce_WithNoSendAnyway()
+    {
+        // Proves a retry that asks first and hears "unconfirmed" is resolved "could not confirm it arrived" at once - a
+        // minute after Send, long before the five-minute limit, because the Director has ruled - with the kept words, no
+        // "Send anyway", nothing transcribed again and nothing typed again.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _prompt = _ => Refused(DeliveryState.Delivering);
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+
+        _clock.Now = T0 + TimeSpan.FromMinutes(1);
+        _deliveryState = _ => StateIs(DeliveryState.Unconfirmed, "could not be confirmed: the Director had no records to watch for this agent");
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        AssertShownBackUnconfirmed(uploadId, status, body);
+        Assert.Equal("unconfirmed", Line(uploadId, DeliveryDecisions.DeliveryStateAnswer).State);
+        Assert.Equal(1, _transcriber.Calls);
+        Assert.Single(_commands, c => c.Verb == "prompt");
+    }
+
+    [Fact]
+    public async Task ACopyTheDirectorRefusesAsUnconfirmed_IsShownBackUnconfirmed_WithNoSendAnyway()
+    {
+        // Proves the prompt verb's own refusal of a copy of an unconfirmed delivery is read as unconfirmed - never as the
+        // "not delivered" every other refusal is, which the Gateway would try again.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _prompt = _ => Refused(DeliveryState.Unconfirmed);
+
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0);
+
+        AssertShownBackUnconfirmed(uploadId, status, body);
+        Assert.Single(_commands, c => c.Verb == "prompt");
+        Assert.Equal("unconfirmed", Line(uploadId, DeliveryDecisions.DirectorAnswer).State);
+    }
+
+    [Fact]
+    public async Task NewDirectorAndNewGateway_AnUnconfirmedRecording_IsShownBackUnconfirmedAtOnce()
+    {
+        // Arrange: the REAL Director's record and its real delivery-state verb. The send is accepted still delivering,
+        // then the Director's late watch ends without proof either way.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        var record = new DeliveryRecord(Path.Combine(_root, "director-deliveries"));
+        string? deliveryId = null;
+        _prompt = cmd =>
+        {
+            deliveryId = JsonSerializer.Deserialize<PromptRequest>(cmd.PayloadJson, Json)!.DeliveryId!;
+            record.TryBeginDelivery(Guid.Parse(sid), deliveryId);
+            return Answer(new PromptResponse { Accepted = true, DeliveryState = DeliveryState.Delivering });
+        };
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+        record.MarkUnconfirmed(Guid.Parse(sid), deliveryId!, DeliveryRecord.NoRecordsToWatchReason);
+        var asked = new List<DeliveryStateRequest>();
+        _deliveryState = cmd => RealDirector(cmd, record, askedByAnOldGateway: false, asked);
+
+        // Act
+        _clock.Now = T0 + TimeSpan.FromMinutes(1);
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        // Assert: this Gateway told the Director it reads the word, and the recording is could-not-confirm at once.
+        Assert.True(Assert.Single(asked).ReadsUnconfirmed);
+        AssertShownBackUnconfirmed(uploadId, status, body);
+        Assert.Single(_commands, c => c.Verb == "prompt");
+    }
+
+    [Fact]
+    public async Task NewDirectorAndOldGateway_AnUnconfirmedRecording_IsHeldThenUnconfirmedPastTheLimit_NeverSendAnyway()
+    {
+        // Arrange: as above, but the question arrives the way a Gateway older than the word sends it - without the field.
+        // That Gateway's reader throws on "unconfirmed"; the Director answers it a failure instead, which the same reading
+        // code (unchanged but for the field this client now sends) reads as no answer.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        var record = new DeliveryRecord(Path.Combine(_root, "director-deliveries"));
+        string? deliveryId = null;
+        _prompt = cmd =>
+        {
+            deliveryId = JsonSerializer.Deserialize<PromptRequest>(cmd.PayloadJson, Json)!.DeliveryId!;
+            record.TryBeginDelivery(Guid.Parse(sid), deliveryId);
+            return Answer(new PromptResponse { Accepted = true, DeliveryState = DeliveryState.Delivering });
+        };
+        Assert.Equal(202, (await CompleteAsync(uploadId, sid, sentAt: T0)).Status);
+        record.MarkUnconfirmed(Guid.Parse(sid), deliveryId!, DeliveryRecord.NoRecordsToWatchReason);
+        var answers = new List<DirectorCommandResult>();
+        _deliveryState = cmd =>
+        {
+            var answer = RealDirector(cmd, record, askedByAnOldGateway: true, null);
+            answers.Add(answer);
+            return answer;
+        };
+
+        // Act 1: a minute after Send.
+        _clock.Now = T0 + TimeSpan.FromMinutes(1);
+        var held = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        // Assert 1: the word never reached the older Gateway, and it holds - never "not delivered", never retried.
+        Assert.False(answers.Single().Ok);
+        Assert.Equal(DirectorCommandStatus.Error, answers.Single().Status);
+        Assert.DoesNotContain("unknown verb", answers.Single().Error);
+        Assert.Null(answers.Single().BodyJson);
+        Assert.Equal(202, held.Status);
+        Assert.Equal("no-answer", held.Body.GetProperty("directorState").GetString());
+
+        // Act 2: past the five-minute limit from Send.
+        _clock.Now = T0 + TimeSpan.FromSeconds(301);
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0, resumed: true);
+
+        // Assert 2: could not confirm it, no "Send anyway" - the same verdict the older way. One prompt in all.
+        AssertShownBackUnconfirmed(uploadId, status, body);
+        Assert.Equal("no-answer", Lines(uploadId).Last(l => l.Decision == DeliveryDecisions.Unconfirmed).Facts!.DirectorNoAnswer);
+        Assert.Single(_commands, c => c.Verb == "prompt");
+    }
+
+    private void AssertShownBackUnconfirmed(string uploadId, int status, JsonElement body)
+    {
+        Assert.Equal(200, status);
+        Assert.False(body.GetProperty("submitted").GetBoolean());
+        Assert.True(body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal(GatewayDictationEndpoint.UnconfirmedReason, body.GetProperty("reason").GetString());
+        Assert.False(body.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal(SpokenWords, body.GetProperty("transcript").GetString());
+        var record = _store.ReadRecord(uploadId)!;
+        Assert.Equal(DictationDeliveryState.Delivered, record.State);
+        Assert.False(record.Submitted);
+        Assert.Equal("unconfirmed", record.Reason);
+    }
+
+    /// <summary>
+    /// The REAL Director's answer to the delivery-state question (<see cref="SessionReadExecutor.DeliveryStateOf"/>).
+    /// <paramref name="askedByAnOldGateway"/> sends the question exactly as a Gateway older than the unconfirmed word does:
+    /// without the field. <paramref name="asked"/>, when given, collects each question as this Gateway sent it.
+    /// </summary>
+    private static DirectorCommandResult RealDirector(DirectorCommand cmd, DeliveryRecord record, bool askedByAnOldGateway,
+        List<DeliveryStateRequest>? asked)
+    {
+        var question = JsonSerializer.Deserialize<DeliveryStateRequest>(cmd.PayloadJson, Json)!;
+        asked?.Add(question);
+        var payload = askedByAnOldGateway
+            ? JsonSerializer.Serialize(new { deliveryId = question.DeliveryId }, Json)
+            : cmd.PayloadJson;
+        return SessionReadExecutor.DeliveryStateOf(
+            new DirectorCommand { CommandId = cmd.CommandId, Verb = cmd.Verb, SessionId = cmd.SessionId, PayloadJson = payload }, record);
     }
 
     // ===== 4. the five-minute rule ==========================================================================

@@ -16,7 +16,7 @@ public sealed class DeliveryRecordEntry
     /// <summary>The state it moved to, as its wire word (<see cref="DeliveryStates"/>).</summary>
     public string State { get; set; } = "";
 
-    /// <summary>Why it was not delivered: the send's exception message. Null for every other state.</summary>
+    /// <summary>Why it was not delivered, or why it could not be confirmed. Null for every other state.</summary>
     public string? Reason { get; set; }
 
     /// <summary>When the state was written, in UTC.</summary>
@@ -27,8 +27,8 @@ public sealed class DeliveryRecordEntry
 public sealed record DeliveryLookup(DeliveryState State, string? Reason, DateTime? At);
 
 /// <summary>The answer to <see cref="DeliveryRecord.TryBeginDelivery"/>: either this caller now owns the delivery
-/// (<see cref="Began"/>, and <c>Delivering</c> is on disk), or the id was already delivered or being delivered and
-/// <see cref="Existing"/> says which - in which case nothing may be typed.</summary>
+/// (<see cref="Began"/>, and <c>Delivering</c> is on disk), or the id was already delivered, being delivered, or could not
+/// be confirmed, and <see cref="Existing"/> says which - in which case nothing may be typed.</summary>
 public sealed record DeliveryClaim(bool Began, DeliveryLookup Existing);
 
 /// <summary>
@@ -59,11 +59,17 @@ public sealed class DeliveryRecordUnreadableException : Exception
 /// THE STATES FOLLOW THE SEND (<c>TextSendOutcome</c>): a send that throws is not delivered; one that returns confirmed is
 /// delivered; one that returns still delivering (phase 3: the words left the composer of a working agent and are not yet
 /// in its records, or the send outlived the prompt verb's answer budget) stays <c>Delivering</c> while the Director
-/// watches the agent's records, then becomes <c>Delivered</c> when they show it, or <c>NotDelivered</c> with
+/// watches the agent's records, then becomes <c>Delivered</c> when they show it, or <c>Unconfirmed</c> with
 /// <see cref="NeverInAgentRecordsReason"/> when the watch ends without it. Nothing stays <c>Delivering</c> forever
 /// (round 2c): with no records to watch, or after the watch fails, it stays <c>Delivering</c> to the same limit and then
-/// becomes <c>NotDelivered</c> with <see cref="NoRecordsToWatchReason"/> or <see cref="RecordsWatchFailedReason"/>; a
-/// session that ends first makes it <c>NotDelivered</c> at once, with <see cref="SessionEndedReason"/>. <c>Delivering</c> is written BEFORE the first
+/// becomes <c>Unconfirmed</c> with <see cref="NoRecordsToWatchReason"/> or <see cref="RecordsWatchFailedReason"/>; a
+/// session that ends first makes it <c>NotDelivered</c> at once, with <see cref="SessionEndedReason"/>.
+///
+/// UNCONFIRMED IS NOT NOT-DELIVERED (issue #3484, the owner's ruling of 29 September 2026). Every one of those
+/// watch endings comes after the words LEFT THE COMPOSER, so the agent may hold them: a watch that ends without proof
+/// either way proves nothing. <c>NotDelivered</c> is kept for words that provably never arrived, because it lets the id
+/// begin again and the Gateway offers "Send anyway" for it; <c>Unconfirmed</c> refuses a second copy exactly as
+/// <c>Delivered</c> does, and the Gateway answers it with no "Send anyway". <c>Delivering</c> is written BEFORE the first
 /// character is typed, so a Director that dies while typing leaves <c>Delivering</c> on disk.
 ///
 /// A <c>Delivering</c> ENTRY FOUND AT START-UP STAYS <c>Delivering</c>. It is the honest answer: the words may be in,
@@ -133,9 +139,10 @@ public sealed class DeliveryRecord
     }
 
     /// <summary>
-    /// The one step before typing: look the id up and, unless it is already delivered or being delivered, write
-    /// <see cref="DeliveryState.Delivering"/> - both under this session's lock. <see cref="DeliveryClaim.Began"/> false
-    /// means nothing may be typed. An id that is unknown or not delivered begins (a not-delivered one is a real retry).
+    /// The one step before typing: look the id up and, unless it is already delivered, being delivered, or could not be
+    /// confirmed, write <see cref="DeliveryState.Delivering"/> - both under this session's lock.
+    /// <see cref="DeliveryClaim.Began"/> false means nothing may be typed. An id that is unknown or not delivered begins (a
+    /// not-delivered one is a real retry); an unconfirmed one never does, because its words may already be in.
     /// </summary>
     public DeliveryClaim TryBeginDelivery(Guid sessionId, string deliveryId)
     {
@@ -145,7 +152,7 @@ public sealed class DeliveryRecord
         {
             var entries = ReadEntries(sessionId);
             var existing = Latest(entries, deliveryId);
-            if (existing.State is DeliveryState.Delivered or DeliveryState.Delivering)
+            if (existing.State is DeliveryState.Delivered or DeliveryState.Delivering or DeliveryState.Unconfirmed)
             {
                 FileLog.Write($"[DeliveryRecord] TryBeginDelivery: REFUSED session={sessionId}, deliveryId={deliveryId}: already {DeliveryStates.Format(existing.State)} since {existing.At:O}");
                 return new DeliveryClaim(false, existing);
@@ -159,8 +166,8 @@ public sealed class DeliveryRecord
     /// <summary>
     /// The reason written when a send that was still delivering never showed in the agent's records before the Director's
     /// late watch ended (the Delivery Lead's ruling, round 2b: nothing stays delivering forever): "never appeared in the
-    /// agent's records within 15 minutes". The Gateway reads the resulting not-delivered as known-not-in and shows the owner
-    /// his words with "Send anyway"; nothing types them a second time by itself.
+    /// agent's records within 15 minutes". The words left the composer, so this is written as UNCONFIRMED (issue #3484):
+    /// the Gateway shows the owner his words with no "Send anyway", and nothing types them a second time.
     /// </summary>
     public static string NeverInAgentRecordsReason(TimeSpan watch)
     {
@@ -195,6 +202,14 @@ public sealed class DeliveryRecord
     {
         if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("A not-delivered entry must say why.", nameof(reason));
         Write(sessionId, deliveryId, DeliveryState.NotDelivered, reason);
+    }
+
+    /// <summary>The words left the composer and the late watch ended without proof either way, for <paramref name="reason"/>
+    /// (issue #3484). The id never begins again.</summary>
+    public void MarkUnconfirmed(Guid sessionId, string deliveryId, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("An unconfirmed entry must say why.", nameof(reason));
+        Write(sessionId, deliveryId, DeliveryState.Unconfirmed, reason);
     }
 
     private void Write(Guid sessionId, string deliveryId, DeliveryState state, string? reason)
@@ -256,7 +271,7 @@ public sealed class DeliveryRecord
         {
             var entry = entries[i];
             if (!string.Equals(entry.Id, deliveryId, StringComparison.Ordinal)) continue;
-            // Already checked when the file was read; a word that is not one of the four made the file unreadable.
+            // Already checked when the file was read; a word that is not one of the five made the file unreadable.
             DeliveryStates.TryParse(entry.State, out var state);
             return new DeliveryLookup(state, entry.Reason, entry.At);
         }
@@ -306,7 +321,7 @@ public sealed class DeliveryRecord
             if (entry is null || string.IsNullOrWhiteSpace(entry.Id) || !DeliveryStates.TryParse(entry.State, out _))
             {
                 FileLog.Write($"[DeliveryRecord] ReadEntries FAILED: {path} line {i + 1} has no id or an unknown state");
-                throw new DeliveryRecordUnreadableException(path, $"line {i + 1} has no id or a state that is not one of the four");
+                throw new DeliveryRecordUnreadableException(path, $"line {i + 1} has no id or a state that is not one of the five");
             }
             entries.Add(entry);
         }

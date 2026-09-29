@@ -155,7 +155,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     }
 
     [Fact]
-    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_AnswersDeliveringThenNotDeliveredAtTheWatchLimit()
+    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_AnswersDeliveringThenUnconfirmedAtTheWatchLimit()
     {
         // Arrange (review finding 3, case b): the composer empties on the Enter; the records never show the prompt.
         var (session, terminal) = WorkingClaudeCode();
@@ -170,11 +170,12 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         var late = await LateOutcomeFor(deliveryId, async () => response = Body(
             await ControlApi.SessionCommandExecutor.SendPromptAsync(session, Recording(text, deliveryId), SendSource.Delivery, NewDeliveryRecord())));
 
-        // Assert: "delivering" at the answer - never a failure inside the first window - and "not-delivered" when the watch
-        // ends without the records showing it (the Delivery Lead's ruling: nothing stays delivering forever). The words
-        // were typed once: nothing types them a second time by itself.
+        // Assert: "delivering" at the answer - never a failure inside the first window - and "unconfirmed" when the watch
+        // ends without the records showing it (the Delivery Lead's ruling: nothing stays delivering forever; issue #3484:
+        // the words left the composer, so that ending proves nothing either way). The words were typed once: nothing types
+        // them a second time by itself.
         Assert.Equal(DeliveryState.Delivering, response!.DeliveryState);
-        Assert.Equal(DeliveryStates.NotDelivered, late);
+        Assert.Equal(DeliveryStates.Unconfirmed, late);
         Assert.Equal(1, terminal.EntersAccepted);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "VERBLOST1"));
     }
@@ -229,7 +230,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     }
 
     [Fact]
-    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_DeliveryRecordIsDeliveringWhileTheWatchRunsThenNotDelivered()
+    public async Task SendPromptAsync_WorkingClaudeCodeNeverRecordsThePrompt_DeliveryRecordIsDeliveringWhileTheWatchRunsThenUnconfirmed()
     {
         // Arrange (round 2b): as case (b) above, with the durable record. The records never show the prompt.
         var (session, terminal) = WorkingClaudeCode();
@@ -249,12 +250,12 @@ public sealed class PromptAnswerBudgetTests : IDisposable
             atAnswer = record.Read(session.Id, deliveryId).State;
         });
 
-        // Assert: the record says "delivering" while the watch runs - never "delivered" without proof - and "not-delivered"
+        // Assert: the record says "delivering" while the watch runs - never "delivered" without proof - and "unconfirmed"
         // when the watch ends without the records showing it, with the reason the Delivery Lead ruled. Typed once.
         Assert.Equal(DeliveryState.Delivering, atAnswer);
-        Assert.Equal(DeliveryStates.NotDelivered, late);
+        Assert.Equal(DeliveryStates.Unconfirmed, late);
         var entry = record.Read(session.Id, deliveryId);
-        Assert.Equal(DeliveryState.NotDelivered, entry.State);
+        Assert.Equal(DeliveryState.Unconfirmed, entry.State);
         Assert.Equal("never appeared in the agent's records within 2 seconds", entry.Reason);
         Assert.Equal(1, terminal.EntersAccepted);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "RECLOST1"));
@@ -281,7 +282,7 @@ public sealed class PromptAnswerBudgetTests : IDisposable
     }
 
     [Fact]
-    public async Task SendPromptAsync_NoRecordsToWatch_DeliveryRecordIsDeliveringUntilTheLimitThenNotDelivered()
+    public async Task SendPromptAsync_NoRecordsToWatch_DeliveryRecordIsDeliveringUntilTheLimitThenUnconfirmed()
     {
         // Arrange (case 1): a working Codex whose composer cannot be read for the whole window after the Enter. Nothing is
         // known about the words, and the Director has no records of this agent's to watch for them.
@@ -305,20 +306,21 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         });
         var lateAfter = sinceAnswer.Elapsed;
 
-        // Assert: "delivering" at the answer and for the whole limit - never not-delivered early, which would invite a
-        // retry that doubles the words - then "not-delivered" with the ruled reason. Typed once, never cleared.
+        // Assert: "delivering" at the answer and for the whole limit - never an early ending - then "unconfirmed" with the
+        // ruled reason: never "not-delivered", which would invite a retry that doubles the words (issue #3484). Typed once,
+        // never cleared.
         Assert.Equal(DeliveryState.Delivering, atAnswer);
-        Assert.Equal(DeliveryStates.NotDelivered, late);
-        Assert.True(lateAfter >= TimeSpan.FromSeconds(2.5), $"not-delivered was written {lateAfter.TotalSeconds:F1}s after the answer, before the limit");
+        Assert.Equal(DeliveryStates.Unconfirmed, late);
+        Assert.True(lateAfter >= TimeSpan.FromSeconds(2.5), $"unconfirmed was written {lateAfter.TotalSeconds:F1}s after the answer, before the limit");
         var entry = record.Read(session.Id, deliveryId);
-        Assert.Equal(DeliveryState.NotDelivered, entry.State);
+        Assert.Equal(DeliveryState.Unconfirmed, entry.State);
         Assert.Equal("could not be confirmed: the Director had no records to watch for this agent", entry.Reason);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "NORECORDS1"));
         Assert.Equal(0, terminal.ClearKeysPressed);
     }
 
     [Fact]
-    public async Task SendPromptAsync_TheRecordsWatchThrows_DeliveryRecordIsDeliveringUntilTheLimitThenNotDeliveredNamingTheFailure()
+    public async Task SendPromptAsync_TheRecordsWatchThrows_DeliveryRecordIsDeliveringUntilTheLimitThenUnconfirmedNamingTheFailure()
     {
         // Arrange (case 2): a working Claude Code takes the Enter, the records never show the prompt, and every read of the
         // records in the late watch fails.
@@ -344,15 +346,93 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         });
         var lateAfter = sinceAnswer.Elapsed;
 
-        // Assert: the failure does not end the wait - "delivering" until the limit - then "not-delivered" naming it.
+        // Assert: the failure does not end the wait - "delivering" until the limit - then "unconfirmed" naming it.
         Assert.Equal(DeliveryState.Delivering, atAnswer);
-        Assert.Equal(DeliveryStates.NotDelivered, late);
-        Assert.True(lateAfter >= TimeSpan.FromSeconds(2.5), $"not-delivered was written {lateAfter.TotalSeconds:F1}s after the answer, before the limit");
+        Assert.Equal(DeliveryStates.Unconfirmed, late);
+        Assert.True(lateAfter >= TimeSpan.FromSeconds(2.5), $"unconfirmed was written {lateAfter.TotalSeconds:F1}s after the answer, before the limit");
         var entry = record.Read(session.Id, deliveryId);
-        Assert.Equal(DeliveryState.NotDelivered, entry.State);
+        Assert.Equal(DeliveryState.Unconfirmed, entry.State);
         Assert.Equal("could not be confirmed: the records watch failed: the records file is locked", entry.Reason);
         Assert.Equal(1, terminal.EntersAccepted);
         Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "WATCHFAIL1"));
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_ThePointerNamesAConversationThatDoesNotExist_DeliveryRecordIsDeliveringThenUnconfirmed()
+    {
+        // Arrange (issue #3484, the "cannot tell" ending of issue 3480): a working Claude Code whose conversation was
+        // readable, and whose pointer then moves to a conversation file that is never written. The composer empties on
+        // the Enter, so the words left it, and the records cannot say whether they arrived.
+        var (session, terminal) = WorkingClaudeCode();
+        terminal.NeverRecord = true;
+        var missing = Path.Combine(Path.GetTempPath(), "cc-verb-missing-" + Guid.NewGuid().ToString("N"), Guid.NewGuid() + ".jsonl");
+        session.UpdateClaudeSessionPointer(Guid.NewGuid().ToString(), missing, "clear");
+        session.ArrivalWindow = TimeSpan.FromSeconds(2);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(2);
+        var record = NewDeliveryRecord();
+        const string text = "Token CANNOTTELL1. Reply with exactly: ACK";
+        var deliveryId = Guid.NewGuid().ToString("N");
+        DeliveryState? atAnswer = null;
+
+        // Act
+        var late = await LateOutcomeFor(deliveryId, async () =>
+        {
+            var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(
+                session, Recording(text, deliveryId), SendSource.Delivery, record));
+            Assert.Equal(DeliveryState.Delivering, response.DeliveryState);
+            atAnswer = record.Read(session.Id, deliveryId).State;
+        });
+
+        // Assert: "delivering" while the watch runs, then "unconfirmed" - never "not-delivered", whose "Send anyway" could
+        // double words the agent may hold - with the cannot-tell reason. Typed once.
+        Assert.Equal(DeliveryState.Delivering, atAnswer);
+        Assert.Equal(DeliveryStates.Unconfirmed, late);
+        var entry = record.Read(session.Id, deliveryId);
+        Assert.Equal(DeliveryState.Unconfirmed, entry.State);
+        Assert.StartsWith("could not be confirmed: the records watch failed: ", entry.Reason);
+        Assert.Contains("cannot be told", entry.Reason);
+        Assert.Contains(missing, entry.Reason);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(terminal.TypedText, "CANNOTTELL1"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SendPromptAsync_ACopyOfAnUnconfirmedDelivery_IsRefusedAndNothingIsTyped(bool senderReadsUnconfirmed)
+    {
+        // Arrange (issue #3484): the record says this delivery could not be confirmed - its words may be in the agent.
+        var (session, terminal) = WorkingClaudeCode();
+        var record = NewDeliveryRecord();
+        var deliveryId = Guid.NewGuid().ToString("N");
+        record.TryBeginDelivery(session.Id, deliveryId);
+        record.MarkUnconfirmed(session.Id, deliveryId, DeliveryRecord.NoRecordsToWatchReason);
+        var copy = Recording("Token COPY1. Reply with exactly: ACK", deliveryId);
+        copy.ReadsUnconfirmed = senderReadsUnconfirmed;
+
+        // Act
+        var result = await ControlApi.SessionCommandExecutor.SendPromptAsync(session, copy, SendSource.Delivery, record);
+
+        // Assert: refused either way, with nothing typed and the record unchanged. A sender that reads the word is told
+        // "unconfirmed"; a sender older than it (a Gateway whose reader throws on the word) gets a failure it already rules
+        // on - never "unknown verb", which it would read as a Director too old to keep a record, and never a success
+        // carrying "not-delivered", which it would answer with "Send anyway".
+        Assert.Equal(0, terminal.TypedText.Length);
+        Assert.Equal(0, terminal.EntersAccepted);
+        Assert.Equal(DeliveryState.Unconfirmed, record.Read(session.Id, deliveryId).State);
+        if (senderReadsUnconfirmed)
+        {
+            var response = Body(result);
+            Assert.False(response.Accepted);
+            Assert.Equal(DeliveryState.Unconfirmed, response.DeliveryState);
+            Assert.Contains("could not be confirmed", response.DeliveryStateReason);
+        }
+        else
+        {
+            Assert.False(result.Ok);
+            Assert.Equal(DirectorCommandStatus.Error, result.Status);
+            Assert.DoesNotContain("unknown verb", result.Error);
+            Assert.Null(result.BodyJson);
+        }
     }
 
     [Fact]
@@ -382,8 +462,9 @@ public sealed class PromptAnswerBudgetTests : IDisposable
         });
         var lateAfter = sinceEnd.Elapsed;
 
-        // Assert: "not-delivered" as soon as the session ended - a retry into an ended session cannot double anything -
-        // not a minute later at the limit. Typed once.
+        // Assert: "not-delivered" as soon as the session ended - a retry into an ended session cannot double anything, so
+        // this provable ending stays not-delivered, never unconfirmed (issue #3484) - not a minute later at the limit.
+        // Typed once.
         Assert.Equal(DeliveryState.Delivering, atAnswer);
         Assert.Equal(DeliveryStates.NotDelivered, late);
         Assert.True(lateAfter < TimeSpan.FromSeconds(10), $"not-delivered came {lateAfter.TotalSeconds:F1}s after the session ended");

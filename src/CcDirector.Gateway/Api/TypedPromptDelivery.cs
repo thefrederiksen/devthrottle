@@ -188,6 +188,10 @@ internal sealed class TypedPromptDelivery
                 new TypedSendReading(TypedSendKind.AnsweredNotTyped, body, error, null, answer),
             DeliverySendKind.NotDelivered => new TypedSendReading(TypedSendKind.NotIn, null, error, null, answer,
                 NeverLeft: sent.Kind == SessionVerbClient.PromptSendKind.NeverLeftTheGateway),
+            // A refused copy of an id the Director could not confirm (issue #3484): it answered and typed nothing, which is
+            // today's 200 with its answer - never "not in", which would offer the words back to be sent again.
+            DeliverySendKind.Unconfirmed when body is not null =>
+                new TypedSendReading(TypedSendKind.AnsweredNotTyped, body, error, null, answer),
             _ => throw new InvalidOperationException($"a prompt answer read as {kind}, which a single send cannot come to"),
         };
     }
@@ -200,6 +204,7 @@ internal sealed class TypedPromptDelivery
     /// - <c>delivered</c>: resolved delivered, the text deleted;
     /// - <c>delivering</c>: held (the Director's own fifteen-minute watch ends it);
     /// - <c>not-delivered</c>: shown back with the text and "Send anyway";
+    /// - <c>unconfirmed</c>: ruled could-not-confirm at once, with the text and no "Send anyway" (issue #3484);
     /// - <c>unknown</c>: held the first time (the command may still be queued in a starved Director), shown back when a
     ///   later ask - at least one wake-up afterwards - still says <c>unknown</c>;
     /// - no answer of any kind (the session cannot be located, its Director is not connected, is too old to be asked, or is
@@ -291,6 +296,9 @@ internal sealed class TypedPromptDelivery
                 return TypedDriveResult.Held;
             case DeliveryState.NotDelivered:
                 store.ResolveNotDelivered(id, TypedPromptDecisions.ReasonDirectorSaidNotDelivered, DeliveryStates.Format(DeliveryState.NotDelivered));
+                return TypedDriveResult.Finished;
+            case DeliveryState.Unconfirmed:
+                store.ResolveUnconfirmedByDirector(id, asked.Answer.Reason);
                 return TypedDriveResult.Finished;
             case DeliveryState.Unknown:
                 if (record.UnknownAnswers == 0)
