@@ -29,6 +29,12 @@ internal enum DeliverySendKind
     /// <summary>Definitely not in: nothing left this Gateway, the Director refused before touching the session or in a
     /// state that is not a delivery, or the question answered not delivered. Retryable.</summary>
     NotDelivered,
+
+    /// <summary>The Director could not confirm the words and never will (issue #3484): they left the composer and its watch
+    /// of the agent's records ended without proof either way. The agent may hold them - never retyped, never offered
+    /// "Send anyway": resolved "could not confirm it arrived" at once. <see cref="DeliverySendResult.DirectorReason"/> is
+    /// the Director's reason.</summary>
+    Unconfirmed,
 }
 
 /// <summary>What <see cref="DeliverySendAndAsk.SendAsync"/> came to. <paramref name="NoAnswerKind"/> says which kind of no
@@ -93,6 +99,9 @@ internal static class DeliverySendAndAsk
             DeliveryState.NotDelivered => new DeliverySendResult(DeliverySendKind.NotDelivered, null,
                 $"the Director did not deliver the words: {asked.Answer.Reason ?? error ?? "no reason given"}",
                 DirectorReason: asked.Answer.Reason),
+            DeliveryState.Unconfirmed => new DeliverySendResult(DeliverySendKind.Unconfirmed, null,
+                $"the Director could not confirm the words arrived: {asked.Answer.Reason ?? "no reason given"}",
+                DirectorReason: asked.Answer.Reason),
             _ => throw new InvalidOperationException($"the Director answered delivery state {asked.Answer.State}, which this Gateway does not know"),
         };
     }
@@ -126,6 +135,9 @@ internal static class DeliverySendAndAsk
             {
                 DeliveryState.Delivered => (DeliverySendKind.Delivered, null, true, null),
                 DeliveryState.Delivering => (DeliverySendKind.StillDelivering, body.DeliveryStateReason ?? body.Error, false,
+                    body.DeliveryStateReason),
+                // An earlier copy could not be confirmed (issue #3484): nothing typed now, and the words may be in.
+                DeliveryState.Unconfirmed => (DeliverySendKind.Unconfirmed, body.DeliveryStateReason ?? body.Error, false,
                     body.DeliveryStateReason),
                 _ => (DeliverySendKind.NotDelivered,
                     body.Error ?? $"the Director refused the delivery (state {DeliveryStates.Format(body.DeliveryState.Value)})",

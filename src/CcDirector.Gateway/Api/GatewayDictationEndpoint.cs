@@ -1008,6 +1008,9 @@ internal static class GatewayDictationEndpoint
                         return DictationOutcome.Submitted(true, false, sentWords);
                     case DeliveryState.Delivering:
                         return HoldAsStillDelivering(store, uploadId, sid, DeliveryStates.Delivering);
+                    case DeliveryState.Unconfirmed:
+                        return ResolveUnconfirmedByDirector(store, uploadId, sid, store.SentWords(uploadId), sentAtUtc, clock,
+                            earlier.Answer.Reason);
                     case DeliveryState.NotDelivered:
                     case DeliveryState.Unknown:
                         // Known not to be in: carry on as a first attempt - reuse the kept words, the age limit, send.
@@ -1279,6 +1282,8 @@ internal static class GatewayDictationEndpoint
                     // Held - unless more than the limit has passed since Send, and then it is "could not confirm it
                     // arrived", even on a first attempt (change 1).
                     return HoldOrUnconfirmed(store, uploadId, sid, transcript, sentAtUtc, clock, sent.NoAnswerKind!);
+                case DeliverySendKind.Unconfirmed:
+                    return ResolveUnconfirmedByDirector(store, uploadId, sid, transcript, sentAtUtc, clock, sent.DirectorReason);
                 case DeliverySendKind.NeverSeen:
                     // The Director says it never saw the id - but the send's answer never came, so it may yet arrive.
                     // Held: the client's next attempt asks again, and "unknown" then counts as not in (contract section 4).
@@ -1400,6 +1405,22 @@ internal static class GatewayDictationEndpoint
             directorNoAnswer: noAnswerKind);
         FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: {age.TotalSeconds:0}s since Send and the " +
             $"Director gave no answer ({noAnswerKind}); resolved as {UnconfirmedReason} with chars={words.Length}, nothing typed");
+        return DictationOutcome.Submitted(false, true, words, UnconfirmedReason);
+    }
+
+    /// <summary>
+    /// A recording the DIRECTOR says it could not confirm (issue #3484): the words left the composer and its watch of the
+    /// agent's records ended without proof either way. Resolved "could not confirm it arrived" at once - the same tombstone
+    /// <see cref="HoldOrUnconfirmed"/> writes past the limit, with the words kept and no "Send anyway" - because the
+    /// Director has ruled and there is nothing more to wait for. The Director's reason is on the decision log's answer line.
+    /// </summary>
+    private static DictationOutcome ResolveUnconfirmedByDirector(VoiceUploadStore store, string uploadId, string sid, string words,
+        DateTime sentAtUtc, TimeProvider clock, string? directorReason)
+    {
+        var age = clock.GetUtcNow().UtcDateTime - sentAtUtc;
+        store.MarkDelivered(uploadId, submitted: false, movedOn: true, words, reason: UnconfirmedReason, age: age);
+        FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: the Director could not confirm it " +
+            $"({directorReason}); resolved as {UnconfirmedReason} with chars={words.Length}, nothing typed");
         return DictationOutcome.Submitted(false, true, words, UnconfirmedReason);
     }
 

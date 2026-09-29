@@ -797,7 +797,9 @@ internal sealed class SessionReadExecutor : ISessionCommandArea
     /// <summary>
     /// The <c>delivery-state</c> verb (Voice Delivery mission, phase 1): what became of one delivery id in the session
     /// named by the command. Answers from the Director's durable delivery record, so it holds across a restart:
-    /// never seen -&gt; <see cref="DeliveryState.Unknown"/>. A record that cannot be read is a failure naming the file -
+    /// never seen -&gt; <see cref="DeliveryState.Unknown"/>. An unconfirmed delivery asked about by a Gateway that does not
+    /// read that word is a failure too (see <see cref="DeliveryStateRequest.ReadsUnconfirmed"/>). A record that cannot be
+    /// read is a failure naming the file -
     /// never <see cref="DeliveryState.Unknown"/>, which would tell the Gateway a retry is safe when it may not be. The
     /// live session is not required: the record outlives it, and the question is about the past.
     /// </summary>
@@ -819,6 +821,17 @@ internal sealed class SessionReadExecutor : ISessionCommandArea
         {
             FileLog.Write($"[SessionReadExecutor] DeliveryStateOf FAILED: session={sessionId}, deliveryId={request.DeliveryId}: {ex.Message}");
             return DirectorCommandResult.Fail(DirectorCommandStatus.Error, ex.Message);
+        }
+
+        if (lookup.State == DeliveryState.Unconfirmed && !request.ReadsUnconfirmed)
+        {
+            // A GATEWAY OLDER THAN THE WORD (issue #3484) throws reading "unconfirmed", and must never be told
+            // "not-delivered", which it answers with "Send anyway". A failure is the answer it already rules on: no answer,
+            // held, and past its age limit "could not confirm it arrived" with no "Send anyway". The words say which.
+            var why = $"delivery {request.DeliveryId} could not be confirmed at {lookup.At:O} ({lookup.Reason}); the Gateway asking " +
+                      "does not read the 'unconfirmed' answer, so it is given none";
+            FileLog.Write($"[SessionReadExecutor] DeliveryStateOf: session={sessionId}: {why}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Error, why);
         }
 
         return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(new DeliveryStateResponse

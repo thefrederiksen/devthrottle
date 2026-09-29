@@ -279,6 +279,31 @@ public sealed class TypedPromptClaimTests : IDisposable
     }
 
     [Fact]
+    public async Task TheDriverAsksAHeldClaim_AndTheDirectorCouldNotConfirmIt_IsUnconfirmedAtOnce_WithNoSecondSend()
+    {
+        // Proves issue #3484 on the claim path: the owner's press went out and was not answered; the driver asks first, and
+        // the Director says it could not confirm the words (its late watch ended without proof either way). A minute
+        // after the claim - well inside the limit, where "not-delivered" would be pressed again - the claim is settled
+        // could-not-confirm, and NOTHING is sent a second time.
+        var (store, id, sid) = ShownBack();
+        _promptAnswer = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer within 30 seconds");
+        Assert.Equal(TypedPromptClaimKind.Verified,
+            store.ClaimSendAnyway(id, sid, Words, Press(), _clock.GetUtcNow().UtcDateTime).Kind);
+        var press = await ClaimedSendCore.AttemptAsync(Route(), sid, PressRequest(id), Log(store), id, "Working", _clock, gatewayDriven: false);
+        store.StayHeld(id, press.DirectorState!, countUnknown: false);
+
+        _clock.Ahead = TimeSpan.FromSeconds(60);
+        Answer(DeliveryState.Unconfirmed);
+        Assert.Equal(TypedDriveResult.Finished, await Driver().DriveOnceAsync(TenantId.Local, store, id, TypedPromptDecisions.DriveTick));
+
+        Assert.Equal(1, _prompts); // the owner's press only
+        var record = store.Read(id).Record!;
+        Assert.Equal(TypedPromptState.Unconfirmed, record.State);
+        Assert.Equal(Words, record.Text);
+        Assert.Equal("unconfirmed", store.ReadDecisions(id).Last(l => l.Decision == "unconfirmed").Facts!.State);
+    }
+
+    [Fact]
     public async Task AClaimWhoseDirectorIsNotConnected_IsHeldWithinTheLimit_AndUnconfirmedPastIt()
     {
         var (store, id, sid) = ShownBack();

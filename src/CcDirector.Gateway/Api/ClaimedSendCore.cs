@@ -16,7 +16,8 @@ internal enum ClaimAttemptKind
     /// <summary>Not final: the words may be in, or the Gateway will send them. <see cref="ClaimAttempt.DirectorState"/>
     /// is what the client is told.</summary>
     Held,
-    /// <summary>No answer of any kind for more than the limit from the first verified claim: could not confirm it.</summary>
+    /// <summary>No answer of any kind for more than the limit from the first verified claim, or the Director itself said it
+    /// could not confirm the words (issue #3484): could not confirm it.</summary>
     Unconfirmed,
     /// <summary>The question said the words are not in (a press by the client only; the Gateway's own attempt holds
     /// that as <see cref="Held"/> "retrying", or <see cref="TooOld"/> past the limit).</summary>
@@ -75,6 +76,8 @@ internal static class ClaimedSendCore
                     });
                 case DeliveryState.Delivering:
                     return Held(store, sid, deliveryId, DeliveryStates.Delivering);
+                case DeliveryState.Unconfirmed:
+                    return DirectorSaidUnconfirmed(store, sid, deliveryId, earlier.Answer.Reason);
                 case DeliveryState.NotDelivered:
                 case DeliveryState.Unknown:
                     // Known not to be in. The owner's own press sends, exactly as a first press does; the Gateway's own
@@ -104,6 +107,8 @@ internal static class ClaimedSendCore
             case DeliverySendKind.NoAnswer:
                 return HoldOrUnconfirmed(store, sid, deliveryId, store.ReadClaimSends(deliveryId), sent.NoAnswerKind!,
                     DeliverySendAndAsk.NoAnswerState, clock);
+            case DeliverySendKind.Unconfirmed:
+                return DirectorSaidUnconfirmed(store, sid, deliveryId, sent.DirectorReason);
             case DeliverySendKind.NeverSeen:
             case DeliverySendKind.NotDelivered:
                 if (!gatewayDriven)
@@ -156,6 +161,22 @@ internal static class ClaimedSendCore
         return new ClaimAttempt(ClaimAttemptKind.Unconfirmed);
     }
 
+    // THE DIRECTOR SAID IT COULD NOT CONFIRM THE WORDS (issue #3484): its watch of the agent's records ended without proof
+    // either way after the words left the composer. Settled at once - there is nothing more to wait for - and never sent
+    // again, whoever pressed: a second copy could double them.
+    private static ClaimAttempt DirectorSaidUnconfirmed(IClaimDecisionLog store, string sid, string deliveryId, string? reason)
+    {
+        store.RecordDecision(deliveryId, DeliveryDecisions.Unconfirmed, new DeliveryDecisionFacts
+        {
+            SessionId = sid,
+            State = DeliveryStates.Unconfirmed,
+            Reason = reason,
+        });
+        FileLog.Write($"[ClaimedSendCore] sid={sid} claimed delivery {deliveryId}: the Director could not confirm it ({reason}); " +
+            "ruled unconfirmed, nothing more is sent");
+        return new ClaimAttempt(ClaimAttemptKind.Unconfirmed);
+    }
+
     private static ClaimAttempt TooOld(IClaimDecisionLog store, string sid, string deliveryId, TimeSpan age)
     {
         store.RecordDecision(deliveryId, DeliveryDecisions.TooOld, new DeliveryDecisionFacts
@@ -184,7 +205,7 @@ internal static class ClaimedSendCore
         SessionVerbClient.PromptSendOutcome sent, PromptAnswerReading reading)
     {
         var body = sent.Body;
-        var refused = body is { Accepted: false, DeliveryState: DeliveryState.Delivered or DeliveryState.Delivering };
+        var refused = body is { Accepted: false, DeliveryState: DeliveryState.Delivered or DeliveryState.Delivering or DeliveryState.Unconfirmed };
         store.RecordDecision(deliveryId, DeliveryDecisions.ClaimDirectorAnswer, new DeliveryDecisionFacts
         {
             SessionId = sid,

@@ -1,4 +1,6 @@
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Streaming;
@@ -139,6 +141,8 @@ internal sealed class SessionVerbClient
     public async Task<PromptSendOutcome> SendPromptAsync(
         string sid, PromptRequest req, CancellationToken ct = default)
     {
+        // This Gateway reads "unconfirmed" (issue #3484), so a Director may answer a refused copy with it.
+        req.ReadsUnconfirmed = true;
         var result = await DirectorCommandRouter.TrySendAsync(_sendCommand, _director.DirectorId, "prompt", sid, req, ct,
             machineName: _director.MachineName);
 
@@ -189,7 +193,7 @@ internal sealed class SessionVerbClient
         if (string.IsNullOrWhiteSpace(deliveryId)) throw new ArgumentException("A delivery id is required.", nameof(deliveryId));
 
         var result = await DirectorCommandRouter.TrySendAsync(_sendCommand, _director.DirectorId, DeliveryStateRequest.Verb, sid,
-            new DeliveryStateRequest { DeliveryId = deliveryId }, ct, machineName: _director.MachineName);
+            new DeliveryStateRequest { DeliveryId = deliveryId, ReadsUnconfirmed = true }, ct, machineName: _director.MachineName);
 
         if (result is null)
             return new DeliveryStateAsk(DeliveryStateAskKind.NeverLeftTheGateway, null,
@@ -199,6 +203,16 @@ internal sealed class SessionVerbClient
         {
             var answer = DirectorCommandRouter.ReadBody<DeliveryStateResponse>(result)
                 ?? throw new InvalidOperationException($"The Director answered the {DeliveryStateRequest.Verb} verb with no body.");
+            if (answer.State == DeliveryState.NotDelivered && DeliveryRecord.IsAnUnprovenEnding(answer.Reason))
+            {
+                // A DIRECTOR OLDER THAN THE "unconfirmed" WORD (issue #3484) wrote a late watch that ended without proof
+                // either way as not-delivered, and it still lets that id begin again. Read as what it is - could not be
+                // confirmed - so this Gateway neither offers "Send anyway" nor sends it again itself. Its reason words are
+                // the proof; a newer Director writes "unconfirmed" and never reaches this.
+                FileLog.Write($"[SessionVerbClient] GetDeliveryStateAsync: sid={sid} delivery={deliveryId}: an older Director said " +
+                    $"not-delivered with an unproven ending ({answer.Reason}); read as {DeliveryStates.Unconfirmed}");
+                answer.State = DeliveryState.Unconfirmed;
+            }
             return new DeliveryStateAsk(DeliveryStateAskKind.Answered, answer, "");
         }
 

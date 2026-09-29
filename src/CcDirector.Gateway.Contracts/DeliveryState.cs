@@ -7,8 +7,8 @@ namespace CcDirector.Gateway.Contracts;
 /// (<see cref="PromptRequest.DeliveryId"/>). The Director is the one process that knows whether a delivery
 /// happened, so it keeps this per delivery id and answers with it (Voice Delivery mission, phase 1).
 ///
-/// On the wire it is the lower-case words <c>unknown</c>, <c>delivering</c>, <c>delivered</c> and
-/// <c>not-delivered</c>, NEVER the enum's number: the numbers are positional, and a client or a stored
+/// On the wire it is the lower-case words <c>unknown</c>, <c>delivering</c>, <c>delivered</c>,
+/// <c>not-delivered</c> and <c>unconfirmed</c>, NEVER the enum's number: the numbers are positional, and a client or a stored
 /// record reading a digit would have to hold its own copy of the ordering. <see cref="DeliveryStates"/>
 /// holds the same words for code that handles the string form.
 /// </summary>
@@ -30,10 +30,22 @@ public enum DeliveryState
     [JsonStringEnumMemberName(DeliveryStates.Delivered)]
     Delivered,
 
-    /// <summary>The send threw, so the words did not reach the session; the reason says why. A retry of this
-    /// id IS typed - it is a real retry of a failed send.</summary>
+    /// <summary>The words provably did not reach the session - the send threw, was refused before typing, or the
+    /// session ended first; the reason says why. A retry of this id IS typed - it is a real retry of a failed send.</summary>
     [JsonStringEnumMemberName(DeliveryStates.NotDelivered)]
     NotDelivered,
+
+    /// <summary>
+    /// The words left the composer and the Director's watch of the agent's records ended WITHOUT PROOF EITHER WAY
+    /// (issue #3484): the limit ran out with no records to watch, the records watch failed, the records could not be
+    /// read at all, or they never showed the words. The agent may hold them, so a retry of this id is refused - typing
+    /// it again could deliver it twice - and the Gateway answers it "could not confirm it arrived", with no "Send
+    /// anyway". Added after the other four, so a Gateway older than it cannot read the word: the Director sends it
+    /// only to a Gateway that says it reads it (<see cref="DeliveryStateRequest.ReadsUnconfirmed"/>,
+    /// <see cref="PromptRequest.ReadsUnconfirmed"/>).
+    /// </summary>
+    [JsonStringEnumMemberName(DeliveryStates.Unconfirmed)]
+    Unconfirmed,
 }
 
 /// <summary>
@@ -46,6 +58,7 @@ public static class DeliveryStates
     public const string Delivering = "delivering";
     public const string Delivered = "delivered";
     public const string NotDelivered = "not-delivered";
+    public const string Unconfirmed = "unconfirmed";
 
     /// <summary>The wire word for <paramref name="state"/>.</summary>
     public static string Format(DeliveryState state) => state switch
@@ -54,10 +67,11 @@ public static class DeliveryStates
         DeliveryState.Delivering => Delivering,
         DeliveryState.Delivered => Delivered,
         DeliveryState.NotDelivered => NotDelivered,
+        DeliveryState.Unconfirmed => Unconfirmed,
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Not a delivery state."),
     };
 
-    /// <summary>Reads a wire word back. A word that is not one of the four is refused rather than guessed:
+    /// <summary>Reads a wire word back. A word that is not one of the five is refused rather than guessed:
     /// reading a corrupt or newer word as <see cref="DeliveryState.Unknown"/> would let a retry type again.</summary>
     public static bool TryParse(string? text, out DeliveryState state)
     {
@@ -67,6 +81,7 @@ public static class DeliveryStates
             case Delivering: state = DeliveryState.Delivering; return true;
             case Delivered: state = DeliveryState.Delivered; return true;
             case NotDelivered: state = DeliveryState.NotDelivered; return true;
+            case Unconfirmed: state = DeliveryState.Unconfirmed; return true;
             default: state = default; return false;
         }
     }
@@ -83,6 +98,15 @@ public sealed class DeliveryStateRequest
 
     /// <summary>The delivery id asked about: the recording's upload id (<see cref="PromptRequest.DeliveryId"/>).</summary>
     public string DeliveryId { get; set; } = "";
+
+    /// <summary>
+    /// True when the Gateway asking can read <see cref="DeliveryState.Unconfirmed"/> (issue #3484). A Gateway older
+    /// than that word does not send this field, and its reader throws on a word it does not know - so a Director never
+    /// answers such a Gateway <c>unconfirmed</c>. It answers a failure instead, which that Gateway reads as "no answer"
+    /// and rules "could not confirm it arrived" past its own age limit, with no "Send anyway": the same verdict, reached
+    /// the older way. Never a retry that could double the words.
+    /// </summary>
+    public bool ReadsUnconfirmed { get; set; }
 }
 
 /// <summary>The Director's answer to <see cref="DeliveryStateRequest"/>.</summary>
@@ -95,7 +119,8 @@ public sealed class DeliveryStateResponse
     /// that cannot read its record answers with a failure instead, never with this.</summary>
     public DeliveryState State { get; set; }
 
-    /// <summary>Why it was not delivered, for <see cref="DeliveryState.NotDelivered"/>; null otherwise.</summary>
+    /// <summary>Why it was not delivered, for <see cref="DeliveryState.NotDelivered"/>, or why it could not be confirmed,
+    /// for <see cref="DeliveryState.Unconfirmed"/>; null otherwise.</summary>
     public string? Reason { get; set; }
 
     /// <summary>When the Director wrote that state, in UTC; null for <see cref="DeliveryState.Unknown"/>.</summary>

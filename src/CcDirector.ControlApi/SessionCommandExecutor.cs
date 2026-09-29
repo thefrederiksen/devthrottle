@@ -261,10 +261,24 @@ internal static class SessionCommandExecutor
         if (!claim.Began)
         {
             var state = claim.Existing.State;
-            var reason = state == DeliveryState.Delivered
-                ? $"delivery {deliveryId} already reached this session at {claim.Existing.At:O}; this copy was refused and nothing was typed"
-                : $"delivery {deliveryId} is being typed into this session since {claim.Existing.At:O}, or the Director stopped while typing it; this copy was refused and nothing was typed";
+            var reason = state switch
+            {
+                DeliveryState.Delivered =>
+                    $"delivery {deliveryId} already reached this session at {claim.Existing.At:O}; this copy was refused and nothing was typed",
+                DeliveryState.Unconfirmed =>
+                    $"delivery {deliveryId} could not be confirmed at {claim.Existing.At:O} ({claim.Existing.Reason}), so the agent may " +
+                    "already hold it; this copy was refused and nothing was typed",
+                _ => $"delivery {deliveryId} is being typed into this session since {claim.Existing.At:O}, or the Director stopped while typing it; this copy was refused and nothing was typed",
+            };
             FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: REFUSED DUPLICATE session={session.Id}: {reason}");
+            if (state == DeliveryState.Unconfirmed && !request.ReadsUnconfirmed)
+            {
+                // A SENDER OLDER THAN THE WORD (issue #3484): a Gateway that does not read "unconfirmed" throws on it. It is
+                // answered a failure instead - never a success that says not-delivered, which would offer "Send anyway".
+                // That Gateway reads a failure as unanswered, asks, is answered the same way, and past its age limit rules
+                // the delivery "could not confirm it arrived", with no "Send anyway".
+                return DirectorCommandResult.Fail(DirectorCommandStatus.Error, reason);
+            }
             return DirectorCommandResult.Success(Serialize(new PromptResponse
             {
                 Accepted = false,
@@ -568,10 +582,12 @@ internal static class SessionCommandExecutor
     /// Tech Lead's ruling on its three open cases, round 2c):
     ///  - "delivered" when the send was confirmed, or the late watch saw the words in the agent's records;
     ///  - "not-delivered" with the send's own message when it threw: the words are known not submitted;
-    ///  - "not-delivered" when the late watch's limit (<c>Session.LateArrivalLimit</c>, 15 minutes) ended without the
+    ///  - "unconfirmed" when the late watch's limit (<c>Session.LateArrivalLimit</c>, 15 minutes) ended without the
     ///    records showing the words - "never appeared in the agent's records within 15 minutes" - or with no records to
-    ///    watch, or after the records watch failed ("could not be confirmed: ..."). Until that limit it stays "delivering",
-    ///    because the agent may hold the words and an early "not-delivered" invites a retry that doubles them;
+    ///    watch, or after the records watch failed or the records could not be read ("could not be confirmed: ...").
+    ///    Until that limit it stays "delivering", and after it the words are still not known to be out of the agent: they
+    ///    left the composer. So it is never "not-delivered", which offers "Send anyway" and lets the id begin again - a
+    ///    second copy that could double them (issue #3484, the owner's ruling of 29 September 2026);
     ///  - "not-delivered" at once when the session ended first: a retry into an ended session cannot double anything.
     /// A send that fails has also already been counted against the session by the session itself
     /// (<c>PromptDeliveryFailures</c>), so the owner's screens show the failure without this.
@@ -637,15 +653,17 @@ internal static class SessionCommandExecutor
                 WriteLateOutcome(sessionId, id, deliveries, DeliveryState.Delivered, null);
                 break;
             case LateArrival.LimitEnded:
-                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.NotDelivered, DeliveryRecord.NeverInAgentRecordsReason(limit));
+                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.Unconfirmed, DeliveryRecord.NeverInAgentRecordsReason(limit));
                 break;
             case LateArrival.NoRecordsToWatch:
-                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.NotDelivered, DeliveryRecord.NoRecordsToWatchReason);
+                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.Unconfirmed, DeliveryRecord.NoRecordsToWatchReason);
                 break;
             case LateArrival.WatchFailed:
+                // Also the "cannot tell" ending (issue 3480): the conversation file the pointer names does not exist, which
+                // Session.EndAsUnreadable turns into a failed watch carrying that reason.
                 var failure = ended.WatchFailure
                     ?? throw new InvalidOperationException("A failed records watch carries no failure message.");
-                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.NotDelivered, DeliveryRecord.RecordsWatchFailedReason(failure));
+                WriteLateOutcome(sessionId, id, deliveries, DeliveryState.Unconfirmed, DeliveryRecord.RecordsWatchFailedReason(failure));
                 break;
             case LateArrival.SessionEnded:
                 WriteLateOutcome(sessionId, id, deliveries, DeliveryState.NotDelivered, DeliveryRecord.SessionEndedReason);
@@ -659,7 +677,7 @@ internal static class SessionCommandExecutor
     internal static Action<string, string>? LateOutcomeObserver;
 
     /// <summary>Logs a late outcome and, for a prompt with a delivery id, writes it to the delivery record. A late outcome
-    /// is "delivered" or "not-delivered", never "delivering" (round 2c: nothing stays delivering forever). Nobody awaits the send that produced this outcome,
+    /// is "delivered", "not-delivered" or "unconfirmed", never "delivering" (round 2c: nothing stays delivering forever). Nobody awaits the send that produced this outcome,
     /// so a record that cannot be written is logged as a FAILURE here rather than thrown into a task no one reads; the
     /// record then keeps "delivering", which refuses a retry rather than typing the words twice.</summary>
     private static void WriteLateOutcome(Guid sessionId, string? deliveryId, DeliveryRecord? deliveries, DeliveryState state, string? reason)
@@ -680,6 +698,10 @@ internal static class SessionCommandExecutor
                     case DeliveryState.NotDelivered:
                         deliveries.MarkNotDelivered(sessionId, deliveryId,
                             reason ?? throw new InvalidOperationException("A not-delivered late outcome must say why."));
+                        break;
+                    case DeliveryState.Unconfirmed:
+                        deliveries.MarkUnconfirmed(sessionId, deliveryId,
+                            reason ?? throw new InvalidOperationException("An unconfirmed late outcome must say why."));
                         break;
                     default:
                         throw new InvalidOperationException($"A late send outcome is never '{word}'.");
