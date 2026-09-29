@@ -183,7 +183,7 @@ internal static class TurnVerdictLedgerRow
 /// hosted call through <see cref="TurnVerdictJudge"/>; the verdicts are <see cref="TurnVerdictStore"/>; and the
 /// record is the durable activity ledger, inside the owning account's scope.
 /// </summary>
-internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
+internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment, ISessionNamingEnvironment
 {
     private readonly Func<TenantId, TurnVerdictSettings> _settings;
     private readonly PushedSessionStore _pushedSessions;
@@ -307,6 +307,28 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.TurnVerdict, false);
         var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
         return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
+    }
+
+    public SessionDto? ReadSessionFacts(TenantId tenant, string sessionId) => ReadSessionState(tenant, sessionId).Facts;
+
+    public async Task<string> AskNamerAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
+    {
+        // The Wingman's own model and builder, under its own usage feature so naming is its own line on the bill.
+        var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
+        using var brain = _judgeBrain(tenant, settings, Core.HostedAi.AiFeature.WingmanSessionName, false);
+        var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
+        return result.Text ?? "";
+    }
+
+    public async Task<string?> RenameSessionAsync(TenantId tenant, string directorId, string sessionId, string name, CancellationToken ct)
+    {
+        var owner = string.IsNullOrWhiteSpace(directorId)
+            ? _pushedSessions.TryLocate(tenant, sessionId, _streamStale)?.DirectorId
+            : directorId;
+        if (string.IsNullOrWhiteSpace(owner)) return "no Director owns the session";
+        var route = _route(tenant, owner);
+        if (route is null) return "the owning Director is not registered";
+        return await route.RenameSessionAsync(sessionId, name, ct).ConfigureAwait(false);
     }
 
     public TurnVerdictDto? Latest(TenantId tenant, string sessionId) => _store.Latest(tenant, sessionId);

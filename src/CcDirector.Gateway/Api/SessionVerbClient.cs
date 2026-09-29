@@ -76,6 +76,16 @@ internal sealed class SessionVerbClient
         return result is not null && result.Ok ? DirectorCommandRouter.ReadBody<TurnsResponse>(result) : null;
     }
 
+    /// <summary>Rename the session. Tunnel-only ("patch" verb, a <see cref="SessionUpdateRequest"/> payload). Returns
+    /// null on success, else why it failed - an absent tunnel result is the owning Director not being connected.</summary>
+    public async Task<string?> RenameSessionAsync(string sid, string name, CancellationToken ct = default)
+    {
+        var result = await DirectorCommandRouter.TrySendAsync(_sendCommand, _director.DirectorId, "patch", sid,
+            new SessionUpdateRequest { Name = name }, ct, machineName: _director.MachineName);
+        if (result is null) return "owning Director is not connected to the tunnel";
+        return result.Ok ? null : DirectorCommandRouter.DescribeFailure(result);
+    }
+
     /// <summary>Read the session terminal buffer. Tunnel-only ("buffer" verb, the query arguments in a
     /// <see cref="BufferRequest"/> payload -> <see cref="BufferResponse"/>).</summary>
     public async Task<BufferResponse?> GetBufferAsync(string sid, int? lines, bool raw, long? since, CancellationToken ct = default)

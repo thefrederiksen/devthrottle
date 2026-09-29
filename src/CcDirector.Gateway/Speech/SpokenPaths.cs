@@ -113,6 +113,10 @@ public static class SpokenPaths
             + "colour. It answers no label, no prose and no keystrokes, so nothing it produces is read aloud or "
             + "shown; the narration call (Call B) writes the label and every spoken word and is registered above. "
             + "Translating this one would change the word the parser matches.",
+        ["SessionNamingService.BuildPrompt"] =
+            "Names a session the user did not name, from the user's own first prompt (issue #3488). The name is "
+            + "a label on the session's row: it is shown, never read aloud, and it takes the words of the request "
+            + "it names rather than the account's spoken language.",
         ["WingmanTranslator.BuildMenuMapPrompt"] =
             "Returns a single option number for code to act on. Nothing it produces is ever spoken.",
         ["DictionarySuggestionScreen.BuildPrompt"] =
