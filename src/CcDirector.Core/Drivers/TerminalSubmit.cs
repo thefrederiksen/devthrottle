@@ -691,7 +691,7 @@ public static class TerminalSubmit
             FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send may have left {retained.Length} " +
                           $"characters in this composer (evidence: {orphan}) - clearing before typing so the two " +
                           "cannot run together.");
-            await ClearRetainedAndConfirmEmptyAsync(backend, driverTag, retained, clearKeys, composerHoldsNothing, composerSeen);
+            await ClearRetainedAndConfirmEmptyAsync(backend, driverTag, retained, clearKeys, composerHoldsNothing, composerSeen, composerRegion, screenSnapshot);
         }
         else if (clearKeys is not null && composerHoldsNothing is not null && composerHoldsNothing())
         {
@@ -748,7 +748,7 @@ public static class TerminalSubmit
                 FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the composer holds the TAIL of the previous " +
                               $"send's {retained.Length} characters ({regionNow.Length} of them) - clearing it with the " +
                               "measured keys before typing, as for the whole text.");
-                await ClearRetainedAndConfirmEmptyAsync(backend, driverTag, retained, clearKeys, composerHoldsNothing, composerSeen);
+                await ClearRetainedAndConfirmEmptyAsync(backend, driverTag, retained, clearKeys, composerHoldsNothing, composerSeen, composerRegion, screenSnapshot);
             }
             else if (regionNow is not null && regionNow.Length > 0)
             {
@@ -779,7 +779,8 @@ public static class TerminalSubmit
     /// </summary>
     private static async Task ClearRetainedAndConfirmEmptyAsync(
         ISessionBackend backend, string driverTag, string retained, byte[]? clearKeys,
-        Func<bool>? composerHoldsNothing, Func<string>? composerSeen)
+        Func<bool>? composerHoldsNothing, Func<string>? composerSeen,
+        Func<(ComposerReading Reading, string Text)>? composerRegion = null, Func<string[]>? screenSnapshot = null)
     {
         await WaitForQuietAsync(backend, driverTag);
         backend.Write(clearKeys ?? EscapeByte);
@@ -800,6 +801,24 @@ public static class TerminalSubmit
 
         var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
         ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
+        if (composerRegion?.Invoke().Reading == ComposerReading.NotFound)
+        {
+            // AN UNREADABLE COMPOSER IS NOT A FULL ONE (issue 3481). The reader could not find the composer at all -
+            // on 29 September 2026 because Claude Code had drawn the session's name into the rule above it - and that
+            // used to be reported as "still holds text", which named a cause nobody observed and sent the owner
+            // looking for words that were not there. Nothing is typed, because an empty composer cannot be proven;
+            // the refusal says what is actually known, and the rows the reader looked at go to the log.
+            var rows = screenSnapshot?.Invoke() ?? [];
+            FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the composer cannot be read after the clear - " +
+                          $"{rows.Length} screen rows, the last ones:{Environment.NewLine}" +
+                          string.Join(Environment.NewLine, rows.Reverse().SkipWhile(string.IsNullOrWhiteSpace).Take(12).Reverse()
+                              .Select(r => "    |" + r)));
+            throw new ComposerNotAcceptingInputException(
+                $"[{driverTag}] ResolveRetainedComposer: the composer cannot be read after it was cleared, so " +
+                "nothing was typed - the Director cannot tell whether it is empty. " +
+                $"The Director believes an earlier send may have left {retained.Length} characters there; " +
+                $"what it read: {seen}. The next send looks again.");
+        }
         throw new ComposerNotAcceptingInputException(
             $"[{driverTag}] ResolveRetainedComposer: the composer still holds text after it was cleared, so " +
             "nothing was typed - typing now would run the new text together with what is there. " +

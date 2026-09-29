@@ -800,7 +800,8 @@ public sealed class Session : IDisposable
     /// current id and transcript path so the Director keeps tracking the right transcript
     /// instead of the stale one it preassigned at launch.
     /// </summary>
-    public void UpdateClaudeSessionPointer(string? claudeSessionId, string? transcriptPath, string? source)
+    /// <returns>False when the report was refused and the pointer did not move.</returns>
+    public bool UpdateClaudeSessionPointer(string? claudeSessionId, string? transcriptPath, string? source)
     {
         // A session id must LOOK like one before it is allowed to replace a working one.
         //
@@ -831,24 +832,59 @@ public sealed class Session : IDisposable
         // here.
         if (!string.IsNullOrWhiteSpace(claudeSessionId))
         {
-            if (Guid.TryParse(claudeSessionId, out _))
-            {
-                ClaudeSessionId = claudeSessionId;
-            }
-            else
+            if (!Guid.TryParse(claudeSessionId, out _))
             {
                 FileLog.Write(
                     $"[Session] UpdateClaudeSessionPointer REFUSED a malformed claude session id for sid={Id}: "
                     + $"'{claudeSessionId}' is not a GUID (source={source ?? "(none)"}). Keeping "
                     + $"'{ClaudeSessionId ?? "(none)"}'. A pointer drop carrying a non-GUID id is a bug in "
                     + "whatever wrote it - see issue #2456.");
-                return;
+                return false;
             }
         }
+
+        // ONE PROCESS STARTS ONCE (issue 3480). A Claude Code process reports source=startup exactly once, when it
+        // launches; /clear, compaction and resume each report their own source. A SECOND startup for the same live
+        // process is not this session starting - it is a child Claude Code process it launched, such as a
+        // background agent (claude.exe --bg-pty-host ... --session-id <its own id>), which inherits this session's
+        // environment and hook settings, so its hook writes into this session's drop box with the right token. On
+        // 29 September 2026 one did, four seconds after the real startup, and the pointer moved to a conversation
+        // file that never existed: every later prompt was judged against the missing file and called not arrived.
+        // Refused only while the conversation the pointer names EXISTS, so a first report that was itself wrong -
+        // a child that won the race - is still replaced by the real one, whose file does exist.
+        // WHAT THIS CANNOT TELL APART (review of issue 3480): the hook event names no writer process, so a child whose
+        // startup was applied FIRST and whose own conversation file exists would hold the pointer against the real
+        // one. The ordering makes that the unlikely case: a background agent is launched from inside a turn, and the
+        // session's own startup is reported when it launched, before it took any prompt.
+        if (string.Equals(source, "startup", StringComparison.OrdinalIgnoreCase)
+            && _startupReportedByProcess is { } startedBy && startedBy == ProcessId && !_backend.HasExited
+            && !string.Equals(claudeSessionId, ClaudeSessionId, StringComparison.OrdinalIgnoreCase)
+            && ClaudeTranscriptPath is { } current && File.Exists(current))
+        {
+            FileLog.Write($"[Session] UpdateClaudeSessionPointer REFUSED a second startup for sid={Id}: process " +
+                          $"{startedBy} already started as claudeId={ClaudeSessionId} and it is still running, and its " +
+                          $"conversation {current} exists. The report (claudeId={claudeSessionId ?? "(none)"} " +
+                          $"transcript={transcriptPath ?? "(none)"}) came from a child Claude Code process such as a " +
+                          "background agent, not from this session - the pointer stays where it is.");
+            return false;
+        }
+
+        if (claudeSessionId is not null && Guid.TryParse(claudeSessionId, out _))
+            ClaudeSessionId = claudeSessionId;
         if (!string.IsNullOrWhiteSpace(transcriptPath))
+        {
             ClaudeTranscriptPath = transcriptPath;
+            if (File.Exists(transcriptPath)) _conversationEverReadable = true;
+        }
+        if (string.Equals(source, "startup", StringComparison.OrdinalIgnoreCase))
+            _startupReportedByProcess = ProcessId;
         FileLog.Write($"[Session] UpdateClaudeSessionPointer: sid={Id} source={source ?? "(none)"} claudeId={claudeSessionId ?? "(none)"} transcript={transcriptPath ?? "(none)"}");
+        return true;
     }
+
+    /// <summary>The process whose startup report the pointer took, so a second startup from the same live process
+    /// can be told apart from the session starting (issue 3480).</summary>
+    private int? _startupReportedByProcess;
 
     /// <summary>Cached metadata from Claude's sessions-index.json.</summary>
     public ClaudeSessionMetadata? ClaudeMetadata { get; private set; }
@@ -3575,7 +3611,10 @@ public sealed class Session : IDisposable
             AllWatchedAreOurs = AgentKind != Agents.AgentKind.Codex || _codexRollout is not null,
         };
         foreach (var path in paths!())
+        {
             proof.StartOffsets[path] = Drivers.PromptArrival.EndOf(path);
+            if (File.Exists(path)) _conversationEverReadable = true;
+        }
         return proof;
     }
 
@@ -3619,6 +3658,44 @@ public sealed class Session : IDisposable
     /// <summary>This Codex session's own rollout, once one of its prompts has been found in it.</summary>
     private string? _codexRollout;
 
+    /// <summary>
+    /// A cannot-tell send's late watch that runs out has NOT shown the prompt missing from the records - there were no
+    /// records to read - so it ends as a failed watch carrying that reason ("could not be confirmed: ..."), never as
+    /// "never in the agent's records" (review of issue 3480).
+    /// </summary>
+    private static async Task<LateWatchEnd> EndAsUnreadable(Task<LateWatchEnd> watch, string reason)
+    {
+        var end = await watch;
+        return end.Ended == LateArrival.LimitEnded ? new LateWatchEnd(LateArrival.WatchFailed, reason) : end;
+    }
+
+    /// <summary>
+    /// False when the proof reads files, not one of them exists, and this session's conversation HAS been readable
+    /// before - so the pointer now names a conversation that was never written (issue 3480) and an absence in it
+    /// proves nothing. A session whose conversation has never been seen on disk is different: Claude Code writes the
+    /// file with the first prompt it takes, so there a missing file is the plain answer "nothing arrived" (issue
+    /// #3290's dropped first paste), and it stays readable. A proof that reads a prompt store is always readable.
+    /// </summary>
+    private bool RecordsReadable(ArrivalProof proof)
+    {
+        if (proof.ReadPrompts is not null) return true;
+        var paths = proof.Paths().ToList();
+        if (paths.Any(File.Exists))
+        {
+            _conversationEverReadable = true;
+            return true;
+        }
+        if (!_conversationEverReadable) return true;
+        FileLog.Write($"[Session] arrival proof records UNREADABLE: session={Id} had a readable conversation, but none of the " +
+                      $"{paths.Count} watched file(s) exists now: " + (paths.Count == 0 ? "(none named)" : string.Join(", ", paths)));
+        return false;
+    }
+
+    /// <summary>True once any conversation file this session's proof reads, or its pointer names, has been seen on
+    /// disk. Never reset: it is what tells "the conversation has not been written yet" from "the pointer names a
+    /// conversation that does not exist" (issue 3480).</summary>
+    private bool _conversationEverReadable;
+
     /// <summary>True when ANY user prompt has reached the agent's records since the proof began.</summary>
     private static bool AnyNewPromptIn(ArrivalProof proof)
     {
@@ -3649,7 +3726,8 @@ public sealed class Session : IDisposable
             textWaitsUnsubmitted: Drivers.FirstPromptGate.CanProve(AgentKind) ? TextWaitsInAQuietComposerAsync : null,
             pressEnter: () => _backend.Write([0x0D]),
             ownerTyped: ownerTyped,
-            agentPrintedSinceSend: bytesAtEnter is { } at ? () => _backend.Buffer!.TotalBytesWritten != at : null);
+            agentPrintedSinceSend: bytesAtEnter is { } at ? () => _backend.Buffer!.TotalBytesWritten != at : null,
+            recordsReadable: () => RecordsReadable(proof));
         FileLog.Write($"[Session] arrival proof: session={Id}, agent={AgentKind}, outcome={outcome}, len={typed.Length}");
         if (AgentKind == Agents.AgentKind.Codex && _codexRollout is null
             && outcome is Drivers.PromptArrivalOutcome.Arrived or Drivers.PromptArrivalOutcome.ArrivedAfterResend
@@ -3689,6 +3767,35 @@ public sealed class Session : IDisposable
                 FileLog.Write($"[Session] STILL DELIVERING: session={Id}: {reason}. Nothing is typed again; the records are watched " +
                               $"for up to {lateLimit.TotalMinutes:F1} minutes. len={current.Length}");
                 return TextSendOutcome.StillDelivering(reason, WatchLateArrivalAsync(proof, current, label, lateLimit), lateLimit);
+            }
+        }
+        if (outcome == Drivers.PromptArrivalOutcome.CannotTell)
+        {
+            // THE RECORDS CANNOT SAY, SO THE SCREEN IS ASKED (issue 3480). The conversation file the pointer names does
+            // not exist, so the records prove nothing either way. Only the screen can still show the words were NOT
+            // submitted - the composer still holding them - and only that positive evidence marks the composer and
+            // fails the send. Anything else is "cannot tell": the send is left delivering, the records are watched in
+            // case the file appears, and NO retention mark is set - on 29 September 2026 a mark set on an absent file
+            // refused every later send to a session whose composer was empty.
+            var fingerprint = Drivers.PromptArrival.Fingerprint(current);
+            var release = fingerprint.Length == 0 || !Drivers.FirstPromptGate.CanProve(AgentKind)
+                ? ComposerRelease.Unreadable
+                : await WatchComposerReleaseAsync(fingerprint, ComposerReleaseWindowForTests ?? ComposerReleaseWindow, current.Length, untilLeft: false);
+            if (release == ComposerRelease.StillHeld)
+            {
+                FileLog.Write($"[Session] arrival proof: session={Id}: the records cannot be read, but the composer still holds " +
+                              $"the text - it was not submitted. len={current.Length}");
+                outcome = Drivers.PromptArrivalOutcome.NotArrived;
+            }
+            else
+            {
+                var lateLimit = LateArrivalLimitForTests ?? LateArrivalLimit;
+                var reason = $"whether the prompt reached {AgentKind} cannot be told: the conversation file it would be recorded in " +
+                             $"({string.Join(", ", proof.Paths())}) does not exist, and " +
+                             (release == ComposerRelease.Left ? "the text has left the composer" : "the composer cannot be read");
+                FileLog.Write($"[Session] CANNOT TELL: session={Id}: {reason}. Nothing is typed again and no retention mark is set; " +
+                              $"the records are watched for up to {lateLimit.TotalMinutes:F1} minutes. len={current.Length}");
+                return TextSendOutcome.StillDelivering(reason, EndAsUnreadable(WatchLateArrivalAsync(proof, current, label, lateLimit), reason), lateLimit);
             }
         }
         if (outcome == Drivers.PromptArrivalOutcome.NotArrived)

@@ -3915,6 +3915,44 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Put the words of a send that did not go back where the owner can send them again: into the box when the session
+    /// is still the one on screen, otherwise in front of what that session's box holds. A restored text that was one
+    /// untouched dictation is registered as spoken again, so sending it later still counts as the dictation it was
+    /// (ruling R20).
+    /// </summary>
+    private void RestoreUnsentWords(Session target, string words, bool spokenAlone)
+    {
+        if (string.IsNullOrEmpty(words)) return;
+        if (_activeSession?.Session == target)
+        {
+            if (spokenAlone) InsertTranscriptIntoPromptInputAt(words, 0);
+            else InsertIntoPromptInputAt(words, 0);
+            return;
+        }
+        target.PendingPromptText = global::CcDirector.Avalonia.Voice.DictationText.Join(words, target.PendingPromptText ?? "");
+        if (spokenAlone)
+            target.PendingPromptSpokenSpans = new[] { new SpokenTurnRule.SpokenSpan(0, words.Length) };
+    }
+
+    /// <summary>Test seam: records a refusal instead of opening the modal. Null in the running app.</summary>
+    internal Action<string, string>? SendRefusedShownForTests { get; set; }
+
+    /// <summary>Show a refused send's modal without making the send wait on it; a failure to show it is logged, never
+    /// thrown into the UI thread.</summary>
+    private async void ReportSendRefused(string title, string message)
+    {
+        try
+        {
+            if (SendRefusedShownForTests is { } seam) { seam(title, message); return; }
+            await MessageBox.ShowAsync(this, title, message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ReportSendRefused FAILED: {ex.Message}");
+        }
+    }
+
     private void TabBarRefreshButton_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[MainWindow] TabBarRefreshButton_Click");
@@ -5858,7 +5896,27 @@ public partial class MainWindow : Window
         // Backends send Enter (CR/LF) explicitly after the text -- don't append a submit
         // newline here. Appending one used to trip LargeInputHandler's multi-line check
         // and route short single-line prompts through a temp file.
-        await _activeSession.Session.SendTextAsync(text, provenance, origin: origin);
+        var target = _activeSession.Session;
+        try
+        {
+            await target.SendTextAsync(text, provenance, origin: origin);
+        }
+        catch (Exception ex)
+        {
+            // A REFUSED SEND ENDS IN A MESSAGE, NEVER AN UNHANDLED EXCEPTION (issue 3481). This is the entry point of
+            // the desktop's own Send (the button, Ctrl+Enter, the Speak dialog's blocking Send), and the box was
+            // already emptied above: a refusal that escaped from here crashed through the UI thread's last-chance
+            // handler, was reported a second time by the finalizer as an unobserved task, and took the owner's words
+            // with it. The session has already counted the failed delivery; here the words go back in the box and
+            // the refusal is shown, exactly as a failed background dictation is.
+            FileLog.Write($"[MainWindow] SendPrompt FAILED: session={target.Id}: {ex.Message}");
+            var spokenAlone = origin.Modality == InputModality.Voice;
+            RestoreUnsentWords(target, boxText, spokenAlone);
+            ReportSendRefused(spokenAlone ? "Dictation not sent" : "Prompt not sent",
+                $"Your {(spokenAlone ? "dictation" : "prompt")} was not sent: {ex.Message}\n\n" +
+                "Nothing was queued. The text has been put back in the message box - press Send when you are ready.");
+            return;
+        }
 
         if (isInteractiveCommand)
         {
@@ -6039,7 +6097,10 @@ public partial class MainWindow : Window
         UpdateQueueButtonStyle();
     }
 
-    private async void BtnHandover_Click(object? sender, RoutedEventArgs e)
+    private async void BtnHandover_Click(object? sender, RoutedEventArgs e) => await SendHandoverCommandAsync();
+
+    /// <summary>The Handover button's send of /handover to the session on screen. Never throws: a refusal is shown.</summary>
+    internal async Task SendHandoverCommandAsync()
     {
         FileLog.Write("[MainWindow] BtnHandover_Click");
         if (_activeSession == null)
@@ -6048,8 +6109,19 @@ public partial class MainWindow : Window
             return;
         }
 
-        await _activeSession.Session.SendTextAsync("/handover", SubmissionProvenance.FrameworkText(), SendSource.Framework);
-        FileLog.Write($"[MainWindow] BtnHandover_Click: sent /handover to session {_activeSession.Session.Id}");
+        var target = _activeSession.Session;
+        try
+        {
+            await target.SendTextAsync("/handover", SubmissionProvenance.FrameworkText(), SendSource.Framework);
+        }
+        catch (Exception ex)
+        {
+            // A refused send ends in a message, never an unhandled UI-thread exception (issue 3481).
+            FileLog.Write($"[MainWindow] BtnHandover_Click FAILED: session={target.Id}: {ex.Message}");
+            ReportSendRefused("Handover not sent", $"/handover was not sent: {ex.Message}");
+            return;
+        }
+        FileLog.Write($"[MainWindow] BtnHandover_Click: sent /handover to session {target.Id}");
     }
 
     private void UpdateQueueButtonStyle()
@@ -7001,19 +7073,33 @@ public partial class MainWindow : Window
     /// After a new session starts from a handover, wait for Claude Code to be ready
     /// and then send the handover file as a prompt asking it to review and plan next steps.
     /// </summary>
-    private async Task InjectHandoverPromptAsync(Session session, string handoverPath)
+    /// <summary>Send the handover prompt into a session started from a handover. Never throws: its caller discards the
+    /// task, so a refusal is shown instead. <paramref name="startupWait"/> is five seconds except in tests.</summary>
+    internal async Task InjectHandoverPromptAsync(Session session, string handoverPath, TimeSpan? startupWait = null)
     {
         FileLog.Write($"[MainWindow] InjectHandoverPromptAsync: waiting for session {session.Id}, handover={handoverPath}");
 
         // Wait for Claude Code to finish starting up
-        await Task.Delay(TimeSpan.FromSeconds(5));
+        await Task.Delay(startupWait ?? TimeSpan.FromSeconds(5));
 
         var prompt = $"@{handoverPath} This is a handover document from a previous session. "
             + "Please read it carefully, then give me a high-level summary of what was done "
             + "and what you think we should work on next. Show the scope of remaining work "
             + "and suggest priorities.";
 
-        await session.SendTextAsync(prompt, SubmissionProvenance.FrameworkText(), SendSource.Framework);
+        try
+        {
+            await session.SendTextAsync(prompt, SubmissionProvenance.FrameworkText(), SendSource.Framework);
+        }
+        catch (Exception ex)
+        {
+            // Nobody awaits this task (the caller discards it), so a refusal that escaped here was an unobserved task and
+            // the owner never heard the handover did not go in (issue 3481). It is reported instead.
+            FileLog.Write($"[MainWindow] InjectHandoverPromptAsync FAILED: session={session.Id}: {ex.Message}");
+            Dispatcher.UIThread.Post(() => ReportSendRefused("Handover not sent",
+                $"The handover prompt was not sent to the new session: {ex.Message}\n\nThe handover document is {handoverPath}."));
+            return;
+        }
         FileLog.Write($"[MainWindow] InjectHandoverPromptAsync: sent handover prompt for session {session.Id}");
     }
 

@@ -279,6 +279,49 @@ public sealed class PromptArrivalTests : IDisposable
         Assert.Contains("never reached ClaudeCode", tally.LastFailureReason);
     }
 
+    /// <summary>
+    /// AN ABSENT RECORD IS NOT A NEGATIVE ONE (issue 3480). On 29 September 2026 session 121's pointer was moved to a
+    /// conversation file that was never written; a prompt Claude Code took and answered was then judged "not arrived"
+    /// against it, the retention mark was set, and every later send was refused. When this session's conversation WAS
+    /// readable and the file its pointer names now does not exist, the answer is "cannot tell": no failure, no resend,
+    /// no retention mark. (A conversation that has never been on disk is still judged as before - the test above, the
+    /// dropped first paste of issue #3290.)
+    /// </summary>
+    [Fact]
+    public async Task SendTextAsync_PointerNamesAConversationThatDoesNotExist_AnswersCannotTellAndSetsNoMark()
+    {
+        // Arrange: the real conversation exists and the pointer names it; then the pointer is moved to a file that is
+        // never written - what the background agent's startup did to session 121.
+        Append(UserLine("an earlier prompt"));
+        var terminal = new ScriptedTerminal();
+        using var session = new Session(Guid.NewGuid(), _dir, _dir, null, terminal, SessionBackendType.ConPty);
+        session.MarkRunning();
+        session.UpdateClaudeSessionPointer(Path.GetFileNameWithoutExtension(_file), _file, "startup");
+        var missing = Path.Combine(_dir, "8a7bf36e-f6fb-4866-bcbe-f92c9ab1808b.jsonl");
+        session.UpdateClaudeSessionPointer("8a7bf36e-f6fb-4866-bcbe-f92c9ab1808b", missing, "clear");
+        session.ArrivalWindow = TimeSpan.FromMilliseconds(600);
+        session.ComposerReleaseWindowForTests = TimeSpan.FromMilliseconds(200);
+        session.LateArrivalLimitForTests = TimeSpan.FromMilliseconds(300);
+        var enters = 0;
+        terminal.OnEnter = () => enters++;
+
+        // Act
+        var outcome = await session.SendTextAsync("I don't see slide 19, who checks the checker",
+            SubmissionProvenance.FrameworkText(), SendSource.Framework);
+
+        // Assert: not proven, and NOT a failure either - said as "cannot be told"; nothing resent; no retention mark.
+        Assert.False(outcome.Confirmed);
+        Assert.False(outcome.NothingTyped);
+        Assert.Contains("cannot be told", outcome.Reason);
+        Assert.Contains(missing, outcome.Reason);
+        Assert.Equal(1, enters);
+        Assert.False(ComposerRetention.MayHoldText(terminal));
+        Assert.False(PromptDeliveryFailures.Tally(session.Id).Unresolved);
+        var end = await outcome.LateProof!;
+        Assert.Equal(LateArrival.WatchFailed, end.Ended);
+        Assert.Contains("cannot be told", end.WatchFailure);
+    }
+
     [Fact]
     public async Task A_send_Claude_Code_records_is_delivered()
     {

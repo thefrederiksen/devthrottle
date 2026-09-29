@@ -21,6 +21,11 @@ public enum PromptArrivalOutcome
 
     /// <summary>The prompt never reached the conversation file.</summary>
     NotArrived,
+
+    /// <summary>The conversation records could not be read at all - the file the pointer names does not exist - so
+    /// whether the prompt arrived CANNOT BE TOLD (issue 3480). Never a failure and never resent: an absent record
+    /// proves nothing either way.</summary>
+    CannotTell,
 }
 
 /// <summary>
@@ -154,6 +159,9 @@ public static class PromptArrival
     /// <param name="mayResend">False when a resend is not allowed at all (a guarded send, which must stay bounded).</param>
     /// <param name="agentPrintedSinceSend">False when the terminal has printed nothing since the send: the agent has not
     /// read its input yet, so an empty composer proves nothing and a resend would queue behind the first copy.</param>
+    /// <param name="recordsReadable">False when the conversation records the proof reads do not exist, so an absence
+    /// in them proves nothing: the answer is then <see cref="PromptArrivalOutcome.CannotTell"/>, never NotArrived, and
+    /// nothing is resent (issue 3480).</param>
     /// <param name="window">How long to wait for each send.</param>
     /// <param name="label">What was sent, for the log.</param>
     /// <param name="poll">How often to look; <see cref="DefaultPoll"/> when null.</param>
@@ -171,6 +179,7 @@ public static class PromptArrival
         Action? pressEnter = null,
         Func<bool>? ownerTyped = null,
         Func<bool>? agentPrintedSinceSend = null,
+        Func<bool>? recordsReadable = null,
         TimeSpan? poll = null,
         Func<TimeSpan, Task>? pause = null,
         Func<DateTime>? utcNow = null)
@@ -184,7 +193,7 @@ public static class PromptArrival
         var notice = new SendWaitNotice("PromptArrival", $"'{label}' to appear in the agent's conversation records",
             $"{window.TotalSeconds:F0}s, and as long again after one resend", () => clock() - began);
         var outcome = await ConfirmCoreAsync(arrived, composerHoldsNothing, resend, mayResend, window, label, anyNewPrompt,
-            textWaitsUnsubmitted, pressEnter, ownerTyped, agentPrintedSinceSend, poll ?? DefaultPoll,
+            textWaitsUnsubmitted, pressEnter, ownerTyped, agentPrintedSinceSend, recordsReadable, poll ?? DefaultPoll,
             pause ?? (d => Task.Delay(d)), clock, notice);
         notice.End(outcome.ToString());
         return outcome;
@@ -193,7 +202,8 @@ public static class PromptArrival
     private static async Task<PromptArrivalOutcome> ConfirmCoreAsync(
         Func<bool> arrived, Func<bool> composerHoldsNothing, Func<Task> resend, bool mayResend, TimeSpan window, string label,
         Func<bool>? anyNewPrompt, Func<Task<bool>>? textWaitsUnsubmitted, Action? pressEnter, Func<bool>? ownerTyped,
-        Func<bool>? agentPrintedSinceSend, TimeSpan step, Func<TimeSpan, Task> wait, Func<DateTime> clock, SendWaitNotice notice)
+        Func<bool>? agentPrintedSinceSend, Func<bool>? recordsReadable, TimeSpan step, Func<TimeSpan, Task> wait,
+        Func<DateTime> clock, SendWaitNotice notice)
     {
 
         // THE ONLY ENTER PRESSED AGAIN IS ONE THE SCREEN ASKS FOR (issue #3290). Blind nudges on a quiet terminal turned
@@ -226,6 +236,17 @@ public static class PromptArrival
             FileLog.Write($"[PromptArrival] '{label}' is not in the conversation records word for word, but a new prompt IS " +
                           "there - it arrived altered. NOT resending.");
             return PromptArrivalOutcome.ArrivedAltered;
+        }
+
+        // AN ABSENT RECORD IS NOT A NEGATIVE ONE (issue 3480). When the conversation file the proof reads does not exist,
+        // "the prompt is not in it" is true of every prompt ever sent; on 29 September 2026 a delivered, answered prompt
+        // was judged not arrived against a file that was never written, and that verdict froze the session. So the
+        // answer is "cannot tell", said as such, and nothing is resent on it.
+        if (recordsReadable?.Invoke() == false)
+        {
+            FileLog.Write($"[PromptArrival] '{label}' cannot be checked: the conversation records the proof reads do not exist, " +
+                          "so whether it arrived CANNOT BE TOLD from them - not calling it not arrived, and NOT resending");
+            return PromptArrivalOutcome.CannotTell;
         }
 
         if (ownerTyped?.Invoke() == true)
