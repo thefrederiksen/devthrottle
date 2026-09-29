@@ -136,12 +136,22 @@ public sealed class VoiceListeningLedger
         var record = RecordFor(tenant);
         lock (record)
         {
-            if (record.UnheardInARow == 0 && record.SwitchedOffAtUtc is null) return;
+            if (record.UnheardInARow == 0 && record.SwitchedOffAtUtc is null && !record.Unsaved) return;
             FileLog.Write($"[VoiceListeningLedger] voice mode switched on: count {record.UnheardInARow} and switch-off {record.SwitchedOffAtUtc:O} cleared for tenant={tenant.ToLogString()}");
             record.UnheardInARow = 0;
             record.SwitchedOffAtUtc = null;
             record.SwitchedOffReason = null;
-            Save(tenant, record);
+            record.Unsaved = true;
+            try
+            {
+                Save(tenant, record);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Switching voice on must not fail because this record could not be written: the owner's switch is the
+                // thing he asked for. Reported here; the record stays unsaved and the next change writes it again.
+                FileLog.Write($"[VoiceListeningLedger] saving the cleared record FAILED: tenant={tenant.ToLogString()}: {ex.GetType().Name}: {Redact(ex.Message, tenant)}");
+            }
         }
     }
 
