@@ -314,6 +314,22 @@ public sealed class DictationAskInsteadOfGuessingTests : IDisposable
     }
 
     [Fact]
+    public async Task AnUnansweredPromptTheDirectorThenSaysItCouldNotConfirm_IsShownBackUnconfirmed_WithNoSendAnyway()
+    {
+        // Proves the question that follows an unanswered prompt reads "unconfirmed" as could-not-confirm - never as the
+        // "not delivered" the Gateway would send again.
+        var sid = Seat();
+        var uploadId = await StagedClipAsync(sid);
+        _prompt = _ => Timeout();
+        _deliveryState = _ => StateIs(DeliveryState.Unconfirmed, "could not be confirmed: the Director had no records to watch for this agent");
+
+        var (status, body) = await CompleteAsync(uploadId, sid, sentAt: T0);
+
+        AssertShownBackUnconfirmed(uploadId, status, body);
+        Assert.Single(_commands, c => c.Verb == "prompt");
+    }
+
+    [Fact]
     public async Task ACopyTheDirectorRefusesAsUnconfirmed_IsShownBackUnconfirmed_WithNoSendAnyway()
     {
         // Proves the prompt verb's own refusal of a copy of an unconfirmed delivery is read as unconfirmed - never as the
