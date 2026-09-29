@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { getAutoSpeak, setAutoSpeak } from "./queueTouch";
-import { __resetVoiceModeAllForTests, useVoiceModeAll } from "./useVoiceModeAll";
+import { __resetVoiceModeAllForTests, useVoiceModeAll, writeVoiceModeAll } from "./useVoiceModeAll";
 import { VoiceAutoOffNote } from "./VoiceAutoOffNote";
 
 vi.mock("../api/client", () => ({
@@ -207,5 +207,33 @@ describe("useVoiceModeAll", () => {
     await act(async () => { await hook.set(true); });
 
     expect(hook.note).toBeNull();
+  });
+
+  it("a write made OUTSIDE the hook - the Cockpit's roster button - also stops a stale poll bringing the line back", async () => {
+    // The Cockpit throws the switch through writeVoiceModeAll, not the hook's set, because it reports what changed.
+    // A poll already in the air when voice goes back on must not land afterwards and repaint the old line.
+    vi.useFakeTimers();
+    try {
+      const line = "Voice mode switched off at 14:32 - you answered five sessions without listening";
+      let landStalePoll: (v: ReturnType<typeof state>) => void = () => {};
+      getMock
+        .mockReturnValueOnce(Promise.resolve(state(false, line)))
+        .mockReturnValueOnce(new Promise<ReturnType<typeof state>>((r) => { landStalePoll = r; }));
+      setMock.mockResolvedValue({ enabled: true, total: 1, changed: 1, skipped: 0, sessions: [] });
+
+      render(<VoiceAutoOffNote className="note" />);
+      await act(async () => {});
+      expect(screen.getByRole("status").textContent).toBe(line);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000); });   // the poll goes out, unanswered
+      await act(async () => { await writeVoiceModeAll(true); });                // voice back on, from the Cockpit
+      expect(screen.queryByRole("status")).toBeNull();
+
+      await act(async () => { landStalePoll(state(false, line)); });           // the old answer lands late
+
+      expect(screen.queryByRole("status")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

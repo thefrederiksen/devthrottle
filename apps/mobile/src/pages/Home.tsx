@@ -646,7 +646,7 @@ function EnableAlerts() {
 // mode?" itself. This renders that answer (CLAUDE.md rule 7: the client is dumb, the Gateway owns the
 // verdict). The banner in the app shell and this control read the SAME shared state - one value, one poll -
 // so a change made in either place shows in the other immediately rather than a poll later.
-function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
+export function VoiceAllControl({ sessions }: { sessions: SessionDto[] }) {
   const voice = useVoiceModeAll();
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

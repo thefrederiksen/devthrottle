@@ -11,7 +11,7 @@ vi.mock("../connection/health", () => ({
   reportGatewayUnreachable: () => health.unreachable(),
 }));
 
-import { GatewayError, setVoiceModeAllSessions } from "./client";
+import { GatewayError, getVoiceModeAllState, setVoiceModeAllSessions } from "./client";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -91,5 +91,35 @@ describe("setVoiceModeAllSessions (issue #1765)", () => {
   it("throws a GatewayError on any other non-success status", async () => {
     globalThis.fetch = (() => Promise.resolve(jsonResponse({}, 500))) as unknown as typeof fetch;
     await expect(setVoiceModeAllSessions(true)).rejects.toBeInstanceOf(GatewayError);
+  });
+});
+
+describe("getVoiceModeAllState (voice mode auto-off, step 5)", () => {
+  const realFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it("GETs /sessions/voice-mode/all and hands back the Gateway's line word for word", async () => {
+    const line = "Voice mode switched off at 14:32 - you answered five sessions without listening";
+    let seenUrl = "";
+    let seenInit: RequestInit | undefined;
+    globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+      seenUrl = String(input);
+      seenInit = init;
+      return Promise.resolve(jsonResponse({ enabled: false, note: line }));
+    }) as unknown as typeof fetch;
+
+    const result = await getVoiceModeAllState();
+
+    expect(seenUrl).toContain("/sessions/voice-mode/all");
+    expect(seenInit?.method).toBe("GET");
+    expect(result).toEqual({ enabled: false, note: line });
+  });
+
+  it("reads no line when the Gateway sends none", async () => {
+    globalThis.fetch = (() => Promise.resolve(jsonResponse({ enabled: true }))) as unknown as typeof fetch;
+
+    expect(await getVoiceModeAllState()).toEqual({ enabled: true, note: null });
   });
 });

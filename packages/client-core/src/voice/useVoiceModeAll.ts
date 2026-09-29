@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getVoiceModeAllState, setVoiceModeAllSessions } from "../api/client";
+import { getVoiceModeAllState, setVoiceModeAllSessions, type VoiceModeAllResult } from "../api/client";
 import { setAutoSpeak } from "./queueTouch";
 
 // VOICE MODE - the fleet-wide switch, read from the Gateway and never derived (owner, 2026-07-24).
@@ -68,10 +68,26 @@ function subscribe(fn: (v: boolean | null) => void): () => void {
   };
 }
 
-/** Read the Gateway's answer now rather than at the next poll - for a surface that changed voice mode without going
- *  through this hook, so the shared state (and the quiet line) catches up at once. */
-export function refreshVoiceModeAll(): Promise<void> {
-  return readOnce();
+/**
+ * THE ONE WAY TO THROW THE SWITCH. Every surface that turns voice mode on or off for the whole account goes through
+ * here, so the shared state and the quiet line move together and a poll that started before the write can never land
+ * after it and repaint the old answer - the old line coming back a moment after you switched voice on. The hook's
+ * `set` uses it; so does the Cockpit's roster button, which needs the per-session result to report what changed.
+ *
+ * Switching it yourself, either way, leaves nothing for the line to say: on clears it at the Gateway, and an off you
+ * pressed is not one the Gateway made. Turning it OFF also switches auto-speak off on this device.
+ */
+export async function writeVoiceModeAll(next: boolean): Promise<VoiceModeAllResult> {
+  writing = true;
+  writeSeq += 1;
+  try {
+    const result = await setVoiceModeAllSessions(next);
+    publish(next, null);
+    if (!next) setAutoSpeak(false);
+    return result;
+  } finally {
+    writing = false;
+  }
 }
 
 /** Test-only: forget the shared state between cases, so one test's answer cannot leak into the next. */
@@ -117,22 +133,15 @@ export function useVoiceModeAll(): VoiceModeAll {
   }, []);
 
   const set = useCallback(async (next: boolean): Promise<boolean> => {
-    writing = true;
-    writeSeq += 1;
     setBusy(true);
     setError(null);
     try {
-      await setVoiceModeAllSessions(next);
-      // Switching it yourself, either way, leaves nothing for the line to say: on clears it at the Gateway, and an
-      // off you pressed is not one the Gateway made.
-      publish(next, null);
-      if (!next) setAutoSpeak(false);
+      await writeVoiceModeAll(next);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not change voice mode for all sessions");
       return false;
     } finally {
-      writing = false;
       setBusy(false);
     }
   }, []);
