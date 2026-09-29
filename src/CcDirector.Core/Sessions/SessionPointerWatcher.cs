@@ -234,20 +234,22 @@ public sealed class SessionPointerWatcher : IDisposable
 
         FileLog.Write($"[SessionPointerWatcher] drop for {sessionId}: event={evt.HookEvent} source={evt.Source} " +
                       $"claudeId={evt.ClaudeSessionId} transcript={evt.TranscriptPath}");
-        session.UpdateClaudeSessionPointer(evt.ClaudeSessionId, evt.TranscriptPath, evt.Source);
+        var moved = session.UpdateClaudeSessionPointer(evt.ClaudeSessionId, evt.TranscriptPath, evt.Source);
 
         // Keep the SessionManager's claude-id routing map in sync with the new id, exactly as the
-        // deleted route did.
-        if (!string.IsNullOrWhiteSpace(evt.ClaudeSessionId))
+        // deleted route did - and only when the pointer moved: a refused report (a child process's
+        // startup, issue 3480) must not relink the routing map behind the session's back.
+        if (moved && !string.IsNullOrWhiteSpace(evt.ClaudeSessionId))
             _sessions.RelinkClaudeSession(sessionId, evt.ClaudeSessionId!);
 
-        // Applied, so the drop has done its job and goes. The state lives in the session now, and an
-        // empty box is what makes a two-second sweep cost nothing. A failed delete is harmless -
-        // re-applying the same drop changes nothing - so it is logged rather than retried.
+        // Applied or refused, the drop has done its job and goes. The state lives in the session now, and an
+        // empty box is what makes a two-second sweep cost nothing; a refused drop would be refused again on
+        // every sweep, and the session has already logged why. A failed delete is harmless - re-applying the
+        // same drop changes nothing - so it is logged rather than retried.
         try { File.Delete(path); }
-        catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] applied but could not remove {path}: {ex.Message}"); }
+        catch (Exception ex) { FileLog.Write($"[SessionPointerWatcher] {(moved ? "applied" : "refused")} but could not remove {path}: {ex.Message}"); }
 
-        return true;
+        return moved;
     }
 
     /// <summary>

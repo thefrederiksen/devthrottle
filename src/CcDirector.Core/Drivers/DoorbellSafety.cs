@@ -91,6 +91,9 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 /// 2026; the fixtures are in the Core tests under TestData/doorbell):
 ///  - The composer is a block of rows between two horizontal rules: a row made only of '─' characters, then a
 ///    row that starts with the prompt glyph '❯', then zero or more continuation rows, then another all-'─' row.
+///    The TOP rule may carry the session's name ("──── keynote deck slide reordering ─"): Claude Code draws it
+///    there once a session is named (captured from Claude Code 2.1.284 on 29 September 2026, fixtures
+///    claude-titled-*; issue 3481). The closing rule is always plain.
 ///    Only the LOWEST such block counts, and at most <see cref="MaxFooterRows"/> rows may follow it (the status
 ///    footer). A '❯' anywhere else - the selection arrow of a picker ("❯ 2. Opus"), a folder-trust dialog
 ///    ("❯ No, exit"), a past prompt in the transcript - is not a composer, because it is not framed that way.
@@ -315,9 +318,9 @@ public static class DoorbellSafety
             for (var prompt = close - 1; prompt >= 1; prompt--)
             {
                 var row = rows[prompt];
-                if (IsRule(row)) break; // reached another rule without a prompt row: not a composer block
+                if (IsTopRule(row)) break; // reached another rule without a prompt row: not a composer block
                 if (!row.StartsWith('❯')) continue;
-                if (!IsRule(rows[prompt - 1])) break; // a '❯' that is not framed from above: a picker or a transcript line
+                if (!IsTopRule(rows[prompt - 1])) break; // a '❯' that is not framed from above: a picker or a transcript line
 
                 var footer = rows.Skip(close + 1).ToList();
                 if (footer.Any(IsMenuHint)) return (ComposerReading.MenuOpen, -1, -1);
@@ -524,6 +527,28 @@ public static class DoorbellSafety
         if (string.IsNullOrEmpty(row)) return false;
         var t = row.Trim();
         return t.Length >= 10 && t.All(c => c == '─');
+    }
+
+    /// <summary>
+    /// The rule above Claude Code's prompt row: a plain rule, or a rule with the session's name drawn into it -
+    /// at least ten rule characters, one space, the name, one space, then at least one rule character
+    /// ("──────── keynote deck slide reordering ─", captured from Claude Code 2.1.284, issue 3481). A titled rule
+    /// read as "not a rule" made every named session's composer NotFound, and a session with a retention mark then
+    /// refused every send.
+    /// </summary>
+    private static bool IsTopRule(string? row)
+    {
+        if (IsRule(row)) return true;
+        if (string.IsNullOrEmpty(row)) return false;
+        var t = row.Trim();
+        var lead = 0;
+        while (lead < t.Length && t[lead] == '─') lead++;
+        var trail = 0;
+        while (trail < t.Length - lead && t[t.Length - 1 - trail] == '─') trail++;
+        if (lead < 10 || trail < 1) return false;
+        var title = t[lead..^trail];
+        return title.Length >= 3 && title[0] == ' ' && title[^1] == ' '
+               && !string.IsNullOrWhiteSpace(title) && !title.Contains('❯') && !title.Contains('─');
     }
 
     private static bool IsMenuHint(string row) =>

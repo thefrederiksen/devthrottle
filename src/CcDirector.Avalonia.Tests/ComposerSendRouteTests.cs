@@ -62,14 +62,14 @@ public sealed class ComposerSendRouteTests
         private readonly ActivityEventOutbox _outbox;
         private readonly ActivityEventProducer _producer;
 
-        public Rig(int sessions = 1)
+        public Rig(int sessions = 1, Func<ISessionBackend>? backend = null)
         {
             Directory.CreateDirectory(_dir);
             _outbox = new ActivityEventOutbox(Path.Combine(_dir, "outbox.jsonl"));
             _producer = new ActivityEventProducer(new SessionManager(new AgentOptions()) { DirectorId = "dir-test" }, _outbox);
             for (var i = 0; i < sessions; i++)
             {
-                var session = new Session(Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null, new NullBackend(), null,
+                var session = new Session(Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null, backend?.Invoke() ?? new NullBackend(), null,
                     ActivityState.Idle, DateTimeOffset.UtcNow, null, null);
                 session.OnTurnSubmitted += (_, origin, evidence) => Submitted.Add((session, origin, evidence));
                 _producer.Wire(session);
@@ -328,5 +328,87 @@ public sealed class ComposerSendRouteTests
         Assert.Equal(SubmissionRoutes.DesktopComposer, row.Route);
         Assert.Null(row.SpokenSpans);
         Assert.Equal(SubmissionEvidence.Sha256Of("git status"), row.ContentSha256);
+    }
+
+    /// <summary>A backend whose every send is refused the way session 121's were (issue 3481).</summary>
+    private sealed class RefusingBackend : ISessionBackend
+    {
+        public const string Refusal = "[ClaudeCode] ResolveRetainedComposer: the composer cannot be read after it was cleared, so nothing was typed";
+        public int ProcessId => 1;
+        public string Status => "Test";
+        public bool IsRunning => true;
+        public bool HasExited => false;
+        public CircularTerminalBuffer? Buffer => null;
+#pragma warning disable CS0067
+        public event Action<string>? StatusChanged;
+        public event Action<int>? ProcessExited;
+#pragma warning restore CS0067
+        public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
+        public void Write(byte[] data) { }
+        public Task SendTextAsync(string text) => Task.FromException(new CcDirector.Core.Drivers.ComposerNotAcceptingInputException(Refusal));
+        public Task SendEnterAsync() => Task.CompletedTask;
+        public void Resize(short cols, short rows) { }
+        public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+
+    /// <summary>
+    /// A REFUSED SEND ENDS IN A MESSAGE, NEVER AN UNHANDLED EXCEPTION (issue 3481). On 29 September 2026 the desktop's own
+    /// Send let session 121's refusal out: "UNHANDLED UI-THREAD EXCEPTION", then "UNOBSERVED TASK" from the finalizer, and
+    /// the words were gone from the box that had been emptied before the send. Through the real window: the send does not
+    /// throw, the words go back in the box, the refusal is shown, and no task is left unobserved.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task SendPromptCoreAsync_SessionRefusesTheSend_ShowsTheRefusalAndPutsTheWordsBack()
+    {
+        // Arrange
+        using var rig = new Rig(backend: () => new RefusingBackend());
+        var shown = new List<(string Title, string Message)>();
+        rig.Window.SendRefusedShownForTests = (title, message) => shown.Add((title, message));
+        var unobserved = 0;
+        EventHandler<UnobservedTaskExceptionEventArgs> onUnobserved = (_, _) => Interlocked.Increment(ref unobserved);
+        TaskScheduler.UnobservedTaskException += onUnobserved;
+        try
+        {
+            rig.Type(Words);
+
+            // Act
+            await rig.Window.SendPromptCoreAsync();
+            Dispatcher.UIThread.RunJobs();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            // Assert
+            var (title, message) = Assert.Single(shown);
+            Assert.Equal("Prompt not sent", title);
+            Assert.Contains(RefusingBackend.Refusal, message);
+            Assert.Equal(Words, rig.Box.Text);
+            Assert.Empty(rig.Submitted);
+            Assert.Equal(0, unobserved);
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= onUnobserved;
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task SendPromptCoreAsync_RefusedDictation_IsShownAsADictationAndPutBackAsSpoken()
+    {
+        // Arrange: one untouched dictation in the box, refused.
+        using var rig = new Rig(backend: () => new RefusingBackend());
+        var shown = new List<(string Title, string Message)>();
+        rig.Window.SendRefusedShownForTests = (title, message) => shown.Add((title, message));
+        rig.Dictate(Words);
+
+        // Act
+        await rig.Window.SendPromptCoreAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        // Assert: "Dictation not sent", and the words back in the box still count as the dictation they were.
+        Assert.Equal("Dictation not sent", Assert.Single(shown).Title);
+        Assert.Equal(Words, rig.Box.Text);
+        Assert.Equal(InputModality.Voice, rig.Window._composerProvenance.OriginFor(rig.Box.Text ?? "").Modality);
     }
 }

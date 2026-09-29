@@ -73,3 +73,18 @@ One is DERIVED, and says so in its own `derivedFrom` and `derivation` fields:
 | File | Derived from |
 |---|---|
 | `claude-idle-stale-working-marker` | `claude-idle-monitor` with its footer row replaced by the idle footer issue 3186 recorded: `bypass permissions on (shift+tab to cycle) - esc to interrupt - <- 1 agent`. Claude Code 2.1.283 no longer draws `esc to interrupt` while idle, so it could not be captured live |
+
+## A named session: the title in the composer's top rule (issue 3481)
+
+Captured on Windows on 29 September 2026 from Claude Code 2.1.284 (Haiku 4.5) in the Director's own terminal at
+161 by 41 - the size of session 121, the session that froze - with the rig's `--claude-titled-capture` mode
+(`src/CcDirector.DeliveryQualification/ClaudeTitledComposerCapture.cs`). The session was named with
+`/rename keynote deck slide reordering`; Claude Code then draws that name inside the rule above the composer
+(`──── keynote deck slide reordering ─`), while the rule below stays plain. Before the fix, the composer reader
+answered NotFound for all three.
+
+| File | Screen |
+|---|---|
+| `claude-titled-idle-empty` | The named session, idle, empty composer, cursor at column 2 |
+| `claude-titled-owner-text` | The same, with `make a new video of version 36` typed and not sent |
+| `claude-titled-idle-empty-after-erase` | The same after that text was erased with Backspace |

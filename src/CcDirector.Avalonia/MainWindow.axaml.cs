@@ -3915,6 +3915,44 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Put the words of a send that did not go back where the owner can send them again: into the box when the session
+    /// is still the one on screen, otherwise in front of what that session's box holds. A restored text that was one
+    /// untouched dictation is registered as spoken again, so sending it later still counts as the dictation it was
+    /// (ruling R20).
+    /// </summary>
+    private void RestoreUnsentWords(Session target, string words, bool spokenAlone)
+    {
+        if (string.IsNullOrEmpty(words)) return;
+        if (_activeSession?.Session == target)
+        {
+            if (spokenAlone) InsertTranscriptIntoPromptInputAt(words, 0);
+            else InsertIntoPromptInputAt(words, 0);
+            return;
+        }
+        target.PendingPromptText = global::CcDirector.Avalonia.Voice.DictationText.Join(words, target.PendingPromptText ?? "");
+        if (spokenAlone)
+            target.PendingPromptSpokenSpans = new[] { new SpokenTurnRule.SpokenSpan(0, words.Length) };
+    }
+
+    /// <summary>Test seam: records a refusal instead of opening the modal. Null in the running app.</summary>
+    internal Action<string, string>? SendRefusedShownForTests { get; set; }
+
+    /// <summary>Show a refused send's modal without making the send wait on it; a failure to show it is logged, never
+    /// thrown into the UI thread.</summary>
+    private async void ReportSendRefused(string title, string message)
+    {
+        try
+        {
+            if (SendRefusedShownForTests is { } seam) { seam(title, message); return; }
+            await MessageBox.ShowAsync(this, title, message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] ReportSendRefused FAILED: {ex.Message}");
+        }
+    }
+
     private void TabBarRefreshButton_Click(object? sender, RoutedEventArgs e)
     {
         FileLog.Write("[MainWindow] TabBarRefreshButton_Click");
@@ -5858,7 +5896,27 @@ public partial class MainWindow : Window
         // Backends send Enter (CR/LF) explicitly after the text -- don't append a submit
         // newline here. Appending one used to trip LargeInputHandler's multi-line check
         // and route short single-line prompts through a temp file.
-        await _activeSession.Session.SendTextAsync(text, provenance, origin: origin);
+        var target = _activeSession.Session;
+        try
+        {
+            await target.SendTextAsync(text, provenance, origin: origin);
+        }
+        catch (Exception ex)
+        {
+            // A REFUSED SEND ENDS IN A MESSAGE, NEVER AN UNHANDLED EXCEPTION (issue 3481). This is the entry point of
+            // the desktop's own Send (the button, Ctrl+Enter, the Speak dialog's blocking Send), and the box was
+            // already emptied above: a refusal that escaped from here crashed through the UI thread's last-chance
+            // handler, was reported a second time by the finalizer as an unobserved task, and took the owner's words
+            // with it. The session has already counted the failed delivery; here the words go back in the box and
+            // the refusal is shown, exactly as a failed background dictation is.
+            FileLog.Write($"[MainWindow] SendPrompt FAILED: session={target.Id}: {ex.Message}");
+            var spokenAlone = origin.Modality == InputModality.Voice;
+            RestoreUnsentWords(target, boxText, spokenAlone);
+            ReportSendRefused(spokenAlone ? "Dictation not sent" : "Prompt not sent",
+                $"Your {(spokenAlone ? "dictation" : "prompt")} was not sent: {ex.Message}\n\n" +
+                "Nothing was queued. The text has been put back in the message box - press Send when you are ready.");
+            return;
+        }
 
         if (isInteractiveCommand)
         {

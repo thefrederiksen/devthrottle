@@ -88,6 +88,15 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     /// <summary>Backspace does nothing, so a clear cannot empty the composer.</summary>
     public bool IgnoreClearKeys { get; set; }
     public int Width { get; set; } = 120;
+
+    /// <summary>The session's name, drawn into the rule above the composer the way Claude Code 2.1.284 draws it once a
+    /// session is named (issue 3481, fixtures claude-titled-*): rule characters, a space, the name, a space, one rule
+    /// character. Null draws the plain rule.</summary>
+    public string? SessionTitle { get; set; }
+
+    private string TopRule(int width) => SessionTitle is { } title
+        ? new string('─', Math.Max(10, width - title.Length - 3)) + " " + title + " ─"
+        : new string('─', width);
     public int Height { get; set; } = 30;
 
     /// <summary>
@@ -384,7 +393,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
             }
             else
             {
-                sb.Append(spinner).Append("\r\n").Append(rule).Append("\r\n").Append(glyphless ? "  " : "❯ ").Append(shown)
+                sb.Append(spinner).Append("\r\n").Append(TopRule(80)).Append("\r\n").Append(glyphless ? "  " : "❯ ").Append(shown)
                     .Append("\r\n").Append(rule).Append("\r\n").Append(footer);
                 sb.Append($"\x1b[3;{3 + shown.Length}H");
             }
@@ -409,7 +418,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
             var painted = new[]
             {
                 Working ? $"* Working... ({_frame})" : "Done.",
-                rule,
+                TopRule(Width),
                 "❯ " + shown,
                 rule,
                 Working ? "  esc to interrupt" : "  ? for shortcuts",
