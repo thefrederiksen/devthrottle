@@ -215,7 +215,14 @@ public sealed class ReReadAboveAStopTests
     {
         // Review of pull request 3501, round three: the pass waited on another session's reading, the parent's calm
         // reading stored and left meanwhile, and the parent was then found neither in flight nor in the old snapshot.
-        const string Other = "sid-other";
+        // The visit order of the two follows their ids' hash, which changes per process, so several pairs are tried: the
+        // defect shows on about half of them, and all of them must come out red.
+        for (var pair = 0; pair < 8; pair++)
+            await TwoReadingsInFlightOnce("sid-other-" + pair);
+    }
+
+    private static async Task TwoReadingsInFlightOnce(string Other)
+    {
         var env = ParentWithWorkUnderIt();
         env.Conversation = sid => sid == Other
             ? new StoredConversation(true, new List<TurnWidgetDto> { new() { Kind = StoredConversationWidgets.AgentTextKind, Content = "OTHER is still working on it." } })
