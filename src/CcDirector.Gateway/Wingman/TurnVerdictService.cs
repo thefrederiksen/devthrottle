@@ -1215,9 +1215,10 @@ public sealed class TurnVerdictService : IDisposable
 
             // ---- CALL A, CODE FIRST (contract v4, design v2, and the simpler session colours ruling) ----
             // Six plain rules, in order, the first to fire deciding: a picker on the screen, the agent's own
-            // needs-human verdict, a real question in the reply, a way back the agent set itself, nothing under it,
-            // and everything under it stopped. A stop one of them decides costs NO model call, and its record says
-            // which step decided and why. Only a stop with work still running under it reaches the model.
+            // needs-human verdict, a real question in the reply, nothing under it, everything under it stopped, and -
+            // only with a session still working under it - a way back the agent set itself (issue 3498). A stop one
+            // of them decides costs NO model call, and its record says which step decided and why. Only a stop with
+            // work still running under it, or with the sessions under it not known, reaches the model.
             var codeDecision = CallACodeSteps.Decide(package, TurnVerdictPackageBuilder.LastTurnToolUses(conversation.Widgets));
             TurnVerdictDto record;
             if (codeDecision is not null)
@@ -2048,10 +2049,11 @@ public sealed class TurnVerdictService : IDisposable
 
     /// <summary>
     /// THE OWNED SESSIONS CALL A MAY READ, which is none while the session itself is working (review of pull request
-    /// 3476). Steps 5 and 6 of <see cref="CallACodeSteps"/> describe a STOPPED session with nothing running under it;
+    /// 3476). The nothing-under-it and all-under-it-stopped steps of <see cref="CallACodeSteps"/> describe a STOPPED
+    /// session with nothing running under it;
     /// an automatic request never reaches a working session, but a person asking does, and a working session with no
-    /// children must not be told "stopped - nothing running under it". Null leaves those two steps silent, exactly as
-    /// for a session the roster does not know.
+    /// children must not be told "stopped - nothing running under it". Null leaves those two steps silent, and the
+    /// way-back step with them, exactly as for a session the roster does not know.
     /// </summary>
     internal static OwnedSessionCounts? OwnedSessionsForAStop(SessionDto? facts, OwnedSessionCounts? owned)
         => facts is not null && SessionOrdering.IsWorkingSession(facts) ? null : owned;
