@@ -1,10 +1,27 @@
 name: CI
 
+# ON DEMAND AND NIGHTLY, NOT ON EVERY PUSH (owner's ruling, 30 September 2026). Until then this ran on
+# every pull request AND again on every push to main: about 70 Windows minutes per pull request and 40
+# per merge, some 80,000 Windows minutes in September 2026, and every commit and merge waited behind it.
+# The owner's words: "turn off automatic CI and run it when we want to instead so we can do lots of
+# commits and merges ... we're not using the server for a testbed", and for this repository: "it seems
+# to take too long whenever we commit anything and merge."
+#
+# So it runs in exactly two ways:
+#   - by hand:  gh workflow run CI --ref <branch>   (or "Run workflow" on the Actions page)
+#   - nightly on main, and ONLY when main has moved since the last completed run. A red nightly opens
+#     an issue (the "Report a red nightly" job at the bottom), so a failing guard is still loud - once
+#     a day rather than once a push.
+# Neither is a pull request, so the "What changed" job below runs EVERY job, every Python leg included.
+# Its pull-request path is kept only for a run started against a pull request's merge ref.
+#
+# What this gives up: a red can reach main and sit there until the nightly. Local verification is the
+# pre-merge gate, which is what the deploy's check gate already assumes (deploy-hosted-gateway.yml, "a
+# commit with no check runs at all is not refused"). A FAILED run still blocks a deploy of that commit.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * *"   # 07:00 UTC daily (03:00 Toronto)
 
 # ONE run per branch, everywhere, and the newest commit always wins (owner's ruling, 16 September 2026).
 #
@@ -84,6 +101,7 @@ jobs:
     name: What changed
     runs-on: ubuntu-latest
     outputs:
+      skip: ${{ steps.classify.outputs.skip }}
       dotnet: ${{ steps.classify.outputs.dotnet }}
       web: ${{ steps.classify.outputs.web }}
       tools: ${{ steps.classify.outputs.tools }}
@@ -104,8 +122,29 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          # THE NIGHTLY RUNS ONLY WHEN MAIN HAS MOVED. If this commit already has a COMPLETED run of this
+          # workflow - by hand, or an earlier night - there is nothing new to test: skip=true, every job
+          # below is skipped, and "CI result" is skipped too, so no green verdict is minted for a commit
+          # this run did not test. Whatever the earlier run concluded stays the commit's verdict. A run
+          # started by hand always tests.
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            seen=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=100" --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID})] | length")
+            if [ "$seen" -gt 0 ]; then
+              echo "main is still at ${GITHUB_SHA}, which already has a completed CI run. Nothing to test tonight."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "dotnet=false" >> "$GITHUB_OUTPUT"
+              echo "web=false" >> "$GITHUB_OUTPUT"
+              echo "tools=false" >> "$GITHUB_OUTPUT"
+              echo 'tools_matrix={"include":[{"os":"ubuntu-latest","dependencies":"latest"}]}' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "main moved to ${GITHUB_SHA} since the last completed run. Testing it."
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
           all_latest='{"os":"windows-latest","dependencies":"latest"},{"os":"macos-latest","dependencies":"latest"},{"os":"ubuntu-latest","dependencies":"latest"}'
           all_floor='{"os":"windows-latest","dependencies":"floor"},{"os":"macos-latest","dependencies":"floor"},{"os":"ubuntu-latest","dependencies":"floor"}'
@@ -431,10 +470,13 @@ jobs:
   #
   # If you add a job, add it to `needs` and to the checks below in the same pull request, or it is
   # outside the verdict.
+  #
+  # The one exception is a nightly that found main unchanged ("What changed" answered skip=true): nothing
+  # ran, so there is no verdict to give, and this job is skipped rather than passing.
   result:
     name: CI result
     needs: [changes, build-and-test, web, tool-contracts]
-    if: always()
+    if: always() && needs.changes.outputs.skip != 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -479,3 +521,37 @@ jobs:
             exit 1
           fi
           echo "CI result: passed"
+
+  # A RED NIGHT IS AN ISSUE, NOT A LOG LINE. Nobody watches a nightly run, so a failure has to arrive
+  # somewhere that is read. One open issue carries every red night: the first failure opens it, later
+  # ones comment on it, and whoever fixes main closes it. Runs started by hand report to whoever started
+  # them and never open an issue.
+  report:
+    name: Report a red nightly
+    needs: [changes, result]
+    if: >-
+      always() && github.event_name == 'schedule' &&
+      (needs.changes.result == 'failure' || needs.result.result == 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          title="Nightly CI is red on main"
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          body="The nightly CI run failed on main at ${GITHUB_SHA}.
+
+          What changed: ${{ needs.changes.result }} | CI result: ${{ needs.result.result }}
+
+          Run: ${url}"
+          open=$(gh issue list --state open --search "\"${title}\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+            echo "Commented on #${open}."
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
