@@ -74,7 +74,7 @@ public sealed class SessionColourLegendTests
 
         // ONE CALM COLOUR (the simpler session colours ruling, 2026-09-28): carrying on was purple and is cyan now. It
         // stays cyan until the session's next stop: there is no timer on carrying on.
-        ("cyan", "the Wingman judged it will carry on by itself") => new(CarryingOn("cyan-continues"), "Pushed the branch"),
+        ("cyan", "sessions under it are still working and the Wingman judged it will carry on") => new(CarryingOn("cyan-continues"), "Pushed the branch"),
         // No verdict at all: the snooze ran out and nothing happened while it did (review of pull request 3477 - the
         // legend used to say every cyan row was the Wingman's judgement).
         (SnoozeClaimColour, SnoozeClaim) => new(new SessionDto

@@ -116,9 +116,10 @@ public sealed class CallACodeFirstTests : IDisposable
     }
 
     [Fact]
-    public async Task WayBackStep_AWakeUpSetInTheLastTurn_IsCarryingOn_WithNoModelCall()
+    public async Task WayBackStep_AWakeUpSetInTheLastTurn_WithWorkRunningUnderIt_IsCarryingOn_WithNoModelCall()
     {
         var env = Env("The nightly build is running; I will look again when it finishes.", ("ScheduleWakeup", "{\"delaySeconds\":1200}"));
+        env.Owned = _ => new OwnedSessionCounts(Working: 1, Stopped: 0, NeedYou: 0);
 
         await new TurnVerdictService(env).StartTurnEnd(Signal());
 
@@ -127,6 +128,39 @@ public sealed class CallACodeFirstTests : IDisposable
         Assert.Equal("continues-alone", stored.Verdict);
         Assert.Equal(CallACodeSteps.WayBackStep, stored.DecidedBy);
         Assert.Equal("the agent set itself a way back in its last turn: a ScheduleWakeup call", stored.DecisionReason);
+    }
+
+    [Theory]
+    [InlineData("ScheduleWakeup", "{\"delaySeconds\":1200}")]
+    [InlineData("Monitor", "{\"until\":\"build done\"}")]
+    [InlineData("Bash", "{\"command\":\"cc-devthrottle session spawn D:/repo --name worker\"}")]
+    [InlineData("Bash", "{\"command\":\"dotnet test\", \"run_in_background\": true}")]
+    public async Task WayBackStep_ASelfSetWayBack_WithNothingUnderIt_IsNeedsYou_WithNoModelCall(string tool, string input)
+    {
+        // The owner, 30 September 2026 (issue 3498): only a session with sessions still working under it may be calm.
+        var env = Env("The nightly build is running; I will look again when it finishes.", (tool, input));
+        env.Owned = _ => new OwnedSessionCounts(0, 0, 0);
+
+        await new TurnVerdictService(env).StartTurnEnd(Signal());
+
+        Assert.Equal(0, env.JudgeCalls);
+        var stored = env.Latest(Tenant, Sid)!;
+        Assert.Equal("needed-you", stored.Verdict);
+        Assert.Equal(CallACodeSteps.NothingUnderItStep, stored.DecidedBy);
+    }
+
+    [Fact]
+    public async Task WayBackStep_ASelfSetWakeUp_WithEverySessionUnderItStopped_IsNeedsYou_WithNoModelCall()
+    {
+        var env = Env("The nightly build is running; I will look again when it finishes.", ("ScheduleWakeup", "{\"delaySeconds\":1200}"));
+        env.Owned = _ => new OwnedSessionCounts(Working: 0, Stopped: 2, NeedYou: 0);
+
+        await new TurnVerdictService(env).StartTurnEnd(Signal());
+
+        Assert.Equal(0, env.JudgeCalls);
+        var stored = env.Latest(Tenant, Sid)!;
+        Assert.Equal("needed-you", stored.Verdict);
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, stored.DecidedBy);
     }
 
     // ================================================================= the sessions under it (simpler session colours)
@@ -225,10 +259,46 @@ public sealed class CallACodeFirstTests : IDisposable
         var old = new TurnVerdictDto { VerdictId = "v3", Verdict = "finished", DecidedBy = null };
         var byCode = new TurnVerdictDto { VerdictId = "v4", Verdict = "needed-you", DecidedBy = CallACodeSteps.NothingUnderItStep };
 
-        Assert.True(TurnVerdictService.ModelReadingOutlivedItsRunningWork(old, new OwnedSessionCounts(0, 0, 0)));
-        Assert.False(TurnVerdictService.ModelReadingOutlivedItsRunningWork(old, new OwnedSessionCounts(1, 0, 0)));
-        Assert.False(TurnVerdictService.ModelReadingOutlivedItsRunningWork(old, null));
-        Assert.False(TurnVerdictService.ModelReadingOutlivedItsRunningWork(byCode, new OwnedSessionCounts(0, 0, 0)));
+        Assert.True(TurnVerdictService.ReadingOutlivedItsRunningWork(old, new OwnedSessionCounts(0, 0, 0)));
+        Assert.False(TurnVerdictService.ReadingOutlivedItsRunningWork(old, new OwnedSessionCounts(1, 0, 0)));
+        Assert.False(TurnVerdictService.ReadingOutlivedItsRunningWork(old, null));
+        Assert.False(TurnVerdictService.ReadingOutlivedItsRunningWork(byCode, new OwnedSessionCounts(0, 0, 0)));
+    }
+
+    [Theory]
+    [InlineData(1, "all-under-it-stopped")]
+    [InlineData(0, "nothing-under-it")]
+    public async Task AWayBackReading_IsDecidedAgainByCode_WhenTheWorkUnderItHasStopped(int stoppedAfter, string step)
+    {
+        // Issue 3498: way-back is calm only because work runs under the session. A reading a code step made used to be
+        // kept for ever, so a way-back reading - including one stored by the old order with nothing under the session
+        // at all - would have stayed calm after the work under it stopped or went away.
+        var working = 1;
+        var env = Env("The nightly build is running; I will look again when it finishes.", ("Monitor", "{\"until\":\"build done\"}"));
+        env.Owned = _ => working == 1 ? new OwnedSessionCounts(1, 0, 0) : new OwnedSessionCounts(0, stoppedAfter, 0);
+        var service = new TurnVerdictService(env);
+
+        await service.StartTurnEnd(Signal());
+        Assert.Equal(CallACodeSteps.WayBackStep, env.Latest(Tenant, Sid)!.DecidedBy);
+
+        working = 0;
+        await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+
+        Assert.Equal(0, env.JudgeCalls);
+        var stored = env.Latest(Tenant, Sid)!;
+        Assert.Equal("needed-you", stored.Verdict);
+        Assert.Equal(step, stored.DecidedBy);
+    }
+
+    [Fact]
+    public void AWayBackReading_IsDecidedAgain_OnlyWhenNothingIsWorkingUnderIt()
+    {
+        var wayBack = new TurnVerdictDto { VerdictId = "wb", Verdict = "continues-alone", DecidedBy = CallACodeSteps.WayBackStep };
+
+        Assert.True(TurnVerdictService.ReadingOutlivedItsRunningWork(wayBack, new OwnedSessionCounts(0, 0, 0)));
+        Assert.True(TurnVerdictService.ReadingOutlivedItsRunningWork(wayBack, new OwnedSessionCounts(0, 2, 0)));
+        Assert.False(TurnVerdictService.ReadingOutlivedItsRunningWork(wayBack, new OwnedSessionCounts(1, 0, 0)));
+        Assert.False(TurnVerdictService.ReadingOutlivedItsRunningWork(wayBack, null));
     }
 
     [Fact]
