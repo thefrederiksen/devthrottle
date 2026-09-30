@@ -124,6 +124,9 @@ internal sealed class GatewayFleetManagerHandOverEnvironment : IFleetManagerHand
     public required Governance.GovernanceAuditLog AuditLog { get; init; }
     public required Func<FleetManagerEventService?> Events { get; init; }
     public required Func<TenantId, IDisposable> EnterTenantScope { get; init; }
+    /// <summary>Told the account and the session whose owner changed, so the sessions above it are read again (issue
+    /// 3499). Null in a test that does not care.</summary>
+    public Action<TenantId, string>? OwnerMoved { get; init; }
 
     public string? MarkedFleetManager(TenantId tenant) => Mark(tenant);
 
@@ -178,6 +181,8 @@ internal sealed class GatewayFleetManagerHandOverEnvironment : IFleetManagerHand
 
     public void OwnerChanged(TenantId tenant, string directorId, SessionDto row)
     {
+        // The session moved out from under its old owner, which may now have nothing working under it (issue 3499).
+        OwnerMoved?.Invoke(tenant, row.SessionId);
         var events = Events();
         if (events is null)
         {

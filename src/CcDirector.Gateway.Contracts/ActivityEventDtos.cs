@@ -344,6 +344,10 @@ public static class ActivityCauses
     /// failure - so the stored reading still answers it and no judge was asked.</summary>
     public const string SameStop = "same-stop";
 
+    /// <summary>A re-read asked because a session under this one stopped found work running under it again, so the
+    /// stored reading stands and no judge was asked (issue 3499).</summary>
+    public const string WorkUnderItAgain = "work-under-it-again";
+
     /// <summary>The judge did not answer within its timeout, or the call never reached it.</summary>
     public const string JudgeDidNotAnswer = "judge-did-not-answer";
 
@@ -492,7 +496,7 @@ public static class ActivityCauses
         SnoozeRequested, WorkSettled, DirectorRemoved, SessionNotLive, Unknown,
         TransientTransport, RateLimited, ContextFull, NonRecoverable, UnclassifiedFault,
         MenuOwnsScreen, RetryCeiling,
-        JudgeAnswered, ScreenUnchanged, SameStop, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
+        JudgeAnswered, ScreenUnchanged, SameStop, WorkUnderItAgain, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
         Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, Shutdown, CarryingOnExpired,
         CarryingOnAgain,
         SnoozeNothingNew, SnoozeVerdictRules, SnoozeReJudgeRequested, SnoozeReadInFlight,

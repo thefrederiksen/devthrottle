@@ -49,7 +49,7 @@ public sealed class WingmanStopDto
     public DateTime RecordedAtUtc { get; set; }
 
     /// <summary>What asked for the judgement, as recorded: "turn-end", "voice", "sweep", "on-demand",
-    /// "snooze-expiry" or "clock".</summary>
+    /// "snooze-expiry", "retry", "under-it-stopped" or "clock".</summary>
     public string Trigger { get; set; } = "";
 
     /// <summary>What asked for it, in plain English.</summary>
