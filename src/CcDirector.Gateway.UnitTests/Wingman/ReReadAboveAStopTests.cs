@@ -211,6 +211,45 @@ public sealed class ReReadAboveAStopTests
     }
 
     [Fact]
+    public async Task TwoReadingsInFlight_TheParentsStoresWhileThePassWaitsOnTheOther_AndIsStillReadAgain()
+    {
+        // Review of pull request 3501, round three: the pass waited on another session's reading, the parent's calm
+        // reading stored and left meanwhile, and the parent was then found neither in flight nor in the old snapshot.
+        const string Other = "sid-other";
+        var env = ParentWithWorkUnderIt();
+        env.Conversation = sid => sid == Other
+            ? new StoredConversation(true, new List<TurnWidgetDto> { new() { Kind = StoredConversationWidgets.AgentTextKind, Content = "OTHER is still working on it." } })
+            : Conversation();
+        env.Owned = _ => new OwnedSessionCounts(1, 0, 0);
+        var parentAnswer = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var otherAnswer = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var asked = 0;
+        var bothAsked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        env.Judge = (prompt, _) =>
+        {
+            if (Interlocked.Increment(ref asked) == 2) bothAsked.TrySetResult();
+            return prompt.Contains("OTHER", StringComparison.Ordinal) ? otherAnswer.Task : parentAnswer.Task;
+        };
+        var service = new TurnVerdictService(env);
+
+        var parentTurn = service.StartTurnEnd(Signal(Parent));
+        var otherTurn = service.StartTurnEnd(Signal(Other));
+        await bothAsked.Task;
+        env.Owned = sid => sid == Parent ? new OwnedSessionCounts(0, 1, 0) : new OwnedSessionCounts(1, 0, 0);
+        var pass = service.ReReadAboveAStopAsync(Tenant, Child);
+        parentAnswer.SetResult("carrying-on");                 // the parent stores and leaves first...
+        await parentTurn;
+        otherAnswer.SetResult("carrying-on");                  // ...then the other reading ends
+        await otherTurn;
+        await pass;
+
+        var stored = env.Latest(Tenant, Parent)!;
+        Assert.Equal("needed-you", stored.Verdict);
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, stored.DecidedBy);
+        Assert.Equal(CallACodeSteps.ModelStep, env.Latest(Tenant, Other)!.DecidedBy);   // work still runs under the other
+    }
+
+    [Fact]
     public async Task TheReRead_IsNotStoodDownByTheJudgeSwitchOrTheCeiling_BecauseItAsksNoJudge()
     {
         // Review of pull request 3501: both ration paid judge calls; a re-read either stood down stayed cyan for good.

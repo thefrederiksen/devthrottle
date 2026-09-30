@@ -907,13 +907,15 @@ public sealed class TurnVerdictService : IDisposable
         if (settings.SettleMs > 0)
             await _env.DelayAsync(TimeSpan.FromMilliseconds(settings.SettleMs), CancellationToken.None).ConfigureAwait(false);
 
-        // The readings in flight are taken FIRST (review of pull request 3501): one that stores and leaves between the two
-        // reads is then still in the stored snapshot, rather than in neither.
-        var candidates = new HashSet<string>(StringComparer.Ordinal);
+        // The readings in flight are listed FIRST (review of pull request 3501): one that stores and leaves between the
+        // two reads is then still in the stored snapshot, rather than in neither. They are VISITED LAST, so a session
+        // with only a stored reading is not kept waiting behind somebody else's model call, and each one's reading is
+        // read fresh at its visit - it may have stored and left while the pass waited on another.
+        var inFlight = new HashSet<string>(StringComparer.Ordinal);
         foreach (var key in _inFlight.Keys)
-            if (key.Tenant.Equals(tenant)) candidates.Add(key.SessionId);
+            if (key.Tenant.Equals(tenant)) inFlight.Add(key.SessionId);
         var stored = _env.SnapshotLatest(tenant);
-        candidates.UnionWith(stored.Keys);
+        var candidates = stored.Keys.Where(sid => !inFlight.Contains(sid)).Concat(inFlight).ToList();
 
         var reread = 0;
         foreach (var sid in candidates)
@@ -923,13 +925,15 @@ public sealed class TurnVerdictService : IDisposable
             if (string.Equals(sid, stoppedSessionId, StringComparison.Ordinal)) continue;
 
             var latest = stored.GetValueOrDefault(sid);
+            var wasInFlight = inFlight.Contains(sid);
             if (_inFlight.TryGetValue((tenant, sid), out var running))
             {
                 // Waited for, not awaited into: a reading that ended in a fault is that session's, and must not end the
                 // pass for every other session. What it stored, if anything, is read next.
                 await Task.WhenAny(running.Outcome.Task).ConfigureAwait(false);
-                latest = _env.Latest(tenant, sid);
+                wasInFlight = true;
             }
+            if (wasInFlight) latest = _env.Latest(tenant, sid);
             if (latest is null || !ReadingOutlivedItsRunningWork(latest, new OwnedSessionCounts(0, 0, 0))) continue;
 
             var state = _env.ReadSessionState(tenant, sid);
