@@ -9,11 +9,12 @@ name: CI
 #
 # So it runs in exactly two ways:
 #   - by hand:  gh workflow run CI --ref <branch>   (or "Run workflow" on the Actions page)
-#   - nightly on main, and ONLY when main has moved since the last completed run. A red nightly opens
+#   - nightly on main, and ONLY when main's commit has no successful run yet. A red nightly opens
 #     an issue (the "Report a red nightly" job at the bottom), so a failing guard is still loud - once
 #     a day rather than once a push.
 # Neither is a pull request, so the "What changed" job below runs EVERY job, every Python leg included.
-# Its pull-request path is kept only for a run started against a pull request's merge ref.
+# Its pull-request classification is no longer reached by any trigger; it is kept, unchanged, so that
+# putting `pull_request:` back is a one-line decision rather than a rewrite.
 #
 # What this gives up: a red can reach main and sit there until the nightly. Local verification is the
 # pre-merge gate, which is what the deploy's check gate already assumes (deploy-hosted-gateway.yml, "a
@@ -21,7 +22,7 @@ name: CI
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 7 * * *"   # 07:00 UTC daily (03:00 Toronto)
+    - cron: "17 7 * * *"   # 07:17 UTC daily (03:17 Toronto); an odd minute, since :00 is when GitHub's scheduler is most delayed
 
 # ONE run per branch, everywhere, and the newest commit always wins (owner's ruling, 16 September 2026).
 #
@@ -39,16 +40,21 @@ on:
 # including the run for the commit that fixed two red guards (#2424). That rule bought a per-commit
 # verdict at the price of a queue that could not drain, and the owner has chosen the drain.
 #
-# Why the group is keyed on github.ref and not github.sha: the sha key is what gave every main commit its
-# own group and so its own place in the queue. The ref key puts every push to main in ONE group, and with
-# cancel-in-progress on, the newest push cancels the older one whether it was executing or waiting. The
-# pending slot holds one run; a newer arrival replaces it; the newest commit always ends up with a run.
+# KEYED ON THE COMMIT, NOTHING CANCELLED (30 September 2026, with the move to on-demand runs). The ref key
+# with cancel-in-progress was right while a second run on main always meant a NEWER commit. Now two runs
+# can be for the SAME commit - the nightly meeting a run started by hand, or two sessions each starting
+# one - and cancelling one of them does harm twice: the cancelled run's checks stay on the commit as
+# failures the deploy gate refuses (a later green run does not clear them), and a cancelled run is still
+# a "completed" run. So each commit gets its own group, and a second run for the same commit waits for
+# the first instead of killing it. Runs are rare now, so a queue of them cannot build.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
-  # ON A PULL REQUEST, RUN ONLY THE JOBS FOR WHAT CHANGED. ON A PUSH TO MAIN, RUN EVERY JOB.
+  # ON A PULL REQUEST, RUN ONLY THE JOBS FOR WHAT CHANGED. ON ANY OTHER RUN, RUN EVERY JOB.
+  # (Since 30 September 2026 CI has no pull_request trigger, so every run takes the "every job" path; the
+  # pull-request classification below is dormant, kept so that trigger can come back in one line.)
   #
   # The .NET job takes about fifty minutes, and a pull request that touched only a Markdown page or one
   # Python tool was paying for all of it, plus six Python legs, before anyone could read an answer that
@@ -85,7 +91,7 @@ jobs:
   #   - An empty change list runs every job too. No files is not a clean result; it is a diff that did
   #     not work, and a broken instrument must not read as "nothing to test".
   #
-  # A PUSH TO MAIN IS UNTOUCHED: every flag is true and every job runs, under the concurrency rule
+  # A RUN THAT IS NOT A PULL REQUEST IS UNTOUCHED: every flag is true and every job runs, under the concurrency rule
   # described above. Main is where the backstop lives, and a backstop that skips is not one. The Python
   # floor leg follows the same split: on a pull request it runs on Ubuntu only, since the lowest declared
   # dependency versions are a property of the packages rather than of the operating system; on main it
@@ -126,15 +132,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          # THE NIGHTLY RUNS ONLY WHEN MAIN HAS MOVED. If this commit already has a COMPLETED run of this
-          # workflow - by hand, or an earlier night - there is nothing new to test: skip=true, every job
+          # THE NIGHTLY RUNS ONLY WHEN MAIN HAS MOVED. If this commit already has a SUCCESSFUL run of this
+          # workflow - by hand, or an earlier night - there is nothing new to learn: skip=true, every job
           # below is skipped, and "CI result" is skipped too, so no green verdict is minted for a commit
-          # this run did not test. Whatever the earlier run concluded stays the commit's verdict. A run
-          # started by hand always tests.
+          # this run did not test. ONLY a success counts. A failed, cancelled or timed-out run is not an
+          # answer to stop asking: a red main is tested - and reported - again every night until it is
+          # green. A run started by hand always tests.
           if [ "$EVENT_NAME" = "schedule" ]; then
-            seen=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=100" --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID})] | length")
+            seen=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&status=success&per_page=100" --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID} and .conclusion == \"success\")] | length")
             if [ "$seen" -gt 0 ]; then
-              echo "main is still at ${GITHUB_SHA}, which already has a completed CI run. Nothing to test tonight."
+              echo "main is still at ${GITHUB_SHA}, which already has a successful CI run. Nothing to test tonight."
               echo "skip=true" >> "$GITHUB_OUTPUT"
               echo "dotnet=false" >> "$GITHUB_OUTPUT"
               echo "web=false" >> "$GITHUB_OUTPUT"
@@ -142,7 +149,7 @@ jobs:
               echo 'tools_matrix={"include":[{"os":"ubuntu-latest","dependencies":"latest"}]}' >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            echo "main moved to ${GITHUB_SHA} since the last completed run. Testing it."
+            echo "${GITHUB_SHA} has no successful CI run yet. Testing it."
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
@@ -453,8 +460,9 @@ jobs:
           python -m pip install google-api-python-client google-auth google-auth-oauthlib google-auth-httplib2 keyring
           python -m pytest tests/ -q
 
-  # THE ONE JOB TO MARK AS A REQUIRED CHECK. No required checks are configured on main today; if one is
-  # ever added, it must be this job and none of the others.
+  # THE ONE JOB TO MARK AS A REQUIRED CHECK - IF CI EVER RUNS ON PULL REQUESTS AGAIN. No required checks
+  # are configured on main today, and while CI runs only on demand and nightly, requiring any check would
+  # block every merge: a pull request never gets a run. If one is ever added, it must be this job.
   #
   # Every other job can be SKIPPED, and GitHub counts a skipped job as successful for a required check
   # (see the comment on "What changed"). This job never skips: `always()` makes it run whatever happened

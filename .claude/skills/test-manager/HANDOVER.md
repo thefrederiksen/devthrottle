@@ -34,10 +34,11 @@ un-park anything to raise a coverage number.
 5. **Local is the gate, and nothing ever waits on continuous integration.** Not for a release
    either - a release runs the local `-Parked -Configuration Release` gate instead, plus the two
    installer test projects the script cannot reach, on merged main at the commit being tagged.
-   Continuous integration is a post-merge backstop that is never WAITED on and
+   Continuous integration is a backstop - nightly on main, or started by hand with
+   `gh workflow run CI --ref main` (since 2026-09-30 nothing starts it on a merge) - that is never WAITED on and
    never left red: a red is driven to green at once. Reading a result after the merge is chasing,
    not waiting, and it is required for the web and Python jobs - they are the only place those
-   tests run at all.
+   tests run at all, so a change touching them starts a run on main after merging.
 
 ## The queue, in the order I would do it
 

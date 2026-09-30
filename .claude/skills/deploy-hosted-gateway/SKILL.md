@@ -39,8 +39,9 @@ version numbers, release notes, tags, or the mailing list.
 - **A check that has not finished is NOT a refusal, and this deploy does not wait for
   one.** The run lists the pending checks and carries straight on, because a pending
   check is an absence of information rather than evidence of a fault. A commit with no
-  checks at all is not refused either. Local verification is the gate; continuous
-  integration is the backstop that reports afterwards. CLAUDE.md 5a says that about
+  checks at all is not refused either - and since 2026-09-30 that is the usual case, because CI
+  no longer starts on a merge; it runs nightly and when asked. Local verification is the gate;
+  continuous integration is the backstop that reports afterwards. CLAUDE.md 5a says that about
   MERGES; the workflow reaches the same conclusion on its own account for deploys.
 
   This bullet said the opposite for twenty-five days, and the cost was real. The

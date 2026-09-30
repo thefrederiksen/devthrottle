@@ -254,9 +254,10 @@ trade, and it only works if the red is actually chased: a red that is left stand
 backstop into noise, and then nobody looks at it at all. Chase it the moment you see it.
 
 **Chasing a red is not the same as waiting for a green.** Nothing is ever held open pending a
-check. But the web and Python jobs are the ONLY place those tests run at all, so if you touched
-the browser shells or the Python toolbelt, go and read that result after merging rather than
-walking away from it. Merge without waiting; come back for the answer.
+check. But the web and Python jobs are the ONLY place those tests run at all, and since 30
+September 2026 CI no longer starts on its own - it runs nightly and when asked. So if you touched
+the browser shells or the Python toolbelt, start it yourself right after merging
+(`gh workflow run CI --ref main`). Merge without waiting; come back for the answer.
 
 **Releasing is the one place the missing coverage bites, and it cannot be fixed forward.** The
 release workflow runs ZERO tests - it builds and publishes artifacts - and a pushed tag cannot be

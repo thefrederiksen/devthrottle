@@ -200,13 +200,15 @@ commit (Step 4), drive it home:
    gh pr merge <number> --squash --delete-branch.
    (delete_branch_on_merge is ON, but --delete-branch is explicit and harmless.)
 
-   Continuous integration keeps running after the merge as a backstop. If it goes red on main,
+   Continuous integration is the backstop, and since 2026-09-30 it runs nightly on main and when
+   asked (`gh workflow run CI --ref main`) - never on its own after a merge. If it goes red on main,
    FIX IT FORWARD IMMEDIATELY. That is the whole trade, and it only works if the red is actually
    chased - a red left standing turns the backstop into noise and then nobody looks at it at all.
 
    Chasing a red is not waiting for a green: nothing is held open pending a check, but the web
    and Python jobs are the only place those tests run at all. If you touched the browser shells
-   or the Python toolbelt, merge without waiting and then go back and read that result.
+   or the Python toolbelt, merge without waiting, start CI on main yourself
+   (`gh workflow run CI --ref main`), and go back and read that result.
 6. Park the checkout back on main:
    git checkout main && git pull
    If you worked in a worktree, remove it: git worktree remove ../<repo>-wt-<short-desc>.
