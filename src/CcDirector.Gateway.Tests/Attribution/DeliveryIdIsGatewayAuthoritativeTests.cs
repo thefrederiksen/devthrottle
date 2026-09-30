@@ -425,14 +425,14 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
     public async Task Send_anyway_that_runs_out_of_time_answers_502_when_the_words_are_not_in(bool markedNotDelivered)
     {
         // Proves the 502 on the prompt route: the question says the words are not in - the Director marked the id not
-        // delivered (the end of its fifteen-minute watch, contract section 5), or never saw it - so the caller is told
-        // it failed and can show the words back again.
+        // delivered with a reason that proves they never arrived (its send threw, and the exception's message is the
+        // reason), or never saw it - so the caller is told it failed and can show the words back again.
         var uploadId = Upload(_uploads, _sid);
         var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
         if (markedNotDelivered)
         {
             Assert.True(_directorRecord.TryBeginDelivery(_session.Id, canonical).Began);
-            _directorRecord.MarkNotDelivered(_session.Id, canonical, "never appeared in the agent's records within 15 minutes");
+            _directorRecord.MarkNotDelivered(_session.Id, canonical, "The pipe is being closed.");
         }
         _promptAnswer = RanOutOfTime;
 
@@ -443,6 +443,27 @@ public sealed class DeliveryIdIsGatewayAuthoritativeTests : IAsyncLifetime
         Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
         var answer = (await DecisionsAfterTheClaim(uploadId)).Last();
         Assert.Equal(DeliveryDecisions.DeliveryStateAnswer, answer);
+    }
+
+    [Fact]
+    public async Task Send_anyway_that_runs_out_of_time_is_unconfirmed_when_an_older_Director_s_watch_ended_without_proof()
+    {
+        // Proves issue #3484 on the prompt route: a Director older than the "unconfirmed" word ends its fifteen-minute
+        // watch with "never appeared in the agent's records within ..." and writes it as not-delivered. That is not proof
+        // the words never arrived, so the Gateway reads it as could-not-confirm: 200 unconfirmed, no "Send anyway", and
+        // nothing is sent again.
+        var uploadId = Upload(_uploads, _sid);
+        var canonical = VoiceUploadStore.NormalizeUploadId(uploadId)!;
+        Assert.True(_directorRecord.TryBeginDelivery(_session.Id, canonical).Began);
+        _directorRecord.MarkNotDelivered(_session.Id, canonical, "never appeared in the agent's records within 15 minutes");
+        _promptAnswer = RanOutOfTime;
+
+        var (status, body) = await PostPromptRaw(new { text = "send me once", appendEnter = true, deliveryIdClaim = uploadId });
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(body.GetProperty("unconfirmed").GetBoolean());
+        Assert.False(body.GetProperty("offerSendAnyway").GetBoolean());
+        Assert.Equal(DeliveryDecisions.Unconfirmed, (await DecisionsAfterTheClaim(uploadId)).Last());
     }
 
     [Fact]
