@@ -216,7 +216,7 @@ public sealed class TurnVerdictDto
 
     /// <summary>
     /// WHICH STEP OF CALL A DECIDED THIS STOP (contract v4, the turn pipeline mission): a code step - "picker",
-    /// "agent-verdict", "question", "way-back", "nothing-under-it", "all-under-it-stopped" - or "model" when no code step fired and the model answered. Null on
+    /// "agent-verdict", "question", "nothing-under-it", "all-under-it-stopped", "way-back" - or "model" when no code step fired and the model answered. Null on
     /// every record stored before v4, and on a failure that never reached Call A.
     /// </summary>
     public string? DecidedBy { get; set; }

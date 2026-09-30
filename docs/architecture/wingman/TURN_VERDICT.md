@@ -21,25 +21,34 @@ a stop that has already been detected MEANS.
 The turn pipeline mission (issue #3399), design v2, approved by the owner on 26 September 2026.
 
 **Call A decides one thing: does this stop need its owner.** Six code steps run first, in order, and the
-first to fire decides with no model call (`CallACodeSteps`, in Core). Steps 5 and 6 were added by the simpler
-session colours ruling (owner, 28 September 2026):
+first to fire decides with no model call (`CallACodeSteps`, in Core). Steps 4 and 5 were added by the simpler
+session colours ruling (owner, 28 September 2026), and moved ahead of way-back by the owner's ruling of
+30 September 2026 (issue #3498):
 
 1. `picker` - a picker or permission prompt is drawn on the screen (`PickerOnScreen`, the one footer rule) -> needs-you
 2. `agent-verdict` - the agent's last message carries its own CC-DISMISS block saying needs-human -> needs-you
 3. `question` - the agent's latest reply asks the person a real question (not a heading, list item, quoted
    question, or one the same line answers) -> needs-you
-4. `way-back` - the agent set itself a way back in its last turn: a ScheduleWakeup, a Monitor, a session spawn,
-   or a background run -> carrying-on (never on a failure with no reply)
-5. `nothing-under-it` - the session owns no session at all -> needs-you, reason "stopped - nothing running under it"
-6. `all-under-it-stopped` - it owns sessions, at every level, and none of them is still working -> needs-you
+4. `nothing-under-it` - the session owns no session at all -> needs-you, reason "stopped - nothing running under it"
+5. `all-under-it-stopped` - it owns sessions, at every level, and none of them is still working -> needs-you
+6. `way-back` - at least one session is still working under it AND the agent set itself a way back in its last
+   turn: a ScheduleWakeup, a Monitor, a session spawn, or a background run -> carrying-on (never on a failure with
+   no reply)
 
-Steps 5 and 6 read the sessions under the stopped one from the same roster snapshot the held check answers from,
+**Only a session with work running under it may be calm.** The owner, 30 September 2026: "A standalone should
+always go back to being red - it needs the user. It's only the sessions that have child sessions that are running
+that are allowed to be cyan." A wake-up, a Monitor, a background run or a spawn the agent set itself is not work
+running under it, so a stop with nothing working under it is needs-you whatever its last turn set up. Until that
+ruling way-back ran fourth and painted such a stop cyan.
+
+Steps 4 to 6 read the sessions under the stopped one from the same roster snapshot the held check answers from,
 "working" meaning the blue row. When that is not known (the session is not in the fresh roster), or the session is
-itself working (a person asking), neither fires. So the model is reached ONLY by a stop with at least one session
-still working under it - the owner: red by default there "will bother the user too much". A model reading (or a
-failed one, or one stored before `DecidedBy` existed) is not reused once nothing is working under the session: it
-is decided again, by code. The Fleet Manager's event delivery reads a red from steps 5 or 6 as "asks you nothing",
-since both run only after every question step found nothing to ask.
+itself working (a person asking), none of the three fires and the stop goes to the model - there is no red-on-unknown
+rule (agreed with the Fleet Manager, 30 September 2026). So the model is reached ONLY by a stop with at least one
+session still working under it, or with that not known - the owner: red by default there "will bother the user too
+much". A model or way-back reading (or a failed one, or one stored before `DecidedBy` existed) is not reused once
+nothing is working under the session: it is decided again, by code. The Fleet Manager's event delivery reads a red
+from steps 4 or 5 as "asks you nothing", since both run only after every question step found nothing to ask.
 
 A stop none of them decides goes to the model (`turn-verdict-v4.txt`): every visible screen row, the cursor row,
 the full-screen flag and the agent's latest reply, and nothing else - no conversation, no recent turns, no first
@@ -517,7 +526,7 @@ calm":
 read as a session that had not started yet, which is the opposite of what is true about it, so
 the two never share a colour.
 
-**One calm colour (28 September 2026).** Carrying on used to be purple. The owner only ever asks one question of a stopped row - do I need to go there? - so every calm verdict is now cyan, and only the row's words say which kind of calm it is. There is no clock on carrying on either: a carrying-on clock that turned the row red after ten minutes (or two minutes past an announced wake-up) was removed the same day, because most of what it caught were sessions waiting on real work - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred, not said by the agent. A carrying-on row stays cyan until the session stops again.
+**One calm colour (28 September 2026).** Carrying on used to be purple. The owner only ever asks one question of a stopped row - do I need to go there? - so every calm verdict is now cyan, and only the row's words say which kind of calm it is. There is no clock on carrying on either: a carrying-on clock that turned the row red after ten minutes (or two minutes past an announced wake-up) was removed the same day, because most of what it caught were sessions waiting on real work - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred, not said by the agent. A carrying-on row stays cyan until the session stops again, or until the work under it stops: a calm reading made while sessions worked under it is decided again, by code, the next time the stop is read with nothing working under it.
 
 **A reading stamp comes first.** A stop the Wingman will judge never shows red first: `reading`
 is stamped at the boundary before any wait or read, so the first colour pushed is the yellow

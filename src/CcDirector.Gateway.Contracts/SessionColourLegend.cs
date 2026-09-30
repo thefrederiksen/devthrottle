@@ -163,7 +163,8 @@ public static class SessionColourLegend
         // the sentence does not say the Wingman judged every cyan row.
         ["cyan"] = new("The session stopped and nothing is needed from you",
             ["the Wingman judged the work done", "the Wingman judged it only reporting something that asks you nothing",
-             "the Wingman judged it will carry on by itself", "your snooze ended and nothing happened while it ran"]),
+             "sessions under it are still working and the Wingman judged it will carry on",
+             "your snooze ended and nothing happened while it ran"]),
 
         ["yellow"] = new("The session stopped and is being looked at before it is shown to you",
             ["the Wingman or the Director is reading the stop", "its voice summary is not ready yet"]),

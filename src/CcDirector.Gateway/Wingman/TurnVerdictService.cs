@@ -1994,7 +1994,7 @@ public sealed class TurnVerdictService : IDisposable
             && _rateLimitHolds.TryGetValue(key, out var hold)
             && string.Equals(hold.SourceText, currentSource.Value?.Content, StringComparison.Ordinal))
             return true;
-        if (ModelReadingOutlivedItsRunningWork(latest, owned)) return false;
+        if (ReadingOutlivedItsRunningWork(latest, owned)) return false;
         if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
             && !(trigger == TurnVerdictTrigger.Sweep && IsSameStop(latest, currentSource.Value)))
             return false;
@@ -2021,26 +2021,30 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>
-    /// A READING THE MODEL MADE WHILE WORK WAS RUNNING UNDER THE SESSION DOES NOT OUTLIVE THAT WORK (the simpler session
-    /// colours ruling, 2026-09-28). Since steps 5 and 6 of <see cref="CallACodeSteps"/>, the model only ever decides a
-    /// stop with a session still working under it. When the last of those stops, the parent has not worked, so its
+    /// A READING MADE WHILE WORK WAS RUNNING UNDER THE SESSION DOES NOT OUTLIVE THAT WORK (the simpler session colours
+    /// ruling, 2026-09-28). Since the nothing-under-it and all-under-it-stopped steps of <see cref="CallACodeSteps"/>, the
+    /// model only ever decides a stop with a session still working under it - and since the owner's ruling of
+    /// 30 September 2026 (issue 3498) so does the way-back step, which now runs after them. Both are calm BECAUSE work
+    /// runs under the session. When the last of those stops, the parent has not worked, so its
     /// screen and its reply are unchanged and the stored calm reading would otherwise be reused for as long as it sits:
     /// the "all under it stopped" rule could never fire. So the stop is decided again - by code, at no model cost.
     ///
-    /// ONE DIRECTION ONLY, deliberately. A red that step 6 made is not re-asked when a child starts working again: a
+    /// ONE DIRECTION ONLY, deliberately. A red that the all-under-it-stopped step made is not re-asked when a child starts working again: a
     /// child that goes quiet for ten seconds reads as stopped, and re-asking the model on every such flap would be a
     /// paid call each time. Not known (null) keeps the reading.
     ///
     /// A FAILED READING IS DECIDED AGAIN TOO (review of pull request 3476). A model call that timed out while work ran
     /// under the session would otherwise be reused by the sweep for as long as the parent sits - and a Fleet Manager
     /// whose reading failed never gets its events. So is a reading stored before <c>DecidedBy</c> existed (null): it can
-    /// only have been the model's. Only a reading a CODE step made is kept, and the re-decision is a code step, so this
-    /// cannot loop.
+    /// only have been the model's. So is a way-back reading: one stored before issue 3498 may have been made with
+    /// nothing under the session at all, which the owner rules red. Only a reading a needs-you CODE step made is kept,
+    /// and the re-decision is a code step, so this cannot loop.
     /// </summary>
-    internal static bool ModelReadingOutlivedItsRunningWork(TurnVerdictDto latest, OwnedSessionCounts? owned)
+    internal static bool ReadingOutlivedItsRunningWork(TurnVerdictDto latest, OwnedSessionCounts? owned)
         => owned is { Working: 0 }
            && (latest.DecidedBy is null
-               || string.Equals(latest.DecidedBy, CallACodeSteps.ModelStep, StringComparison.Ordinal));
+               || string.Equals(latest.DecidedBy, CallACodeSteps.ModelStep, StringComparison.Ordinal)
+               || string.Equals(latest.DecidedBy, CallACodeSteps.WayBackStep, StringComparison.Ordinal));
 
     /// <summary>
     /// THE OWNED SESSIONS CALL A MAY READ, which is none while the session itself is working (review of pull request

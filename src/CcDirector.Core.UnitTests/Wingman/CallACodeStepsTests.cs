@@ -140,16 +140,20 @@ public sealed class CallACodeStepsTests
         Assert.EndsWith("...\"", decision.Reason);
     }
 
-    // ================================================================= step 4: a way back
+    // ================================================================= step 6: a way back, with work running under it
+
+    /// <summary>A session with one session still working under it: the only stop way-back may decide.</summary>
+    private static readonly OwnedSessionCounts OneWorkingUnderIt = new(Working: 1, Stopped: 0, NeedYou: 0);
 
     [Theory]
     [InlineData("ScheduleWakeup", "{\"delaySeconds\":1200}", "a ScheduleWakeup call")]
     [InlineData("Monitor", "{\"until\":\"build done\"}", "a Monitor call")]
     [InlineData("Bash", "{\"command\":\"cc-devthrottle session spawn D:/repo --name worker\"}", "a session spawn")]
     [InlineData("Bash", "{\"command\":\"dotnet test\", \"run_in_background\": true}", "a background run")]
-    public void WayBack_TheAgentSetItselfAWayBack_IsCarryingOn(string tool, string input, string named)
+    public void WayBack_WorkStillRunningUnderIt_AndTheAgentSetItselfAWayBack_IsCarryingOn(string tool, string input, string named)
     {
-        var decision = CallACodeSteps.Decide(Stop("Started it; I will pick it up when it lands."), new[] { new CallAToolUse(tool, input) });
+        var decision = CallACodeSteps.Decide(
+            Owning("Started it; I will pick it up when it lands.", OneWorkingUnderIt), new[] { new CallAToolUse(tool, input) });
 
         Assert.NotNull(decision);
         Assert.Equal(CallACodeSteps.WayBackStep, decision!.Step);
@@ -162,14 +166,14 @@ public sealed class CallACodeStepsTests
     {
         var tools = new[] { new CallAToolUse("Bash", "{\"command\":\"dotnet test\",\"run_in_background\":false}"), new CallAToolUse("Read", "{\"file_path\":\"a.cs\"}") };
 
-        Assert.Null(CallACodeSteps.Decide(Stop("The tests pass."), tools));
+        Assert.Null(CallACodeSteps.Decide(Owning("The tests pass.", OneWorkingUnderIt), tools));
     }
 
     [Fact]
     public void Order_AQuestionAndAWayBack_IsNeedsYou()
     {
         var decision = CallACodeSteps.Decide(
-            Stop("I scheduled a check in twenty minutes. Do you want me to merge it when it is green?"),
+            Owning("I scheduled a check in twenty minutes. Do you want me to merge it when it is green?", OneWorkingUnderIt),
             new[] { new CallAToolUse("ScheduleWakeup", "{\"delaySeconds\":1200}") });
 
         Assert.Equal(CallACodeSteps.QuestionStep, decision!.Step);
@@ -185,12 +189,13 @@ public sealed class CallACodeStepsTests
             AgentKind = "ClaudeCode",
             FailureText = "API Error: 529 overloaded",
             ScreenRows = new[] { "API Error: 529 overloaded", "" },
+            OwnedSessions = OneWorkingUnderIt,
         };
 
         Assert.Null(CallACodeSteps.Decide(failure, new[] { new CallAToolUse("ScheduleWakeup", "{}") }));
     }
 
-    // ================================================================= steps 5 and 6: the sessions under it
+    // ================================================================= steps 4 and 5: the sessions under it
 
     private static TurnVerdictPackage Owning(string reply, OwnedSessionCounts? owned) => Stop(reply) with { OwnedSessions = owned };
 
@@ -245,15 +250,60 @@ public sealed class CallACodeStepsTests
         Assert.Equal(CallACodeSteps.QuestionStep, decision!.Step);
     }
 
-    [Fact]
-    public void Order_AWayBack_ComesBeforeNothingUnderIt_AndIsCalm()
+    // The owner, 30 September 2026 (issue 3498): only a session with sessions still working under it may be calm. A
+    // wake-up, a Monitor, a background run or a spawn the agent set itself is not work running under it.
+
+    [Theory]
+    [InlineData("ScheduleWakeup", "{\"delaySeconds\":1200}")]
+    [InlineData("Monitor", "{\"until\":\"build done\"}")]
+    [InlineData("Bash", "{\"command\":\"cc-devthrottle session spawn D:/repo --name worker\"}")]
+    [InlineData("Bash", "{\"command\":\"dotnet test\", \"run_in_background\": true}")]
+    public void Order_NothingUnderIt_ComesBeforeAWayBack_SoASelfSetWayBackIsStillNeedsYou(string tool, string input)
+    {
+        var decision = CallACodeSteps.Decide(
+            Owning("Started it; I will pick it up when it lands.", new OwnedSessionCounts(0, 0, 0)),
+            new[] { new CallAToolUse(tool, input) });
+
+        Assert.Equal(CallACodeSteps.NothingUnderItStep, decision!.Step);
+        Assert.Equal("needs-you", decision.Word);
+        Assert.Equal("stopped - nothing running under it", decision.Reason);
+    }
+
+    [Theory]
+    [InlineData("ScheduleWakeup", "{\"delaySeconds\":600}")]
+    [InlineData("Monitor", "{\"until\":\"build done\"}")]
+    [InlineData("Bash", "{\"command\":\"cc-devthrottle session spawn D:/repo --name worker\"}")]
+    [InlineData("Bash", "{\"command\":\"dotnet test\", \"run_in_background\": true}")]
+    public void Order_AllUnderItStopped_ComesBeforeAWayBack_SoASelfSetWayBackIsStillNeedsYou(string tool, string input)
     {
         var decision = CallACodeSteps.Decide(
             Owning("Started the build; I will pick it up when it lands.", new OwnedSessionCounts(0, 2, 0)),
-            new[] { new CallAToolUse("ScheduleWakeup", "{\"delaySeconds\":600}") });
+            new[] { new CallAToolUse(tool, input) });
 
-        Assert.Equal(CallACodeSteps.WayBackStep, decision!.Step);
-        Assert.Equal("carrying-on", decision.Word);
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, decision!.Step);
+        Assert.Equal("needs-you", decision.Word);
+    }
+
+    [Fact]
+    public void NotKnown_AWayBackWithTheSessionsUnderItNotKnown_IsNotCalm_AndReachesTheModel()
+    {
+        // Way-back needs a session known to be working under the stop; not known is not that.
+        Assert.Null(CallACodeSteps.Decide(
+            Owning("Started it; I will pick it up when it lands.", null),
+            new[] { new CallAToolUse("Monitor", "{\"until\":\"build done\"}") }));
+    }
+
+    [Fact]
+    public void Session100_AStandaloneThatSetItselfAMonitor_WithNothingUnderIt_IsNeedsYou()
+    {
+        // The shape of the stop issue 3498 was found on (session 100, 30 September 2026): a Standalone with no session
+        // under it whose last turn used a Monitor. It was painted cyan by way-back; it is red.
+        var decision = CallACodeSteps.Decide(
+            Owning("Reading the rest of the job log now; the Monitor will tell me when it finishes.", new OwnedSessionCounts(0, 0, 0)),
+            new[] { new CallAToolUse("Monitor", "{\"command\":\"tail -f job.log\",\"description\":\"job log\"}") });
+
+        Assert.Equal(CallACodeSteps.NothingUnderItStep, decision!.Step);
+        Assert.Equal("needs-you", decision.Word);
     }
 
     [Fact]
@@ -301,7 +351,7 @@ public sealed class CallACodeStepsTests
     public void Steps_AreInTheirOrder_ThenTheModel()
     {
         Assert.Equal(
-            new[] { "picker", "agent-verdict", "question", "way-back", "nothing-under-it", "all-under-it-stopped", "model" },
+            new[] { "picker", "agent-verdict", "question", "nothing-under-it", "all-under-it-stopped", "way-back", "model" },
             CallACodeSteps.Steps);
     }
 }

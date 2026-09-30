@@ -15,24 +15,31 @@ public sealed record CallAToolUse(string Name, string Input);
 public sealed record CallADecision(string Step, string Word, string Reason);
 
 /// <summary>
-/// CALL A, CODE FIRST (the turn pipeline mission, design v2, approved by the owner on 26 September 2026; steps 5 and 6
-/// added by the simpler session colours ruling, 28 September 2026). Before the model is asked whether a stop needs its
-/// owner, six plain rules are tried in order, and the FIRST that fires decides. Only a stop none of them decides reaches
-/// the model - and after step 6, that is only a stop with at least one session still working under it.
+/// CALL A, CODE FIRST (the turn pipeline mission, design v2, approved by the owner on 26 September 2026; the two
+/// owned-session steps added by the simpler session colours ruling, 28 September 2026, and moved ahead of way-back by
+/// the owner's ruling of 30 September 2026, issue 3498). Before the model is asked whether a stop needs its owner, six
+/// plain rules are tried in order, and the FIRST that fires decides. Only a stop none of them decides reaches the model.
 ///
 ///   1. picker     a picker or permission prompt is drawn on the screen (<see cref="PickerOnScreen"/>, the one
 ///                 footer rule - not a second one)                                           -> needs-you
 ///   2. verdict    the agent's last message carries its own CC-DISMISS block saying needs-human -> needs-you
 ///   3. question   the agent's latest reply asks the person a real question                  -> needs-you
-///   4. way-back   the agent set itself a way back in its last turn: a ScheduleWakeup, a Monitor, a session
-///                 spawn or a background run                                                   -> carrying-on
-///   5. nothing-under-it  the session owns no session at all                                    -> needs-you
-///   6. all-under-it-stopped  it owns sessions and none of them is still working                -> needs-you
+///   4. nothing-under-it  the session owns no session at all                                    -> needs-you
+///   5. all-under-it-stopped  it owns sessions and none of them is still working                -> needs-you
+///   6. way-back   at least one session is still working under it AND the agent set itself a way back in its last
+///                 turn: a ScheduleWakeup, a Monitor, a session spawn or a background run      -> carrying-on
 ///
-/// Steps 5 and 6 read <see cref="TurnVerdictPackage.OwnedSessions"/>, every level, working meaning the blue row. When
-/// that is not known (null) neither fires and the stop goes to the model. The owner, on step 7 - the model - for a
-/// session with work still running under it: red by default there "will bother the user too much", so the model's one
-/// word decides only that case.
+/// ONLY A SESSION WITH WORK RUNNING UNDER IT MAY BE CALM. The owner, 30 September 2026: "A standalone should always go
+/// back to being red - it needs the user. It's only the sessions that have child sessions that are running that are
+/// allowed to be cyan." A wake-up, a Monitor, a background run or a spawn the agent set itself is not work running
+/// under it: steps 4 and 5 decide such a stop red first, and step 6 fires only with a session still working under it.
+/// Before this ruling way-back ran fourth and painted a session with nothing under it cyan whenever its last turn
+/// used a Monitor (issue 3498).
+///
+/// Steps 4 to 6 read <see cref="TurnVerdictPackage.OwnedSessions"/>, every level, working meaning the blue row. When
+/// that is not known (null) none of the three fires and the stop goes to the model. The owner, on step 7 - the model -
+/// for a session with work still running under it: red by default there "will bother the user too much", so the
+/// model's one word decides that case.
 ///
 /// Every needs-you rule comes first, because a missed "needs you" is the costly error: the session sits and nobody
 /// comes. The rules are ported from the phase 1 measurement (devthrottle_internal
@@ -43,7 +50,8 @@ public sealed record CallADecision(string Step, string Word, string Reason);
 ///   - the phrase list ("your call", "waiting on you" ...). The owner: only after it is checked against his own
 ///     labels. It was read off the same stops it was scored on, and it is this fleet's house style.
 ///   - "owns sessions that are still working" means carrying-on. The data says the opposite: a manager waiting on
-///     the owner while its workers run was labelled needs-you 56 times of 72. That case goes to the model.
+///     the owner while its workers run was labelled needs-you 56 times of 72. That case goes to the model unless the
+///     agent also set itself a way back (step 6).
 ///   - an ask-the-user tool use (AskUserQuestion, ExitPlanMode). It fired on none of the 381 stops and is not in the
 ///     approved list; a live one is drawn as a picker, which step 1 already reads.
 ///
@@ -73,13 +81,13 @@ public static class CallACodeSteps
     /// <summary>The session owns sessions and every one of them has stopped.</summary>
     public const string AllUnderItStoppedStep = "all-under-it-stopped";
 
-    /// <summary>The reason step 5 gives, as the owner worded it.</summary>
+    /// <summary>The reason step 4 gives, as the owner worded it.</summary>
     public const string NothingUnderItReason = "stopped - nothing running under it";
 
     /// <summary>
     /// True for the two steps that call a stop red because nothing is moving the session - nothing under it, or all of
     /// it stopped - rather than because the session asks anything. They run only after the picker, the agent's own
-    /// verdict and the question steps have all found nothing to ask. A reader that asks "is it asking the owner
+    /// verdict and the question steps have all found nothing to ask, and before the way-back step. A reader that asks "is it asking the owner
     /// something?" (the Fleet Manager's event delivery) reads these as no.
     /// </summary>
     public static bool IsRedWithNothingAsked(string? step)
@@ -89,13 +97,14 @@ public static class CallACodeSteps
     public const string ModelStep = "model";
 
     /// <summary>Every step word, in the order the steps run, then the model.</summary>
-    public static readonly IReadOnlyList<string> Steps = new[] { PickerStep, AgentVerdictStep, QuestionStep, WayBackStep, NothingUnderItStep, AllUnderItStoppedStep, ModelStep };
+    public static readonly IReadOnlyList<string> Steps = new[] { PickerStep, AgentVerdictStep, QuestionStep, NothingUnderItStep, AllUnderItStoppedStep, WayBackStep, ModelStep };
 
     /// <summary>The longest question quoted in a reason. A reason is read in a debug view, not a transcript.</summary>
     public const int MaxQuotedQuestionChars = 160;
 
     /// <summary>
     /// Run the six steps in order and return the first that fires, or null when none does and the model must decide.
+    /// The model is therefore reached only with a session still working under the stop, or with that not known.
     /// </summary>
     /// <param name="package">The stop: its screen, its agent, its shape and the agent's latest reply.</param>
     /// <param name="lastTurnToolUses">The tool uses of the agent's last turn. Empty when the conversation holds none
@@ -122,10 +131,6 @@ public static class CallACodeSteps
             return Decided(QuestionStep, TurnVerdictContract.NeedsYouWord,
                 "the reply asks a question: " + Quote(questions[^1]));
 
-        if (package.Kind != TurnVerdictPackageKind.TerminalFailure && WayBack(lastTurnToolUses) is { } wayBack)
-            return Decided(WayBackStep, TurnVerdictContract.CarryingOnWord,
-                "the agent set itself a way back in its last turn: " + wayBack);
-
         if (package.OwnedSessions is { } owned)
         {
             if (owned.Total == 0)
@@ -136,6 +141,14 @@ public static class CallACodeSteps
                         ? "stopped - the one session under it has stopped"
                         : "stopped - all " + owned.Total + " sessions under it have stopped");
         }
+
+        // Reached only with at least one session still working under it, or with the sessions under it not known.
+        // Way-back needs the first: a wake-up the agent set itself is not work running under it.
+        if (package.OwnedSessions is { Working: > 0 }
+            && package.Kind != TurnVerdictPackageKind.TerminalFailure
+            && WayBack(lastTurnToolUses) is { } wayBack)
+            return Decided(WayBackStep, TurnVerdictContract.CarryingOnWord,
+                "the agent set itself a way back in its last turn: " + wayBack);
 
         return null;
     }
@@ -183,7 +196,7 @@ public static class CallACodeSteps
 
     private static bool IsQuestion(string sentence) => sentence.TrimEnd('*', '_', '`', ' ', ')').EndsWith('?');
 
-    // ==================================================================== step 4: a way back
+    // ==================================================================== step 6: a way back
 
     /// <summary>
     /// The first tool use of the last turn that set up the agent's own way back, named for a reason, or null.
