@@ -23,9 +23,12 @@ public sealed class TerminalPromptInjectionChokepointTests
         // desktop send carries is decided by the compose box's own per-character provenance, never by which
         // method was called. What that decision produces is pinned where it can actually be observed - through
         // the real window and the real send, in ComposerSendRouteTests - not by reading a literal here.
-        Assert.Contains("await _activeSession.Session.SendTextAsync(text, provenance, origin: origin);", main);
-        Assert.Contains("await target.SendTextAsync(text, provenance, origin: origin);", main);
-        Assert.Contains("await _activeSession.Session.SendTextAsync(\"/handover\", SubmissionProvenance.FrameworkText(), SendSource.Framework);", main);
+        //
+        // Issue 3481 took the session into a local `target` before each desktop send, so a refused send can be caught
+        // at its entry point and shown rather than escape the UI thread. The receiver's name changed; the chokepoint
+        // did not. The compose box's Send and the background dictation send are both still this one call.
+        Assert.Equal(2, Regex.Matches(main, Regex.Escape("await target.SendTextAsync(text, provenance, origin: origin);")).Count);
+        Assert.Contains("await target.SendTextAsync(\"/handover\", SubmissionProvenance.FrameworkText(), SendSource.Framework);", main);
 
         Assert.DoesNotContain("ScheduleEnterRetry", main);
         Assert.DoesNotContain("RetryEnterAfterDelay", main);
