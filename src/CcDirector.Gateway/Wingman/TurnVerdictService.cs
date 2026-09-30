@@ -907,10 +907,13 @@ public sealed class TurnVerdictService : IDisposable
         if (settings.SettleMs > 0)
             await _env.DelayAsync(TimeSpan.FromMilliseconds(settings.SettleMs), CancellationToken.None).ConfigureAwait(false);
 
-        var stored = _env.SnapshotLatest(tenant);
-        var candidates = new HashSet<string>(stored.Keys, StringComparer.Ordinal);
+        // The readings in flight are taken FIRST (review of pull request 3501): one that stores and leaves between the two
+        // reads is then still in the stored snapshot, rather than in neither.
+        var candidates = new HashSet<string>(StringComparer.Ordinal);
         foreach (var key in _inFlight.Keys)
             if (key.Tenant.Equals(tenant)) candidates.Add(key.SessionId);
+        var stored = _env.SnapshotLatest(tenant);
+        candidates.UnionWith(stored.Keys);
 
         var reread = 0;
         foreach (var sid in candidates)
@@ -922,7 +925,9 @@ public sealed class TurnVerdictService : IDisposable
             var latest = stored.GetValueOrDefault(sid);
             if (_inFlight.TryGetValue((tenant, sid), out var running))
             {
-                await running.Outcome.Task.ConfigureAwait(false);
+                // Waited for, not awaited into: a reading that ended in a fault is that session's, and must not end the
+                // pass for every other session. What it stored, if anything, is read next.
+                await Task.WhenAny(running.Outcome.Task).ConfigureAwait(false);
                 latest = _env.Latest(tenant, sid);
             }
             if (latest is null || !ReadingOutlivedItsRunningWork(latest, new OwnedSessionCounts(0, 0, 0))) continue;
@@ -1316,6 +1321,13 @@ public sealed class TurnVerdictService : IDisposable
             {
                 record = TurnVerdictContract.FromCodeStep(codeDecision, package, observedAt);
                 FileLog.Write($"[TurnVerdictService] Call A decided by code: sid={sid} id={record.VerdictId} step={codeDecision.Step} word={codeDecision.Word} - no model call");
+            }
+            else if (trigger == TurnVerdictTrigger.UnderItStopped)
+            {
+                // THIS TRIGGER NEVER ASKS THE JUDGE, and that is enforced here rather than only by the checks before it
+                // (review of pull request 3501). No code step fired, so work runs under the session again - the stored
+                // reading was superseded between the pass and this flight. Whatever stands is left for the next stop.
+                return Skip(tenant, directorId, sid, trigger, ActivityCauses.WorkUnderItAgain, settings, observedAt);
             }
             else
             {

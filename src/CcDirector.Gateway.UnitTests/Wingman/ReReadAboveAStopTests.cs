@@ -244,6 +244,23 @@ public sealed class ReReadAboveAStopTests
     }
 
     [Fact]
+    public async Task TheTrigger_RefusesTheJudge_EvenWhenNothingBeforeItStoodTheReadDown()
+    {
+        // Review of pull request 3501: with the stored reading gone and work running under the session again, no check
+        // before the model stopped this trigger. It is enforced at the model step itself.
+        var env = ParentWithWorkUnderIt();
+        env.Knobs = env.Knobs with { JudgeEnabled = false, MaxInFlight = 0 };
+        var service = new TurnVerdictService(env);
+
+        var outcome = await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Parent, TurnVerdictTrigger.UnderItStopped);
+
+        Assert.Equal(0, env.JudgeCalls);
+        Assert.Equal(TurnVerdictOutcomeKind.Skipped, outcome.Kind);
+        Assert.Equal(ActivityCauses.WorkUnderItAgain, outcome.SkipCause);
+        Assert.False(service.IsReading(Tenant, Parent));
+    }
+
+    [Fact]
     public void TheTrigger_IsNamedForAPersonInTheStopsView()
     {
         Assert.Equal("A session under it stopped", WingmanStopsFold.TriggerText(TurnVerdictService.UnderItStoppedTriggerWord));
