@@ -23,15 +23,35 @@ public sealed class TerminalPromptInjectionChokepointTests
         // desktop send carries is decided by the compose box's own per-character provenance, never by which
         // method was called. What that decision produces is pinned where it can actually be observed - through
         // the real window and the real send, in ComposerSendRouteTests - not by reading a literal here.
-        Assert.Contains("await _activeSession.Session.SendTextAsync(text, provenance, origin: origin);", main);
-        Assert.Contains("await target.SendTextAsync(text, provenance, origin: origin);", main);
-        Assert.Contains("await _activeSession.Session.SendTextAsync(\"/handover\", SubmissionProvenance.FrameworkText(), SendSource.Framework);", main);
+        //
+        // Issue 3481 took the session into a local `target` before each desktop send, so a refused send can be caught
+        // at its entry point and shown rather than escape the UI thread. The receiver's name changed; the chokepoint
+        // did not. The compose box's Send and the background dictation send are both still this one call.
+        // Each send is pinned inside its own method, so losing one route cannot be hidden by a copy of the other.
+        Assert.Contains("await target.SendTextAsync(text, provenance, origin: origin);",
+            MethodBody(main, "internal async Task SendPromptCoreAsync()"));
+        Assert.Contains("await target.SendTextAsync(text, provenance, origin: origin);",
+            MethodBody(main, "private async Task SubmitDictatedTextAsync("));
+        Assert.Contains("await target.SendTextAsync(\"/handover\", SubmissionProvenance.FrameworkText(), SendSource.Framework);",
+            MethodBody(main, "internal async Task SendHandoverCommandAsync()"));
 
         Assert.DoesNotContain("ScheduleEnterRetry", main);
         Assert.DoesNotContain("RetryEnterAfterDelay", main);
         Assert.DoesNotContain("Enter retry", main);
         Assert.DoesNotContain(".SendEnterAsync(", main);
         Assert.DoesNotContain("SendText(\"/handover", main);
+    }
+
+    /// <summary>The text of one member of <paramref name="source"/>: from its signature to the next member declared at
+    /// the same indent. Throws when the signature is not there, so a renamed method fails loudly rather than reading as
+    /// an empty body.</summary>
+    private static string MethodBody(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(start >= 0, $"MainWindow.axaml.cs no longer declares '{signature}'");
+        var next = Regex.Match(source.Substring(start + signature.Length), @"
+    (private|internal|public|protected) ");
+        return next.Success ? source.Substring(start, signature.Length + next.Index) : source.Substring(start);
     }
 
     [Fact]
