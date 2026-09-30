@@ -480,40 +480,71 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
         // nearly out of memory, and then watched for the HEALTHY machine's four seconds instead of the
         // sixteen the same rationale asks for.
         //
-        // Asserting the decision alone could not see that. This asserts the WINDOW: with no explicit
-        // timeout, a submit that transitions into Critical must spend materially longer watching than
-        // one that stays healthy.
-        static async Task<TimeSpan> TimeASilentSubmit(bool goesCritical)
-        {
-            var probe = new ShiftingProbe(MachineMemoryReading.Read(
-                16UL * 1024 * 1024 * 1024, 12UL * 1024 * 1024 * 1024, DateTime.UtcNow));
-            TerminalSubmit.MemoryProbe = probe;
+        // Asserting the decision alone could not see that. This asserts the WINDOW, by an echo that lands
+        // between the two budgets: after the healthy four second watch has ended and well inside the
+        // Critical sixteen. A submit that stayed healthy has given up by then and throws; a submit that
+        // went Critical is still watching, sees the echo, and delivers. The healthy run is the control -
+        // it IS the stale-budget behaviour, so it proves the echo really does land outside a four second
+        // watch rather than trusting the arithmetic.
+        //
+        // WHY THE TERMINAL PRINTS SOMETHING FIRST (issue #3494). A terminal that prints nothing at all is
+        // waited on for NoReactionAllowance - sixty seconds (issue #3290) - before the extra watch even
+        // begins. The earlier form of this test used a silent composer, so each of its two submits sat out
+        // that minute and the test took 2 minutes 20 seconds, which a hang detector reads as a hang and
+        // which kept the whole Core.Tests run from completing. A placeholder repaint makes the terminal
+        // one that reacted, so the first wait ends at the base four seconds and the whole test takes about
+        // twenty.
+        var healthy = await SubmitWithAnEchoBetweenTheBudgets(goesCritical: false);
+        Assert.IsType<ComposerNotAcceptingInputException>(healthy.Failure);
+        Assert.Empty(healthy.Backend.SubmittedTexts);
 
-            var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
-            backend.EchoScript.UseDefault(RecordingEchoStep.Withheld());
-            if (goesCritical)
-                backend.OnFirstWrite = () => probe.Now = MachineMemoryReading.Read(
-                    16UL * 1024 * 1024 * 1024, 300UL * 1024 * 1024, DateTime.UtcNow);
+        var transitioned = await SubmitWithAnEchoBetweenTheBudgets(goesCritical: true);
+        Assert.True(transitioned.Failure is null,
+            "the extra watch was not widened for a machine that went Critical mid-wait - it gave up before " +
+            $"an echo {EchoLandsAfter.TotalSeconds:F0}s after typing: {transitioned.Failure?.Message}");
+        Assert.Contains(TypedAsTheMachineRanOut, transitioned.Backend.SubmittedTexts);
+        Assert.False(Wrote(transitioned.Backend, Escape));
+    }
 
-            var started = DateTime.UtcNow;
-            // NO explicit echoTimeout - the whole point is that the deadline is chosen from the reading.
-            // A short poll keeps the wait responsive; the deadline itself is what is under test.
-            await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
-                () => TerminalSubmit.SharedSubmitAsync(
-                    backend, "x", "ClaudeDriver",
-                    pollInterval: ShortPoll, enterSettleDelay: ShortSettle, submitVerifyBeat: FastVerifyBeat));
-            return DateTime.UtcNow - started;
-        }
+    private const string TypedAsTheMachineRanOut = "typed as the machine ran out";
 
-        var healthy = await TimeASilentSubmit(goesCritical: false);
-        var transitioned = await TimeASilentSubmit(goesCritical: true);
+    /// <summary>
+    /// After the healthy watch (base deadline plus one more base deadline, eight seconds) and well
+    /// inside the Critical one (base deadline plus sixteen, twenty seconds), with four seconds of
+    /// daylight on the near side and eight on the far.
+    /// </summary>
+    private static readonly TimeSpan EchoLandsAfter = TimeSpan.FromSeconds(12);
 
-        // Healthy: two attempts at the four second base deadline. Transitioned: one attempt at four
-        // seconds, then an extra watch sized from Critical. If the budget were still taken from the
-        // pre-typing reading the two would be indistinguishable.
-        Assert.True(transitioned > healthy + TimeSpan.FromSeconds(3),
-            $"the extra watch was not widened for a machine that went Critical mid-wait: " +
-            $"healthy {healthy.TotalSeconds:F1}s vs transitioned {transitioned.TotalSeconds:F1}s");
+    /// <summary>
+    /// The most one submit may take before the test fails instead of waiting. xUnit's own Timeout is
+    /// ignored in this assembly because test parallelization is off, so the limit is enforced here: a
+    /// future change that makes this wait unbounded fails this one test, it does not stall the suite.
+    /// </summary>
+    private static readonly TimeSpan OneSubmitLimit = TimeSpan.FromSeconds(45);
+
+    private static async Task<(RecordingSessionBackend Backend, Exception? Failure)> SubmitWithAnEchoBetweenTheBudgets(
+        bool goesCritical)
+    {
+        var probe = new ShiftingProbe(MachineMemoryReading.Read(
+            16UL * 1024 * 1024 * 1024, 12UL * 1024 * 1024 * 1024, DateTime.UtcNow));
+        TerminalSubmit.MemoryProbe = probe;
+
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+        // A repaint straight away, so the terminal has visibly reacted; the typed text itself echoes late.
+        backend.EchoScript.UseDefault(RecordingEchoStep.RepaintingPlaceholder("...", EchoLandsAfter));
+        if (goesCritical)
+            backend.OnFirstWrite = () => probe.Now = MachineMemoryReading.Read(
+                16UL * 1024 * 1024 * 1024, 300UL * 1024 * 1024, DateTime.UtcNow);
+
+        // NO explicit echoTimeout - the whole point is that the deadline is chosen from the reading.
+        // A short poll keeps the wait responsive; the deadline itself is what is under test.
+        var submit = TerminalSubmit.SharedSubmitAsync(
+            backend, TypedAsTheMachineRanOut, "ClaudeDriver",
+            pollInterval: ShortPoll, enterSettleDelay: ShortSettle, submitVerifyBeat: FastVerifyBeat);
+        var failure = await Record.ExceptionAsync(() => submit.WaitAsync(OneSubmitLimit));
+        Assert.False(failure is TimeoutException,
+            $"one submit ran past {OneSubmitLimit.TotalSeconds:F0}s - the echo wait no longer ends");
+        return (backend, failure);
     }
 
     private sealed class ShiftingProbe(MachineMemoryReading first) : IMachineMemoryProbe
