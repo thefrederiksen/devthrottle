@@ -318,6 +318,20 @@ public partial class App : Application
             FileLog.Write($"[App] Crash-journal detection FAILED: {ex.Message}");
         }
 
+        // A delivery a stopped Director was typing is settled as "could not be confirmed" (issue #3487): its late watch died
+        // with that process, so it would otherwise be held as delivering forever. Only entries whose writing process is
+        // gone are touched; one a live Director owns is left to that Director.
+        try
+        {
+            var settle = DeliveryRecord.Shared.SettleOrphanedDeliveries();
+            foreach (var unreadable in settle.UnreadableFiles)
+                FileLog.Write($"[App] Delivery records: NOT SETTLED, unreadable: {unreadable}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[App] Delivery-record settlement FAILED: {ex}");
+        }
+
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
         {
             FileLog.Write($"[App] UNHANDLED DOMAIN EXCEPTION (isTerminating={args.IsTerminating}): {args.ExceptionObject}");
