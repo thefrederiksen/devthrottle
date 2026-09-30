@@ -153,9 +153,13 @@ public sealed class DeliveryRecordSettlementTests : IDisposable
 
         Assert.True(settle > start, "the Director's start-up does not settle the delivery record");
         Assert.True(channel > settle, "the settlement runs after the command channel starts, or the channel start moved");
-        var guard = app.LastIndexOf("try", settle, StringComparison.Ordinal);
-        var caught = app.IndexOf("Delivery-record settlement FAILED", settle, StringComparison.Ordinal);
-        Assert.True(guard > start && caught > settle && caught < channel, "the settlement is not guarded at start-up");
+        // Its OWN guard: the call is the first statement of a try block, and that block's catch logs the failure. A nearby
+        // try around something else does not count (round 2 of the review found "the last try before it" matched the
+        // crash-journal guard above).
+        var guarded = System.Text.RegularExpressions.Regex.Match(app,
+            @"try\s*\{\s*var settle = DeliveryRecord\.Shared\.SettleOrphanedDeliveries\(\);(?<body>[^{}]*(\{[^{}]*\}[^{}]*)*)\}\s*catch\s*\(Exception ex\)\s*\{\s*FileLog\.Write\(\$""\[App\] Delivery-record settlement FAILED");
+        Assert.True(guarded.Success, "the settlement is not the first statement of its own try block with its own logged catch");
+        Assert.Equal(settle, app.IndexOf("DeliveryRecord.Shared.SettleOrphanedDeliveries()", guarded.Index, StringComparison.Ordinal));
     }
 
     private static string RepoRoot()
