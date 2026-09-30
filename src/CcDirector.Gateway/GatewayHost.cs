@@ -3200,8 +3200,8 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// A session exited or was removed: the sessions above it are read again when their calm reading lived on work
-    /// that is no longer running (issue 3499). Inside the account's scope; returns at once. Called from the turn-end
+    /// A session exited, was removed, or was handed to another owner: the sessions above it are read again when their
+    /// calm reading lived on work that is no longer running (issue 3499). Inside the account's scope; returns at once. Called from the turn-end
     /// watcher's callbacks, which nothing above can catch, so a fault is logged here.
     /// </summary>
     private void ReReadAboveAStop(TenantId tenant, string sessionId)
@@ -4718,6 +4718,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 // Read when a hand over happens: the events service is created when the host starts.
                 Events = () => _fleetManagerEvents,
                 EnterTenantScope = tenant => _tenantBoundary.EnterScope(tenant),
+                OwnerMoved = ReReadAboveAStop,
             }));
 
         // The Fleet Manager page (the Fleet Manager mission, step 6): the cards, the live right panel and the rail's

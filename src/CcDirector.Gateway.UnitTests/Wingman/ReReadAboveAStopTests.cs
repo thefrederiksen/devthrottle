@@ -1,4 +1,5 @@
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
@@ -181,6 +182,65 @@ public sealed class ReReadAboveAStopTests
         await service.ReReadAboveAStopAsync(Tenant, Child);
 
         Assert.Equal("settle:750", env.Steps.First());
+    }
+
+    [Fact]
+    public async Task AParentStillBeingRead_WhenTheLastSessionUnderItStops_IsWaitedFor_AndThenReadAgain()
+    {
+        // Review of pull request 3501: the parent went to the model with work under it, the last session under it stopped
+        // while the model was answering, and the calm answer was stored after the pass had looked.
+        var env = ParentWithWorkUnderIt();
+        var answer = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var asked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        env.Judge = (_, _) => { asked.TrySetResult(); return answer.Task; };
+        var service = new TurnVerdictService(env);
+
+        var turn = service.StartTurnEnd(Signal(Parent));
+        await asked.Task;                                      // the parent's reading is now waiting on the model
+        env.Owned = _ => new OwnedSessionCounts(0, 1, 0);      // the last session under it stops meanwhile
+        var pass = service.ReReadAboveAStopAsync(Tenant, Child);
+        answer.SetResult("carrying-on");
+        await turn;
+        var reread = await pass;
+
+        Assert.Equal(1, reread);
+        Assert.Equal(1, env.JudgeCalls);
+        var stored = env.Latest(Tenant, Parent)!;
+        Assert.Equal("needed-you", stored.Verdict);
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, stored.DecidedBy);
+    }
+
+    [Fact]
+    public async Task TheReRead_IsNotStoodDownByTheJudgeSwitchOrTheCeiling_BecauseItAsksNoJudge()
+    {
+        // Review of pull request 3501: both ration paid judge calls; a re-read either stood down stayed cyan for good.
+        var env = ParentWithWorkUnderIt();
+        var service = new TurnVerdictService(env);
+        await service.StartTurnEnd(Signal(Parent));
+        env.Knobs = env.Knobs with { JudgeEnabled = false, MaxInFlight = 0 };
+        env.Owned = _ => new OwnedSessionCounts(0, 1, 0);
+
+        var reread = await service.ReReadAboveAStopAsync(Tenant, Child);
+
+        Assert.Equal(1, reread);
+        Assert.Equal(CallACodeSteps.AllUnderItStoppedStep, env.Latest(Tenant, Parent)!.DecidedBy);
+    }
+
+    [Fact]
+    public void AHandOver_TellsTheReReadWhichSessionMoved()
+    {
+        // A working session handed to another owner leaves its old owner with nothing under it (review of 3501).
+        (TenantId Tenant, string Sid)? moved = null;
+        var handOver = new GatewayFleetManagerHandOverEnvironment
+        {
+            Pushed = null!, StaleAfter = TimeSpan.Zero, Directors = null!, Capabilities = null!, SendCommand = null!,
+            Mark = _ => null, AuditLog = null!, Events = () => null, EnterTenantScope = _ => null!,
+            OwnerMoved = (tenant, sid) => moved = (tenant, sid),
+        };
+
+        handOver.OwnerChanged(Tenant, "dir-1", new SessionDto { SessionId = Child });
+
+        Assert.Equal((Tenant, Child), moved);
     }
 
     [Fact]
