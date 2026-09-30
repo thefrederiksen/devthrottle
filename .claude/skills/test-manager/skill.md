@@ -189,11 +189,12 @@ That is not a softened version of the old rule - it is a local gate, not a wait 
 matters because the release workflow runs ZERO tests and a pushed tag cannot be un-pushed, so a
 release is the single place where fixing forward is not available.
 
-Continuous integration still runs after the merge, as a backstop. It is never **waited on** - no
+Continuous integration is the backstop. Since 2026-09-30 it runs nightly on main and when asked
+(`gh workflow run CI --ref main`), never on its own after a merge. It is never **waited on** - no
 merge is ever held open for it - and it is never left red: **a red is fixed forward immediately,
 re-run, and confirmed clear.** Reading a result after the fact is chasing, not waiting, and it is
 required: the web and Python jobs are the only place those tests run at all, so a change touching
-the browser shells or the Python toolbelt must go back and read them. A red left standing turns the
+the browser shells or the Python toolbelt must start a run on main after merging and read it. A red left standing turns the
 backstop into noise, and a backstop nobody reads is not a backstop - which is exactly how two
 architecture guards stayed red on main for a morning without anybody being told.
 
@@ -499,7 +500,7 @@ Answer with what is NOT running, not with a number of tests. The honest summary 
 - **Not running by default:** the host-bound Gateway suite (endpoints, tenancy, boundaries), all of
   `Core.Tests`, and since 2026-09-13 all 4,259 of `Gateway.UnitTests` (issue #2824). All three run
   under `-Parked`.
-- **Continuous integration** still runs everything after a merge as a backstop; it takes about fifty
+- **Continuous integration** runs everything nightly on main, or when started by hand, as a backstop; it takes about fifty
   minutes, blocks nobody, and is never waited for. When it reddens it is fixed forward at once - an
   unchased red is how this backstop stops being one.
 
