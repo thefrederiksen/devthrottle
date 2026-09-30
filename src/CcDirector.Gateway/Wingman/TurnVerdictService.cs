@@ -191,6 +191,17 @@ public enum TurnVerdictTrigger
     /// <see cref="TurnVerdictDto.NextRetryAtUtc"/> has passed. See <see cref="WingmanRetrySchedule"/>.
     /// </summary>
     Retry,
+
+    /// <summary>
+    /// A SESSION STOPPED, EXITED OR WENT AWAY, SO THE SESSIONS ABOVE IT ARE READ AGAIN (issue 3499). A calm reading made
+    /// while work ran under a session - the model's, or way-back's - is true only while that work runs; the owner's
+    /// ruling of 30 September 2026 is that a session is cyan only while sessions under it are working. Nothing else
+    /// asks about the parent when the last session under it stops, so this does. It is asked only for a stored reading
+    /// <see cref="TurnVerdictService.ReadingOutlivedItsRunningWork"/> already says must be decided again, and it
+    /// reuses whatever else stands, so it can never reach the model: the re-decision is a code step. Automatic, so the
+    /// free checks, the judge switch and the ceiling apply.
+    /// </summary>
+    UnderItStopped,
 }
 
 /// <summary>
@@ -850,6 +861,65 @@ public sealed class TurnVerdictService : IDisposable
         return reading;
     }
 
+    /// <summary>The trigger word a re-read of the sessions above a stopped session is recorded under.</summary>
+    public const string UnderItStoppedTriggerWord = "under-it-stopped";
+
+    /// <summary>
+    /// A SESSION STOPPED, EXITED OR WAS REMOVED: READ AGAIN EVERY SESSION WHOSE CALM READING OUTLIVED THE WORK UNDER IT
+    /// (issue 3499). Fire and forget - it is called from the turn-end, exit and removal hooks, which wait for nothing.
+    /// </summary>
+    public void OnSessionStopped(TenantId tenant, string sessionId)
+    {
+        if (_disposed || !tenant.IsValid || string.IsNullOrEmpty(sessionId)) return;
+        var pass = Task.Run(() => ReReadAboveAStopAsync(tenant, sessionId));
+        // Nothing waits for the pass, but a fault must not go unread: every ordinary failure of a reading is already a
+        // stored record, so anything reaching here is the pass itself failing.
+        _ = pass.ContinueWith(
+            t => FileLog.Write($"[TurnVerdictService] the re-read above a stop FAULTED: sid={sessionId}: " +
+                               $"{t.Exception?.GetBaseException().GetType().FullName}: {t.Exception?.GetBaseException().Message}"),
+            TaskContinuationOptions.OnlyOnFaulted);
+    }
+
+    /// <summary>
+    /// The awaited form of <see cref="OnSessionStopped"/>, for tests. Returns how many sessions it read again.
+    ///
+    /// ONE PASS OVER THE ACCOUNT, not a walk up from the stopped session: a session that was removed is no longer in
+    /// the roster, so its parents cannot be found from it, and a reading stored before issue 3498 on a session with
+    /// nothing under it at all has no child to stop. The pass reads only what is already in memory - the latest
+    /// reading of every session - and reads a roster answer only for a reading that could have outlived its work; a
+    /// screen is read only for one that has. After the settle, like a turn end, so the roster has taken the stop in.
+    ///
+    /// It cannot loop and it does not repeat: the re-decision is a needs-you code step, which
+    /// <see cref="ReadingOutlivedItsRunningWork"/> never asks about again.
+    /// </summary>
+    internal async Task<int> ReReadAboveAStopAsync(TenantId tenant, string stoppedSessionId)
+    {
+        FileLog.Write($"[TurnVerdictService] ReReadAboveAStopAsync: sid={stoppedSessionId} tenant={tenant.ToLogString()}");
+        var settings = _env.Settings(tenant);
+        if (settings.SettleMs > 0)
+            await _env.DelayAsync(TimeSpan.FromMilliseconds(settings.SettleMs), CancellationToken.None).ConfigureAwait(false);
+
+        var reread = 0;
+        foreach (var (sid, latest) in _env.SnapshotLatest(tenant))
+        {
+            if (_disposed) break;
+            // The stopped session's own stop is read by its own turn end.
+            if (string.Equals(sid, stoppedSessionId, StringComparison.Ordinal)) continue;
+            if (!ReadingOutlivedItsRunningWork(latest, new OwnedSessionCounts(0, 0, 0))) continue;
+
+            var state = _env.ReadSessionState(tenant, sid);
+            if (SessionStateSkipCause(state, TurnVerdictTrigger.UnderItStopped) is not null) continue;
+            if (!ReadingOutlivedItsRunningWork(latest, OwnedSessionsForAStop(state.Facts, state.Owned))) continue;
+
+            FileLog.Write($"[TurnVerdictService] ReReadAboveAStopAsync: sid={sid} decidedBy={latest.DecidedBy ?? "(none)"} - nothing works under it now, read again");
+            await VerdictForCurrentScreenAsync(tenant, state.Facts!.DirectorId, sid, TurnVerdictTrigger.UnderItStopped).ConfigureAwait(false);
+            reread++;
+        }
+
+        FileLog.Write($"[TurnVerdictService] ReReadAboveAStopAsync: sid={stoppedSessionId} read again={reread}");
+        return reread;
+    }
+
     /// <summary>
     /// The verdict for this session's CURRENT screen, for a caller that needs its words now - a voice session's
     /// narration, the idle sweep, a person pressing explain.
@@ -1139,6 +1209,7 @@ public sealed class TurnVerdictService : IDisposable
         // expiry with a stop nothing has judged. A voice session is the standing exception - somebody is
         // listening to it - and a person's own request is not automatic at all.
         if (trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry or TurnVerdictTrigger.Retry
+                or TurnVerdictTrigger.UnderItStopped
             && !settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
             return Skip(tenant, directorId, sid, trigger, ActivityCauses.JudgeSwitchOff, settings, observedAt);
 
@@ -1181,7 +1252,7 @@ public sealed class TurnVerdictService : IDisposable
 
         // ---- the account's ceiling ----
         var capped = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.Sweep or TurnVerdictTrigger.SnoozeExpiry
-            or TurnVerdictTrigger.Retry;
+            or TurnVerdictTrigger.Retry or TurnVerdictTrigger.UnderItStopped;
         var load = _tenantLoad.GetOrAdd(tenant, _ => new StrongBox<int>());
         if (capped && Interlocked.Increment(ref load.Value) > settings.MaxInFlight)
         {
@@ -1996,6 +2067,10 @@ public sealed class TurnVerdictService : IDisposable
             && string.Equals(hold.SourceText, currentSource.Value?.Content, StringComparison.Ordinal))
             return true;
         if (ReadingOutlivedItsRunningWork(latest, owned)) return false;
+        // A SESSION UNDER IT STOPPING asks only about a reading that must be decided again (the line above). If work
+        // started under the session again before this read, whatever stands is kept: this trigger never buys a model
+        // call on a changed screen.
+        if (trigger == TurnVerdictTrigger.UnderItStopped) return true;
         if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
             && !(trigger == TurnVerdictTrigger.Sweep && IsSameStop(latest, currentSource.Value)))
             return false;
@@ -2853,6 +2928,7 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictTrigger.Sweep => "sweep",
         TurnVerdictTrigger.Retry => "retry",
         TurnVerdictTrigger.SnoozeExpiry => "snooze-expiry",
+        TurnVerdictTrigger.UnderItStopped => UnderItStoppedTriggerWord,
         _ => "on-demand",
     };
 

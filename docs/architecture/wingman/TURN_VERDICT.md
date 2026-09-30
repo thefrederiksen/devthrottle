@@ -47,7 +47,9 @@ itself working (a person asking), none of the three fires and the stop goes to t
 rule (agreed with the Fleet Manager, 30 September 2026). So the model is reached ONLY by a stop with at least one
 session still working under it, or with that not known - the owner: red by default there "will bother the user too
 much". A model or way-back reading (or a failed one, or one stored before `DecidedBy` existed) is not reused once
-nothing is working under the session: it is decided again, by code. The Fleet Manager's event delivery reads a red
+nothing is working under the session: it is decided again, by code. Since issue #3499 something asks: whenever a
+session stops, exits or is removed, one pass over the account's latest readings reads again (trigger
+`under-it-stopped`, no model call) every stopped session whose calm reading lived on work that is no longer running. The Fleet Manager's event delivery reads a red
 from steps 4 or 5 as "asks you nothing", since both run only after every question step found nothing to ask.
 
 A stop none of them decides goes to the model (`turn-verdict-v4.txt`): every visible screen row, the cursor row,
@@ -526,7 +528,7 @@ calm":
 read as a session that had not started yet, which is the opposite of what is true about it, so
 the two never share a colour.
 
-**One calm colour (28 September 2026).** Carrying on used to be purple. The owner only ever asks one question of a stopped row - do I need to go there? - so every calm verdict is now cyan, and only the row's words say which kind of calm it is. There is no clock on carrying on either: a carrying-on clock that turned the row red after ten minutes (or two minutes past an announced wake-up) was removed the same day, because most of what it caught were sessions waiting on real work - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred, not said by the agent. A carrying-on row stays cyan until the session stops again, or until the work under it stops: a calm reading made while sessions worked under it is decided again, by code, the next time the stop is read with nothing working under it.
+**One calm colour (28 September 2026).** Carrying on used to be purple. The owner only ever asks one question of a stopped row - do I need to go there? - so every calm verdict is now cyan, and only the row's words say which kind of calm it is. There is no clock on carrying on either: a carrying-on clock that turned the row red after ten minutes (or two minutes past an announced wake-up) was removed the same day, because most of what it caught were sessions waiting on real work - a release gate, a Codex review, an image build - and the "promise" it reported was usually inferred, not said by the agent. A carrying-on row stays cyan until the session stops again, or until the work under it stops: a calm reading made while sessions worked under it is decided again, by code, as soon as a session stops, exits or is removed and nothing is working under it (issue #3499).
 
 **A reading stamp comes first.** A stop the Wingman will judge never shows red first: `reading`
 is stamped at the boundary before any wait or read, so the first colour pushed is the yellow

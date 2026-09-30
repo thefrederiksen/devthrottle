@@ -3199,6 +3199,25 @@ public sealed class GatewayHost : IAsyncDisposable
             $"[GatewayHost] No bound address carried a usable port (addresses: {string.Join(", ", addresses)}).");
     }
 
+    /// <summary>
+    /// A session exited or was removed: the sessions above it are read again when their calm reading lived on work
+    /// that is no longer running (issue 3499). Inside the account's scope; returns at once. Called from the turn-end
+    /// watcher's callbacks, which nothing above can catch, so a fault is logged here.
+    /// </summary>
+    private void ReReadAboveAStop(TenantId tenant, string sessionId)
+    {
+        if (!tenant.IsValid) return;
+        try
+        {
+            using (_tenantBoundary.EnterScope(tenant))
+                _turnVerdictService?.OnSessionStopped(tenant, sessionId);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] re-read above a stop FAILED: sid={sessionId}: {ex.Message}");
+        }
+    }
+
     public async Task StartAsync()
     {
         FileLog.Write($"[GatewayHost] StartAsync: port={(Port == OperatingSystemAssignedPort ? "operating-system-assigned" : Port.ToString())}");
@@ -3409,7 +3428,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 try
                 {
                     using (_tenantBoundary.EnterScope(tenant))
+                    {
                         _turnVerdictService?.OnTurnEnd(signal);
+                        // The sessions above this one: a calm reading that lived on the work under them is read again
+                        // once none of it is working (issue 3499). Returns at once.
+                        _turnVerdictService?.OnSessionStopped(tenant, signal.SessionId);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -3537,9 +3561,18 @@ public sealed class GatewayHost : IAsyncDisposable
             pushedSessions: PushedSessions,
             // The Fleet Manager's events (step 4): a session a Fleet Manager owns has exited or crashed. The watcher
             // is where every feed's state transitions meet and are taken once, so this is raised once per exit.
-            onSessionExited: (tenant, sid, directorId) => _fleetManagerEvents?.OnSessionExited(tenant, sid, directorId),
+            // An exit or a removal also ends the work a session was doing under its parents (issue 3499).
+            onSessionExited: (tenant, sid, directorId) =>
+            {
+                _fleetManagerEvents?.OnSessionExited(tenant, sid, directorId);
+                ReReadAboveAStop(tenant, sid);
+            },
             // And one its Director removed from its list: the row is gone, so what the Gateway last knew answers.
-            onSessionRemoved: (tenant, sid, directorId) => _fleetManagerEvents?.OnSessionRemoved(tenant, sid, directorId));
+            onSessionRemoved: (tenant, sid, directorId) =>
+            {
+                _fleetManagerEvents?.OnSessionRemoved(tenant, sid, directorId);
+                ReReadAboveAStop(tenant, sid);
+            });
         // First tick = the startup catch-up sweep; then the 15s reconcile poll for
         // Directors that never push (file-discovered locals, old builds).
         _turnEndWatcher.Start();

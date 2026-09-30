@@ -150,6 +150,7 @@ public static class WingmanStopsFold
         "sweep" => "The idle sweep found a stop",
         "on-demand" => "A person asked for an explanation",
         "snooze-expiry" => "A snooze ran out",
+        TurnVerdictService.UnderItStoppedTriggerWord => "A session under it stopped",
         "clock" => "The carrying-on clock ran out",
         _ => $"Recorded as \"{trigger}\"",
     };
