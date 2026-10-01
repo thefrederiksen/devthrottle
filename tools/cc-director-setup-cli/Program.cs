@@ -62,7 +62,7 @@ public static class Program
                 "update" => await Commands.UpdateAsync(args, layout, json, installMode: false),
                 "install" => await Commands.UpdateAsync(args, layout, json, installMode: true),
                 "signin" => await Commands.SignInAsync(args, json),
-                "enroll" => await Commands.EnrollAsync(args, json),
+                "enroll" => await Commands.EnrollAsync(args, layout, json),
                 "uninstall" => Commands.Uninstall(args, layout, json),
                 "rollback" => Commands.Rollback(args, layout, json),
                 "autostart" => Commands.Autostart(args, layout, json),

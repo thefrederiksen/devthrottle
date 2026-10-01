@@ -1,8 +1,5 @@
-using System.Security.Cryptography;
-using System.Text;
 using CcDirector.Core.Instances;
 using CcDirector.Core.Storage;
-using CcDirector.Core.Utilities;
 
 namespace CcDirector.ControlApi;
 
@@ -26,8 +23,7 @@ namespace CcDirector.ControlApi;
 public static class DirectorIdStore
 {
     /// <summary>Folder that holds all id slot files. Same parent as the instances directory.</summary>
-    public static string DirectoryPath { get; } =
-        Path.Combine(CcStorage.Config(), "director");
+    public static string DirectoryPath { get; } = DirectorIdentitySlot.DirectoryFor(CcStorage.Root());
 
     /// <summary>Full path of the id file for the current process's exe.</summary>
     public static string FilePath => FilePathFor(DefaultSlotKey());
@@ -36,8 +32,7 @@ public static class DirectorIdStore
     /// Path of the id file for a given slot key (typically an executable path).
     /// Exposed so tests and operators can predict the file location.
     /// </summary>
-    public static string FilePathFor(string slotKey)
-        => Path.Combine(DirectoryPath, $"director-id-{Slot(slotKey)}.txt");
+    public static string FilePathFor(string slotKey) => DirectorIdentitySlot.FilePathFor(DirectoryPath, slotKey);
 
     /// <summary>
     /// Read the persisted id for this process's exe. If the slot file is missing,
@@ -50,27 +45,7 @@ public static class DirectorIdStore
     /// Read the persisted id for the given slot key. Public so tests can drive the
     /// slot deterministically rather than depending on the test host's exe path.
     /// </summary>
-    public static string LoadOrCreate(string slotKey)
-    {
-        var path = FilePathFor(slotKey);
-        Directory.CreateDirectory(DirectoryPath);
-
-        if (File.Exists(path))
-        {
-            var raw = File.ReadAllText(path).Trim();
-            if (Guid.TryParse(raw, out var existing))
-            {
-                FileLog.Write($"[DirectorIdStore] LoadOrCreate: reusing id={existing} slot={slotKey} path={path}");
-                return existing.ToString();
-            }
-            FileLog.Write($"[DirectorIdStore] LoadOrCreate: file at {path} malformed, regenerating. raw=\"{raw}\"");
-        }
-
-        var fresh = Guid.NewGuid().ToString();
-        File.WriteAllText(path, fresh);
-        FileLog.Write($"[DirectorIdStore] LoadOrCreate: minted id={fresh}, slot={slotKey}, path={path}");
-        return fresh;
-    }
+    public static string LoadOrCreate(string slotKey) => DirectorIdentitySlot.LoadOrCreate(FilePathFor(slotKey), slotKey);
 
     /// <summary>The slot key for the currently-running process (its exe path).</summary>
     public static string CurrentProcessSlotKey() => DefaultSlotKey();
@@ -79,24 +54,10 @@ public static class DirectorIdStore
     /// 8-hex-char slot derived from a slot key. Stable across path-case and slash style.
     /// Public so consumers (e.g. SingleInstanceGuard) can derive matching identifiers.
     /// </summary>
-    public static string SlotFor(string slotKey) => Slot(slotKey);
+    public static string SlotFor(string slotKey) => DirectorIdentitySlot.SlotFor(slotKey);
 
+    // The rule itself (exe path plus instance slug) lives in DirectorIdentitySlot, because the setup
+    // command line must apply it to the Director it is about to enroll (issue #3506).
     private static string DefaultSlotKey()
-    {
-        var exe = Environment.ProcessPath ?? AppContext.BaseDirectory;
-        // EVERY instance - default included - gets its own identity slot (and therefore its
-        // own mutex, DirectorId, port, and registration file) by folding its slug into the
-        // slot key. The default is not special-cased; it is just the instance whose slug is
-        // "default". No legacy exe-only key is kept - we start clean.
-        return $"{exe}|instance={InstanceContext.Slug}";
-    }
-
-    private static string Slot(string slotKey)
-    {
-        // Windows paths are case-insensitive and may mix '/' and '\'. Normalize so
-        // "D:\Foo\bar.exe" and "d:/foo/bar.EXE" map to the same slot.
-        var normalized = slotKey.Replace('/', '\\').ToLowerInvariant();
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
-        return Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
-    }
+        => DirectorIdentitySlot.KeyFor(Environment.ProcessPath ?? AppContext.BaseDirectory, InstanceContext.Slug);
 }

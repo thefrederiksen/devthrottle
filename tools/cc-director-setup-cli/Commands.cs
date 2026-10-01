@@ -271,10 +271,27 @@ internal static class Commands
     /// machine's key bound to the account's tenant. There is no address to give and nothing to discover, so
     /// <c>--hosted</c> and <c>--gateway</c> are mutually exclusive.
     /// </summary>
-    public static async Task<int> EnrollAsync(CliArgs args, bool json)
+    public static Task<int> EnrollAsync(CliArgs args, InstallLayout layout, bool json)
+        => EnrollAsync(args, layout, json, persist => new GatewayAccountEnrollRunner(persist: persist));
+
+    /// <summary>
+    /// <see cref="EnrollAsync(CliArgs, InstallLayout, bool)"/> with the runner built by
+    /// <paramref name="createRunner"/>, which is handed the persist step this command chose. The seam exists
+    /// so a test can drive this command's own wiring - which id it enrolls, where it persists - with the
+    /// browser sign-in and the network faked, and fail in a second rather than wait on a browser.
+    /// </summary>
+    internal static async Task<int> EnrollAsync(
+        CliArgs args, InstallLayout layout, bool json,
+        Func<Action<string, string>, GatewayAccountEnrollRunner> createRunner)
     {
+        // Enroll connects the Director this install runs - the default instance - so everything below
+        // reads and writes THAT Director's own home and identity, not the machine root this command runs
+        // from. The Director reads only its own home, so a connection written anywhere else is one it
+        // never sees (issue #3506).
+        var director = DefaultDirectorConnection.For(layout);
+
         // Idempotent: an already-connected machine (an update/repair run) has nothing to do.
-        var existing = GatewayConfig.Load();
+        var existing = director.LoadGateway();
         if (existing.IsEnabled)
         {
             var msg = $"This machine is already connected to its gateway ({existing.Url}).";
@@ -283,11 +300,12 @@ internal static class Commands
             return Ok;
         }
 
-        // No running Director yet, so mint a stable device id for this machine (wizard parity): used both as
-        // the account-registration install id and the enroll device id.
-        var deviceId = Guid.NewGuid().ToString();
+        // The device id IS the default Director's id (wizard parity: the wizard enrolls with the running
+        // Director's id). No Director has run yet, so it is read from - or minted into - the Director's own
+        // identity slot, and the Director reuses it when it starts. One machine, one device on the account.
+        var deviceId = director.LoadOrCreateDirectorId();
         var machineName = Environment.MachineName;
-        var runner = new GatewayAccountEnrollRunner();
+        var runner = createRunner(director.SaveEnrolledKey);
         var gatewayUrl = args.Option("gateway");
         var hosted = args.HasFlag("hosted");
 

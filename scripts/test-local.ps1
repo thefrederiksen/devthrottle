@@ -7,12 +7,12 @@
     THE DEFAULT RUN IS ABOUT TWO MINUTES, AND THAT IS THE POINT. Local is the gate for ordinary changes
     (issue #1156), so the gate has to be cheap enough that nobody is tempted to skip it.
 
-    WHAT THE DEFAULT RUNS: every suite that finishes inside the two-minute budget, PLUS the two installer
+    WHAT THE DEFAULT RUNS: every suite that finishes inside the two-minute budget, PLUS the three installer
     test projects. They start together and the wall clock is the slowest of them, not the sum.
 
     COUNTS, MEASURED 2026-09-13 FROM THE TRX FILES OF A FULL RUN - not estimated, and not copied forward:
       Avalonia 423    Launcher 191    HostedAgent 88    Core.UnitTests 278    Engine 63    Terminal 25
-      installer: setup.Tests 25, setup-engine.Tests 541
+      installer: setup.Tests 25, setup-engine.Tests 541, setup-cli.Tests 34 (setup-cli added 2026-10-01)
     1068 in the default suites, 1634 including the installer.
 
     Gateway.UnitTests (4,267) LEFT this list on 2026-09-13 - see the parked block below and issue #2824.
@@ -118,7 +118,7 @@ if ($Gateway -and $Parked) {
 # the date they were measured, because keeping them in two places is what let one drift by a factor of
 # thirty. Measured 2026-09-13 from a full run:
 #   Avalonia 32s   HostedAgent 40s   Terminal 33s   Launcher 20s   Engine 10s   Core.UnitTests 5s
-#   installer: setup.Tests 12s, setup-engine.Tests 13s (plus about 3s each to build)
+#   installer: setup.Tests 12s, setup-engine.Tests 13s, setup-cli.Tests 1s (plus about 3s each to build)
 # They start together, so the default costs about the slowest one - now HostedAgent at about 40 seconds,
 # comfortably inside the budget. Gateway.UnitTests used to be that suite at 56 seconds; it grew to about
 # 180 and was parked (issue #2824), which is why the budget has room again.
@@ -144,7 +144,7 @@ $defaultProjects = @(
 
 # THE INSTALLER, WHICH IS IN THE DEFAULT RUN AND IS NOT IN THE SOLUTION.
 #
-# These two are NOT parked and were never slow - about seven seconds of tests between them, counts in the
+# These are NOT parked and were never slow - about seven seconds of tests between them, counts in the
 # header. They were missing for a
 # plumbing reason: they are not in cc-director.sln, so the single solution build above never produced them
 # and the run list never named them. Nothing local ran them at all. The continuous integration job ran them
@@ -156,7 +156,12 @@ $defaultProjects = @(
 # they get their own list rather than a line in $defaultProjects.
 $installerProjects = @(
     "tools\cc-director-setup.Tests\CcDirectorSetup.Tests.csproj",
-    "tools\cc-director-setup-engine.Tests\CcDirector.Setup.Engine.Tests.csproj"
+    "tools\cc-director-setup-engine.Tests\CcDirector.Setup.Engine.Tests.csproj",
+    # The setup command line's own tests (issue #3506). Like the two above it is outside the solution, and
+    # until 2026-10-01 nothing ran it - not this script, not continuous integration - so the test that pins
+    # where 'enroll' connects the Director ran nowhere. About one second; every test in it is offline and
+    # fakes the browser sign-in, so a regression fails fast instead of waiting on a browser.
+    "tools\cc-director-setup-cli.Tests\CcDirector.Setup.Cli.Tests.csproj"
 )
 
 # PARKED. Not deleted, not broken - excluded from the default because they cannot meet the budget.

@@ -151,9 +151,20 @@ public sealed class GatewayConfig
     /// Read the gateway block from <c>config.json</c>. Returns a disabled config
     /// (IsEnabled = false) when the file is missing, malformed, or has no gateway block.
     /// </summary>
-    public static GatewayConfig Load()
+    public static GatewayConfig Load() => LoadFrom(CcStorage.Root());
+
+    /// <summary>
+    /// <see cref="Load"/> for the Director whose storage home is <paramref name="storageRoot"/>, rather
+    /// than this process's own. The setup command line's <c>enroll</c> asks this of the default
+    /// Director's home before connecting it, so "already connected" means the Director is connected -
+    /// not that some other folder holds a gateway block (issue #3506).
+    /// </summary>
+    public static GatewayConfig LoadFrom(string storageRoot)
     {
-        var path = CcStorage.ConfigJson();
+        if (string.IsNullOrWhiteSpace(storageRoot))
+            throw new ArgumentException("storageRoot is required", nameof(storageRoot));
+        var configDir = Path.Combine(storageRoot, "config");
+        var path = Path.Combine(configDir, "config.json");
         try
         {
             if (!File.Exists(path)) return new GatewayConfig();
@@ -217,7 +228,7 @@ public sealed class GatewayConfig
             // file that holds it.
             if (string.IsNullOrEmpty(token) && url.Length > 0 && IsLocalGatewayHost(url))
             {
-                var localToken = TryReadLocalMachineToken();
+                var localToken = TryReadLocalMachineToken(configDir);
                 if (!string.IsNullOrEmpty(localToken))
                 {
                     token = localToken;
@@ -278,11 +289,11 @@ public sealed class GatewayConfig
     /// name). The path is computed fresh (not a cached static) so it honors the current config root.
     /// Null when the file is absent or empty.
     /// </summary>
-    private static string? TryReadLocalMachineToken()
+    private static string? TryReadLocalMachineToken(string configDir)
     {
         try
         {
-            var path = Path.Combine(CcStorage.Config(), "director", "gateway-token.txt");
+            var path = Path.Combine(configDir, "director", "gateway-token.txt");
             if (!File.Exists(path))
                 return null;
             var text = File.ReadAllText(path).Trim();

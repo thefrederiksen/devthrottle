@@ -284,6 +284,7 @@ jobs:
         run: |
           dotnet test tools/cc-director-setup.Tests/ -c Release --verbosity normal
           dotnet test tools/cc-director-setup-engine.Tests/ -c Release --verbosity normal
+          dotnet test tools/cc-director-setup-cli.Tests/ -c Release --verbosity normal
 
   # The browser shells (the mobile PWA and the React Cockpit) and the client-core library they share.
   #

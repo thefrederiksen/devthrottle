@@ -252,6 +252,21 @@ public sealed class InstallLayout
     }
 
     /// <summary>
+    /// The executable the installed Director RUNS as on <paramref name="platform"/> - the path its own
+    /// process reports, which is what its identity slot is keyed by. On Windows and Linux that is the
+    /// placed file itself; on macOS <see cref="PathFor(Component, OSPlatform)"/> is the application bundle
+    /// and the process is the binary inside it (<c>Contents/MacOS/cc-director</c>, see
+    /// scripts/package-mac-app.sh, whose binary name matches the Director's assembly name).
+    /// </summary>
+    public string DirectorExecutablePath(OSPlatform platform)
+    {
+        var placed = PathFor(ComponentRegistry.Director, platform);
+        return platform == OSPlatform.OSX
+            ? Path.Combine(placed, "Contents", "MacOS", "cc-director")
+            : placed;
+    }
+
+    /// <summary>
     /// Pre-rename on-disk names a component may still occupy on an existing host, besides its current
     /// canonical <see cref="PathFor"/> location. Presence detection accepts these so an update
     /// recognises a legacy host and refreshes it instead of silently orphaning it (issue #1821). Two

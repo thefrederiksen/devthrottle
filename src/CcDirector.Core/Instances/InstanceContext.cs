@@ -64,7 +64,20 @@ public static class InstanceContext
     /// <see cref="Storage.CcStorage.Bin"/> and <see cref="Storage.CcStorage.PythonRuntime"/>
     /// already do.
     /// </summary>
-    public static string InstanceHome => Path.Combine(SharedRoot, "instances", Slug);
+    public static string InstanceHome => InstanceHomeOf(SharedRoot, Slug);
+
+    /// <summary>
+    /// The pure form of <see cref="InstanceHome"/>: the data home of instance <paramref name="slug"/> on the
+    /// machine whose root is <paramref name="sharedRoot"/>. The setup command line asks it for the default
+    /// instance, because <c>enroll</c> runs before any Director has started and must connect the Director
+    /// in the folder that Director will read (issue #3506).
+    /// </summary>
+    public static string InstanceHomeOf(string sharedRoot, string? slug)
+    {
+        if (string.IsNullOrWhiteSpace(sharedRoot))
+            throw new ArgumentException("sharedRoot is required", nameof(sharedRoot));
+        return Path.Combine(sharedRoot, "instances", Normalize(slug));
+    }
 
     /// <summary>
     /// Set the instance identity for this process. Call ONCE, first thing in Main,
