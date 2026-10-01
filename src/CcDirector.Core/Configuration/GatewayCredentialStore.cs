@@ -38,17 +38,40 @@ public static class GatewayCredentialStore
     /// <c>staleAfterSeconds</c> or other gateway keys survive.
     /// </summary>
     public static void SaveEnrolledKey(string gatewayUrl, string deviceKey)
+        => Save(CredentialFile, CcStorage.ConfigJson(), gatewayUrl, deviceKey);
+
+    /// <summary>
+    /// <see cref="SaveEnrolledKey"/> for a Director whose storage home is <paramref name="storageRoot"/>
+    /// rather than this process's own: the same two writes, to <c>&lt;root&gt;/config/director/gateway-token.txt</c>
+    /// and <c>&lt;root&gt;/config/config.json</c>.
+    ///
+    /// The setup command line's <c>enroll</c> is the caller. It runs before any Director has started,
+    /// from the machine root, while the Director it is connecting reads ONLY its own home
+    /// (<c>instances\default</c>) - so the plain <see cref="SaveEnrolledKey"/> from the command line
+    /// landed the connection where nothing reads it, and the Director started with no Gateway (issue
+    /// #3506). The caller names the home; this store does not guess it.
+    /// </summary>
+    public static void SaveEnrolledKeyAt(string storageRoot, string gatewayUrl, string deviceKey)
+    {
+        if (string.IsNullOrWhiteSpace(storageRoot))
+            throw new ArgumentException("storageRoot is required", nameof(storageRoot));
+        var config = Path.Combine(storageRoot, "config");
+        Save(Path.Combine(config, "director", "gateway-token.txt"), Path.Combine(config, "config.json"),
+            gatewayUrl, deviceKey);
+    }
+
+    private static void Save(string credentialFile, string configJsonPath, string gatewayUrl, string deviceKey)
     {
         if (string.IsNullOrWhiteSpace(gatewayUrl))
             throw new ArgumentException("gatewayUrl is required", nameof(gatewayUrl));
         if (string.IsNullOrWhiteSpace(deviceKey))
             throw new ArgumentException("deviceKey is required", nameof(deviceKey));
 
-        var dir = Path.GetDirectoryName(CredentialFile);
+        var dir = Path.GetDirectoryName(credentialFile);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
-        File.WriteAllText(CredentialFile, deviceKey);
-        FileLog.Write($"[GatewayCredentialStore] Wrote per-device key to {CredentialFile}");
+        File.WriteAllText(credentialFile, deviceKey);
+        FileLog.Write($"[GatewayCredentialStore] Wrote per-device key to {credentialFile}");
 
         var patch = new JsonObject
         {
@@ -62,8 +85,8 @@ public static class GatewayCredentialStore
                 ["streamMode"] = true,
             },
         };
-        CcDirectorConfigService.MergePatch(patch);
-        FileLog.Write($"[GatewayCredentialStore] Recorded gateway url + per-device key + streamMode=true in config.json (url={gatewayUrl})");
+        CcDirectorConfigService.MergePatchAt(configJsonPath, patch);
+        FileLog.Write($"[GatewayCredentialStore] Recorded gateway url + per-device key + streamMode=true in {configJsonPath} (url={gatewayUrl})");
     }
 
     /// <summary>

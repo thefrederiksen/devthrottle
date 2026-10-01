@@ -31,9 +31,11 @@ public static class CcDirectorConfigService
     /// yields an empty object. A file that exists but cannot be parsed THROWS - callers
     /// must surface that, never silently reset.
     /// </summary>
-    public static JsonObject ReadRaw()
+    public static JsonObject ReadRaw() => ReadRawAt(CcStorage.ConfigJson());
+
+    // The read behind ReadRaw, for an explicit config.json path (see MergePatchAt for why one exists).
+    private static JsonObject ReadRawAt(string path)
     {
-        var path = CcStorage.ConfigJson();
         if (!File.Exists(path))
             return new JsonObject();
 
@@ -54,15 +56,28 @@ public static class CcDirectorConfigService
     /// there. Keys not mentioned in the patch are left exactly as they were on disk.
     /// Returns the merged document.
     /// </summary>
-    public static JsonObject MergePatch(JsonObject patch)
+    public static JsonObject MergePatch(JsonObject patch) => MergePatchAt(CcStorage.ConfigJson(), patch);
+
+    /// <summary>
+    /// <see cref="MergePatch"/> against an explicit config.json path rather than this process's own.
+    ///
+    /// It exists for the one writer that configures a Director it is not: the setup command line's
+    /// <c>enroll</c>, which runs before any Director has started and must land the connection in the
+    /// default Director's own home (<c>instances\default\config\config.json</c>), not in the machine
+    /// root it runs from. A Director reads only its own home, so a connection written anywhere else is
+    /// a connection it never sees (issue #3506).
+    /// </summary>
+    public static JsonObject MergePatchAt(string configJsonPath, JsonObject patch)
     {
+        if (string.IsNullOrWhiteSpace(configJsonPath))
+            throw new ArgumentException("configJsonPath is required", nameof(configJsonPath));
         if (patch is null) throw new ArgumentNullException(nameof(patch));
 
         lock (WriteLock)
         {
-            var current = ReadRaw();
+            var current = ReadRawAt(configJsonPath);
             MergeInto(current, patch);
-            WriteAtomic(current);
+            WriteAtomic(configJsonPath, current);
             return current;
         }
     }
@@ -78,7 +93,8 @@ public static class CcDirectorConfigService
 
         lock (WriteLock)
         {
-            var current = ReadRaw();
+            var path = CcStorage.ConfigJson();
+            var current = ReadRawAt(path);
             var changed = false;
             foreach (var key in keys)
             {
@@ -88,7 +104,7 @@ public static class CcDirectorConfigService
             }
 
             if (changed)
-                WriteAtomic(current);
+                WriteAtomic(path, current);
             return changed;
         }
     }
@@ -124,9 +140,8 @@ public static class CcDirectorConfigService
     /// Write the document to config.json via a temp file + atomic move so a crash mid-write
     /// can never leave a half-written (and therefore unparseable) config.
     /// </summary>
-    private static void WriteAtomic(JsonObject document)
+    private static void WriteAtomic(string path, JsonObject document)
     {
-        var path = CcStorage.ConfigJson();
         var dir = Path.GetDirectoryName(path)
             ?? throw new InvalidOperationException($"config.json has no directory: {path}");
         Directory.CreateDirectory(dir);
