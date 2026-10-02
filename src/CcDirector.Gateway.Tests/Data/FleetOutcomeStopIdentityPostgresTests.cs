@@ -83,7 +83,10 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20260921203258_AddTriggerStartName", all[index + 7]);
             // The fleet message's unreachable-notice mark (issue 3289) after that.
             Assert.Equal("20260927212206_AddFleetMessageUnreachableNotice", all[index + 8]);
-            Assert.Equal(all.Count - 9, index);
+            // The factory a session or schedule belongs to, and the factory memory notes (issue 3436), after that.
+            Assert.Equal("20260928123825_AddSessionAndScheduleFactory", all[index + 9]);
+            Assert.Equal("20260928124407_AddFactoryMemoryNotes", all[index + 10]);
+            Assert.Equal(all.Count - 11, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -99,8 +102,8 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             ctx.GetService<IMigrator>().Migrate();
             // Later migrations follow the one under test, so migrating fully applies them too; the raised sessions
             // table was the last of them until the factory activity record and then the factory triggers followed it,
-            // and then the name a trigger's pending start used.
-            Assert.Equal("20260927212206_AddFleetMessageUnreachableNotice", ctx.Database.GetAppliedMigrations().Last());
+            // and then the name a trigger's pending start used, and then the factory memory notes (issue 3436).
+            Assert.Equal("20260928124407_AddFactoryMemoryNotes", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 
