@@ -84,7 +84,10 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20260921203258_AddTriggerStartName", all[index + 8]);
             // The fleet message's unreachable-notice mark (issue 3289).
             Assert.Equal("20260927212206_AddFleetMessageUnreachableNotice", all[index + 9]);
-            Assert.Equal(index + 10, all.Count);
+            // The factory a session or schedule belongs to, and the factory memory notes (issue 3436), after that.
+            Assert.Equal("20260928123825_AddSessionAndScheduleFactory", all[index + 10]);
+            Assert.Equal("20260928124407_AddFactoryMemoryNotes", all[index + 11]);
+            Assert.Equal(index + 12, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
