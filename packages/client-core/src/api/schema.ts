@@ -9281,45 +9281,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/history/sessions/{sessionId}/summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    sessionId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: {
-                content: {
-                    "application/json": null | components["schemas"]["SealSessionSummaryRequest"];
-                };
-            };
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/activity-events/batch": {
         parameters: {
             query?: never;
@@ -12345,14 +12306,6 @@ export interface components {
         };
         RevertBody: {
             id?: string;
-        };
-        SealSessionSummaryRequest: {
-            summary: string;
-            whatWasBuilt?: null | string[];
-            leftUnverified?: null | string[];
-            branches?: null | string[];
-            pullRequests?: null | string[];
-            commits?: null | string[];
         };
         SessionDeletionRequest: {
             reason?: null | string;

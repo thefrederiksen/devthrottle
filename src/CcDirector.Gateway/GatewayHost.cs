@@ -2189,20 +2189,8 @@ public sealed class GatewayHost : IAsyncDisposable
         _discoveredRepositories = new History.DiscoveredRepositoryObserver(
             _knownRepositories,
             (tenant, directorId) => Registry.Get(tenant, directorId)?.MachineName);
-        var historySummarizer = new History.SessionHistorySummarizer(_sessionHistory, _promptLog,
-            (tenant, ct) =>
-            {
-                var mode = Core.Configuration.TranscriptionModeConfig.Get();
-                var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
-                var key = _keyVault.Get(ep.KeyName) ?? "";
-                var model = _tenantSettingsResolver.WingmanModel(tenant, mode, Core.Configuration.WingmanModelRole.Fast);
-                CcDirector.AgentBrain.IAgentBrain brain = new Wingman.HostedInferenceBrain(
-                    ep.BaseUrl, key, model, log: FileLog.Write, callTimeout: TimeSpan.FromSeconds(90),
-                    tag: HostedAi.GatewayAiCallTags.For(tenant, Core.HostedAi.AiFeature.SessionHistorySummary));
-                return Task.FromResult(brain);
-            });
         _sessionHistorySweep = new History.SessionHistorySweep(
-            _tenantBoundary, TenantRegistry, _tenantContext, _sessionHistory, _sessionTurns, historySummarizer);
+            _tenantBoundary, TenantRegistry, _sessionHistory, _sessionTurns);
 
         // Web Push (mobile app-icon "needs you" dot): load (or generate on first run) the VAPID key
         // pair and the set of subscribed devices. The notifier that fans out to these is built and

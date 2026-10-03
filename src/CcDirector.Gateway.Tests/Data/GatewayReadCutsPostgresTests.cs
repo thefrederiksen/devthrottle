@@ -10,9 +10,9 @@ namespace CcDirector.Gateway.Tests.Data;
 
 /// <summary>
 /// The reads narrowed for devthrottle_internal#2199, run against a REAL PostgreSQL - the provider production uses.
-/// The unit tests prove the behaviour over SQLite; these prove the three changed query shapes translate and answer
-/// the same on Postgres: the verdict snapshot's column projection, the conversation's tail read, and the history
-/// sweep's narrow read.
+/// The unit tests prove the behaviour over SQLite; these prove the changed query shapes translate and answer the
+/// same on Postgres: the verdict snapshot's column projection and the conversation's tail read. (The history
+/// sweep's narrow read was the third; it went with the AI work-history summaries in October 2026.)
 ///
 /// GATING. Like the other proofs in this folder, the class is gated on <c>CC_GATEWAY_TEST_PG_CONNECTION</c> and
 /// reports SKIPPED when it is unset. Skipped is not passed.
@@ -120,41 +120,5 @@ public sealed class GatewayReadCutsPostgresTests
         store.Append("d1", Batch(2, "three"), started.AddSeconds(5));
 
         Assert.Equal(new[] { "one", "two", "three" }, store.ReadCurrent(sid)!.Value.Messages.Select(m => m.Parts[0].Text));
-    }
-
-    [RequiresPostgresFact]
-    public void The_history_sweeps_narrow_read_groups_and_hashes_like_the_full_read()
-    {
-        using var db = OpenPostgres();
-        var store = new SessionHistoryStore(db);
-        var now = DateTime.UtcNow;
-        var repo = Unique("repo");
-        SessionDto Session(string id, DateTime startedAt) => new()
-        {
-            SessionId = id,
-            Name = "A session",
-            RepoPath = @"D:\repos\" + repo,
-            RepoName = "thefrederiksen/" + repo,
-            Agent = "ClaudeCode",
-            CreatedAt = startedAt,
-            ActivityState = "Working",
-            Status = "Running",
-            MissionName = "Cut the burn",
-        };
-        var a = Unique("h");
-        var b = Unique("h");
-        store.UpsertLive("dir-1", Session(a, now.AddDays(-2)), now);
-        store.UpsertLive("dir-1", Session(b, now.AddHours(-1)), now);
-        var from = now.Date.AddDays(-7);
-        var to = now.Date.AddDays(1).AddTicks(-1);
-
-        var narrow = SessionHistorySummarizer.RollupGroups(store.ReadRollupInputs(from, to), from, now.Date)
-            .Where(g => g.RepoKey.Contains(repo, StringComparison.Ordinal)).Select(g => (g.Day, g.InputHash)).OrderBy(x => x.Day).ToList();
-        var full = SessionHistorySummarizer.RollupGroups(store.ReadRange(from, to), from, now.Date)
-            .Where(g => g.RepoKey.Contains(repo, StringComparison.Ordinal)).Select(g => (g.Day, g.InputHash)).OrderBy(x => x.Day).ToList();
-
-        Assert.True(full.Count >= 3);
-        Assert.Equal(full, narrow);
-        Assert.Equal(new[] { a, b }.OrderBy(x => x), store.ReadMany(new[] { a, b }).Select(s => s.SessionId).OrderBy(x => x));
     }
 }

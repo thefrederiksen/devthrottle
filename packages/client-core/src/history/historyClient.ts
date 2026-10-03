@@ -1,7 +1,6 @@
 // The work-history surface of the Gateway (issue #2194): the typed, same-origin client the History
 // page reads. The Gateway keeps one durable record per session, written WHILE the session runs, and
-// serves it grouped by repository and day at GET /history/report - the same endpoint the daily
-// report and the brain consume, so the page is one reader of a shared spine, not a private one.
+// serves it grouped by repository and day at GET /history/report.
 //
 // THE CLIENT IS DUMB (rule 7): every ending label, tone and description line on these records was
 // folded once on the Gateway. This module and the page render them verbatim and never re-derive
@@ -65,25 +64,12 @@ export interface WorkHistorySession {
   /** The fullest the context window was observed to be. A PEAK, never a sum - occupancy is a gauge
    * that drops on compaction. Null when the driver reports no reading. */
   peakContextTokens?: number | null;
-  /** null until a summary exists; "sealed" | "generated" | "none" | "unavailable". */
-  summaryKind?: string | null;
-  summaryIsPartial: boolean;
-  summaryText?: string | null;
-  whatWasBuilt?: string[] | null;
-  leftUnverified?: string[] | null;
-  branches?: string[] | null;
-  pullRequests?: string[] | null;
-  commits?: string[] | null;
 }
 
 /** One repository group's one day. */
 export interface WorkHistoryDay {
   /** UTC day, yyyy-MM-dd. */
   day: string;
-  /** The cached roll-up paragraph, when the background pass has written it. */
-  summaryText?: string | null;
-  /** True while the roll-up has not been written (or is being refreshed) - say so, never invent. */
-  summaryPending: boolean;
   sessions: WorkHistorySession[];
 }
 

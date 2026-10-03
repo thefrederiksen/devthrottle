@@ -214,55 +214,75 @@ public sealed class SessionHistoryStoreTests : IDisposable
         Assert.Equal(SessionHistoryEndings.Closed, rows.Single(r => r.SessionId == "gone").EndingKind);
     }
 
+    // The AI work-history summaries were removed in October 2026: nobody read them. The rows written before then
+    // still carry summary text in their (now unused) columns, so these prove it can never reach a reader again,
+    // and that the old roll-up rows still age out.
+
     [Fact]
-    public void A_sealed_summary_wins_and_is_never_overwritten_by_the_generator()
+    public void The_history_contracts_carry_no_summary_fields()
     {
-        var store = NewStore();
-        var now = DateTime.UtcNow;
-        store.UpsertLive("dir-1", Session(), now);
+        var banned = new[] { "Summary", "WhatWasBuilt", "LeftUnverified", "Branches", "PullRequests", "Commits" };
+        var properties = typeof(WorkHistorySessionDto).GetProperties()
+            .Concat(typeof(WorkHistoryDayDto).GetProperties())
+            .Select(p => p.Name)
+            .ToList();
 
-        var sealedOk = store.SealSummary("s1", new SealSessionSummaryRequest
-        {
-            Summary = "Built the History page and proved the API.",
-            WhatWasBuilt = new[] { "History page" },
-            LeftUnverified = new[] { "kill-survival proof" },
-            Branches = new[] { "feat/2194-work-history" },
-        });
-        store.StoreGeneratedSummary("s1", SessionHistorySummaryKinds.Generated, isPartial: true,
-            "A generated account that must not win.", null, null, null, null, null);
-
-        Assert.True(sealedOk);
-        var row = Assert.Single(store.ReadRange(now.AddDays(-1), now.AddDays(1)));
-        Assert.Equal(SessionHistorySummaryKinds.Sealed, row.SummaryKind);
-        Assert.False(row.SummaryIsPartial);
-        Assert.Equal("Built the History page and proved the API.", row.SummaryText);
-        Assert.Equal(new[] { "History page" }, row.WhatWasBuilt);
-        Assert.Equal(new[] { "feat/2194-work-history" }, row.Branches);
+        Assert.Contains(nameof(WorkHistorySessionDto.SessionId), properties);
+        Assert.Contains(nameof(WorkHistoryDayDto.Sessions), properties);
+        Assert.DoesNotContain(properties, name => banned.Any(b => name.Contains(b, StringComparison.Ordinal)));
+        Assert.Null(typeof(WorkHistorySessionDto).Assembly.GetType("CcDirector.Gateway.Contracts.SealSessionSummaryRequest"));
     }
 
     [Fact]
-    public void Sealing_an_unknown_session_reports_not_found()
+    public void An_old_stored_summary_never_reaches_the_history_report()
     {
-        Assert.False(NewStore().SealSummary("ghost", new SealSessionSummaryRequest { Summary = "x" }));
-    }
-
-    [Fact]
-    public void Repeated_summary_failures_mark_the_summary_unavailable_at_the_cap()
-    {
-        var store = NewStore();
+        const string oldSummary = "An old generated summary nobody should see again.";
+        var db = _harness.Open();
+        var store = new SessionHistoryStore(db);
         var now = DateTime.UtcNow;
         store.UpsertLive("dir-1", Session(), now);
-        store.RecordEnding("s1", SessionHistoryEndings.Interrupted, crashed: false, now);
-
-        for (var i = 0; i < SessionHistoryStore.MaxSummaryAttempts; i++)
+        using (var ctx = db.CreateContext())
         {
-            Assert.Single(store.PendingSummaries(now.AddMinutes(5), 10));
-            store.NoteSummaryFailure("s1");
+            var row = ctx.SessionHistory.Single(e => e.SessionId == "s1");
+            row.SummaryKind = "generated";
+            row.SummaryText = oldSummary;
+            row.WhatWasBuiltJson = "[\"an old built item\"]";
+            ctx.SaveChanges();
         }
 
-        Assert.Empty(store.PendingSummaries(now.AddMinutes(5), 10));
-        var row = Assert.Single(store.ReadRange(now.AddDays(-1), now.AddDays(1)));
-        Assert.Equal(SessionHistorySummaryKinds.Unavailable, row.SummaryKind);
+        var report = HistoryEndpoints.BuildReport(store, now.Date, now.Date);
+        var json = System.Text.Json.JsonSerializer.Serialize(report);
+
+        var session = Assert.Single(Assert.Single(Assert.Single(report.Repos).Days).Sessions);
+        Assert.Equal("s1", session.SessionId);
+        Assert.DoesNotContain(oldSummary, json, StringComparison.Ordinal);
+        Assert.DoesNotContain("an old built item", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_retention_prune_still_removes_old_rollup_rows()
+    {
+        var db = _harness.Open();
+        var store = new SessionHistoryStore(db);
+        var now = DateTime.UtcNow;
+        using (var ctx = db.CreateContext())
+        {
+            ctx.SessionHistoryRollups.Add(new CcDirector.Gateway.Data.Entities.SessionHistoryRollupEntity
+            {
+                TenantId = ctx.ActiveTenant!,
+                RepoKey = "thefrederiksen/devthrottle",
+                DayUtc = now.Date.AddDays(-120),
+                SummaryText = "An old day paragraph.",
+                InputHash = "x",
+                ComputedAtUtc = now.AddDays(-120),
+            });
+            ctx.SaveChanges();
+        }
+
+        Assert.Equal(1, store.PurgeOlderThan(now - SessionHistorySweep.Retention));
+
+        using var check = db.CreateContext();
+        Assert.Empty(check.SessionHistoryRollups.ToList());
     }
 
     [Fact]
@@ -309,19 +329,6 @@ public sealed class SessionHistoryStoreTests : IDisposable
 
         var row = Assert.Single(store.ReadRange(now.AddDays(-1), now.AddDays(1)));
         Assert.Equal("Read the mission brief and build the History page", row.DescriptionLine);
-    }
-
-    [Fact]
-    public void Rollups_roundtrip_by_repo_and_day()
-    {
-        var store = NewStore();
-        var day = DateTime.UtcNow.Date;
-        store.SaveRollup("thefrederiksen/devthrottle", day, "Worked on work history.", "hash1", 0, DateTime.UtcNow);
-        store.SaveRollup("thefrederiksen/devthrottle", day, "Worked on work history, updated.", "hash2", 0, DateTime.UtcNow);
-
-        var rollup = Assert.Single(store.ReadRollups(day, day));
-        Assert.Equal("Worked on work history, updated.", rollup.SummaryText);
-        Assert.Equal("hash2", rollup.InputHash);
     }
 
     [Fact]

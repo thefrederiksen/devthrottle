@@ -71,19 +71,6 @@
   letter-spacing: 0.04em;
   color: var(--text-dim);
 }
-.wh-rollup {
-  margin: 0 0 8px;
-  font-size: 13px;
-  line-height: 1.55;
-}
-.wh-rollup-pending {
-  color: var(--text-dim);
-  font-style: italic;
-}
-.wh-pending {
-  color: var(--text-dim);
-  font-style: italic;
-}
 
 .wh-sessions {
   list-style: none;
@@ -104,13 +91,6 @@
   color: var(--text);
   font-size: 13px;
   text-align: left;
-  cursor: pointer;
-}
-.wh-session-row:disabled {
-  cursor: default;
-}
-.wh-session-row:not(:disabled):hover {
-  background: var(--surface-2);
 }
 
 /* The tone dot: a NAMED Gateway tone mapped to a pixel color. */
@@ -212,30 +192,3 @@
   color: var(--attention);
 }
 
-.wh-session-detail {
-  padding: 4px 4px 12px 22px;
-  font-size: 13px;
-}
-.wh-summary-text {
-  margin: 0 0 8px;
-  line-height: 1.55;
-}
-.wh-partial {
-  color: var(--warn);
-  font-weight: 600;
-}
-.wh-detail-block {
-  margin-bottom: 6px;
-}
-.wh-detail-title {
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-}
-.wh-detail-items {
-  margin: 2px 0 0;
-  padding-left: 18px;
-  line-height: 1.5;
-}

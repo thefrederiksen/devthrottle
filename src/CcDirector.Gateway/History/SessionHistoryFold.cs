@@ -132,36 +132,31 @@ public static class SessionHistoryFold
         CacheReadTokens = e.CacheReadTokens,
         CacheCreationTokens = e.CacheCreationTokens,
         PeakContextTokens = e.PeakContextTokens,
-        SummaryKind = string.IsNullOrEmpty(e.SummaryKind) ? null : e.SummaryKind,
-        SummaryIsPartial = e.SummaryIsPartial,
-        SummaryText = e.SummaryText,
-        WhatWasBuilt = ParseList(e.WhatWasBuiltJson),
-        LeftUnverified = ParseList(e.LeftUnverifiedJson),
-        Branches = ParseList(e.BranchesJson),
-        PullRequests = ParseList(e.PullRequestsJson),
-        Commits = ParseList(e.CommitsJson),
     };
 
-    /// <summary>Parse a stored JSON string array; null in, null out. A corrupt value returns null and is
-    /// logged by the caller's read path rather than failing the whole read.</summary>
-    public static IReadOnlyList<string>? ParseList(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return null;
-        try
-        {
-            return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json);
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return null;
-        }
-    }
+    /// <summary>One repository's one UTC day of the report, with the sessions active on it.</summary>
+    public sealed record DayGroup(string RepoKey, DateTime Day, IReadOnlyList<WorkHistorySessionDto> Sessions);
 
-    /// <summary>Serialize a list for storage; null/empty in, null out.</summary>
-    public static string? ToJsonList(IReadOnlyList<string>? values)
+    /// <summary>
+    /// Fold a range of session records into (repository, day) groups for the History report. A session
+    /// appears on every UTC day of its observed life inside the window - "you worked on it Tuesday and
+    /// Wednesday" is the true reading of a session that spanned both.
+    /// </summary>
+    public static List<DayGroup> DayGroups(IReadOnlyList<WorkHistorySessionDto> sessions, DateTime fromDay, DateTime toDay)
     {
-        if (values is null) return null;
-        var cleaned = values.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v.Trim()).ToList();
-        return cleaned.Count == 0 ? null : System.Text.Json.JsonSerializer.Serialize(cleaned);
+        var groups = new Dictionary<(string, DateTime), List<WorkHistorySessionDto>>();
+        foreach (var s in sessions)
+        {
+            var key = RepoKey(s.RepoName, s.RepoPath);
+            var first = s.StartedAtUtc.Date < fromDay ? fromDay : s.StartedAtUtc.Date;
+            var last = s.LastSeenUtc.Date > toDay ? toDay : s.LastSeenUtc.Date;
+            for (var day = first; day <= last; day = day.AddDays(1))
+            {
+                if (!groups.TryGetValue((key, day), out var list))
+                    groups[(key, day)] = list = new List<WorkHistorySessionDto>();
+                list.Add(s);
+            }
+        }
+        return groups.Select(kv => new DayGroup(kv.Key.Item1, kv.Key.Item2, kv.Value)).ToList();
     }
 }
