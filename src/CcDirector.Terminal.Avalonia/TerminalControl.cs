@@ -1941,6 +1941,9 @@ public class TerminalControl : Control
     /// until the user switched sessions.</summary>
     private long _pathMissRecheckMs = 2000;
 
+    /// <summary>The existence cache starts over past this many paths (see RecordPathExists).</summary>
+    private const int PathCacheMaxEntries = 20000;
+
     /// <summary>When (Environment.TickCount64) each path was last found missing.</summary>
     private readonly ConcurrentDictionary<string, long> _pathMissedAt = new();
 
@@ -2018,6 +2021,15 @@ public class TerminalControl : Control
     /// not already known to exist, so cached lines are detected again; a miss is timed so it expires.</summary>
     private void RecordPathExists(string fullPath, bool found)
     {
+        // Every dotted word that scrolls past ("args.Name") is looked up as a possible file name, so
+        // over a long session these maps would only grow. Past the cap they start over; a path then
+        // asked about again is simply checked again.
+        if (_pathExistsCache.Count >= PathCacheMaxEntries)
+        {
+            _pathExistsCache.Clear();
+            _pathMissedAt.Clear();
+        }
+
         bool knownBefore = _pathExistsCache.TryGetValue(fullPath, out bool before) && before;
         _pathExistsCache[fullPath] = found;
         if (found)

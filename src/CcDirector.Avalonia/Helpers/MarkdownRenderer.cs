@@ -408,7 +408,9 @@ public static class MarkdownRenderer
                 continue; // overlap or out-of-range guard
             if (m.StartCol > pos)
                 AddRun(build, StyledRun(text.Substring(pos, m.StartCol - pos), build.BaseSize, weight, style), m.StartCol - pos);
-            AppendLink(m.Text, m.Text, m.Type, weight, style, build);
+            // Show the text exactly as written; m.Text is only the target to open. They differ for
+            // a file:// URL (target: the local path) and a path with a ":line" suffix.
+            AppendLink(text.Substring(m.StartCol, m.EndCol - m.StartCol), m.Text, m.Type, weight, style, build);
             pos = m.EndCol;
         }
         if (pos < text.Length)
@@ -505,6 +507,9 @@ internal sealed class LinkTextBlock : TextBlock
         _links = links;
         _ctx = ctx;
     }
+
+    /// <summary>The block's clickable links (tests read them).</summary>
+    internal IReadOnlyList<LinkSpan> Links => _links ?? new List<LinkSpan>();
 
     private LinkSpan? HitTest(Point point)
     {
