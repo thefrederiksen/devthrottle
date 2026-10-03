@@ -2348,6 +2348,45 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("snoozes", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamEntitlementEntity", b =>
+                {
+                    b.Property<string>("TeamId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("team_id");
+
+                    b.Property<DateTime?>("CurrentPeriodEnd")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("current_period_end");
+
+                    b.Property<bool?>("Livemode")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("livemode");
+
+                    b.Property<int?>("Seats")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("seats");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
+
+                    b.Property<string>("StripeSubscriptionId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("stripe_subscription_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("TeamId");
+
+                    b.ToTable("team_entitlements", null, t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamEntity", b =>
                 {
                     b.Property<string>("Id")
