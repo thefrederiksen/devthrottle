@@ -21,7 +21,7 @@ public sealed class TerminalWrappedUrlTests
     private const int Cols = 25;
     private const int Rows = 10;
 
-    // "open " (5) + this URL (57) + " to log in" (10): wraps across three rows of a
+    // "open " (5) + this URL (56) + " to log in" (10): wraps across three rows of a
     // 25-column terminal, exactly like the login URL at the bottom of a narrow pane.
     private const string Url = "https://claude.ai/oauth/authorize?client_id=abcdef123456";
     private const string UrlLine = "open " + Url + " to log in";
@@ -56,6 +56,47 @@ public sealed class TerminalWrappedUrlTests
         var urlTexts = terminal.HarnessUrlLinkTexts;
         Assert.Equal(3, urlTexts.Count);                       // one region per wrapped row
         Assert.All(urlTexts, t => Assert.Equal(Url, t));       // each carries the WHOLE URL
+    }
+
+    [AvaloniaFact]
+    public void WrappedUrl_LinkRegions_SitOnTheRowsTheUrlIsOn()
+    {
+        var terminal = NewTerminal();
+        terminal.HarnessRebuild(Bytes(UrlLine + "\r\n"));
+        ForceRender(terminal);
+
+        // "open " puts the URL at column 5 of row 0; 56 characters run to column 11 of row 2.
+        Assert.Equal(new[] { (0, 5, 25), (1, 0, 25), (2, 0, 11) }, terminal.HarnessUrlLinkCells);
+    }
+
+    [AvaloniaFact]
+    public void UrlOnSecondRowOfWrappedLine_IsDrawnOnThatRow_NotTheRowAbove()
+    {
+        // The owner's screenshot: a paragraph wraps, and its URL starts on the paragraph's
+        // second row. The link must sit on THAT row, at the URL's columns. It was drawn on the
+        // row above at the same columns, so the underline marked ordinary words and the URL
+        // itself could not be clicked.
+        var terminal = NewTerminal();
+        const string shortUrl = "https://x.io/r/1";
+        string line = new string('w', Cols) + "see " + shortUrl + " ok";
+        terminal.HarnessRebuild(Bytes(line + "\r\n"));
+        ForceRender(terminal);
+
+        Assert.Equal(new[] { (1, 4, 4 + shortUrl.Length) }, terminal.HarnessUrlLinkCells);
+        Assert.Equal(new[] { shortUrl }, terminal.HarnessUrlLinkTexts);
+    }
+
+    [AvaloniaFact]
+    public void UrlStartingOnSecondRowAndWrappingAgain_IsDrawnOnRowsOneAndTwo()
+    {
+        var terminal = NewTerminal();
+        string line = new string('w', Cols) + "open " + Url + " to log in";
+        terminal.HarnessRebuild(Bytes(line + "\r\n"));
+        ForceRender(terminal);
+
+        // Same URL as UrlLine, one row lower.
+        Assert.Equal(new[] { (1, 5, 25), (2, 0, 25), (3, 0, 11) }, terminal.HarnessUrlLinkCells);
+        Assert.All(terminal.HarnessUrlLinkTexts, t => Assert.Equal(Url, t));
     }
 
     [AvaloniaFact]

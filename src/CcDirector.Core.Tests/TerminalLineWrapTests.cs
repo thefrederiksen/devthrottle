@@ -160,6 +160,27 @@ public class TerminalLineWrapTests
     }
 
     [Fact]
+    public void SplitLogicalRangeIntoSegments_StartsOnSecondRow_OffsetCountsFromAnchor()
+    {
+        // [12, 16) sits wholly on the logical line's second row. Its offset is 1 - the row
+        // it is drawn on - not 0, which drew the link on the row above (the anchor row).
+        var segments = TerminalLineWrap.SplitLogicalRangeIntoSegments(12, 16, Cols);
+
+        var seg = Assert.Single(segments);
+        Assert.Equal((1, 2, 6), (seg.RowOffset, seg.StartCol, seg.EndCol));
+    }
+
+    [Fact]
+    public void SplitLogicalRangeIntoSegments_CrossesSecondToThirdRow_OffsetsOneAndTwo()
+    {
+        var segments = TerminalLineWrap.SplitLogicalRangeIntoSegments(17, 23, Cols);
+
+        Assert.Equal(2, segments.Count);
+        Assert.Equal((1, 7, 10), (segments[0].RowOffset, segments[0].StartCol, segments[0].EndCol));
+        Assert.Equal((2, 0, 3), (segments[1].RowOffset, segments[1].StartCol, segments[1].EndCol));
+    }
+
+    [Fact]
     public void SplitLogicalRangeIntoSegments_EmptyRange_NoSegments()
     {
         Assert.Empty(TerminalLineWrap.SplitLogicalRangeIntoSegments(5, 5, Cols));
