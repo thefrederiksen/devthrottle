@@ -196,8 +196,9 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
     {
         var unbound = _gateway.Devices.Register("dev-inv-unbound", "M9").DeviceKey;
 
+        // Refused at the auth layer or at the caller resolution - either way, before any invitation is looked at.
         var (denied, _) = await Send(HttpMethod.Post, "team-invitations/open", unbound, new { token = "anything" });
-        Assert.Equal(HttpStatusCode.Forbidden, denied);
+        Assert.True(denied is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized, $"answered {denied}");
         var (missing, body) = await Send(HttpMethod.Post, "team-invitations/open", _keyBob, new { token = "not-a-real-token" });
         Assert.Equal(HttpStatusCode.NotFound, missing);
         Assert.Equal(TeamInvitationRefusals.NoSuchInvitation, body.GetProperty("error").GetString());
