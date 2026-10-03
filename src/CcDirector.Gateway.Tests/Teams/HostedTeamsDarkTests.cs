@@ -74,12 +74,10 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
             if (method == HttpMethod.Post) req.Content = JsonContent.Create(new { name = "Should not exist" });
             using var resp = await _http.SendAsync(req);
-            var body = await resp.Content.ReadAsStringAsync();
-
-            Assert.True(resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed, $"{method} /{path} answered {resp.StatusCode}");
-            // Not the team route's own refusal: the route is not there at all.
-            Assert.DoesNotContain("team", body, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
         }
+        // Absence is proven by what was written, not by the words of the answer (the Gateway's not-found answer
+        // echoes the path, which itself says "teams"): the create did not reach the registry.
         Assert.Empty(_gateway.TeamRegistry.ListTeamsFor(_subject));
     }
 }
