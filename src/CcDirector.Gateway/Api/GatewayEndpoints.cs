@@ -876,6 +876,21 @@ internal static class GatewayEndpoints
         app.MapGet("/diag/loadmetrics", (bool? reset) =>
             Results.Json(Diagnostics.LoadTestMetrics.Snapshot(reset == true)));
 
+        // GET /diag/traffic: bytes out per route template, per kind of caller credential, per UTC hour, for the
+        // last two days of this process (see Diagnostics.TrafficMeter). TENANT-PARTITIONED like /diag/results: the
+        // caller sees its own tenant's rows and the unauthenticated ones, never another account's, and a key that
+        // resolves to no tenant is refused. Rows hold route templates and credential kinds only.
+        app.MapGet("/diag/traffic", (HttpContext ctx) =>
+        {
+            var reqTenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (reqTenant is null)
+            {
+                FileLog.Write("[TrafficMeter] GET /diag/traffic DENIED - the authenticated credential resolves to no tenant, so it owns no rows");
+                return Results.StatusCode(StatusCodes.Status403Forbidden);
+            }
+            return Results.Json(Diagnostics.TrafficMeter.Shared.Snapshot(reqTenant.Value));
+        });
+
         // Result logging: the phone/Cockpit POSTs its completed speed-test result here; the Gateway stamps
         // what IT saw about the connection, writes one greppable log line, and keeps it in a small ring so
         // an agent can read the recent history at GET /diag/results with no phone. This is the "log all of
