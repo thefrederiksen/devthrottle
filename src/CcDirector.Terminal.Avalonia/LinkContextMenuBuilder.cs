@@ -33,6 +33,13 @@ public sealed class LinkMenuContext
 
     /// <summary>Called with a human-readable message when a browser launch fails.</summary>
     public Action<string>? OnBrowserError { get; init; }
+
+    /// <summary>
+    /// The address a program's own link (OSC 8) opens, when the text on screen says something else.
+    /// It is shown, whole, as the menu's first line, so nothing is opened or copied from a link
+    /// whose real address the user has not been shown. Null for every other link.
+    /// </summary>
+    public string? Address { get; init; }
 }
 
 /// <summary>
@@ -64,6 +71,16 @@ public static class LinkContextMenuBuilder
     {
         ArgumentNullException.ThrowIfNull(menu);
         ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Address != null)
+        {
+            menu.Items.Add(new MenuItem
+            {
+                Header = new TextBlock { Text = context.Address, TextWrapping = global::Avalonia.Media.TextWrapping.Wrap, MaxWidth = 520 },
+                IsEnabled = false,
+            });
+            menu.Items.Add(new Separator());
+        }
 
         if (context.Type == LinkDetector.LinkType.Path)
         {

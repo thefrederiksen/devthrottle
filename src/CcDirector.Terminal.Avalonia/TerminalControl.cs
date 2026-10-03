@@ -90,7 +90,10 @@ public class TerminalControl : Control
     }
 
     // Link region for hover detection (uses Avalonia Rect)
-    private readonly record struct LinkRegion(Rect Bounds, string Text, LinkDetector.LinkType Type);
+    /// <summary>A clickable link rectangle. <paramref name="Tip"/> is the address a program's own
+    /// link (OSC 8) opens when its visible text is something else, shown on hover so a link can
+    /// never hide where it goes; null for every other link.</summary>
+    private readonly record struct LinkRegion(Rect Bounds, string Text, LinkDetector.LinkType Type, string? Tip = null);
     private readonly List<LinkRegion> _linkRegions = new();
 
     private Session? _session;
@@ -1161,6 +1164,23 @@ public class TerminalControl : Control
                           (int)Math.Round(r.Bounds.Right / _cellWidth)))
             .ToList();
 
+    /// <summary>Harness: click link region <paramref name="index"/> as the pointer would and return
+    /// the menu it opens.</summary>
+    internal ContextMenu HarnessOpenLinkMenu(int index)
+    {
+        var region = _linkRegions[index];
+        ShowLinkContextMenu(region.Bounds.Center, region.Text, region.Type, region.Tip);
+        return _linkContextMenu!;
+    }
+
+    /// <summary>Harness: the hover address of every link region from the most recent render, in draw
+    /// order - the address a program's link opens when its text shows something else, else null.</summary>
+    internal IReadOnlyList<string?> HarnessLinkTips => _linkRegions.Select(r => r.Tip).ToList();
+
+    /// <summary>Harness: the text of every PATH link region from the most recent render.</summary>
+    internal IReadOnlyList<string> HarnessPathLinkTexts =>
+        _linkRegions.Where(r => r.Type == LinkDetector.LinkType.Path).Select(r => r.Text).ToList();
+
     /// <summary>Harness: place a selection exactly as a finished pointer drag would, so the
     /// real copy path can be driven in tests.</summary>
     internal void HarnessSetSelection(int startCol, int startRow, int endCol, int endRow)
@@ -1244,15 +1264,26 @@ public class TerminalControl : Control
         // pane width is one link carrying the whole URL, not a fragment per row.
         // Continuation rows are skipped: their anchor row already claimed them. Row 0 is
         // always an anchor because anything above it is off-screen.
+        //
+        // A link the program marked itself (OSC 8) comes first and is exact: it carries the
+        // address the program named, and no guess from the text may overlap it.
         var renderLinkRegions = new List<LinkRegionInfo>();
         for (int row = 0; row < _rows; row++)
         {
             if (row > 0 && IsRowWrapped(row - 1))
                 continue;
 
-            var (linkMatches, _) = FindWrappedLinkMatches(row);
+            var (linkMatches, rowsConsumed) = FindWrappedLinkMatches(row);
+            var programLinks = FindProgramLinks(row, rowsConsumed, out bool[]? programCells);
+            if (programCells != null)
+                linkMatches.RemoveAll(m => OverlapsAny(programCells, m.StartCol, m.EndCol));
+            var allLinks = new List<(LinkDetector.LinkMatch Match, string? Tip)>(linkMatches.Count + (programLinks?.Count ?? 0));
+            if (programLinks != null)
+                allLinks.AddRange(programLinks);
+            foreach (var m in linkMatches)
+                allLinks.Add((m, null));
 
-            foreach (var match in linkMatches)
+            foreach (var (match, tip) in allLinks)
             {
                 foreach (var seg in TerminalLineWrap.SplitLogicalRangeIntoSegments(match.StartCol, match.EndCol, _cols))
                 {
@@ -1265,7 +1296,7 @@ public class TerminalControl : Control
 
                     var linkType = match.Type == LinkDetector.LinkType.Url ? TerminalLinkType.Url : TerminalLinkType.Path;
                     renderLinkRegions.Add(new LinkRegionInfo(termRect, match.Text, linkType));
-                    _linkRegions.Add(new LinkRegion(avaloniaRect, match.Text, match.Type));
+                    _linkRegions.Add(new LinkRegion(avaloniaRect, match.Text, match.Type, tip));
                 }
             }
         }
@@ -1388,7 +1419,7 @@ public class TerminalControl : Control
                 {
                     if (region.Bounds.Contains(pos))
                     {
-                        ShowLinkContextMenu(pos, region.Text, region.Type);
+                        ShowLinkContextMenu(pos, region.Text, region.Type, region.Tip);
                         e.Handled = true;
                         return;
                     }
@@ -1424,15 +1455,19 @@ public class TerminalControl : Control
 
         // Update cursor based on whether hovering over a link
         bool overLink = false;
+        string? tip = null;
         foreach (var region in _linkRegions)
         {
             if (region.Bounds.Contains(pos))
             {
                 overLink = true;
+                tip = region.Tip;
                 break;
             }
         }
         Cursor = overLink ? new Cursor(StandardCursorType.Hand) : new Cursor(StandardCursorType.Ibeam);
+        if (!Equals(ToolTip.GetTip(this), tip))
+            ToolTip.SetTip(this, tip);
 
         // Handle selection dragging
         if (!_isSelecting) return;
@@ -1850,6 +1885,116 @@ public class TerminalControl : Control
     }
 
     /// <summary>
+    /// The links the program marked itself with OSC 8 on the logical line anchored at
+    /// <paramref name="row"/> (<paramref name="rowsConsumed"/> rows, in the same columns
+    /// <see cref="FindWrappedLinkMatches"/> uses). Each run of cells carrying one link is one match
+    /// whose text is the address the program named - exactly, never read from the screen. Only
+    /// http, https and file addresses are honoured; a file address is opened as the local path it
+    /// names. <paramref name="programCells"/> marks every cell inside an honoured link, so no guess
+    /// from the text can be drawn over it; it is null when the line holds none, which is the
+    /// common case and costs one pass over the cells.
+    /// </summary>
+    private List<(LinkDetector.LinkMatch Match, string? Tip)>? FindProgramLinks(int row, int rowsConsumed, out bool[]? programCells)
+    {
+        programCells = null;
+        if (_parser == null)
+            return null;
+
+        List<(LinkDetector.LinkMatch, string?)>? links = null;
+        int length = rowsConsumed * _cols;
+        int k = 0;
+        while (k < length)
+        {
+            ushort id = GetCellAt(k % _cols, row + k / _cols).HyperlinkId;
+            if (id == 0) { k++; continue; }
+
+            int start = k;
+            while (k < length && GetCellAt(k % _cols, row + k / _cols).HyperlinkId == id)
+                k++;
+
+            string? uri = _parser.GetHyperlink(id);
+            if (uri == null || !TryProgramLinkTarget(uri, out string target, out var type))
+                continue;
+
+            programCells ??= new bool[length];
+            for (int i = start; i < k; i++)
+                programCells[i] = true;
+
+            // The underline covers the text, not blank cells the program left inside the link
+            // (the indent before an agent's own continuation row, padding after it).
+            int end = k;
+            while (end > start && IsBlankCell(GetCellAt((end - 1) % _cols, row + (end - 1) / _cols))
+                   && !(end - 1 > start && TerminalCellWidth.IsWide(GetCellAt((end - 2) % _cols, row + (end - 2) / _cols).Character)))
+                end--;
+            while (start < end && IsBlankCell(GetCellAt(start % _cols, row + start / _cols)))
+                start++;
+            if (end == start)
+                continue;
+
+            var shown = new StringBuilder(end - start);
+            for (int i = start; i < end; i++)
+            {
+                char ch = GetCellAt(i % _cols, row + i / _cols).Character;
+                shown.Append(ch == '\0' ? ' ' : ch);
+            }
+
+            links ??= new();
+            links.Add((new LinkDetector.LinkMatch(start, end, target, type),
+                       shown.ToString() == uri ? null : uri));
+        }
+        return links;
+    }
+
+    private static bool IsBlankCell(TerminalCell cell) => cell.Character is '\0' or ' ';
+
+    private static bool OverlapsAny(bool[] cells, int start, int end)
+    {
+        for (int i = Math.Max(0, start); i < end && i < cells.Length; i++)
+            if (cells[i]) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// What a program's link opens: an http or https address as itself, a file address as the
+    /// local path it names. Any other scheme is not opened from the terminal, and neither is an
+    /// address holding a control character, white space or a direction mark - none of which a real
+    /// address contains, and each of which could make the address read as something it is not -
+    /// nor a quote, an angle bracket or a backtick, which the text detector never puts in a link either.
+    /// </summary>
+    internal static bool TryProgramLinkTarget(string uri, out string target, out LinkDetector.LinkType type)
+    {
+        target = string.Empty;
+        type = default;
+        foreach (char ch in uri)
+        {
+            if (char.IsControl(ch) || char.IsWhiteSpace(ch) || IsDirectionMark(ch) || ch is '"' or '<' or '>' or '`')
+                return false;
+        }
+
+        if ((uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+             || uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            && Uri.TryCreate(uri, UriKind.Absolute, out var parsed)
+            && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps)
+            && parsed.Host.Length > 0)
+        {
+            target = uri;
+            type = LinkDetector.LinkType.Url;
+            return true;
+        }
+        if (uri.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
+            && LinkDetector.TryConvertFileUrlToLocalPath(uri, out string localPath))
+        {
+            target = localPath;
+            type = LinkDetector.LinkType.Path;
+            return true;
+        }
+        return false;
+    }
+
+    private static bool IsDirectionMark(char ch) =>
+        ch is '\u200E' or '\u200F' or '\u061C' or (>= '\u202A' and <= '\u202E') or (>= '\u2066' and <= '\u2069');
+
+    /// <summary>
     /// Detect link matches over the logical line anchored at <paramref name="row"/>: the
     /// row's text joined with each following row the terminal hard-wrapped, so a URL that
     /// wraps across rows is detected as one whole URL.
@@ -1941,6 +2086,9 @@ public class TerminalControl : Control
     /// until the user switched sessions.</summary>
     private long _pathMissRecheckMs = 2000;
 
+    /// <summary>The existence cache starts over past this many paths (see RecordPathExists).</summary>
+    private const int PathCacheMaxEntries = 20000;
+
     /// <summary>When (Environment.TickCount64) each path was last found missing.</summary>
     private readonly ConcurrentDictionary<string, long> _pathMissedAt = new();
 
@@ -2018,6 +2166,15 @@ public class TerminalControl : Control
     /// not already known to exist, so cached lines are detected again; a miss is timed so it expires.</summary>
     private void RecordPathExists(string fullPath, bool found)
     {
+        // Every dotted word that scrolls past ("args.Name") is looked up as a possible file name, so
+        // over a long session these maps would only grow. Past the cap they start over; a path then
+        // asked about again is simply checked again.
+        if (_pathExistsCache.Count >= PathCacheMaxEntries)
+        {
+            _pathExistsCache.Clear();
+            _pathMissedAt.Clear();
+        }
+
         bool knownBefore = _pathExistsCache.TryGetValue(fullPath, out bool before) && before;
         _pathExistsCache[fullPath] = found;
         if (found)
@@ -2254,7 +2411,7 @@ public class TerminalControl : Control
     /// terminal and the History tab offer identical actions; the terminal then appends its own paste
     /// items.
     /// </summary>
-    private void ShowLinkContextMenu(Point position, string link, LinkDetector.LinkType type)
+    private void ShowLinkContextMenu(Point position, string link, LinkDetector.LinkType type, string? address = null)
     {
         _linkContextMenu = new ContextMenu();
 
@@ -2262,6 +2419,7 @@ public class TerminalControl : Control
         {
             Link = link,
             Type = type,
+            Address = address,
             RepoPath = _session?.RepoPath,
             Owner = this,
             OnViewFile = path => ViewFileRequested?.Invoke(path),

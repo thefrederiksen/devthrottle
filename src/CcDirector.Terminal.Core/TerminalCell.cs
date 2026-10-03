@@ -19,4 +19,12 @@ public struct TerminalCell
     /// through grid copies; any later write or erase of the cell replaces the cell and clears it.
     /// </summary>
     public bool WrapsToNextRow;
+
+    /// <summary>
+    /// The hyperlink the program wrapped this cell in with OSC 8, as an id into the parser's link
+    /// table (<see cref="AnsiParser.GetHyperlink"/>); 0 when the cell is in no link. The program names
+    /// the exact target, so a cell carrying one is a link that is never guessed from the text. An id
+    /// rather than the address itself, so a cell stays 16 bytes across 5,000 rows of scrollback.
+    /// </summary>
+    public ushort HyperlinkId;
 }
