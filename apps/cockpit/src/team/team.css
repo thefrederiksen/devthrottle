@@ -1,0 +1,67 @@
+/* Teams pages (devthrottle_internal#2301): the invite form (S2) and the accept page (S3). Drawn on the shared navy
+   tokens (docs/CockpitVisualStyle.md): cards on --surface with a 1px --border and 8px corners, inputs on --code-bg
+   whose edge turns --accent on focus. */
+
+.team-page { max-width: 760px; }
+.team-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin: 0 0 16px;
+}
+.team-h2 { font-size: 15px; margin: 0 0 10px; color: var(--text); }
+.team-label { display: block; font-size: 12px; color: var(--text-dim); margin: 12px 0 6px; }
+.team-label:first-child { margin-top: 0; }
+.team-input {
+  width: 100%;
+  max-width: 420px;
+  box-sizing: border-box;
+  background: var(--code-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+}
+.team-input:focus { outline: none; border-color: var(--accent); }
+.team-option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 0 0 8px;
+  max-width: 520px;
+  cursor: pointer;
+}
+.team-option input { margin-top: 3px; }
+.team-option-on { border-color: var(--accent); background: var(--surface-2); }
+.team-option-off { opacity: 0.45; cursor: default; }
+.team-option-title { display: block; font-weight: 600; color: var(--text); }
+.team-option-hint { display: block; font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.team-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.team-hint { font-size: 12px; color: var(--text-dim); }
+.team-blocked { color: var(--warn); margin: 0 0 12px; }
+.team-ok { color: var(--ok-text); margin: 12px 0 0; }
+.team-warn { color: var(--warn); margin: 12px 0 0; }
+.team-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.team-table th { text-align: left; color: var(--text-dim); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.team-table td { padding: 8px; border-bottom: 1px solid var(--border); color: var(--text); }
+.team-actions { white-space: nowrap; text-align: right; }
+.team-pill, .team-pill-late {
+  display: inline-block;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+}
+.team-pill { color: var(--warn); }
+.team-pill-late { color: var(--danger-text); }
+
+/* The accept page stands alone - no navigation rail - like a report opened from a link. */
+.team-accept { margin: 48px auto; padding: 0 16px; }
+.team-accept-title { font-size: 22px; margin: 0 0 6px; color: var(--text); }
+.team-accept-sub { color: var(--text-dim); margin: 0 0 4px; }
+.team-link { color: var(--accent-text); display: inline-block; margin-top: 16px; }
