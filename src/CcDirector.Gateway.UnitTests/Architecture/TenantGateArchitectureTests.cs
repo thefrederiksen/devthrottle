@@ -59,6 +59,10 @@ public sealed class TenantGateArchitectureTests
     {
         nameof(TenantEntity),             // the account-subject -> tenant mapping (the tenant census itself)
         nameof(EntitlementEntity),        // paid entitlements owned/written by the payment side; Gateway only READs
+        // A TEAM's bill (#2299), owned and written by the payment side exactly like the row above; the Gateway
+        // only READs it. Keyed by the team id - which IS a tenant id - so it carries no separate tenant_id
+        // column and no query filter: the key already names the one tenant the row is about.
+        nameof(TeamEntitlementEntity),
         nameof(AccountTrialEntity),       // free-trial ledger, keyed by account subject and read pre-tenant (#2117)
         // Teams and their members (devthrottle_internal#2300). A team IS a tenant, and these two tables are what say
         // which tenants a person may act in - read by the verified account subject BEFORE a tenant is chosen, so
