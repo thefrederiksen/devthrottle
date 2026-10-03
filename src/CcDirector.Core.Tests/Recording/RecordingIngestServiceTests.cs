@@ -865,6 +865,113 @@ public sealed class RecordingIngestServiceTests : IDisposable
         Assert.Equal("transcribed", svc.GetStatus("rec1").State);
     }
 
+    // ===== the worker scan does not re-read settled recordings (devthrottle#3513) =====
+    //
+    // On the hosted Gateway the transcripts root is a network file share that bills every file
+    // open, and the worker scans every 30 seconds. These tests rewrite status.json BEHIND the
+    // service's back: a scan that still reads the file sees the rewrite, a scan that skips it does
+    // not. That is the only observable difference between reading and not reading the file.
+
+    private string StatusPath(string id) => Path.Combine(_tmp, "recordings", id, "status.json");
+
+    private void RewriteStatusOnDisk(string id, string from, string to)
+    {
+        var text = File.ReadAllText(StatusPath(id));
+        Assert.Contains(from, text);
+        File.WriteAllText(StatusPath(id), text.Replace(from, to));
+    }
+
+    [Fact]
+    public async Task FindEligibleRecordings_TranscribedRecording_IsNotReadAgain()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        await TranscribeOneChunk(svc, "rec1");
+        Assert.Empty(svc.FindEligibleRecordings().ToList());
+
+        RewriteStatusOnDisk("rec1", "\"State\": \"transcribed\"", "\"State\": \"queued\"");
+
+        Assert.Empty(svc.FindEligibleRecordings().ToList());
+    }
+
+    [Fact]
+    public async Task FindEligibleRecordings_WrittenByAnotherProcess_IsPickedUpAfterTheSettledSetIsForgotten()
+    {
+        // During a deploy the old and the new container share the folder: a status the OTHER process
+        // writes is invisible to this one's write counts, so the settled set must be forgotten on a
+        // slow clock or that recording would wait for the next restart.
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        await TranscribeOneChunk(svc, "rec1");
+        Assert.Empty(svc.FindEligibleRecordings().ToList()); // settled as transcribed
+
+        RewriteStatusOnDisk("rec1", "\"State\": \"transcribed\"", "\"State\": \"queued\"");
+        Assert.Empty(svc.FindEligibleRecordings().ToList()); // still settled
+
+        svc.SettledForgetAfter = TimeSpan.Zero;
+        Assert.Equal(new[] { "rec1" }, svc.FindEligibleRecordings().ToList());
+    }
+
+    [Fact]
+    public async Task FindEligibleRecordings_IncompleteRecordingCompletedAgain_IsPickedUp()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        svc.Register(Reg("rec1"));
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        var c1 = Encoding.UTF8.GetBytes("audio-1");
+        await svc.StoreChunkAsync("rec1", 0, c0, Sha(c0));
+        var manifest = new RecordingManifest("rec1", "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new()
+            {
+                new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)),
+                new RecordingChunkInfo(1, "0001.mp3", 60000, 60000, c1.Length, Sha(c1)),
+            },
+            new());
+        Assert.Equal("incomplete", (await svc.CompleteAsync("rec1", manifest)).State);
+        Assert.Empty(svc.FindEligibleRecordings().ToList()); // settled as incomplete
+
+        await svc.StoreChunkAsync("rec1", 1, c1, Sha(c1));
+        Assert.Equal("queued", (await svc.CompleteAsync("rec1", manifest)).State);
+
+        Assert.Equal(new[] { "rec1" }, svc.FindEligibleRecordings().ToList());
+    }
+
+    [Fact]
+    public async Task FindEligibleRecordings_FailedWithAttemptsLeft_IsReadAgainEachScan()
+    {
+        // A failed job with attempts left becomes due by the CLOCK, not by a status write, so it
+        // must never be settled.
+        var svc = NewService(new ScriptedTranscriber(failFirst: int.MaxValue), new FakeFiler(),
+            maxChunkAttempts: 1, maxJobAttempts: 3);
+        await EnqueueOneChunk(svc, "rec1");
+        await svc.ProcessRecordingAsync("rec1"); // attempt 1 -> retry scheduled minutes ahead
+        var retryAt = svc.GetStatus("rec1").NextRetryAtUtc;
+        Assert.NotNull(retryAt);
+        Assert.Empty(svc.FindEligibleRecordings().ToList()); // not due yet
+
+        RewriteStatusOnDisk("rec1", retryAt!, "2000-01-01T00:00:00.0000000Z");
+
+        Assert.Equal(new[] { "rec1" }, svc.FindEligibleRecordings().ToList());
+    }
+
+    [Fact]
+    public async Task FindEligibleRecordings_DeletedAndReRegistered_IsPickedUp()
+    {
+        var svc = NewService(new FakeTranscriber(), new FakeFiler());
+        await TranscribeOneChunk(svc, "rec1");
+        Assert.Empty(svc.FindEligibleRecordings().ToList()); // settled as transcribed
+
+        svc.DeleteRecording("rec1");
+        svc.Register(Reg("rec1"));
+        var c0 = Encoding.UTF8.GetBytes("audio-0");
+        await svc.StoreChunkAsync("rec1", 0, c0, Sha(c0));
+        await svc.CompleteAsync("rec1", new RecordingManifest("rec1", "Test Call", "dev-1",
+            "2026-05-23T09:00:00Z", null, 16000, 1, "mp3",
+            new() { new RecordingChunkInfo(0, "0000.mp3", 0, 60000, c0.Length, Sha(c0)) },
+            new()));
+
+        Assert.Equal(new[] { "rec1" }, svc.FindEligibleRecordings().ToList());
+    }
+
     [Fact]
     public async Task Complete_EmptyCapture_FailsLoud_NoTranscript()
     {
