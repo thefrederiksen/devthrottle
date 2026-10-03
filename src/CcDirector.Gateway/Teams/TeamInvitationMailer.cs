@@ -7,10 +7,11 @@ namespace CcDirector.Gateway.Teams;
 /// <summary>Sends the email for a stored invitation. The Gateway names the invitation, never an address.</summary>
 public interface ITeamInvitationMailer
 {
-    /// <summary>Send the email for <paramref name="invitationId"/>, whose link carries <paramref name="acceptToken"/>.
+    /// <summary>Send the email for <paramref name="invitationId"/> of <paramref name="teamId"/>, whose link carries
+    /// <paramref name="acceptToken"/>.
     /// Never throws for a refusal or an unreachable website: the invitation is already stored, so the result says the
     /// email was not sent, and why.</summary>
-    Task<TeamInvitationMailResult> SendAsync(string invitationId, string acceptToken, CancellationToken ct = default);
+    Task<TeamInvitationMailResult> SendAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -32,7 +33,7 @@ public sealed class TeamInvitationMailer : ITeamInvitationMailer
         _serviceToken = serviceToken ?? AccountNotifyByTenantClient.ResolveServiceToken;
     }
 
-    public async Task<TeamInvitationMailResult> SendAsync(string invitationId, string acceptToken, CancellationToken ct = default)
+    public async Task<TeamInvitationMailResult> SendAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(invitationId))
             throw new ArgumentException("An invitation id is required", nameof(invitationId));
@@ -50,7 +51,7 @@ public sealed class TeamInvitationMailer : ITeamInvitationMailer
 
         try
         {
-            return await _client.SendInvitationAsync(token, invitationId, acceptToken, ct).ConfigureAwait(false);
+            return await _client.SendInvitationAsync(token, invitationId, teamId, acceptToken, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException) && !ct.IsCancellationRequested)
         {

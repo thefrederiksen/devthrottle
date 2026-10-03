@@ -20,17 +20,18 @@ public sealed class TeamInvitationMailerTests
         var website = new RecordingWebsite(HttpStatusCode.OK, "{\"data\":{\"sent\":true,\"id\":\"re_1\"}}");
         var client = new TeamInvitationMailClient(new HttpClient(website), "https://website.test");
 
-        var result = await client.SendInvitationAsync(Token, "inv-1", "link-secret");
+        var result = await client.SendInvitationAsync(Token, "inv-1", "team-1", "link-secret");
 
         Assert.True(result.Sent);
         var call = Assert.Single(website.Calls);
-        Assert.Equal("https://website.test/api/v1/teams/invitation-email", call.Request.RequestUri!.ToString());
+        Assert.Equal("https://website.test/api/v1/team-invitations/email", call.Request.RequestUri!.ToString());
         Assert.Equal(HttpMethod.Post, call.Request.Method);
         var body = JsonNode.Parse(call.Body)!.AsObject();
         Assert.Equal("inv-1", body["invitation_id"]!.GetValue<string>());
+        Assert.Equal("team-1", body["team_id"]!.GetValue<string>());
         Assert.Equal("link-secret", body["token"]!.GetValue<string>());
         // No recipient, no subject, no text: the website reads all of it from the row.
-        Assert.Equal(new[] { "invitation_id", "token" }, body.Select(p => p.Key).OrderBy(k => k));
+        Assert.Equal(new[] { "invitation_id", "team_id", "token" }, body.Select(p => p.Key).OrderBy(k => k));
         Assert.Equal(Token, call.Request.Headers.GetValues(AccountNotifyByTenantClient.ServiceTokenHeader).Single());
         Assert.Null(call.Request.Headers.Authorization);
     }
@@ -41,7 +42,7 @@ public sealed class TeamInvitationMailerTests
         var website = new RecordingWebsite(HttpStatusCode.OK, "{\"data\":{}}");
         var client = new TeamInvitationMailClient(new HttpClient(website), "https://website.test");
 
-        var result = await client.SendInvitationAsync(Token, "inv-1", "link-secret");
+        var result = await client.SendInvitationAsync(Token, "inv-1", "team-1", "link-secret");
 
         Assert.False(result.Sent);
         Assert.NotNull(result.Error);
@@ -54,7 +55,7 @@ public sealed class TeamInvitationMailerTests
             "{\"error\":{\"code\":\"invitation_not_waiting\",\"message\":\"This invitation is no longer waiting.\"}}");
         var client = new TeamInvitationMailClient(new HttpClient(website), "https://website.test");
 
-        var result = await client.SendInvitationAsync(Token, "inv-1", "link-secret");
+        var result = await client.SendInvitationAsync(Token, "inv-1", "team-1", "link-secret");
 
         Assert.False(result.Sent);
         Assert.Equal(409, result.StatusCode);
@@ -63,14 +64,15 @@ public sealed class TeamInvitationMailerTests
     }
 
     [Theory]
-    [InlineData("", "inv-1", "link-secret")]
-    [InlineData("token", "", "link-secret")]
-    [InlineData("token", "inv-1", "")]
-    public async Task SendInvitationAsync_MissingCredentialIdOrLinkToken_Throws(string token, string id, string link)
+    [InlineData("", "inv-1", "team-1", "link-secret")]
+    [InlineData("token", "", "team-1", "link-secret")]
+    [InlineData("token", "inv-1", "", "link-secret")]
+    [InlineData("token", "inv-1", "team-1", "")]
+    public async Task SendInvitationAsync_MissingCredentialIdTeamOrLinkToken_Throws(string token, string id, string team, string link)
     {
         var client = new TeamInvitationMailClient(new HttpClient(new RecordingWebsite(HttpStatusCode.OK, "{}")), "https://website.test");
 
-        await Assert.ThrowsAsync<ArgumentException>(() => client.SendInvitationAsync(token, id, link));
+        await Assert.ThrowsAsync<ArgumentException>(() => client.SendInvitationAsync(token, id, team, link));
     }
 
     [Fact]
@@ -79,7 +81,7 @@ public sealed class TeamInvitationMailerTests
         var website = new RecordingWebsite(HttpStatusCode.OK, "{\"data\":{\"sent\":true}}");
         var mailer = new TeamInvitationMailer(new TeamInvitationMailClient(new HttpClient(website), "https://website.test"), () => null);
 
-        var result = await mailer.SendAsync("inv-1", "link-secret");
+        var result = await mailer.SendAsync("inv-1", "team-1", "link-secret");
 
         Assert.False(result.Sent);
         Assert.Contains("not set up to send email", result.Error);
@@ -92,7 +94,7 @@ public sealed class TeamInvitationMailerTests
         var mailer = new TeamInvitationMailer(
             new TeamInvitationMailClient(new HttpClient(new ThrowingWebsite()), "https://website.test"), () => Token);
 
-        var result = await mailer.SendAsync("inv-1", "link-secret");
+        var result = await mailer.SendAsync("inv-1", "team-1", "link-secret");
 
         Assert.False(result.Sent);
         Assert.Contains("could not be reached", result.Error);
@@ -104,7 +106,7 @@ public sealed class TeamInvitationMailerTests
         var website = new RecordingWebsite(HttpStatusCode.OK, "{\"data\":{\"sent\":true}}");
         var mailer = new TeamInvitationMailer(new TeamInvitationMailClient(new HttpClient(website), "https://website.test"), () => Token);
 
-        Assert.True((await mailer.SendAsync("inv-1", "link-secret")).Sent);
+        Assert.True((await mailer.SendAsync("inv-1", "team-1", "link-secret")).Sent);
         Assert.Single(website.Calls);
     }
 

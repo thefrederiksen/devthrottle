@@ -191,7 +191,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
         public List<(string Id, string Token)> Sent { get; } = new();
         public TeamInvitationMailResult Answer { get; set; } = new(true, null, 200, null);
 
-        public Task<TeamInvitationMailResult> SendAsync(string invitationId, string acceptToken, CancellationToken ct = default)
+        public Task<TeamInvitationMailResult> SendAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default)
         {
             Sent.Add((invitationId, acceptToken));
             return Task.FromResult(Answer);
