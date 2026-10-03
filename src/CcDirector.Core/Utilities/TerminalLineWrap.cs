@@ -3,22 +3,19 @@ namespace CcDirector.Core.Utilities;
 /// <summary>
 /// Reconstructs the LOGICAL lines a terminal split across visual rows by hard-wrapping.
 ///
-/// A terminal only wraps a row when a printable character lands in the row's LAST column
-/// and more text follows (DEC auto-wrap mode). The last cell of such a row is WRITTEN,
-/// while an erased or never-written tail cell holds '\0' - so "the last cell is written"
-/// is the signal that a row continues on the next one, and two adjacent rows with no
-/// space between them are one logical line. This is how a login URL longer than the
-/// pane width is recognized as ONE URL instead of a fragment per row.
+/// A terminal wraps a row when a printable character arrives after the row's LAST column
+/// was written (DEC auto-wrap mode). The parser records each such wrap on the row's last
+/// cell (TerminalCell.WrapsToNextRow), and the caller's isRowWrapped reads that mark, so
+/// two rows are one logical line only when the terminal really wrapped them. This is how
+/// a login URL longer than the pane width is recognized as ONE URL instead of a fragment
+/// per row.
 ///
-/// The signal is inferred from the cells rather than recorded by the parser at wrap
-/// time, so it survives every path that moves rows (scrolling into scrollback, the
-/// alternate-screen repaint recovery, screen copies) without each of those paths also
-/// having to maintain a wrap flag. Two rare cases are inferred wrong, both accepted:
-/// a logical line whose own text exactly fills the width and is then ended by a real
-/// newline joins with the line after it, and a full-width row written with auto-wrap
-/// disabled also looks wrapped. Neither occurs in the flow this serves (agent output
-/// with auto-wrap on); the alternative - a per-row wrap flag maintained through every
-/// scroll, erase, resize and repaint-recovery path - costs far more than it buys.
+/// The wrap was once GUESSED from "the last cell holds a character". That also joined a
+/// line whose own text exactly filled the width and ended with a newline. A recorded wrap
+/// whose last cell is a space is not joined either: agents pad rows with spaces to
+/// the edge and lets them wrap, and those are separate lines (TerminalRowWrap.JoinsNextRow).
+/// The mark lives in the cell, so it moves with the row through scrolling, scrollback and
+/// grid copies with no bookkeeping of its own.
 /// </summary>
 public static class TerminalLineWrap
 {

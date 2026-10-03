@@ -370,6 +370,7 @@ public class TerminalControl : Control
         _lastScrollTotal = 0;
         _scrollback.Clear();
         _pathExistsCache.Clear();
+        _pathMissedAt.Clear();
         ClearLinkMatchCache();
 
         RecalculateGridSize();
@@ -415,6 +416,7 @@ public class TerminalControl : Control
         _replayInFlight = false;
         _linkRegions.Clear();
         _pathExistsCache.Clear();
+        _pathMissedAt.Clear();
         ClearLinkMatchCache();
     }
 
@@ -456,6 +458,7 @@ public class TerminalControl : Control
             _userScrolled = false;
             _lastScrollTotal = 0;
             _pathExistsCache.Clear();
+            _pathMissedAt.Clear();
             ClearLinkMatchCache();
         }
 
@@ -581,6 +584,7 @@ public class TerminalControl : Control
         _scrollOffset = 0;
         _userScrolled = false;
         _pathExistsCache.Clear();
+        _pathMissedAt.Clear();
         ClearLinkMatchCache();
         // Bytes written while the replay ran: parsed here exactly once, because the poll starts from tailEnd.
         _cells = SegmentedReplay.Continue(parser, cells, request.FinalCols, request.FinalRows,
@@ -1056,6 +1060,7 @@ public class TerminalControl : Control
         _userScrolled = false;
         _lastScrollTotal = 0;
         _pathExistsCache.Clear();
+        _pathMissedAt.Clear();
         ClearLinkMatchCache();
         _parser = new AnsiParser(_cells, _cols, _rows, _scrollback, ScrollbackLines, FileLog.Write);
         if (data.Length > 0)
@@ -1176,6 +1181,9 @@ public class TerminalControl : Control
     /// <summary>Harness: how many times link detection really ran rather than being answered from the
     /// per-line cache.</summary>
     internal int HarnessLinkDetectionCount => _linkDetectionCount;
+
+    /// <summary>Harness: how long a "path missing" answer stands before it is checked again.</summary>
+    internal long HarnessPathMissRecheckMs { get => _pathMissRecheckMs; set => _pathMissRecheckMs = value; }
 
     /// <summary>Harness: how many frames painted the grid (a frame with no parser paints only background).</summary>
     internal int HarnessRenderCount => _gridRenderCount;
@@ -1822,15 +1830,23 @@ public class TerminalControl : Control
     }
 
     /// <summary>
-    /// True when the terminal hard-wrapped <paramref name="row"/>: a printable character
-    /// was written into the row's LAST column and the line continues on the next row.
-    /// The last cell being written (not '\0') is the signal - erased and never-written
-    /// tails hold '\0'. See <see cref="CcDirector.Core.Utilities.TerminalLineWrap"/> for
-    /// what this inference does and does not cover.
+    /// True when <paramref name="row"/> and the row below it are one line: the terminal's
+    /// auto-wrap carried a visible character's line on to the next row. The parser records the
+    /// wrap (<see cref="TerminalCell.WrapsToNextRow"/>); <see cref="TerminalRowWrap.JoinsNextRow"/>
+    /// is the rule every terminal view shares. A row whose text merely reaches the last column
+    /// and ends with a newline is not joined, and neither is a row padded with spaces to the edge.
     /// </summary>
     private bool IsRowWrapped(int row)
     {
-        return _cols > 0 && GetCellAt(_cols - 1, row).Character != '\0';
+        int rowWidth = _cols;
+        if (_scrollOffset > 0)
+        {
+            var scrollback = ActiveScrollback;
+            int virtualIndex = scrollback.Count - _scrollOffset + row;
+            if (virtualIndex >= 0 && virtualIndex < scrollback.Count)
+                rowWidth = scrollback[virtualIndex].Length;
+        }
+        return TerminalRowWrap.JoinsNextRow(GetCellAt(_cols - 1, row), rowWidth, _cols);
     }
 
     /// <summary>
@@ -1877,9 +1893,12 @@ public class TerminalControl : Control
     /// every rebuild, beside the path cache), and which of its paths exist. That last one moves when a
     /// background existence check FINDS a path it had reported missing, so each such find bumps
     /// <see cref="_pathFoundVersion"/> and the next read here drops every cached line. A check that finds
-    /// nothing changes nothing, because a miss already rendered as no link. The cache holds at most
-    /// <see cref="LinkMatchCacheRowsFactor"/> times the visible rows and starts over when full.
-    /// A copy is handed out, because the caller trims matches cut off at the viewport bottom.
+    /// nothing changes nothing in the cache, because a miss already rendered as no link - but a path that
+    /// is missing NOW may be written a moment later (an agent names a file before it creates it), so a
+    /// line whose detection saw a missing path is detected again once that answer has expired
+    /// (<see cref="_pathMissRecheckMs"/>), and the expired answer is checked again in the background.
+    /// The cache holds at most <see cref="LinkMatchCacheRowsFactor"/> times the visible rows and starts
+    /// over when full. A copy is handed out, because the caller trims matches cut off at the viewport bottom.
     /// </remarks>
     private List<LinkDetector.LinkMatch> FindAllLinkMatches(string lineText)
     {
@@ -1890,22 +1909,43 @@ public class TerminalControl : Control
             _linkMatchCacheVersion = pathVersion;
         }
 
-        if (!_linkMatchCache.TryGetValue(lineText, out var matches))
+        long now = Environment.TickCount64;
+        if (!_linkMatchCache.TryGetValue(lineText, out var entry)
+            || (entry.MissSeenAt != 0 && now - entry.MissSeenAt >= _pathMissRecheckMs))
         {
             if (_linkMatchCache.Count >= Math.Max(1, _rows) * LinkMatchCacheRowsFactor)
                 _linkMatchCache.Clear();
-            matches = LinkDetector.FindAllLinkMatches(lineText, _session?.RepoPath ?? _harnessRepoPath, PathExistsCheckForRender);
+            bool sawMiss = false;
+            var matches = LinkDetector.FindAllLinkMatches(lineText, _session?.RepoPath ?? _harnessRepoPath, path =>
+            {
+                bool exists = PathExistsCheckForRender(path);
+                if (!exists) sawMiss = true;
+                return exists;
+            });
             _linkDetectionCount++;
-            _linkMatchCache[lineText] = matches;
+            entry = (matches, sawMiss ? now : 0);
+            _linkMatchCache[lineText] = entry;
         }
-        return new List<LinkDetector.LinkMatch>(matches);
+        return new List<LinkDetector.LinkMatch>(entry.Matches);
     }
 
-    /// <summary>Link matches by logical line text. Screen-thread only.</summary>
-    private readonly Dictionary<string, List<LinkDetector.LinkMatch>> _linkMatchCache = new(StringComparer.Ordinal);
+    /// <summary>Link matches by logical line text, with when (Environment.TickCount64) its detection
+    /// last saw a path reported missing, or 0 if it saw none. Screen-thread only.</summary>
+    private readonly Dictionary<string, (List<LinkDetector.LinkMatch> Matches, long MissSeenAt)> _linkMatchCache = new(StringComparer.Ordinal);
 
     /// <summary>The cache holds at most this many lines per visible row before it starts over.</summary>
     private const int LinkMatchCacheRowsFactor = 4;
+
+    /// <summary>How long a "this path does not exist" answer stands before the path is checked again.
+    /// It once stood until the next attach, so a file named before it was written never became a link
+    /// until the user switched sessions.</summary>
+    private long _pathMissRecheckMs = 2000;
+
+    /// <summary>When (Environment.TickCount64) each path was last found missing.</summary>
+    private readonly ConcurrentDictionary<string, long> _pathMissedAt = new();
+
+    /// <summary>Paths with an existence check running, so a repaint never queues a second one.</summary>
+    private readonly ConcurrentDictionary<string, byte> _pathChecksInFlight = new();
 
     /// <summary>Bumped whenever an existence check finds a path that was not known to exist; any cached
     /// line may now carry a link it did not have. Written from background checks, read on the screen thread.</summary>
@@ -1921,40 +1961,75 @@ public class TerminalControl : Control
     private void ClearLinkMatchCache() => _linkMatchCache.Clear();
 
     /// <summary>
-    /// Path existence check for render context: uses cache, schedules background check on miss.
+    /// Path existence check for render context: answers from the cache and never touches the disk.
+    /// An unknown path, or one whose "missing" answer has expired, is checked in the background;
+    /// a find redraws the terminal. A path's miss expires at HALF the line's limit: the miss is
+    /// stamped when its check finishes, a little after the line was stamped, so with equal limits
+    /// the line would expire first, find the path not yet expired, and wait a second full period.
+    /// Rechecks start only from a render, so a terminal with no output, scrolling or pointer
+    /// movement does not ask again until something redraws it.
     /// </summary>
     private bool PathExistsCheckForRender(string fullPath)
     {
         if (_pathExistsCache.TryGetValue(fullPath, out bool exists))
-            return exists;
+        {
+            if (exists)
+                return true;
+            if (_pathMissedAt.TryGetValue(fullPath, out long missedAt)
+                && Environment.TickCount64 - missedAt < _pathMissRecheckMs / 2)
+                return false;
+        }
 
-        // Cache miss - schedule background check, return false for now (don't block render)
+        if (!_pathChecksInFlight.TryAdd(fullPath, 0))
+            return false;
+
         var capturedPath = fullPath;
         _ = Task.Run(() =>
         {
-            bool found = File.Exists(capturedPath) || Directory.Exists(capturedPath);
-            _pathExistsCache[capturedPath] = found;
-            if (found)
-                Interlocked.Increment(ref _pathFoundVersion);
-            if (found && Interlocked.CompareExchange(ref _pathCacheInvalidateNeeded, 1, 0) == 0)
-                Dispatcher.UIThread.Post(InvalidateVisual);
+            try
+            {
+                bool found = File.Exists(capturedPath) || Directory.Exists(capturedPath);
+                RecordPathExists(capturedPath, found);
+                if (found && Interlocked.CompareExchange(ref _pathCacheInvalidateNeeded, 1, 0) == 0)
+                    Dispatcher.UIThread.Post(InvalidateVisual);
+            }
+            finally
+            {
+                _pathChecksInFlight.TryRemove(capturedPath, out _);
+            }
         });
         return false;
     }
 
     /// <summary>
-    /// Path existence check for click context: uses cache, falls back to synchronous check.
+    /// Path existence check for click context: uses a cached find, and checks the disk now otherwise.
     /// </summary>
     private bool PathExistsCheckForClick(string fullPath)
     {
-        if (_pathExistsCache.TryGetValue(fullPath, out bool exists))
-            return exists;
+        if (_pathExistsCache.TryGetValue(fullPath, out bool exists) && exists)
+            return true;
 
         bool found = File.Exists(fullPath) || Directory.Exists(fullPath);
+        RecordPathExists(fullPath, found);
+        return found;
+    }
+
+    /// <summary>Store an existence answer. A find bumps <see cref="_pathFoundVersion"/> when the path was
+    /// not already known to exist, so cached lines are detected again; a miss is timed so it expires.</summary>
+    private void RecordPathExists(string fullPath, bool found)
+    {
+        bool knownBefore = _pathExistsCache.TryGetValue(fullPath, out bool before) && before;
         _pathExistsCache[fullPath] = found;
         if (found)
-            Interlocked.Increment(ref _pathFoundVersion);
-        return found;
+        {
+            _pathMissedAt.TryRemove(fullPath, out _);
+            if (!knownBefore)
+                Interlocked.Increment(ref _pathFoundVersion);
+        }
+        else
+        {
+            _pathMissedAt[fullPath] = Environment.TickCount64;
+        }
     }
 
     /// <summary>

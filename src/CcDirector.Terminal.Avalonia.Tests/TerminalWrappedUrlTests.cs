@@ -100,6 +100,53 @@ public sealed class TerminalWrappedUrlTests
     }
 
     [AvaloniaFact]
+    public void UrlEndingExactlyAtTheEdge_ThenNewline_IsNotGluedToTheNextLine()
+    {
+        // The line's own text fills the row exactly and a real newline ends it. That is not a
+        // wrap; the next line must not be read as the rest of the URL. When wraps were guessed
+        // from "the last cell holds a character", the link became ".../abcdefghnext".
+        var terminal = NewTerminal();
+        const string url = "https://x.io/abcdefgh";
+        string firstLine = "see " + url;
+        Assert.Equal(Cols, firstLine.Length);
+        terminal.HarnessRebuild(Bytes(firstLine + "\r\nnext line\r\n"));
+        ForceRender(terminal);
+
+        Assert.Equal(new[] { url }, terminal.HarnessUrlLinkTexts);
+        Assert.Equal(new[] { (0, 4, 25) }, terminal.HarnessUrlLinkCells);
+    }
+
+    [AvaloniaFact]
+    public void RowPaddedToTheEdge_SelectionCopy_KeepsTheLineBreak()
+    {
+        var terminal = NewTerminal();
+        terminal.HarnessRebuild(Bytes("one" + new string(' ', Cols - 3) + "\r\ntwo\r\n"));
+
+        terminal.HarnessSetSelection(0, 0, Cols - 1, 1);
+        string copied = terminal.HarnessSelectedText;
+
+        Assert.Contains("\n", copied);
+        Assert.StartsWith("one", copied);
+        Assert.EndsWith("two", copied.TrimEnd());
+    }
+
+    [AvaloniaFact]
+    public void RowPaddedToTheEdge_ThenAutoWrapped_SelectionCopy_KeepsTheLineBreak()
+    {
+        // An agent's TUI pads a row with spaces to the edge and writes the next row with NO newline,
+        // so auto-wrap really fires. Those are still two lines.
+        var terminal = NewTerminal();
+        terminal.HarnessRebuild(Bytes("one" + new string(' ', Cols - 3) + "two\r\n"));
+
+        terminal.HarnessSetSelection(0, 0, Cols - 1, 1);
+        string copied = terminal.HarnessSelectedText;
+
+        Assert.Contains("\n", copied);
+        Assert.StartsWith("one", copied);
+        Assert.EndsWith("two", copied.TrimEnd());
+    }
+
+    [AvaloniaFact]
     public void WrappedUrl_SelectionCopy_IsOneUnbrokenUrl()
     {
         var terminal = NewTerminal();
