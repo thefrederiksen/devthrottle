@@ -85,7 +85,7 @@ public sealed class TeamRegistry
                 Role = TeamRole.Owner,
                 JoinedAtUtc = now,
             });
-            ctx.SaveChanges();
+            CommitMembershipChange(ctx, teamId, TeamMembershipChange.TeamCreated);
         }
 
         _tenants.CensusChanged();
@@ -215,7 +215,7 @@ public sealed class TeamRegistry
                 Role = role,
                 JoinedAtUtc = _utcNow(),
             });
-            ctx.SaveChanges();
+            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberAdded);
         }
 
         FileLog.Write("[TeamRegistry] AddMember: added");
@@ -250,7 +250,7 @@ public sealed class TeamRegistry
             }
 
             row.Role = newRole;
-            ctx.SaveChanges();
+            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.RoleChanged);
         }
 
         FileLog.Write("[TeamRegistry] ChangeRole: changed");
@@ -276,11 +276,23 @@ public sealed class TeamRegistry
                 return Refuse("RemoveMember", TeamRefusals.RemoveOwner);
 
             ctx.TeamMembers.Remove(row);
-            ctx.SaveChanges();
+            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberRemoved);
         }
 
         FileLog.Write("[TeamRegistry] RemoveMember: removed");
         return TeamWriteResult.Done;
+    }
+
+    /// <summary>
+    /// THE ONE PLACE A MEMBERSHIP CHANGE IS COMMITTED. Creating a team, adding a member, changing a role and removing
+    /// a member all write through here and nowhere else, so anything that must follow every change - the website's
+    /// seat count (devthrottle_internal#2301, seam-team-billing.md section 4) - attaches here once. Called under the
+    /// write lock; nothing is called out from here today.
+    /// </summary>
+    private static void CommitMembershipChange(GatewayDbContext ctx, string teamId, TeamMembershipChange change)
+    {
+        ctx.SaveChanges();
+        FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} change={change} committed");
     }
 
     /// <summary>The plain-words refusal for a team name, or null when the name is usable.</summary>
@@ -317,6 +329,22 @@ public sealed class TeamRegistry
         if (!Enum.IsDefined(role))
             throw new ArgumentOutOfRangeException(nameof(role), role, "Not one of the four team roles.");
     }
+}
+
+/// <summary>What kind of membership change <see cref="TeamRegistry"/> committed.</summary>
+public enum TeamMembershipChange
+{
+    /// <summary>A team was created, with its creator as Owner.</summary>
+    TeamCreated,
+
+    /// <summary>An account joined a team.</summary>
+    MemberAdded,
+
+    /// <summary>A member's role changed.</summary>
+    RoleChanged,
+
+    /// <summary>A member left or was removed.</summary>
+    MemberRemoved,
 }
 
 /// <summary>The refusals a team write can give, in the words a person reads.</summary>

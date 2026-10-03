@@ -2444,7 +2444,7 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("TeamId")
                         .IsUnique()
                         .HasDatabaseName("IX_team_members_one_owner_per_team")
-                        .HasFilter("\"role\" = 'Owner'");
+                        .HasFilter("\"role\" = 'owner'");
 
                     b.ToTable("team_members", "gateway");
                 });

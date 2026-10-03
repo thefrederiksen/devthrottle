@@ -1337,8 +1337,11 @@ public sealed class GatewayDbContext : DbContext
             b.HasKey(e => new { e.TeamId, e.AccountSubject });
             b.Property(e => e.TeamId).HasColumnName("team_id").IsRequired();
             b.Property(e => e.AccountSubject).HasColumnName("account_subject").IsRequired();
-            // The role's NAME, never its number, so a reordering of the enum can never change a stored role.
-            b.Property(e => e.Role).HasColumnName("role").IsRequired().HasConversion<string>().HasMaxLength(20);
+            // The role's lower-case NAME (owner, manager, developer, collaborator), never its number, so a reordering
+            // of the enum can never change a stored role. The website reads these four words by name, so they are fixed.
+            b.Property(e => e.Role).HasColumnName("role").IsRequired()
+                .HasConversion(r => CcDirector.Gateway.Teams.TeamRoles.ToStored(r), s => CcDirector.Gateway.Teams.TeamRoles.FromStored(s))
+                .HasMaxLength(20);
             b.Property(e => e.JoinedAtUtc).HasColumnName("joined_at_utc").IsRequired();
             // "Which teams am I in?" - the team switcher's read - is by account subject.
             b.HasIndex(e => e.AccountSubject);
@@ -1347,7 +1350,7 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => e.TeamId)
                 .IsUnique()
                 .HasDatabaseName("IX_team_members_one_owner_per_team")
-                .HasFilter("\"role\" = 'Owner'");
+                .HasFilter("\"role\" = 'owner'");
             // A membership cannot outlive its team.
             b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
         });

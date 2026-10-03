@@ -54,7 +54,7 @@ namespace CcDirector.Gateway.Data.Migrations
                 table: "team_members",
                 column: "team_id",
                 unique: true,
-                filter: "\"role\" = 'Owner'");
+                filter: "\"role\" = 'owner'");
         }
 
         /// <inheritdoc />

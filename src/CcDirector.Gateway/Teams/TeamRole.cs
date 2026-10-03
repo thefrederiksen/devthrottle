@@ -38,6 +38,25 @@ public static class TeamRoles
         return held >= required;
     }
 
+    /// <summary>
+    /// The role as it is STORED in <c>team_members.role</c>: owner, manager, developer or collaborator. Lower case
+    /// and fixed, because the website reads the table by name through its own database functions
+    /// (seam-team-billing.md, section 2) - so these four words are a contract with another codebase and must not
+    /// change.
+    /// </summary>
+    public static string ToStored(TeamRole role) => Label(role).ToLowerInvariant();
+
+    /// <summary>The role a stored value names. A value that is not one of the four is a damaged row, and throws.</summary>
+    public static TeamRole FromStored(string stored) => stored switch
+    {
+        "owner" => TeamRole.Owner,
+        "manager" => TeamRole.Manager,
+        "developer" => TeamRole.Developer,
+        "collaborator" => TeamRole.Collaborator,
+        _ => throw new InvalidOperationException(
+            $"team_members.role holds '{stored}', which is not one of owner, manager, developer or collaborator."),
+    };
+
     /// <summary>The role's name as every screen shows it: Owner, Manager, Developer or Collaborator.</summary>
     public static string Label(TeamRole role)
     {

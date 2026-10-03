@@ -44,6 +44,26 @@ public sealed class TeamRolesTests
         Assert.Equal(expected, TeamRoles.Label(role));
     }
 
+    [Theory]
+    [InlineData(TeamRole.Owner, "owner")]
+    [InlineData(TeamRole.Manager, "manager")]
+    [InlineData(TeamRole.Developer, "developer")]
+    [InlineData(TeamRole.Collaborator, "collaborator")]
+    public void ToStored_EachRole_IsTheFixedLowerCaseWordTheWebsiteReads(TeamRole role, string stored)
+    {
+        Assert.Equal(stored, TeamRoles.ToStored(role));
+        Assert.Equal(role, TeamRoles.FromStored(stored));
+    }
+
+    [Theory]
+    [InlineData("Owner")]
+    [InlineData("admin")]
+    [InlineData("")]
+    public void FromStored_AnythingButTheFourWords_Throws(string stored)
+    {
+        Assert.Throws<InvalidOperationException>(() => TeamRoles.FromStored(stored));
+    }
+
     [Fact]
     public void Label_UndefinedRole_Throws()
     {

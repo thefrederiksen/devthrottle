@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using CcDirector.Gateway.Teams;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace CcDirector.Gateway.Tests.Teams;
 
@@ -43,6 +44,9 @@ public sealed class HostedTeamEndpointsTests : IAsyncLifetime
     private string _keyUnbound = "";
     private string? _priorHosted;
     private string? _priorRoot;
+    private readonly ITestOutputHelper _output;
+
+    public HostedTeamEndpointsTests(ITestOutputHelper output) => _output = output;
 
     public async Task InitializeAsync()
     {
@@ -189,6 +193,44 @@ public sealed class HostedTeamEndpointsTests : IAsyncLifetime
             Assert.True(status is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized, $"{method} {path} answered {status}");
         }
         Assert.Single(_gateway.TeamRegistry.ListTeamsFor(_alice));
+    }
+
+    /// <summary>
+    /// The proof transcript (devthrottle_internal#2300): the exact requests and responses of an Owner creating a
+    /// test team, two test accounts joining it, and the member list read by a member and refused to an outsider.
+    /// Written to the test output, which the proof in docs/proof/teams-2300 is captured from. Device keys are
+    /// never written; the accounts are throwaway test accounts on a local Gateway.
+    /// </summary>
+    [Fact]
+    public async Task Transcript_AnOwnerCreatesATeam_AndItsMembersAreListed()
+    {
+        async Task<JsonElement> Logged(HttpMethod method, string path, string key, string who, object? body = null)
+        {
+            _output.WriteLine($"> {method} /{path}    (as {who}){(body is null ? "" : "    " + JsonSerializer.Serialize(body))}");
+            var (status, json) = await Send(method, path, key, body);
+            _output.WriteLine($"< {(int)status} {status}");
+            _output.WriteLine(JsonSerializer.Serialize(json, new JsonSerializerOptions { WriteIndented = true }));
+            _output.WriteLine("");
+            return json;
+        }
+
+        await Logged(HttpMethod.Get, "teams", _keyAlice, "alice@example.com, a new account");
+        var created = await Logged(HttpMethod.Post, "teams", _keyAlice, "alice@example.com", new { name = "Acme Test Team" });
+        var team = created.GetProperty("team").GetProperty("id").GetString()!;
+
+        // Invitations are devthrottle_internal#2301; until then a member is added through the registry directly.
+        _output.WriteLine($"(registry) AddMember(team, bob@example.com, Developer) -> {_gateway.TeamRegistry.AddMember(team, _bob, TeamRole.Developer).IsDone}");
+        _output.WriteLine($"(registry) AddMember(team, carol@example.com, Collaborator) -> {_gateway.TeamRegistry.AddMember(team, _carol, TeamRole.Collaborator).IsDone}");
+        _output.WriteLine($"(registry) RemoveMember(team, alice@example.com the Owner) -> {_gateway.TeamRegistry.RemoveMember(team, _alice).Refusal}");
+        _output.WriteLine("");
+
+        var members = await Logged(HttpMethod.Get, $"teams/{team}/members", _keyBob, "bob@example.com, a Developer in the team");
+        await Logged(HttpMethod.Get, "teams", _keyCarol, "carol@example.com, a Collaborator in the team");
+
+        var outsider = Enroll("dev-dave", "sub-team-dave-" + Guid.NewGuid().ToString("N"), "dave@example.com");
+        await Logged(HttpMethod.Get, $"teams/{team}/members", outsider, "dave@example.com, not a member");
+
+        Assert.Equal(3, members.GetProperty("count").GetInt32());
     }
 
     [Fact]

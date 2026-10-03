@@ -79,18 +79,20 @@ public sealed class AddTeamsPostgresTests
         Scalar("""
             INSERT INTO gateway.teams (id, name, created_at_utc) VALUES ('team-1', 'Acme', TIMESTAMPTZ '2026-10-03 12:00:00Z');
             INSERT INTO gateway.team_members (team_id, account_subject, role, joined_at_utc)
-                VALUES ('team-1', 'sub-owner', 'Owner', TIMESTAMPTZ '2026-10-03 12:00:00Z');
+                VALUES ('team-1', 'sub-owner', 'owner', TIMESTAMPTZ '2026-10-03 12:00:00Z');
             INSERT INTO gateway.team_members (team_id, account_subject, role, joined_at_utc)
-                VALUES ('team-1', 'sub-dev', 'Developer', TIMESTAMPTZ '2026-10-03 12:01:00Z');
+                VALUES ('team-1', 'sub-dev', 'developer', TIMESTAMPTZ '2026-10-03 12:01:00Z');
             """);
 
         var second = Assert.Throws<PostgresException>(() => Scalar("""
             INSERT INTO gateway.team_members (team_id, account_subject, role, joined_at_utc)
-                VALUES ('team-1', 'sub-other', 'Owner', TIMESTAMPTZ '2026-10-03 12:02:00Z');
+                VALUES ('team-1', 'sub-other', 'owner', TIMESTAMPTZ '2026-10-03 12:02:00Z');
             """));
         Assert.Equal(PostgresErrorCodes.UniqueViolation, second.SqlState);
-        Assert.Equal("1", Scalar("SELECT count(*) FROM gateway.team_members WHERE role = 'Owner'"));
+        Assert.Equal("1", Scalar("SELECT count(*) FROM gateway.team_members WHERE role = 'owner'"));
         Assert.Equal("2", Scalar("SELECT count(*) FROM gateway.team_members"));
+        // The filter names the STORED word: a capitalised 'Owner' is not a stored role, and the index does not see it.
+        // The Gateway never writes one (TeamRoles.ToStored), which is why the lower-case words are the contract.
 
         // The reversal: migrating back to the migration before removes both tables, and forward again restores them.
         using (var ctx = NewContext())

@@ -160,6 +160,24 @@ public sealed class TeamRegistryTests : IDisposable
         Assert.Equal(new[] { Alice }, OwnersOf(team.TeamId));
     }
 
+    [Fact]
+    public void Roles_AreStoredAsTheFourLowerCaseWords_TheWebsiteReadsByName()
+    {
+        var team = _teams.CreateTeam(Alice, "Acme").Team!;
+        _teams.AddMember(team.TeamId, Bob, TeamRole.Developer);
+
+        using var ctx = _db.CreateUnscopedContext();
+        var connection = ctx.Database.GetDbConnection();
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT role FROM team_members ORDER BY role";
+        using var reader = command.ExecuteReader();
+        var stored = new List<string>();
+        while (reader.Read()) stored.Add(reader.GetString(0));
+
+        Assert.Equal(new[] { "developer", "owner" }, stored);
+    }
+
     // ---- CreateTeam ------------------------------------------------------------------------------------------
 
     [Fact]
