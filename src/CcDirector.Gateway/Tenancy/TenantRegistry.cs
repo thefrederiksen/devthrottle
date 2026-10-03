@@ -136,7 +136,7 @@ public sealed class TenantRegistry
     }
 
     /// <summary>
-    /// The whole tenant census - every tenant id in the <c>tenants</c> mapping table. This is the fan-out
+    /// The whole tenant census - every tenant id in the <c>tenants</c> mapping table, and every team's tenant id. This is the fan-out
     /// source for <see cref="TenantScopedSweep"/>: a background worker enumerates it once per cycle and runs
     /// its per-tenant body inside each tenant's scope. Read through the UNSCOPED context because the mapping
     /// table carries no tenant_id and no query filter (reading it needs no ambient tenant), exactly as the
@@ -159,10 +159,13 @@ public sealed class TenantRegistry
             return held.Ids;
 
         using var ctx = _db.CreateUnscopedContext();
+        // A team is a tenant too (devthrottle_internal#2300): its rows carry the team's id, so a sweep that walked
+        // only the personal tenants would never reach them. The team ids live in the teams table, not here.
         var ids = ctx.Tenants
             .AsNoTracking()
             .Select(t => t.Id)
             .ToList()
+            .Concat(ctx.Teams.AsNoTracking().Select(t => t.Id).ToList())
             .Select(id => new TenantId(id))
             .ToList();
         _census = new HeldCensus(ids, now, version);
@@ -174,8 +177,8 @@ public sealed class TenantRegistry
     private volatile HeldCensus? _census;
     private long _censusVersion;
 
-    /// <summary>Called after a tenant is minted: the held census no longer lists every tenant.</summary>
-    private void CensusChanged() => Interlocked.Increment(ref _censusVersion);
+    /// <summary>Called after a tenant is minted or a team is created: the held census no longer lists every tenant.</summary>
+    internal void CensusChanged() => Interlocked.Increment(ref _censusVersion);
 
     internal static readonly TimeSpan CensusMaxAge = TimeSpan.FromSeconds(60);
 

@@ -2387,6 +2387,59 @@ namespace CcDirector.Gateway.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("teams", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMemberEntity", b =>
+                {
+                    b.Property<string>("TeamId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("team_id");
+
+                    b.Property<string>("AccountSubject")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("account_subject");
+
+                    b.Property<DateTime>("JoinedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("joined_at_utc");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("role");
+
+                    b.HasKey("TeamId", "AccountSubject");
+
+                    b.HasIndex("AccountSubject");
+
+                    b.HasIndex("TeamId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_team_members_one_owner_per_team")
+                        .HasFilter("\"role\" = 'owner'");
+
+                    b.ToTable("team_members", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TenantEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -3422,6 +3475,15 @@ namespace CcDirector.Gateway.Data.Migrations
                         });
 
                     b.Navigation("PrimitiveRuns");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMemberEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.WingmanInstructionEntity", b =>

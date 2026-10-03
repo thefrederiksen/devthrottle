@@ -164,9 +164,18 @@ public sealed class TenantScopeGuardTests : IDisposable
         //    an account identifier, a machine identifier, a boolean, and who decided. It is written only by
         //    the administrator surface, which holds a service token - never by a tenant - so there is no
         //    tenant whose rows another tenant could reach through it.
+        //
+        //  - TeamEntity and TeamMemberEntity are the teams and who belongs to each (devthrottle_internal#2300). A team
+        //    IS a tenant - its id is the tenant id its rows carry - and these two tables answer which tenants a
+        //    person may act in. They are read by the verified account subject BEFORE any tenant is chosen, so
+        //    scoping them would be circular in the same way as TenantEntity. A team's member list is served only to
+        //    a member of that team, and a team is created only for the verified caller's own subject, so no tenant
+        //    reaches another tenant's rows through them.
         var allowedGlobalTables = new HashSet<Type>
         {
             typeof(TenantEntity),
+            typeof(TeamEntity),
+            typeof(TeamMemberEntity),
             typeof(EntitlementEntity),
             typeof(TeamEntitlementEntity),
             typeof(AccountTrialEntity),

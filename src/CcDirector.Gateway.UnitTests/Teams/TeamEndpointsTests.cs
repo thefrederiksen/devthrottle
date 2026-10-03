@@ -1,0 +1,173 @@
+using System.Text.Json;
+using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
+using CcDirector.Gateway.Data;
+using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Teams;
+using CcDirector.Gateway.Tenancy;
+using CcDirector.Gateway.Tests.Data;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
+
+namespace CcDirector.Gateway.Tests.Teams;
+
+/// <summary>
+/// The team routes' answers (devthrottle_internal#2300), rendered exactly as a client receives them. The hosted
+/// caller resolution - device key to account - is proven over real HTTP in the Gateway suite's
+/// <c>HostedTeamEndpointsTests</c>; here the handlers are driven with the caller already known, plus the
+/// self-hosted refusal, which needs no hosted process.
+/// </summary>
+public sealed class TeamEndpointsTests : IDisposable
+{
+    private const string Alice = "sub-alice";
+    private const string Bob = "sub-bob";
+
+    private readonly GatewayDbTestHarness _harness = new();
+    private readonly GatewayDatabase _db;
+    private readonly TenantRegistry _tenants;
+    private readonly TeamRegistry _teams;
+
+    public TeamEndpointsTests()
+    {
+        _db = _harness.Open();
+        _tenants = new TenantRegistry(_db);
+        _teams = new TeamRegistry(_db, _tenants);
+    }
+
+    public void Dispose() => _harness.Dispose();
+
+    [Fact]
+    public async Task ListTeams_AccountInNoTeam_AnswersAnEmptyListWithACount()
+    {
+        var (status, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice));
+
+        Assert.Equal(200, status);
+        Assert.Equal(0, body.GetProperty("count").GetInt32());
+        Assert.Equal(0, body.GetProperty("teams").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task ListTeams_TwoTeams_EachCarriesTheCallersRoleAndThePeopleCount()
+    {
+        var mine = _teams.CreateTeam(Alice, "DevThrottle").Team!;
+        var pauls = _teams.CreateTeam(Bob, "Paul's project").Team!;
+        _teams.AddMember(pauls.TeamId, Alice, TeamRole.Developer);
+
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice));
+
+        var teams = body.GetProperty("teams").EnumerateArray().ToList();
+        Assert.Equal(2, body.GetProperty("count").GetInt32());
+        Assert.Equal(mine.TeamId, teams[0].GetProperty("id").GetString());
+        Assert.Equal("DevThrottle", teams[0].GetProperty("name").GetString());
+        Assert.Equal("Owner", teams[0].GetProperty("role").GetString());
+        Assert.Equal("1 person", teams[0].GetProperty("people").GetString());
+        Assert.Equal("Paul's project", teams[1].GetProperty("name").GetString());
+        Assert.Equal("Developer", teams[1].GetProperty("role").GetString());
+        Assert.Equal(2, teams[1].GetProperty("memberCount").GetInt32());
+        Assert.Equal("2 people", teams[1].GetProperty("people").GetString());
+    }
+
+    [Fact]
+    public async Task CreateTeam_ValidName_Answers201WithTheCallerAsOwner()
+    {
+        var (status, body) = await RenderAsync(TeamEndpoints.CreateTeam(_teams, Alice, new TeamEndpoints.CreateTeamRequest("Acme")));
+
+        Assert.Equal(201, status);
+        var team = body.GetProperty("team");
+        Assert.Equal("Acme", team.GetProperty("name").GetString());
+        Assert.Equal("Owner", team.GetProperty("role").GetString());
+        Assert.Equal(TeamRole.Owner, _teams.RoleOf(team.GetProperty("id").GetString()!, Alice));
+    }
+
+    [Fact]
+    public async Task CreateTeam_NoBodyOrNoName_Answers400WithThePlainReason()
+    {
+        foreach (var request in new[] { null, new TeamEndpoints.CreateTeamRequest(null), new TeamEndpoints.CreateTeamRequest("  ") })
+        {
+            var (status, body) = await RenderAsync(TeamEndpoints.CreateTeam(_teams, Alice, request));
+
+            Assert.Equal(400, status);
+            Assert.StartsWith("A team needs a name.", body.GetProperty("error").GetString());
+        }
+        Assert.Empty(_teams.ListTeamsFor(Alice));
+    }
+
+    [Fact]
+    public async Task ListMembers_ForAMember_ListsRolesEmailsAndWhichOneIsTheCaller()
+    {
+        _tenants.MintOrLookupBySubject(Alice, "alice@example.com");
+        _tenants.MintOrLookupBySubject(Bob, "bob@example.com");
+        var team = _teams.CreateTeam(Alice, "Acme").Team!;
+        _teams.AddMember(team.TeamId, Bob, TeamRole.Developer);
+        _teams.AddMember(team.TeamId, "sub-no-email", TeamRole.Collaborator);
+
+        var (status, body) = await RenderAsync(TeamEndpoints.ListMembers(_teams, Bob, team.TeamId));
+
+        Assert.Equal(200, status);
+        Assert.Equal("Developer", body.GetProperty("team").GetProperty("role").GetString());
+        Assert.Equal(3, body.GetProperty("count").GetInt32());
+        var members = body.GetProperty("members").EnumerateArray().ToList();
+        Assert.Equal(new[] { "Owner", "Developer", "Collaborator" }, members.Select(m => m.GetProperty("role").GetString()));
+        Assert.Equal(new[] { false, true, false }, members.Select(m => m.GetProperty("isYou").GetBoolean()));
+        Assert.Equal("alice@example.com", members[0].GetProperty("email").GetString());
+        Assert.Equal(JsonValueKind.Null, members[2].GetProperty("email").ValueKind);
+        Assert.Equal("An account with no email recorded", members[2].GetProperty("name").GetString());
+        // The account subject is the key and is never sent.
+        Assert.DoesNotContain(Alice, body.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain(Bob, body.GetRawText(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ListMembers_ForANonMemberOrAnUnknownTeam_Answers404WithOneMessage()
+    {
+        var team = _teams.CreateTeam(Alice, "Acme").Team!;
+
+        foreach (var teamId in new[] { team.TeamId, Guid.NewGuid().ToString(), null })
+        {
+            var (status, body) = await RenderAsync(TeamEndpoints.ListMembers(_teams, Bob, teamId));
+
+            Assert.Equal(404, status);
+            Assert.Equal(TeamEndpoints.NoSuchTeamRefusal, body.GetProperty("error").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task ResolveCaller_SelfHostedGateway_RefusesWithTheSelfHostedReason()
+    {
+        // The unit test process is not hosted (CC_GATEWAY_HOSTED is unset), which is the self-hosted Gateway.
+        Assert.False(GatewayHostedMode.IsHosted);
+        var boundary = new HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry(_db));
+
+        var (subject, denial) = TeamEndpoints.ResolveCaller(new DefaultHttpContext(), boundary, _tenants);
+
+        Assert.Null(subject);
+        var (status, body) = await RenderAsync(denial!);
+        Assert.Equal(404, status);
+        Assert.Equal(TeamEndpoints.SelfHostedRefusal, body.GetProperty("error").GetString());
+    }
+
+    [Theory]
+    [InlineData("GET", "/teams")]
+    [InlineData("POST", "/teams")]
+    [InlineData("GET", "/teams/3f1d2c9e-0000-4000-8000-000000000001/members")]
+    public void SessionKeyGuard_EveryTeamRoute_IsRefusedToAnAgentSessionKey(string method, string path)
+    {
+        // A session key resolves to its owner's personal tenant, so a team route opened to session keys would let any
+        // agent create teams or read member lists as the owner. The routes are the owner's own devices' only (F4).
+        Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path).Allowed);
+        Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path, raised: true).Allowed);
+    }
+
+    private static async Task<(int Status, JsonElement Body)> RenderAsync(IResult result)
+    {
+        var provider = new ServiceCollection().AddLogging().AddOptions().BuildServiceProvider();
+        var ctx = new DefaultHttpContext { RequestServices = provider };
+        using var ms = new MemoryStream();
+        ctx.Response.Body = ms;
+        await result.ExecuteAsync(ctx);
+        ms.Position = 0;
+        using var doc = await JsonDocument.ParseAsync(ms);
+        return (ctx.Response.StatusCode, doc.RootElement.Clone());
+    }
+}
