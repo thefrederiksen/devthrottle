@@ -97,3 +97,14 @@ What did run from the parked suite this change lives in: the related Gateway.Uni
 which asserts no pending model changes on both providers - `FleetOutcomeStopIdentityMigrationTests`,
 `HostedEntitlementGateTests`, `HostedAccessPlanScopeTests`): 120 passed, 0 failed, 2 skipped of 122 (the skips
 need a real Postgres server).
+
+## After the Tech Lead's -Parked run (commit ae5ddc1d3, merged with origin/main at e9801620a)
+
+The Tech Lead's `-Parked` run failed one test: `TenantScopeGuardTests.EveryMappedTable_IsTenantScopedOrAnExplicitlyAllowlistedGlobalTable`
+- `TeamEntitlementEntity` was neither tenant-scoped nor allowlisted. It is now in `allowedGlobalTables`, with its
+reason written beside `EntitlementEntity`'s: website-owned, read-only here, every read an equality on one team id,
+read before or across tenant resolution by the lease and convergence, and no tenant_id column to scope by.
+
+- The whole `CcDirector.Gateway.UnitTests` project (`dotnet test` on it): GREEN. 8,025 passed, 8 skipped, 0 failed of 8,033.
+- `.\scripts\test-local.ps1` (default): GREEN. Ten suites, every one outcome=Completed and fully executed, 3,463 tests.
+- `-Parked`: not run, on the Tech Lead's instruction. Core.Tests and Gateway.Tests have no verdict from this session.
