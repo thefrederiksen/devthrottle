@@ -1,0 +1,87 @@
+API transcript - devthrottle_internal#2300
+Captured 2026-10-03 from HostedTeamEndpointsTests.Transcript_AnOwnerCreatesATeam_AndItsMembersAreListed:
+a local hosted-mode Gateway (CC_GATEWAY_HOSTED=1) over real HTTP with the real auth middleware.
+Throwaway test accounts only (example.com). Each caller is the account behind its own device key; keys are not shown.
+
+> GET /teams    (as alice@example.com, a new account)
+< 200 OK
+{
+"count": 0,
+"teams": []
+}
+
+> POST /teams    (as alice@example.com)    {"name":"Acme Test Team"}
+< 201 Created
+{
+"team": {
+  "id": "df35e406-593d-492d-92bc-7f0ea09af5e9",
+  "name": "Acme Test Team",
+  "role": "Owner",
+  "memberCount": 1,
+  "people": "1 person"
+}
+}
+
+(registry) AddMember(team, bob@example.com, Developer) -> True
+(registry) AddMember(team, carol@example.com, Collaborator) -> True
+(registry) RemoveMember(team, alice@example.com the Owner) -> The Owner cannot be removed from the team: a team always has exactly one Owner, and this would leave the team without one.
+
+> GET /teams/df35e406-593d-492d-92bc-7f0ea09af5e9/members    (as bob@example.com, a Developer in the team)
+< 200 OK
+{
+"team": {
+  "id": "df35e406-593d-492d-92bc-7f0ea09af5e9",
+  "name": "Acme Test Team",
+  "role": "Developer",
+  "memberCount": 3,
+  "people": "3 people"
+},
+"count": 3,
+"members": [
+  {
+    "name": "alice@example.com",
+    "email": "alice@example.com",
+    "role": "Owner",
+    "isYou": false,
+    "joinedAtUtc": "2026-10-03T18:53:22.2131665Z"
+  },
+  {
+    "name": "bob@example.com",
+    "email": "bob@example.com",
+    "role": "Developer",
+    "isYou": true,
+    "joinedAtUtc": "2026-10-03T18:53:22.2161523Z"
+  },
+  {
+    "name": "carol@example.com",
+    "email": "carol@example.com",
+    "role": "Collaborator",
+    "isYou": false,
+    "joinedAtUtc": "2026-10-03T18:53:22.2173391Z"
+  }
+]
+}
+
+> GET /teams    (as carol@example.com, a Collaborator in the team)
+< 200 OK
+{
+"count": 1,
+"teams": [
+  {
+    "id": "df35e406-593d-492d-92bc-7f0ea09af5e9",
+    "name": "Acme Test Team",
+    "role": "Collaborator",
+    "memberCount": 3,
+    "people": "3 people"
+  }
+]
+}
+
+> GET /teams/df35e406-593d-492d-92bc-7f0ea09af5e9/members    (as dave@example.com, not a member)
+< 404 NotFound
+{
+"error": "There is no team with that id that you are a member of."
+}
+
+
+
