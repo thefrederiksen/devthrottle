@@ -243,8 +243,13 @@ public partial class MainWindow : Window
         // scan unwired (ruling R2-8). Loaded fires asynchronously after layout, so wiring
         // there loses the race and the first scan throws - which is exactly what happened
         // on the first live run of the fixed build.
+        //
+        // Through a short cache: a full rescan computes every repository and the monitor asks its provider on
+        // each one, which fetched the whole fleet roster from the Gateway once per repository (see
+        // LiveSessionsCache). The reaper does not read this provider - it uses its own authoritative one.
         if (global::Avalonia.Application.Current is App appForMonitor)
-            appForMonitor.RepositoryMonitor.LiveSessionsProvider = GetLiveSessionsOnThisMachineAsync;
+            appForMonitor.RepositoryMonitor.LiveSessionsProvider =
+                new Core.Git.LiveSessionsCache(GetLiveSessionsOnThisMachineAsync).GetAsync;
 
         BuildNativeMenu();
     }
