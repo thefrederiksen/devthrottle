@@ -323,11 +323,171 @@ public sealed class EntitlementRegistry
         return new EntitlementDecision(EntitlementOutcome.NotEntitled, tier);
     }
 
+    /// <summary>
+    /// The paid-features decision for ONE PERSON, keyed on the kind of tenant the request is in (#2299). This is
+    /// the single question every caller that knows "who, and in which tenant" asks, so a team seat and a personal
+    /// seat can never be confused at a call site.
+    ///
+    /// PERSONAL TENANT (<paramref name="teamSeat"/> is null): exactly <see cref="Evaluate"/> on the person's own
+    /// subject - their own entitlement row and their trial, unchanged. No team row is read, so no team bill can
+    /// change a personal tenant's answer.
+    ///
+    /// TEAM TENANT (<paramref name="teamSeat"/> supplied): exactly <see cref="EvaluateTeamMember"/> - the TEAM's
+    /// bill and the person's role there. The person's own subject is deliberately NOT read: a personal Pro never
+    /// grants paid features in a team tenant (owner, 3 Oct 2026: "If you have a seat on one team, it doesn't give
+    /// you a personal seat. It doesn't give you a seat on another team."), and that holds in reverse.
+    /// </summary>
+    /// <param name="accountSubject">The verified subject of the person. Read only in a personal tenant.</param>
+    /// <param name="teamSeat">The person's seat in the TEAM tenant the request is in, or null in a personal
+    /// tenant. The role comes from the membership table (#2300); this type takes it as a value.</param>
+    /// <param name="nowUtc">The moment to judge against, injected for exact tests.</param>
+    public EntitlementDecision EvaluatePerson(string accountSubject, TeamSeat? teamSeat, DateTime nowUtc)
+        => teamSeat is null
+            ? Evaluate(accountSubject, nowUtc)
+            : EvaluateTeamMember(teamSeat.TeamId, teamSeat.Role, nowUtc);
+
+    /// <summary>
+    /// Paid features for one member of a team tenant: the team's bill is <see cref="EntitlementOutcome.Entitled"/>
+    /// (see <see cref="EvaluateTeam"/>) AND the member holds a PAID SEAT there (Owner, Manager or Developer - see
+    /// <see cref="TeamSeatRoles"/>). A Collaborator, or a role this code does not recognise, holds no paid seat
+    /// and gets NO paid scopes whatever the bill: NotEntitled with no tier, decided from the role alone without
+    /// reading the bill, because no state of the bill could change that answer.
+    ///
+    /// The role is checked FIRST on purpose: a Collaborator's answer is knowledge even when the bill cannot be
+    /// read, so a database hiccup never turns a Collaborator's refusal into an Unknown that a caller retries.
+    /// </summary>
+    /// <param name="teamId">The team id, which is the tenant id.</param>
+    /// <param name="role">The member's role on that team, as the membership table records it.</param>
+    /// <param name="nowUtc">The moment to judge against.</param>
+    public EntitlementDecision EvaluateTeamMember(string teamId, string? role, DateTime nowUtc)
+    {
+        if (!TeamSeatRoles.IsPaidSeat(role))
+        {
+            FileLog.Write("[EntitlementRegistry] EvaluateTeamMember: NOT ENTITLED - the member's role on the team is not a paid seat (a Collaborator, or a role this code does not recognise, gets no paid scopes)");
+            return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
+        }
+
+        return EvaluateTeam(teamId, nowUtc);
+    }
+
+    /// <summary>
+    /// The TEAM's bill: the three-way outcome for one team id, read from the team row the payment side writes
+    /// (#2299). On <see cref="EntitlementOutcome.Entitled"/> the tier is <see cref="TierTeam"/>, which
+    /// <see cref="EntitlementScopes"/> maps to exactly the Pro scopes.
+    ///
+    /// THE TEAM POLICY, and how it deliberately differs from the personal one in <see cref="EvaluatePaid"/>:
+    ///  - <c>active</c> grants.
+    ///  - <c>past_due</c> grants with NO period cut-off. The personal row's past-due grace is FINITE (it ends at
+    ///    the paid period's end); a team's is not. Owner, 3 Oct 2026, on a failed team payment: "Nothing stops
+    ///    for anyone" - the Owner is told and it is handled by hand. This is a decision for the first version of
+    ///    Teams, not an oversight; a later version may add a cut-off, and it would land on this line.
+    ///  - <c>canceled</c>, any state this code does not recognise, or no row at all: NotEntitled.
+    ///  - A failed read: Unknown - never a grant, never a refusal.
+    ///  - On the production hosted Gateway the row must be live money (<c>livemode</c> true; false and null are
+    ///    both refused), exactly as for the personal row.
+    ///
+    /// THE TRIAL LEDGER IS NEVER CONSULTED FOR A TEAM. Owner, 3 Oct 2026: "We do not do trials for teams." A team
+    /// with no bill is a team with no paid features; it does not fall through to a trial or to the free plan.
+    /// </summary>
+    /// <param name="teamId">The team id, which is the tenant id. Never logged.</param>
+    /// <param name="nowUtc">The moment to judge against. A team row has no period cut-off, so this does not
+    /// change the outcome today; it is taken so the signature matches every other entitlement read and a future
+    /// cut-off is one line.</param>
+    public EntitlementDecision EvaluateTeam(string teamId, DateTime nowUtc)
+    {
+        // A blank team id is a caller error, not a failed read - answering Unknown would invite a retry loop that
+        // can never succeed.
+        if (string.IsNullOrWhiteSpace(teamId))
+        {
+            FileLog.Write("[EntitlementRegistry] EvaluateTeam: NOT ENTITLED - no team id was supplied");
+            return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
+        }
+
+        var id = teamId.Trim();
+
+        Data.Entities.TeamEntitlementEntity? row;
+        try
+        {
+            using var ctx = _db.CreateUnscopedContext();
+            row = ctx.TeamEntitlements.AsNoTracking().FirstOrDefault(e => e.TeamId == id);
+        }
+        catch (Exception ex)
+        {
+            // IGNORANCE, NOT ABSENCE - the same rule, and the same loud log, as the personal read.
+            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: READ FAILED ({ex.GetType().Name}) - answering UNKNOWN, " +
+                          "which must be retried and must NEVER be treated as unpaid or as paid");
+            var pg = ex as Npgsql.PostgresException ?? ex.InnerException as Npgsql.PostgresException;
+            if (pg is not null)
+                FileLog.Write($"[EntitlementRegistry] EvaluateTeam: PostgreSQL error SqlState={pg.SqlState} MessageText={pg.MessageText}");
+            return new EntitlementDecision(EntitlementOutcome.Unknown, null);
+        }
+
+        if (row is null)
+        {
+            FileLog.Write("[EntitlementRegistry] EvaluateTeam: NOT ENTITLED - the read succeeded and the team has no bill (no team entitlement record)");
+            return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
+        }
+
+        if (_requireLivemode && row.Livemode != true)
+        {
+            FileLog.Write("[EntitlementRegistry] EvaluateTeam: NOT ENTITLED - the team's subscription is not a live-mode one (a test-mode or unrecorded one is not an entitlement)");
+            return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
+        }
+
+        var status = (row.Status ?? "").Trim();
+
+        if (string.Equals(status, StatusActive, StringComparison.OrdinalIgnoreCase))
+            return new EntitlementDecision(EntitlementOutcome.Entitled, TierTeam, row.CurrentPeriodEnd);
+
+        if (string.Equals(status, StatusPastDue, StringComparison.OrdinalIgnoreCase))
+        {
+            // NO PERIOD CUT-OFF, by the owner's decision (see the method remarks). No period end is returned
+            // either: the hosted access lease clips a positive lease to CurrentPeriodEnd, and clipping to a
+            // boundary that ends nothing would only force extra reads that all answer Entitled.
+            FileLog.Write("[EntitlementRegistry] EvaluateTeam: ENTITLED - the team's payment is past due, and a failed team payment stops nothing (owner, 3 Oct 2026)");
+            return new EntitlementDecision(EntitlementOutcome.Entitled, TierTeam);
+        }
+
+        FileLog.Write($"[EntitlementRegistry] EvaluateTeam: NOT ENTITLED - the read succeeded and the team's bill does not grant access (state='{status}')");
+        return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
+    }
+
+    /// <summary>
+    /// The billed seat count on a team's row, for the seat-convergence check ONLY (<see cref="TeamSeatSync"/>).
+    /// Three-way like every other read here: <see cref="TeamBilledSeats.Known"/> false means the read FAILED.
+    /// Never used to decide access.
+    /// </summary>
+    /// <param name="teamId">The team id, which is the tenant id. Never logged.</param>
+    public TeamBilledSeats ReadTeamBilledSeats(string teamId)
+    {
+        if (string.IsNullOrWhiteSpace(teamId))
+            throw new ArgumentException("A team id is required", nameof(teamId));
+
+        var id = teamId.Trim();
+        try
+        {
+            using var ctx = _db.CreateUnscopedContext();
+            var row = ctx.TeamEntitlements.AsNoTracking().FirstOrDefault(e => e.TeamId == id);
+            if (row is null)
+                return new TeamBilledSeats(Known: true, HasBill: false, Status: null, Seats: null);
+            return new TeamBilledSeats(Known: true, HasBill: true, Status: (row.Status ?? "").Trim(), Seats: row.Seats);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[EntitlementRegistry] ReadTeamBilledSeats: READ FAILED ({ex.GetType().Name}) - the seat count is unknown; convergence will retry");
+            return new TeamBilledSeats(Known: false, HasBill: false, Status: null, Seats: null);
+        }
+    }
+
     /// <summary>The state meaning a live, paid subscription.</summary>
     public const string StatusActive = "active";
 
     /// <summary>The state meaning a payment failed and is being retried - entitled only until the paid period ends.</summary>
     public const string StatusPastDue = "past_due";
+
+    /// <summary>The state meaning the subscription has ended. Not entitled; listed so the seat-convergence check
+    /// can name it rather than repeat the string.</summary>
+    public const string StatusCanceled = "canceled";
 
     /// <summary>The hosted plan tier.</summary>
     public const string TierHosted = "hosted";
@@ -382,4 +542,56 @@ public sealed class EntitlementRegistry
     /// bearing, what it does NOT) lives in <see cref="EntitlementScopes"/>.
     /// </summary>
     public const string TierProSelfHost = "pro_selfhost";
+
+    /// <summary>
+    /// The TEAM seat tier (#2299). The payment side never writes it - a team row has no tier column - so it
+    /// originates here, on an Entitled team read, exactly as <see cref="TierFree"/> does. What it grants is
+    /// decided in <see cref="EntitlementScopes"/>: the same scopes as Pro.
+    /// </summary>
+    public const string TierTeam = "team";
+}
+
+/// <summary>
+/// A person's seat in a TEAM tenant: the team id (which is the tenant id) and the person's role there, as the
+/// membership table (#2300) records it. Passed to <see cref="EntitlementRegistry.EvaluatePerson"/> when the
+/// request is in a team tenant; null means a personal tenant.
+/// </summary>
+/// <param name="TeamId">The team id - the tenant id of the team tenant.</param>
+/// <param name="Role">The person's role on that team (owner, manager, developer, collaborator).</param>
+public sealed record TeamSeat(string TeamId, string? Role);
+
+/// <summary>
+/// What a team row says about its billed seats, for the seat-convergence check. <see cref="Known"/> false means
+/// the read failed (nothing else on the record is meaningful); <see cref="HasBill"/> false means the read
+/// succeeded and the team has no bill yet.
+/// </summary>
+public sealed record TeamBilledSeats(bool Known, bool HasBill, string? Status, int? Seats);
+
+/// <summary>
+/// THE ONE PLACE that says which team roles are PAID SEATS (#2299, owner 3 Oct 2026: "Every team member pays.
+/// Except for the collaborators."). The access decision and the seat count both ask this, so "who pays" and "who
+/// gets paid features" can never disagree.
+///
+/// An allowlist, ordinal and exact, like every other plan question here: a role this code does not recognise is
+/// NOT a paid seat, so it gets no paid scopes and is not counted.
+/// </summary>
+public static class TeamSeatRoles
+{
+    /// <summary>The team's Owner - pays for the team and holds a paid seat themselves.</summary>
+    public const string Owner = "owner";
+
+    /// <summary>A Manager - a paid seat.</summary>
+    public const string Manager = "manager";
+
+    /// <summary>A Developer - a paid seat.</summary>
+    public const string Developer = "developer";
+
+    /// <summary>A Collaborator - never a paid seat, never on the bill, never given paid scopes.</summary>
+    public const string Collaborator = "collaborator";
+
+    /// <summary>Is this role a paid seat? Owner, Manager and Developer are; anything else is not.</summary>
+    public static bool IsPaidSeat(string? role) =>
+        role is not null && (string.Equals(role.Trim(), Owner, StringComparison.Ordinal)
+                             || string.Equals(role.Trim(), Manager, StringComparison.Ordinal)
+                             || string.Equals(role.Trim(), Developer, StringComparison.Ordinal));
 }

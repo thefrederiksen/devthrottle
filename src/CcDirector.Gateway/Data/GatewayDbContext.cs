@@ -387,6 +387,13 @@ public sealed class GatewayDbContext : DbContext
     public DbSet<EntitlementEntity> Entitlements => Set<EntitlementEntity>();
 
     /// <summary>
+    /// The TEAM bills (<c>team_entitlements</c>, devthrottle_internal #2299) the payment side writes and this
+    /// Gateway only READS, keyed by the team (tenant) id. Excluded from migrations exactly like
+    /// <see cref="Entitlements"/> - see the entity for why.
+    /// </summary>
+    public DbSet<TeamEntitlementEntity> TeamEntitlements => Set<TeamEntitlementEntity>();
+
+    /// <summary>
     /// The free-trial ledger (<c>account_trials</c>, issue #2117) - the Gateway's OWN record of which accounts
     /// were granted the 14-day Pro trial the public pricing page promises, and when each trial ends. GLOBAL
     /// like <see cref="Tenants"/>: keyed by the verified account subject and read before any tenant exists, so
@@ -1295,6 +1302,28 @@ public sealed class GatewayDbContext : DbContext
             // block, not in the Postgres-only section below. Read and exposed by EntitlementRegistry; never
             // gates enrollment (either tier enrolls).
             b.Property(e => e.Tier).HasColumnName("tier");
+        });
+
+        modelBuilder.Entity<TeamEntitlementEntity>(b =>
+        {
+            // EXCLUDED FROM MIGRATIONS, for the same reason and in the same shape as EntitlementEntity above:
+            // the website's migration creates this table and its webhook is its only writer; this Gateway holds
+            // SELECT and nothing more. The schema is pinned explicitly on Postgres (and absent on schemaless
+            // SQLite) by the same provider conditional, so this read's qualification does not rest on the
+            // model-wide default either. The key is plain text on both providers - the team id is the tenant
+            // id string, not a uuid column - so no value converter is needed.
+            if (Database.IsNpgsql())
+                b.ToTable("team_entitlements", "gateway", t => t.ExcludeFromMigrations());
+            else
+                b.ToTable("team_entitlements", t => t.ExcludeFromMigrations());
+            b.HasKey(e => e.TeamId);
+            b.Property(e => e.TeamId).HasColumnName("team_id").IsRequired();
+            b.Property(e => e.Status).HasColumnName("status").IsRequired();
+            b.Property(e => e.Seats).HasColumnName("seats");
+            b.Property(e => e.CurrentPeriodEnd).HasColumnName("current_period_end");
+            b.Property(e => e.StripeSubscriptionId).HasColumnName("stripe_subscription_id");
+            b.Property(e => e.Livemode).HasColumnName("livemode");
+            b.Property(e => e.UpdatedAt).HasColumnName("updated_at");
         });
 
         modelBuilder.Entity<TenantEntity>(b =>
