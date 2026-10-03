@@ -280,7 +280,7 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
     {
         public List<(string Id, string Token)> Sent { get; } = new();
 
-        public Task<TeamInvitationMailResult> SendAsync(string invitationId, string acceptToken, CancellationToken ct = default)
+        public Task<TeamInvitationMailResult> SendAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default)
         {
             lock (Sent) Sent.Add((invitationId, acceptToken));
             return Task.FromResult(new TeamInvitationMailResult(true, null, 200, null));

@@ -16,11 +16,12 @@ namespace CcDirector.Core.Account;
 public sealed record TeamInvitationMailResult(bool Sent, string? Error, int StatusCode, string? ErrorCode);
 
 /// <summary>
-/// The Gateway's client for <c>POST /api/v1/teams/invitation-email</c> (devthrottle_internal#2301): "send the email for
+/// The Gateway's client for <c>POST /api/v1/team-invitations/email</c> (devthrottle_internal#2301): "send the email for
 /// this invitation".
 ///
 /// THE SAFETY PROPERTY THIS TYPE IS BUILT AROUND: <b>this client cannot address anyone.</b> The body is exactly
-/// <c>{ "invitation_id": "...", "token": "..." }</c>. There is no recipient parameter and no code path that could add
+/// <c>{ "invitation_id": "...", "team_id": "...", "token": "..." }</c>; the team id is a cross-check only - the website
+/// refuses an invitation of another team. There is no recipient parameter and no code path that could add
 /// one: the website reads the invitee's address from the Gateway's own invitation row, server-side, and refuses a body
 /// that names a recipient with a hard 400. So a fault in the Gateway can at worst send an invitation's email to the
 /// address that invitation was made for - never to an address the Gateway chose.
@@ -35,7 +36,7 @@ public sealed record TeamInvitationMailResult(bool Sent, string? Error, int Stat
 public sealed class TeamInvitationMailClient
 {
     /// <summary>The website route that sends one invitation's email.</summary>
-    public const string InvitationEmailPath = "/api/v1/teams/invitation-email";
+    public const string InvitationEmailPath = "/api/v1/team-invitations/email";
 
     private readonly HttpClient _client;
     private readonly string _baseUrl;
@@ -52,14 +53,17 @@ public sealed class TeamInvitationMailClient
     /// </summary>
     /// <param name="serviceToken">The Gateway service secret. Never logged.</param>
     /// <param name="invitationId">The invitation's id.</param>
+    /// <param name="teamId">The invitation's team, as a cross-check.</param>
     /// <param name="acceptToken">The link's secret, which the website checks against the row's hash. Never logged.</param>
-    public async Task<TeamInvitationMailResult> SendInvitationAsync(string serviceToken, string invitationId, string acceptToken,
-        CancellationToken ct = default)
+    public async Task<TeamInvitationMailResult> SendInvitationAsync(string serviceToken, string invitationId, string teamId,
+        string acceptToken, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(serviceToken))
             throw new ArgumentException("A Gateway service token is required", nameof(serviceToken));
         if (string.IsNullOrWhiteSpace(invitationId))
             throw new ArgumentException("An invitation id is required", nameof(invitationId));
+        if (string.IsNullOrWhiteSpace(teamId))
+            throw new ArgumentException("A team id is required", nameof(teamId));
         if (string.IsNullOrWhiteSpace(acceptToken))
             throw new ArgumentException("The invitation link's token is required", nameof(acceptToken));
 
@@ -68,7 +72,7 @@ public sealed class TeamInvitationMailClient
 
         using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
-            Content = new StringContent(BuildBody(invitationId, acceptToken), Encoding.UTF8, "application/json"),
+            Content = new StringContent(BuildBody(invitationId, teamId, acceptToken), Encoding.UTF8, "application/json"),
         };
         request.Headers.Add(AccountNotifyByTenantClient.ServiceTokenHeader, serviceToken);
 
@@ -88,8 +92,8 @@ public sealed class TeamInvitationMailClient
         return new TeamInvitationMailResult(false, message, status, code);
     }
 
-    /// <summary>The request body: the invitation id and the link's token, nothing else. Internal so a test can pin the
-    /// wire shape.</summary>
-    internal static string BuildBody(string invitationId, string acceptToken) =>
-        new JsonObject { ["invitation_id"] = invitationId, ["token"] = acceptToken }.ToJsonString();
+    /// <summary>The request body: the invitation id, its team and the link's token, nothing else. Internal so a test can
+    /// pin the wire shape.</summary>
+    internal static string BuildBody(string invitationId, string teamId, string acceptToken) =>
+        new JsonObject { ["invitation_id"] = invitationId, ["team_id"] = teamId, ["token"] = acceptToken }.ToJsonString();
 }
