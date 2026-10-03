@@ -730,6 +730,20 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Teams.TeamRegistry TeamRegistry { get; }
 
+    /// <summary>
+    /// The retry net for the team seat sync (devthrottle_internal#2301): null except on a hosted Gateway with Teams
+    /// released, where it runs every <see cref="Teams.TeamSeatConvergence.Interval"/>.
+    /// </summary>
+    public Teams.TeamSeatConvergence? TeamSeatConvergence { get; }
+
+    /// <summary>
+    /// Sends a team invitation's email through the website (devthrottle_internal#2301). Settable only so a test can
+    /// install a recording mailer BEFORE <see cref="StartAsync"/> maps the routes; nothing changes it after.
+    /// </summary>
+    public Teams.ITeamInvitationMailer TeamInvitationMailer { get; set; }
+
+    private Timer? _teamSeatConvergenceTimer;
+
     /// <summary>The paid-entitlement gate read at hosted enrollment. Present on every host; consulted only
     /// where the hosted enrollment route is mapped, which is hosted only.</summary>
     public Tenancy.EntitlementRegistry EntitlementRegistry { get; }
@@ -1676,9 +1690,6 @@ public sealed class GatewayHost : IAsyncDisposable
         // the hosted enrollment boundary (which validates the account token and stamps the resolved tenant on
         // the device) in the follow-up increment. Unused on the single-tenant local install.
         TenantRegistry = new Tenancy.TenantRegistry(_gatewayDb);
-        // Teams (devthrottle_internal#2300): told about new teams through the tenant registry, so the census every
-        // background sweep walks includes each team's tenant.
-        TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry);
         // The free-trial ledger (issue #2117): the Gateway's OWN record of the 14-day Pro trial the public
         // pricing page promises every new account. It is passed INTO the entitlement registry rather than
         // consulted beside it, so the enrollment gate, the request-path lease and the 60s sweep all read one
@@ -1686,6 +1697,22 @@ public sealed class GatewayHost : IAsyncDisposable
         // makes the trial EXPIRE on the request path instead of only at enrollment.
         TrialRegistry = new Tenancy.TrialRegistry(_gatewayDb);
         EntitlementRegistry = new Tenancy.EntitlementRegistry(_gatewayDb, trials: TrialRegistry);
+        // Teams (devthrottle_internal#2300): told about new teams through the tenant registry, so the census every
+        // background sweep walks includes each team's tenant. The seat sync (devthrottle_internal#2301) exists only
+        // where team bills can: a hosted Gateway with Teams released. Everywhere else a membership change says in the
+        // log that no website was told, and the convergence pass does not run.
+        if (GatewayHostedMode.IsHosted && TeamsReleased)
+        {
+            var seatSync = new Tenancy.TeamSeatSync(EntitlementRegistry, new Core.Account.TeamSeatSyncClient());
+            TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, seatSync: seatSync,
+                readTeamBill: EntitlementRegistry.ReadTeamBilledSeats);
+            TeamSeatConvergence = new Teams.TeamSeatConvergence(_gatewayDb, seatSync);
+        }
+        else
+        {
+            TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, readTeamBill: EntitlementRegistry.ReadTeamBilledSeats);
+        }
+        TeamInvitationMailer = new Teams.TeamInvitationMailer(new Core.Account.TeamInvitationMailClient());
         // MTR-15 cancellation cutoff, hosted-only. Reuses the SAME EntitlementRegistry as the enrollment gate
         // so the enrollment check and the ongoing check cannot drift. The revoker calls MTR-14B's tenant-wide
         // device tombstone; the lease is the O(1) hot-path check; the monitor is the 60s sweep.
@@ -3817,7 +3844,7 @@ public sealed class GatewayHost : IAsyncDisposable
                     && !path.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase))
                 {
                     var client = ctx.Connection.RemoteIpAddress?.ToString() ?? "?";
-                    FileLog.Write($"[GatewayHost] {ctx.Request.Method} {path}{SafeQueryForLog(ctx.Request.Path, ctx.Request.QueryString)} -> {ctx.Response.StatusCode} ({sw.ElapsedMilliseconds}ms) client={client} host={ctx.Request.Host}{DeviceForLog(ctx)}");
+                    FileLog.Write($"[GatewayHost] {ctx.Request.Method} {Api.TeamInvitationEndpoints.RedactForLog(path)}{Api.TeamInvitationEndpoints.RedactForLog(SafeQueryForLog(ctx.Request.Path, ctx.Request.QueryString))} -> {ctx.Response.StatusCode} ({sw.ElapsedMilliseconds}ms) client={client} host={ctx.Request.Host}{DeviceForLog(ctx)}");
                 }
             }
         });
@@ -4618,7 +4645,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // account behind their own device key; a self-hosted Gateway answers that it has no teams. DARK until the owner
         // releases Teams: mapped only when CC_GATEWAY_TEAMS=1, so a deploy of main exposes no team route.
         if (TeamsReleased)
+        {
             TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry);
+            // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
+            TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
+        }
+        // The team seat convergence (devthrottle_internal#2301): retries any seat sync that failed. Hosted with Teams
+        // released only - TeamSeatConvergence is null everywhere else.
+        if (TeamSeatConvergence is { } convergence)
+            _teamSeatConvergenceTimer = new Timer(_ => _ = convergence.RunSafeAsync(), null,
+                TimeSpan.FromMinutes(1), Teams.TeamSeatConvergence.Interval);
 
         // The administrator trial EXTENSION: POST /gateway/admin/trials/extend. The write twin of the read
         // above, and the only way a trial's end date moves. It lives here rather than as a database grant to
@@ -6178,6 +6214,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // ladder holding a token and re-sending into a fleet this process no longer owns.
         try { _sessionSupervisor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session supervisor dispose error: {ex.Message}"); }
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
+        try { _teamSeatConvergenceTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] team seat convergence timer dispose error: {ex.Message}"); }
         try { _fleetManagerEventTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events timer dispose error: {ex.Message}"); }
         try { _fleetManagerEvents?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events dispose error: {ex.Message}"); }
         try { _fleetManagerReplacementTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager replacement timer dispose error: {ex.Message}"); }

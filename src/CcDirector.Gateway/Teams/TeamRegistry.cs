@@ -4,6 +4,7 @@ using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Tenancy;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Concurrent;
 
 namespace CcDirector.Gateway.Teams;
 
@@ -28,7 +29,7 @@ namespace CcDirector.Gateway.Teams;
 /// Writes are serialized under one lock, like <see cref="TenantRegistry"/>. The subject and email are
 /// personally identifying and are never logged; a team id is logged only in its hashed form.
 /// </summary>
-public sealed class TeamRegistry
+public sealed partial class TeamRegistry
 {
     /// <summary>The longest team name accepted, in characters.</summary>
     public const int MaxNameLength = 100;
@@ -36,18 +37,29 @@ public sealed class TeamRegistry
     private readonly GatewayDatabase _db;
     private readonly TenantRegistry _tenants;
     private readonly Func<DateTime> _utcNow;
+    private readonly TeamSeatSync? _seatSync;
+    private readonly Func<string, TeamBilledSeats> _readTeamBill;
     private readonly object _writeLock = new();
+    private readonly ConcurrentDictionary<Task, byte> _seatSyncsInFlight = new();
 
     /// <param name="db">The Gateway database. The team tables are global, so they are read through the UNSCOPED
     /// context, as the <c>tenants</c> table is.</param>
     /// <param name="tenants">The tenant registry, told when a team is created so its tenant census - the list
     /// every background sweep walks - includes the new team's tenant.</param>
     /// <param name="utcNow">The clock; the system clock when omitted.</param>
-    public TeamRegistry(GatewayDatabase db, TenantRegistry tenants, Func<DateTime>? utcNow = null)
+    /// <param name="seatSync">Tells the website a team's membership changed so it recounts the team's paid seats
+    /// (devthrottle_internal#2301, seam-team-billing.md section 4). Null on a Gateway with no team bills - a
+    /// self-hosted one, or one where Teams is not released - and then every change says so in the log.</param>
+    /// <param name="readTeamBill">Reads a team's bill (team_entitlements) for the invitation bill gate. Defaults to
+    /// the entitlement reader over this same database.</param>
+    public TeamRegistry(GatewayDatabase db, TenantRegistry tenants, Func<DateTime>? utcNow = null,
+        TeamSeatSync? seatSync = null, Func<string, TeamBilledSeats>? readTeamBill = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        _seatSync = seatSync;
+        _readTeamBill = readTeamBill ?? new EntitlementRegistry(db).ReadTeamBilledSeats;
     }
 
     /// <summary>
@@ -284,16 +296,46 @@ public sealed class TeamRegistry
     }
 
     /// <summary>
-    /// THE ONE PLACE A MEMBERSHIP CHANGE IS COMMITTED. Creating a team, adding a member, changing a role and removing
-    /// a member all write through here and nowhere else, so anything that must follow every change - the website's
-    /// seat count (devthrottle_internal#2301, seam-team-billing.md section 4) - attaches here once. Called under the
-    /// write lock; nothing is called out from here today.
+    /// THE ONE PLACE A MEMBERSHIP CHANGE IS COMMITTED. Creating a team, adding a member (directly or by accepting an
+    /// invitation), changing a role and removing a member all write through here and nowhere else, so what must
+    /// follow every change attaches here once.
+    ///
+    /// THE SEAT SYNC (devthrottle_internal#2301, seam-team-billing.md section 4): after the save commits, every change
+    /// except creating the team asks the website to recount the team's paid seats - naming the team, never a number.
+    /// Creating the team is left out because the team's bill does not exist yet: the checkout starts it at one seat,
+    /// the Owner's. The call is STARTED here and not awaited: it runs under the write lock and may take up to the
+    /// client's timeout, and the change has already committed, so a member's request never waits on (or fails with)
+    /// the website. A refused or unreachable website is logged by the sync and repaired by
+    /// <see cref="TeamSeatConvergence"/>, never swallowed here.
     /// </summary>
-    private static void CommitMembershipChange(GatewayDbContext ctx, string teamId, TeamMembershipChange change)
+    private void CommitMembershipChange(GatewayDbContext ctx, string teamId, TeamMembershipChange change)
     {
         ctx.SaveChanges();
         FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} change={change} committed");
+
+        if (change == TeamMembershipChange.TeamCreated)
+            return;
+        if (_seatSync is null)
+        {
+            FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - this Gateway has no seat sync (no team bills here), so the website was not told");
+            return;
+        }
+
+        var sync = _seatSync.SyncAfterMembershipChangeAsync(teamId, CancellationToken.None);
+        _seatSyncsInFlight.TryAdd(sync, 0);
+        _ = sync.ContinueWith(t =>
+        {
+            _seatSyncsInFlight.TryRemove(t, out _);
+            if (t.IsFaulted)
+                FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} seat sync FAILED ({t.Exception?.GetBaseException().GetType().Name}): {t.Exception?.GetBaseException().Message} - convergence will retry");
+            else if (t.IsCompletedSuccessfully && !t.Result.Synced)
+                FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} seat sync NOT done (status={t.Result.StatusCode}) - convergence will retry");
+        }, TaskScheduler.Default);
     }
+
+    /// <summary>Completes when every seat sync started so far has finished. For tests and an orderly shutdown; a
+    /// request path never waits on it.</summary>
+    internal Task SeatSyncsSettled() => Task.WhenAll(_seatSyncsInFlight.Keys.ToArray());
 
     /// <summary>The plain-words refusal for a team name, or null when the name is usable.</summary>
     internal static string? NameRefusal(string? name)
