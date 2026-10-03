@@ -482,15 +482,19 @@ public class TerminalView : Control
     }
 
     /// <summary>
-    /// True when the terminal hard-wrapped <paramref name="row"/>: a printable character
-    /// was written into the row's LAST column and the line continues on the next row.
-    /// The last cell being written (not '\0') is the signal - erased and never-written
-    /// tails hold '\0'. See <see cref="CcDirector.Core.Utilities.TerminalLineWrap"/> for
-    /// what this inference does and does not cover.
+    /// True when <paramref name="row"/> and the row below it are one line - see
+    /// <see cref="TerminalRowWrap.JoinsNextRow"/>, the rule every terminal view shares.
     /// </summary>
     private bool IsRowWrapped(int row)
     {
-        return _cols > 0 && GetCellAt(_cols - 1, row).Character != '\0';
+        int rowWidth = _cols;
+        if (_scrollOffset > 0)
+        {
+            int virtualIndex = _scrollback.Count - _scrollOffset + row;
+            if (virtualIndex >= 0 && virtualIndex < _scrollback.Count)
+                rowWidth = _scrollback[virtualIndex].Length;
+        }
+        return TerminalRowWrap.JoinsNextRow(GetCellAt(_cols - 1, row), rowWidth, _cols);
     }
 
     private void ClearSelection()

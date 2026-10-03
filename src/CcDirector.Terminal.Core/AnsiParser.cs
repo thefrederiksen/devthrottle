@@ -1070,6 +1070,7 @@ public class AnsiParser
         if (_pendingWrap && _autoWrap)
         {
             _pendingWrap = false;
+            MarkRowWrapped(_cursorRow);
             _cursorCol = 0;
             LineFeed();
         }
@@ -1098,6 +1099,7 @@ public class AnsiParser
             {
                 if (_autoWrap)
                 {
+                    MarkRowWrapped(_cursorRow);
                     _cursorCol = 0;
                     LineFeed();
                 }
@@ -1212,6 +1214,16 @@ public class AnsiParser
     // -----------------------------------------------------------------------
     // Scrolling, erasing, inserting
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// Record that auto-wrap carried <paramref name="row"/> on to the next row, on the row's
+    /// last cell (see <see cref="TerminalCell.WrapsToNextRow"/>). Called before the line feed,
+    /// so a row that scrolls into scrollback takes the mark with it.
+    /// </summary>
+    private void MarkRowWrapped(int row)
+    {
+        _cells[_cols - 1, row].WrapsToNextRow = true;
+    }
 
     private void LineFeed()
     {
