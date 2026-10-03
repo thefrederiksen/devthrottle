@@ -7,6 +7,14 @@ production database and no deploy was touched.
   the Owner creating a team, the member list read by a Developer, the switcher read by a Collaborator, and an
   outsider refused.
 
+## Dark until released (review finding F1)
+
+The team routes are mapped only when `CC_GATEWAY_TEAMS=1`. Off by default: a deploy of main exposes no team route.
+`HostedTeamsDarkTests` proves the default (variable unset: all three routes not found, no team created);
+`HostedTeamEndpointsTests` runs with the switch on. `TeamsReleaseSwitchTests` pins that only `1` releases.
+`TeamEndpointsTests.SessionKeyGuard_EveryTeamRoute_IsRefusedToAnAgentSessionKey` pins the session-key refusal (F4).
+The api-transcript.txt below was captured with the switch on.
+
 ## The four tests from the issue
 
 | Issue test | Where it is proven |

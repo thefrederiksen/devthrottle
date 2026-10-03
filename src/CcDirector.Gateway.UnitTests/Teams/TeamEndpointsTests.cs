@@ -147,6 +147,18 @@ public sealed class TeamEndpointsTests : IDisposable
         Assert.Equal(TeamEndpoints.SelfHostedRefusal, body.GetProperty("error").GetString());
     }
 
+    [Theory]
+    [InlineData("GET", "/teams")]
+    [InlineData("POST", "/teams")]
+    [InlineData("GET", "/teams/3f1d2c9e-0000-4000-8000-000000000001/members")]
+    public void SessionKeyGuard_EveryTeamRoute_IsRefusedToAnAgentSessionKey(string method, string path)
+    {
+        // A session key resolves to its owner's personal tenant, so a team route opened to session keys would let any
+        // agent create teams or read member lists as the owner. The routes are the owner's own devices' only (F4).
+        Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path).Allowed);
+        Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path, raised: true).Allowed);
+    }
+
     private static async Task<(int Status, JsonElement Body)> RenderAsync(IResult result)
     {
         var provider = new ServiceCollection().AddLogging().AddOptions().BuildServiceProvider();
