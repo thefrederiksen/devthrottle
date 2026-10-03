@@ -675,6 +675,7 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/wingman-now")]
     // The diagnostics and reporting surfaces.
     [InlineData("GET", "/diag/loadmetrics")]
+    [InlineData("GET", "/diag/traffic")]
     [InlineData("GET", "/gateway/reports/morning")]
     // A route nobody has classified. THE DEFAULT IS DENY - this is the whole point of an allow list.
     [InlineData("GET", "/some/route/invented/next/year")]

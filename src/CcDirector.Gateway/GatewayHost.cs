@@ -3803,6 +3803,12 @@ public sealed class GatewayHost : IAsyncDisposable
             }
         });
 
+        // Bytes out per route, caller and hour (GET /diag/traffic). OUTSIDE compression so it counts what goes on
+        // the wire, and before UseWebSockets so it can wrap the upgrade and count the hubs and terminal streams.
+        // Each row carries the tenant that authenticated it, so a reader sees only its own account's rows.
+        Diagnostics.TrafficMeter.Use(_app,
+            ctx => _tenantBoundary.IsHosted ? _tenantBoundary.ResolveRequestTenant(ctx) : TenantId.Local);
+
         // Traffic optimization, phase 1: compress every answer below this point except the live streams. Placed
         // after the access log so the log still records the status of every request, and before everything that
         // writes a body - auth refusals, the Cockpit and phone shells and their assets, and every endpoint.
