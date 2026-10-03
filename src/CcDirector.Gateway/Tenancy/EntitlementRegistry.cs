@@ -324,50 +324,82 @@ public sealed class EntitlementRegistry
     }
 
     /// <summary>
-    /// The paid-features decision for ONE PERSON, keyed on the kind of tenant the request is in (#2299). This is
-    /// the single question every caller that knows "who, and in which tenant" asks, so a team seat and a personal
-    /// seat can never be confused at a call site.
+    /// The paid-features decision for one person in a PERSONAL tenant: exactly <see cref="Evaluate"/> on the
+    /// person's own subject - their own entitlement row and their trial, unchanged. No team row is read, so no team
+    /// bill can change a personal tenant's answer.
     ///
-    /// PERSONAL TENANT (<paramref name="teamSeat"/> is null): exactly <see cref="Evaluate"/> on the person's own
-    /// subject - their own entitlement row and their trial, unchanged. No team row is read, so no team bill can
-    /// change a personal tenant's answer.
-    ///
-    /// TEAM TENANT (<paramref name="teamSeat"/> supplied): exactly <see cref="EvaluateTeamMember"/> - the TEAM's
-    /// bill and the person's role there. The person's own subject is deliberately NOT read: a personal Pro never
-    /// grants paid features in a team tenant (owner, 3 Oct 2026: "If you have a seat on one team, it doesn't give
-    /// you a personal seat. It doesn't give you a seat on another team."), and that holds in reverse.
+    /// This and <see cref="EvaluateTeamTenant"/> are TWO methods on purpose: the kind of tenant is a choice the
+    /// caller makes by name, never something inferred from whether a membership lookup happened to return a value.
+    /// A caller in a team tenant cannot reach a person's own row by passing nothing.
     /// </summary>
-    /// <param name="accountSubject">The verified subject of the person. Read only in a personal tenant.</param>
-    /// <param name="teamSeat">The person's seat in the TEAM tenant the request is in, or null in a personal
-    /// tenant. The role comes from the membership table (#2300); this type takes it as a value.</param>
+    /// <param name="accountSubject">The verified subject of the person.</param>
     /// <param name="nowUtc">The moment to judge against, injected for exact tests.</param>
-    public EntitlementDecision EvaluatePerson(string accountSubject, TeamSeat? teamSeat, DateTime nowUtc)
-        => teamSeat is null
-            ? Evaluate(accountSubject, nowUtc)
-            : EvaluateTeamMember(teamSeat.TeamId, teamSeat.Role, nowUtc);
+    public EntitlementDecision EvaluatePersonalTenant(string accountSubject, DateTime nowUtc)
+        => Evaluate(accountSubject, nowUtc);
 
     /// <summary>
-    /// Paid features for one member of a team tenant: the team's bill is <see cref="EntitlementOutcome.Entitled"/>
-    /// (see <see cref="EvaluateTeam"/>) AND the member holds a PAID SEAT there (Owner, Manager or Developer - see
-    /// <see cref="TeamSeatRoles"/>). A Collaborator, or a role this code does not recognise, holds no paid seat
-    /// and gets NO paid scopes whatever the bill: NotEntitled with no tier, decided from the role alone without
-    /// reading the bill, because no state of the bill could change that answer.
+    /// The decision for one person in a TEAM tenant (#2299). Reads the TEAM's bill and the person's membership
+    /// there - never the person's own subject, so a personal Pro or a trial never grants inside a team (owner,
+    /// 3 Oct 2026: "If you have a seat on one team, it doesn't give you a personal seat. It doesn't give you a seat
+    /// on another team."), and a team seat never grants outside it.
     ///
-    /// The role is checked FIRST on purpose: a Collaborator's answer is knowledge even when the bill cannot be
-    /// read, so a database hiccup never turns a Collaborator's refusal into an Unknown that a caller retries.
+    /// A MEMBER IS NEVER REFUSED HERE. The owner's rulings are that a plan without paid features keeps the Gateway
+    /// ("Free keeps the Gateway", 2 and 22 Sep 2026 - only the paid artificial intelligence stops) and that a
+    /// Collaborator works in the team. So for a member the answer is one of three, and NotEntitled is not one of
+    /// them - which is what keeps a member's request from ever reaching the access lease's revoke branch, which
+    /// tombstones the whole team tenant's device credentials:
+    ///  - Entitled at <see cref="TierTeam"/> (the Pro scopes): a paid seat (Owner, Manager, Developer) on a team
+    ///    whose bill grants (see <see cref="EvaluateTeam"/>).
+    ///  - Entitled at <see cref="TierFree"/> (hosted access, NO paid scopes): a Collaborator or any role this code
+    ///    does not recognise, whatever the bill; or a paid seat on a team whose bill does not grant - no bill yet
+    ///    (the Owner has not finished checkout), canceled, an unrecognised state, or a test-mode row on
+    ///    production. The same pattern as the personal free plan: Entitled means "entitled to whatever the tier
+    ///    grants", and free grants orchestration and nothing else.
+    ///  - Unknown: a paid seat whose team bill could not be read. Never a grant, never a refusal. A Collaborator's
+    ///    answer does not depend on the bill, so it is never Unknown.
+    ///
+    /// A NON-MEMBER is a refusal of a different kind, and it is NOT an entitlement verdict:
+    /// <see cref="TeamTenantDecision.IsMember"/> is false and there is no <see cref="TeamTenantDecision.Entitlement"/>
+    /// at all. The caller reports it as "not a member of this team" (a 403-kind refusal of the PERSON) and must never
+    /// treat it as the team being unpaid or feed it to the lease's revoke branch - one stranger's request is not a
+    /// reason to cut off the team.
     /// </summary>
     /// <param name="teamId">The team id, which is the tenant id.</param>
-    /// <param name="role">The member's role on that team, as the membership table records it.</param>
+    /// <param name="membership">The person's membership in that team, from the membership table (#2300). Required:
+    /// <see cref="TeamMembership.NotAMember"/> is how "no membership" is said. A FAILED membership lookup has no
+    /// value here on purpose - the caller must answer it as Unknown itself, never as NotAMember.</param>
     /// <param name="nowUtc">The moment to judge against.</param>
-    public EntitlementDecision EvaluateTeamMember(string teamId, string? role, DateTime nowUtc)
+    public TeamTenantDecision EvaluateTeamTenant(string teamId, TeamMembership membership, DateTime nowUtc)
     {
-        if (!TeamSeatRoles.IsPaidSeat(role))
+        if (string.IsNullOrWhiteSpace(teamId))
+            throw new ArgumentException("A team id is required", nameof(teamId));
+        ArgumentNullException.ThrowIfNull(membership);
+
+        var teamLog = new Core.Tenancy.TenantId(teamId.Trim()).ToLogString();
+
+        if (!membership.IsMember)
         {
-            FileLog.Write("[EntitlementRegistry] EvaluateTeamMember: NOT ENTITLED - the member's role on the team is not a paid seat (a Collaborator, or a role this code does not recognise, gets no paid scopes)");
-            return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
+            FileLog.Write($"[EntitlementRegistry] EvaluateTeamTenant: team={teamLog} NOT A MEMBER - the person is refused as a non-member; this is not an entitlement verdict and must not revoke the team");
+            return TeamTenantDecision.NotAMember;
         }
 
-        return EvaluateTeam(teamId, nowUtc);
+        if (!TeamSeatRoles.IsPaidSeat(membership.Role))
+        {
+            FileLog.Write($"[EntitlementRegistry] EvaluateTeamTenant: team={teamLog} ENTITLED on the FREE tier - the member's role is not a paid seat (a Collaborator keeps the team's Gateway, with no paid scopes)");
+            return TeamTenantDecision.ForMember(new EntitlementDecision(EntitlementOutcome.Entitled, TierFree));
+        }
+
+        var bill = EvaluateTeam(teamId, nowUtc);
+        if (bill.Outcome == EntitlementOutcome.NotEntitled)
+        {
+            // No bill yet, canceled, unrecognised, or not live money: the member keeps the team's Gateway and
+            // loses only the paid scopes - never a refusal, so never a revocation.
+            FileLog.Write($"[EntitlementRegistry] EvaluateTeamTenant: team={teamLog} ENTITLED on the FREE tier - the team's bill grants no paid features (no bill yet, canceled, or not live money)");
+            return TeamTenantDecision.ForMember(new EntitlementDecision(EntitlementOutcome.Entitled, TierFree));
+        }
+
+        // Entitled at the team tier, or Unknown (the bill could not be read): passed through as they are.
+        return TeamTenantDecision.ForMember(bill);
     }
 
     /// <summary>
@@ -382,14 +414,20 @@ public sealed class EntitlementRegistry
     ///    for anyone" - the Owner is told and it is handled by hand. This is a decision for the first version of
     ///    Teams, not an oversight; a later version may add a cut-off, and it would land on this line.
     ///  - <c>canceled</c>, any state this code does not recognise, or no row at all: NotEntitled.
+    ///
+    /// THIS IS THE BILL, NOT A PERSON'S ANSWER. Its NotEntitled means "the team's bill grants no paid features";
+    /// it must never be handed to the access lease, whose NotEntitled revokes the tenant. A person's answer in a
+    /// team tenant comes only from <see cref="EvaluateTeamTenant"/>, which turns this NotEntitled into the free
+    /// tier for a member.
     ///  - A failed read: Unknown - never a grant, never a refusal.
     ///  - On the production hosted Gateway the row must be live money (<c>livemode</c> true; false and null are
     ///    both refused), exactly as for the personal row.
     ///
     /// THE TRIAL LEDGER IS NEVER CONSULTED FOR A TEAM. Owner, 3 Oct 2026: "We do not do trials for teams." A team
-    /// with no bill is a team with no paid features; it does not fall through to a trial or to the free plan.
+    /// with no bill is a team with no paid features; it does not fall through to a trial. (For a MEMBER it lands on
+    /// the free tier - see <see cref="EvaluateTeamTenant"/> - which grants no paid scopes.)
     /// </summary>
-    /// <param name="teamId">The team id, which is the tenant id. Never logged.</param>
+    /// <param name="teamId">The team id, which is the tenant id. Logged only in the hashed tenant form.</param>
     /// <param name="nowUtc">The moment to judge against. A team row has no period cut-off, so this does not
     /// change the outcome today; it is taken so the signature matches every other entitlement read and a future
     /// cut-off is one line.</param>
@@ -404,6 +442,7 @@ public sealed class EntitlementRegistry
         }
 
         var id = teamId.Trim();
+        var teamLog = new Core.Tenancy.TenantId(id).ToLogString();
 
         Data.Entities.TeamEntitlementEntity? row;
         try
@@ -414,23 +453,23 @@ public sealed class EntitlementRegistry
         catch (Exception ex)
         {
             // IGNORANCE, NOT ABSENCE - the same rule, and the same loud log, as the personal read.
-            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: READ FAILED ({ex.GetType().Name}) - answering UNKNOWN, " +
+            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} READ FAILED ({ex.GetType().Name}) - answering UNKNOWN, " +
                           "which must be retried and must NEVER be treated as unpaid or as paid");
             var pg = ex as Npgsql.PostgresException ?? ex.InnerException as Npgsql.PostgresException;
             if (pg is not null)
-                FileLog.Write($"[EntitlementRegistry] EvaluateTeam: PostgreSQL error SqlState={pg.SqlState} MessageText={pg.MessageText}");
+                FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} PostgreSQL error SqlState={pg.SqlState} MessageText={pg.MessageText}");
             return new EntitlementDecision(EntitlementOutcome.Unknown, null);
         }
 
         if (row is null)
         {
-            FileLog.Write("[EntitlementRegistry] EvaluateTeam: NOT ENTITLED - the read succeeded and the team has no bill (no team entitlement record)");
+            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the read succeeded and the team has no bill (no team entitlement record)");
             return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
         }
 
         if (_requireLivemode && row.Livemode != true)
         {
-            FileLog.Write("[EntitlementRegistry] EvaluateTeam: NOT ENTITLED - the team's subscription is not a live-mode one (a test-mode or unrecorded one is not an entitlement)");
+            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the team's subscription is not a live-mode one (a test-mode or unrecorded one is not an entitlement)");
             return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
         }
 
@@ -444,11 +483,11 @@ public sealed class EntitlementRegistry
             // NO PERIOD CUT-OFF, by the owner's decision (see the method remarks). No period end is returned
             // either: the hosted access lease clips a positive lease to CurrentPeriodEnd, and clipping to a
             // boundary that ends nothing would only force extra reads that all answer Entitled.
-            FileLog.Write("[EntitlementRegistry] EvaluateTeam: ENTITLED - the team's payment is past due, and a failed team payment stops nothing (owner, 3 Oct 2026)");
+            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} ENTITLED - the team's payment is past due, and a failed team payment stops nothing (owner, 3 Oct 2026)");
             return new EntitlementDecision(EntitlementOutcome.Entitled, TierTeam);
         }
 
-        FileLog.Write($"[EntitlementRegistry] EvaluateTeam: NOT ENTITLED - the read succeeded and the team's bill does not grant access (state='{status}')");
+        FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the read succeeded and the team's bill does not grant access (state='{status}')");
         return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
     }
 
@@ -457,7 +496,7 @@ public sealed class EntitlementRegistry
     /// Three-way like every other read here: <see cref="TeamBilledSeats.Known"/> false means the read FAILED.
     /// Never used to decide access.
     /// </summary>
-    /// <param name="teamId">The team id, which is the tenant id. Never logged.</param>
+    /// <param name="teamId">The team id, which is the tenant id. Logged only in the hashed tenant form.</param>
     public TeamBilledSeats ReadTeamBilledSeats(string teamId)
     {
         if (string.IsNullOrWhiteSpace(teamId))
@@ -474,7 +513,7 @@ public sealed class EntitlementRegistry
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[EntitlementRegistry] ReadTeamBilledSeats: READ FAILED ({ex.GetType().Name}) - the seat count is unknown; convergence will retry");
+            FileLog.Write($"[EntitlementRegistry] ReadTeamBilledSeats: team={new Core.Tenancy.TenantId(id).ToLogString()} READ FAILED ({ex.GetType().Name}) - the seat count is unknown; convergence will retry");
             return new TeamBilledSeats(Known: false, HasBill: false, Status: null, Seats: null);
         }
     }
@@ -552,13 +591,49 @@ public sealed class EntitlementRegistry
 }
 
 /// <summary>
-/// A person's seat in a TEAM tenant: the team id (which is the tenant id) and the person's role there, as the
-/// membership table (#2300) records it. Passed to <see cref="EntitlementRegistry.EvaluatePerson"/> when the
-/// request is in a team tenant; null means a personal tenant.
+/// A person's membership in the TEAM tenant a request is in, as the membership table (#2300) records it. The only
+/// two values are <see cref="Member"/> (with the role) and <see cref="NotAMember"/>; there is no null and no
+/// "unknown", so "the lookup found nothing" can only be said as <see cref="NotAMember"/>, and a FAILED lookup has
+/// no value at all - the caller answers it as Unknown before calling
+/// <see cref="EntitlementRegistry.EvaluateTeamTenant"/>.
 /// </summary>
-/// <param name="TeamId">The team id - the tenant id of the team tenant.</param>
-/// <param name="Role">The person's role on that team (owner, manager, developer, collaborator).</param>
-public sealed record TeamSeat(string TeamId, string? Role);
+public sealed class TeamMembership
+{
+    private TeamMembership(bool isMember, string? role)
+    {
+        IsMember = isMember;
+        Role = role;
+    }
+
+    /// <summary>True when the person is a member of the team (any role, Collaborator included).</summary>
+    public bool IsMember { get; }
+
+    /// <summary>The member's role (owner, manager, developer, collaborator). Null for a non-member.</summary>
+    public string? Role { get; }
+
+    /// <summary>The person is a member, with this role.</summary>
+    public static TeamMembership Member(string? role) => new(true, role);
+
+    /// <summary>The lookup succeeded and the person is not a member of this team.</summary>
+    public static TeamMembership NotAMember { get; } = new(false, null);
+}
+
+/// <summary>
+/// The answer for one person in a team tenant. <see cref="IsMember"/> false is a refusal of the PERSON ("not a
+/// member of this team") and carries no <see cref="Entitlement"/>; it must never be read as the team being unpaid
+/// and never revokes the tenant. For a member, <see cref="Entitlement"/> is Entitled (team or free tier) or
+/// Unknown - never NotEntitled.
+/// </summary>
+/// <param name="IsMember">Whether the person is a member of the team.</param>
+/// <param name="Entitlement">The member's entitlement; null for a non-member.</param>
+public sealed record TeamTenantDecision(bool IsMember, EntitlementDecision? Entitlement)
+{
+    /// <summary>The person is not a member of the team.</summary>
+    public static TeamTenantDecision NotAMember { get; } = new(false, null);
+
+    /// <summary>The person is a member; this is their entitlement.</summary>
+    public static TeamTenantDecision ForMember(EntitlementDecision entitlement) => new(true, entitlement);
+}
 
 /// <summary>
 /// What a team row says about its billed seats, for the seat-convergence check. <see cref="Known"/> false means

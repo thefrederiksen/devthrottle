@@ -65,17 +65,26 @@ public sealed class TeamSeatSync
     /// accepting an invitation (not sending one), removing a member, or changing a role. Call it after the
     /// commit, never inside the transaction - the website reads the committed membership.
     ///
-    /// It does not throw on a refused or failed call: the membership change has already committed, and failing
-    /// the member's request now would report a change that happened as one that did not. A failure is logged
-    /// loud and returned; <see cref="ConvergeAsync"/> retries it.
+    /// A REFUSED or UNREACHABLE website is returned, not thrown: the membership change has already committed, and
+    /// failing the member's request now would report a change that happened as one that did not. Such a failure
+    /// is logged loud and returned; <see cref="ConvergeAsync"/> retries it.
+    ///
+    /// WHAT CAN STILL THROW, exactly: an <see cref="ArgumentException"/> for a blank team id, and an
+    /// <see cref="OperationCanceledException"/> when the caller's OWN <paramref name="ct"/> is cancelled. The call
+    /// can take up to the client's 30-second timeout when the website is slow. So the caller must NOT pass the
+    /// member's request token (a browser that disconnects would cancel the sync after the commit) and should not
+    /// hold the member's response on it: pass <see cref="CancellationToken.None"/> or a host-lifetime token, and
+    /// either await it after the response is decided or start it without awaiting - a lost call is what
+    /// convergence exists to repair.
     /// </summary>
     /// <param name="teamId">The team id, which is the tenant id.</param>
+    /// <param name="ct">A host-lifetime token, never the member's request token.</param>
     public async Task<TeamSeatSyncResult> SyncAfterMembershipChangeAsync(string teamId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(teamId))
             throw new ArgumentException("A team id is required", nameof(teamId));
 
-        FileLog.Write("[TeamSeatSync] SyncAfterMembershipChangeAsync: a membership change committed, asking the website to recount the team's seats");
+        FileLog.Write($"[TeamSeatSync] SyncAfterMembershipChangeAsync: team={TeamLog(teamId)} a membership change committed, asking the website to recount the team's seats");
         return await CallSyncAsync(teamId, ct).ConfigureAwait(false);
     }
 
@@ -90,7 +99,7 @@ public sealed class TeamSeatSync
         string teamId, int gatewayPaidMembers, CancellationToken ct = default)
     {
         var verdict = Decide(_entitlements.ReadTeamBilledSeats(teamId), gatewayPaidMembers);
-        FileLog.Write($"[TeamSeatSync] ConvergeAsync: verdict={verdict}");
+        FileLog.Write($"[TeamSeatSync] ConvergeAsync: team={TeamLog(teamId)} verdict={verdict}");
         if (verdict != SeatSyncVerdict.CallSync)
             return (verdict, null);
 
@@ -116,7 +125,7 @@ public sealed class TeamSeatSync
         if (token is null)
         {
             // Fail closed and say so: calling unauthenticated would make every 401 ambiguous.
-            FileLog.Write($"[TeamSeatSync] CallSyncAsync: {AccountNotifyByTenantClient.ServiceTokenEnvVar} is not set on this Gateway - the seat sync was NOT called");
+            FileLog.Write($"[TeamSeatSync] CallSyncAsync: team={TeamLog(teamId)} {AccountNotifyByTenantClient.ServiceTokenEnvVar} is not set on this Gateway - the seat sync was NOT called");
             return new TeamSeatSyncResult(false, 0,
                 $"The Gateway service credential ({AccountNotifyByTenantClient.ServiceTokenEnvVar}) is not set, so the team's seats were not synced.",
                 null);
@@ -124,14 +133,20 @@ public sealed class TeamSeatSync
 
         try
         {
-            return await _client.SyncSeatsAsync(token, teamId, ct).ConfigureAwait(false);
+            var result = await _client.SyncSeatsAsync(token, teamId, ct).ConfigureAwait(false);
+            FileLog.Write($"[TeamSeatSync] CallSyncAsync: team={TeamLog(teamId)} synced={result.Synced} status={result.StatusCode} code={result.ErrorCode ?? "<none>"}");
+            return result;
         }
         catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException) && !ct.IsCancellationRequested)
         {
             // The website could not be reached. The membership change has committed; the convergence pass
             // retries this team. Logged loud so a persistent outage is visible.
-            FileLog.Write($"[TeamSeatSync] CallSyncAsync: the website could not be reached ({ex.GetType().Name}) - the seat sync will be retried by convergence");
+            FileLog.Write($"[TeamSeatSync] CallSyncAsync: team={TeamLog(teamId)} the website could not be reached ({ex.GetType().Name}) - the seat sync will be retried by convergence");
             return new TeamSeatSyncResult(false, 0, "The DevThrottle website could not be reached to sync the team's seats.", null);
         }
     }
+
+    // The team id IS a tenant id, so it is logged in the same hashed form as every tenant in the Gateway: a failed
+    // sync can be tied to its team without the raw id reaching the log.
+    private static string TeamLog(string teamId) => new Core.Tenancy.TenantId(teamId.Trim()).ToLogString();
 }

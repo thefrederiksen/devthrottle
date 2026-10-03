@@ -15,17 +15,18 @@ namespace CcDirector.Gateway.Data.Entities;
 /// <see cref="EntitlementEntity"/>, keyed by their subject; a team seat and a personal seat never share a row,
 /// which is what keeps "a seat on one team is not a personal seat" true by construction.
 ///
-/// Nothing on this row is ever logged: the team id is account-identifying, and the subscription reference
-/// belongs to the payment provider.
+/// The team id is logged only in the Gateway's hashed tenant form (<c>TenantId.ToLogString</c>), never raw; the
+/// subscription reference belongs to the payment provider and is never logged.
 /// </summary>
 public sealed class TeamEntitlementEntity
 {
-    /// <summary>The team id - the tenant id of the team tenant. Primary key. Never logged.</summary>
+    /// <summary>The team id - the tenant id of the team tenant. Primary key. Logged only hashed.</summary>
     public string TeamId { get; set; } = "";
 
     /// <summary>
-    /// The subscription state as the payment side computed it: active, past_due, or canceled. Read as an opaque
-    /// string and compared exactly; a value the Gateway does not recognise is NOT entitled.
+    /// The subscription state as the payment side computed it: active, past_due, or canceled. Compared after
+    /// trimming surrounding spaces and ignoring case, exactly as the personal row's status is; a value the Gateway
+    /// does not recognise is NOT entitled.
     /// </summary>
     public string Status { get; set; } = "";
 
