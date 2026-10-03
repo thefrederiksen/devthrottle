@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace CcDirector.Terminal.Core;
@@ -141,7 +142,25 @@ public class AnsiParser
     private bool _hasParam;
     private readonly List<byte> _intermediates = new();
     private char _privateMarker; // '?', '>', '<', '=' at the start of CSI params
-    private readonly StringBuilder _oscBuffer = new();
+    // OSC payload bytes, decoded as UTF-8 when the string ends. Capped: a payload past the cap is
+    // dropped whole rather than cut, so a link is never made from part of an address.
+    private readonly List<byte> _oscBytes = new();
+    private bool _oscOverflow;
+    private const int OscMaxBytes = 4 * 1024;
+    // True from the ESC that interrupted an OSC string until the byte after it: a '\' there is
+    // ST and ends the string (Codex ends its links this way); anything else abandons it.
+    private bool _oscAwaitingSt;
+
+    // --- OSC 8 hyperlinks ---
+    // The link a program has open (ESC ] 8 ; params ; URI ST); every character written while
+    // it is open carries its id. Id 0 is "no link". Each distinct target gets one id; when the
+    // table fills, it starts over and every cell's id is cleared (ClearHyperlinkTable).
+    private ushort _hyperlinkId;
+    private readonly List<string> _hyperlinks = new() { string.Empty };
+    private readonly Dictionary<string, ushort> _hyperlinkIds = new(StringComparer.Ordinal);
+    // 4,096 distinct addresses is far more than 5,000 rows of scrollback can show at once, and at
+    // most 4 KB each it bounds the table at a few tens of megabytes even on a hostile stream.
+    internal int HyperlinkTableCapacity = 4096;
 
     // --- UTF-8 decoding (sub-state within Ground/printable handling) ---
     private readonly byte[] _utf8Buf = new byte[4];
@@ -476,11 +495,13 @@ public class AnsiParser
         {
             case 0x18: // CAN
             case 0x1A: // SUB
-                if (_state == State.OscString) { /* discard accumulated OSC */ _oscBuffer.Clear(); }
+                if (_state == State.OscString) { /* discard accumulated OSC */ ClearOsc(); }
                 EnterGround();
                 return;
             case 0x1B: // ESC
+                bool interruptsOsc = _state == State.OscString;
                 EnterEscape();
+                _oscAwaitingSt = interruptsOsc;
                 return;
         }
 
@@ -632,6 +653,12 @@ public class AnsiParser
 
     private void StepEscape(byte b)
     {
+        if (_oscAwaitingSt)
+        {
+            _oscAwaitingSt = false;
+            if (b == 0x5C) { OscDispatch(); EnterGround(); return; } // ST closes the OSC string
+            ClearOsc(); // any other byte after ESC abandons the string, as xterm does
+        }
         if (b >= 0x20 && b <= 0x2F)
         {
             // Intermediate -- accumulate and transition.
@@ -640,7 +667,7 @@ public class AnsiParser
             return;
         }
         if (b == 0x5B) { _state = State.CsiEntry;   return; } // ESC [
-        if (b == 0x5D) { _oscBuffer.Clear(); _state = State.OscString; return; } // ESC ]
+        if (b == 0x5D) { ClearOsc(); _state = State.OscString; return; } // ESC ]
         if (b == 0x50) { _params.Clear(); _currentParam = 0; _hasParam = false; _intermediates.Clear(); _state = State.DcsEntry; return; } // ESC P
         if (b == 0x58 || b == 0x5E || b == 0x5F) { _state = State.SosPmApcString; return; } // X / ^ / _
 
@@ -839,9 +866,16 @@ public class AnsiParser
     {
         if (b == 0x07) { OscDispatch(); EnterGround(); return; }
         // 0x1B (ESC) is handled by the Anywhere transition: it leaves this
-        // state and enters Escape. Then if the next byte is 0x5C ('\'), the
-        // ST closes the OSC. We detect that in StepEscape via a pre-stash.
-        _oscBuffer.Append((char)b);
+        // state and enters Escape with _oscAwaitingSt set. If the next byte is
+        // 0x5C ('\'), the ST closes the OSC and StepEscape dispatches it.
+        if (_oscBytes.Count >= OscMaxBytes) { _oscOverflow = true; return; }
+        _oscBytes.Add(b);
+    }
+
+    private void ClearOsc()
+    {
+        _oscBytes.Clear();
+        _oscOverflow = false;
     }
 
     private void StepSosPmApcString(byte b)
@@ -852,10 +886,82 @@ public class AnsiParser
 
     private void OscDispatch()
     {
-        // We don't act on OSC payloads (titles, hyperlinks, palette changes
-        // etc. are not rendered here) -- just making sure we resync cleanly.
-        _oscBuffer.Clear();
+        // Only OSC 8 (hyperlinks) is acted on. Titles, palette changes and the rest
+        // are not rendered here -- the string is consumed so the parser resyncs.
+        if (_oscBytes.Count >= 2 && _oscBytes[0] == (byte)'8' && _oscBytes[1] == (byte)';')
+        {
+            // An OSC 8 string always ends the link that was open. One that cannot be read exactly -
+            // too long, or not valid UTF-8 - opens nothing: a link is never made from an address
+            // that is not the one the program sent.
+            var bytes = CollectionsMarshal.AsSpan(_oscBytes);
+            if (_oscOverflow || !System.Text.Unicode.Utf8.IsValid(bytes))
+                _hyperlinkId = 0;
+            else
+                DispatchHyperlink(Encoding.UTF8.GetString(bytes));
+        }
+        ClearOsc();
     }
+
+    /// <summary>
+    /// OSC 8: "8;params;URI" opens a link to URI, "8;;" closes it. The URI is kept exactly as the
+    /// program sent it; whether it may be opened is the view's decision, not the parser's.
+    /// </summary>
+    private void DispatchHyperlink(string payload)
+    {
+        int uriStart = payload.IndexOf(';', 2);
+        if (uriStart < 0) { _hyperlinkId = 0; return; }
+        string uri = payload.Substring(uriStart + 1);
+        if (uri.Length == 0) { _hyperlinkId = 0; return; }
+
+        if (!_hyperlinkIds.TryGetValue(uri, out ushort id))
+        {
+            if (_hyperlinks.Count >= HyperlinkTableCapacity)
+                ClearHyperlinkTable();
+            id = (ushort)_hyperlinks.Count;
+            _hyperlinks.Add(uri);
+            _hyperlinkIds[uri] = id;
+        }
+        _hyperlinkId = id;
+    }
+
+    /// <summary>
+    /// Start the link table over. Every cell's id is cleared first, so no cell can come to point
+    /// at a later link's address; those cells keep their text and are read as plain text again.
+    /// The repaint snapshot holds copies of cells too, and its rows are copied into scrollback on
+    /// the next repaint, so its ids are cleared as well.
+    /// </summary>
+    private void ClearHyperlinkTable()
+    {
+        if (_committedFrame != null)
+            foreach (var row in _committedFrame) ClearHyperlinkIds(row);
+        ClearHyperlinkIds(_cells);
+        if (_altCells != null) ClearHyperlinkIds(_altCells);
+        foreach (var row in _scrollback) ClearHyperlinkIds(row);
+        foreach (var row in _altScrollback) ClearHyperlinkIds(row);
+        _hyperlinks.RemoveRange(1, _hyperlinks.Count - 1);
+        _hyperlinkIds.Clear();
+        _hyperlinkId = 0;
+    }
+
+    private static void ClearHyperlinkIds(TerminalCell[,] grid)
+    {
+        for (int c = 0; c < grid.GetLength(0); c++)
+            for (int r = 0; r < grid.GetLength(1); r++)
+                grid[c, r].HyperlinkId = 0;
+    }
+
+    private static void ClearHyperlinkIds(TerminalCell[] row)
+    {
+        for (int c = 0; c < row.Length; c++)
+            row[c].HyperlinkId = 0;
+    }
+
+    /// <summary>
+    /// The address an OSC 8 link id stands for, exactly as the program sent it; null for 0 or an
+    /// id the table no longer holds.
+    /// </summary>
+    public string? GetHyperlink(ushort id) =>
+        id != 0 && id < _hyperlinks.Count ? _hyperlinks[id] : null;
 
     // -----------------------------------------------------------------------
     // CSI dispatch
@@ -1120,6 +1226,7 @@ public class AnsiParser
                 Bold = _bold,
                 Italic = _italic,
                 Underline = _underline,
+                HyperlinkId = _hyperlinkId,
             };
             // Width-2 continuation cell: xterm stores this as empty-string so
             // nothing else is drawn over it until the line is redrawn. We
@@ -1130,6 +1237,7 @@ public class AnsiParser
                 Character = ' ',
                 Foreground = fg,
                 Background = bg,
+                HyperlinkId = _hyperlinkId,
             };
 
             if (_cursorCol + 2 < _cols)
@@ -1153,6 +1261,7 @@ public class AnsiParser
             Bold = _bold,
             Italic = _italic,
             Underline = _underline,
+            HyperlinkId = _hyperlinkId,
         };
 
         if (_cursorCol < _cols - 1)
@@ -1737,5 +1846,8 @@ public class AnsiParser
                 _cells[c, r] = new TerminalCell();
         _scrollback.Clear();
         _altScrollback.Clear();
+        ClearOsc();
+        _oscAwaitingSt = false;
+        _hyperlinkId = 0;
     }
 }
