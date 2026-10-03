@@ -86,6 +86,30 @@ public sealed class RecordingIngestService : IDisposable
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly Task? _workerTask;
 
+    // The worker re-scans every 30 seconds, and on the hosted Gateway the transcripts root is a
+    // network file share that bills every file open. Re-reading the status.json of every recording
+    // ever made on every tick cost two billed opens per recording per tick, so the share's bill grew
+    // with each new recording while nothing was being transcribed (devthrottle#3513). A recording
+    // whose state cannot change on its own - transcribed, incomplete, receiving, or failed with no
+    // attempts left - is SETTLED: the worker remembers it and does not read its file again until
+    // this service writes that status. Only this service writes status.json, so a write is the only
+    // way a settled recording can become eligible again.
+    //
+    // _statusWrites counts the writes per recording directory, bumped AFTER the file is written. The
+    // worker records the count it saw BEFORE reading the file, so a write that lands during the read
+    // leaves the counts unequal and the file is read again on the next tick - it can cost one extra
+    // read, never a missed job.
+    //
+    // "Only this service writes status.json" holds for one process, not for the share: during a deploy
+    // the old and the new Gateway container overlap on it, and a status the old one writes is invisible
+    // to the new one's counts. So the settled set is forgotten every SettledForgetAfter and every file is
+    // read once more. A write by another process is then picked up within that interval instead of
+    // never; the share is still read once an hour instead of 120 times.
+    private readonly ConcurrentDictionary<string, long> _statusWrites = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, long> _settledAtWrite = new(StringComparer.Ordinal);
+    private DateTime _settledSinceUtc = DateTime.UtcNow;
+    internal TimeSpan SettledForgetAfter { get; set; } = TimeSpan.FromHours(1);
+
     /// <param name="recordingsRoot">Root folder for received recordings.</param>
     /// <param name="transcriberFactory">Builds the transcription + cleanup engine on demand.
     /// Invoked lazily, only when the background worker first transcribes - NEVER during
@@ -621,13 +645,22 @@ public sealed class RecordingIngestService : IDisposable
     /// crash), and failed jobs whose scheduled retry time has arrived and whose
     /// attempt budget is not exhausted. Oldest first.
     /// </summary>
-    private IEnumerable<string> FindEligibleRecordings()
+    internal IEnumerable<string> FindEligibleRecordings()
     {
         if (!Directory.Exists(_root)) yield break;
         var now = DateTime.UtcNow;
+        if (now - _settledSinceUtc >= SettledForgetAfter)
+        {
+            _settledAtWrite.Clear();
+            _settledSinceUtc = now;
+        }
         var candidates = new List<(string id, string started)>();
         foreach (var dir in Directory.GetDirectories(_root))
         {
+            var key = Path.GetFileName(dir);
+            var writesSeen = _statusWrites.GetValueOrDefault(key);
+            if (_settledAtWrite.TryGetValue(key, out var settledAt) && settledAt == writesSeen) continue;
+
             StatusModel? s;
             try
             {
@@ -649,6 +682,9 @@ public sealed class RecordingIngestService : IDisposable
                 _ => false,
             };
             if (eligible) candidates.Add((s.RecordingId, s.StartedAt));
+            else if (s.State != StateError || s.Attempts >= _maxJobAttempts)
+                // Not eligible, and no clock can make it eligible: only a status write can.
+                _settledAtWrite[key] = writesSeen;
         }
         foreach (var c in candidates.OrderBy(c => c.started, StringComparer.Ordinal))
             yield return c.id;
@@ -811,6 +847,8 @@ public sealed class RecordingIngestService : IDisposable
 
         Directory.Delete(recDir, recursive: true);
         _locks.TryRemove(recordingId, out _);
+        _settledAtWrite.TryRemove(MakeFileSafe(recordingId), out _);
+        _statusWrites.TryRemove(MakeFileSafe(recordingId), out _);
         FileLog.Write($"[RecordingIngestService] DeleteRecording done: id={recordingId}");
     }
 
@@ -970,6 +1008,8 @@ public sealed class RecordingIngestService : IDisposable
     {
         var path = Path.Combine(RecordingDir(status.RecordingId), "status.json");
         File.WriteAllText(path, JsonSerializer.Serialize(status, JsonOpts));
+        // After the write, never before: see _statusWrites.
+        _statusWrites.AddOrUpdate(MakeFileSafe(status.RecordingId), 1, (_, n) => n + 1);
     }
 
     private void SaveManifest(string id, RecordingManifest manifest)
