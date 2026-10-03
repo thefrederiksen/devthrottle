@@ -380,6 +380,14 @@ public sealed class GatewayDbContext : DbContext
     /// from. Unused on the single-tenant local install.</summary>
     public DbSet<TenantEntity> Tenants => Set<TenantEntity>();
 
+    /// <summary>The teams (<c>teams</c>, devthrottle_internal#2300). A team's id is also its tenant id. GLOBAL like
+    /// <see cref="Tenants"/>: no <c>tenant_id</c> column and no query filter.</summary>
+    public DbSet<TeamEntity> Teams => Set<TeamEntity>();
+
+    /// <summary>Who belongs to which team, and in what role (<c>team_members</c>, devthrottle_internal#2300). GLOBAL
+    /// like <see cref="Tenants"/>: read by account subject before any tenant is chosen.</summary>
+    public DbSet<TeamMemberEntity> TeamMembers => Set<TeamMemberEntity>();
+
     /// <summary>
     /// The paid-entitlement records the payment side writes and this Gateway only READS. Excluded from
     /// migrations - see the entity for why this one table is not ours to create.
@@ -1308,6 +1316,40 @@ public sealed class GatewayDbContext : DbContext
             // The mapping is looked up by the verified Supabase subject; it is unique (1:1 account->tenant now,
             // enforced at the database, so a duplicate mint can never split one account across two tenants).
             b.HasIndex(e => e.AccountSubject).IsUnique();
+        });
+
+        modelBuilder.Entity<TeamEntity>(b =>
+        {
+            b.ToTable("teams");
+            // The team's id is its tenant id - a code-generated GUID string, the natural primary key. GLOBAL, so
+            // deliberately NOT passed to ApplyTenantScope below: it is read to decide which tenants a person may
+            // act in, before any tenant is chosen.
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
+            b.Property(e => e.Name).HasColumnName("name").IsRequired().HasMaxLength(CcDirector.Gateway.Teams.TeamRegistry.MaxNameLength);
+            b.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+        });
+
+        modelBuilder.Entity<TeamMemberEntity>(b =>
+        {
+            b.ToTable("team_members");
+            // One role per account per team, enforced at the DATABASE: the team plus the verified subject is the key.
+            b.HasKey(e => new { e.TeamId, e.AccountSubject });
+            b.Property(e => e.TeamId).HasColumnName("team_id").IsRequired();
+            b.Property(e => e.AccountSubject).HasColumnName("account_subject").IsRequired();
+            // The role's NAME, never its number, so a reordering of the enum can never change a stored role.
+            b.Property(e => e.Role).HasColumnName("role").IsRequired().HasConversion<string>().HasMaxLength(20);
+            b.Property(e => e.JoinedAtUtc).HasColumnName("joined_at_utc").IsRequired();
+            // "Which teams am I in?" - the team switcher's read - is by account subject.
+            b.HasIndex(e => e.AccountSubject);
+            // AT MOST one Owner per team, enforced at the database so two racing writes can never give a team two
+            // Owners. "At least one" is the registry's rule: it refuses to remove or demote the Owner.
+            b.HasIndex(e => e.TeamId)
+                .IsUnique()
+                .HasDatabaseName("IX_team_members_one_owner_per_team")
+                .HasFilter("\"role\" = 'Owner'");
+            // A membership cannot outlive its team.
+            b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<AccountTrialEntity>(b =>

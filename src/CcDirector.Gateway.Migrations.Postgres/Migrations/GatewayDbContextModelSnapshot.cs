@@ -2396,6 +2396,59 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("snoozes", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("teams", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMemberEntity", b =>
+                {
+                    b.Property<string>("TeamId")
+                        .HasColumnType("text")
+                        .HasColumnName("team_id");
+
+                    b.Property<string>("AccountSubject")
+                        .HasColumnType("text")
+                        .HasColumnName("account_subject");
+
+                    b.Property<DateTime>("JoinedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("joined_at_utc");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("role");
+
+                    b.HasKey("TeamId", "AccountSubject");
+
+                    b.HasIndex("AccountSubject");
+
+                    b.HasIndex("TeamId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_team_members_one_owner_per_team")
+                        .HasFilter("\"role\" = 'Owner'");
+
+                    b.ToTable("team_members", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TenantEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -3446,6 +3499,15 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         });
 
                     b.Navigation("PrimitiveRuns");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMemberEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.WingmanInstructionEntity", b =>

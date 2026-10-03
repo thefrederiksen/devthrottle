@@ -38,17 +38,18 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
             var index = all.IndexOf(SqliteUnderTest);
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
-            Assert.Equal("20260928124401_AddFactoryMemoryNotes", all[^1]); // the migrations that sort after it
-            Assert.Equal("20260928123819_AddSessionAndScheduleFactory", all[^2]);
-            Assert.Equal("20260927212143_AddFleetMessageUnreachableNotice", all[^3]);
-            Assert.Equal("20260921203243_AddTriggerStartName", all[^4]);
-            Assert.Equal("20260921131049_IndexFactoryActivityReads", all[^5]);
-            Assert.Equal("20260921105211_AddFactoryTriggers", all[^6]);
-            Assert.Equal("20260921081600_AddFactoryActivity", all[^7]);
-            Assert.Equal("20260920052924_AddRaisedSessions", all[^8]);
-            Assert.Equal("20260920021757_AddDiscoveredRepositories", all[^9]);
-            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[^10]);
-            Assert.Equal(SqliteUnderTest, all[^11]);
+            Assert.Equal("20261003182410_AddTeams", all[^1]); // the migrations that sort after it
+            Assert.Equal("20260928124401_AddFactoryMemoryNotes", all[^2]);
+            Assert.Equal("20260928123819_AddSessionAndScheduleFactory", all[^3]);
+            Assert.Equal("20260927212143_AddFleetMessageUnreachableNotice", all[^4]);
+            Assert.Equal("20260921203243_AddTriggerStartName", all[^5]);
+            Assert.Equal("20260921131049_IndexFactoryActivityReads", all[^6]);
+            Assert.Equal("20260921105211_AddFactoryTriggers", all[^7]);
+            Assert.Equal("20260921081600_AddFactoryActivity", all[^8]);
+            Assert.Equal("20260920052924_AddRaisedSessions", all[^9]);
+            Assert.Equal("20260920021757_AddDiscoveredRepositories", all[^10]);
+            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[^11]);
+            Assert.Equal(SqliteUnderTest, all[^12]);
 
             // From an EMPTY database to the schema just before, with an open record filed as it was filed then.
             Assert.Empty(context.Database.GetAppliedMigrations());
@@ -63,7 +64,7 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
 
             migrator.Migrate();
 
-            Assert.Equal("20260928124401_AddFactoryMemoryNotes", context.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20261003182410_AddTeams", context.Database.GetAppliedMigrations().Last());
             Assert.Empty(context.Database.GetPendingMigrations());
             Assert.False(context.Database.HasPendingModelChanges());
             var columns = ColumnNames(connection);
@@ -90,14 +91,14 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
     /// one: that is what says a later migration did not quietly drop them.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20260928124401_AddFactoryMemoryNotes")]
-    [InlineData("postgres", "20260928124407_AddFactoryMemoryNotes")]
+    [InlineData("sqlite", "20261003182410_AddTeams")]
+    [InlineData("postgres", "20261003182436_AddTeams")]
     public void TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);
         var assembly = context.GetService<IMigrationsAssembly>();
         Assert.True(assembly.Migrations.TryGetValue(id, out var type), $"'{id}' is not discovered for {provider}.");
-        Assert.Equal("AddFactoryMemoryNotes", type!.Name);
+        Assert.Equal("AddTeams", type!.Name);
         Assert.Equal(id, assembly.Migrations.Keys.Max(StringComparer.Ordinal));
         Assert.Equal(typeof(GatewayDbContext), type.GetCustomAttribute<DbContextAttribute>()!.ContextType);
 
