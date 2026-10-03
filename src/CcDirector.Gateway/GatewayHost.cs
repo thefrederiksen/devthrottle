@@ -235,6 +235,13 @@ public sealed class GatewayHost : IAsyncDisposable
     public bool FactoryAgentsEnabled { get; }
 
     /// <summary>
+    /// Whether the Teams routes are released on this Gateway (devthrottle_internal#2300). Read once from
+    /// <c>CC_GATEWAY_TEAMS</c> at construction (see <see cref="Teams.TeamsReleaseSwitch"/>); off by default, and while
+    /// it is off the team routes are not mapped at all.
+    /// </summary>
+    public bool TeamsReleased { get; }
+
+    /// <summary>
     /// Whether the factory agents area is on FOR ONE ACCOUNT: the machine switch above, or that account's own
     /// recorded decision. Every factory route - the activity record at <see cref="Api.FactoryActivityEndpoints.Route"/>,
     /// the triggers at <c>/triggers</c>, the Director's <c>/directors/{id}/triggers</c>, and the owner's pages - sits
@@ -715,6 +722,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// local install (everything resolves to "local" without a lookup).
     /// </summary>
     public Tenancy.TenantRegistry TenantRegistry { get; }
+
+    /// <summary>
+    /// Teams and their members (devthrottle_internal#2300). A team is a tenant; this owns the teams and team_members
+    /// tables and is the one place a team is created. Exposed so later pieces (invitations, the permission check)
+    /// and the hosted tests reach the same registry the routes use.
+    /// </summary>
+    public Teams.TeamRegistry TeamRegistry { get; }
 
     /// <summary>The paid-entitlement gate read at hosted enrollment. Present on every host; consulted only
     /// where the hosted enrollment route is mapped, which is hosted only.</summary>
@@ -1427,7 +1441,7 @@ public sealed class GatewayHost : IAsyncDisposable
 
     private readonly TimeSpan? _directorLaunchTimeout;
 
-    public GatewayHost(int port = DefaultPort, string? token = null, bool? authEnabled = null, string? instancesDirectory = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null, Core.Account.DevThrottleAccountService? account = null, bool? streamMode = null, string? inputStatsPath = null, string? promptLogPath = null, string? snoozePath = null, string? pushSubscriptionsPath = null, string? wingmanInstructionsPath = null, string? missionsPath = null, string? missionNotesPath = null, Transcription.GatewayTranscriptionService? dictationTranscription = null, Core.Agents.AgentKind? brainTool = null, TimeSpan? directorLaunchTimeout = null, bool? factoryAgentsEnabled = null)
+    public GatewayHost(int port = DefaultPort, string? token = null, bool? authEnabled = null, string? instancesDirectory = null, string? turnBriefDirectory = null, string? keyVaultPath = null, string? workListsPath = null, string? cronJobsPath = null, string? cronRunsPath = null, string? devicesPath = null, Core.Account.DevThrottleAccountService? account = null, bool? streamMode = null, string? inputStatsPath = null, string? promptLogPath = null, string? snoozePath = null, string? pushSubscriptionsPath = null, string? wingmanInstructionsPath = null, string? missionsPath = null, string? missionNotesPath = null, Transcription.GatewayTranscriptionService? dictationTranscription = null, Core.Agents.AgentKind? brainTool = null, TimeSpan? directorLaunchTimeout = null, bool? factoryAgentsEnabled = null, bool? teamsReleased = null)
     {
         var retiredFilesRemoved = Core.Configuration.LegacyPrivacyDataCleanup.Run();
         if (retiredFilesRemoved > 0)
@@ -1573,6 +1587,8 @@ public sealed class GatewayHost : IAsyncDisposable
         AuthEnabled = ResolveAuthEnabled(authEnabled);
         FactoryAgentsEnabled = factoryAgentsEnabled ?? Core.Configuration.FactoryAgentsConfig.IsEnabled();
         FileLog.Write($"[GatewayHost] factory agents switch: {(FactoryAgentsEnabled ? "ON" : "OFF")} ({(factoryAgentsEnabled.HasValue ? "explicit override" : "config.json factoryAgents.enabled")})");
+        TeamsReleased = teamsReleased ?? Teams.TeamsReleaseSwitch.IsReleased();
+        FileLog.Write($"[GatewayHost] teams release switch: {(TeamsReleased ? "ON - team routes mapped" : "OFF - team routes not mapped")} ({(teamsReleased.HasValue ? "explicit override" : Teams.TeamsReleaseSwitch.EnvVar)})");
         if (AuthEnabled)
             FileLog.Write($"[GatewayHost] auth gate booted ON (enforced by default, issue #917 - a per-device key or the shared token is required, even on the tailnet; set {AuthDisabledEnvVar}=1 to disable for debugging)");
         else
@@ -1660,6 +1676,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // the hosted enrollment boundary (which validates the account token and stamps the resolved tenant on
         // the device) in the follow-up increment. Unused on the single-tenant local install.
         TenantRegistry = new Tenancy.TenantRegistry(_gatewayDb);
+        // Teams (devthrottle_internal#2300): told about new teams through the tenant registry, so the census every
+        // background sweep walks includes each team's tenant.
+        TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry);
         // The free-trial ledger (issue #2117): the Gateway's OWN record of the 14-day Pro trial the public
         // pricing page promises every new account. It is passed INTO the entitlement registry rather than
         // consulted beside it, so the enrollment gate, the request-path lease and the 60s sweep all read one
@@ -4594,6 +4613,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // answer, including the denials, carries a three-way state so no surface has to decide for itself
         // what a missing answer means. Inherits the host-wide token middleware like the other /account routes.
         AccountTrialEndpoint.Map(_app, TrialRegistry, tenantBoundary: _tenantBoundary, tenants: TenantRegistry);
+
+        // Teams (devthrottle_internal#2300): GET /teams, POST /teams, GET /teams/{teamId}/members. The caller is the
+        // account behind their own device key; a self-hosted Gateway answers that it has no teams. DARK until the owner
+        // releases Teams: mapped only when CC_GATEWAY_TEAMS=1, so a deploy of main exposes no team route.
+        if (TeamsReleased)
+            TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry);
 
         // The administrator trial EXTENSION: POST /gateway/admin/trials/extend. The write twin of the read
         // above, and the only way a trial's end date moves. It lives here rather than as a database grant to

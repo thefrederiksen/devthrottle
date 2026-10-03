@@ -86,7 +86,9 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // The factory a session or schedule belongs to, and the factory memory notes (issue 3436), after that.
             Assert.Equal("20260928123825_AddSessionAndScheduleFactory", all[index + 9]);
             Assert.Equal("20260928124407_AddFactoryMemoryNotes", all[index + 10]);
-            Assert.Equal(all.Count - 11, index);
+            // The teams and their members (devthrottle_internal#2300), after that.
+            Assert.Equal("20261003182436_AddTeams", all[index + 11]);
+            Assert.Equal(all.Count - 12, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -103,7 +105,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // Later migrations follow the one under test, so migrating fully applies them too; the raised sessions
             // table was the last of them until the factory activity record and then the factory triggers followed it,
             // and then the name a trigger's pending start used, and then the factory memory notes (issue 3436).
-            Assert.Equal("20260928124407_AddFactoryMemoryNotes", ctx.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20261003182436_AddTeams", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 

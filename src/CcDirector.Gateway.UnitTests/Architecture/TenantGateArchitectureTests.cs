@@ -60,6 +60,12 @@ public sealed class TenantGateArchitectureTests
         nameof(TenantEntity),             // the account-subject -> tenant mapping (the tenant census itself)
         nameof(EntitlementEntity),        // paid entitlements owned/written by the payment side; Gateway only READs
         nameof(AccountTrialEntity),       // free-trial ledger, keyed by account subject and read pre-tenant (#2117)
+        // Teams and their members (devthrottle_internal#2300). A team IS a tenant, and these two tables are what say
+        // which tenants a person may act in - read by the verified account subject BEFORE a tenant is chosen, so
+        // scoping them to a tenant would be circular, exactly as for the tenants table. A team's member list is
+        // served only to a member of that team, and a team is created only for the verified caller's own subject.
+        nameof(TeamEntity),
+        nameof(TeamMemberEntity),
         // The administrator trial-extension audit trail - the ledger OF account_trials directly above, and
         // global for the same reason it is: keyed by the account subject, an identity that exists before any
         // tenant does, so scoping it would be circular in exactly the same way. It is written only in the same
