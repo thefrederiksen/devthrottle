@@ -1,0 +1,239 @@
+using CcDirector.Core.Tenancy;
+using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Api;
+using CcDirector.Gateway.Tenancy;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+
+namespace CcDirector.Gateway.Teams;
+
+/// <summary>What the gate concluded about one request.</summary>
+public enum TeamGateOutcome
+{
+    /// <summary>The request does not act in a team. The gate has nothing to say and the request goes on.</summary>
+    NotATeamRequest,
+
+    /// <summary>The request acts in a team and the caller may make it.</summary>
+    Allowed,
+
+    /// <summary>The request acts in a team and is refused: 403.</summary>
+    Refused,
+
+    /// <summary>The route names a team that does not exist or that the caller is not a member of: 404, one answer for
+    /// both, so the route cannot be used to learn which teams exist.</summary>
+    NoSuchTeam,
+}
+
+/// <summary>Whether what a request touches is the caller's own.</summary>
+public enum TeamOwnership
+{
+    /// <summary>It cannot be shown either way. Refused.</summary>
+    Unknown,
+
+    /// <summary>Everything it touches is the caller's own.</summary>
+    Callers,
+
+    /// <summary>It touches another person's things.</summary>
+    SomeoneElses,
+}
+
+/// <summary>The gate's verdict on one request. <see cref="Message"/> is the sentence a person reads, set on every
+/// refusal.</summary>
+public sealed record TeamGateVerdict(TeamGateOutcome Outcome, TeamAction? Action, TeamRole? Role, string? Message)
+{
+    public static readonly TeamGateVerdict NotATeamRequest = new(TeamGateOutcome.NotATeamRequest, null, null, null);
+}
+
+/// <summary>
+/// EVERY GATEWAY ENDPOINT THAT ACTS IN A TEAM ASKS HERE (devthrottle_internal#2302). Runs on the hosted Gateway after
+/// routing, so it knows which endpoint a request reached, and before the endpoint runs. A request acts in a team when
+/// its key is bound to a team's tenant, or when it calls a <c>/teams/{teamId}/...</c> route. Such a request goes on
+/// only when ALL of these hold - otherwise the SERVER refuses it, whatever any screen shows:
+///
+/// <list type="number">
+/// <item>The endpoint states its action (<see cref="TeamEndpointRules"/>). DEFAULT DENY: one that states none is
+/// refused, so an endpoint added later cannot skip the check by being forgotten.</item>
+/// <item>The person making the request is known. Never guessed: a request that cannot say who is asking is refused.</item>
+/// <item>That person is a member of the team, and the role table (<see cref="TeamPermissions"/>, asked through
+/// <see cref="TeamAccess"/>) gives their role the action.</item>
+/// <item>For something private to one person, the request touches only the caller's own; touching another person's
+/// is asked as that action instead (joining or watching their session, reading their prompts), which no role has.</item>
+/// </list>
+///
+/// HOW THE CALLER IS KNOWN, TODAY. From the caller's own device or session key, through the personal tenant it is
+/// bound to and that tenant's account subject - the same way the team routes of #2300 find it. A key bound to a
+/// TEAM's tenant names no person this way, so a request made with one is refused as unidentified; and nothing yet
+/// records which member a session, Director or prompt inside a team belongs to, so "is this the caller's own" is
+/// answered Unknown and refused. Both are supplied by the Director set up for a team (devthrottle_internal#2311),
+/// which binds each Director's own key to a team for one person. Until then the gate refuses every request in a
+/// team's tenant except where the table says no anyway - which is the safe direction. (Today the hosted device
+/// registry also refuses a key bound to a tenant its account does not own, so no such request reaches here.)
+/// </summary>
+public sealed class TeamEndpointGate
+{
+    /// <summary>The error code on every refusal, so a client can tell this gate's 403 from any other.</summary>
+    public const string RefusalCode = "team_action_refused";
+
+    /// <summary>What an endpoint that states no action is told inside a team.</summary>
+    public const string UndeclaredRefusal =
+        "This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.";
+
+    /// <summary>What a request that cannot say which person is asking is told.</summary>
+    public const string CallerUnknownRefusal =
+        "DevThrottle cannot tell which member of the team is making this request, so it refuses it. Nothing was done.";
+
+    /// <summary>What a request for something private is told when it cannot be shown to be the caller's own.</summary>
+    public const string OwnershipUnknownRefusal =
+        "DevThrottle cannot confirm that what this request touches is yours - your own sessions, computers, transcripts " +
+        "and prompts - so inside a team it refuses it. Nothing was done.";
+
+    private readonly TeamAccess _access;
+    private readonly TeamRegistry _teams;
+    private readonly TenantRegistry _tenants;
+    private readonly HostedTenantBoundary _boundary;
+
+    public TeamEndpointGate(TeamAccess access, TeamRegistry teams, TenantRegistry tenants, HostedTenantBoundary boundary)
+    {
+        _access = access ?? throw new ArgumentNullException(nameof(access));
+        _teams = teams ?? throw new ArgumentNullException(nameof(teams));
+        _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
+        _boundary = boundary ?? throw new ArgumentNullException(nameof(boundary));
+    }
+
+    /// <summary>
+    /// The decision, from what a request carries. Every input is what the request's own credential and route say;
+    /// nothing a client sends in a body or header names the caller or the team.
+    /// </summary>
+    /// <param name="method">The request's HTTP method.</param>
+    /// <param name="routePattern">The route pattern of the endpoint the request reached, or null when it reached none.</param>
+    /// <param name="routeValue">A route value by name, for <c>{teamId}</c>.</param>
+    /// <param name="requestTenant">The tenant the request's key is bound to, or null.</param>
+    /// <param name="callerSubject">The account subject of the person asking, or null when the request cannot say.
+    /// Asked only once the request is known to act in a team.</param>
+    /// <param name="whose">Whether what the request touches is the caller's own. Asked only for a rule whose target is
+    /// <see cref="TeamTarget.CallersOwn"/>, once the request is known to come from an identified caller in a team.</param>
+    public TeamGateVerdict Check(string method, string? routePattern, Func<string, string?> routeValue,
+        TenantId? requestTenant, Func<string?> callerSubject, Func<TeamEndpointRule, TeamOwnership> whose)
+    {
+        ArgumentNullException.ThrowIfNull(method);
+        ArgumentNullException.ThrowIfNull(routeValue);
+        ArgumentNullException.ThrowIfNull(callerSubject);
+        ArgumentNullException.ThrowIfNull(whose);
+
+        var rule = routePattern is null ? null : TeamEndpointRules.Find(method, routePattern);
+        var inTeamTenant = requestTenant is { } tenant && _teams.IsTeam(tenant);
+        var fromRoute = rule?.TeamFrom == TeamFrom.RouteTeamId;
+        if (!inTeamTenant && !fromRoute)
+            return TeamGateVerdict.NotATeamRequest;
+
+        var where = $"{method} {routePattern ?? "<no endpoint>"}";
+        if (rule is null)
+            return Refuse(where, null, null, UndeclaredRefusal);
+
+        var teamId = fromRoute ? routeValue("teamId") : requestTenant!.Value.Value;
+        if (string.IsNullOrWhiteSpace(teamId))
+            return NoSuchTeam(where, rule.Action);
+
+        var subject = callerSubject();
+        if (string.IsNullOrWhiteSpace(subject))
+            return Refuse(where, rule.Action, null, CallerUnknownRefusal);
+
+        // What the request IS depends, for a person's private things, on whose they are: touching another person's
+        // session is watching it and touching their prompts is reading them, whatever endpoint carries it.
+        var ownership = rule.Target == TeamTarget.CallersOwn ? whose(rule) : TeamOwnership.Callers;
+        var action = ownership == TeamOwnership.SomeoneElses
+            ? rule.OthersAction ?? throw new InvalidOperationException(
+                $"The team rule for {rule.Prefix} acts on a person's own things but names no action for touching someone else's.")
+            : rule.Action;
+
+        var decision = _access.Decide(teamId, subject, action);
+        if (!decision.IsMember)
+            return fromRoute ? NoSuchTeam(where, action) : Refuse(where, action, null, decision.Refusal!);
+        if (!decision.Allowed)
+            return Refuse(where, action, decision.Role, decision.Refusal!);
+
+        var role = decision.Role!.Value;
+        if (rule.Target == TeamTarget.Team && decision.Grant == TeamGrant.Own)
+            return Refuse(where, action, role, OwnOnlyRefusal(role, action));
+        if (ownership == TeamOwnership.Unknown)
+            return Refuse(where, action, role, OwnershipUnknownRefusal);
+        return Allow(where, action, role);
+    }
+
+    /// <summary>
+    /// The middleware: reads the request, asks <see cref="Check"/>, and either lets the request go on or answers it.
+    /// </summary>
+    public async Task RunAsync(HttpContext ctx, Func<Task> next)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        ArgumentNullException.ThrowIfNull(next);
+
+        var endpoint = ctx.GetEndpoint() as RouteEndpoint;
+        var requestTenant = _boundary.ResolveRequestTenant(ctx);
+        var verdict = Check(
+            ctx.Request.Method,
+            endpoint?.RoutePattern.RawText is { } raw ? TeamEndpointRules.Normalize(raw) : null,
+            name => ctx.Request.RouteValues.TryGetValue(name, out var value) ? value?.ToString() : null,
+            requestTenant,
+            () => CallerSubject(requestTenant),
+            // Nothing yet records which member of a team a session, Director or prompt belongs to (#2311 adds it), so
+            // whether a request touches only the caller's own cannot be shown. Unknown is a refusal.
+            _ => TeamOwnership.Unknown);
+
+        switch (verdict.Outcome)
+        {
+            case TeamGateOutcome.NotATeamRequest:
+            case TeamGateOutcome.Allowed:
+                await next().ConfigureAwait(false);
+                return;
+            case TeamGateOutcome.NoSuchTeam:
+                ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+                await ctx.Response.WriteAsJsonAsync(new { error = verdict.Message }).ConfigureAwait(false);
+                return;
+            default:
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await ctx.Response.WriteAsJsonAsync(new { error = verdict.Message, code = RefusalCode }).ConfigureAwait(false);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// The person asking: the account subject of the PERSONAL tenant the request's key is bound to. A key bound to a
+    /// team's tenant has no such subject - the team's tenant is not one person's - so it answers null, and the request
+    /// is refused as unidentified rather than guessed.
+    /// </summary>
+    private string? CallerSubject(TenantId? requestTenant)
+    {
+        if (requestTenant is not { } tenant || _teams.IsTeam(tenant))
+            return null;
+        return _tenants.SubjectForTenant(tenant);
+    }
+
+    /// <summary>What a role whose cell is "only their own" is told on an endpoint that answers for the whole team.</summary>
+    internal static string OwnOnlyRefusal(TeamRole role, TeamAction action)
+    {
+        var label = TeamRoles.Label(role);
+        var row = TeamPermissions.Row(action);
+        var article = TeamAccessDecision.Article(label);
+        return $"In this team you are {article} {label}, and {article} {label} may {row.Words} only for their own. " +
+               "This answer covers the whole team, so it is refused.";
+    }
+
+    private static TeamGateVerdict Allow(string where, TeamAction action, TeamRole role)
+    {
+        FileLog.Write($"[TeamEndpointGate] {where}: ALLOWED action={action} role={role}");
+        return new TeamGateVerdict(TeamGateOutcome.Allowed, action, role, null);
+    }
+
+    private static TeamGateVerdict Refuse(string where, TeamAction? action, TeamRole? role, string message)
+    {
+        FileLog.Write($"[TeamEndpointGate] {where}: REFUSED action={(action?.ToString() ?? "<none stated>")} role={(role?.ToString() ?? "<none>")} - {message}");
+        return new TeamGateVerdict(TeamGateOutcome.Refused, action, role, message);
+    }
+
+    private static TeamGateVerdict NoSuchTeam(string where, TeamAction action)
+    {
+        FileLog.Write($"[TeamEndpointGate] {where}: no such team for this caller (absent, or not a member)");
+        return new TeamGateVerdict(TeamGateOutcome.NoSuchTeam, action, null, TeamEndpoints.NoSuchTeamRefusal);
+    }
+}

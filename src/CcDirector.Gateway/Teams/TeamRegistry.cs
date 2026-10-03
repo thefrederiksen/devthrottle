@@ -38,6 +38,12 @@ public sealed class TeamRegistry
     private readonly Func<DateTime> _utcNow;
     private readonly object _writeLock = new();
 
+    // The ids of every team, read once and then kept current by CreateTeam - the one place a team comes into being -
+    // so the question every request asks (IsTeam) costs no database read and takes no lock. Replaced, never changed in
+    // place, so a reader always holds a whole set. Null until first asked.
+    private volatile IReadOnlySet<string>? _teamIds;
+    private readonly object _teamIdsLock = new();
+
     /// <param name="db">The Gateway database. The team tables are global, so they are read through the UNSCOPED
     /// context, as the <c>tenants</c> table is.</param>
     /// <param name="tenants">The tenant registry, told when a team is created so its tenant census - the list
@@ -88,6 +94,11 @@ public sealed class TeamRegistry
             CommitMembershipChange(ctx, teamId, TeamMembershipChange.TeamCreated);
         }
 
+        lock (_teamIdsLock)
+        {
+            if (_teamIds is { } known)
+                _teamIds = new HashSet<string>(known, StringComparer.Ordinal) { teamId };
+        }
         _tenants.CensusChanged();
         FileLog.Write($"[TeamRegistry] CreateTeam: created team {LogTeam(teamId)} with its creator as Owner");
         return TeamCreateResult.Created(new TeamSummary(teamId, teamName, TeamRole.Owner, MemberCount: 1));
@@ -126,6 +137,34 @@ public sealed class TeamRegistry
             .ToList();
         FileLog.Write($"[TeamRegistry] ListTeamsFor: the account belongs to {teams.Count} team(s)");
         return teams;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="tenant"/> is a team's tenant. Asked on every hosted request by
+    /// <see cref="TeamEndpointGate"/>, so it is answered from memory: the team ids are read from the database once, on
+    /// the first question, and every team created after that is added by <see cref="CreateTeam"/>. Teams are not
+    /// deleted in the first version, so the set only grows.
+    /// </summary>
+    public bool IsTeam(TenantId tenant)
+    {
+        if (!tenant.IsValid || tenant.IsLocal || tenant.IsSystem)
+            return false;
+
+        return (_teamIds ?? LoadTeamIds()).Contains(tenant.Value);
+    }
+
+    private IReadOnlySet<string> LoadTeamIds()
+    {
+        lock (_teamIdsLock)
+        {
+            if (_teamIds is { } known)
+                return known;
+            using var ctx = _db.CreateUnscopedContext();
+            var loaded = new HashSet<string>(ctx.Teams.AsNoTracking().Select(t => t.Id), StringComparer.Ordinal);
+            _teamIds = loaded;
+            FileLog.Write($"[TeamRegistry] IsTeam: loaded {loaded.Count} team id(s)");
+            return loaded;
+        }
     }
 
     /// <summary>The account's role in a team, or null when it is not a member (or there is no such team).</summary>

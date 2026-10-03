@@ -1,0 +1,38 @@
+devthrottle_internal#2302 - test runs on branch teams/2302-permissions, SOREN_NORTH, 3 October 2026
+
+1. .\scripts\test-local.ps1  (default gate)
+  CcDirector.Core.UnitTests                outcome=Completed    total=1148   executed=1148
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+  RESULT: all projects exited zero. 3,463 passed, 0 failed.
+
+2. dotnet test src/CcDirector.Gateway.UnitTests  (whole suite)
+  Passed!  - Failed: 0, Passed: 8293, Skipped: 8, Total: 8301, Duration: 3 m 37 s
+
+3. dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams"  (final code)
+  Passed!  - Failed: 0, Passed: 336, Skipped: 0, Total: 336
+
+4. Revert check 1 - TeamPermissions: Manager's cell for "make someone a Manager or change roles" flipped to Yes
+  Failed TeamPermissionsTests.ActionToAddOrRemove_AManagerMayAddDevelopersButNotManagers_AsTheTableSays
+  Failed TeamPermissionsTests.Grant_EveryCellOfTheRoleTable_IsTheCellIn2098(action: MakeManagersAndChangeRoles, role: Manager)
+  Failed TeamAccessTests.Decide_EveryCell_TheMembersRoleFromTheDatabaseGetsTheTablesAnswer(action: MakeManagersAndChangeRoles, role: Manager)
+  Failed TeamEndpointGateTests.Decide_EveryCellWhoseEndpointWaitsOnALaterIssue_ThePolicyGivesTheCellsAnswer(action: MakeManagersAndChangeRoles, role: Manager)
+  Failed!  - Failed: 4, Passed: 332, Total: 336        (restored: 336 passed)
+
+5. Revert check 2 - TeamEndpointGate: an endpoint that states no action let through instead of refused
+  Failed TeamEndpointGateTests.Check_NoEndpointReached_InATeam_IsRefused
+  Failed TeamEndpointGateTests.RunAsync_AnUndeclaredEndpointInATeamsTenant_IsRefusedAsUndeclared
+  Failed TeamEndpointGateTests.Check_AnEndpointThatStatesNoAction_IsRefusedInATeam
+  Failed!  - Failed: 3, Passed: 333, Total: 336        (restored: 336 passed)
+  (The real-route-table walk in Gateway.Tests would also catch this; it has not run - see 6.)
+
+6. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams"
+  NOT COMPLETED. Queued behind the machine-wide Gateway lock held by two other sessions' runs, then stopped
+  after ~20 minutes because the machine was low on memory. No verdict.
