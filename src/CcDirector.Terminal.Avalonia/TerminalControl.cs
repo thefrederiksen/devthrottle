@@ -1146,6 +1146,16 @@ public class TerminalControl : Control
     internal IReadOnlyList<string> HarnessUrlLinkTexts =>
         _linkRegions.Where(r => r.Type == LinkDetector.LinkType.Url).Select(r => r.Text).ToList();
 
+    /// <summary>Harness: WHERE each URL link region from the most recent render sits, as a grid
+    /// row and a column range (end exclusive). The same rectangles draw the underline and answer
+    /// clicks, so this is where the user sees the link and where a click opens it.</summary>
+    internal IReadOnlyList<(int Row, int StartCol, int EndCol)> HarnessUrlLinkCells =>
+        _linkRegions.Where(r => r.Type == LinkDetector.LinkType.Url)
+            .Select(r => ((int)Math.Round(r.Bounds.Y / _cellHeight),
+                          (int)Math.Round(r.Bounds.X / _cellWidth),
+                          (int)Math.Round(r.Bounds.Right / _cellWidth)))
+            .ToList();
+
     /// <summary>Harness: place a selection exactly as a finished pointer drag would, so the
     /// real copy path can be driven in tests.</summary>
     internal void HarnessSetSelection(int startCol, int startRow, int endCol, int endRow)

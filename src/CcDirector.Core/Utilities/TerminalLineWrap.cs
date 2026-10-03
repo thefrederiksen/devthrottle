@@ -71,6 +71,9 @@ public static class TerminalLineWrap
     /// on a joined logical line) into one segment per visual row, so hit-test regions
     /// and underlines can be drawn on each row the range touches. <paramref name="endCol"/>
     /// is exclusive, matching <see cref="LinkDetector.LinkMatch.EndCol"/>.
+    ///
+    /// Each segment's <see cref="VisualSegment.RowOffset"/> counts from the logical line's
+    /// ANCHOR row, not from the row the range starts on.
     /// </summary>
     public static List<VisualSegment> SplitLogicalRangeIntoSegments(int startCol, int endCol, int cols)
     {
@@ -85,7 +88,7 @@ public static class TerminalLineWrap
         {
             int segStart = row == firstRow ? startCol - firstRow * cols : 0;
             int segEnd = row == lastRow ? endCol - row * cols : cols;
-            segments.Add(new VisualSegment(row - firstRow, segStart, segEnd));
+            segments.Add(new VisualSegment(row, segStart, segEnd));
         }
 
         return segments;
