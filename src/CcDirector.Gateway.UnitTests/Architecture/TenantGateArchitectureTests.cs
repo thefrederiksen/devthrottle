@@ -70,6 +70,9 @@ public sealed class TenantGateArchitectureTests
         // served only to a member of that team, and a team is created only for the verified caller's own subject.
         nameof(TeamEntity),
         nameof(TeamMemberEntity),
+        // Invitations to a team (devthrottle_internal#2301): opened by the person invited, from their own personal
+        // tenant, before they are a member of the team's - so, like team_members, scoping them would be circular.
+        nameof(TeamInvitationEntity),
         // The administrator trial-extension audit trail - the ledger OF account_trials directly above, and
         // global for the same reason it is: keyed by the account subject, an identity that exists before any
         // tenant does, so scoping it would be circular in exactly the same way. It is written only in the same

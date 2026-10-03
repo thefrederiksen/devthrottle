@@ -2408,6 +2408,76 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("teams", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamInvitationEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AcceptToken")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("accept_token");
+
+                    b.Property<string>("AcceptedBySubject")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("accepted_by_subject");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("email");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("expires_at_utc");
+
+                    b.Property<string>("InvitedBySubject")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("invited_by_subject");
+
+                    b.Property<DateTime?>("RespondedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("responded_at_utc");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("role");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sent_at_utc");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<string>("TeamId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("team_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcceptToken")
+                        .IsUnique();
+
+                    b.HasIndex("TeamId", "Email");
+
+                    b.ToTable("team_invitations", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMemberEntity", b =>
                 {
                     b.Property<string>("TeamId")
@@ -3475,6 +3545,15 @@ namespace CcDirector.Gateway.Data.Migrations
                         });
 
                     b.Navigation("PrimitiveRuns");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamInvitationEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMemberEntity", b =>
