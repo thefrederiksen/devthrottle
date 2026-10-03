@@ -19,14 +19,16 @@ import {
 import { ErrorBanner, LoadingState, PageHeader } from "../components";
 
 // The History page (issue #2194): "what have I been working on?" answered from the Gateway's durable
-// per-session record, over a range you pick, grouped by repository with a written summary per day and
-// the individual sessions beneath it. Sessions running RIGHT NOW appear as entries that have not
+// per-session record, over a range you pick, grouped by repository and day with the individual sessions
+// beneath each day. Sessions running RIGHT NOW appear as entries that have not
 // ended yet - the current session is just the row without an ending.
 //
-// THE CLIENT IS DUMB (rule 7): every ending label, tone, description line and summary on this page
-// was folded once on the Gateway and is rendered verbatim. The one thing this page computes is
-// layout. Honesty rule (#2157): a day whose roll-up paragraph has not been written yet says so; no
-// number or paragraph is ever invented client-side.
+// THE CLIENT IS DUMB (rule 7): every ending label, tone and description line on this page was folded
+// once on the Gateway and is rendered verbatim. The one thing this page computes is layout. Honesty
+// rule (#2157): no number or sentence is ever invented client-side.
+//
+// There are no written summaries any more. The AI session summary and the AI day paragraph were removed
+// in October 2026: this page was their only reader and nobody read them.
 
 const RANGES: ReadonlyArray<{ label: string; days: number }> = [
   { label: "Last day", days: 1 },
@@ -65,7 +67,6 @@ function timeOf(iso: string | null | undefined): string {
 
 function SessionEntry({ node, depth = 0 }: { node: LineageNode; depth?: number }) {
   const session = node.session;
-  const [open, setOpen] = useState(false);
   // Children start EXPANDED. The whole point of nesting is that you can see what a session set off;
   // collapsed-by-default would hide the answer behind a click on every row that has one.
   const [childrenOpen, setChildrenOpen] = useState(true);
@@ -93,23 +94,9 @@ function SessionEntry({ node, depth = 0 }: { node: LineageNode; depth?: number }
   const origin = originLabel(session);
   if (origin !== null) meta.push(origin);
 
-  const hasDetail =
-    (session.summaryText != null && session.summaryText.length > 0) ||
-    (session.whatWasBuilt?.length ?? 0) > 0 ||
-    (session.leftUnverified?.length ?? 0) > 0 ||
-    (session.branches?.length ?? 0) > 0 ||
-    (session.pullRequests?.length ?? 0) > 0 ||
-    (session.commits?.length ?? 0) > 0;
-
   return (
     <li className={`wh-session wh-tone-${session.endingTone}${depth > 0 ? " wh-session-child" : ""}`}>
-      <button
-        type="button"
-        className="wh-session-row"
-        onClick={() => setOpen((v) => !v)}
-        disabled={!hasDetail}
-        aria-expanded={hasDetail ? open : undefined}
-      >
+      <div className="wh-session-row">
         <span className="wh-dot" aria-hidden="true" />
         <span className="wh-session-main">
           <span className="wh-session-desc">{session.descriptionLine}</span>
@@ -130,22 +117,7 @@ function SessionEntry({ node, depth = 0 }: { node: LineageNode; depth?: number }
         <span className="wh-ending">
           {live ? "Running now" : session.endingLabel ?? session.endingKind}
         </span>
-      </button>
-      {open && hasDetail && (
-        <div className="wh-session-detail">
-          {session.summaryText && (
-            <p className="wh-summary-text">
-              {session.summaryIsPartial && <span className="wh-partial">Partial record - </span>}
-              {session.summaryText}
-            </p>
-          )}
-          <DetailList title="Built" items={session.whatWasBuilt} />
-          <DetailList title="Left unverified" items={session.leftUnverified} />
-          <DetailList title="Branches" items={session.branches} />
-          <DetailList title="Pull requests" items={session.pullRequests} />
-          <DetailList title="Commits" items={session.commits} />
-        </div>
-      )}
+      </div>
       {node.children.length > 0 && (
         <>
           <button
@@ -167,20 +139,6 @@ function SessionEntry({ node, depth = 0 }: { node: LineageNode; depth?: number }
         </>
       )}
     </li>
-  );
-}
-
-function DetailList({ title, items }: { title: string; items?: string[] | null }) {
-  if (!items || items.length === 0) return null;
-  return (
-    <div className="wh-detail-block">
-      <div className="wh-detail-title">{title}</div>
-      <ul className="wh-detail-items">
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </div>
   );
 }
 
@@ -297,18 +255,6 @@ export function HistoryView() {
             {repo.days.map((day) => (
               <div key={day.day} className="wh-day">
                 <h3 className="wh-day-head">{dayHeading(day.day)}</h3>
-                {day.summaryText ? (
-                  <p className="wh-rollup">
-                    {day.summaryText}
-                    {day.summaryPending && (
-                      <span className="wh-pending"> (being refreshed)</span>
-                    )}
-                  </p>
-                ) : (
-                  <p className="wh-rollup wh-rollup-pending">
-                    The day&apos;s summary has not been written yet.
-                  </p>
-                )}
                 {/* The day's sessions as the shape they actually had (internal#989): a day where
                     three things were started and they spawned nineteen helpers is a list of
                     twenty-two rows and a tree of three roots - identical data, completely

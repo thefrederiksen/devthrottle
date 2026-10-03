@@ -24,9 +24,6 @@ public sealed class SessionHistoryStore
     /// <summary>The hard ceiling on one range read.</summary>
     public const int MaxListLimit = 2000;
 
-    /// <summary>How many times the Gateway summariser tries before a summary is marked unavailable.</summary>
-    public const int MaxSummaryAttempts = 3;
-
     public SessionHistoryStore(GatewayDatabase db)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
@@ -301,105 +298,6 @@ public sealed class SessionHistoryStore
     }
 
     /// <summary>
-    /// The session seals its own record on a clean shutdown - its account wins over anything the
-    /// Gateway generated. Returns false when no row exists for the session.
-    /// </summary>
-    public bool SealSummary(string sessionId, SealSessionSummaryRequest request)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        if (string.IsNullOrWhiteSpace(request.Summary))
-            throw new ArgumentException("A sealed summary needs prose; an empty seal records nothing.", nameof(request));
-
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext();
-            var entity = ctx.SessionHistory.FirstOrDefault(e => e.SessionId == sessionId);
-            if (entity is null) return false;
-
-            entity.SummaryKind = SessionHistorySummaryKinds.Sealed;
-            entity.SummaryIsPartial = false;
-            entity.SummaryText = request.Summary.Trim();
-            entity.WhatWasBuiltJson = SessionHistoryFold.ToJsonList(request.WhatWasBuilt);
-            entity.LeftUnverifiedJson = SessionHistoryFold.ToJsonList(request.LeftUnverified);
-            entity.BranchesJson = SessionHistoryFold.ToJsonList(request.Branches);
-            entity.PullRequestsJson = SessionHistoryFold.ToJsonList(request.PullRequests);
-            entity.CommitsJson = SessionHistoryFold.ToJsonList(request.Commits);
-            ctx.SaveChanges();
-            FileLog.Write($"[SessionHistoryStore] summary sealed by the session: session={sessionId}");
-            return true;
-        }
-    }
-
-    /// <summary>
-    /// Ended rows still owed a summary: no summary kind yet, attempts under the cap, ended before
-    /// <paramref name="endedBeforeUtc"/> (a small settling delay so a seal arriving right after the
-    /// farewell wins the race). Detached copies, oldest ending first, capped.
-    /// </summary>
-    public IReadOnlyList<SessionHistoryEntity> PendingSummaries(DateTime endedBeforeUtc, int max)
-    {
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext();
-            return ctx.SessionHistory.AsNoTracking()
-                .Where(e => e.EndingKind != null && e.EndingKind != ""
-                            && (e.SummaryKind == null || e.SummaryKind == "")
-                            && e.SummaryAttempts < MaxSummaryAttempts
-                            && e.EndedAtUtc != null && e.EndedAtUtc < endedBeforeUtc)
-                .OrderBy(e => e.EndedAtUtc)
-                .Take(Math.Clamp(max, 1, 50))
-                .ToList();
-        }
-    }
-
-    /// <summary>Store a Gateway-generated summary (or the honest "none"/"unavailable" verdicts).
-    /// Never overwrites a sealed summary - the session's own account wins.</summary>
-    public void StoreGeneratedSummary(string sessionId, string summaryKind, bool isPartial, string? summaryText,
-        IReadOnlyList<string>? whatWasBuilt, IReadOnlyList<string>? leftUnverified,
-        IReadOnlyList<string>? branches, IReadOnlyList<string>? pullRequests, IReadOnlyList<string>? commits)
-    {
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext();
-            var entity = ctx.SessionHistory.FirstOrDefault(e => e.SessionId == sessionId);
-            if (entity is null) return;
-            if (string.Equals(entity.SummaryKind, SessionHistorySummaryKinds.Sealed, StringComparison.Ordinal))
-                return;
-
-            entity.SummaryKind = summaryKind;
-            entity.SummaryIsPartial = isPartial;
-            entity.SummaryText = string.IsNullOrWhiteSpace(summaryText) ? null : summaryText.Trim();
-            entity.WhatWasBuiltJson = SessionHistoryFold.ToJsonList(whatWasBuilt);
-            entity.LeftUnverifiedJson = SessionHistoryFold.ToJsonList(leftUnverified);
-            entity.BranchesJson = SessionHistoryFold.ToJsonList(branches);
-            entity.PullRequestsJson = SessionHistoryFold.ToJsonList(pullRequests);
-            entity.CommitsJson = SessionHistoryFold.ToJsonList(commits);
-            ctx.SaveChanges();
-            FileLog.Write($"[SessionHistoryStore] summary stored: session={sessionId} kind={summaryKind} partial={isPartial}");
-        }
-    }
-
-    /// <summary>
-    /// Count one failed summarisation attempt. At <see cref="MaxSummaryAttempts"/> the summary is
-    /// marked unavailable - the record stands without one rather than billing a broken path forever.
-    /// </summary>
-    public void NoteSummaryFailure(string sessionId)
-    {
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext();
-            var entity = ctx.SessionHistory.FirstOrDefault(e => e.SessionId == sessionId);
-            if (entity is null) return;
-            entity.SummaryAttempts++;
-            if (entity.SummaryAttempts >= MaxSummaryAttempts && string.IsNullOrEmpty(entity.SummaryKind))
-            {
-                entity.SummaryKind = SessionHistorySummaryKinds.Unavailable;
-                FileLog.Write($"[SessionHistoryStore] summary marked unavailable after {entity.SummaryAttempts} attempts: session={sessionId}");
-            }
-            ctx.SaveChanges();
-        }
-    }
-
-    /// <summary>
     /// Every session whose observed life overlaps the inclusive UTC window - ended and still running
     /// alike ("what am I working on" and "what did I work on Tuesday" are the same record). Folded
     /// DTOs, newest start first.
@@ -414,63 +312,6 @@ public sealed class SessionHistoryStore
                 .Where(e => e.LastSeenUtc >= fromUtc && e.StartedAtUtc <= toUtc)
                 .OrderByDescending(e => e.StartedAtUtc)
                 .Take(take)
-                .ToList()
-                .Select(SessionHistoryFold.ToDto)
-                .ToList();
-        }
-    }
-
-    /// <summary>
-    /// The same sessions, in the same order and under the same limit as <see cref="ReadRange"/>, carrying ONLY what
-    /// the roll-up grouping and its input hash read: the session, its repository, its observed life, and its ending
-    /// and summary state (<see cref="SessionHistorySummarizer.RollupGroups"/>, <see cref="SessionHistorySummarizer.InputHash"/>).
-    /// Every other field of the returned records is left empty - they are not session records to show anyone.
-    ///
-    /// The history sweep runs every two minutes for every account and only needs to know WHICH roll-ups are stale;
-    /// reading thirty days of full rows (four JSON lists, the first prompt line and more) to find that out was a large,
-    /// steady read for nothing (devthrottle_internal#2199). The full rows are read, with
-    /// <see cref="ReadMany"/>, only for the groups that are actually rewritten.
-    /// </summary>
-    public IReadOnlyList<WorkHistorySessionDto> ReadRollupInputs(DateTime fromUtc, DateTime toUtc, int limit = 1000)
-    {
-        var take = Math.Clamp(limit, 1, MaxListLimit);
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext();
-            return ctx.SessionHistory.AsNoTracking()
-                .Where(e => e.LastSeenUtc >= fromUtc && e.StartedAtUtc <= toUtc)
-                .OrderByDescending(e => e.StartedAtUtc)
-                .Take(take)
-                .Select(e => new { e.SessionId, e.RepoName, e.RepoPath, e.StartedAtUtc, e.LastSeenUtc, e.EndingKind, e.SummaryKind, e.SummaryText })
-                .ToList()
-                .Select(e => new WorkHistorySessionDto
-                {
-                    SessionId = e.SessionId,
-                    RepoName = e.RepoName,
-                    RepoPath = e.RepoPath,
-                    StartedAtUtc = e.StartedAtUtc,
-                    LastSeenUtc = e.LastSeenUtc,
-                    EndingKind = e.EndingKind,
-                    SummaryKind = e.SummaryKind,
-                    SummaryText = e.SummaryText,
-                    EndingTone = "",
-                    DescriptionLine = "",
-                })
-                .ToList();
-        }
-    }
-
-    /// <summary>These sessions' full records, folded, in no particular order. A session with no record is absent.</summary>
-    public IReadOnlyList<WorkHistorySessionDto> ReadMany(IReadOnlyCollection<string> sessionIds)
-    {
-        ArgumentNullException.ThrowIfNull(sessionIds);
-        if (sessionIds.Count == 0) return Array.Empty<WorkHistorySessionDto>();
-        var ids = sessionIds.ToList();
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext();
-            return ctx.SessionHistory.AsNoTracking()
-                .Where(e => ids.Contains(e.SessionId))
                 .ToList()
                 .Select(SessionHistoryFold.ToDto)
                 .ToList();
@@ -599,47 +440,10 @@ public sealed class SessionHistoryStore
         }
     }
 
-    /// <summary>Cached roll-ups for days in the inclusive window, any repository group.</summary>
-    public IReadOnlyList<SessionHistoryRollupEntity> ReadRollups(DateTime fromDayUtc, DateTime toDayUtc)
-    {
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext();
-            return ctx.SessionHistoryRollups.AsNoTracking()
-                .Where(r => r.DayUtc >= fromDayUtc.Date && r.DayUtc <= toDayUtc.Date)
-                .ToList();
-        }
-    }
-
-    /// <summary>Insert or replace one cached roll-up row.</summary>
-    public void SaveRollup(string repoKey, DateTime dayUtc, string? summaryText, string inputHash, int attempts, DateTime nowUtc)
-    {
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext();
-            var day = dayUtc.Date;
-            var entity = ctx.SessionHistoryRollups.FirstOrDefault(r => r.RepoKey == repoKey && r.DayUtc == day);
-            if (entity is null)
-            {
-                entity = new SessionHistoryRollupEntity
-                {
-                    TenantId = ctx.ActiveTenant!,
-                    RepoKey = repoKey,
-                    DayUtc = day,
-                };
-                ctx.SessionHistoryRollups.Add(entity);
-            }
-            entity.SummaryText = string.IsNullOrWhiteSpace(summaryText) ? null : summaryText.Trim();
-            entity.InputHash = inputHash;
-            entity.Attempts = attempts;
-            entity.ComputedAtUtc = nowUtc;
-            ctx.SaveChanges();
-        }
-    }
-
     /// <summary>The 90-day retention prune, called per tenant by the history sweep. Only ENDED session
     /// rows are pruned - an open row past the cutoff is the interrupted ruling's job, never retention's.
-    /// Returns rows deleted across both tables.</summary>
+    /// Roll-up rows are no longer written (the AI day paragraphs were removed in October 2026); the rows
+    /// already stored age out here like everything else. Returns rows deleted across both tables.</summary>
     public int PurgeOlderThan(DateTime cutoffUtc)
     {
         var cutoff = DateTime.SpecifyKind(cutoffUtc.ToUniversalTime(), DateTimeKind.Utc);

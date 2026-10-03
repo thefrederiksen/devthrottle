@@ -1,6 +1,11 @@
 namespace CcDirector.Gateway.Data.Entities;
 
 /// <summary>
+/// NO LONGER WRITTEN OR READ (October 2026): the AI day paragraphs were removed because nobody read them.
+/// The table stays so no schema change is needed, and its remaining rows age out with the 90-day retention
+/// in <see cref="History.SessionHistoryStore.PurgeOlderThan"/>. Dropping it is a separate, owner-approved
+/// migration. What follows is the original description.
+///
 /// One repository group's one-day roll-up paragraph, in the <c>session_history_rollups</c> table
 /// (issue #2194). The History page shows a written summary per repository per day; producing that
 /// with a model on every page load would be a real recurring spend, so the roll-up is computed ONCE

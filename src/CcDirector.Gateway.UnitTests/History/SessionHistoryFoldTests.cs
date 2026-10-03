@@ -69,55 +69,22 @@ public sealed class SessionHistoryFoldTests
     [InlineData("owner/repo", @"D:\x", "owner/repo")]
     [InlineData(null, @"D:\x", @"D:\x")]
     [InlineData(null, null, "(no repository)")]
-    public void The_rollup_group_key_falls_back_from_repo_name_to_path(string? repoName, string? repoPath, string expected)
+    public void The_day_group_key_falls_back_from_repo_name_to_path(string? repoName, string? repoPath, string expected)
         => Assert.Equal(expected, SessionHistoryFold.RepoKey(repoName, repoPath));
 
     [Fact]
-    public void The_summariser_parses_a_json_reply_with_or_without_prose_around_it()
-    {
-        const string reply = """
-            Here is the record:
-            {"summary":"Built X.","what_was_built":["X"],"left_unverified":[],"branches":["b1"],"pull_requests":[],"commits":[]}
-            """;
-        var parsed = SessionHistorySummarizer.ParseSessionSummary(reply);
-        Assert.NotNull(parsed);
-        Assert.Equal("Built X.", parsed!.Summary);
-        Assert.Equal(new List<string> { "X" }, parsed.WhatWasBuilt);
-        Assert.Equal(new List<string> { "b1" }, parsed.Branches);
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("no json here")]
-    [InlineData("{\"not_a_summary\": true}")]
-    [InlineData("{broken json")]
-    public void An_unusable_model_reply_parses_to_null_never_to_filler(string? reply)
-        => Assert.Null(SessionHistorySummarizer.ParseSessionSummary(reply));
-
-    [Fact]
-    public void Rollup_groups_span_every_day_a_session_was_observed()
+    public void Day_groups_span_every_day_a_session_was_observed()
     {
         var day1 = new DateTime(2026, 7, 24, 0, 0, 0, DateTimeKind.Utc);
         var day3 = day1.AddDays(2);
         var spanning = Dto("span", day1.AddHours(9), day3.AddHours(11));
         var single = Dto("single", day3.AddHours(8), day3.AddHours(9));
 
-        var groups = SessionHistorySummarizer.RollupGroups(new[] { spanning, single }, day1, day3);
+        var groups = SessionHistoryFold.DayGroups(new[] { spanning, single }, day1, day3);
 
         Assert.Equal(3, groups.Count(g => g.Sessions.Any(s => s.SessionId == "span")));
         var day3Group = Assert.Single(groups, g => g.Day == day3);
         Assert.Equal(2, day3Group.Sessions.Count);
-    }
-
-    [Fact]
-    public void The_rollup_input_hash_changes_when_a_summary_lands()
-    {
-        var a = Dto("s1", DateTime.UtcNow.AddHours(-2), DateTime.UtcNow);
-        var before = SessionHistorySummarizer.InputHash(new[] { a });
-        var after = SessionHistorySummarizer.InputHash(new[]
-            { a with { SummaryKind = SessionHistorySummaryKinds.Generated, SummaryText = "done" } });
-        Assert.NotEqual(before, after);
     }
 
     private static WorkHistorySessionDto Dto(string id, DateTime started, DateTime lastSeen) => new()

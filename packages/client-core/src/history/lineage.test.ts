@@ -22,7 +22,6 @@ function session(id: string, over: Partial<WorkHistorySession> = {}): WorkHistor
     lastSeenUtc: "2026-07-27T11:00:00Z",
     endingTone: "neutral",
     descriptionLine: `session ${id}`,
-    summaryIsPartial: false,
     ...over,
   };
 }
@@ -35,7 +34,7 @@ function report(sessions: WorkHistorySession[]): WorkHistoryReport {
       {
         repoKey: "r",
         displayName: "r",
-        days: [{ day: "2026-07-27", summaryPending: false, sessions }],
+        days: [{ day: "2026-07-27", sessions }],
       },
     ],
   };

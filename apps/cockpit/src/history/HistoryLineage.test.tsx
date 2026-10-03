@@ -39,7 +39,6 @@ function session(id: string, over: Partial<WorkHistorySession> = {}): WorkHistor
     endingKind: "closed",
     endingLabel: "Closed",
     descriptionLine: `work ${id}`,
-    summaryIsPartial: false,
     ...over,
   };
 }
@@ -51,7 +50,7 @@ function reportOf(repos: Array<{ key: string; sessions: WorkHistorySession[] }>)
     repos: repos.map((r) => ({
       repoKey: r.key,
       displayName: r.key,
-      days: [{ day: "2026-07-27", summaryText: "A day.", summaryPending: false, sessions: r.sessions }],
+      days: [{ day: "2026-07-27", sessions: r.sessions }],
     })),
   };
 }
@@ -63,10 +62,37 @@ async function renderWith(report: WorkHistoryReport) {
       <HistoryView />
     </MemoryRouter>,
   );
-  // findAll, not find: a two-repository report renders the day heading once per repository, and a
-  // single-match query would fail on exactly the cross-repo cases this file is here to check.
-  await screen.findAllByText("A day.");
+  // findAll, not find: a two-repository report renders one repository heading each, and a single-match
+  // query would fail on exactly the cross-repo cases this file is here to check.
+  await screen.findAllByRole("heading", { level: 2 });
 }
+
+// The AI session summary and day paragraph were removed in October 2026 (nobody read them). A Gateway
+// that has not been updated yet still sends them; the page must not show them.
+describe("History shows no written summaries", () => {
+  it("renders the sessions and none of an old Gateway's summary text", async () => {
+    const stale = reportOf([
+      {
+        key: "devthrottle",
+        sessions: [
+          session("s1", {
+            descriptionLine: "Fix the parser",
+            summaryText: "An old session summary.",
+            whatWasBuilt: ["an old built item"],
+          } as Partial<WorkHistorySession>),
+        ],
+      },
+    ]);
+    (stale.repos[0].days[0] as unknown as Record<string, unknown>).summaryText = "An old day paragraph.";
+    await renderWith(stale);
+
+    expect(screen.getByText("Fix the parser")).toBeTruthy();
+    expect(screen.queryByText(/An old session summary/)).toBeNull();
+    expect(screen.queryByText(/an old built item/)).toBeNull();
+    expect(screen.queryByText(/An old day paragraph/)).toBeNull();
+    expect(screen.queryByText(/summary has not been written/i)).toBeNull();
+  });
+});
 
 describe("History shows the shape of the work", () => {
   it("nests the sessions an agent started under it, and says how many", async () => {

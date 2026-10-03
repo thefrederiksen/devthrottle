@@ -227,14 +227,17 @@ public sealed class SessionHistoryEntity : TenantScopedEntity
 
     public DateTime? EndedAtUtc { get; set; }
 
-    /// <summary>Null until a summary exists; one of <see cref="Contracts.SessionHistorySummaryKinds"/>.</summary>
+    // The summary columns below are NO LONGER WRITTEN OR READ. The AI work-history summaries were removed in
+    // October 2026 (nobody read them). The columns stay so no schema change is needed; rows that hold an old
+    // summary age out with the 90-day retention. Dropping the columns is a separate, owner-approved migration.
+
+    /// <summary>Who wrote the old summary: "sealed", "generated", "none" or "unavailable"; null on newer rows.</summary>
     public string? SummaryKind { get; set; }
 
     /// <summary>True when the summary describes a partial record - the session ended without a farewell.</summary>
     public bool SummaryIsPartial { get; set; }
 
-    /// <summary>How many times the Gateway summariser has tried. Bounded (the sweep gives up and marks
-    /// the summary unavailable after the cap) so a broken model path cannot bill forever.</summary>
+    /// <summary>How many times the removed summariser tried for this row.</summary>
     public int SummaryAttempts { get; set; }
 
     public string? SummaryText { get; set; }

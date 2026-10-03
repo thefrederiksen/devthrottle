@@ -27,25 +27,6 @@ public static class SessionHistoryEndings
 }
 
 /// <summary>
-/// Who wrote a session-history row's summary (issue #2194).
-/// </summary>
-public static class SessionHistorySummaryKinds
-{
-    /// <summary>The session sealed its own record on a clean shutdown - its own account of what it did.</summary>
-    public const string Sealed = "sealed";
-
-    /// <summary>The Gateway wrote the summary afterwards from the prompt log (the session never sealed).</summary>
-    public const string Generated = "generated";
-
-    /// <summary>There was nothing to summarise - the session left no prompt-log content worth a model call.</summary>
-    public const string None = "none";
-
-    /// <summary>Summarisation was attempted and failed repeatedly (for example, hosted AI unreachable).
-    /// The record stands without a summary rather than pretending one exists.</summary>
-    public const string Unavailable = "unavailable";
-}
-
-/// <summary>
 /// One session's durable history record as served by GET /history/sessions and inside the
 /// /history/report grouping (issue #2194). Written the first time the Gateway sees the session and kept
 /// fresh WHILE IT RUNS, so a session killed by a power cut still leaves this record. A row with a null
@@ -166,35 +147,6 @@ public sealed record WorkHistorySessionDto
     /// compaction, and adding the readings would produce a number with no unit. Null when the agent's
     /// driver reports no context reading.</summary>
     [JsonPropertyName("peakContextTokens")] public long? PeakContextTokens { get; init; }
-
-    /// <summary>Null when no summary exists yet; otherwise one of <see cref="SessionHistorySummaryKinds"/>.</summary>
-    [JsonPropertyName("summaryKind")] public string? SummaryKind { get; init; }
-
-    /// <summary>True when the record is a partial account - the session ended without a farewell, so
-    /// this is "how far it got", not the whole story.</summary>
-    [JsonPropertyName("summaryIsPartial")] public bool SummaryIsPartial { get; init; }
-
-    [JsonPropertyName("summaryText")] public string? SummaryText { get; init; }
-    [JsonPropertyName("whatWasBuilt")] public IReadOnlyList<string>? WhatWasBuilt { get; init; }
-    [JsonPropertyName("leftUnverified")] public IReadOnlyList<string>? LeftUnverified { get; init; }
-    [JsonPropertyName("branches")] public IReadOnlyList<string>? Branches { get; init; }
-    [JsonPropertyName("pullRequests")] public IReadOnlyList<string>? PullRequests { get; init; }
-    [JsonPropertyName("commits")] public IReadOnlyList<string>? Commits { get; init; }
-}
-
-/// <summary>
-/// A session sealing its own record on a clean shutdown (POST /history/sessions/{id}/summary).
-/// The session knows its own story best; this is its account of what it did, what it left undone,
-/// and what needs testing. All fields optional except the prose.
-/// </summary>
-public sealed record SealSessionSummaryRequest
-{
-    [JsonPropertyName("summary")] public required string Summary { get; init; }
-    [JsonPropertyName("whatWasBuilt")] public IReadOnlyList<string>? WhatWasBuilt { get; init; }
-    [JsonPropertyName("leftUnverified")] public IReadOnlyList<string>? LeftUnverified { get; init; }
-    [JsonPropertyName("branches")] public IReadOnlyList<string>? Branches { get; init; }
-    [JsonPropertyName("pullRequests")] public IReadOnlyList<string>? PullRequests { get; init; }
-    [JsonPropertyName("commits")] public IReadOnlyList<string>? Commits { get; init; }
 }
 
 /// <summary>One repository group's one day inside the /history/report response.</summary>
@@ -202,13 +154,6 @@ public sealed record WorkHistoryDayDto
 {
     /// <summary>The UTC day, yyyy-MM-dd.</summary>
     [JsonPropertyName("day")] public required string Day { get; init; }
-
-    /// <summary>The cached roll-up paragraph for this repository and day, when it has been written.</summary>
-    [JsonPropertyName("summaryText")] public string? SummaryText { get; init; }
-
-    /// <summary>True when the roll-up has not been written yet (the background pass will catch up).
-    /// The client says so plainly rather than inventing a paragraph.</summary>
-    [JsonPropertyName("summaryPending")] public bool SummaryPending { get; init; }
 
     [JsonPropertyName("sessions")] public required IReadOnlyList<WorkHistorySessionDto> Sessions { get; init; }
 }
@@ -222,15 +167,13 @@ public sealed record WorkHistoryRepoDto
     /// <summary>What to show as the group heading.</summary>
     [JsonPropertyName("displayName")] public required string DisplayName { get; init; }
 
-    /// <summary>Days newest first, each with its sessions and cached roll-up.</summary>
+    /// <summary>Days newest first, each with its sessions.</summary>
     [JsonPropertyName("days")] public required IReadOnlyList<WorkHistoryDayDto> Days { get; init; }
 }
 
 /// <summary>
 /// GET /history/report - what was worked on over a date range, grouped by repository and day
-/// (issue #2194). The consumable spine of the work-history feature: the Cockpit History page renders
-/// it, and the daily report email and the brain read the same shape. Tenant-scoped like every other
-/// Gateway endpoint.
+/// (issue #2194). The Cockpit History page renders it. Tenant-scoped like every other Gateway endpoint.
 /// </summary>
 public sealed record WorkHistoryReportDto
 {
