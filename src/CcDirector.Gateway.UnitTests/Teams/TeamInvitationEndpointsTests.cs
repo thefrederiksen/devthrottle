@@ -53,7 +53,11 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
         Assert.Equal("Developer", invitation.GetProperty("role").GetString());
         Assert.Equal("sent", invitation.GetProperty("state").GetString());
         Assert.False(invitation.TryGetProperty("acceptToken", out _));
-        Assert.Equal(invitation.GetProperty("id").GetString(), Assert.Single(_mailer.Sent));
+        var sent = Assert.Single(_mailer.Sent);
+        Assert.Equal(invitation.GetProperty("id").GetString(), sent.Id);
+        // The link's secret went to the mailer and nowhere into the answer.
+        Assert.False(string.IsNullOrEmpty(sent.Token));
+        Assert.DoesNotContain(sent.Token, body.GetRawText());
         Assert.True(body.GetProperty("email").GetProperty("sent").GetBoolean());
     }
 
@@ -105,7 +109,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
         var (status, _) = await RenderAsync(await TeamInvitationEndpoints.ResendAsync(_teams, _mailer, Owner, _team, id, CancellationToken.None));
 
         Assert.Equal(200, status);
-        Assert.Equal(id, Assert.Single(_mailer.Sent));
+        Assert.Equal(id, Assert.Single(_mailer.Sent).Id);
     }
 
     [Fact]
@@ -184,12 +188,12 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
 
     private sealed class RecordingMailer : ITeamInvitationMailer
     {
-        public List<string> Sent { get; } = new();
+        public List<(string Id, string Token)> Sent { get; } = new();
         public TeamInvitationMailResult Answer { get; set; } = new(true, null, 200, null);
 
-        public Task<TeamInvitationMailResult> SendAsync(string invitationId, CancellationToken ct = default)
+        public Task<TeamInvitationMailResult> SendAsync(string invitationId, string acceptToken, CancellationToken ct = default)
         {
-            Sent.Add(invitationId);
+            Sent.Add((invitationId, acceptToken));
             return Task.FromResult(Answer);
         }
     }

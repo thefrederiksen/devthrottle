@@ -24,7 +24,7 @@ namespace CcDirector.Gateway.Data.Migrations
                     created_at_utc = table.Column<DateTime>(type: "TEXT", nullable: false),
                     sent_at_utc = table.Column<DateTime>(type: "TEXT", nullable: false),
                     expires_at_utc = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    accept_token = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
+                    accept_token_hash = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
                     responded_at_utc = table.Column<DateTime>(type: "TEXT", nullable: true),
                     accepted_by_subject = table.Column<string>(type: "TEXT", nullable: true)
                 },
@@ -40,9 +40,9 @@ namespace CcDirector.Gateway.Data.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_team_invitations_accept_token",
+                name: "IX_team_invitations_accept_token_hash",
                 table: "team_invitations",
-                column: "accept_token",
+                column: "accept_token_hash",
                 unique: true);
 
             migrationBuilder.CreateIndex(

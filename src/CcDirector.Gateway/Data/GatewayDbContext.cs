@@ -1404,11 +1404,11 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
             b.Property(e => e.SentAtUtc).HasColumnName("sent_at_utc").IsRequired();
             b.Property(e => e.ExpiresAtUtc).HasColumnName("expires_at_utc").IsRequired();
-            b.Property(e => e.AcceptToken).HasColumnName("accept_token").IsRequired().HasMaxLength(100);
+            b.Property(e => e.AcceptTokenHash).HasColumnName("accept_token_hash").IsRequired().HasMaxLength(64);
             b.Property(e => e.RespondedAtUtc).HasColumnName("responded_at_utc");
             b.Property(e => e.AcceptedBySubject).HasColumnName("accepted_by_subject");
-            // The accept page finds its invitation by the token in the link, and two invitations can never share one.
-            b.HasIndex(e => e.AcceptToken).IsUnique();
+            // The accept page finds its invitation by the hash of the token in the link; two invitations never share one.
+            b.HasIndex(e => e.AcceptTokenHash).IsUnique();
             // A team's invitations page, and the "already invited" check, read by team and address.
             b.HasIndex(e => new { e.TeamId, e.Email });
             // An invitation cannot outlive its team.

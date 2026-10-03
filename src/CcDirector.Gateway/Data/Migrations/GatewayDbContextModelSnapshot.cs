@@ -2414,11 +2414,11 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
-                    b.Property<string>("AcceptToken")
+                    b.Property<string>("AcceptTokenHash")
                         .IsRequired()
-                        .HasMaxLength(100)
+                        .HasMaxLength(64)
                         .HasColumnType("TEXT")
-                        .HasColumnName("accept_token");
+                        .HasColumnName("accept_token_hash");
 
                     b.Property<string>("AcceptedBySubject")
                         .HasColumnType("TEXT")
@@ -2470,7 +2470,7 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AcceptToken")
+                    b.HasIndex("AcceptTokenHash")
                         .IsUnique();
 
                     b.HasIndex("TeamId", "Email");

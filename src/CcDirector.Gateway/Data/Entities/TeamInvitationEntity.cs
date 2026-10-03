@@ -10,10 +10,12 @@ namespace CcDirector.Gateway.Data.Entities;
 /// <see cref="ExpiresAtUtc"/> has passed. Keeping it derived means no sweep has to run for an invitation to expire on
 /// time, and no reader can see a row that should have expired but has not been swept yet.
 ///
-/// THE ACCEPT TOKEN is the secret the email's link carries. It is the only way to reach the accept page, so it is
-/// random and long, it is never returned by any Gateway route, and it is replaced every time the invitation is sent
-/// again - an older email's link stops working the moment a newer one is sent. The website reads it (through its own
-/// database function) only to build the link in the email it sends.
+/// THE ACCEPT TOKEN is the secret the email's link carries, and only its HASH is stored (<see cref="AcceptTokenHash"/>).
+/// The token itself exists in two places only: the email, and - for the moment it takes to ask for that email - the
+/// Gateway's call to the website, which checks the token against this hash before it builds the link. So a copy of
+/// this table cannot be turned into working links. The token is random and long, single use, dies with the
+/// invitation's 7 days, and is replaced on every resend - an older email's link stops working the moment a newer one
+/// is sent. No Gateway route ever returns it.
 ///
 /// GLOBAL, like <see cref="TeamMemberEntity"/>: no <c>tenant_id</c> column and no query filter. An invitation is
 /// opened by the person invited, from their own personal tenant, before they are a member of the team's tenant.
@@ -48,12 +50,14 @@ public sealed class TeamInvitationEntity
     /// <summary>The moment the invitation stops being acceptable (UTC): <see cref="SentAtUtc"/> plus the validity.</summary>
     public DateTime ExpiresAtUtc { get; set; }
 
-    /// <summary>The secret the email's link carries. Never logged, never returned by a Gateway route.</summary>
-    public string AcceptToken { get; set; } = "";
+    /// <summary>The SHA-256 of the link's secret, lower-case hexadecimal. The secret itself is never stored, logged or
+    /// returned by a Gateway route (see <see cref="Teams.TeamInvitationRules.HashAcceptToken"/>).</summary>
+    public string AcceptTokenHash { get; set; } = "";
 
     /// <summary>When it was accepted, declined or cancelled (UTC); null while it is waiting.</summary>
     public DateTime? RespondedAtUtc { get; set; }
 
-    /// <summary>The account that accepted it, or null. Never logged.</summary>
+    /// <summary>The account that accepted it, or null - so the Owner and Managers can see who used the link, which need
+    /// not be the address it was sent to. Never logged.</summary>
     public string? AcceptedBySubject { get; set; }
 }

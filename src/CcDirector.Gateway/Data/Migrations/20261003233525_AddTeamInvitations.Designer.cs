@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261003230618_AddTeamInvitations")]
+    [Migration("20261003233525_AddTeamInvitations")]
     partial class AddTeamInvitations
     {
         /// <inheritdoc />
@@ -2417,11 +2417,11 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("id");
 
-                    b.Property<string>("AcceptToken")
+                    b.Property<string>("AcceptTokenHash")
                         .IsRequired()
-                        .HasMaxLength(100)
+                        .HasMaxLength(64)
                         .HasColumnType("TEXT")
-                        .HasColumnName("accept_token");
+                        .HasColumnName("accept_token_hash");
 
                     b.Property<string>("AcceptedBySubject")
                         .HasColumnType("TEXT")
@@ -2473,7 +2473,7 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AcceptToken")
+                    b.HasIndex("AcceptTokenHash")
                         .IsUnique();
 
                     b.HasIndex("TeamId", "Email");
