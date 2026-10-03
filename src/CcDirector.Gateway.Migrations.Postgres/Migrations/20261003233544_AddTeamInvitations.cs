@@ -25,7 +25,7 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     created_at_utc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     sent_at_utc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     expires_at_utc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
-                    accept_token = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    accept_token_hash = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
                     responded_at_utc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     accepted_by_subject = table.Column<string>(type: "text", nullable: true)
                 },
@@ -42,10 +42,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                 });
 
             migrationBuilder.CreateIndex(
-                name: "IX_team_invitations_accept_token",
+                name: "IX_team_invitations_accept_token_hash",
                 schema: "gateway",
                 table: "team_invitations",
-                column: "accept_token",
+                column: "accept_token_hash",
                 unique: true);
 
             migrationBuilder.CreateIndex(

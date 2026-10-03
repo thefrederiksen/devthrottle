@@ -86,6 +86,19 @@ public static class TeamInvitationRules
         return trimmed.ToLowerInvariant();
     }
 
+    /// <summary>
+    /// The stored form of a link's secret: SHA-256 of its UTF-8 bytes, lower-case hexadecimal. The website computes the
+    /// same thing to check the token the Gateway hands it before it builds the link, so this is a contract with
+    /// another codebase and must not change.
+    /// </summary>
+    public static string HashAcceptToken(string token)
+    {
+        if (string.IsNullOrEmpty(token))
+            throw new ArgumentException("A token is required.", nameof(token));
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
     private static void RequireRole(TeamRole role, string name)
     {
         if (!Enum.IsDefined(role))

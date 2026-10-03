@@ -61,6 +61,7 @@ function invitation(overrides: Partial<TeamInvitation> = {}): TeamInvitation {
     role: "Developer",
     state: "sent",
     invitedBy: "priya@devthrottle.com",
+    acceptedBy: null,
     paidBy: "soren@centerconsulting.com",
     sentAtUtc: "2026-10-01T10:00:00Z",
     expiresAtUtc: "2026-10-08T10:00:00Z",

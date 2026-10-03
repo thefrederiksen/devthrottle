@@ -38,6 +38,8 @@ export interface TeamInvitation {
   /** sent, accepted, declined, cancelled or expired - what it is NOW. */
   state: string;
   invitedBy: string;
+  /** Who accepted it, as named on screen - which need not be the address it was sent to - or null. */
+  acceptedBy: string | null;
   /** Who pays for the seat, or null for a free Collaborator seat. */
   paidBy: string | null;
   sentAtUtc: string;

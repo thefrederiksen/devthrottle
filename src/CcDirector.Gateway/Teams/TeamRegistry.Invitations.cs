@@ -61,7 +61,8 @@ public sealed partial class TeamRegistry
     /// INVITE someone by email. Refused, with the reason in plain words, when the caller is not a member (not found),
     /// may not invite that role, the address is not an address, the team's bill has not started, the address already
     /// has a waiting invitation, or it belongs to someone already in the team. The invitation is stored; sending its
-    /// email is the caller's next step (<see cref="ITeamInvitationMailer"/>).
+    /// email is the caller's next step (<see cref="ITeamInvitationMailer"/>), with the link's secret that comes back on
+    /// the result ONLY - it is not stored and cannot be read back.
     /// </summary>
     public TeamInvitationResult CreateInvitation(string teamId, string inviterSubject, string? email, TeamRole role)
     {
@@ -99,6 +100,7 @@ public sealed partial class TeamRegistry
             if (MemberEmails(ctx, team.Id).Contains(address))
                 return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Refused, TeamInvitationRefusals.AlreadyAMember);
 
+            var token = NewAcceptToken();
             var row = new TeamInvitationEntity
             {
                 Id = Guid.NewGuid().ToString(),
@@ -110,14 +112,14 @@ public sealed partial class TeamRegistry
                 CreatedAtUtc = now,
                 SentAtUtc = now,
                 ExpiresAtUtc = now + TeamInvitationRules.ValidFor,
-                AcceptToken = NewAcceptToken(),
+                AcceptTokenHash = TeamInvitationRules.HashAcceptToken(token),
             };
             ctx.TeamInvitations.Add(row);
             // Deliberately NOT CommitMembershipChange: an invitation is not a member, and sending one never moves the bill.
             ctx.SaveChanges();
 
             FileLog.Write($"[TeamRegistry] CreateInvitation: invitation {row.Id} stored for team {LogTeam(team.Id)}, expires {row.ExpiresAtUtc:o}");
-            return TeamInvitationResult.Done(Describe(ctx, team, row, now));
+            return TeamInvitationResult.Done(Describe(ctx, team, row, now)) with { AcceptToken = token };
         }
     }
 
@@ -179,11 +181,12 @@ public sealed partial class TeamRegistry
             var now = _utcNow();
             row.SentAtUtc = now;
             row.ExpiresAtUtc = now + TeamInvitationRules.ValidFor;
-            row.AcceptToken = NewAcceptToken();
+            var token = NewAcceptToken();
+            row.AcceptTokenHash = TeamInvitationRules.HashAcceptToken(token);
             ctx.SaveChanges();
 
             FileLog.Write($"[TeamRegistry] ResendInvitation: invitation {row.Id} resent, now expires {row.ExpiresAtUtc:o}");
-            return TeamInvitationResult.Done(Describe(ctx, team, row, now));
+            return TeamInvitationResult.Done(Describe(ctx, team, row, now)) with { AcceptToken = token };
         }
     }
 
@@ -377,8 +380,9 @@ public sealed partial class TeamRegistry
     {
         if (string.IsNullOrWhiteSpace(token))
             return null;
+        var hash = TeamInvitationRules.HashAcceptToken(token.Trim());
         var query = tracked ? ctx.TeamInvitations : ctx.TeamInvitations.AsNoTracking();
-        return query.FirstOrDefault(i => i.AcceptToken == token.Trim());
+        return query.FirstOrDefault(i => i.AcceptTokenHash == hash);
     }
 
     private static TeamRole? MemberRole(GatewayDbContext ctx, string teamId, string subject) =>
@@ -441,6 +445,7 @@ public sealed partial class TeamRegistry
             Role: row.Role,
             State: TeamInvitationRules.EffectiveState(row.State, row.ExpiresAtUtc, now),
             InvitedBy: DisplayFor(ctx, row.InvitedBySubject, inviterRole),
+            AcceptedBy: row.AcceptedBySubject is null ? null : DisplayFor(ctx, row.AcceptedBySubject, row.Role),
             PaidBy: paidSeat ? DisplayFor(ctx, OwnerSubject(ctx, team.Id), TeamRole.Owner) : null,
             SentAtUtc: row.SentAtUtc,
             ExpiresAtUtc: row.ExpiresAtUtc,
@@ -469,12 +474,14 @@ public sealed partial class TeamRegistry
 /// <summary>One invitation as the routes describe it. <see cref="State"/> is what it is NOW (expired included).
 /// The accept token is never part of it.</summary>
 /// <param name="InvitedBy">How the person who sent it is named on screen.</param>
+/// <param name="AcceptedBy">How the account that accepted it is named on screen - which need not be the address it was
+/// sent to - or null while nobody has.</param>
 /// <param name="PaidBy">Who pays for the seat - the Owner - or null for a Collaborator, who is free.</param>
 /// <param name="SignedInAs">On the accept page: how the signed-in account is named. Null elsewhere.</param>
 /// <param name="CanRespond">On the accept page: whether this account can accept or decline it now.</param>
 /// <param name="Refusal">On the accept page: why it cannot, in plain words. Null when it can.</param>
 public sealed record TeamInvitation(
-    string Id, string TeamId, string TeamName, string Email, TeamRole Role, string State, string InvitedBy, string? PaidBy,
+    string Id, string TeamId, string TeamName, string Email, TeamRole Role, string State, string InvitedBy, string? AcceptedBy, string? PaidBy,
     DateTime SentAtUtc, DateTime ExpiresAtUtc, string? SignedInAs, bool CanRespond, string? Refusal);
 
 /// <summary>How an invitation request ended.</summary>
@@ -499,6 +506,12 @@ public enum TeamInvitationOutcome
 /// <summary>The outcome of an invitation request: the invitation, or the plain-words reason it was refused.</summary>
 public sealed record TeamInvitationResult(TeamInvitationOutcome Outcome, string? Refusal, TeamInvitation? Invitation)
 {
+    /// <summary>
+    /// The link's secret, set ONLY by a create or a resend, for the one step that needs it: asking the website to send
+    /// the email. It is not stored (only its hash is) and must never be returned to a client or logged.
+    /// </summary>
+    public string? AcceptToken { get; init; }
+
     public static readonly TeamInvitationResult NotFound = new(TeamInvitationOutcome.NotFound, TeamInvitationRefusals.NoSuchInvitation, null);
 
     public static TeamInvitationResult Done(TeamInvitation invitation) => new(TeamInvitationOutcome.Done, null, invitation);

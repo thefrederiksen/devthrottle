@@ -96,10 +96,10 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
                 "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, livemode INTEGER NULL, updated_at TEXT NULL)");
             ctx.Database.ExecuteSqlRaw("INSERT INTO team_entitlements (team_id, status, seats, livemode) VALUES ({0}, 'active', 1, 1)", team);
         }
-        var waiting = _gateway.TeamRegistry.CreateInvitation(team, _subject, "waiting@example.com", CcDirector.Gateway.Teams.TeamRole.Developer).Invitation!;
-        string token;
-        using (var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext())
-            token = ctx.TeamInvitations.AsNoTracking().Single(i => i.Id == waiting.Id).AcceptToken;
+        var created = _gateway.TeamRegistry.CreateInvitation(team, _subject, "waiting@example.com", CcDirector.Gateway.Teams.TeamRole.Developer);
+        var waiting = created.Invitation!;
+        var token = created.AcceptToken!;
+        var hash = CcDirector.Gateway.Teams.TeamInvitationRules.HashAcceptToken(token);
         var joiner = "sub-dark-joiner-" + Guid.NewGuid().ToString("N");
         var joinerTenant = _gateway.TenantRegistry.MintOrLookupBySubject(joiner, "joiner@example.com");
         var joinerKey = _gateway.Devices.Register("dev-dark-joiner", "M-dark-joiner").DeviceKey;
@@ -131,7 +131,7 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         {
             var row = Assert.Single(ctx.TeamInvitations.AsNoTracking().Where(i => i.TeamId == team).ToList());
             Assert.Equal("sent", row.State);
-            Assert.Equal(token, row.AcceptToken);
+            Assert.Equal(hash, row.AcceptTokenHash);
         }
         Assert.Null(_gateway.TeamRegistry.RoleOf(team, joiner));
     }

@@ -374,6 +374,34 @@ public sealed class TeamInvitationTests : IDisposable
     }
 
     [Fact]
+    public void CreateInvitation_StoresOnlyTheHashOfTheLinksSecret()
+    {
+        var result = Invite(Owner, "anna@x.example", TeamRole.Developer);
+        var token = TokenOf(result);
+
+        using var ctx = _db.CreateUnscopedContext();
+        var row = ctx.TeamInvitations.AsNoTracking().Single(i => i.Id == result.Invitation!.Id);
+        Assert.Equal(TeamInvitationRules.HashAcceptToken(token), row.AcceptTokenHash);
+        Assert.Equal(64, row.AcceptTokenHash.Length);
+        // The secret appears nowhere in the stored row.
+        var stored = string.Join("|", row.Id, row.TeamId, row.Email, row.State, row.InvitedBySubject, row.AcceptTokenHash);
+        Assert.DoesNotContain(token, stored);
+    }
+
+    [Fact]
+    public void AcceptInvitation_RecordsWhichAccountUsedTheLink_ForTheOwnerToSee()
+    {
+        _tenants.MintOrLookupBySubject(Newcomer, "personal.address@elsewhere.example");
+        var token = TokenOf(Invite(Owner, "work.address@acme.example", TeamRole.Developer));
+
+        _teams.AcceptInvitation(token, Newcomer);
+
+        var listed = _teams.ListInvitations(_team, Owner)!.Single();
+        Assert.Equal("work.address@acme.example", listed.Email);
+        Assert.Equal("personal.address@elsewhere.example", listed.AcceptedBy);
+    }
+
+    [Fact]
     public void ListInvitations_OwnerAndManagerSeeThem_DeveloperSeesNone_OutsiderIsNotFound()
     {
         Invite(Owner, "a@x.example", TeamRole.Developer);
@@ -511,11 +539,12 @@ public sealed class TeamInvitationTests : IDisposable
     private TeamInvitationResult Invite(string inviter, string email, TeamRole role) =>
         _teams.CreateInvitation(_team, inviter, email, role);
 
-    private string TokenOf(TeamInvitationResult result)
+    // The link's secret is handed back by a create or a resend and nowhere else: only its hash is stored.
+    private static string TokenOf(TeamInvitationResult result)
     {
         Assert.Equal(TeamInvitationOutcome.Done, result.Outcome);
-        using var ctx = _db.CreateUnscopedContext();
-        return ctx.TeamInvitations.AsNoTracking().Single(i => i.Id == result.Invitation!.Id).AcceptToken;
+        Assert.False(string.IsNullOrEmpty(result.AcceptToken));
+        return result.AcceptToken!;
     }
 
     private int CountInvitations(string? team = null)

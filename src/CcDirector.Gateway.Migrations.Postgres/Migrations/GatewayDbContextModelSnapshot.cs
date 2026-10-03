@@ -2462,11 +2462,11 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("text")
                         .HasColumnName("id");
 
-                    b.Property<string>("AcceptToken")
+                    b.Property<string>("AcceptTokenHash")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("accept_token");
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("accept_token_hash");
 
                     b.Property<string>("AcceptedBySubject")
                         .HasColumnType("text")
@@ -2518,7 +2518,7 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AcceptToken")
+                    b.HasIndex("AcceptTokenHash")
                         .IsUnique();
 
                     b.HasIndex("TeamId", "Email");

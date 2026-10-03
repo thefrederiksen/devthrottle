@@ -85,7 +85,7 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         var (created, body) = await Send(HttpMethod.Post, $"teams/{team}/invitations", _keyOwner, new { email = "bob@gmail.example", role = "Developer" });
         Assert.Equal(HttpStatusCode.Created, created);
         var id = body.GetProperty("invitation").GetProperty("id").GetString()!;
-        Assert.Equal(id, Assert.Single(_mailer.Sent));
+        Assert.Equal(id, Assert.Single(_mailer.Sent).Id);
         var token = TokenOf(id);
 
         var (opened, page) = await Send(HttpMethod.Post, "team-invitations/open", _keyBob, new { token });
@@ -250,10 +250,11 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         ctx.Database.ExecuteSqlRaw("INSERT INTO team_entitlements (team_id, status, seats, livemode) VALUES ({0}, 'active', 1, 1)", team);
     }
 
+    // The link's secret as the email would carry it: the mailer is the only place it is ever handed (only its hash is
+    // stored). The newest send for the invitation wins, as a resend replaces the link.
     private string TokenOf(string invitationId)
     {
-        using var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext();
-        return ctx.TeamInvitations.AsNoTracking().Single(i => i.Id == invitationId).AcceptToken;
+        lock (_mailer.Sent) return _mailer.Sent.Last(s => s.Id == invitationId).Token;
     }
 
     private string Enroll(string deviceId, string subject, string email)
@@ -277,11 +278,11 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
 
     private sealed class RecordingMailer : ITeamInvitationMailer
     {
-        public List<string> Sent { get; } = new();
+        public List<(string Id, string Token)> Sent { get; } = new();
 
-        public Task<TeamInvitationMailResult> SendAsync(string invitationId, CancellationToken ct = default)
+        public Task<TeamInvitationMailResult> SendAsync(string invitationId, string acceptToken, CancellationToken ct = default)
         {
-            lock (Sent) Sent.Add(invitationId);
+            lock (Sent) Sent.Add((invitationId, acceptToken));
             return Task.FromResult(new TeamInvitationMailResult(true, null, 200, null));
         }
     }

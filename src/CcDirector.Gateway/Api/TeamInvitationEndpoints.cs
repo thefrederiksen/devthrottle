@@ -140,7 +140,7 @@ internal static class TeamInvitationEndpoints
         if (result.Outcome != TeamInvitationOutcome.Done)
             return Answer(result, "create");
 
-        var mail = await mailer.SendAsync(result.Invitation!.Id, ct).ConfigureAwait(false);
+        var mail = await mailer.SendAsync(result.Invitation!.Id, result.AcceptToken!, ct).ConfigureAwait(false);
         FileLog.Write($"[TeamInvitationEndpoints] POST invitations: stored, email sent={mail.Sent}");
         return Results.Json(new { invitation = Describe(result.Invitation), email = DescribeMail(mail) }, statusCode: StatusCodes.Status201Created);
     }
@@ -153,7 +153,7 @@ internal static class TeamInvitationEndpoints
         if (result.Outcome != TeamInvitationOutcome.Done)
             return Answer(result, "resend");
 
-        var mail = await mailer.SendAsync(result.Invitation!.Id, ct).ConfigureAwait(false);
+        var mail = await mailer.SendAsync(result.Invitation!.Id, result.AcceptToken!, ct).ConfigureAwait(false);
         FileLog.Write($"[TeamInvitationEndpoints] POST invitations/resend: renewed, email sent={mail.Sent}");
         return Results.Json(new { invitation = Describe(result.Invitation), email = DescribeMail(mail) });
     }
@@ -197,6 +197,7 @@ internal static class TeamInvitationEndpoints
         role = TeamRoles.Label(i.Role),
         state = i.State,
         invitedBy = i.InvitedBy,
+        acceptedBy = i.AcceptedBy,
         paidBy = i.PaidBy,
         sentAtUtc = i.SentAtUtc,
         expiresAtUtc = i.ExpiresAtUtc,

@@ -7,9 +7,10 @@ namespace CcDirector.Gateway.Teams;
 /// <summary>Sends the email for a stored invitation. The Gateway names the invitation, never an address.</summary>
 public interface ITeamInvitationMailer
 {
-    /// <summary>Send the email for <paramref name="invitationId"/>. Never throws for a refusal or an unreachable
-    /// website: the invitation is already stored, so the result says the email was not sent, and why.</summary>
-    Task<TeamInvitationMailResult> SendAsync(string invitationId, CancellationToken ct = default);
+    /// <summary>Send the email for <paramref name="invitationId"/>, whose link carries <paramref name="acceptToken"/>.
+    /// Never throws for a refusal or an unreachable website: the invitation is already stored, so the result says the
+    /// email was not sent, and why.</summary>
+    Task<TeamInvitationMailResult> SendAsync(string invitationId, string acceptToken, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -31,10 +32,12 @@ public sealed class TeamInvitationMailer : ITeamInvitationMailer
         _serviceToken = serviceToken ?? AccountNotifyByTenantClient.ResolveServiceToken;
     }
 
-    public async Task<TeamInvitationMailResult> SendAsync(string invitationId, CancellationToken ct = default)
+    public async Task<TeamInvitationMailResult> SendAsync(string invitationId, string acceptToken, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(invitationId))
             throw new ArgumentException("An invitation id is required", nameof(invitationId));
+        if (string.IsNullOrWhiteSpace(acceptToken))
+            throw new ArgumentException("The invitation link's token is required", nameof(acceptToken));
 
         var token = _serviceToken();
         if (token is null)
@@ -47,7 +50,7 @@ public sealed class TeamInvitationMailer : ITeamInvitationMailer
 
         try
         {
-            return await _client.SendInvitationAsync(token, invitationId, ct).ConfigureAwait(false);
+            return await _client.SendInvitationAsync(token, invitationId, acceptToken, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException) && !ct.IsCancellationRequested)
         {

@@ -99,6 +99,14 @@ public sealed class TeamInvitationRulesTests
     }
 
     [Fact]
+    public void HashAcceptToken_IsLowerCaseHexSha256_TheFormTheWebsiteComputesToo()
+    {
+        // sha256("abc"), the published test vector - the website's crypto.createHash('sha256') gives the same.
+        Assert.Equal("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", TeamInvitationRules.HashAcceptToken("abc"));
+        Assert.Throws<ArgumentException>(() => TeamInvitationRules.HashAcceptToken(""));
+    }
+
+    [Fact]
     public void NormalizeEmail_LongerThanTheLimit_IsNull()
     {
         var tooLong = new string('a', TeamInvitationRules.MaxEmailLength) + "@example.com";
