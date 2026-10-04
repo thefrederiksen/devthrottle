@@ -313,4 +313,122 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.Unauthorized, status);
     }
+
+    // ---- The Collaborator's app (devthrottle_internal#2306) ---------------------------------------------------------
+
+    /// <summary>
+    /// Every Cockpit page a Collaborator cannot open, and the Gateway reads that page makes when it loads - read from
+    /// the page's client in packages/client-core. Each must be a real endpoint on the hosted route table, so a renamed
+    /// endpoint turns this red instead of leaving the proof about an address nothing serves.
+    /// </summary>
+    public static readonly (string Page, string[] Reads)[] PagesACollaboratorCannotOpen =
+    {
+        ("Fleet Manager", new[] { "/gateway/fleet-manager" }),
+        ("Sessions", new[] { "/sessions" }),
+        ("A session", new[] { "/sessions/{sid}/buffer", "/sessions/{sid}/turn-verdicts" }),
+        ("Fleet Map", new[] { "/sessions", "/directors" }),
+        ("History", new[] { "/history/report" }),
+        ("Directors", new[] { "/directors" }),
+        ("Schedule", new[] { "/cron/jobs" }),
+        ("Workflows", new[] { "/gateway/workflows" }),
+        ("Skills", new[] { "/gateway/skills" }),
+        ("Dictionary", new[] { "/ingest/dictionary" }),
+        ("Voice Recorder", new[] { "/ingest/recordings" }),
+        ("Transcription", new[] { "/voice-quality/summary" }),
+        ("Your Throttle", new[] { "/stats/data" }),
+        ("Settings", new[] { "/gateway/settings", "/gateway/mentor-report" }),
+        ("Account", new[] { "/account/status", "/account/devices" }),
+        ("About", new[] { "/gateway/about" }),
+    };
+
+    [Fact]
+    public void Issue2306_ACollaboratorInTheTeam_TheDataBehindEveryPageTheyCannotOpen_IsRefused()
+    {
+        var asked = 0;
+        foreach (var (page, reads) in PagesACollaboratorCannotOpen)
+        {
+            foreach (var pattern in reads)
+            {
+                Assert.True(_routes.Contains(("GET", pattern)), $"{page}: GET {pattern} is not an endpoint on the hosted route table.");
+                foreach (var whose in new[] { TeamOwnership.Callers, TeamOwnership.SomeoneElses })
+                {
+                    var verdict = Ask("GET", pattern, _collaborator, whose);
+                    _output.WriteLine($"{page}: GET {pattern} ({whose}) -> {verdict.Outcome}: {verdict.Message}");
+                    Assert.True(verdict.Outcome == TeamGateOutcome.Refused,
+                        $"{page}: GET {pattern} ({whose}) was {verdict.Outcome} for a Collaborator in the team.");
+                    asked++;
+                }
+            }
+        }
+        _output.WriteLine($"{asked} Collaborator reads behind {PagesACollaboratorCannotOpen.Length} pages, every one refused.");
+    }
+
+    [Fact]
+    public async Task Issue2306_OverTheWire_AKeyBoundToTheTeam_GetsNoDataBehindAnyPageACollaboratorCannotOpen()
+    {
+        // A key bound to the team's tenant, held by its Collaborator: what a request from inside the team would carry.
+        // Today the hosted device registry does not accept it at all (see the test above it), so every read is
+        // refused before it reaches the gate; the gate's own answer for each read is the test before this one.
+        var key = _gateway.Devices.Register("dev-walk-collab-team-bound", "M-collab").DeviceKey;
+        _gateway.Devices.SetAccountBinding("dev-walk-collab-team-bound", _collaborator, _team);
+
+        foreach (var pattern in PagesACollaboratorCannotOpen.SelectMany(p => p.Reads).Distinct())
+        {
+            var path = pattern.Replace("{sid}", "00000000-0000-0000-0000-000000000001", StringComparison.Ordinal).TrimStart('/');
+            var (status, _) = await Get(path, key);
+            _output.WriteLine($"GET /{path} with a team-bound Collaborator key -> {(int)status}");
+            Assert.Equal(HttpStatusCode.Unauthorized, status);
+        }
+    }
+
+    [Theory]
+    [InlineData(TeamRole.Owner, true)]
+    [InlineData(TeamRole.Manager, true)]
+    [InlineData(TeamRole.Developer, true)]
+    [InlineData(TeamRole.Collaborator, false)]
+    public async Task Issue2306_OverTheWire_TheTeamListCarriesEachRolesPageVerdict(TeamRole role, bool fullApp)
+    {
+        var key = Enroll("dev-walk-app-" + role, SubjectFor(role));
+
+        var (status, body) = await Get("teams", key);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var team = body.GetProperty("teams").EnumerateArray().Single(t => t.GetProperty("id").GetString() == _team);
+        var app = team.GetProperty("app");
+        Assert.Equal(fullApp, app.GetProperty("full").GetBoolean());
+        Assert.Equal(new[] { "/questions", "/requests", "/reports" },
+            app.GetProperty("pages").EnumerateArray().Select(p => p.GetProperty("path").GetString()));
+        if (fullApp)
+        {
+            Assert.Equal(JsonValueKind.Null, app.GetProperty("elsewhere").ValueKind);
+        }
+        else
+        {
+            Assert.Equal("/questions", app.GetProperty("landing").GetString());
+            Assert.Equal("This page is not available to Collaborators.", app.GetProperty("elsewhere").GetString());
+        }
+    }
+
+    [Theory]
+    [InlineData("questions")]
+    [InlineData("requests")]
+    [InlineData("reports")]
+    public async Task Issue2306_OverTheWire_EachTeamPageAddress_IsServedTheCockpit(string page)
+    {
+        var key = Enroll("dev-walk-page-" + page, _collaborator);
+        using var req = new HttpRequestMessage(HttpMethod.Get, page);
+        req.Headers.Accept.ParseAdd("text/html");
+        req.Headers.Add("Cookie", $"cc-gateway-token={key}");
+
+        using var resp = await _http.SendAsync(req);
+        var text = await resp.Content.ReadAsStringAsync();
+
+        // The Cockpit answered: the page when it is built into this host, or its own "not built" answer in a test host
+        // that has none - never a Gateway endpoint's JSON under the same address.
+        _output.WriteLine($"GET /{page} (text/html) -> {(int)resp.StatusCode}");
+        Assert.True(resp.StatusCode == HttpStatusCode.OK
+                ? text.Contains("<html", StringComparison.OrdinalIgnoreCase)
+                : resp.StatusCode == HttpStatusCode.NotFound && text.Contains("React Cockpit not built", StringComparison.Ordinal),
+            $"/{page} was answered by something other than the Cockpit: {(int)resp.StatusCode} {text}");
+    }
 }

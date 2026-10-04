@@ -8,8 +8,8 @@ import { TeamSwitcher } from "./TeamSwitcher";
 // The team switcher at the top of the rail (devthrottle_internal#2312, S11). Its whole contract is in these cases:
 // no team - nothing at all; one team; several teams, each with the person's role; and a Gateway that offers no teams.
 
-const DEVTHROTTLE: TeamSummary = { id: "team-dt", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people" };
-const PAULS: TeamSummary = { id: "team-paul", name: "Paul's project", role: "Developer", memberCount: 2, people: "2 people" };
+const DEVTHROTTLE: TeamSummary = { id: "team-dt", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people", app: { full: true, pages: [], landing: null, elsewhere: null } };
+const PAULS: TeamSummary = { id: "team-paul", name: "Paul's project", role: "Developer", memberCount: 2, people: "2 people", app: { full: true, pages: [], landing: null, elsewhere: null } };
 
 function loader(answer: MyTeamsAnswer | Error): () => Promise<MyTeamsAnswer> {
   return () => (answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer));

@@ -22,6 +22,35 @@ export interface TeamSummary {
   memberCount: number;
   /** The Gateway's own wording of the member count: "1 person", "5 people". */
   people: string;
+  /** What this person's Cockpit is in this team - the Gateway's verdict from the role table (devthrottle_internal#2306).
+   *  The Cockpit renders it; it never works the page list out from `role`. */
+  app: TeamApp;
+}
+
+/** One page a role may open in a team, as the Gateway names it. */
+export interface TeamAppPage {
+  id: string;
+  label: string;
+  path: string;
+}
+
+/** The Gateway's page verdict for one person in one team: the whole Cockpit, or only some pages. */
+export type TeamApp = FullTeamApp | TeamPagesApp;
+
+/** The whole Cockpit. `pages` are the team pages this person may also open. */
+export interface FullTeamApp {
+  full: true;
+  pages: TeamAppPage[];
+  landing: null;
+  elsewhere: null;
+}
+
+/** Only `pages`, and nothing else: the Cockpit opens on `landing`, and every other address shows `elsewhere`. */
+export interface TeamPagesApp {
+  full: false;
+  pages: TeamAppPage[];
+  landing: string;
+  elsewhere: string;
 }
 
 /** What GET /teams answered. */
@@ -83,5 +112,26 @@ function readTeam(raw: unknown): TeamSummary {
   ) {
     throw new GatewayError(502, "The Gateway sent a team the Cockpit cannot read: it is missing its id, name, role or size.");
   }
-  return { id: t.id, name: t.name, role: t.role, memberCount: t.memberCount, people: t.people };
+  return { id: t.id, name: t.name, role: t.role, memberCount: t.memberCount, people: t.people, app: readApp(t.app) };
+}
+
+const UNREADABLE_APP =
+  "The Gateway sent a team without the pages its member may open, so the Cockpit cannot tell what to show in it.";
+
+function readApp(raw: unknown): TeamApp {
+  const a = (raw ?? {}) as Partial<Record<keyof TeamApp, unknown>>;
+  if (typeof a.full !== "boolean" || !Array.isArray(a.pages)) throw new GatewayError(502, UNREADABLE_APP);
+  const pages = a.pages.map((p: unknown) => {
+    const page = (p ?? {}) as Partial<Record<keyof TeamAppPage, unknown>>;
+    if (typeof page.id !== "string" || typeof page.label !== "string" || typeof page.path !== "string") {
+      throw new GatewayError(502, UNREADABLE_APP);
+    }
+    return { id: page.id, label: page.label, path: page.path };
+  });
+  if (a.full) return { full: true, pages, landing: null, elsewhere: null };
+  // A limited app must say where it opens and what every other address says; without both it cannot be drawn.
+  if (pages.length === 0 || typeof a.landing !== "string" || typeof a.elsewhere !== "string") {
+    throw new GatewayError(502, UNREADABLE_APP);
+  }
+  return { full: false, pages, landing: a.landing, elsewhere: a.elsewhere };
 }

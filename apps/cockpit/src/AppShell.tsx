@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useKeepWarm } from "@devthrottle/client-core/net/useKeepWarm";
 import { getSuggestionCount } from "@devthrottle/client-core/dictation/dictionaryClient";
 import { resumePendingDictations } from "@devthrottle/client-core/dictation/backgroundSend";
@@ -8,8 +8,12 @@ import { CockpitStatusPill } from "./network/CockpitStatusPill";
 import { StopSessionProvider } from "./sessions/StopSessionProvider";
 import { useFleetManagerWaitingCount } from "./fleetmanager/useWaitingCount";
 import { useFactorySwitch } from "./factory/useFactorySwitch";
-import { CurrentTeamProvider } from "@devthrottle/client-core/teams/CurrentTeam";
+import { CurrentTeamProvider, useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
+import type { TeamPagesApp, TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 import { TeamSwitcher } from "./teams/TeamSwitcher";
+import { TeamPagesOnly } from "./teams/collaborator/TeamPagesOnly";
+import "./teams/collaborator/collaborator.css";
+import { Button, LoadingState } from "./components";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
 // pane (the routed page). The main pane fills all remaining width. Desktop-first: the frame stays
@@ -54,7 +58,7 @@ import { TeamSwitcher } from "./teams/TeamSwitcher";
 interface NavItem {
   to: string;
   label: string;
-  icon: NavIconName;
+  icon?: NavIconName;
   subtree?: string;
   // When set, the item is an EXTERNAL link opened in a new tab rather than an in-app route: it renders
   // a plain anchor to this absolute URL instead of a NavLink, and `to` is ignored. Used for Help, which
@@ -147,8 +151,43 @@ function initialRailCollapsed(): boolean {
   }
 }
 
+// THE TEAM PAGES' ICONS (devthrottle_internal#2306). Which pages a person may open in a team, their names and their
+// addresses are the Gateway's verdict (rule 7); only the drawing is the Cockpit's. A page the Gateway names that has
+// no drawing here is still listed, with its name alone.
+const TEAM_PAGE_ICONS: Readonly<Record<string, NavIconName>> = {
+  questions: "questions",
+  requests: "requests",
+  reports: "reports",
+};
+
+/** The rail of a Cockpit that is only the Gateway's pages: those, in the Gateway's order, and nothing else. */
+function teamPagesNav(app: TeamPagesApp): NavItem[] {
+  return app.pages.map((page) => ({ to: page.path, label: page.label, icon: TEAM_PAGE_ICONS[page.id] }));
+}
+
+/** The team's verdict when it makes the Cockpit only some pages; null when it does not, or there is no team. */
+function pagesOnly(team: TeamSummary | null): TeamPagesApp | null {
+  return team !== null && !team.app.full ? team.app : null;
+}
+
+// THE CURRENT TEAM IS OWNED HERE (devthrottle_internal#2312): the switcher in the rail writes it and the routed pages
+// read it, so it must outlive every route change. The frame inside reads it to draw the rail and the main pane
+// (devthrottle_internal#2306).
 export function AppShell() {
+  return (
+    <CurrentTeamProvider>
+      <ShellFrame />
+    </CurrentTeamProvider>
+  );
+}
+
+function ShellFrame() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const team = useCurrentTeam();
+  // A team whose verdict is "only these pages" - a Collaborator's (devthrottle_internal#2306). Null for the person's own
+  // account, for a person with no team, and for a team where they get the whole app: all of those see today's Cockpit.
+  const teamPages = pagesOnly(team.current);
   // Keep-warm heartbeat (P2): hold the direct LAN path open during active use.
   useKeepWarm();
 
@@ -200,7 +239,7 @@ export function AppShell() {
       ? NAV_MAIN.flatMap((item) => (item.to === "/fleet-map" ? [item, FACTORY_AGENTS_ITEM] : [item]))
       : NAV_MAIN;
 
-  const mainNav = railItems.map((item) =>
+  const fullNav = railItems.map((item) =>
     item.to === "/dictionary"
       ? { ...item, badge: suggestCount }
       : item.to === "/fleet-manager"
@@ -214,46 +253,87 @@ export function AppShell() {
   // unread, by the refresh that the stop itself caused. This provider outlives every route change, so
   // neither the outstanding request nor the Gateway's answer can go with the row.
   //
-  // THE CURRENT TEAM IS OWNED HERE TOO (devthrottle_internal#2312), for the same reason: the switcher in the rail
-  // writes it and the routed pages read it, so it must outlive every route change.
-  return (
-    <CurrentTeamProvider>
-      <StopSessionProvider>
-        <div className={railCollapsed ? "shell shell-rail-collapsed" : "shell"}>
-          <nav className="rail rail-left" aria-label="Primary">
-            <div className="rail-head">
-              {!railCollapsed && <div className="brand">DevThrottle</div>}
-              {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
-                  is the one row still in reach, pointing the way back. */}
-              <button
-                type="button"
-                className="rail-toggle"
-                data-testid="rail-toggle"
-                aria-expanded={!railCollapsed}
-                aria-label={railCollapsed ? "Expand the menu" : "Collapse the menu"}
-                title={railCollapsed ? "Expand the menu" : "Collapse the menu"}
-                onClick={toggleRail}
-              >
-                <Chevron pointing={railCollapsed ? "right" : "left"} />
-              </button>
-            </div>
-            {/* The team switcher sits at the top of the rail on every screen (S11). It renders nothing for a person
-                with no team, so their rail is exactly as it was. */}
-            {!railCollapsed && <TeamSwitcher />}
-            {!railCollapsed && <CockpitStatusPill />}
-            <div className="nav">
-              <NavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
-              <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={railCollapsed} />
-            </div>
-            {!railCollapsed && <div className="rail-foot">Cockpit (React)</div>}
-          </nav>
+  //
+  // While this browser remembers a team the Gateway has not confirmed yet (CurrentTeam's `resolving`), the rail and the
+  // page wait: drawing the whole app first would flash pages a Collaborator may not open. It never happens to a person
+  // who has never picked a team.
+  const mainNav = team.resolving ? [] : teamPages !== null ? teamPagesNav(teamPages) : fullNav;
+  const shellClass = ["shell", railCollapsed ? "shell-rail-collapsed" : "", teamPages !== null ? "shell-team-pages" : ""]
+    .filter((c) => c.length > 0)
+    .join(" ");
 
-          <main className="main-pane" aria-label="Main">
+  // Picking a team opens it where it starts: a pages-only team on its landing page; and leaving one goes back to the
+  // Cockpit's own start, since the page on screen was one only that team had.
+  const onSwitched = (now: TeamSummary | null, before: TeamSummary | null) => {
+    const nowPages = pagesOnly(now);
+    if (nowPages !== null) navigate(nowPages.landing);
+    else if (pagesOnly(before) !== null) navigate("/");
+  };
+
+  return (
+    <StopSessionProvider>
+      <div className={shellClass}>
+        <nav className="rail rail-left" aria-label="Primary">
+          <div className="rail-head">
+            {!railCollapsed && <div className="brand">DevThrottle</div>}
+            {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
+                is the one row still in reach, pointing the way back. */}
+            <button
+              type="button"
+              className="rail-toggle"
+              data-testid="rail-toggle"
+              aria-expanded={!railCollapsed}
+              aria-label={railCollapsed ? "Expand the menu" : "Collapse the menu"}
+              title={railCollapsed ? "Expand the menu" : "Collapse the menu"}
+              onClick={toggleRail}
+            >
+              <Chevron pointing={railCollapsed ? "right" : "left"} />
+            </button>
+          </div>
+          {/* The team switcher sits at the top of the rail on every screen (S11). It renders nothing for a person
+              with no team, so their rail is exactly as it was. */}
+          {!railCollapsed && <TeamSwitcher onSwitched={onSwitched} />}
+          {!railCollapsed && teamPages === null && <CockpitStatusPill />}
+          <div className="nav">
+            <NavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
+            {/* A pages-only Cockpit is those pages and nothing else: no account, settings or help rows. */}
+            {teamPages === null && !team.resolving && (
+              <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={railCollapsed} />
+            )}
+          </div>
+          {!railCollapsed && <div className="rail-foot">Cockpit (React)</div>}
+        </nav>
+
+        <main className="main-pane" aria-label="Main">
+          {team.resolving && team.status === "error" ? (
+            <TeamUnreadable error={team.error} onOwnAccount={() => team.choose(null)} />
+          ) : team.resolving ? (
+            <LoadingState message="Loading your team..." />
+          ) : teamPages !== null ? (
+            <TeamPagesOnly app={teamPages} />
+          ) : (
             <Outlet />
-          </main>
-        </div>
-      </StopSessionProvider>
-    </CurrentTeamProvider>
+          )}
+        </main>
+      </div>
+    </StopSessionProvider>
+  );
+}
+
+// The team this browser remembers could not be confirmed because the list of teams could not be read. Which pages the
+// person may open there is unknown, so none is drawn; the read is being asked again by itself, and the person can go
+// to their own account meanwhile rather than wait on a screen with nothing in it.
+function TeamUnreadable({ error, onOwnAccount }: { error: string | null; onOwnAccount: () => void }) {
+  return (
+    <section className="pane" data-testid="team-unreadable">
+      <h1 className="pane-title">Your team could not be opened just now</h1>
+      <p className="pane-note">
+        {error ?? "Your teams could not be read."} DevThrottle is trying again by itself.
+      </p>
+      <div className="team-unreadable-actions">
+        <Button onClick={onOwnAccount}>Open your own account instead</Button>
+      </div>
+    </section>
   );
 }
 
@@ -285,7 +365,7 @@ function NavList({
                 rel="noopener noreferrer"
                 title={collapsed ? item.label : undefined}
               >
-                <NavIcon name={item.icon} />
+                {item.icon !== undefined && <NavIcon name={item.icon} />}
                 <span className="nav-link-label">{item.label}</span>
               </a>
             ) : (
@@ -299,7 +379,7 @@ function NavList({
                    stays in the DOM for the accessible name; the hover text is for the eye. */
                 title={collapsed ? item.label : undefined}
               >
-                <NavIcon name={item.icon} />
+                {item.icon !== undefined && <NavIcon name={item.icon} />}
                 <span className="nav-link-label">{item.label}</span>
                 {item.badge !== undefined && item.badge > 0 && (
                   <span className="nav-badge" title={item.badgeTitle ?? `${item.badge} pending`}>

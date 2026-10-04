@@ -9,6 +9,19 @@ import { getMyTeams, TEAMS_NOT_RELEASED_REASON } from "./teamsClient";
 
 const APP_SHELL = '<!doctype html><html><head><title>DevThrottle Cockpit</title></head><body><div id="root"></div></body></html>';
 
+const FULL = { full: true, pages: [], landing: null, elsewhere: null };
+const COLLABORATOR_APP = {
+  full: false,
+  pages: [
+    { id: "questions", label: "Questions", path: "/questions" },
+    { id: "requests", label: "Requests", path: "/requests" },
+    { id: "reports", label: "Reports", path: "/reports" },
+  ],
+  landing: "/questions",
+  elsewhere: "This page is not available to Collaborators.",
+};
+const FULL_JSON = JSON.stringify(FULL);
+
 function respond(body: string, contentType: string, status = 200): Response {
   return new Response(body, { status, headers: { "Content-Type": contentType } });
 }
@@ -24,8 +37,8 @@ describe("getMyTeams", () => {
         JSON.stringify({
           count: 2,
           teams: [
-            { id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people" },
-            { id: "t2", name: "Paul's project", role: "Developer", memberCount: 1, people: "1 person" },
+            { id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people", app: FULL },
+            { id: "t2", name: "Paul's project", role: "Collaborator", memberCount: 1, people: "1 person", app: COLLABORATOR_APP },
           ],
         }),
         "application/json; charset=utf-8",
@@ -38,8 +51,8 @@ describe("getMyTeams", () => {
     expect(answer).toEqual({
       kind: "teams",
       teams: [
-        { id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people" },
-        { id: "t2", name: "Paul's project", role: "Developer", memberCount: 1, people: "1 person" },
+        { id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people", app: FULL },
+        { id: "t2", name: "Paul's project", role: "Collaborator", memberCount: 1, people: "1 person", app: COLLABORATOR_APP },
       ],
     });
     expect(fetchMock.mock.calls[0][0]).toBe("/teams");
@@ -87,20 +100,54 @@ describe("getMyTeams", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        respond('{"teams":[{"id":"t","name":"n","role":"Billing admin","memberCount":1,"people":"1 person"}]}', "application/json"),
+        respond('{"teams":[{"id":"t","name":"n","role":"Billing admin","memberCount":1,"people":"1 person","app":' + FULL_JSON + '}]}', "application/json"),
       ),
     );
     expect(await getMyTeams()).toEqual({
       kind: "teams",
-      teams: [{ id: "t", name: "n", role: "Billing admin", memberCount: 1, people: "1 person" }],
+      teams: [{ id: "t", name: "n", role: "Billing admin", memberCount: 1, people: "1 person", app: FULL }],
     });
   });
 
   it("GetMyTeams_AnEmptyRole_Throws", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(respond('{"teams":[{"id":"t","name":"n","role":" ","memberCount":1,"people":"1 person"}]}', "application/json")),
+      vi.fn().mockResolvedValue(respond('{"teams":[{"id":"t","name":"n","role":" ","memberCount":1,"people":"1 person","app":' + FULL_JSON + '}]}', "application/json")),
     );
     await expect(getMyTeams()).rejects.toThrow(/cannot read/);
+  });
+
+  // devthrottle_internal#2306: the page verdict is the Gateway's and is carried verbatim; a team without one cannot be
+  // drawn, so the read fails loudly rather than guessing a page list from the role.
+  it("GetMyTeams_ATeamWithNoPageVerdict_Throws", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        respond('{"teams":[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person"}]}', "application/json"),
+      ),
+    );
+    await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);
+  });
+
+  it("GetMyTeams_ALimitedAppWithNoLandingOrSentence_Throws", async () => {
+    const app = JSON.stringify({ ...COLLABORATOR_APP, landing: null });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        respond(`{"teams":[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person","app":${app}}]}`, "application/json"),
+      ),
+    );
+    await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);
+  });
+
+  it("GetMyTeams_APageWithoutAnAddress_Throws", async () => {
+    const app = JSON.stringify({ ...COLLABORATOR_APP, pages: [{ id: "questions", label: "Questions" }] });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        respond(`{"teams":[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person","app":${app}}]}`, "application/json"),
+      ),
+    );
+    await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);
   });
 });

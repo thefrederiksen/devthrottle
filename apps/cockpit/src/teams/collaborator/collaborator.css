@@ -1,0 +1,61 @@
+/* The team pages of devthrottle_internal#2306 (screens S8-S10) and the "not available" page. */
+.team-page {
+  max-width: 760px;
+}
+
+.team-not-available-title {
+  font-size: 18px;
+}
+
+.team-unreadable-actions {
+  margin-top: 16px;
+}
+
+/* A PHONE-WIDE COLLABORATOR'S COCKPIT (devthrottle_internal#2306). Three pages need no side rail: on a narrow screen the
+   rail becomes a bar across the top - the name, the team switcher, and the three pages side by side - and the page
+   fills the width below it. Only the pages-only shell changes; the whole app is untouched. */
+@media (max-width: 600px) {
+  .shell.shell-team-pages {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .shell-team-pages .rail-left {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 10px 12px;
+    overflow: visible;
+  }
+
+  /* The collapse control has nothing to give back when the rail is a bar. */
+  .shell-team-pages .rail-toggle,
+  .shell-team-pages .rail-foot {
+    display: none;
+  }
+
+  .shell-team-pages .rail-head {
+    padding-bottom: 8px;
+  }
+
+  .shell-team-pages .team-switcher {
+    margin-bottom: 8px;
+  }
+
+  .shell-team-pages .nav-list {
+    display: flex;
+    gap: 4px;
+  }
+
+  .shell-team-pages .nav-list > li {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .shell-team-pages .nav-link {
+    justify-content: center;
+  }
+
+  .shell-team-pages .main-pane {
+    min-width: 0;
+  }
+}

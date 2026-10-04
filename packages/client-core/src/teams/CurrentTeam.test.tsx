@@ -12,8 +12,8 @@ vi.mock("../auth/accountStore", () => ({
   activeAccount: () => (accountState.id === null ? null : { id: accountState.id }),
 }));
 
-const TEAM_A: TeamSummary = { id: "team-a", name: "Alpha", role: "Manager", memberCount: 3, people: "3 people" };
-const TEAM_B: TeamSummary = { id: "team-b", name: "Beta", role: "Developer", memberCount: 2, people: "2 people" };
+const TEAM_A: TeamSummary = { id: "team-a", name: "Alpha", role: "Manager", memberCount: 3, people: "3 people", app: { full: true, pages: [], landing: null, elsewhere: null } };
+const TEAM_B: TeamSummary = { id: "team-b", name: "Beta", role: "Developer", memberCount: 2, people: "2 people", app: { full: true, pages: [], landing: null, elsewhere: null } };
 
 let seen: CurrentTeamState | null = null;
 function Probe() {

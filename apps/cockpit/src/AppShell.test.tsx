@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 
 // The left rail's ORDER is a product decision, not an accident of the array literal, so it is pinned
 // here: the Fleet Manager first (the Fleet Manager mission, step 6 - it replaced the Assistant), then Sessions,
@@ -34,7 +35,7 @@ vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => ({
 // The person's teams (devthrottle_internal#2312). The switcher at the top of the rail follows the Gateway's answer.
 const myTeams = vi.hoisted(() => ({
   answer: { kind: "teams", teams: [] } as
-    | { kind: "teams"; teams: Array<{ id: string; name: string; role: string; memberCount: number; people: string }> }
+    | { kind: "teams"; teams: TeamSummary[] }
     | { kind: "not-offered"; reason: string }
     | Error,
 }));
@@ -214,7 +215,16 @@ describe("Cockpit left rail", () => {
   it("puts the team switcher at the top of the rail, above the navigation, for a person in a team", async () => {
     myTeams.answer = {
       kind: "teams",
-      teams: [{ id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people" }],
+      teams: [
+        {
+          id: "t1",
+          name: "DevThrottle",
+          role: "Owner",
+          memberCount: 5,
+          people: "5 people",
+          app: { full: true, pages: [], landing: null, elsewhere: null },
+        },
+      ],
     };
     render(
       <MemoryRouter initialEntries={["/sessions"]}>

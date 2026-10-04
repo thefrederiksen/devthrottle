@@ -186,7 +186,8 @@ internal static class TeamEndpoints
         });
     }
 
-    /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team.</summary>
+    /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team, and <c>app</c> is what
+    /// the caller's Cockpit is in it (<see cref="TeamApp"/>, devthrottle_internal#2306).</summary>
     private static object Describe(TeamSummary team) => new
     {
         id = team.TeamId,
@@ -194,6 +195,16 @@ internal static class TeamEndpoints
         role = TeamRoles.Label(team.Role),
         memberCount = team.MemberCount,
         people = team.MemberCount == 1 ? "1 person" : $"{team.MemberCount} people",
+        app = DescribeApp(TeamApp.For(team.Role)),
+    };
+
+    /// <summary>The page verdict on the wire.</summary>
+    internal static object DescribeApp(TeamAppVerdict app) => new
+    {
+        full = app.FullApp,
+        pages = app.Pages.Select(p => new { id = p.Id, label = p.Label, path = p.Path }).ToList(),
+        landing = app.Landing,
+        elsewhere = app.Elsewhere,
     };
 
     private static IResult Guarded(string route, Func<IResult> handle)

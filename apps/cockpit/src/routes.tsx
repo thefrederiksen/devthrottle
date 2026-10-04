@@ -34,6 +34,10 @@ import { AboutView } from "./about/AboutView";
 import { SettingsView } from "./settings/SettingsView";
 import { InviteView } from "./team/InviteView";
 import { AcceptInviteView } from "./team/AcceptInviteView";
+import { TeamPageRoute } from "./teams/collaborator/TeamPageRoute";
+import { QuestionsPage } from "./teams/collaborator/QuestionsPage";
+import { RequestsPage } from "./teams/collaborator/RequestsPage";
+import { ReportsPage } from "./teams/collaborator/ReportsPage";
 
 // THE COCKPIT'S ROUTE TABLE, IN ONE PLACE THE TESTS CAN MOUNT (dev reports mission, phase 3b).
 //
@@ -209,6 +213,13 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // navigation entry yet: Teams is dark until the owner releases it, and while it is the Gateway answers this
           // page's reads with "not available".
           { path: "/team/:teamId/invite", element: <InviteView /> },
+          // The team pages (screens S8-S10, devthrottle_internal#2306): a Collaborator's whole app in a team, and open to
+          // anyone else the Gateway's page verdict lists them for. Outside such a team each is the ordinary "Page not
+          // found". The content of each is its own issue - Questions #2307, Requests #2308, Reports #2309 - filled in
+          // the page component alone; neither the route nor the rail changes for it.
+          { path: "/questions", element: <TeamPageRoute pageId="questions"><QuestionsPage /></TeamPageRoute> },
+          { path: "/requests", element: <TeamPageRoute pageId="requests"><RequestsPage /></TeamPageRoute> },
+          { path: "/reports", element: <TeamPageRoute pageId="reports"><ReportsPage /></TeamPageRoute> },
           // Injected text is a tab of Settings now, not a page of its own (issue #550). The old route
           // redirects into that tab - the same way /mic-test and /transcription-test redirect into the
           // Transcription tab on the phone - so existing bookmarks land on what they asked for.

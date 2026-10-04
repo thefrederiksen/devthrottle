@@ -69,6 +69,30 @@ public sealed class TeamEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task ListTeams_ACollaboratorAndADeveloper_EachTeamCarriesThePageVerdictForTheCallersRole()
+    {
+        var collab = _teams.CreateTeam(Bob, "DevThrottle").Team!;
+        _teams.AddMember(collab.TeamId, Alice, TeamRole.Collaborator);
+        var dev = _teams.CreateTeam(Bob, "Paul's project").Team!;
+        _teams.AddMember(dev.TeamId, Alice, TeamRole.Developer);
+
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice));
+
+        var byId = body.GetProperty("teams").EnumerateArray().ToDictionary(t => t.GetProperty("id").GetString()!, t => t.GetProperty("app"));
+        var asCollaborator = byId[collab.TeamId];
+        Assert.False(asCollaborator.GetProperty("full").GetBoolean());
+        Assert.Equal(new[] { "Questions|/questions", "Requests|/requests", "Reports|/reports" },
+            asCollaborator.GetProperty("pages").EnumerateArray().Select(p => $"{p.GetProperty("label").GetString()}|{p.GetProperty("path").GetString()}"));
+        Assert.Equal("/questions", asCollaborator.GetProperty("landing").GetString());
+        Assert.Equal("This page is not available to Collaborators.", asCollaborator.GetProperty("elsewhere").GetString());
+
+        var asDeveloper = byId[dev.TeamId];
+        Assert.True(asDeveloper.GetProperty("full").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, asDeveloper.GetProperty("landing").ValueKind);
+        Assert.Equal(JsonValueKind.Null, asDeveloper.GetProperty("elsewhere").ValueKind);
+    }
+
+    [Fact]
     public async Task CreateTeam_ValidName_Answers201WithTheCallerAsOwner()
     {
         var (status, body) = await RenderAsync(TeamEndpoints.CreateTeam(_teams, Alice, new TeamEndpoints.CreateTeamRequest("Acme")));
