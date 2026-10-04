@@ -196,3 +196,24 @@ CONTINUOUS INTEGRATION 37225566489 on 70698b569: 3 failures in Gateway.Tests, ev
       Half A: Passed: 3199, Failed: 0, Total: 3199
       Half B: Passed: 5293, Skipped: 8, Total: 5301
       Together 8,500 = the whole suite, 0 failed.
+REBASED onto origin/main f2c5c29a9 (after #3526 invitations, #3535, #3528 Director teams), before the CI rerun.
+
+22. The one conflict: TeamRegistry.CommitMembershipChange, where #3526 added the seat sync and this branch added the
+    membership event. Both kept: save, then the seat sync is STARTED, then the event is raised - so a listener that
+    throws after the commit can never stop the website being told. #3526's invitation accept now passes the person and
+    the role like every other call site.
+    The rebase showed one defect of THIS branch that only main's new Director code could catch: the contract's
+    EnrollSignedInRequest.TeamId serialised as "teamId":null, so the Director's personal enrollment body was no longer
+    the body sent before teams (#3528's HostedTeamEnrollRunnerTests x4 and EnrollTargetsTheDefaultDirectorTests x1 red).
+    TeamId is now left out of the JSON when null (as HealthDto.Teams is). Both setup suites: 676 and 35 passed.
+
+23. On the rebased head:
+    .\scripts	est-local.ps1 (default gate): every suite outcome=Completed, executed = total; 3,594 passed, 0 failed.
+      (A first run under 99% processor load had Core.UnitTests over the 120-second ceiling and one timing test each in
+      Avalonia.Tests (GitChangesViewHiddenTabTests) and Core.UnitTests (CodexWrappedComposerTests) red; both passed alone,
+      and the whole gate passed on the rerun above.)
+    Gateway.UnitTests, two halves: Half A Passed 3337, Skipped 1 (TeamInvitationProofRig, #3526's manual screen rig);
+      Half B Passed 5311, Skipped 8. Together 8,657, 0 failed.
+    Gateway.Tests, built with the Cockpit, filter HostedTeamsDarkTests|HostedTeamDirectorKeyTests|
+      HostedTeamDirectorKeyDarkTests|Invitation: Passed 25, Skipped 1 (AddTeamInvitationsPostgresTests, needs the
+      PostgreSQL this short run does not start), 0 failed.
