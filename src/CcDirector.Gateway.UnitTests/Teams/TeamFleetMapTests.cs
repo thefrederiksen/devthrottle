@@ -302,6 +302,7 @@ public sealed class TeamFleetMapTests : IDisposable
 
         Assert.Equal(TeamFleetMapDto.ScopeOwn, map.Scope);
         Assert.Empty(map.People);
+        Assert.Equal(TeamFleetMapDto.EmptyOwn, map.EmptyText);
     }
 
     [Fact]
@@ -341,10 +342,12 @@ public sealed class TeamFleetMapTests : IDisposable
         var manager = MapFor(Manager);
         Assert.Equal(new[] { "by-person", "by-director" }, manager.Layouts);
         Assert.Equal(TeamFleetMapDto.SummaryEveryone, manager.Summary);
+        Assert.Equal(TeamFleetMapDto.EmptyEveryone, manager.EmptyText);
 
         var developer = MapFor(Developer);
         Assert.Equal(new[] { "by-director" }, developer.Layouts);
         Assert.Equal(TeamFleetMapDto.SummaryOwn, developer.Summary);
+        Assert.Equal(TeamFleetMapDto.EmptyOwn, developer.EmptyText);
     }
 
     [Fact]
@@ -416,7 +419,7 @@ public sealed class TeamFleetMapDtoTests
     [Fact]
     public void TeamFleetMapDto_FieldSet_IsTheAllowList()
     {
-        Assert.Equal(new[] { "Layouts", "People", "Role", "Scope", "Summary", "TeamId", "TeamName" }, Fields<TeamFleetMapDto>());
+        Assert.Equal(new[] { "EmptyText", "Layouts", "People", "Role", "Scope", "Summary", "TeamId", "TeamName" }, Fields<TeamFleetMapDto>());
         Assert.Equal(new[] { "Directors", "IsYou", "Person" }, Fields<TeamFleetMapPerson>());
         Assert.Equal(new[] { "Machine", "Name", "Sessions" }, Fields<TeamFleetMapDirector>());
         Assert.Equal(new[] { "Name", "Status" }, Fields<TeamFleetMapSession>());
@@ -426,7 +429,7 @@ public sealed class TeamFleetMapDtoTests
     public void TeamFleetMapDto_OnTheWire_CarriesExactlyTheAllowedKeys()
     {
         var dto = new TeamFleetMapDto("t", "Team", "Owner", TeamFleetMapDto.ScopeEveryone, TeamFleetMapDto.SummaryEveryone,
-            TeamFleetMapDto.LayoutsEveryone,
+            TeamFleetMapDto.LayoutsEveryone, TeamFleetMapDto.EmptyEveryone,
             new[] { new TeamFleetMapPerson("a@example.com", true,
                 new[] { new TeamFleetMapDirector("D", "M", new[] { new TeamFleetMapSession("S", "working") }) }) });
 
@@ -434,7 +437,7 @@ public sealed class TeamFleetMapDtoTests
         static string[] Keys(JsonElement e) => e.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
 
         var root = doc.RootElement;
-        Assert.Equal(new[] { "layouts", "people", "role", "scope", "summary", "teamId", "teamName" }, Keys(root));
+        Assert.Equal(new[] { "emptyText", "layouts", "people", "role", "scope", "summary", "teamId", "teamName" }, Keys(root));
         var person = root.GetProperty("people")[0];
         Assert.Equal(new[] { "directors", "isYou", "person" }, Keys(person));
         var director = person.GetProperty("directors")[0];

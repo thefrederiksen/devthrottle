@@ -179,7 +179,7 @@ public sealed class TeamEndpointsTests : IDisposable
         Assert.Equal("DevThrottle", body.GetProperty("teamName").GetString());
         Assert.Equal("Owner", body.GetProperty("role").GetString());
         Assert.Equal("everyone", body.GetProperty("scope").GetString());
-        Assert.Equal(new[] { "layouts", "people", "role", "scope", "summary", "teamId", "teamName" },
+        Assert.Equal(new[] { "emptyText", "layouts", "people", "role", "scope", "summary", "teamId", "teamName" },
             body.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
     }
 

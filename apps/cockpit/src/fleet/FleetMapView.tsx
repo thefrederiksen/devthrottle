@@ -53,6 +53,8 @@ import {
 import { MissionsBoard, missionCounts } from "../missions/MissionsBoard";
 import { CrewLine } from "../sessions/CrewLine";
 import { NewSessionDialog } from "../sessions/NewSessionDialog";
+import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
+import { TeamFleetMapView } from "./TeamFleetMapView";
 
 // Per-Director reachability for the Online / Wobbly / Offline node rendering (issue #1215), provided at
 // the Fleet Map root and read by each NodeCard so the cards dim in place without prop-drilling.
@@ -181,7 +183,16 @@ interface Lane {
   directors: DirectorReachability[];
 }
 
+// THE FLEET MAP SHOWS ONE TEAM AT A TIME (devthrottle_internal#2312): the one picked in the team switcher. With a team
+// on screen it is that team's map, read from the Gateway and cut to what the person's role may see there
+// (TeamFleetMapView). With the person's own account on screen - always, for a person in no team - it is the map below,
+// exactly as it was before Teams existed.
 export function FleetMapView() {
+  const { current } = useCurrentTeam();
+  return current !== null ? <TeamFleetMapView team={current} /> : <OwnFleetMapView />;
+}
+
+function OwnFleetMapView() {
   const navigate = useNavigate();
   // The sessions, the Gateway's unreachable verdict, and the per-Director reachability all come from the
   // ONE shared roster store; lastError is its keep-last banner text. No poll of its own.

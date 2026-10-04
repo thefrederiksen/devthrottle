@@ -134,6 +134,7 @@ public sealed class TeamFleetMap
             onlyOwn ? TeamFleetMapDto.ScopeOwn : TeamFleetMapDto.ScopeEveryone,
             onlyOwn ? TeamFleetMapDto.SummaryOwn : TeamFleetMapDto.SummaryEveryone,
             onlyOwn ? TeamFleetMapDto.LayoutsOwn : TeamFleetMapDto.LayoutsEveryone,
+            onlyOwn ? TeamFleetMapDto.EmptyOwn : TeamFleetMapDto.EmptyEveryone,
             people);
 
         FileLog.Write($"[TeamFleetMap] Read: team {logTeam} role={decision.Role} scope={map.Scope} people={people.Count} " +
@@ -243,14 +244,18 @@ public sealed record TeamFleetMapResult(TeamFleetMapOutcome Outcome, TeamFleetMa
 /// <param name="Scope"><see cref="ScopeEveryone"/> for Owner and Manager; <see cref="ScopeOwn"/> for a Developer.</param>
 /// <param name="Summary">The sentence under the heading, decided here (rule 7).</param>
 /// <param name="Layouts">The layouts this caller is offered, in order, the first being where the map opens.</param>
+/// <param name="EmptyText">What the page says when <paramref name="People"/> is empty, decided here (rule 7).</param>
 public sealed record TeamFleetMapDto(string TeamId, string TeamName, string Role, string Scope, string Summary,
-    IReadOnlyList<string> Layouts, IReadOnlyList<TeamFleetMapPerson> People)
+    IReadOnlyList<string> Layouts, string EmptyText, IReadOnlyList<TeamFleetMapPerson> People)
 {
     public const string ScopeEveryone = "everyone";
     public const string ScopeOwn = "own";
 
     public const string SummaryEveryone = "Everyone's Directors on this team. Names and status only; sessions do not open.";
     public const string SummaryOwn = "Your Directors on this team.";
+
+    public const string EmptyEveryone = "No Director is on this team yet. A Director appears here once it is set up for this team.";
+    public const string EmptyOwn = "None of your Directors is on this team yet. A Director appears here once you set it up for this team.";
 
     public const string LayoutByPerson = "by-person";
     public const string LayoutByDirector = "by-director";
