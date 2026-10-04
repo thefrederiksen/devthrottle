@@ -56,3 +56,7 @@ called. After the run the driver reads the members back from the server and chec
 
 Also run, not saved as files: `dotnet test src\CcDirector.Gateway.UnitTests` - 8589 passed, 0 failed, 10 skipped;
 the Cockpit web suite 601 passed; the client-core web suite 1642 passed; `npm run typecheck` clean.
+
+## Review
+
+`review-2303.md`: the separate review of e10864530 with an answer to every finding. F1 to F3 accepted and fixed; F4 fixed in code, the seam document left to the Tech Lead.

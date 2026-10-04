@@ -52,3 +52,19 @@ suite is BUILT and run (never --no-build), and the source is restored in a final
     Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.ChangeRole_Route_BadRoleIs400_ManagerIs403_OwnerIs200AndTheServerHoldsIt [135 ms]
     Failed!  - Failed:     5, Passed:   582, Skipped:     1, Total:   588, Duration: 1 m 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
+Review F1 (an expired invitation), added after the review. Same method, filter FullyQualifiedName~TeamPageTests.
+
+=== F1.1 put back the reviewed behaviour
+    - CanCancel: i.State == TeamInvitationStates.Sent && TeamInvitationRules.MayInvite(callerRole, i.Role)))
+    + CanCancel: TeamInvitationRules.MayInvite(callerRole, i.Role)))  (the fix)
+    mutated back to the first line; exit code: 1
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.DescribeTeamPage_AnExpiredInvitation_IsListedWithResendAndCancel_AndIsNotCountedAsWaiting [124 ms]
+    Failed!  - Failed:     1, Passed:    45, Skipped:     0, Total:    46, Duration: 20 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+=== F1.2 put back the reviewed behaviour
+    - Summary(paid, free, mayInvite ? invitations.Count : null)
+    + Summary(paid, free, mayInvite ? waiting : null)  (the fix)
+    mutated back to the first line; exit code: 1
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.DescribeTeamPage_AnExpiredInvitation_IsListedWithResendAndCancel_AndIsNotCountedAsWaiting [294 ms]
+    Failed!  - Failed:     1, Passed:    45, Skipped:     0, Total:    46, Duration: 36 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
