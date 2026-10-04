@@ -39,3 +39,89 @@
   font-size: 12px;
   color: var(--text-dim);
 }
+
+/* The team's skills and workflows (devthrottle_internal#2304, screen S5). */
+.tl-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.tl-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tl-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.tl-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tl-summary,
+.tl-dim {
+  color: var(--text-dim);
+}
+
+.tl-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.tl-actions .wf-linklike + .wf-linklike {
+  margin-left: 12px;
+}
+
+.tl-empty,
+.tl-hint {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.tl-dialog {
+  max-width: 720px;
+  width: 100%;
+}
+
+.tl-text {
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  padding: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12.5px;
+}
+
+.tl-textarea {
+  width: 100%;
+  min-height: 220px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+}
+
+.tl-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
