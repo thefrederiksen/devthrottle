@@ -182,17 +182,19 @@ function MentorWeek({ page }: { page: MentorPage }) {
     return (
       <EmptyState
         message={
-          page.scope === "own"
-            ? "The Mentor wrote nothing about you for this week. It writes only about someone who ran sessions that week."
-            : "The Mentor wrote nothing for this week. It writes only about someone who ran sessions that week."
+          // The Gateway does not say WHY no block was written (no sessions, no prompts, or an answer it did not accept),
+          // so the page does not either.
+          page.scope === "own" ? "No block was written for you this week." : "No block was written for anyone this week."
         }
       />
     );
   }
   return (
     <div className="mentor-blocks">
-      {page.blocks.map((block) => (
-        <MentorBlockCard key={block.personSubject} block={block} />
+      {page.blocks.map((block, index) => (
+        // The Gateway's order is fixed for a week and a block has no identifier of its own on the page, so its place
+        // in that order keys it.
+        <MentorBlockCard key={index} block={block} />
       ))}
     </div>
   );

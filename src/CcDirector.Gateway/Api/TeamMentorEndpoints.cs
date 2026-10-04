@@ -113,7 +113,7 @@ internal static class TeamMentorEndpoints
             .Select(b => (Block: b, Member: members[b.PersonSubject]))
             .OrderBy(x => x.Member.Email ?? "", StringComparer.OrdinalIgnoreCase)
             .ThenBy(x => x.Block.PersonSubject, StringComparer.Ordinal)
-            .Select(x => Block(x.Block, x.Member))
+            .Select(x => Block(x.Block, x.Member, isYou: string.Equals(x.Block.PersonSubject, callerSubject, StringComparison.Ordinal)))
             .ToList();
 
         var scope = everyone.Allowed ? "everyone" : "own";
@@ -134,11 +134,13 @@ internal static class TeamMentorEndpoints
 
     /// <summary>
     /// THE ONE SERIALIZATION OF A BLOCK. Every reader of a block is served what this returns for that stored row - so
-    /// the person's copy and their Manager's copy cannot differ.
+    /// the person's copy and their Manager's copy cannot differ in any word. The one field that depends on the reader
+    /// is <c>isYou</c>, last: whether this block is about the person reading it. The person's account subject is NOT
+    /// given out (review G6): the members route does not give it out either, and a page needs only to know which
+    /// block is the reader's own.
     /// </summary>
-    internal static object Block(MentorBlock block, TeamMember member) => new
+    internal static object Block(MentorBlock block, TeamMember member, bool isYou) => new
     {
-        personSubject = block.PersonSubject,
         personEmail = member.Email,
         role = TeamRoles.Label(member.Role),
         tone = block.Tone,
@@ -149,6 +151,7 @@ internal static class TeamMentorEndpoints
         quotes = block.Quotes.Select(q => new { promptId = q.PromptId, at = q.AtUtc, text = q.Text }).ToList(),
         oneThingToTry = block.OneThingToTry,
         writtenAtUtc = block.WrittenAtUtc,
+        isYou,
     };
 
     /// <summary>Who reads every block: each member whose role the table lets read the Mentor's page about each person,

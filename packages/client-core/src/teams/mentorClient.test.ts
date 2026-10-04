@@ -22,7 +22,6 @@ const CONTRACT_EXAMPLE = {
   ],
   blocks: [
     {
-      personSubject: "a1b2...",
       personEmail: "rob@example.com",
       role: "Developer",
       tone: "hard",
@@ -36,6 +35,7 @@ const CONTRACT_EXAMPLE = {
       ],
       oneThingToTry: "Name the file and the result you expect in the first line, before asking for the change.",
       writtenAtUtc: "2026-10-05T00:20:11Z",
+      isYou: false,
     },
   ],
 };
@@ -183,9 +183,23 @@ describe("getMentorPage", () => {
       "two blocks on a person's own page",
       (b) => {
         b.scope = "own";
-        b.blocks = [b.blocks[0], { ...b.blocks[0], personSubject: "other" }];
+        b.blocks = [b.blocks[0], { ...b.blocks[0], personEmail: "other@example.com" }];
       },
     ],
+    [
+      "a block about someone else on a person's own page",
+      (b) => {
+        b.scope = "own";
+        b.blocks[0].isYou = false;
+      },
+    ],
+    [
+      "two blocks marked as the reader's own",
+      (b) => {
+        b.blocks = [{ ...b.blocks[0], isYou: true }, { ...b.blocks[0], personEmail: "other@example.com", isYou: true }];
+      },
+    ],
+    ["a block that does not say whether it is the reader's own", (b) => delete b.blocks[0].isYou],
     ["a reader with no role", (b) => delete b.readers[0].role],
     ["a person email that is an empty string", (b) => (b.blocks[0].personEmail = "")],
     ["a reader email that is an empty string", (b) => (b.readers[0].email = "")],

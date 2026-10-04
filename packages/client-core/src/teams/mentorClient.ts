@@ -33,7 +33,6 @@ export interface MentorQuote {
 
 /** One person's block for one week. Every field is the Gateway's; a page lays them out and changes none. */
 export interface MentorBlock {
-  personSubject: string;
   /** How the block is headed - the way the Team page shows people. null when the person has no email on record. */
   personEmail: string | null;
   /** The person's role in the team now, as the Team page names it. */
@@ -49,6 +48,8 @@ export interface MentorBlock {
   quotes: MentorQuote[];
   oneThingToTry: string;
   writtenAtUtc: string;
+  /** Whether this block is about the person reading the page. The person's account identifier is not given out. */
+  isYou: boolean;
 }
 
 /** Someone else who reads the caller's page: the team's Owner and Managers, as the Gateway lists them. */
@@ -69,7 +70,8 @@ export interface MentorPage {
   timeZone: string;
   /** "everyone" for an Owner or Manager, "own" for a Developer. Who is in `blocks` is already decided. */
   scope: "everyone" | "own";
-  /** Whether the Mentor's run for this team and week has happened. */
+  /** Whether the Mentor's run for this team and week has happened. Written with no block for someone does not say
+   *  why - the Gateway does not tell, so a page must not guess. */
   written: boolean;
   blocks: MentorBlock[];
   /** Who else reads the caller's page, in the Gateway's order. */
@@ -187,6 +189,13 @@ function readPage(raw: unknown): MentorPage {
   if (p.scope === "own" && p.blocks.length > 1) {
     throw new GatewayError(502, `${UNREADABLE}: a person's own page holds more than one block.`);
   }
+  const blocks = p.blocks.map(readBlock);
+  if (p.scope === "own" && blocks.some((b) => !b.isYou)) {
+    throw new GatewayError(502, `${UNREADABLE}: a person's own page holds a block about someone else.`);
+  }
+  if (blocks.filter((b) => b.isYou).length > 1) {
+    throw new GatewayError(502, `${UNREADABLE}: more than one block is marked as the reader's own.`);
+  }
   if (p.readers.length === 0) {
     throw new GatewayError(502, `${UNREADABLE}: nobody is listed as reading the page, yet every team has an Owner.`);
   }
@@ -198,7 +207,7 @@ function readPage(raw: unknown): MentorPage {
     timeZone: p.timeZone,
     scope: p.scope,
     written: p.written,
-    blocks: p.blocks.map(readBlock),
+    blocks,
     readers: p.readers.map(readReader),
   };
 }
@@ -206,7 +215,6 @@ function readPage(raw: unknown): MentorPage {
 function readBlock(raw: unknown): MentorBlock {
   const b = (raw ?? {}) as Record<string, unknown>;
   if (
-    !isText(b.personSubject) ||
     !isEmailOrNull(b.personEmail) ||
     !isLabel(b.role) ||
     !(isText(b.tone) && TONES.includes(b.tone)) ||
@@ -216,7 +224,8 @@ function readBlock(raw: unknown): MentorBlock {
     !isTextOrNull(b.wentBadlyAndWhy) ||
     !Array.isArray(b.quotes) ||
     !isText(b.oneThingToTry) ||
-    !isText(b.writtenAtUtc)
+    !isText(b.writtenAtUtc) ||
+    typeof b.isYou !== "boolean"
   ) {
     throw new GatewayError(502, `${UNREADABLE}: a block is missing one of its parts.`);
   }
@@ -232,7 +241,6 @@ function readBlock(raw: unknown): MentorBlock {
     );
   }
   return {
-    personSubject: b.personSubject,
     personEmail: b.personEmail,
     role: b.role,
     tone: b.tone,
@@ -243,6 +251,7 @@ function readBlock(raw: unknown): MentorBlock {
     quotes: b.quotes.map(readQuote),
     oneThingToTry: b.oneThingToTry,
     writtenAtUtc: b.writtenAtUtc,
+    isYou: b.isYou,
   };
 }
 

@@ -78,12 +78,15 @@ public sealed class TeamMentorEndpointsTests : IDisposable
         Assert.Equal(200, managerStatus);
         Assert.Equal("own", robPage.GetProperty("scope").GetString());
         var robsBlock = Assert.Single(robPage.GetProperty("blocks").EnumerateArray());
-        Assert.Equal(MentorRig.Rob, robsBlock.GetProperty("personSubject").GetString());
+        Assert.Equal("rob.keller@example.com", robsBlock.GetProperty("personEmail").GetString());
+        Assert.True(robsBlock.GetProperty("isYou").GetBoolean());
         Assert.DoesNotContain("dana", robPage.GetRawText(), StringComparison.OrdinalIgnoreCase);
 
         var managersCopyOfRob = managerPage.GetProperty("blocks").EnumerateArray()
-            .Single(b => b.GetProperty("personSubject").GetString() == MentorRig.Rob);
-        Assert.Equal(managersCopyOfRob.GetRawText(), robsBlock.GetRawText());
+            .Single(b => b.GetProperty("personEmail").GetString() == "rob.keller@example.com");
+        Assert.False(managersCopyOfRob.GetProperty("isYou").GetBoolean());
+        // Byte for byte the same, but for the one field that says whose page it is.
+        Assert.Equal(WithoutIsYou(managersCopyOfRob), WithoutIsYou(robsBlock));
     }
 
     [Fact]
@@ -115,8 +118,12 @@ public sealed class TeamMentorEndpointsTests : IDisposable
         Assert.True(page.GetProperty("written").GetBoolean());
         Assert.Equal(new[] { "Owner:olivia.owner@example.com", "Manager:priya.nair@example.com" },
             page.GetProperty("readers").EnumerateArray().Select(r => $"{r.GetProperty("role").GetString()}:{r.GetProperty("email").GetString()}"));
-        var rob = page.GetProperty("blocks").EnumerateArray().Single(b => b.GetProperty("personSubject").GetString() == MentorRig.Rob);
+        var rob = page.GetProperty("blocks").EnumerateArray().Single(b => b.GetProperty("personEmail").GetString() == "rob.keller@example.com");
         Assert.Equal("Developer", rob.GetProperty("role").GetString());
+        Assert.False(rob.GetProperty("isYou").GetBoolean());
+        // The person's account subject is not given out (review G6), and no block names a person.
+        Assert.False(rob.TryGetProperty("personSubject", out _));
+        Assert.DoesNotContain("sub-", page.GetRawText(), StringComparison.Ordinal);
         Assert.Equal("hard", rob.GetProperty("tone").GetString());
         Assert.Equal("a hard week", rob.GetProperty("toneLabel").GetString());
         Assert.Equal(JsonValueKind.Null, rob.GetProperty("howItWent").ValueKind);
@@ -245,8 +252,28 @@ public sealed class TeamMentorEndpointsTests : IDisposable
 
         var (_, page) = await RenderAsync(Read(MentorRig.Manager));
 
-        Assert.Equal(new[] { MentorRig.Rob },
-            page.GetProperty("blocks").EnumerateArray().Select(b => b.GetProperty("personSubject").GetString()));
+        Assert.Equal(new[] { "rob.keller@example.com" },
+            page.GetProperty("blocks").EnumerateArray().Select(b => b.GetProperty("personEmail").GetString()));
+    }
+
+    [Fact]
+    public async Task Read_AManagerReadingTheirOwnBlock_SeesIsYouOnThatBlockOnly()
+    {
+        _rig.SessionOf(MentorRig.Manager, MentorRig.InWeek(1), "s-manager");
+        _rig.PromptOf(MentorRig.Manager, MentorRig.InWeek(1), "manager's prompt");
+        await WriteTheWeekAsync();
+
+        var (_, page) = await RenderAsync(Read(MentorRig.Manager));
+
+        var mine = page.GetProperty("blocks").EnumerateArray().Where(b => b.GetProperty("isYou").GetBoolean()).ToList();
+        Assert.Equal("priya.nair@example.com", Assert.Single(mine).GetProperty("personEmail").GetString());
+    }
+
+    private static string WithoutIsYou(JsonElement block)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(block.GetRawText())!.AsObject();
+        Assert.True(node.Remove("isYou"));
+        return node.ToJsonString();
     }
 
     private static async Task<(int Status, JsonElement Body)> RenderAsync(IResult result)
