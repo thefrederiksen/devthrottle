@@ -70,14 +70,17 @@ public sealed class SkillIndexStore
     private readonly HttpClient _client;
     private readonly string? _gatewayUrlOverride;
     private readonly string? _tokenOverride;
+    private readonly HeldGatewayAnswers _held;
 
     /// <summary>The store over the real Director cache file and the real <c>gateway.url</c>.</summary>
     public SkillIndexStore() : this(null) { }
 
     /// <summary>Creates the store; parameters mirror <see cref="WorkflowIndexStore"/> (tests inject a
-    /// temporary cache path, a stub client, and a hermetic gateway url + token).</summary>
-    public SkillIndexStore(string? cachePath = null, HttpClient? client = null, string? gatewayUrl = null, string? token = null)
+    /// temporary cache path, a stub client, a hermetic gateway url + token, and their own held answers).</summary>
+    public SkillIndexStore(string? cachePath = null, HttpClient? client = null, string? gatewayUrl = null, string? token = null,
+        HeldGatewayAnswers? held = null)
     {
+        _held = held ?? HeldGatewayAnswers.Shared;
         _cachePath = string.IsNullOrWhiteSpace(cachePath) ? CcStorage.SkillIndexCache() : cachePath;
         _client = client ?? SharedClient;
         _gatewayUrlOverride = gatewayUrl;
@@ -138,9 +141,9 @@ public sealed class SkillIndexStore
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         FileLog.Write($"[SkillIndexStore] RefreshAsync: GET {endpoint}");
-        using var response = await _client.SendAsync(request, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        var payload = await response.Content.ReadFromJsonAsync<RegisterResponse>(JsonOpts, ct).ConfigureAwait(false);
+        var answer = await _held.SendAsync(_client, request, ct).ConfigureAwait(false);
+        answer.EnsureSuccess(endpoint);
+        var payload = JsonSerializer.Deserialize<RegisterResponse>(answer.Body, JsonOpts);
         if (payload is null)
             throw new InvalidOperationException($"Gateway returned an empty body from {endpoint}");
 

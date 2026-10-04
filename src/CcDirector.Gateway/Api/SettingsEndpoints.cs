@@ -727,7 +727,9 @@ internal static class SettingsEndpoints
             var t = GatewayEndpoints.ResolveReadTenant(ctx, host.TenantBoundary);
             if (t is null) return TenantRequired();
             var s = host.TenantSettingsResolver.InjectedText(t.Value);
-            return Results.Json(new
+            // Every Director reads this once a minute and it changes only when someone edits it, so the answer is
+            // tagged and an unchanged one is sent as 304 with no body (Money Saver, night traffic). See ConditionalJson.
+            return ConditionalJson.Serve(ctx, new
             {
                 use_yours = s.UseYours,
                 yours = s.Yours,

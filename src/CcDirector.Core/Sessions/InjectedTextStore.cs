@@ -69,6 +69,7 @@ public sealed class InjectedTextStore
     private readonly HttpClient _client;
     private readonly string? _gatewayUrlOverride;
     private readonly string? _tokenOverride;
+    private readonly HeldGatewayAnswers _held;
 
     /// <summary>The store over the real Director cache file and the real <c>gateway.url</c>.</summary>
     public InjectedTextStore() : this(null) { }
@@ -80,10 +81,13 @@ public sealed class InjectedTextStore
     /// <paramref name="token"/> default to <c>gateway.url</c> / <c>gateway.token</c> from config.json,
     /// read lazily inside <see cref="RefreshAsync"/> so the synchronous read path never touches config.
     /// When <paramref name="gatewayUrl"/> is supplied (tests), config is not read and
-    /// <paramref name="token"/> is used verbatim, so a test is hermetic.
+    /// <paramref name="token"/> is used verbatim, so a test is hermetic. <paramref name="held"/> defaults to
+    /// the Director's shared <see cref="HeldGatewayAnswers"/>, so an unchanged answer is not downloaded again.
     /// </summary>
-    public InjectedTextStore(string? cachePath = null, HttpClient? client = null, string? gatewayUrl = null, string? token = null)
+    public InjectedTextStore(string? cachePath = null, HttpClient? client = null, string? gatewayUrl = null, string? token = null,
+        HeldGatewayAnswers? held = null)
     {
+        _held = held ?? HeldGatewayAnswers.Shared;
         _cachePath = string.IsNullOrWhiteSpace(cachePath) ? CcStorage.InjectedTextCache() : cachePath;
         _client = client ?? SharedClient;
         _gatewayUrlOverride = gatewayUrl;
@@ -181,9 +185,9 @@ public sealed class InjectedTextStore
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         FileLog.Write($"[InjectedTextStore] RefreshAsync: GET {endpoint}");
-        using var response = await _client.SendAsync(request, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        var payload = await response.Content.ReadFromJsonAsync<InjectedTextResponse>(JsonOpts, ct).ConfigureAwait(false);
+        var answer = await _held.SendAsync(_client, request, ct).ConfigureAwait(false);
+        answer.EnsureSuccess(endpoint);
+        var payload = JsonSerializer.Deserialize<InjectedTextResponse>(answer.Body, JsonOpts);
         if (payload is null)
             throw new InvalidOperationException($"Gateway returned an empty body from {endpoint}");
 
