@@ -179,6 +179,7 @@ describe("The Collaborator's app", () => {
     ["/fleet-manager", "fleet manager page"],
     ["/settings", "settings page"],
     ["/account", "account page"],
+    ["/team/team-dt/invite", "Invite someone"],
     ["/no-such-page", "Page not found"],
   ])("TypedAddress_Collaborator_%s_ShowsOnlyTheNotAvailablePage", async (path, pageText) => {
     rememberTeam(COLLABORATOR_TEAM.id);

@@ -1,0 +1,51 @@
+﻿=== RED PROOF: The Gateway gives a Collaborator the whole app
+Broke src\CcDirector.Gateway\Teams\TeamApp.cs
+  was: public const TeamAction FullAppAction = TeamAction.RunSessionsOnOwnComputers;
+  now: public const TeamAction FullAppAction = TeamAction.AnswerQuestionsSendRequestsReadReports;
+Ran: dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams.TeamAppTests|FullyQualifiedName~Teams.TeamEndpointsTests"
+
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2306\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+  Failed CcDirector.Gateway.Tests.Teams.TeamAppTests.For_EveryRole_GivesTheWholeAppExactlyWhereTheSpecLetsThemRunSessions(role: Collaborator) [2 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: False
+Actual:   True
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.TeamAppTests.For_EveryRole_GivesTheWholeAppExactlyWhereTheSpecLetsThemRunSessions(TeamRole role) in D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\Teams\TeamAppTests.cs:line 26
+   at InvokeStub_TeamAppTests.For_EveryRole_GivesTheWholeAppExactlyWhereTheSpecLetsThemRunSessions(Object, Span`1)
+   at System.Reflection.MethodBaseInvoker.InvokeWithOneArg(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Failed CcDirector.Gateway.Tests.Teams.TeamAppTests.For_Collaborator_GetsExactlyThreePages_LandsOnQuestions_AndIsToldEverythingElseIsNotAvailable [1 ms]
+  Error Message:
+   Assert.False() Failure
+Expected: False
+Actual:   True
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.TeamAppTests.For_Collaborator_GetsExactlyThreePages_LandsOnQuestions_AndIsToldEverythingElseIsNotAvailable() in D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\Teams\TeamAppTests.cs:line 50
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Failed CcDirector.Gateway.Tests.Teams.TeamEndpointsTests.ListTeams_ACollaboratorAndADeveloper_EachTeamCarriesThePageVerdictForTheCallersRole [215 ms]
+  Error Message:
+   Assert.False() Failure
+Expected: False
+Actual:   True
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.TeamEndpointsTests.ListTeams_ACollaboratorAndADeveloper_EachTeamCarriesThePageVerdictForTheCallersRole() in D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\Teams\TeamEndpointsTests.cs:line 83
+--- End of stack trace from previous location ---
+
+Failed!  - Failed:     3, Passed:    23, Skipped:     0, Total:    26, Duration: 12 s - CcDirector.Gateway.UnitTests.dll (net10.0)

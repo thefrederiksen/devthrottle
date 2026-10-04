@@ -1,5 +1,5 @@
 Test run for D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
 A total of 1 test files matched the specified pattern.
-Results File: C:\Users\soren\AppData\Local\Temp\cc-test-local-7a310b61\CcDirector.Gateway.Tests.trx
+Results File: C:\Users\soren\AppData\Local\Temp\cc-test-local-041b5f33\CcDirector.Gateway.Tests.trx
 
-Passed!  - Failed:     0, Passed:    45, Skipped:     0, Total:    45, Duration: 2 m 50 s - CcDirector.Gateway.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:    46, Skipped:     0, Total:    46, Duration: 2 m 42 s - CcDirector.Gateway.Tests.dll (net10.0)

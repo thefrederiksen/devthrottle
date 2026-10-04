@@ -431,4 +431,41 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
                 : resp.StatusCode == HttpStatusCode.NotFound && text.Contains("React Cockpit not built", StringComparison.Ordinal),
             $"/{page} was answered by something other than the Cockpit: {(int)resp.StatusCode} {text}");
     }
+
+    /// <summary>
+    /// The team's own routes - the team in the address, the person's own key - DO run inside a team today, so for them
+    /// the Collaborator's refusal is proven over real HTTP: every /teams/{teamId}/... endpoint whose action the role
+    /// table does not give a Collaborator is sent through the real pipeline with a Collaborator's own key, and the
+    /// gate's 403 must come back. Today that is the invitation writes behind the invite page (/team/{teamId}/invite),
+    /// which the Cockpit shows a Collaborator as "not available".
+    /// </summary>
+    [Fact]
+    public async Task Issue2306_OverTheWire_ACollaborator_EveryTeamRouteTheTableRefusesThem_Is403()
+    {
+        var key = Enroll("dev-walk-collab-routes", _collaborator);
+        var refusedForCollaborator = _routes
+            .Where(r => r.Pattern.StartsWith("/teams/{teamId}/", StringComparison.Ordinal))
+            .Where(r => TeamEndpointRules.Find(r.Method, r.Pattern) is not { } rule
+                        || TeamPermissions.Grant(TeamRole.Collaborator, rule.Action) == TeamGrant.No)
+            .ToArray();
+        Assert.NotEmpty(refusedForCollaborator);
+
+        foreach (var (method, pattern) in refusedForCollaborator)
+        {
+            var path = pattern.Replace("{teamId}", _team, StringComparison.Ordinal)
+                .Replace("{invitationId}", Guid.NewGuid().ToString("N"), StringComparison.Ordinal)
+                .TrimStart('/');
+            using var req = new HttpRequestMessage(new HttpMethod(method), path);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            if (method != "GET")
+                req.Content = new StringContent("{\"email\":\"someone@example.org\",\"role\":\"Collaborator\"}", System.Text.Encoding.UTF8, "application/json");
+            using var resp = await _http.SendAsync(req);
+            var text = await resp.Content.ReadAsStringAsync();
+            _output.WriteLine($"{method} {pattern} as the team's Collaborator -> {(int)resp.StatusCode} {text}");
+
+            Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+            var body = JsonDocument.Parse(text).RootElement;
+            Assert.Equal(TeamEndpointGate.RefusalCode, body.GetProperty("code").GetString());
+        }
+    }
 }

@@ -42,7 +42,7 @@
   }
 
   .shell-team-pages .nav-list {
-    display: flex;
+    flex-direction: row;
     gap: 4px;
   }
 
@@ -53,6 +53,13 @@
 
   .shell-team-pages .nav-link {
     justify-content: center;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  /* The bar holds only what it needs, not the rail's full-height column. */
+  .shell-team-pages .nav {
+    flex: none;
   }
 
   .shell-team-pages .main-pane {
