@@ -32,6 +32,10 @@ namespace CcDirector.Gateway.Teams;
 /// sessions only, so once a colleague's session has ended a member's Director can be the only holder of the colleague's
 /// old id; the stored conversation still names the colleague's Director, and the route that would serve it is refused.
 /// Personal tenants never reach this class.</item>
+/// <item>Pushing prompts (<c>POST /prompts</c>, exactly) is the caller's own: the Gateway stamps every record it writes
+/// with the caller, from the calling key, so what the request writes can only ever be the caller's
+/// (devthrottle_internal#2305). Every other method on <c>/prompts</c> - reading, exporting, deleting - reaches the whole
+/// team's log and is Unknown, so it stays refused inside a team.</item>
 /// </list>
 ///
 /// Anything else - a list across the whole team, a session or Director this Gateway does not know, one registered by
@@ -65,13 +69,18 @@ public sealed class TeamCallerOwnership
     /// Whether the request to <paramref name="routePattern"/> in <paramref name="tenant"/>, made by
     /// <paramref name="callerSubject"/> with a device key, touches only the caller's own.
     /// </summary>
-    public TeamOwnership Whose(TenantId tenant, string callerSubject, string? routePattern, Func<string, string?> routeValue)
+    /// <param name="method">The request's HTTP method. Only <c>POST /prompts</c> depends on it; null answers as any other
+    /// method would.</param>
+    public TeamOwnership Whose(TenantId tenant, string callerSubject, string? routePattern, Func<string, string?> routeValue,
+        string? method = null)
     {
         ArgumentNullException.ThrowIfNull(routeValue);
         if (string.IsNullOrWhiteSpace(callerSubject) || routePattern is null)
             return TeamOwnership.Unknown;
 
         var pattern = TeamEndpointRules.Normalize(routePattern);
+        if (string.Equals(pattern, "/prompts", StringComparison.Ordinal) && string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase))
+            return TeamOwnership.Callers;
         if (IsUnder(pattern, "/director-stream"))
             return TeamOwnership.Callers;
 

@@ -756,6 +756,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Teams.TeamEndpointGate TeamGate { get; }
 
+    /// <summary>Whose a team request touches, and the person behind a team Director (devthrottle_internal#2311). The ONE
+    /// resolver: the gate, the prompt stamp and the session history's person all read it (devthrottle_internal#2305).</summary>
+    public Teams.TeamCallerOwnership TeamCallerOwnership { get; }
+
     /// <summary>
     /// The retry net for the team seat sync (devthrottle_internal#2301): null except on a hosted Gateway with Teams
     /// released, where it runs every <see cref="Teams.TeamSeatConvergence.Interval"/>.
@@ -2327,8 +2331,11 @@ public sealed class GatewayHost : IAsyncDisposable
             (tenant, directorId) =>
             {
                 var d = Registry.Get(tenant, directorId);
-                return d is null ? History.DirectorFacts.Unknown
-                                 : new History.DirectorFacts(d.MachineName, d.Version);
+                // In a team's tenant the session's person is the person behind the Director's key, through the one team
+                // resolver (devthrottle_internal#2305); a personal tenant stamps no person.
+                var person = TeamRegistry.IsTeam(tenant) ? TeamCallerOwnership.OwnerOf(tenant, directorId) : null;
+                return d is null ? new History.DirectorFacts(null, null, person)
+                                 : new History.DirectorFacts(d.MachineName, d.Version, person);
             },
             _knownRepositories);
         // The one-repository-list mission, phase 2. The machine name comes from the Director REGISTRATION -
@@ -5308,7 +5315,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // wanting history reads GET /prompts. It lives here, not on a Director, because the Gateway is
         // what the whole fleet reports to - so the history is already present rather than scattered
         // across machines - and because the Gateway is what moves to the server.
-        Prompts.PromptEndpoints.Map(_app, _promptLog, _tenantBoundary, _sessionHistoryRecorder, isTeam: TeamRegistry.IsTeam);
+        // devthrottle_internal#2305: a prompt pushed into a team's tenant is stamped with the person the calling key was
+        // issued to - the gate's own answer to "who is asking", never a second one.
+        Prompts.PromptEndpoints.Map(_app, _promptLog, _tenantBoundary, _sessionHistoryRecorder, isTeam: TeamRegistry.IsTeam,
+            teamCaller: (ctx, tenant) => TeamGate.CallerSubject(tenant, Util.AuthMiddleware.AuthenticatedDevice(ctx)));
 
         // Work history (issue #2194): the range report, the flat session records, and the seal verb.
         History.HistoryEndpoints.Map(_app, _sessionHistory, _tenantBoundary);
