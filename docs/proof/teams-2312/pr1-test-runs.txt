@@ -55,3 +55,20 @@ npm run typecheck (client-core, cockpit, mobile): clean
 == Red proof: each rule broken on purpose, then restored ==
 1. TeamSwitcher shows the control with zero teams  -> TeamSwitcher_NoTeams_RendersNothing FAILED (1 failed | 4 passed)
 2. teamsClient stops reading the app shell as dark -> GetMyTeams_TeamsDark_AppShellIsNotOffered FAILED (1 failed | 7 passed)
+
+== After the review (review-2312-pr1.md, findings F1-F5), rebased onto origin/main d3c225be2, head before this file: 929f6a684 ==
+Changed: F1 retry with backoff (15s, 30s, then every 60s) and no error line for a person not known to be on a team;
+F2 /teams in the Cockpit dev proxy; F3 CurrentTeam.resolving; F5 the role shown as sent. Also: the role kept readable
+under the switcher (found reading the pull request 2 screenshots).
+client-core: Test Files 141 passed (141), Tests 1659 passed (1659)
+cockpit:     Test Files 68 passed (68),   Tests 595 passed (595)
+npm run typecheck (client-core, cockpit, mobile): clean. eslint on the changed files: clean.
+New: CurrentTeamProvider_ReadFails_IsAskedAgainWithBackoff_AndRecovers, RetryDelayMs_BacksOff_15Then30ThenEvery60,
+Resolving_ARememberedTeam_IsTrueWhileUnconfirmed_AndFalseOnceRead, Resolving_ARememberedTeamAndTheReadFails_StaysTrue,
+Resolving_NoRememberedTeam_IsNeverTrue, TeamSwitcher_TeamsCouldNotBeRead_NoRememberedTeam_RendersNothing,
+TeamSwitcher_TeamsCouldNotBeRead_ARememberedTeam_SaysSo, GetMyTeams_ARoleTheClientDoesNotKnow_IsShownAsSent,
+GetMyTeams_AnEmptyRole_Throws, AppShell "shows nothing about teams to a person with no team when the read of their
+teams fails"; the switcher's several-teams test now also checks the role line.
+Red proof: no retry -> CurrentTeamProvider_ReadFails_IsAskedAgainWithBackoff_AndRecovers FAILED (1 failed | 14 passed);
+error line for anyone -> TeamSwitcher_TeamsCouldNotBeRead_NoRememberedTeam_RendersNothing and the AppShell case FAILED
+(2 failed | 15 passed). Restored.
