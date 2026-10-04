@@ -23,6 +23,8 @@ import { ScheduleView } from "./schedule/ScheduleView";
 import { WorkflowsView } from "./workflows/WorkflowsView";
 import { WorkflowDetail } from "./workflows/WorkflowDetail";
 import { SkillsView } from "./skills/SkillsView";
+// With a team on screen, Skills and Workflows open the team's shared library (devthrottle_internal#2304, S5).
+import { TeamOrOwn } from "./teams/TeamLibraryView";
 import { DictionaryView } from "./dictionary/DictionaryView";
 import { TranscriptsView } from "./transcripts/TranscriptsView";
 import { YourThrottleView } from "./throttle/YourThrottleView";
@@ -152,10 +154,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // workflow catalog (GET /workflows) through client-core; the Gateway is the home for these,
           // so the page renders what the Gateway serves rather than a list baked into this bundle.
           // It sits beside Schedule in the rail: Schedule is what runs when, Workflows is how work runs.
-          { path: "/workflows", element: <WorkflowsView /> },
+          { path: "/workflows", element: <TeamOrOwn own={<WorkflowsView />} /> },
           // The central skill library (devthrottle_internal issue 995): the capabilities agents
           // fetch from the Gateway instead of having copied onto every machine.
-          { path: "/skills", element: <SkillsView /> },
+          { path: "/skills", element: <TeamOrOwn own={<SkillsView />} /> },
           // One workflow in full (Workflows mission, phase 7): the step summary plus the
           // instruction markdown - the authoritative conduct agents fetch - rendered read-only.
           { path: "/workflows/:id", element: <WorkflowDetail /> },
