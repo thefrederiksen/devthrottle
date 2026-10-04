@@ -109,7 +109,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
 
     private HostedEnrollmentEndpoint.EnrollResult Enroll(string subject, string deviceId, string? teamId, bool released = true) =>
         HostedEnrollmentEndpoint.Enroll(Token(subject), Req(deviceId, teamId), _devices, _tenants, _validator,
-            Entitlements(), DateTime.UtcNow, new TrialRegistry(_db), released ? _access : null);
+            Entitlements(), DateTime.UtcNow, new TrialRegistry(_db), released ? TeamEnrollment() : null);
 
     private HostedEnrollmentEndpoint.TeamEnrollment TeamEnrollment() =>
         new(_teams, _access, (tenant, director) => _sessions.TryGetValue((tenant.Value, director), out var n) ? n : 0, _connections);

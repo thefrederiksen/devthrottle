@@ -169,11 +169,26 @@ public sealed class TeamDirectorKeyTests : IDisposable
     }
 
     [Fact]
-    public void Initialize_TeamsNotReleased_QuarantinesATeamKey_AsBefore()
+    public void Initialize_TeamsNotReleased_LeavesATeamKeyUntouched_RevokedWhileDark_AndSwitchingTeamsBackOnRestoresIt()
     {
-        TeamKey(_team, Developer, "dir-valid");
-        using var dark = Registry(teamsReleased: false);
-        Assert.Equal("invalid_tenant_binding", RevokedReason(_team + "|dir-valid"));
+        var key = TeamKey(_team, Developer, "dir-valid");
+        // A key bound to someone ELSE's personal tenant: a bad binding that is no team's.
+        var badPersonal = _devices.RegisterForTenant(_tenants.MintOrLookupBySubject(Manager, null), Developer, "x|dir-bad", "M-bad").DeviceKey;
+
+        // One start with Teams switched off: the team key is not tombstoned (no reason written, still active in the
+        // database), but it gets nothing while dark. A bad binding that is NOT a team's is quarantined as before.
+        using (var dark = Registry(teamsReleased: false))
+        {
+            Assert.Null(RevokedReason(_team + "|dir-valid"));
+            Assert.Equal(DeviceCredentialResolutionKind.Revoked, dark.ResolveCredential(key).Kind);
+            Assert.Equal("invalid_tenant_binding", RevokedReason("x|dir-bad"));
+            Assert.Equal(DeviceCredentialResolutionKind.Revoked, dark.ResolveCredential(badPersonal).Kind);
+        }
+
+        // Switching Teams back on: the same key works again, with nothing set up by hand.
+        using var released = Registry(teamsReleased: true);
+        Assert.Equal(DeviceCredentialResolutionKind.Active, released.ResolveCredential(key).Kind);
+        Assert.Null(RevokedReason(_team + "|dir-valid"));
     }
 
     private string? RevokedReason(string deviceId)

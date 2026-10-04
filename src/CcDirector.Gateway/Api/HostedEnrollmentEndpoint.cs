@@ -29,7 +29,9 @@ namespace CcDirector.Gateway.Api;
 /// TEAMS (devthrottle_internal#2311), only where Teams is released (<see cref="Teams.TeamsReleaseSwitch"/>):
 ///   GET  /devices/enroll-hosted/teams   the teams this person may set a Director up for
 ///   POST /devices/enroll-hosted         with { teamId }: the key is bound to that team's tenant, for this person
-///   POST /devices/enroll-hosted/move    { deviceKey, teamId }: move one Director to another team or back home
+///   POST /devices/enroll-hosted/move    { deviceId, teamId }: move one Director, named by its own id, to another
+///                                       team or back home; the account token proves the person, and the
+///                                       Director's working key must have been issued to that account
 /// The whole contract, every refusal included, is docs/proof/teams-2311/gateway-contract.md.
 ///
 /// The account token is validated (signature + expiry + audience + issuer) and its stable subject extracted;
@@ -85,7 +87,7 @@ internal static class HostedEnrollmentEndpoint
 
         app.MapPost(Path, (EnrollSignedInRequest req, HttpContext ctx) =>
             Answer(Enroll(BearerToken.Read(ctx), req, devices, tenants, accountTokenValidator, entitlements, DateTime.UtcNow, trials,
-                teams?.Access)));
+                teams)));
     }
 
     /// <summary>The HTTP answer for an enrollment or a move: the key on 200, the payment sentence on 402, and the
@@ -119,12 +121,12 @@ internal static class HostedEnrollmentEndpoint
     /// bind). The email is display metadata only, never the mapping key. Nothing personally identifying is
     /// logged.
     /// </summary>
-    /// <param name="teamAccess">The team permission check, or null on a Gateway where Teams is not released - and
-    /// then a request naming a team is refused (devthrottle_internal#2311).</param>
+    /// <param name="teams">The Teams half, or null on a Gateway where Teams is not released - and then a request naming
+    /// a team is refused and no other key of the Director is looked at (devthrottle_internal#2311).</param>
     public static EnrollResult Enroll(string? bearer, EnrollSignedInRequest? req, DeviceRegistry devices,
         Tenancy.TenantRegistry tenants, JwtAccessTokenValidator accountTokenValidator,
         Tenancy.EntitlementRegistry? entitlements = null, DateTime? nowUtc = null,
-        Tenancy.TrialRegistry? trials = null, TeamAccess? teamAccess = null)
+        Tenancy.TrialRegistry? trials = null, TeamEnrollment? teams = null)
     {
         if (req is null || string.IsNullOrWhiteSpace(req.DeviceId))
             return new EnrollResult(StatusCodes.Status400BadRequest, null, "deviceId is required");
@@ -141,7 +143,7 @@ internal static class HostedEnrollmentEndpoint
 
         var teamId = string.IsNullOrWhiteSpace(req.TeamId) ? null : req.TeamId.Trim();
         if (teamId is not null)
-            return EnrollIntoTeam(validation.Subject, teamId, req, devices, teamAccess);
+            return EnrollIntoTeam(validation.Subject, teamId, req, devices, teams);
 
         var refusal = PersonalAccountGate(validation.Subject, tenants, entitlements, nowUtc, trials);
         if (refusal is not null)
@@ -162,6 +164,18 @@ internal static class HostedEnrollmentEndpoint
         // idempotent for one account (same tenant -> same hash). The hash - not the subject and not the raw
         // tenant id, both of which must never be logged - is what the device registry logs as the device id.
         var scopedDeviceId = NamespaceHash(tenant.Value) + "|" + req.DeviceId;
+
+        // Where Teams is released a Director may have been set up for a team before. Set up again for the person's
+        // own account, that is a MOVE, with the move's own rules (devthrottle_internal#2311): refused while it has
+        // sessions registered there, and otherwise its team key goes and its tunnel there is cut. Dark, no other key
+        // of this Director can be live, and nothing is asked.
+        if (teams is not null)
+        {
+            var left = LeaveOtherPlaces(validation.Subject, req.DeviceId, tenant, scopedDeviceId, SetUpAgainReason, devices, teams);
+            if (left.Refusal is not null)
+                return left.Refusal;
+        }
+
         var response = devices.RegisterForTenant(
             tenant,
             validation.Subject,
@@ -169,12 +183,6 @@ internal static class HostedEnrollmentEndpoint
             req.MachineName,
             req.Platform,
             req.DeviceType);
-
-        // Where Teams is released a Director may have been set up for a team before; set up again for the person's
-        // own account, its team key goes (devthrottle_internal#2311). A Director holds one working key, in one place.
-        // Dark, no other key of this Director can be live, and nothing is asked.
-        if (teamAccess is not null)
-            devices.RevokeOtherKeysOfDirector(validation.Subject, req.DeviceId, scopedDeviceId, SetUpAgainReason);
 
         // RegisterForTenant counts inside the same tenant-bound transaction, so the response never exposes
         // the hosted fleet-wide count.
@@ -377,7 +385,20 @@ internal static class HostedEnrollmentEndpoint
         TeamRegistry Teams,
         TeamAccess Access,
         Func<TenantId, string, int> RegisteredSessions,
-        Streaming.DirectorConnectionRegistry Connections);
+        Streaming.DirectorConnectionRegistry Connections)
+    {
+        /// <summary>The Gateway's own wiring, in one place so a test runs exactly it: a Director's registered sessions
+        /// are its last known roster on this Gateway, read by the id it said Hello with - which, for a team key, is
+        /// the id its key was enrolled for (review F2 and F3).</summary>
+        public static TeamEnrollment Over(TeamRegistry teams, TeamAccess access,
+            Streaming.PushedSessionStore sessions, Streaming.DirectorConnectionRegistry connections)
+        {
+            ArgumentNullException.ThrowIfNull(sessions);
+            return new TeamEnrollment(teams, access,
+                (tenant, directorId) => sessions.GetLastKnown(tenant, directorId).Sessions.Count,
+                connections);
+        }
+    }
 
     /// <summary>The outcome of <see cref="ListTeams"/>. <see cref="Response"/> is set only on 200.</summary>
     public sealed record TeamsResult(int Status, EnrollHostedTeamsResponse? Response, string Error);
@@ -389,19 +410,63 @@ internal static class HostedEnrollmentEndpoint
     /// paid gate are never reached: a team has no trial, and the team's bill is not read here.
     /// </summary>
     private static EnrollResult EnrollIntoTeam(string subject, string teamId, EnrollSignedInRequest req,
-        DeviceRegistry devices, TeamAccess? teamAccess)
+        DeviceRegistry devices, TeamEnrollment? teams)
     {
-        var refusal = TeamRefusal(subject, teamId, teamAccess);
-        if (refusal is not null)
-            return refusal;
+        var refusal = TeamRefusal(subject, teamId, teams?.Access);
+        if (refusal is not null || teams is null)
+            return refusal!;
 
         var team = new TenantId(teamId);
         var scopedDeviceId = TeamScopedDeviceId(teamId, subject, req.DeviceId);
+        var left = LeaveOtherPlaces(subject, req.DeviceId, team, scopedDeviceId, SetUpAgainReason, devices, teams);
+        if (left.Refusal is not null)
+            return left.Refusal;
         var response = devices.RegisterForTenant(team, subject, scopedDeviceId, req.MachineName, req.Platform, req.DeviceType);
-        devices.RevokeOtherKeysOfDirector(subject, req.DeviceId, scopedDeviceId, SetUpAgainReason);
         FileLog.Write($"[HostedEnrollment] enrolled deviceId={req.DeviceId}, machine={req.MachineName} -> bound to team " +
                       $"{team.ToLogString()} for its member (no subject/email logged), deviceCount={response.DeviceCount}");
         return new EnrollResult(StatusCodes.Status200OK, response, "");
+    }
+
+    /// <summary>The outcome of <see cref="LeaveOtherPlaces"/>: a refusal, or how many old keys were revoked.</summary>
+    private readonly record struct LeaveResult(EnrollResult? Refusal, int Revoked);
+
+    /// <summary>
+    /// THE ONE "LEAVE WHERE IT WAS" STEP, shared by a move and by setting a Director up again (review F1,
+    /// devthrottle_internal#2311). Putting one person's Director <paramref name="directorId"/> into tenant
+    /// <paramref name="to"/>: every working key of that person for that Director in ANOTHER tenant is a place it is
+    /// leaving. While the Director has any session registered in a place it is leaving, this refuses with the move's
+    /// 409 and changes nothing - sessions started in one team never land in another. Otherwise every other key of that
+    /// person for that Director is revoked (all but <paramref name="keepDeviceId"/>) and the Director's live tunnel in
+    /// each place it left is cut, so the old tunnel cannot keep registering sessions there on a key that is gone.
+    /// Setting a Director up again in the SAME tenant leaves nothing: no session check, no tunnel cut - today's
+    /// behaviour.
+    /// </summary>
+    private static LeaveResult LeaveOtherPlaces(string subject, string directorId, TenantId to, string keepDeviceId,
+        string reason, DeviceRegistry devices, TeamEnrollment teams)
+    {
+        var leaving = devices.ActiveKeysOfDirector(directorId)
+            .Where(k => string.Equals(k.AccountSubject, subject, StringComparison.Ordinal)
+                        && k.TenantId is not null
+                        && new TenantId(k.TenantId) != to)
+            .Select(k => new TenantId(k.TenantId!))
+            .Distinct()
+            .ToList();
+
+        foreach (var place in leaving)
+        {
+            var sessions = teams.RegisteredSessions(place, directorId);
+            if (sessions > 0)
+            {
+                FileLog.Write($"[HostedEnrollment] REFUSED: director={directorId} has {sessions} session(s) registered in tenant {place.ToLogString()}, which it would leave");
+                return new LeaveResult(new EnrollResult(StatusCodes.Status409Conflict, null, MoveWithSessionsRefusal), 0);
+            }
+        }
+
+        var revoked = devices.RevokeOtherKeysOfDirector(subject, directorId, keepDeviceId, reason);
+        foreach (var place in leaving)
+            teams.Connections.AbortForDirector(place, directorId, reason);
+        FileLog.Write($"[HostedEnrollment] LeaveOtherPlaces: director={directorId} left {leaving.Count} other tenant(s), revoked={revoked}");
+        return new LeaveResult(null, revoked);
     }
 
     /// <summary>
@@ -545,21 +610,19 @@ internal static class HostedEnrollmentEndpoint
             return new EnrollResult(StatusCodes.Status409Conflict, null, MoveToSameTeamRefusal);
         }
 
-        var sessions = teams.RegisteredSessions(from, directorId);
-        if (sessions > 0)
-        {
-            FileLog.Write($"[HostedEnrollment] Move REFUSED: director={directorId} has {sessions} session(s) registered on the Gateway");
-            return new EnrollResult(StatusCodes.Status409Conflict, null, MoveWithSessionsRefusal);
-        }
-
+        // The same step setting a Director up again takes: refused while it has sessions where it is leaving, else
+        // the old key revoked and its tunnel cut - BEFORE the new key is issued, so a failure after this point leaves
+        // the Director with no working key, never with two.
         var display = devices.DisplayOfDevice(current.DeviceId);
-        if (!devices.RevokeDevice(current.DeviceId, MovedReason))
+        var left = LeaveOtherPlaces(subject, directorId, to, newDeviceId, MovedReason, devices, teams);
+        if (left.Refusal is not null)
+            return left.Refusal;
+        if (left.Revoked == 0)
         {
             // Revoked between the lookup above and here, by someone else: there is no longer a working key to move.
             FileLog.Write($"[HostedEnrollment] Move REFUSED: director={directorId} - its key was revoked while the move was being made");
             return new EnrollResult(StatusCodes.Status404NotFound, null, MoveNoSuchDirectorRefusal);
         }
-        teams.Connections.AbortForDirector(from, directorId, MovedReason);
 
         var response = devices.RegisterForTenant(to, subject, newDeviceId,
             display?.MachineName ?? "", display?.Platform, display?.DeviceType);

@@ -158,8 +158,9 @@ internal static class AuthMiddleware
         Api.HostedEnrollmentEndpoint.Path,
         // Its two Teams companions (devthrottle_internal#2311), on exactly the same footing: each carries the
         // caller's own account token and validates it itself, because a Director being set up has no device key
-        // yet (the teams list) and a Director changing team proves its person afresh (the move, which also names
-        // the key it holds and checks it belongs to that person). Exact-match. Mapped only where Teams is released;
+        // yet (the teams list) and a Director changing team proves its person afresh (the move). The move never
+        // receives a device key: it names the Director by its id, the account token alone proves the person, and the
+        // endpoint checks that the Director's working key was issued to that same account. Exact-match. Mapped only where Teams is released;
         // elsewhere the request finds no route and is answered as for any route that does not exist.
         Api.HostedEnrollmentEndpoint.TeamsPath,
         Api.HostedEnrollmentEndpoint.MovePath,

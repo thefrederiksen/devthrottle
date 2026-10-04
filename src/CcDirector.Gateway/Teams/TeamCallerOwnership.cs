@@ -9,15 +9,22 @@ namespace CcDirector.Gateway.Teams;
 /// <summary>
 /// WHOSE IS WHAT A TEAM REQUEST TOUCHES (devthrottle_internal#2311). Inside a team's tenant a person's sessions and
 /// computers are private to them, so <see cref="TeamEndpointGate"/> asks, for a rule whose target is
-/// <see cref="TeamTarget.CallersOwn"/>, whether the request touches only the caller's own. This answers it from the
-/// request's own credential and route, never from anything a client writes:
+/// <see cref="TeamTarget.CallersOwn"/>, whether the request touches only the caller's own. HOW IT IS REALLY
+/// ANSWERED, including the two things in it a member's own Director writes (review F2):
 ///
 /// <list type="bullet">
 /// <item>A Director's tunnel (<c>/director-stream</c>) is the calling key's own connection: Hello binds it to that
-/// key's tenant, and a Director id stays with the key that first registered it.</item>
-/// <item>A Director (<c>/directors/{id}/...</c>) is its owner's: the person the key it said Hello on was issued to.</item>
+/// key's tenant, a Director id stays with the key that first registered it, and a TEAM key may say Hello only under the
+/// Director id its own device row was enrolled with (<c>DirectorHub.Hello</c>).</item>
+/// <item>A Director (<c>/directors/{id}/...</c>) is its owner's: the person the key it said Hello on was issued to, read
+/// from the device registry. The Director id in Hello is client-written, but inside a team it cannot be another
+/// member's: their id is their key's enrolled id, which a different person's key is refused under.</item>
 /// <item>A session - any route naming one by <c>{sid}</c>: <c>/sessions/{sid}/...</c>, its transcript, its prompts - is
-/// its Director's owner's. A Director's own sessions are its owner's own.</item>
+/// the caller's own only when EXACTLY ONE Director in the tenant holds that id in its roster and that Director is the
+/// caller's. The session ids in a roster are client-written: the roster accepts any id from any Director, so two
+/// Directors holding one id is not a session anyone can be said to own, and it is answered Unknown and refused - never
+/// the first one found. The roster itself does not refuse the duplicate: a roster that kept the first writer would let a
+/// Director that pushed a colleague's id first hide the colleague's own session from them.</item>
 /// </list>
 ///
 /// Anything else - a list across the whole team, a session or Director this Gateway does not know, one registered by
@@ -62,17 +69,22 @@ public sealed class TeamCallerOwnership
         }
 
         // Any route that names a session by {sid} - the session family, its transcript, its prompts - touches that one
-        // session.
+        // session. It is someone's only when exactly one Director in the tenant holds it.
         var sessionId = routeValue("sid");
         if (!string.IsNullOrWhiteSpace(sessionId))
         {
-            var located = _sessions.TryGetLastKnownSession(tenant, sessionId);
-            if (located is not { } found)
+            var holders = _sessions.DirectorsHoldingSession(tenant, sessionId);
+            if (holders.Count == 0)
             {
                 FileLog.Write($"[TeamCallerOwnership] Whose: session {sessionId} is not known in tenant {tenant.ToLogString()} - unknown");
                 return TeamOwnership.Unknown;
             }
-            return OwnerOfDirector(tenant, found.DirectorId, callerSubject, "session");
+            if (holders.Count > 1)
+            {
+                FileLog.Write($"[TeamCallerOwnership] Whose: session {sessionId} is held by {holders.Count} Directors in tenant {tenant.ToLogString()} - unknown");
+                return TeamOwnership.Unknown;
+            }
+            return OwnerOfDirector(tenant, holders[0], callerSubject, "session");
         }
 
         return TeamOwnership.Unknown;

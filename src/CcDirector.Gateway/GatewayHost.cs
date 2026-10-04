@@ -4457,9 +4457,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // and moving a Director between them - exists only where Teams is released. A move is refused while the
             // Director has a session on this Gateway: its last known roster here.
             var teamEnrollment = TeamsReleased
-                ? new Api.HostedEnrollmentEndpoint.TeamEnrollment(TeamRegistry, TeamAccess,
-                    (tenant, directorId) => PushedSessions.GetLastKnown(tenant, directorId).Sessions.Count,
-                    _directorConnections)
+                ? Api.HostedEnrollmentEndpoint.TeamEnrollment.Over(TeamRegistry, TeamAccess, PushedSessions, _directorConnections)
                 : null;
             Api.HostedEnrollmentEndpoint.Map(_app, hostedEnrollDeps.Devices, hostedEnrollDeps.Tenants,
                 hostedEnrollDeps.AccountTokenValidator, entitlements: hostedEnrollDeps.Entitlements,

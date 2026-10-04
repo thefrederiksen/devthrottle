@@ -239,21 +239,26 @@ public sealed class DeviceRegistry : IDisposable
     private DeviceCredentialResolution Judge(GatewayDbContext ctx, DeviceCredentialEntity row)
     {
         var tenant = string.IsNullOrWhiteSpace(row.TenantId) ? null : row.TenantId;
-        var invalidHostedBinding = _isHosted
+        var malformedHostedBinding = _isHosted
             && (tenant is null
                 || string.Equals(tenant, TenantId.Local.Value, StringComparison.Ordinal)
                 || string.Equals(tenant, TenantId.System.Value, StringComparison.Ordinal)
-                || string.IsNullOrWhiteSpace(row.AccountSubject)
-                || (!ctx.Tenants.AsNoTracking().Any(t =>
-                        t.Id == tenant && t.AccountSubject == row.AccountSubject)
-                    && !IsLiveTeamBinding(ctx, tenant, row.AccountSubject)));
+                || string.IsNullOrWhiteSpace(row.AccountSubject));
+        var ownsTenant = _isHosted && !malformedHostedBinding
+            && ctx.Tenants.AsNoTracking().Any(t => t.Id == tenant && t.AccountSubject == row.AccountSubject);
+        // A TEAM key is one accepted ONLY through the team half of the rule - its person owns no such tenant - and it
+        // is named so on the identity, because a team key may say Hello for no Director id but its own (review F2).
+        var teamBinding = _isHosted && !malformedHostedBinding && !ownsTenant
+            && IsLiveTeamBinding(ctx, tenant, row.AccountSubject);
+        var invalidHostedBinding = _isHosted && (malformedHostedBinding || (!ownsTenant && !teamBinding));
 
         var identity = new DeviceCredentialIdentity(
             row.DeviceId,
             tenant,
             string.IsNullOrWhiteSpace(row.DeviceType) ? DefaultDeviceType : row.DeviceType,
             row.Status,
-            string.IsNullOrWhiteSpace(row.AccountSubject) ? null : row.AccountSubject);
+            string.IsNullOrWhiteSpace(row.AccountSubject) ? null : row.AccountSubject,
+            teamBinding);
 
         if (invalidHostedBinding
             || !string.Equals(row.Status, StatusActive, StringComparison.Ordinal)
@@ -752,24 +757,36 @@ public sealed class DeviceRegistry : IDisposable
                     .ToList();
 
                 // A key bound to a TEAM's tenant fails the personal-account test above by design - a team's tenant
-                // is no one person's row in the tenants table. It is kept when its person is still a member of that
-                // team in a role that may run sessions there (devthrottle_internal#2311), and quarantined otherwise,
-                // exactly as a bad personal binding is. The same rule ResolveCredential applies on every request.
-                if (_teamsReleased && invalidIds.Count > 0)
+                // is no one person's row in the tenants table (devthrottle_internal#2311).
+                // With Teams released it is kept while its person is still a member of that team in a role that may
+                // run sessions there, and quarantined otherwise, exactly as a bad personal binding is - the same rule
+                // ResolveCredential applies on every request.
+                // With Teams NOT released it is left UNTOUCHED, never tombstoned: while dark it already resolves
+                // revoked on every request (IsLiveTeamBinding is false), so nothing gets in, and switching Teams back
+                // on restores it instead of leaving every member's Director to be set up again by hand.
+                if (invalidIds.Count > 0)
                 {
                     var bindings = ctx.DeviceCredentials
                         .AsNoTracking()
                         .Where(d => invalidIds.Contains(d.DeviceId))
                         .Select(d => new { d.DeviceId, d.TenantId, d.AccountSubject })
                         .ToList();
-                    var keptForTeams = bindings
-                        .Where(b => IsLiveTeamBinding(ctx, b.TenantId, b.AccountSubject))
-                        .Select(b => b.DeviceId)
-                        .ToHashSet(StringComparer.Ordinal);
+                    var keptForTeams = _teamsReleased
+                        ? bindings
+                            .Where(b => IsLiveTeamBinding(ctx, b.TenantId, b.AccountSubject))
+                            .Select(b => b.DeviceId)
+                            .ToHashSet(StringComparer.Ordinal)
+                        : bindings
+                            .Where(b => !string.IsNullOrWhiteSpace(b.TenantId) && !string.IsNullOrWhiteSpace(b.AccountSubject)
+                                        && ctx.Teams.AsNoTracking().Any(t => t.Id == b.TenantId))
+                            .Select(b => b.DeviceId)
+                            .ToHashSet(StringComparer.Ordinal);
                     if (keptForTeams.Count > 0)
                     {
                         invalidIds = invalidIds.Where(id => !keptForTeams.Contains(id)).ToList();
-                        FileLog.Write($"[DeviceRegistry] InitializeAuthority: kept={keptForTeams.Count} hosted credential(s) bound to a team whose person may run sessions there");
+                        FileLog.Write(_teamsReleased
+                            ? $"[DeviceRegistry] InitializeAuthority: kept={keptForTeams.Count} hosted credential(s) bound to a team whose person may run sessions there"
+                            : $"[DeviceRegistry] InitializeAuthority: left={keptForTeams.Count} hosted credential(s) bound to a team untouched (Teams not released)");
                     }
                 }
 
@@ -910,14 +927,29 @@ public enum DeviceCredentialResolutionKind
 /// <summary>
 /// An authenticated device identity with no raw key and no stored key hash. <see cref="AccountSubject"/> is the
 /// person the key was issued to (null for a self-host key that names nobody). It is personally identifying: never
-/// log it, and never log this record whole.
+/// log it, and never log this record whole. <see cref="IsTeamKey"/> is true when the key is valid only because its
+/// person may run sessions in the team its tenant is (devthrottle_internal#2311) - such a key belongs to exactly one
+/// Director, the one its row was enrolled for (<see cref="EnrolledDirectorId"/>).
 /// </summary>
 public sealed record DeviceCredentialIdentity(
     string DeviceId,
     string? TenantId,
     string DeviceType,
     string Status,
-    string? AccountSubject = null);
+    string? AccountSubject = null,
+    bool IsTeamKey = false)
+{
+    /// <summary>The Director id this key's row was enrolled for: the part of the registry id after its last
+    /// <c>|</c> (a hosted row is <c>&lt;namespace&gt;|&lt;deviceId&gt;</c>). Null when the id carries no namespace.</summary>
+    public string? EnrolledDirectorId
+    {
+        get
+        {
+            var bar = DeviceId.LastIndexOf('|');
+            return bar < 0 || bar == DeviceId.Length - 1 ? null : DeviceId[(bar + 1)..];
+        }
+    }
+}
 
 /// <summary>The typed result of one authoritative credential lookup.</summary>
 public readonly record struct DeviceCredentialResolution(

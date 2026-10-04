@@ -284,6 +284,22 @@ public sealed class DirectorHub : Hub
         // whose device key was legitimately re-enrolled takes its own id back once the OLD registration is
         // gone, and the refusal below names the command that shows whether it still is. A Director that cannot
         // wait comes back under a fresh id (its id file is local to the machine).
+        // A TEAM KEY SAYS HELLO FOR ITS OWN DIRECTOR ONLY (devthrottle_internal#2311, review F2). Inside a team the
+        // question "which Director is this" is a question between PEOPLE, and a Director id is a file on a member's
+        // own machine - so a team key is accepted only under the Director id its own device row was enrolled with,
+        // and any other id is refused here, before any state is written. Without this a member could say Hello under
+        // a colleague's Director id while that Director was away, and be answered as its owner. A personal key is
+        // unchanged: within one person's own account the rule below already holds.
+        var device = AuthMiddleware.AuthenticatedDevice(Context.GetHttpContext());
+        if (device is { IsTeamKey: true }
+            && !string.Equals(device.EnrolledDirectorId, directorId, StringComparison.OrdinalIgnoreCase))
+        {
+            FileLog.Write($"[DirectorHub] Hello REJECTED (a team key may say Hello only for the Director it was set up for, "
+                          + $"and {directorId} is not that Director): conn={Short(Context.ConnectionId)}");
+            Context.Abort();
+            return null;
+        }
+
         var registeringCredential = AuthMiddleware.RegisteringCredential(Context.GetHttpContext());
         if (_registry.IsBoundToAnotherCredential(tenant, directorId, registeringCredential))
         {
@@ -308,7 +324,7 @@ public sealed class DirectorHub : Hub
         // cuts only that person's tunnels, and a Director that moves to another team has its old tunnel cut
         // (devthrottle_internal#2311). Both come from the authenticated key and this Hello's bound id.
         var abortContext = Context;
-        var keyHolder = AuthMiddleware.AuthenticatedDevice(Context.GetHttpContext())?.AccountSubject;
+        var keyHolder = device?.AccountSubject;
         _connections?.Register(tenant, Context.ConnectionId, () => abortContext.Abort(), keyHolder, directorId);
         // Gateway Cleanup mission (tunnel-only): the stream IS the registration now (HTTP register is gone).
         // Register this Director from the Hello identity so registry.Get(tenant, id) - the gate on create-session
