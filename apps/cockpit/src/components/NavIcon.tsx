@@ -23,6 +23,7 @@ export type NavIconName =
   | "schedule"
   | "workflows"
   | "skills"
+  | "mentor"
   | "dictionary"
   | "voice-recorder"
   | "transcription"
@@ -193,6 +194,15 @@ const PAINT: Record<NavIconName, JSX.Element> = {
       <circle cx="12" cy="12" r="10" />
       <path d="M12 16v-4" />
       <path d="M12 8h.01" />
+    </>
+  ),
+  // A lightbulb: the Mentor's weekly page, whose every block ends on one thing to try (devthrottle_internal#2305).
+  // The only rounded-top shape with a base in the set, so it does not read as any of the circles.
+  mentor: (
+    <>
+      <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
     </>
   ),
   // A question mark: help / documentation. A curl rather than the "i" stroke keeps it distinct in

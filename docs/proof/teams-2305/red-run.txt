@@ -1,0 +1,15 @@
+   [FAIL] MentorView > MentorView_QuoteText_IsExactlyTheTextInTheResponse 25ms
+   [FAIL] MentorView > MentorView_WrittenEmptyWeek_RendersNoInventedBlock 1007ms
+   [FAIL] MentorView > MentorView_HasNoLeaderboardOrRanking_AndKeepsTheGatewaysOrder 23ms
+   [FAIL] Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Developer with a page 1031ms
+ Failed Tests 4 
+ FAIL  src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Developer with a page
+ FAIL  src/mentor/MentorView.test.tsx > MentorView > MentorView_QuoteText_IsExactlyTheTextInTheResponse
+ FAIL  src/mentor/MentorView.test.tsx > MentorView > MentorView_WrittenEmptyWeek_RendersNoInventedBlock
+ FAIL  src/mentor/MentorView.test.tsx > MentorView > MentorView_HasNoLeaderboardOrRanking_AndKeepsTheGatewaysOrder
+      Tests  4 failed | 28 passed (32)
+   [FAIL] getMentorPage > GetMentorPage_QuoteText_IsTheResponseTextByteForByte 9ms
+   [FAIL] getMentorPage > GetMentorPage_Collaborator403_IsRefusedWithTheGatewaysSentence 5ms
+   [FAIL] getMentorPage > GetMentorPage_403WithNoSentence_IsRefused 1ms
+ Failed Tests 3 
+      Tests  3 failed | 11 passed (14)

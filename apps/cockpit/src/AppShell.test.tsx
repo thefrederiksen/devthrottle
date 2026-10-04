@@ -45,9 +45,23 @@ vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
   }),
 }));
 
+// The Mentor entry (devthrottle_internal#2305) follows the Gateway's answer to the Mentor read for the team on screen:
+// a page offers it, a refusal or a missing team hides it. The rail never decides it from a role label.
+const mentorRead = vi.hoisted(() => ({
+  answer: { kind: "refused", reason: "A Collaborator has no Mentor page." } as { kind: string; reason?: string },
+  calls: [] as string[],
+}));
+vi.mock("@devthrottle/client-core/teams/mentorClient", () => ({
+  getMentorPage: vi.fn(async (teamId: string) => {
+    mentorRead.calls.push(teamId);
+    return mentorRead.answer;
+  }),
+}));
+
 import { screen, waitFor } from "@testing-library/react";
 import { AppShell } from "./AppShell";
 import { resetFactorySwitchCache } from "./factory/useFactorySwitch";
+import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
 
 function railLabels(): string[] {
   const list = document.querySelector(".nav-list:not(.nav-list-foot)");
@@ -63,6 +77,8 @@ describe("Cockpit left rail", () => {
     factory.enabled = false;
     resetFactorySwitchCache();
     myTeams.answer = { kind: "teams", teams: [] };
+    mentorRead.answer = { kind: "refused", reason: "A Collaborator has no Mentor page." };
+    mentorRead.calls = [];
     window.localStorage.clear();
   });
 
@@ -227,5 +243,68 @@ describe("Cockpit left rail", () => {
     expect(nav).not.toBeNull();
     expect(switcher.compareDocumentPosition(nav!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(switcher.textContent).toContain("DevThrottle - Owner");
+  });
+
+  describe("the Mentor entry", () => {
+    function onTeam(role: string) {
+      myTeams.answer = {
+        kind: "teams",
+        teams: [{ id: "team-test", name: "Teams test", role, memberCount: 2, people: "2 people" }],
+      };
+      window.localStorage.setItem(currentTeamStorageKey(), "team-test");
+      render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <AppShell />
+        </MemoryRouter>,
+      );
+    }
+
+    it.each(["Owner", "Manager", "Developer"])("is offered after Skills when the Gateway answers the %s with a page", async (role) => {
+      mentorRead.answer = { kind: "page" };
+      onTeam(role);
+
+      await waitFor(() => expect(railLabels()).toContain("Mentor"));
+      const labels = railLabels();
+      expect(labels[labels.indexOf("Skills") + 1]).toBe("Mentor");
+      expect(screen.getByRole("link", { name: /Mentor/ }).getAttribute("href")).toBe("/mentor");
+      expect(mentorRead.calls).toEqual(["team-test"]);
+    });
+
+    it("is not offered to a Collaborator, whom the Gateway refuses", async () => {
+      mentorRead.answer = { kind: "refused", reason: "A Collaborator has no Mentor page." };
+      onTeam("Collaborator");
+
+      await waitFor(() => expect(mentorRead.calls).toEqual(["team-test"]));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(railLabels()).not.toContain("Mentor");
+    });
+
+    it("is not offered, and nothing is asked, for a person with no team", async () => {
+      mentorRead.answer = { kind: "page" };
+      myTeams.answer = { kind: "teams", teams: [] };
+      render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <AppShell />
+        </MemoryRouter>,
+      );
+
+      await new Promise((r) => setTimeout(r, 20));
+      expect(railLabels()).not.toContain("Mentor");
+      expect(mentorRead.calls).toEqual([]);
+    });
+
+    it("is not offered on a Gateway that has not turned Teams on", async () => {
+      mentorRead.answer = { kind: "page" };
+      myTeams.answer = { kind: "not-offered", reason: "dark" };
+      render(
+        <MemoryRouter initialEntries={["/sessions"]}>
+          <AppShell />
+        </MemoryRouter>,
+      );
+
+      await new Promise((r) => setTimeout(r, 20));
+      expect(railLabels()).not.toContain("Mentor");
+      expect(mentorRead.calls).toEqual([]);
+    });
   });
 });

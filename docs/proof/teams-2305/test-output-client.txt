@@ -1,0 +1,16 @@
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractExample_ReturnsEveryFieldVerbatim
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_QuoteText_IsTheResponseTextByteForByte
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_NoWeek_AsksForTheGatewaysDefaultWeek
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_WrittenWithNoBlocks_IsAPageWithNoBlocks
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_Collaborator403_IsRefusedWithTheGatewaysSentence
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_403WithNoSentence_IsRefused
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_NotAMember404_IsNotOffered
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_TeamsDarkAppShell_IsNotOffered
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_InvalidWeek400_ThrowsTheGatewaysSentence
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_BlockMissingItsText_Throws
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_NoReadersList_Throws
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_QuoteWithNothingWentBadly_Throws
+ [PASS] src/teams/mentorClient.test.ts > the week chooser's arithmetic > IsoWeekOf_KnownDates_MatchTheIsoCalendar
+ [PASS] src/teams/mentorClient.test.ts > the week chooser's arithmetic > WeekBefore_And_WeekAfter_StepOneWeekAcrossAYear
+ Test Files  1 passed (1)
+      Tests  14 passed (14)

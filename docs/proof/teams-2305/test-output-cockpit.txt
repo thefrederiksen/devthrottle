@@ -1,0 +1,34 @@
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Manager_ShowsEveryBlockTheGatewaySent_AndNoneForThePersonWithNoSessions
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Owner_ShowsTheSameBlocksAsTheManager
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Developer_ShowsOnlyTheirOwnBlock_WordForWordWhatTheManagerReads
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Developer_RendersOnlyWhatTheGatewayReturned
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > opens with the Fleet Manager, then Sessions, then Fleet Map
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > badges the Fleet Manager with the Gateway's count of what is waiting
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no badge when nothing is waiting
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > has no Assistant entry anywhere in the rail
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > leaves the rest of the rail where it was
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Collaborator_HasNoPage
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_NotOnATeam_IsTheOrdinaryMissingPage_AndAsksNothing
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_TeamsNotOffered_IsTheOrdinaryMissingPage
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_QuoteText_IsExactlyTheTextInTheResponse
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_WrittenEmptyWeek_RendersNoInventedBlock
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_UnwrittenWeek_SaysSoAndRendersNoBlock
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_HasNoLeaderboardOrRanking_AndKeepsTheGatewaysOrder
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_HasNoLinkThatBrowsesWhatAPersonTyped
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Footer_SaysTheMentorIsAnAI
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows Factory Agents after Fleet Map and before History when the Gateway says the area is on
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_WeekChooser_AsksForThePreviousWeek_AndCannotGoPastTheLatest
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_FailedRead_SaysWhy
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > has no Factory Agents item when the Gateway says the area is off
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no team switcher to a person with no team
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no team switcher on a Gateway that has not turned Teams on
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows nothing about teams to a person with no team when the read of their teams fails
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > puts the team switcher at the top of the rail, above the navigation, for a person in a team
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Owner with a page
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Manager with a page
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Developer with a page
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is not offered to a Collaborator, whom the Gateway refuses
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is not offered, and nothing is asked, for a person with no team
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is not offered on a Gateway that has not turned Teams on
+ Test Files  2 passed (2)
+      Tests  32 passed (32)

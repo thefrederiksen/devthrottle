@@ -1,0 +1,9 @@
+client-core (whole package):
+CLIENT-CORE-TYPECHECK-OK
+ Test Files  143 passed (143)
+      Tests  1677 passed (1677)
+
+cockpit (whole package):
+COCKPIT-TYPECHECK-OK
+ Test Files  70 passed (70)
+      Tests  625 passed (625)
