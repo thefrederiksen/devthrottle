@@ -33,6 +33,7 @@ export function TeamSwitcher() {
       <span className="team-switcher-label">Team</span>
       <select
         className="team-switcher-select"
+        title={current === null ? "Your own account" : `${current.name} - ${current.role}`}
         value={current?.id ?? OWN_ACCOUNT}
         onChange={(e) => choose(e.target.value === OWN_ACCOUNT ? null : e.target.value)}
       >
@@ -43,6 +44,12 @@ export function TeamSwitcher() {
           </option>
         ))}
       </select>
+      {/* The role, always readable: a long team name can push it out of the closed control (S11: "Owner - 5 people"). */}
+      {current !== null && (
+        <span className="team-switcher-role" data-testid="team-switcher-role">
+          {`${current.role} - ${current.people}`}
+        </span>
+      )}
     </label>
   );
 }

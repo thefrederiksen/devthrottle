@@ -73,8 +73,12 @@ describe("TeamSwitcher", () => {
     await waitFor(() => expect(screen.getByTestId("team-switcher")).toBeTruthy());
     expect(optionTexts()).toEqual(["Your own account", "DevThrottle - Owner", "Paul's project - Developer"]);
 
+    expect(screen.queryByTestId("team-switcher-role")).toBeNull();
+
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "team-paul" } });
     expect(screen.getByTestId("probe").textContent).toBe("Paul's project");
+    // The role stays readable under the control, however long the team's name.
+    expect(screen.getByTestId("team-switcher-role").textContent).toBe("Developer - 2 people");
 
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "own-account" } });
     expect(screen.getByTestId("probe").textContent).toBe("own account");

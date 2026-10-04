@@ -25,7 +25,14 @@
   border: 1px solid var(--border);
   border-radius: 4px;
   font: inherit;
+  font-size: 13px;
   font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.team-switcher-role {
+  font-size: 11.5px;
+  color: var(--text-dim);
 }
 
 .team-switcher-error {
