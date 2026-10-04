@@ -4681,7 +4681,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // releases Teams: mapped only when CC_GATEWAY_TEAMS=1, so a deploy of main exposes no team route.
         if (TeamsReleased)
         {
-            TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry);
+            TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, Devices);
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
             TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
         }

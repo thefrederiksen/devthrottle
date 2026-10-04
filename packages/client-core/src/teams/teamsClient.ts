@@ -53,9 +53,13 @@ export interface TeamPagesApp {
   elsewhere: string;
 }
 
+/** Where a browser that has never chosen starts - the Gateway's verdict (devthrottle_internal#2306): the person's own
+ *  account, one team, or the team chooser (screen S11). */
+export type TeamStart = { where: "own-account" } | { where: "team"; teamId: string } | { where: "choose" };
+
 /** What GET /teams answered. */
 export type MyTeamsAnswer =
-  | { kind: "teams"; teams: TeamSummary[] }
+  | { kind: "teams"; teams: TeamSummary[]; start: TeamStart }
   | { kind: "not-offered"; reason: string };
 
 /** Why a dark Gateway offers no teams, in the words the store keeps. */
@@ -97,7 +101,8 @@ export async function getMyTeams(signal?: AbortSignal): Promise<MyTeamsAnswer> {
   if (!Array.isArray(body.teams)) {
     throw new GatewayError(502, "The Gateway's list of your teams had no teams in it, not even an empty list.");
   }
-  return { kind: "teams", teams: body.teams.map(readTeam) };
+  const teams = body.teams.map(readTeam);
+  return { kind: "teams", teams, start: readStart((body as { start?: unknown }).start, teams) };
 }
 
 function readTeam(raw: unknown): TeamSummary {
@@ -113,6 +118,18 @@ function readTeam(raw: unknown): TeamSummary {
     throw new GatewayError(502, "The Gateway sent a team the Cockpit cannot read: it is missing its id, name, role or size.");
   }
   return { id: t.id, name: t.name, role: t.role, memberCount: t.memberCount, people: t.people, app: readApp(t.app) };
+}
+
+const UNREADABLE_START = "The Gateway's list of your teams did not say where to start, so the Cockpit cannot open it.";
+
+function readStart(raw: unknown, teams: TeamSummary[]): TeamStart {
+  const s = (raw ?? {}) as { where?: unknown; teamId?: unknown };
+  if (s.where === "own-account") return { where: "own-account" };
+  if (s.where === "choose") return { where: "choose" };
+  if (s.where === "team" && typeof s.teamId === "string" && teams.some((t) => t.id === s.teamId)) {
+    return { where: "team", teamId: s.teamId };
+  }
+  throw new GatewayError(502, UNREADABLE_START);
 }
 
 const UNREADABLE_APP =

@@ -40,7 +40,7 @@ public sealed class TeamEndpointsTests : IDisposable
     [Fact]
     public async Task ListTeams_AccountInNoTeam_AnswersAnEmptyListWithACount()
     {
-        var (status, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice));
+        var (status, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
 
         Assert.Equal(200, status);
         Assert.Equal(0, body.GetProperty("count").GetInt32());
@@ -54,7 +54,7 @@ public sealed class TeamEndpointsTests : IDisposable
         var pauls = _teams.CreateTeam(Bob, "Paul's project").Team!;
         _teams.AddMember(pauls.TeamId, Alice, TeamRole.Developer);
 
-        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice));
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
 
         var teams = body.GetProperty("teams").EnumerateArray().ToList();
         Assert.Equal(2, body.GetProperty("count").GetInt32());
@@ -76,7 +76,7 @@ public sealed class TeamEndpointsTests : IDisposable
         var dev = _teams.CreateTeam(Bob, "Paul's project").Team!;
         _teams.AddMember(dev.TeamId, Alice, TeamRole.Developer);
 
-        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice));
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
 
         var byId = body.GetProperty("teams").EnumerateArray().ToDictionary(t => t.GetProperty("id").GetString()!, t => t.GetProperty("app"));
         var asCollaborator = byId[collab.TeamId];

@@ -446,6 +446,28 @@ public sealed class DeviceRegistry : IDisposable
             .ToList();
     }
 
+    /// <summary>
+    /// Whether a DIRECTOR has ever enrolled in <paramref name="tenant"/> - any device that is not a phone or a browser,
+    /// revoked ones included, since the question is "has this person ever set up a computer here" (devthrottle_internal
+    /// #2306: where a fresh browser starts). Phones and browsers enroll with their own types; a Director enrolls as a
+    /// workstation, or with no type recorded, which reads as one.
+    /// </summary>
+    public bool HasEverEnrolledADirector(TenantId tenant)
+    {
+        if (!tenant.IsValid)
+            throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
+
+        using var ctx = _db.CreateUnscopedContext();
+        var found = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Any(d => d.TenantId == tenant.Value
+                      && (d.DeviceType == null
+                          || (d.DeviceType != Account.MobileDeviceEnrollmentService.PhoneDeviceType
+                              && d.DeviceType != Account.MobileDeviceEnrollmentService.BrowserDeviceType)));
+        FileLog.Write($"[DeviceRegistry] HasEverEnrolledADirector: tenant {tenant.ToLogString()} -> {found}");
+        return found;
+    }
+
     public int Count
     {
         get

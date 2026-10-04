@@ -53,3 +53,49 @@ public static class TeamApp
     /// <summary>The sentence a person reads at an address their role does not open.</summary>
     public static string NotAvailableTo(TeamRole role) => $"This page is not available to {TeamRoles.Label(role)}s.";
 }
+
+/// <summary>Where a browser that has never chosen starts.</summary>
+public enum TeamStartPlace
+{
+    /// <summary>The person's own account - the Cockpit as it was before Teams.</summary>
+    OwnAccount,
+
+    /// <summary>One team, named by <see cref="TeamStartVerdict.TeamId"/>.</summary>
+    Team,
+
+    /// <summary>The team chooser (screen S11): the person picks.</summary>
+    Choose,
+}
+
+/// <summary>The Gateway's verdict on where a fresh browser starts. <see cref="TeamId"/> is set exactly when
+/// <see cref="Place"/> is <see cref="TeamStartPlace.Team"/>.</summary>
+public sealed record TeamStartVerdict(TeamStartPlace Place, string? TeamId);
+
+/// <summary>
+/// WHERE A FRESH BROWSER STARTS (devthrottle_internal#2306, review finding F1, Tech Lead ruling): the person's own account
+/// if they have ever registered a Director there - it is where their work is; otherwise their only team, when they
+/// have exactly one; otherwise the chooser. A person in no team starts on their own account, as before Teams. Once the
+/// person picks, the browser remembers it and this verdict is not asked again.
+/// </summary>
+public static class TeamStart
+{
+    /// <summary>The verdict for a person whose own account has (or has not) ever had a Director, in these teams.</summary>
+    public static TeamStartVerdict For(bool ownAccountHasADirector, IReadOnlyList<TeamSummary> teams)
+    {
+        ArgumentNullException.ThrowIfNull(teams);
+        if (ownAccountHasADirector || teams.Count == 0)
+            return new TeamStartVerdict(TeamStartPlace.OwnAccount, null);
+        if (teams.Count == 1)
+            return new TeamStartVerdict(TeamStartPlace.Team, teams[0].TeamId);
+        return new TeamStartVerdict(TeamStartPlace.Choose, null);
+    }
+
+    /// <summary>The place as the wire writes it: own-account, team or choose.</summary>
+    public static string Wire(TeamStartPlace place) => place switch
+    {
+        TeamStartPlace.OwnAccount => "own-account",
+        TeamStartPlace.Team => "team",
+        TeamStartPlace.Choose => "choose",
+        _ => throw new ArgumentOutOfRangeException(nameof(place), place, "Not a start place."),
+    };
+}

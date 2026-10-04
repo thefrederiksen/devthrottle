@@ -15,9 +15,17 @@ vi.mock("@devthrottle/client-core/auth/deviceKey", () => ({
   setDeviceKey: vi.fn(),
   clearDeviceKey: vi.fn(),
 }));
-vi.mock("@devthrottle/client-core/net/useKeepWarm", () => ({ useKeepWarm: () => {} }));
+// The five reads the whole app's rail makes (review finding F2). Recorded, so a test can show a pages-only Cockpit
+// makes none of them.
+const reads = vi.hoisted(() => ({ keepWarm: [] as boolean[] }));
+vi.mock("@devthrottle/client-core/net/useKeepWarm", () => ({
+  useKeepWarm: (enabled = true) => {
+    reads.keepWarm.push(enabled);
+  },
+}));
 vi.mock("@devthrottle/client-core/dictation/dictionaryClient", () => ({ getSuggestionCount: vi.fn(async () => 0) }));
 vi.mock("@devthrottle/client-core/dictation/backgroundSend", () => ({ resumePendingDictations: vi.fn(async () => {}) }));
+vi.mock("@devthrottle/client-core/auth/accountActions", () => ({ signOutAccount: vi.fn(async () => ({ ok: true })) }));
 vi.mock("@devthrottle/client-core/fleetmanager/pageClient", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   getFleetManagerPage: vi.fn(async () => ({ waitingCount: 0 })),
@@ -41,15 +49,25 @@ vi.mock("../../skills/SkillsView", () => ({ SkillsView: () => <div>skills page</
 vi.mock("../../settings/SettingsView", () => ({ SettingsView: () => <div>settings page</div> }));
 vi.mock("../../account/AccountView", () => ({ AccountView: () => <div>account page</div> }));
 
-const myTeams = vi.hoisted(() => ({ teams: [] as unknown[], failure: null as Error | null }));
+const myTeams = vi.hoisted(() => ({
+  teams: [] as unknown[],
+  start: { where: "own-account" } as unknown,
+  failure: null as Error | null,
+}));
 vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
   getMyTeams: vi.fn(async () => {
     if (myTeams.failure !== null) throw myTeams.failure;
-    return { kind: "teams", teams: myTeams.teams };
+    return { kind: "teams", teams: myTeams.teams, start: myTeams.start };
   }),
 }));
 
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
+import { getSuggestionCount } from "@devthrottle/client-core/dictation/dictionaryClient";
+import { resumePendingDictations } from "@devthrottle/client-core/dictation/backgroundSend";
+import { getFleetManagerPage } from "@devthrottle/client-core/fleetmanager/pageClient";
+import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factoryAgentsClient";
+import { signOutAccount } from "@devthrottle/client-core/auth/accountActions";
+import { resetFactorySwitchCache } from "../../factory/useFactorySwitch";
 import { COCKPIT_ROUTES } from "../../routes";
 
 const NOT_AVAILABLE = "This page is not available to Collaborators.";
@@ -126,7 +144,17 @@ describe("The Collaborator's app", () => {
     cleanup();
     window.localStorage.clear();
     myTeams.teams = [COLLABORATOR_TEAM, DEVELOPER_TEAM];
+    myTeams.start = { where: "own-account" };
     myTeams.failure = null;
+    reads.keepWarm = [];
+    vi.clearAllMocks();
+    resetFactorySwitchCache();
+    // The signed-in account, as a finished sign-in leaves it in this browser.
+    window.localStorage.setItem(
+      "cc.accounts",
+      JSON.stringify([{ id: "acct-1", label: "mike@example.com", email: "mike@example.com", deviceKey: "k", installId: "i" }]),
+    );
+    window.localStorage.setItem("cc.activeAccount", "acct-1");
   });
 
   it("Navigation_Collaborator_HasExactlyTheThreePagesTheGatewayListsAndNothingElse", async () => {
@@ -250,5 +278,94 @@ describe("The Collaborator's app", () => {
 
     expect(await screen.findByText("sessions page")).toBeTruthy();
     expect(railLabels()[0]).toBe("Fleet Manager");
+  });
+
+  // ---- Review findings F1-F4 -------------------------------------------------------------------------------------
+
+  it("FirstArrival_OneTeamAsACollaborator_NoDirector_LandsOnTheThreePages", async () => {
+    myTeams.teams = [COLLABORATOR_TEAM];
+    myTeams.start = { where: "team", teamId: COLLABORATOR_TEAM.id };
+    renderAt("/");
+
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    expect(await screen.findByTestId("team-page-questions")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/questions");
+    expect(screen.queryByText("fleet manager page")).toBeNull();
+  });
+
+  it("FirstArrival_SeveralTeams_NoDirector_OffersTheChooser_AndOpensThePickedTeam", async () => {
+    myTeams.start = { where: "choose" };
+    renderAt("/");
+
+    const chooser = await screen.findByTestId("team-chooser");
+    expect(chooser.textContent).toContain("You are signed in as mike@example.com");
+    expect(chooser.textContent).toContain("Collaborator - 5 people");
+    expect(chooser.textContent).toContain("Developer - 2 people");
+    expect(screen.queryByText("fleet manager page")).toBeNull();
+    expect(railLabels()).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open DevThrottle" }));
+
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    expect(screen.getByTestId("where").textContent).toBe("/questions");
+  });
+
+  it("FirstArrival_ADirectorOnTheOwnAccount_StartsOnTheOwnAccount", async () => {
+    myTeams.start = { where: "own-account" };
+    renderAt("/");
+
+    expect(await screen.findByText("fleet manager page")).toBeTruthy();
+    expect(railLabels()[0]).toBe("Fleet Manager");
+  });
+
+  it("PagesOnly_TheWholeAppsFiveReads_AreNeverMade", async () => {
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/questions");
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(getSuggestionCount).not.toHaveBeenCalled();
+    expect(resumePendingDictations).not.toHaveBeenCalled();
+    expect(getFleetManagerPage).not.toHaveBeenCalled();
+    expect(getFactoryAgentsSwitch).not.toHaveBeenCalled();
+    expect(reads.keepWarm.at(-1)).toBe(false);
+  });
+
+  it("WholeApp_TheFiveReads_AreStillMade", async () => {
+    renderAt("/sessions");
+    expect(await screen.findByText("sessions page")).toBeTruthy();
+
+    await waitFor(() => expect(getSuggestionCount).toHaveBeenCalled());
+    expect(resumePendingDictations).toHaveBeenCalled();
+    expect(getFleetManagerPage).toHaveBeenCalled();
+    expect(getFactoryAgentsSwitch).toHaveBeenCalled();
+    expect(reads.keepWarm.at(-1)).toBe(true);
+  });
+
+  it("PagesOnly_TheFootShowsWhoIsSignedInAndTheirRole_AndSignsOut", async () => {
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/questions");
+
+    const foot = await screen.findByTestId("team-pages-foot");
+    expect(foot.textContent).toContain("mike@example.com");
+    expect(foot.textContent).toContain("Collaborator");
+    fireEvent.click(within(foot).getByRole("button", { name: "Sign out" }));
+    // The confirmation's own button, which appears once the dialog opens.
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Sign out" })).toHaveLength(2));
+    const buttons = screen.getAllByRole("button", { name: "Sign out" });
+    fireEvent.click(buttons[buttons.length - 1]);
+
+    await waitFor(() => expect(signOutAccount).toHaveBeenCalledWith("acct-1"));
+  });
+
+  it("PagesOnly_ARememberedCollapsedRail_IsIgnored_SoTheSwitcherAndNamesStay", async () => {
+    window.localStorage.setItem("cockpit.railCollapsed", "true");
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/questions");
+
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    expect(screen.getByTestId("team-switcher")).toBeTruthy();
+    expect(document.querySelector(".shell-rail-collapsed")).toBeNull();
+    expect(screen.queryByTestId("rail-toggle")).toBeNull();
   });
 });

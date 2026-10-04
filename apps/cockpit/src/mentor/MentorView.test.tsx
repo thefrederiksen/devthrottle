@@ -102,7 +102,7 @@ function renderAs(teams: MyTeamsAnswer, chosen: string | null = TEAM_ID) {
   );
 }
 
-const onTeam = (): MyTeamsAnswer => ({ kind: "teams", teams: [team("Manager")] });
+const onTeam = (): MyTeamsAnswer => ({ kind: "teams", teams: [team("Manager")], start: { where: "own-account" } });
 
 function blocks(): HTMLElement[] {
   return screen.queryAllByTestId("mentor-block");
@@ -190,7 +190,7 @@ describe("MentorView", () => {
   });
 
   it("MentorView_NotOnATeam_IsTheOrdinaryMissingPage_AndAsksNothing", async () => {
-    renderAs({ kind: "teams", teams: [] }, null);
+    renderAs({ kind: "teams", teams: [], start: { where: "own-account" } }, null);
 
     await waitFor(() => expect(screen.getByText("Page not found")).toBeTruthy());
     expect(mentor.calls).toEqual([]);

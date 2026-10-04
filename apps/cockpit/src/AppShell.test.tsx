@@ -34,8 +34,8 @@ vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => ({
 
 // The person's teams (devthrottle_internal#2312). The switcher at the top of the rail follows the Gateway's answer.
 const myTeams = vi.hoisted(() => ({
-  answer: { kind: "teams", teams: [] } as
-    | { kind: "teams"; teams: TeamSummary[] }
+  answer: { kind: "teams", teams: [], start: { where: "own-account" } } as
+    | { kind: "teams"; teams: TeamSummary[]; start: { where: "own-account" } }
     | { kind: "not-offered"; reason: string }
     | Error,
 }));
@@ -106,7 +106,7 @@ describe("Cockpit left rail", () => {
     cleanup();
     factory.enabled = false;
     resetFactorySwitchCache();
-    myTeams.answer = { kind: "teams", teams: [] };
+    myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
     vi.clearAllMocks();
     mentorRead.answers.clear();
     mentorRead.calls = [];
@@ -114,6 +114,9 @@ describe("Cockpit left rail", () => {
     rhythm.delayMs = 3_600_000;
     rhythm.asked = [];
     window.localStorage.clear();
+    // A browser that has already started once (devthrottle_internal#2306): it remembers the own account, so the rail is
+    // drawn at once. A browser that has never chosen waits for the Gateway's start - see collaboratorApp.test.tsx.
+    window.localStorage.setItem(currentTeamStorageKey(), "own-account");
   });
 
   it("opens with the Fleet Manager, then Sessions, then Fleet Map", () => {
@@ -222,7 +225,7 @@ describe("Cockpit left rail", () => {
 
   // Teams must change nothing for a person who never joins one: no switcher, and the rail exactly as it was.
   it("shows no team switcher to a person with no team", async () => {
-    myTeams.answer = { kind: "teams", teams: [] };
+    myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
         <AppShell />
@@ -274,6 +277,7 @@ describe("Cockpit left rail", () => {
           app: { full: true, pages: [], landing: null, elsewhere: null },
         },
       ],
+      start: { where: "own-account" },
     };
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -293,7 +297,7 @@ describe("Cockpit left rail", () => {
     const OTHER = { id: "team-other", name: "Other team", role: "Manager", memberCount: 4, people: "4 people", app: { full: true, pages: [], landing: null, elsewhere: null } } as TeamSummary;
 
     function renderOn(teams: (typeof TEAM)[], chosen: string | null) {
-      myTeams.answer = { kind: "teams", teams };
+      myTeams.answer = { kind: "teams", teams, start: { where: "own-account" } };
       if (chosen !== null) window.localStorage.setItem(currentTeamStorageKey(), chosen);
       render(
         <MemoryRouter initialEntries={["/sessions"]}>

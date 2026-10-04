@@ -40,6 +40,7 @@ describe("getMyTeams", () => {
             { id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people", app: FULL },
             { id: "t2", name: "Paul's project", role: "Collaborator", memberCount: 1, people: "1 person", app: COLLABORATOR_APP },
           ],
+          start: { where: "team", teamId: "t2" },
         }),
         "application/json; charset=utf-8",
       ),
@@ -54,13 +55,14 @@ describe("getMyTeams", () => {
         { id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people", app: FULL },
         { id: "t2", name: "Paul's project", role: "Collaborator", memberCount: 1, people: "1 person", app: COLLABORATOR_APP },
       ],
+      start: { where: "team", teamId: "t2" },
     });
     expect(fetchMock.mock.calls[0][0]).toBe("/teams");
   });
 
   it("GetMyTeams_NoTeams_ReturnsAnEmptyList", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond('{"count":0,"teams":[]}', "application/json")));
-    expect(await getMyTeams()).toEqual({ kind: "teams", teams: [] });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond('{"count":0,"teams":[],"start":{"where":"own-account"}}', "application/json")));
+    expect(await getMyTeams()).toEqual({ kind: "teams", teams: [], start: { where: "own-account" } });
   });
 
   it("GetMyTeams_TeamsDark_AppShellIsNotOffered", async () => {
@@ -100,12 +102,13 @@ describe("getMyTeams", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        respond('{"teams":[{"id":"t","name":"n","role":"Billing admin","memberCount":1,"people":"1 person","app":' + FULL_JSON + '}]}', "application/json"),
+        respond('{"teams":[{"id":"t","name":"n","role":"Billing admin","memberCount":1,"people":"1 person","app":' + FULL_JSON + '}],"start":{"where":"own-account"}}', "application/json"),
       ),
     );
     expect(await getMyTeams()).toEqual({
       kind: "teams",
       teams: [{ id: "t", name: "n", role: "Billing admin", memberCount: 1, people: "1 person", app: FULL }],
+      start: { where: "own-account" },
     });
   });
 
@@ -149,5 +152,27 @@ describe("getMyTeams", () => {
       ),
     );
     await expect(getMyTeams()).rejects.toThrow(/pages its member may open/);
+  });
+
+  // devthrottle_internal#2306, review finding F1: where a fresh browser starts is the Gateway's verdict, carried verbatim;
+  // an answer without one, or naming a team the list does not hold, cannot be opened and fails loudly.
+  const ONE_TEAM = `[{"id":"t","name":"n","role":"Collaborator","memberCount":1,"people":"1 person","app":${JSON.stringify(COLLABORATOR_APP)}}]`;
+
+  it("GetMyTeams_TheChooser_IsCarried", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(`{"teams":${ONE_TEAM},"start":{"where":"choose"}}`, "application/json")));
+    expect((await getMyTeams()) as { start: unknown }).toMatchObject({ start: { where: "choose" } });
+  });
+
+  it("GetMyTeams_NoStart_Throws", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(`{"teams":${ONE_TEAM}}`, "application/json")));
+    await expect(getMyTeams()).rejects.toThrow(/did not say where to start/);
+  });
+
+  it("GetMyTeams_AStartNamingATeamNotInTheList_Throws", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(respond(`{"teams":${ONE_TEAM},"start":{"where":"team","teamId":"elsewhere"}}`, "application/json")),
+    );
+    await expect(getMyTeams()).rejects.toThrow(/did not say where to start/);
   });
 });

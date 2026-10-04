@@ -42,7 +42,7 @@ describe("TeamSwitcher", () => {
   });
 
   it("TeamSwitcher_NoTeams_RendersNothing", async () => {
-    const { container } = renderSwitcher(loader({ kind: "teams", teams: [] }));
+    const { container } = renderSwitcher(loader({ kind: "teams", teams: [], start: { where: "own-account" } }));
 
     await waitFor(() => expect(screen.getByTestId("probe").textContent).toBe("own account"));
     expect(screen.queryByTestId("team-switcher")).toBeNull();
@@ -59,7 +59,7 @@ describe("TeamSwitcher", () => {
   });
 
   it("TeamSwitcher_OneTeam_ListsOwnAccountThenTheTeamWithTheRole", async () => {
-    renderSwitcher(loader({ kind: "teams", teams: [DEVTHROTTLE] }));
+    renderSwitcher(loader({ kind: "teams", teams: [DEVTHROTTLE], start: { where: "own-account" } }));
 
     await waitFor(() => expect(screen.getByTestId("team-switcher")).toBeTruthy());
     expect(optionTexts()).toEqual(["Your own account", "DevThrottle - Owner"]);
@@ -68,7 +68,7 @@ describe("TeamSwitcher", () => {
   });
 
   it("TeamSwitcher_SeveralTeams_ListsEachWithTheRoleAndPicksOne", async () => {
-    renderSwitcher(loader({ kind: "teams", teams: [DEVTHROTTLE, PAULS] }));
+    renderSwitcher(loader({ kind: "teams", teams: [DEVTHROTTLE, PAULS], start: { where: "own-account" } }));
 
     await waitFor(() => expect(screen.getByTestId("team-switcher")).toBeTruthy());
     expect(optionTexts()).toEqual(["Your own account", "DevThrottle - Owner", "Paul's project - Developer"]);

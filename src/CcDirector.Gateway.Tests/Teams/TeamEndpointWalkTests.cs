@@ -363,6 +363,29 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
         _output.WriteLine($"{asked} Collaborator reads behind {PagesACollaboratorCannotOpen.Length} pages, every one refused.");
     }
 
+    /// <summary>
+    /// The whole statement, which cannot go stale (review finding F8): EVERY endpoint on the hosted route table outside the
+    /// team's own /teams/{teamId}/ routes is refused for a Collaborator acting inside the team, whether what it touches is
+    /// theirs or someone else's. The hand list above stays as a readable per-page record; this is what covers a page or a
+    /// read nobody wrote down.
+    /// </summary>
+    [Fact]
+    public void Issue2306_ACollaboratorInTheTeam_EveryEndpointOutsideTheTeamRoutes_IsRefused()
+    {
+        var outside = _routes.Where(r => !r.Pattern.StartsWith("/teams/{teamId}/", StringComparison.Ordinal)).ToArray();
+        Assert.True(outside.Length > 300, $"Only {outside.Length} endpoint-methods outside the team routes - the walk would prove nothing.");
+        foreach (var (method, pattern) in outside)
+        {
+            foreach (var whose in new[] { TeamOwnership.Callers, TeamOwnership.SomeoneElses })
+            {
+                var verdict = Ask(method, pattern, _collaborator, whose);
+                Assert.True(verdict.Outcome == TeamGateOutcome.Refused,
+                    $"{method} {pattern} ({whose}) was {verdict.Outcome} for a Collaborator inside the team.");
+            }
+        }
+        _output.WriteLine($"{outside.Length} endpoint-methods outside /teams/{{teamId}}/, each refused for a Collaborator inside the team, theirs and someone else's.");
+    }
+
     [Fact]
     public async Task Issue2306_OverTheWire_AKeyBoundToTheTeam_GetsNoDataBehindAnyPageACollaboratorCannotOpen()
     {

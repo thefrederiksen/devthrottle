@@ -45,9 +45,9 @@ export function TeamSwitcher({
         title={current === null ? "Your own account" : `${current.name} - ${current.role}`}
         value={current?.id ?? OWN_ACCOUNT}
         onChange={(e) => {
-          const id = e.target.value === OWN_ACCOUNT ? null : e.target.value;
-          choose(id);
-          onSwitched?.(id === null ? null : teams.find((t) => t.id === id) ?? null, current);
+          const before = current;
+          const now = choose(e.target.value === OWN_ACCOUNT ? null : e.target.value);
+          onSwitched?.(now, before);
         }}
       >
         <option value={OWN_ACCOUNT}>Your own account</option>

@@ -28,7 +28,7 @@ namespace CcDirector.Gateway.Mobile;
 ///
 /// THE SAME FOR THE COLLABORATOR'S PAGES (devthrottle_internal#2306), while Teams is released: a Collaborator's whole app
 /// is three Cockpit pages - <see cref="Teams.TeamApp.Pages"/>, read from there so the list is written once - and the
-/// mobile app has none of them, so a phone at one of those addresses is given the Cockpit page, and so is the sign-in
+/// mobile app has none of them, so a phone at one of those exact addresses is given the Cockpit page, and so is the sign-in
 /// round trip that starts from one. While Teams is dark the addresses are not exempt and a phone goes to the mobile app
 /// exactly as before.
 /// </summary>
@@ -90,8 +90,10 @@ public static class MobileRedirect
     }
 
     /// <summary>
-    /// True for a team page (<see cref="Teams.TeamApp.Pages"/>: Questions, Requests, Reports) or anything under one, and
-    /// for the Cockpit's <c>/signin</c> when its <c>next</c> is one. The sign-in's return, <c>/device-callback</c>, is
+    /// True for a team page's EXACT address (<see cref="Teams.TeamApp.Pages"/>: Questions, Requests, Reports), and for the
+    /// Cockpit's <c>/signin</c> when its <c>next</c> is one. Exact, not "anything under": <c>/reports/...</c> is already a
+    /// Gateway data family (<c>/reports/repositories-weekly</c>), and an address a later page adds under one of these is
+    /// exempted when that page is built, deliberately (review finding F11). The sign-in's return, <c>/device-callback</c>, is
     /// already exempt (<see cref="IsInvitationRoundTrip"/>).
     /// </summary>
     public static bool IsTeamPageRoundTrip(PathString path, string? next)
@@ -103,8 +105,7 @@ public static class MobileRedirect
     }
 
     private static bool IsTeamPage(string path) =>
-        Teams.TeamApp.Pages.Any(p => string.Equals(path, p.Path, StringComparison.OrdinalIgnoreCase)
-                                     || path.StartsWith(p.Path + "/", StringComparison.OrdinalIgnoreCase));
+        Teams.TeamApp.Pages.Any(p => string.Equals(path, p.Path, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The Cockpit's sign-in return address. The mobile app's is <c>/mobile/device-callback</c>.</summary>
     public const string CockpitDeviceCallbackPath = "/device-callback";

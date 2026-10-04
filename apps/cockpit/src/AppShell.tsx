@@ -12,6 +12,8 @@ import { CurrentTeamProvider, useCurrentTeam } from "@devthrottle/client-core/te
 import type { TeamPagesApp, TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 import { TeamSwitcher } from "./teams/TeamSwitcher";
 import { TeamPagesOnly } from "./teams/collaborator/TeamPagesOnly";
+import { TeamPagesFoot } from "./teams/collaborator/TeamPagesFoot";
+import { TeamChooser } from "./teams/collaborator/TeamChooser";
 import "./teams/collaborator/collaborator.css";
 import { Button, LoadingState } from "./components";
 import { useMentorEntry } from "./mentor/useMentorEntry";
@@ -194,8 +196,12 @@ function ShellFrame() {
   // A team whose verdict is "only these pages" - a Collaborator's (devthrottle_internal#2306). Null for the person's own
   // account, for a person with no team, and for a team where they get the whole app: all of those see today's Cockpit.
   const teamPages = pagesOnly(team.current);
+  // THE WHOLE APP IS ON SCREEN: not a pages-only team, not waiting to learn which, not the chooser. Only then does the
+  // shell ask the Gateway for what the whole app's rail shows (the five reads below) - a Collaborator's three pages
+  // ask for none of it (devthrottle_internal#2306, review finding F2).
+  const wholeApp = !team.resolving && !team.choosing && teamPages === null;
   // Keep-warm heartbeat (P2): hold the direct LAN path open during active use.
-  useKeepWarm();
+  useKeepWarm(wholeApp);
 
   // Resume any recorded-but-unsent dictation once this enrolled shell mounts, exactly like the mobile
   // GatedLayout does (issue #1006): a clip whose upload was interrupted by a refresh / closed tab /
@@ -203,8 +209,9 @@ function ShellFrame() {
   // Cockpit's fire-and-forget Speak Send (SessionComposer / VoiceTab) could persist a clip and then
   // never deliver it after a reload - saved forever, sent never.
   useEffect(() => {
+    if (!wholeApp) return;
     void resumePendingDictations();
-  }, []);
+  }, [wholeApp]);
 
   // The pending dictionary-suggestions count (devthrottle #2075) - the Gateway-owned verdict rendered as a
   // red badge on the Dictionary nav item. Polled here so the whole app shows the attention signal without
@@ -212,6 +219,7 @@ function ShellFrame() {
   // promptly (leaving the page re-polls). The client renders the number; it never decides it.
   const [suggestCount, setSuggestCount] = useState(0);
   useEffect(() => {
+    if (!wholeApp) return undefined;
     let cancelled = false;
     const poll = () => void getSuggestionCount().then((n) => {
       if (!cancelled) setSuggestCount(n);
@@ -222,9 +230,9 @@ function ShellFrame() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [location.pathname]);
+  }, [location.pathname, wholeApp]);
 
-  const waitingCount = useFleetManagerWaitingCount(location.pathname);
+  const waitingCount = useFleetManagerWaitingCount(location.pathname, wholeApp);
 
   const [railCollapsed, setRailCollapsed] = useState(initialRailCollapsed);
   const toggleRail = () => {
@@ -239,7 +247,7 @@ function ShellFrame() {
     });
   };
 
-  const factorySwitch = useFactorySwitch().state;
+  const factorySwitch = useFactorySwitch(wholeApp).state;
   const railItems =
     factorySwitch === "on"
       ? NAV_MAIN.flatMap((item) => (item.to === "/fleet-map" ? [item, FACTORY_AGENTS_ITEM] : [item]))
@@ -263,8 +271,11 @@ function ShellFrame() {
   // While this browser remembers a team the Gateway has not confirmed yet (CurrentTeam's `resolving`), the rail and the
   // page wait: drawing the whole app first would flash pages a Collaborator may not open. It never happens to a person
   // who has never picked a team.
-  const mainNav = team.resolving ? [] : teamPages !== null ? teamPagesNav(teamPages) : fullNav;
-  const shellClass = ["shell", railCollapsed ? "shell-rail-collapsed" : "", teamPages !== null ? "shell-team-pages" : ""]
+  const mainNav = team.resolving || team.choosing ? [] : teamPages !== null ? teamPagesNav(teamPages) : fullNav;
+  // A pages-only rail never collapses (review finding F4): three rows need no room back, and at phone width the bar
+  // hides the collapse control - a remembered collapse would otherwise leave no switcher and no way back.
+  const collapsed = railCollapsed && teamPages === null;
+  const shellClass = ["shell", collapsed ? "shell-rail-collapsed" : "", teamPages !== null ? "shell-team-pages" : ""]
     .filter((c) => c.length > 0)
     .join(" ");
 
@@ -276,42 +287,55 @@ function ShellFrame() {
     else if (pagesOnly(before) !== null) navigate("/");
   };
 
+  // The chooser (S11) opens the picked team where it starts, the same way the switcher does.
+  const onChosen = (teamId: string | null) => {
+    const now = team.choose(teamId);
+    const nowPages = pagesOnly(now);
+    navigate(nowPages !== null ? nowPages.landing : "/");
+  };
+
   return (
     <StopSessionProvider>
       <div className={shellClass}>
         <nav className="rail rail-left" aria-label="Primary">
           <div className="rail-head">
-            {!railCollapsed && <div className="brand">DevThrottle</div>}
+            {!collapsed && <div className="brand">DevThrottle</div>}
             {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
                 is the one row still in reach, pointing the way back. */}
+            {teamPages === null && (
             <button
               type="button"
               className="rail-toggle"
               data-testid="rail-toggle"
-              aria-expanded={!railCollapsed}
-              aria-label={railCollapsed ? "Expand the menu" : "Collapse the menu"}
-              title={railCollapsed ? "Expand the menu" : "Collapse the menu"}
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "Expand the menu" : "Collapse the menu"}
+              title={collapsed ? "Expand the menu" : "Collapse the menu"}
               onClick={toggleRail}
             >
-              <Chevron pointing={railCollapsed ? "right" : "left"} />
+              <Chevron pointing={collapsed ? "right" : "left"} />
             </button>
+            )}
           </div>
           {/* The team switcher sits at the top of the rail on every screen (S11). It renders nothing for a person
               with no team, so their rail is exactly as it was. */}
-          {!railCollapsed && <TeamSwitcher onSwitched={onSwitched} />}
-          {!railCollapsed && teamPages === null && <CockpitStatusPill />}
+          {!collapsed && <TeamSwitcher onSwitched={onSwitched} />}
+          {!collapsed && teamPages === null && <CockpitStatusPill />}
           <div className="nav">
             {teamPages !== null ? (
-              <NavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
+              <NavList items={mainNav} pathname={location.pathname} collapsed={collapsed} />
             ) : (
-              <MainNavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
+              <MainNavList items={mainNav} pathname={location.pathname} collapsed={collapsed} />
             )}
             {/* A pages-only Cockpit is those pages and nothing else: no account, settings or help rows. */}
-            {teamPages === null && !team.resolving && (
-              <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={railCollapsed} />
+            {wholeApp && (
+              <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={collapsed} />
             )}
           </div>
-          {!railCollapsed && <div className="rail-foot">Cockpit (React)</div>}
+          {teamPages !== null && team.current !== null ? (
+            <TeamPagesFoot role={team.current.role} />
+          ) : (
+            !collapsed && <div className="rail-foot">Cockpit (React)</div>
+          )}
         </nav>
 
         <main className="main-pane" aria-label="Main">
@@ -319,6 +343,8 @@ function ShellFrame() {
             <TeamUnreadable error={team.error} onOwnAccount={() => team.choose(null)} />
           ) : team.resolving ? (
             <LoadingState message="Loading your team..." />
+          ) : team.choosing ? (
+            <TeamChooser teams={team.teams} onOpen={onChosen} />
           ) : teamPages !== null ? (
             <TeamPagesOnly app={teamPages} />
           ) : (

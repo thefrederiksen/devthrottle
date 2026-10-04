@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, cleanup, screen, waitFor, act } from "@testing-library/react";
-import { CurrentTeamProvider, currentTeamStorageKey, retryDelayMs, useCurrentTeam, type CurrentTeamState } from "./CurrentTeam";
+import {
+  CurrentTeamProvider,
+  currentTeamStorageKey,
+  rememberTeamOnThisBrowser,
+  retryDelayMs,
+  useCurrentTeam,
+  type CurrentTeamState,
+} from "./CurrentTeam";
 import type { MyTeamsAnswer, TeamSummary } from "./teamsClient";
 
 // The ONE current team a shell has (devthrottle_internal#2312). The switcher writes it; the Fleet Map, the Team page
@@ -29,7 +36,7 @@ function mount(load: () => Promise<MyTeamsAnswer>) {
   );
 }
 
-const teams = (list: TeamSummary[]) => () => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: list });
+const teams = (list: TeamSummary[]) => () => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: list, start: { where: "own-account" } });
 
 describe("CurrentTeam", () => {
   beforeEach(() => {
@@ -75,7 +82,7 @@ describe("CurrentTeam", () => {
         .fn<() => Promise<MyTeamsAnswer>>()
         .mockRejectedValueOnce(new Error("502"))
         .mockRejectedValueOnce(new Error("502"))
-        .mockResolvedValue({ kind: "teams", teams: [TEAM_A, TEAM_B] });
+        .mockResolvedValue({ kind: "teams", teams: [TEAM_A, TEAM_B], start: { where: "own-account" } });
       mount(load);
 
       await waitFor(() => expect(seen!.status).toBe("error"));
@@ -113,7 +120,7 @@ describe("CurrentTeam", () => {
     expect(seen!.current).toBeNull();
     expect(seen!.resolving).toBe(true);
 
-    act(() => answer({ kind: "teams", teams: [TEAM_A] }));
+    act(() => answer({ kind: "teams", teams: [TEAM_A], start: { where: "own-account" } }));
     await waitFor(() => expect(seen!.current?.id).toBe("team-a"));
     expect(seen!.resolving).toBe(false);
   });
@@ -125,11 +132,15 @@ describe("CurrentTeam", () => {
     expect(seen!.resolving).toBe(true);
   });
 
-  it("Resolving_NoRememberedTeam_IsNeverTrue", async () => {
+  // Review finding F1: a browser with nothing remembered waits for the Gateway's start verdict, so a Collaborator's first
+  // arrival never flashes the whole app - but a failed read does not hold it: it starts on the own account, as before.
+  it("Resolving_NothingRemembered_WaitsForTheFirstAnswerOnly_AndAFailedReadStartsOnTheOwnAccount", async () => {
     mount(() => Promise.reject(new Error("boom")));
-    expect(seen!.resolving).toBe(false);
+    expect(seen!.resolving).toBe(true);
     await waitFor(() => expect(seen!.status).toBe("error"));
     expect(seen!.resolving).toBe(false);
+    expect(seen!.current).toBeNull();
+    expect(seen!.choosing).toBe(false);
   });
 
   it("Choose_ATeam_PutsItOnScreenAndRemembersItForThisAccount", async () => {
@@ -140,9 +151,54 @@ describe("CurrentTeam", () => {
     expect(seen!.current?.id).toBe("team-b");
     expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("team-b");
 
+    // The own account, picked on purpose, is remembered as such - apart from "never chose", which would ask the
+    // Gateway where to start again.
     act(() => seen!.choose(null));
     expect(seen!.current).toBeNull();
+    expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("own-account");
+  });
+
+  it("Choose_ATeam_AnswersTheTeamNowOnScreen", async () => {
+    mount(teams([TEAM_A, TEAM_B]));
+    await waitFor(() => expect(seen!.status).toBe("ready"));
+    let answered: TeamSummary | null = null;
+    act(() => {
+      answered = seen!.choose("team-b");
+    });
+    expect(answered!.id).toBe("team-b");
+  });
+
+  it("Start_NothingRemembered_TheGatewaysTeam_IsOnScreenAndRemembered", async () => {
+    mount(() => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: [TEAM_A, TEAM_B], start: { where: "team", teamId: "team-b" } }));
+    await waitFor(() => expect(seen!.current?.id).toBe("team-b"));
+    expect(seen!.resolving).toBe(false);
+    await waitFor(() => expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("team-b"));
+  });
+
+  it("Start_NothingRemembered_TheChooser_WaitsForThePersonAndRemembersNothing", async () => {
+    mount(() => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: [TEAM_A, TEAM_B], start: { where: "choose" } }));
+    await waitFor(() => expect(seen!.status).toBe("ready"));
+    expect(seen!.choosing).toBe(true);
+    expect(seen!.current).toBeNull();
     expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBeNull();
+
+    act(() => seen!.choose("team-a"));
+    expect(seen!.choosing).toBe(false);
+    expect(seen!.current?.id).toBe("team-a");
+  });
+
+  it("Start_ARememberedChoice_OutranksTheGatewaysStart", async () => {
+    window.localStorage.setItem("devthrottle.currentTeam.account-a", "own-account");
+    mount(() => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: [TEAM_A], start: { where: "team", teamId: "team-a" } }));
+    await waitFor(() => expect(seen!.status).toBe("ready"));
+    expect(seen!.current).toBeNull();
+    expect(seen!.resolving).toBe(false);
+  });
+
+  it("RememberTeamOnThisBrowser_TheNextShellOpensOnThatTeam", async () => {
+    rememberTeamOnThisBrowser("team-b");
+    mount(() => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: [TEAM_A, TEAM_B], start: { where: "own-account" } }));
+    await waitFor(() => expect(seen!.current?.id).toBe("team-b"));
   });
 
   it("Choose_ATeamThatIsNotTheirs_IsRefused", async () => {
@@ -158,12 +214,12 @@ describe("CurrentTeam", () => {
     await waitFor(() => expect(seen!.current?.id).toBe("team-a"));
   });
 
-  it("CurrentTeamProvider_RememberedTeamNoLongerListed_GoesBackToTheOwnAccountAndForgetsIt", async () => {
+  it("CurrentTeamProvider_RememberedTeamNoLongerListed_ForgetsItAndStartsWhereTheGatewaySays", async () => {
     window.localStorage.setItem("devthrottle.currentTeam.account-a", "team-left");
     mount(teams([TEAM_A]));
     await waitFor(() => expect(seen!.status).toBe("ready"));
     expect(seen!.current).toBeNull();
-    await waitFor(() => expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBeNull());
+    await waitFor(() => expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("own-account"));
   });
 
   it("CurrentTeamStorageKey_IsPerAccount_SoAnotherAccountDoesNotInheritTheChoice", async () => {

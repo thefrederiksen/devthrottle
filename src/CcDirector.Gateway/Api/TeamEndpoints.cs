@@ -45,8 +45,10 @@ internal static class TeamEndpoints
     internal sealed record CreateTeamRequest(string? Name);
 
     /// <summary>Maps the three routes.</summary>
-    public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, HostedTenantBoundary boundary, TenantRegistry tenants)
+    public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, HostedTenantBoundary boundary, TenantRegistry tenants,
+        Pairing.DeviceRegistry devices)
     {
+        ArgumentNullException.ThrowIfNull(devices);
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(teams);
         ArgumentNullException.ThrowIfNull(boundary);
@@ -55,7 +57,10 @@ internal static class TeamEndpoints
         app.MapGet(Path, (HttpContext ctx) => Guarded("GET /teams", () =>
         {
             var caller = ResolveCaller(ctx, boundary, tenants);
-            return caller.Denial ?? ListTeams(teams, caller.Subject!);
+            if (caller.Denial is not null) return caller.Denial;
+            // ResolveCaller has just shown the request is bound to this person's own tenant.
+            var own = boundary.ResolveRequestTenant(ctx)!.Value;
+            return ListTeams(teams, caller.Subject!, devices.HasEverEnrolledADirector(own));
         }));
 
         app.MapPost(Path, async (HttpContext ctx) =>
@@ -134,15 +139,18 @@ internal static class TeamEndpoints
         return (subject, null);
     }
 
-    /// <summary>The caller's teams, each with the caller's role and the member count.</summary>
-    internal static IResult ListTeams(TeamRegistry teams, string callerSubject)
+    /// <summary>The caller's teams, each with the caller's role and the member count, and where a fresh browser of
+    /// theirs starts (<see cref="TeamStart"/>).</summary>
+    internal static IResult ListTeams(TeamRegistry teams, string callerSubject, bool ownAccountHasADirector)
     {
         var list = teams.ListTeamsFor(callerSubject);
-        FileLog.Write($"[TeamEndpoints] GET /teams: {list.Count} team(s)");
+        var start = TeamStart.For(ownAccountHasADirector, list);
+        FileLog.Write($"[TeamEndpoints] GET /teams: {list.Count} team(s), a fresh browser starts at {TeamStart.Wire(start.Place)}");
         return Results.Json(new
         {
             count = list.Count,
             teams = list.Select(Describe).ToList(),
+            start = new { where = TeamStart.Wire(start.Place), teamId = start.TeamId },
         });
     }
 
