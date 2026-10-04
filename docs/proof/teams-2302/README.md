@@ -106,19 +106,27 @@ See `test-runs.txt` for the exact output.
 |---|---|
 | `.\scripts\test-local.ps1` (default gate) | 10 suites, all `outcome=Completed`, 3,463 passed, 0 failed |
 | `CcDirector.Gateway.UnitTests`, whole suite (`dotnet test`) | 8,326 passed, 0 failed, 8 skipped (its PostgreSQL proofs, which run only under `-Parked`) |
-| `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams"` | FILLED IN BELOW |
 | Revert check 1: one cell flipped (Manager may change roles) | 4 tests red, green again restored |
 | Revert check 2: the gate lets an undeclared endpoint through | 3 tests red, green again restored |
 | Revert check 3: the gate's refusal of an undeclared route that names a team removed | 6 tests red, green again restored |
 
-## Not run, and why
+The rows above are the Developer's own runs on this branch (the default gate and the unit suite on 70782b61e).
 
-- **`CcDirector.Gateway.Tests` - including the new `TeamEndpointWalkTests`.** The filtered run queued behind the
-  machine-wide Gateway lock (two other Teams sessions were running the suite), and after about 20 minutes of waiting
-  it was stopped because the machine ran low on memory. Its throwaway PostgreSQL container was removed by hand. So the
-  walk over the real route table, the over-the-wire members test, and #2300's existing hosted Teams tests have NOT run
-  on this branch. An earlier one-off run of a scratch test against the same hosted Gateway (to read its route table)
-  did complete, which is where the route list the walk uses came from. This run is owed before merge.
+### The Tech Lead's `-Parked` run on the final head, 70782b61e
 
-- **The whole `-Parked` run.** One foreground command here is capped at ten minutes and `-Parked` takes over an hour;
-  the Tech Lead runs it in a separate terminal session.
+Run by the Tech Lead in session 7bee7bea; logs in `C:\Users\soren\AppData\Local\Temp\cc-test-local-3a568d37`.
+The `CcDirector.Gateway.Tests` and `CcDirector.Gateway.UnitTests` counts below were read from those logs' result
+files; the other suites come from the Tech Lead's track log.
+
+| Suite | Result |
+|---|---|
+| `CcDirector.Gateway.Tests`, the Teams tests | **25 of 25 passed.** That is all 17 `TeamEndpointWalkTests` cases plus #2300's 8 hosted Teams tests. |
+| `TeamEndpointWalkTests`, case by case | Every one passed: `EveryEndpoint_InATeam_IsRefusedUnlessItStatesAnAction` (the walk over the real hosted route table), `EveryEndpointOfTheNamedFamilies_StatesAnAction`, `EveryRule_StatesTheActionOfAtLeastOneRealEndpoint`, `Gate_IsTheSameOneTheHostInstalled_OverTheSameRegistry`, `Issue2302Test2_...` (Collaborator), `Issue2302Test3_...` (4 roles), `Issue2302Test4_...` (Manager and prompts), `NotAMember_EveryEndpoint_IsRefused`, `OverTheWire_EveryRole_SeesTheMembersAndRoles` (4 roles), `OverTheWire_SomeoneWhoIsNotAMember_IsToldThereIsNoSuchTeam`, `OverTheWire_AKeyBoundToATeamsTenant_...` |
+| `CcDirector.Gateway.Tests`, the whole suite | **Not a complete run.** The Tech Lead ended a hung test host, so the run stopped at 2,771 of about 2,900 listed tests: 2,759 passed and 2 failed. The two failures are older tests this branch does not touch: `TunnelShutdownHandoverProofTests.Handover_sameDirector_...` and `StreamCommandTests.PeriodicRePush_...`. |
+| `CcDirector.Gateway.UnitTests` | 8,334 passed, 0 failed (its PostgreSQL proofs ran here) |
+| Other suites | All completed. Two known load failures, both outside this branch's code: setup-engine 648 passed and 1 failed (`PythonToolsHealAndShimTests`), Core.Tests 4,801 passed and 1 failed (`RepositoryRegistryConcurrencyTests`). |
+
+## Still owed
+
+- **A complete `CcDirector.Gateway.Tests` run on 70782b61e.** The Tech Lead is running it now; it has no result yet,
+  and this proof claims none. The Teams tests within that suite have already passed (above).
