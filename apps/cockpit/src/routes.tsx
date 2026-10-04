@@ -38,6 +38,7 @@ import { TeamPageRoute } from "./teams/collaborator/TeamPageRoute";
 import { QuestionsPage } from "./teams/collaborator/QuestionsPage";
 import { RequestsPage } from "./teams/collaborator/RequestsPage";
 import { ReportsPage } from "./teams/collaborator/ReportsPage";
+import { MentorView } from "./mentor/MentorView";
 
 // THE COCKPIT'S ROUTE TABLE, IN ONE PLACE THE TESTS CAN MOUNT (dev reports mission, phase 3b).
 //
@@ -220,6 +221,9 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           { path: "/questions", element: <TeamPageRoute pageId="questions"><QuestionsPage /></TeamPageRoute> },
           { path: "/requests", element: <TeamPageRoute pageId="requests"><RequestsPage /></TeamPageRoute> },
           { path: "/reports", element: <TeamPageRoute pageId="reports"><ReportsPage /></TeamPageRoute> },
+          // The Mentor's weekly page for the team on screen (screens S6 and S7, devthrottle_internal#2305). For a person
+          // with no team, or on a Gateway with Teams off, it is the ordinary missing page - they see no change.
+          { path: "/mentor", element: <MentorView /> },
           // Injected text is a tab of Settings now, not a page of its own (issue #550). The old route
           // redirects into that tab - the same way /mic-test and /transcription-test redirect into the
           // Transcription tab on the phone - so existing bookmarks land on what they asked for.

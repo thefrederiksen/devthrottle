@@ -14,6 +14,7 @@ import { TeamSwitcher } from "./teams/TeamSwitcher";
 import { TeamPagesOnly } from "./teams/collaborator/TeamPagesOnly";
 import "./teams/collaborator/collaborator.css";
 import { Button, LoadingState } from "./components";
+import { useMentorEntry } from "./mentor/useMentorEntry";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
 // pane (the routed page). The main pane fills all remaining width. Desktop-first: the frame stays
@@ -107,6 +108,11 @@ const FACTORY_AGENTS_ITEM: NavItem = {
   icon: "factory-agents",
   subtree: "/factory-agents",
 };
+
+// The Mentor's weekly page for the team on screen (devthrottle_internal#2305), after Skills - the mockups put it
+// beside the team's skills and workflows. Offered only while the GATEWAY answers the Mentor read for the current team
+// with a page: a Collaborator, a person on their own account and a Gateway with Teams off never see it (rule 7).
+const MENTOR_ITEM: NavItem = { to: "/mentor", label: "Mentor", icon: "mentor" };
 
 // The public documentation site. devthrottle.com is a PUBLIC website (NOT a Director), so this external
 // link does not violate the Gateway-only-ingress rule; it is the same intended absolute-URL exception the
@@ -295,7 +301,11 @@ function ShellFrame() {
           {!railCollapsed && <TeamSwitcher onSwitched={onSwitched} />}
           {!railCollapsed && teamPages === null && <CockpitStatusPill />}
           <div className="nav">
-            <NavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
+            {teamPages !== null ? (
+              <NavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
+            ) : (
+              <MainNavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
+            )}
             {/* A pages-only Cockpit is those pages and nothing else: no account, settings or help rows. */}
             {teamPages === null && !team.resolving && (
               <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={railCollapsed} />
@@ -335,6 +345,16 @@ function TeamUnreadable({ error, onOwnAccount }: { error: string | null; onOwnAc
       </div>
     </section>
   );
+}
+
+// The main list, with the Mentor entry when the Gateway offers it. A component of its own because the current team
+// is read under the CurrentTeamProvider the shell mounts.
+function MainNavList({ items, pathname, collapsed }: { items: ReadonlyArray<NavItem>; pathname: string; collapsed: boolean }) {
+  const mentorOffered = useMentorEntry();
+  const withMentor = mentorOffered
+    ? items.flatMap((item) => (item.to === "/skills" ? [item, MENTOR_ITEM] : [item]))
+    : items;
+  return <NavList items={withMentor} pathname={pathname} collapsed={collapsed} />;
 }
 
 function NavList({

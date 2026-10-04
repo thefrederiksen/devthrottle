@@ -1,0 +1,72 @@
+/* The Mentor's weekly page (devthrottle_internal#2305, screens S6 and S7). Drawn on the shared navy tokens
+   (docs/CockpitVisualStyle.md): each block a card on --surface with a 1px --border and 8px corners, a quote set off by
+   an --accent edge on --code-bg. The footer is ordinary body text on purpose: the ruling on the earlier Mentor report
+   was "don't make it tiny". */
+
+.mentor-page { max-width: 820px; }
+
+.mentor-weeks {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 18px;
+}
+.mentor-week-label { color: var(--text); font-size: 14px; }
+
+.mentor-blocks { display: flex; flex-direction: column; gap: 14px; }
+
+.mentor-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+.mentor-who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 6px;
+}
+.mentor-person { color: var(--text); font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.mentor-role { color: var(--text-dim); font-size: 13px; }
+.mentor-tone {
+  border-radius: 10px;
+  padding: 1px 9px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.mentor-tone-good { color: var(--ok-text); border-color: var(--ok); }
+.mentor-tone-mixed { color: var(--warn); border-color: var(--warn); }
+.mentor-tone-hard { color: var(--danger-text); border-color: var(--attention); }
+
+.mentor-hd {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 14px 0 4px;
+}
+.mentor-text { color: var(--text); font-size: 14px; line-height: 1.55; margin: 0; }
+
+/* A person's own prompt, exactly as they typed it: kept on its own lines and never reflowed into prose. */
+.mentor-quote {
+  margin: 10px 0 2px;
+  padding: 8px 12px;
+  background: var(--code-bg);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mentor-footer {
+  margin: 22px 0 0;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.5;
+}
