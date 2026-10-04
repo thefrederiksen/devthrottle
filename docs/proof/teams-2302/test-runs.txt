@@ -1,0 +1,84 @@
+devthrottle_internal#2302 - test runs on branch teams/2302-permissions, SOREN_NORTH, 3 October 2026
+
+1. .\scripts\test-local.ps1  (default gate)
+  CcDirector.Core.UnitTests                outcome=Completed    total=1148   executed=1148
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+  RESULT: all projects exited zero. 3,463 passed, 0 failed.
+
+2. dotnet test src/CcDirector.Gateway.UnitTests  (whole suite)
+  Passed!  - Failed: 0, Passed: 8293, Skipped: 8, Total: 8301, Duration: 3 m 37 s
+
+3. dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams"  (final code)
+  Passed!  - Failed: 0, Passed: 336, Skipped: 0, Total: 336
+
+4. Revert check 1 - TeamPermissions: Manager's cell for "make someone a Manager or change roles" flipped to Yes
+  Failed TeamPermissionsTests.ActionToAddOrRemove_AManagerMayAddDevelopersButNotManagers_AsTheTableSays
+  Failed TeamPermissionsTests.Grant_EveryCellOfTheRoleTable_IsTheCellIn2098(action: MakeManagersAndChangeRoles, role: Manager)
+  Failed TeamAccessTests.Decide_EveryCell_TheMembersRoleFromTheDatabaseGetsTheTablesAnswer(action: MakeManagersAndChangeRoles, role: Manager)
+  Failed TeamEndpointGateTests.Decide_EveryCellWhoseEndpointWaitsOnALaterIssue_ThePolicyGivesTheCellsAnswer(action: MakeManagersAndChangeRoles, role: Manager)
+  Failed!  - Failed: 4, Passed: 332, Total: 336        (restored: 336 passed)
+
+5. Revert check 2 - TeamEndpointGate: an endpoint that states no action let through instead of refused
+  Failed TeamEndpointGateTests.Check_NoEndpointReached_InATeam_IsRefused
+  Failed TeamEndpointGateTests.RunAsync_AnUndeclaredEndpointInATeamsTenant_IsRefusedAsUndeclared
+  Failed TeamEndpointGateTests.Check_AnEndpointThatStatesNoAction_IsRefusedInATeam
+  Failed!  - Failed: 3, Passed: 333, Total: 336        (restored: 336 passed)
+  (The real-route-table walk in Gateway.Tests also guards this; it ran green on the final head - see 11.)
+
+6. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams"
+  NOT COMPLETED. Queued behind the machine-wide Gateway lock held by two other sessions' runs, then stopped
+  after ~20 minutes because the machine was low on memory. No verdict from this run; 11 is the run that
+  did complete these tests.
+
+--- After the review (findings F2, F3, F4) ---
+
+7. .\scripts\test-local.ps1 (default gate): 10 suites outcome=Completed, 3,463 passed, 0 failed.
+8. dotnet test src/CcDirector.Gateway.UnitTests (whole suite): Passed 8326, Failed 0, Skipped 8, Total 8334.
+9. Teams filter of Gateway.UnitTests: Passed 369, Failed 0.
+10. Revert check 3 - the gate's refusal of an undeclared team-naming route disabled:
+  Failed Check_AnUndeclaredRouteThatNamesATeam_FromAPersonalAccount_IsRefusedByTheGate (5 cases)
+  Failed RunAsync_AnUndeclaredTeamRoute_FromAPersonalAccount_IsRefused
+  Failed!  - Failed: 6, Passed: 363, Total: 369        (restored: 369 passed)
+
+--- The Tech Lead's full -Parked run on the final head 70782b61e (session 7bee7bea, 3 October 2026) ---
+
+11. .\scripts\test-local.ps1 -Parked, run by the Tech Lead. Logs: C:\Users\soren\AppData\Local\Temp\cc-test-local-3a568d37
+  CcDirector.Gateway.UnitTests   total=8336 executed=8334 passed=8334 failed=0
+                                 (its PostgreSQL proofs ran here, unlike in 8)
+  CcDirector.Gateway.Tests       total=2771 executed=2761 passed=2759 failed=2 - NOT a complete run: the
+                                 Tech Lead ended a hung test host, so it stopped short of the ~2900 tests
+                                 listed. The 2 failures are in older tests this branch does not touch:
+                                 TunnelShutdownHandoverProofTests.Handover_sameDirector_ridesTheTunnel_asHandoverGenerate
+                                 StreamCommandTests.PeriodicRePush_KeepsPushedCacheFresh_ForAQuietSession
+  Every test under CcDirector.Gateway.Tests.Teams in this run - 25, all Passed:
+    TeamEndpointWalkTests (17 cases):
+      EveryEndpoint_InATeam_IsRefusedUnlessItStatesAnAction
+      EveryEndpointOfTheNamedFamilies_StatesAnAction
+      EveryRule_StatesTheActionOfAtLeastOneRealEndpoint
+      Gate_IsTheSameOneTheHostInstalled_OverTheSameRegistry
+      Issue2302Test2_ACollaborator_EverySessionComputerMentorAndSkillsEndpoint_IsRefused
+      Issue2302Test3_NoRole_ReadsAnotherPersonsLiveSessionOrTranscript (Owner, Manager, Developer, Collaborator)
+      Issue2302Test4_AManager_AnotherPersonsPrompts_IsRefusedOnEveryPromptEndpoint
+      NotAMember_EveryEndpoint_IsRefused
+      OverTheWire_EveryRole_SeesTheMembersAndRoles (Owner, Manager, Developer, Collaborator)
+      OverTheWire_SomeoneWhoIsNotAMember_IsToldThereIsNoSuchTeam
+      OverTheWire_AKeyBoundToATeamsTenant_IsNotAcceptedToday_SoNoRequestYetRunsInsideATeam
+    HostedTeamEndpointsTests (7) and HostedTeamsDarkTests (1), from #2300.
+  Other suites: every one Completed; two known load failures outside this branch's code
+  (setup-engine 648/1 PythonToolsHealAndShimTests; Core.Tests 4801/1 RepositoryRegistryConcurrencyTests).
+
+12. Full Gateway.Tests rerun on 70782b61e, run by the Tech Lead with MSBUILDDISABLENODEREUSE=1.
+  Logs: C:\Users\soren\AppData\Local\Temp\cc-test-local-e471ce23
+  CcDirector.Gateway.Tests       outcome=Completed total=2922 executed=2912 passed=2912 failed=0 skipped=10
+  All 25 tests under CcDirector.Gateway.Tests.Teams: Passed (including all 17 TeamEndpointWalkTests cases).
+  The two failures from 11 passed here:
+    TunnelShutdownHandoverProofTests.Handover_sameDirector_ridesTheTunnel_asHandoverGenerate  Passed
+    StreamCommandTests.PeriodicRePush_KeepsPushedCacheFresh_ForAQuietSession                 Passed

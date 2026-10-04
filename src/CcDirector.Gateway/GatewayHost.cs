@@ -744,6 +744,18 @@ public sealed class GatewayHost : IAsyncDisposable
 
     private Timer? _teamSeatConvergenceTimer;
 
+    /// <summary>
+    /// The one place that answers "may this person do this in this team" (devthrottle_internal#2302), over
+    /// <see cref="TeamRegistry"/> and the role table. Exposed so a later team feature asks the same place.
+    /// </summary>
+    public Teams.TeamAccess TeamAccess { get; }
+
+    /// <summary>
+    /// The check every endpoint that acts in a team passes through (devthrottle_internal#2302). Present on every host;
+    /// installed in the request pipeline only on the hosted Gateway, the only one that has teams.
+    /// </summary>
+    public Teams.TeamEndpointGate TeamGate { get; }
+
     /// <summary>The paid-entitlement gate read at hosted enrollment. Present on every host; consulted only
     /// where the hosted enrollment route is mapped, which is hosted only.</summary>
     public Tenancy.EntitlementRegistry EntitlementRegistry { get; }
@@ -1734,6 +1746,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // enter the scope the stores read. Inert on self-host. Built over the same _tenantContext instance
         // the stores read (so a scope it enters is what they resolve) and the device registry.
         _tenantBoundary = new Tenancy.HostedTenantBoundary(_tenantContext, Devices);
+        TeamAccess = new Teams.TeamAccess(TeamRegistry);
+        TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary);
         // The background-loop seam (Hosted Multi-Tenancy, session-serving PR2). Its tenant list is the live
         // push-store partition set - exactly the tenants with a Director bound to the tunnel, which is the
         // only fleet a push-store-driven sweep could act on - so a sweep costs no per-tick database scan.
@@ -3935,6 +3949,17 @@ public sealed class GatewayHost : IAsyncDisposable
         _app.UseWebSockets();
 
         _app.UseRouting();
+
+        // Teams, who can do what (devthrottle_internal#2302): after routing, so the gate knows which endpoint the
+        // request reached, and before any endpoint runs. A request that acts in a team goes on only when the endpoint
+        // states its action, the caller is known and is a member, and the role table gives their role that action;
+        // otherwise the SERVER refuses it. Hosted only: a self-hosted Gateway holds one account and has no teams.
+        // Installed whether or not Teams is released, so a team row can never be reached around it.
+        if (_tenantBoundary.IsHosted)
+        {
+            _app.Use(async (ctx, next) => await TeamGate.RunAsync(ctx, () => next()));
+            FileLog.Write("[GatewayHost] team endpoint gate installed after routing");
+        }
 
         // Issue #1176 (Phase 1a): the Director-push stream endpoint (the tunnel). The tunnel/hubs are
         // mandatory and always mapped. Mapped after the host-wide auth middleware above, so the handshake
