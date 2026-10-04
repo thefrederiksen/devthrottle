@@ -41,11 +41,11 @@ Review round 1 rulings: `rulings-2311-review-round1.md`; every finding is answer
 
 ## Tests
 
-Gate, round 1 head: `.\scripts	est-local.ps1` (MSBUILDDISABLENODEREUSE=1), all ten suites `outcome=Completed`:
+Gate, round 1 head (rebased onto origin/main d3c225be2): `.\scripts	est-local.ps1` (MSBUILDDISABLENODEREUSE=1), all ten suites `outcome=Completed`:
 
 | Suite | Total |
 |---|---|
-| CcDirector.Core.UnitTests | 1208 |
+| CcDirector.Core.UnitTests | 1221 |
 | CcDirector.Avalonia.Tests | 887 |
 | CcDirector.Engine.Tests | 68 |
 | CcDirector.HostedAgent.Tests | 88 |
