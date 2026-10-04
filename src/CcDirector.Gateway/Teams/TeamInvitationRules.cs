@@ -135,6 +135,11 @@ public static class TeamInvitationRefusals
 
     public const string BillUnreadable = "DevThrottle could not check the team's bill just now, so the invitation was not sent. Try again shortly.";
 
+    /// <summary>Accepting, when the team's bill is no longer running (Tech Lead ruling on review F5).</summary>
+    public const string BillStopped = "The team's bill has stopped, so nobody can join the team right now. Ask the team's Owner.";
+
+    public const string BillUnreadableOnAccept = "DevThrottle could not check the team's bill just now, so you have not joined yet. Try again shortly.";
+
     public const string AlreadyInvited = "That address already has an invitation waiting. Resend it from the team's invitations instead of sending a second one.";
 
     public const string AlreadyAMember = "That person is already a member of this team.";

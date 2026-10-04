@@ -3818,7 +3818,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 // Log full detail server-side; return a generic body so we never leak
                 // an exception type or message to a remote client.
                 Console.Error.WriteLine($"[GatewayHost] pipeline exception: {ex}");
-                FileLog.Write($"[GatewayHost] unhandled exception: {ctx.Request.Method} {ctx.Request.Path}{SafeQueryForLog(ctx.Request.Path, ctx.Request.QueryString)}: {ex}");
+                FileLog.Write($"[GatewayHost] unhandled exception: {ctx.Request.Method} {Api.TeamInvitationEndpoints.RedactForLog(ctx.Request.Path.Value ?? "")}{Api.TeamInvitationEndpoints.RedactForLog(SafeQueryForLog(ctx.Request.Path, ctx.Request.QueryString))}: {ex}");
                 if (!ctx.Response.HasStarted)
                 {
                     ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;

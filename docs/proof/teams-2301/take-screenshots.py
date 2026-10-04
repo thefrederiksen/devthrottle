@@ -183,6 +183,8 @@ def main():
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(rig.pid)], check=False)
             rig.wait(timeout=30)
         shutil.rmtree(RIG_DIR, ignore_errors=True)
+        # The Cockpit was copied beside the test binaries only for this run; no suite run may find it there.
+        shutil.rmtree(web_root, ignore_errors=True)
     print(f"[done] rig exit code {rig.returncode}", flush=True)
     if rig.returncode != 0:
         sys.exit(f"ERROR: the rig reported failure ({rig.returncode})")

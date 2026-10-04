@@ -79,26 +79,18 @@ public sealed partial class TeamRegistry
                 return InvitationNotFound("CreateInvitation");
 
             if (TeamInvitationRules.InviteRefusal(inviterRole.Value, role) is { } notAllowed)
-                return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Forbidden, notAllowed);
+                return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Forbidden, RefusalKinds.NotAllowed, notAllowed);
 
             var address = TeamInvitationRules.NormalizeEmail(email);
             if (address is null)
-                return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Refused, TeamInvitationRefusals.BadEmail);
+                return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Refused, RefusalKinds.BadEmail, TeamInvitationRefusals.BadEmail);
 
             if (BillRefusal(team.Id) is { } bill)
-                return InvitationRefused("CreateInvitation",
-                    bill == TeamInvitationRefusals.BillUnreadable ? TeamInvitationOutcome.Unavailable : TeamInvitationOutcome.Refused, bill);
+                return InvitationRefused("CreateInvitation", BillOutcome(bill), BillKind(bill), bill);
 
             var now = _utcNow();
-            var waiting = ctx.TeamInvitations.AsNoTracking()
-                .Where(i => i.TeamId == team.Id && i.Email == address && i.State == TeamInvitationStates.Sent)
-                .Select(i => i.ExpiresAtUtc)
-                .ToList();
-            if (waiting.Any(expires => now < expires))
-                return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Refused, TeamInvitationRefusals.AlreadyInvited);
-
-            if (MemberEmails(ctx, team.Id).Contains(address))
-                return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Refused, TeamInvitationRefusals.AlreadyAMember);
+            if (AddressRefusal(ctx, team.Id, address, now, exceptInvitationId: null) is { } taken)
+                return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Refused, taken.Kind, taken.Text);
 
             var token = NewAcceptToken();
             var row = new TeamInvitationEntity
@@ -173,12 +165,16 @@ public sealed partial class TeamRegistry
             if (denial is not null) return denial;
 
             if (row!.State != TeamInvitationStates.Sent)
-                return InvitationRefused("ResendInvitation", TeamInvitationOutcome.Refused, TeamInvitationRefusals.NoLongerWaiting);
+                return InvitationRefused("ResendInvitation", TeamInvitationOutcome.Refused, RefusalKinds.NoLongerWaiting, TeamInvitationRefusals.NoLongerWaiting);
             if (BillRefusal(team!.Id) is { } bill)
-                return InvitationRefused("ResendInvitation",
-                    bill == TeamInvitationRefusals.BillUnreadable ? TeamInvitationOutcome.Unavailable : TeamInvitationOutcome.Refused, bill);
+                return InvitationRefused("ResendInvitation", BillOutcome(bill), BillKind(bill), bill);
 
             var now = _utcNow();
+            // Resend makes the same two checks as create (review F4): an expired invitation that was since replaced by a
+            // new one, or whose person has since joined, must not become a second live link for the same address.
+            if (AddressRefusal(ctx, team.Id, row.Email, now, exceptInvitationId: row.Id) is { } taken)
+                return InvitationRefused("ResendInvitation", TeamInvitationOutcome.Refused, taken.Kind, taken.Text);
+
             row.SentAtUtc = now;
             row.ExpiresAtUtc = now + TeamInvitationRules.ValidFor;
             var token = NewAcceptToken();
@@ -206,7 +202,7 @@ public sealed partial class TeamRegistry
             if (denial is not null) return denial;
 
             if (row!.State != TeamInvitationStates.Sent)
-                return InvitationRefused("CancelInvitation", TeamInvitationOutcome.Refused, TeamInvitationRefusals.NoLongerWaiting);
+                return InvitationRefused("CancelInvitation", TeamInvitationOutcome.Refused, RefusalKinds.NoLongerWaiting, TeamInvitationRefusals.NoLongerWaiting);
 
             var now = _utcNow();
             row.State = TeamInvitationStates.Cancelled;
@@ -234,13 +230,13 @@ public sealed partial class TeamRegistry
 
         var now = _utcNow();
         var view = Describe(ctx, team, row, now);
-        var refusal = AcceptRefusal(ctx, row, view, caller, now);
-        FileLog.Write($"[TeamRegistry] OpenInvitation: invitation {row.Id} state={view.State} canRespond={refusal is null}");
+        var refusal = AcceptRefusal(ctx, row, view, caller);
+        FileLog.Write($"[TeamRegistry] OpenInvitation: invitation {row.Id} state={view.State} canRespond={refusal is null} refusal={refusal?.Kind ?? "none"}");
         return TeamInvitationResult.Done(view with
         {
             SignedInAs = DisplayFor(ctx, caller, role: null),
             CanRespond = refusal is null,
-            Refusal = refusal,
+            Refusal = refusal?.Text,
         });
     }
 
@@ -263,9 +259,9 @@ public sealed partial class TeamRegistry
                 return InvitationNotFound("AcceptInvitation");
 
             var now = _utcNow();
-            var refusal = AcceptRefusal(ctx, row, Describe(ctx, team, row, now), caller, now);
+            var refusal = AcceptRefusal(ctx, row, Describe(ctx, team, row, now), caller);
             if (refusal is not null)
-                return InvitationRefused("AcceptInvitation", TeamInvitationOutcome.Refused, refusal);
+                return InvitationRefused("AcceptInvitation", refusal.Outcome, refusal.Kind, refusal.Text);
 
             row.State = TeamInvitationStates.Accepted;
             row.RespondedAtUtc = now;
@@ -304,7 +300,7 @@ public sealed partial class TeamRegistry
             var now = _utcNow();
             var view = Describe(ctx, team, row, now);
             if (StateRefusal(view) is { } refusal)
-                return InvitationRefused("DeclineInvitation", TeamInvitationOutcome.Refused, refusal);
+                return InvitationRefused("DeclineInvitation", TeamInvitationOutcome.Refused, view.State, refusal);
 
             row.State = TeamInvitationStates.Declined;
             row.RespondedAtUtc = now;
@@ -317,15 +313,71 @@ public sealed partial class TeamRegistry
 
     // ---- helpers -------------------------------------------------------------------------------------------------
 
-    /// <summary>Why this invitation cannot be accepted by this caller now, or null when it can.</summary>
-    private static string? AcceptRefusal(GatewayDbContext ctx, TeamInvitationEntity row, TeamInvitation view, string caller, DateTime now)
+    /// <summary>A refusal: the outcome, a short kind for the log, and the sentence for the person. Only the kind is ever
+    /// logged - the sentence can name a person by their email address (review F2).</summary>
+    private sealed record InvitationRefusal(TeamInvitationOutcome Outcome, string Kind, string Text);
+
+    /// <summary>The kinds of refusal as the log records them, beside the state words. Never an address, a name or a
+    /// token.</summary>
+    internal static class RefusalKinds
+    {
+        public const string NotAllowed = "not-allowed";
+        public const string BadEmail = "bad-email";
+        public const string AlreadyInvited = "already-invited";
+        public const string AlreadyAMember = "already-a-member";
+        public const string NoLongerWaiting = "no-longer-waiting";
+        public const string CallerAlreadyMember = "caller-already-member";
+        public const string BillNotStarted = "bill-not-started";
+        public const string BillCancelled = "bill-cancelled";
+        public const string BillUnreadable = "bill-unreadable";
+        public const string BillStopped = "bill-stopped";
+    }
+
+    /// <summary>
+    /// Why this invitation cannot be accepted by this caller now, or null when it can: its state, the caller already
+    /// being a member, or the team's bill (Tech Lead ruling on review F5) - an invitation sent while the bill ran
+    /// cannot add a member once the bill has stopped. The same gate as inviting: active or past_due passes.
+    /// </summary>
+    private InvitationRefusal? AcceptRefusal(GatewayDbContext ctx, TeamInvitationEntity row, TeamInvitation view, string caller)
     {
         if (StateRefusal(view) is { } refusal)
-            return refusal;
+            return new InvitationRefusal(TeamInvitationOutcome.Refused, view.State, refusal);
         if (ctx.TeamMembers.AsNoTracking().Any(m => m.TeamId == row.TeamId && m.AccountSubject == caller))
-            return TeamInvitationRefusals.CallerAlreadyMember;
+            return new InvitationRefusal(TeamInvitationOutcome.Refused, RefusalKinds.CallerAlreadyMember, TeamInvitationRefusals.CallerAlreadyMember);
+        if (BillRefusal(row.TeamId) is { } bill)
+            return bill == TeamInvitationRefusals.BillUnreadable
+                ? new InvitationRefusal(TeamInvitationOutcome.Unavailable, RefusalKinds.BillUnreadable, TeamInvitationRefusals.BillUnreadableOnAccept)
+                : new InvitationRefusal(TeamInvitationOutcome.Refused, RefusalKinds.BillStopped, TeamInvitationRefusals.BillStopped);
         return null;
     }
+
+    /// <summary>
+    /// Why this address cannot be invited, or invited again, now - or null: it already has a waiting invitation other
+    /// than <paramref name="exceptInvitationId"/>, or it belongs to a member. Shared by create and resend (review F4).
+    /// </summary>
+    private static (string Kind, string Text)? AddressRefusal(GatewayDbContext ctx, string teamId, string address, DateTime now,
+        string? exceptInvitationId)
+    {
+        var waiting = ctx.TeamInvitations.AsNoTracking()
+            .Where(i => i.TeamId == teamId && i.Email == address && i.State == TeamInvitationStates.Sent && i.Id != exceptInvitationId)
+            .Select(i => i.ExpiresAtUtc)
+            .ToList();
+        if (waiting.Any(expires => now < expires))
+            return (RefusalKinds.AlreadyInvited, TeamInvitationRefusals.AlreadyInvited);
+        if (MemberEmails(ctx, teamId).Contains(address))
+            return (RefusalKinds.AlreadyAMember, TeamInvitationRefusals.AlreadyAMember);
+        return null;
+    }
+
+    private static TeamInvitationOutcome BillOutcome(string billRefusal) =>
+        billRefusal == TeamInvitationRefusals.BillUnreadable ? TeamInvitationOutcome.Unavailable : TeamInvitationOutcome.Refused;
+
+    private static string BillKind(string billRefusal) => billRefusal switch
+    {
+        TeamInvitationRefusals.BillUnreadable => RefusalKinds.BillUnreadable,
+        TeamInvitationRefusals.BillCancelled => RefusalKinds.BillCancelled,
+        _ => RefusalKinds.BillNotStarted,
+    };
 
     /// <summary>The plain-words reason an invitation in this state cannot be answered, or null while it is waiting.</summary>
     private static string? StateRefusal(TeamInvitation view) => view.State switch
@@ -372,7 +424,7 @@ public sealed partial class TeamRegistry
         if (team is null || callerRole is null || row is null)
             return (null, null, InvitationNotFound(method));
         if (TeamInvitationRules.InviteRefusal(callerRole.Value, row.Role) is { } notAllowed)
-            return (null, null, InvitationRefused(method, TeamInvitationOutcome.Forbidden, notAllowed));
+            return (null, null, InvitationRefused(method, TeamInvitationOutcome.Forbidden, RefusalKinds.NotAllowed, notAllowed));
         return (team, row, null);
     }
 
@@ -464,9 +516,11 @@ public sealed partial class TeamRegistry
         return TeamInvitationResult.NotFound;
     }
 
-    private static TeamInvitationResult InvitationRefused(string method, TeamInvitationOutcome outcome, string reason)
+    /// <summary>Log the refusal by its KIND and give the sentence to the caller. The sentence is never logged: it can
+    /// carry the inviter's email address (review F2).</summary>
+    private static TeamInvitationResult InvitationRefused(string method, TeamInvitationOutcome outcome, string kind, string reason)
     {
-        FileLog.Write($"[TeamRegistry] {method}: REFUSED ({outcome}) - {reason}");
+        FileLog.Write($"[TeamRegistry] {method}: REFUSED ({outcome}) kind={kind}");
         return new TeamInvitationResult(outcome, reason, null);
     }
 }

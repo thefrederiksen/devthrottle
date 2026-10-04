@@ -378,7 +378,7 @@ internal static class AuthMiddleware
             // Asked as an UNRAISED key, which is what this caller is for this request: a raised key on a route its
             // grant covers was accepted above and never reaches here, and on any other route the two answers are the same.
             var refusal = SessionKeyGuard.Check(ctx.Request.Method, path);
-            FileLog.Write($"[AuthMiddleware] session key REFUSED: {ctx.Request.Method} {path} - {refusal.Reason}");
+            FileLog.Write($"[AuthMiddleware] session key REFUSED: {ctx.Request.Method} {Api.TeamInvitationEndpoints.RedactForLog(path)} - {refusal.Reason}");
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
             ctx.Response.ContentType = "application/json; charset=utf-8";
             await ctx.Response.WriteAsync(

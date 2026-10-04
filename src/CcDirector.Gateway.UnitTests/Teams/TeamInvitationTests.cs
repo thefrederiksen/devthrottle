@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json.Nodes;
 using CcDirector.Core.Account;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Tenancy;
@@ -14,8 +15,9 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// Team invitations by email that expire (devthrottle_internal#2301), over a real, throwaway, fully migrated Gateway
 /// database. The six tests the issue names come first, then the decided pieces - the bill gate and the seat sync -
 /// then every public method. The clock is injected; nothing sleeps. The website is a recording HTTP handler; nothing
-/// leaves the process.
+/// leaves the process. In the log-capture collection because some tests read what was logged (review F2).
 /// </summary>
+[Collection(FileLogCaptureCollection.Name)]
 public sealed class TeamInvitationTests : IDisposable
 {
     private const string Owner = "sub-owner";
@@ -237,6 +239,87 @@ public sealed class TeamInvitationTests : IDisposable
         Assert.Equal(0, CountInvitations());
     }
 
+    // ---- Accepting looks at the bill too (Tech Lead ruling on review F5) ------------------------------------------
+
+    [Fact]
+    public void AcceptInvitation_BillCancelledSinceItWasSent_IsRefusedInPlainWords_AndNobodyJoins()
+    {
+        _tenants.MintOrLookupBySubject(Newcomer, "n@x.example");
+        var token = TokenOf(Invite(Owner, "n@x.example", TeamRole.Developer));
+        StartBill(_team, "canceled", seats: 3);
+
+        var opened = _teams.OpenInvitation(token, Newcomer);
+        var accepted = _teams.AcceptInvitation(token, Newcomer);
+
+        Assert.False(opened.Invitation!.CanRespond);
+        Assert.Equal(TeamInvitationRefusals.BillStopped, opened.Invitation.Refusal);
+        Assert.Equal(TeamInvitationOutcome.Refused, accepted.Outcome);
+        Assert.Equal(TeamInvitationRefusals.BillStopped, accepted.Refusal);
+        Assert.Null(_teams.RoleOf(_team, Newcomer));
+        Assert.Empty(_website.Calls);
+    }
+
+    [Fact]
+    public void AcceptInvitation_BillPastDue_StillJoins()
+    {
+        _tenants.MintOrLookupBySubject(Newcomer, "n@x.example");
+        var token = TokenOf(Invite(Owner, "n@x.example", TeamRole.Developer));
+        StartBill(_team, "past_due", seats: 3);
+
+        Assert.Equal(TeamInvitationOutcome.Done, _teams.AcceptInvitation(token, Newcomer).Outcome);
+        Assert.Equal(TeamRole.Developer, _teams.RoleOf(_team, Newcomer));
+    }
+
+    [Fact]
+    public void AcceptInvitation_BillCannotBeRead_IsUnavailable_AndNobodyJoins()
+    {
+        var token = TokenOf(Invite(Owner, "n@x.example", TeamRole.Developer));
+        var teams = new TeamRegistry(_db, _tenants, () => _now, readTeamBill: _ => new TeamBilledSeats(false, false, null, null));
+
+        var accepted = teams.AcceptInvitation(token, Newcomer);
+
+        Assert.Equal(TeamInvitationOutcome.Unavailable, accepted.Outcome);
+        Assert.Equal(TeamInvitationRefusals.BillUnreadableOnAccept, accepted.Refusal);
+        Assert.Null(_teams.RoleOf(_team, Newcomer));
+    }
+
+    // ---- The log holds the kind of a refusal, never its sentence (review F2) --------------------------------------
+
+    [Fact]
+    public void RefusedAnswers_LogTheKind_NeverTheSentence_SoNoAddressReachesTheLog()
+    {
+        var cancelled = Invite(Owner, "cancelled.person@x.example", TeamRole.Developer);
+        var cancelledToken = TokenOf(cancelled);
+        _teams.CancelInvitation(_team, cancelled.Invitation!.Id, Owner);
+        var declinedToken = TokenOf(Invite(Manager, "declined.person@x.example", TeamRole.Developer));
+        _teams.DeclineInvitation(declinedToken, Newcomer);
+        var expiredToken = TokenOf(Invite(Owner, "expired.person@x.example", TeamRole.Collaborator));
+        _now = _now.AddDays(8);
+
+        IReadOnlyList<string> lines;
+        using (var log = FileLog.RedirectForTests())
+        {
+            foreach (var token in new[] { cancelledToken, declinedToken, expiredToken })
+            {
+                Assert.Equal(TeamInvitationOutcome.Refused, _teams.AcceptInvitation(token, Newcomer).Outcome);
+                Assert.Equal(TeamInvitationOutcome.Refused, _teams.DeclineInvitation(token, Newcomer).Outcome);
+                Assert.False(_teams.OpenInvitation(token, Newcomer).Invitation!.CanRespond);
+            }
+            Assert.Equal(TeamInvitationRefusals.AlreadyAMember, Invite(Owner, "developer@acme.example", TeamRole.Developer).Refusal);
+            Assert.Equal(TeamInvitationRefusals.BadEmail, Invite(Owner, "not-an-address", TeamRole.Developer).Refusal);
+            lines = log.DrainAndReadLines();
+        }
+
+        // The sentences shown to the person name the inviter by address ...
+        Assert.Contains("owner@acme.example", _teams.AcceptInvitation(cancelledToken, Newcomer).Refusal);
+        // ... and the log records only what kind of refusal it was.
+        foreach (var kind in new[] { "kind=cancelled", "kind=declined", "kind=expired", "kind=already-a-member", "kind=bad-email" })
+            Assert.Contains(lines, l => l.Contains(kind, StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.Contains("refusal=expired", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, l => l.Contains('@'));
+        Assert.DoesNotContain(lines, l => l.Contains("not-an-address", StringComparison.Ordinal));
+    }
+
     // ---- The seat sync (seam section 4) --------------------------------------------------------------------------
 
     [Fact]
@@ -429,6 +512,34 @@ public sealed class TeamInvitationTests : IDisposable
         Assert.Equal(_now.AddDays(7), resent.Invitation.ExpiresAtUtc);
         Assert.Equal(TeamInvitationOutcome.NotFound, _teams.OpenInvitation(oldToken, Newcomer).Outcome);
         Assert.True(_teams.OpenInvitation(TokenOf(resent), Newcomer).Invitation!.CanRespond);
+    }
+
+    [Fact]
+    public void ResendInvitation_AnExpiredOneSinceReplaced_IsRefused_SoOneAddressNeverHoldsTwoLiveLinks()
+    {
+        var old = Invite(Owner, "anna@x.example", TeamRole.Developer).Invitation!.Id;
+        _now = _now.AddDays(8);
+        TokenOf(Invite(Owner, "anna@x.example", TeamRole.Developer));   // expired, so invited again: allowed
+
+        var resent = _teams.ResendInvitation(_team, old, Owner);
+
+        Assert.Equal(TeamInvitationOutcome.Refused, resent.Outcome);
+        Assert.Equal(TeamInvitationRefusals.AlreadyInvited, resent.Refusal);
+        Assert.Null(resent.AcceptToken);
+    }
+
+    [Fact]
+    public void ResendInvitation_AnExpiredOneWhosePersonHasSinceJoined_IsRefused()
+    {
+        _tenants.MintOrLookupBySubject(Newcomer, "anna@x.example");
+        var old = Invite(Owner, "anna@x.example", TeamRole.Developer).Invitation!.Id;
+        _now = _now.AddDays(8);
+        Assert.Equal(TeamInvitationOutcome.Done, _teams.AcceptInvitation(TokenOf(Invite(Owner, "anna@x.example", TeamRole.Developer)), Newcomer).Outcome);
+
+        var resent = _teams.ResendInvitation(_team, old, Owner);
+
+        Assert.Equal(TeamInvitationOutcome.Refused, resent.Outcome);
+        Assert.Equal(TeamInvitationRefusals.AlreadyAMember, resent.Refusal);
     }
 
     [Fact]

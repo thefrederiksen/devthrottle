@@ -102,7 +102,7 @@ public static class CockpitReactApp
         {
             if (IsBrowserPageRequest(ctx.Request.Method, ctx.Request.Path, ctx.Request.Headers.Accept))
             {
-                FileLog.Write($"[CockpitReactApp] browser navigation {ctx.Request.Path} -> React shell");
+                FileLog.Write($"[CockpitReactApp] browser navigation {Api.TeamInvitationEndpoints.RedactForLog(ctx.Request.Path.Value ?? "")} -> React shell");
                 await ServeIndexAsync(ctx, WebRoot);
                 return;
             }
