@@ -136,6 +136,30 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SwitchUnset_EveryTeamPageRouteIsAbsent_AndNoRoleChangesAndNobodyIsRemoved()
+    {
+        // A real team with a real Developer, so each route has something to act on: if a route were mapped, the change
+        // would land (devthrottle_internal#2303).
+        Assert.DoesNotContain(MappedPatterns(), p => p.StartsWith("/teams", StringComparison.Ordinal));
+        var team = _gateway.TeamRegistry.CreateTeam(_subject, "Dark page").Team!.TeamId;
+        var developer = "sub-dark-dev-" + Guid.NewGuid().ToString("N");
+        Assert.True(_gateway.TeamRegistry.AddMember(team, developer, CcDirector.Gateway.Teams.TeamRole.Developer).IsDone);
+        var memberId = CcDirector.Gateway.Teams.TeamMemberIds.For(team, developer);
+
+        var routes = new (HttpMethod Method, string Path, object Body)[]
+        {
+            (HttpMethod.Get, $"teams/{team}/page", new { }),
+            (HttpMethod.Put, $"teams/{team}/members/{memberId}/role", new { role = "Collaborator" }),
+            (HttpMethod.Delete, $"teams/{team}/members/{memberId}", new { }),
+        };
+        foreach (var (method, path, body) in routes)
+            await AssertAnsweredAsAPathThatDoesNotExist(method, path, body);
+
+        // Absence proven by what was written: the Developer is still a Developer, still in the team.
+        Assert.Equal(CcDirector.Gateway.Teams.TeamRole.Developer, _gateway.TeamRegistry.RoleOf(team, developer));
+    }
+
+    [Fact]
     public async Task SwitchUnset_TheTeamLibraryRoutesAreAbsent_AndThePersonalLibraryStillAnswers()
     {
         // devthrottle_internal#2304. Read from the finalised route table: nothing under /teams is mapped at all - while
@@ -164,7 +188,7 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
     /// The team route is answered exactly as a path that was never mapped is answered, by the same caller with the same
     /// verb - the same status and the same kind of body - and never as JSON from a handler. That holds whether the
     /// fallback behind it is a 404 or the Cockpit shell, so the proof does not change with the build or the test order.
-    /// A POST is always the fallback's 404, which no team handler could give for a create.
+    /// A write (any verb but GET) is always the fallback's 404, which no team handler could give for a change.
     /// </summary>
     private async Task AssertAnsweredAsAPathThatDoesNotExist(HttpMethod method, string path, object postBody, string? key = null)
     {
@@ -175,14 +199,14 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         Assert.Equal(controlResp.Content.Headers.ContentType?.MediaType, teamResp.Content.Headers.ContentType?.MediaType);
         Assert.False(teamResp.StatusCode == HttpStatusCode.OK && teamResp.Content.Headers.ContentType?.MediaType == "application/json",
             $"{method} /{path} was answered 200 with data, so a handler answered it: the team route is mapped while Teams is dark.");
-        if (method == HttpMethod.Post) Assert.Equal(HttpStatusCode.NotFound, teamResp.StatusCode);
+        if (method != HttpMethod.Get) Assert.Equal(HttpStatusCode.NotFound, teamResp.StatusCode);
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object postBody, string key)
     {
         using var req = new HttpRequestMessage(method, path);
         req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-        if (method == HttpMethod.Post) req.Content = JsonContent.Create(postBody);
+        if (method == HttpMethod.Post || method == HttpMethod.Put) req.Content = JsonContent.Create(postBody);
         return await _http.SendAsync(req);
     }
 }

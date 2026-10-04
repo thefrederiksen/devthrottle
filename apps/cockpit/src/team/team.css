@@ -60,6 +60,25 @@
 .team-pill { color: var(--warn); }
 .team-pill-late { color: var(--danger-text); }
 
+/* The Team page (S1, devthrottle_internal#2303): one list, members then waiting invitations. */
+.team-page-wide { max-width: 900px; }
+.team-person { display: block; color: var(--text); }
+.team-person-email { display: block; font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.team-you { color: var(--text-dim); font-weight: 400; }
+.team-seat { color: var(--text-dim); }
+.team-invited-row td { background: var(--surface-2); }
+.team-note { margin: 0 0 12px; }
+.team-select {
+  background: var(--code-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+}
+.team-select:focus { outline: none; border-color: var(--accent); }
+.team-button-link { text-decoration: none; display: inline-block; }
+
 /* The accept page stands alone - no navigation rail - like a report opened from a link. */
 .team-accept { margin: 48px auto; padding: 0 16px; }
 .team-accept-title { font-size: 22px; margin: 0 0 6px; color: var(--text); }

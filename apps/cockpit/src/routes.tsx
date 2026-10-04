@@ -37,6 +37,7 @@ import { SettingsView } from "./settings/SettingsView";
 import { InviteView } from "./team/InviteView";
 import { AcceptInviteView } from "./team/AcceptInviteView";
 import { MentorView } from "./mentor/MentorView";
+import { TeamPageView } from "./team/TeamPageView";
 
 // THE COCKPIT'S ROUTE TABLE, IN ONE PLACE THE TESTS CAN MOUNT (dev reports mission, phase 3b).
 //
@@ -215,6 +216,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // The Mentor's weekly page for the team on screen (screens S6 and S7, devthrottle_internal#2305). For a person
           // with no team, or on a Gateway with Teams off, it is the ordinary missing page - they see no change.
           { path: "/mentor", element: <MentorView /> },
+          // The Team page (screen S1, devthrottle_internal#2303): members, roles, seats and waiting invitations. The team
+          // comes from the address until the Cockpit's team switcher (#2312) lands; no navigation entry yet, for the same
+          // reason as the invite form.
+          { path: "/team/:teamId/members", element: <TeamPageView /> },
           // Injected text is a tab of Settings now, not a page of its own (issue #550). The old route
           // redirects into that tab - the same way /mic-test and /transcription-test redirect into the
           // Transcription tab on the phone - so existing bookmarks land on what they asked for.

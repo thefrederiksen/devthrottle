@@ -340,8 +340,12 @@ public sealed partial class TeamRegistry
     /// invitation), changing a role and removing a member all write through here and nowhere else, so what must
     /// follow every change attaches here once.
     ///
-    /// THE SEAT SYNC (devthrottle_internal#2301, seam-team-billing.md section 4): after the save commits, every change
-    /// except creating the team asks the website to recount the team's paid seats - naming the team, never a number.
+    /// THE SEAT SYNC (devthrottle_internal#2301, seam-team-billing.md section 4): after the save commits, a change that
+    /// MOVED THE TEAM'S PAID-SEAT COUNT asks the website to recount the team's paid seats - naming the team, never a
+    /// number. Whether it moved is measured, not inferred from the kind of change: the paid members (Owner, Manager,
+    /// Developer - <see cref="TeamSeatRoles"/>) are counted from the database before the save and again after it. So a
+    /// Developer made a Manager, a Collaborator added or a Collaborator removed leaves the bill alone, and a Developer
+    /// made a Collaborator, a paid member added or a paid member removed reaches it (devthrottle_internal#2303).
     /// Creating the team is left out because the team's bill does not exist yet: the checkout starts it at one seat,
     /// the Owner's. The call is STARTED here and not awaited: it runs under the write lock and may take up to the
     /// client's timeout, and the change has already committed, so a member's request never waits on (or fails with)
@@ -350,11 +354,19 @@ public sealed partial class TeamRegistry
     /// </summary>
     private void CommitMembershipChange(GatewayDbContext ctx, string teamId, TeamMembershipChange change)
     {
+        // Read before the save: a query goes to the database, which does not yet hold the pending change.
+        var paidBefore = PaidSeatCount(ctx, teamId);
         ctx.SaveChanges();
-        FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} change={change} committed");
+        var paidAfter = PaidSeatCount(ctx, teamId);
+        FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} change={change} committed, paid seats {paidBefore} -> {paidAfter}");
 
         if (change == TeamMembershipChange.TeamCreated)
             return;
+        if (paidBefore == paidAfter)
+        {
+            FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - the paid-seat count did not change, so the website was not asked to recount");
+            return;
+        }
         if (_seatSync is null)
         {
             FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - this Gateway has no seat sync (no team bills here), so the website was not told");
@@ -372,6 +384,14 @@ public sealed partial class TeamRegistry
                 FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} seat sync NOT done (status={t.Result.StatusCode}) - convergence will retry");
         }, TaskScheduler.Default);
     }
+
+    /// <summary>How many of a team's members hold a paid seat, as the database holds them now.</summary>
+    private static int PaidSeatCount(GatewayDbContext ctx, string teamId) =>
+        ctx.TeamMembers.AsNoTracking()
+            .Where(m => m.TeamId == teamId)
+            .Select(m => m.Role)
+            .ToList()
+            .Count(role => TeamSeatRoles.IsPaidSeat(TeamRoles.ToStored(role)));
 
     /// <summary>Completes when every seat sync started so far has finished. For tests and an orderly shutdown; a
     /// request path never waits on it.</summary>
@@ -443,6 +463,10 @@ public static class TeamRefusals
     public const string DemoteOwner = "The Owner's role cannot be changed: a team always has exactly one Owner, and this would leave the team without one.";
 
     public const string RemoveOwner = "The Owner cannot be removed from the team: a team always has exactly one Owner, and this would leave the team without one.";
+
+    public const string OwnerRemovesSelf = "You are the team's Owner, and the Owner cannot leave the team: a team always has exactly one Owner.";
+
+    public const string OnlyOwnerRemovesManager = "Only the Owner can remove a Manager.";
 }
 
 /// <summary>One team as one account sees it: the team, that account's role in it, and how many members it has.</summary>
