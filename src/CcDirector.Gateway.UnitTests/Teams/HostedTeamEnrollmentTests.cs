@@ -114,8 +114,8 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
     private HostedEnrollmentEndpoint.TeamEnrollment TeamEnrollment() =>
         new(_teams, _access, (tenant, director) => _sessions.TryGetValue((tenant.Value, director), out var n) ? n : 0, _connections);
 
-    private HostedEnrollmentEndpoint.EnrollResult Move(string subject, string deviceKey, string? teamId) =>
-        HostedEnrollmentEndpoint.Move(Token(subject), new MoveDirectorRequest { DeviceKey = deviceKey, TeamId = teamId },
+    private HostedEnrollmentEndpoint.EnrollResult Move(string subject, string directorId, string? teamId) =>
+        HostedEnrollmentEndpoint.Move(Token(subject), new MoveDirectorRequest { DeviceId = directorId, TeamId = teamId },
             _devices, _tenants, _validator, TeamEnrollment(), Entitlements(), DateTime.UtcNow, new TrialRegistry(_db));
 
     private DeviceCredentialIdentity Active(string key)
@@ -301,7 +301,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
         var key = Enroll(Developer, "director-a", _team).Response!.DeviceKey;
         _sessions[(_team, "director-a")] = 1;
 
-        var result = Move(Developer, key, _secondTeam);
+        var result = Move(Developer, "director-a", _secondTeam);
 
         Assert.Equal(409, result.Status);
         Assert.Equal(HostedEnrollmentEndpoint.MoveWithSessionsRefusal, result.Error);
@@ -317,7 +317,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
         _connections.Register(new TenantId(_team), "conn-old", () => oldTunnelCut = true, Developer, "director-a");
         _connections.Register(new TenantId(_team), "conn-sibling", () => siblingCut = true, Developer, "director-other");
 
-        var result = Move(Developer, key, _secondTeam);
+        var result = Move(Developer, "director-a", _secondTeam);
 
         Assert.Equal(200, result.Status);
         var moved = Active(result.Response!.DeviceKey);
@@ -334,15 +334,15 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
     [Fact]
     public void Move_BackToThePersonsOwnAccount_RunsThePersonalGate()
     {
-        var ownerKey = Enroll(Owner, "director-o", _team).Response!.DeviceKey;
-        var home = Move(Owner, ownerKey, null);
+        Enroll(Owner, "director-o", _team);
+        var home = Move(Owner, "director-o", null);
         Assert.Equal(200, home.Status);
         Assert.Equal(_tenants.LookupBySubject(Owner)!.Value.Value, Active(home.Response!.DeviceKey).TenantId);
 
         // The Developer's own plan does not include hosted capacity: moving home is refused exactly as enrolling
         // home is, and the team key keeps working.
         var developerKey = Enroll(Developer, "director-d", _team).Response!.DeviceKey;
-        var refused = Move(Developer, developerKey, null);
+        var refused = Move(Developer, "director-d", null);
         Assert.Equal(402, refused.Status);
         Assert.Equal(_team, Active(developerKey).TenantId);
     }
@@ -352,12 +352,12 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
     {
         var key = Enroll(Developer, "director-a", _team).Response!.DeviceKey;
 
-        var collaborator = Move(Developer, key, _collaboratorTeam);
+        var collaborator = Move(Developer, "director-a", _collaboratorTeam);
         Assert.Equal(403, collaborator.Status);
         Assert.StartsWith(HostedEnrollmentEndpoint.CannotRunSessionsInTeamLead, collaborator.Error);
 
         var strangerTeam = _teams.CreateTeam(Stranger, "Delta").Team!.TeamId;
-        var notAMember = Move(Developer, key, strangerTeam);
+        var notAMember = Move(Developer, "director-a", strangerTeam);
         Assert.Equal(403, notAMember.Status);
 
         Assert.Equal(_team, Active(key).TenantId);
@@ -367,7 +367,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
     public void Move_ToTheTeamItIsAlreadyIn_IsRefused()
     {
         var key = Enroll(Developer, "director-a", _team).Response!.DeviceKey;
-        var result = Move(Developer, key, _team);
+        var result = Move(Developer, "director-a", _team);
 
         Assert.Equal(409, result.Status);
         Assert.Equal(HostedEnrollmentEndpoint.MoveToSameTeamRefusal, result.Error);
@@ -378,7 +378,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
     public void Move_SomeoneElsesKey_IsRefused()
     {
         var key = Enroll(Developer, "director-a", _team).Response!.DeviceKey;
-        var result = Move(Manager, key, _secondTeam);
+        var result = Move(Manager, "director-a", _secondTeam);
 
         Assert.Equal(403, result.Status);
         Assert.Equal(HostedEnrollmentEndpoint.MoveSomeoneElsesKeyRefusal, result.Error);
@@ -386,25 +386,74 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
     }
 
     [Fact]
-    public void Move_ARevokedOrUnknownKey_IsRefused()
+    public void Move_ADirectorWithNoWorkingKeyOfThisAccount_IsRefused()
     {
-        var key = Enroll(Developer, "director-a", _team).Response!.DeviceKey;
-        Assert.Equal(200, Move(Developer, key, _secondTeam).Status);
+        Assert.Equal(404, Move(Developer, "no-such-director", _team).Status);
+        Assert.Equal(HostedEnrollmentEndpoint.MoveNoSuchDirectorRefusal, Move(Developer, "no-such-director", _team).Error);
 
-        Assert.Equal(401, Move(Developer, key, _team).Status);
-        Assert.Equal(HostedEnrollmentEndpoint.MoveKeyNotActiveRefusal, Move(Developer, "no-such-key", _team).Error);
+        // A Director whose person was removed from its team has no working key there any more.
+        Enroll(Developer, "director-a", _team);
+        Assert.True(_teams.RemoveMember(_team, Developer).IsDone);
+        Assert.Equal(404, Move(Developer, "director-a", _secondTeam).Status);
     }
 
     [Fact]
-    public void Move_AKeyHostedSetupDidNotIssue_IsRefused()
+    public void Move_TheSameDirectorTwice_MovesItEachTime_AndOnlyTheLatestKeyWorks()
     {
-        var tenant = _tenants.MintOrLookupBySubject(Owner, null);
-        var key = _devices.RegisterForTenant(tenant, Owner, "bare-device-id", "M").DeviceKey;
+        var first = Enroll(Developer, "director-a", _team).Response!.DeviceKey;
+        var second = Move(Developer, "director-a", _secondTeam).Response!.DeviceKey;
+        var third = Move(Developer, "director-a", _team).Response!.DeviceKey;
 
-        var result = Move(Owner, key, _team);
+        // Back in the first team the Director's row there is reissued with a fresh key, so the first key now matches
+        // nothing at all (unknown); the second was revoked when it moved. Neither works.
+        Assert.Equal(DeviceCredentialResolutionKind.Unknown, _devices.ResolveCredential(first).Kind);
+        Assert.Equal(DeviceCredentialResolutionKind.Revoked, _devices.ResolveCredential(second).Kind);
+        Assert.Equal(_team, Active(third).TenantId);
+    }
 
-        Assert.Equal(400, result.Status);
-        Assert.Equal(HostedEnrollmentEndpoint.MoveKeyNotFromSetupRefusal, result.Error);
+    [Fact]
+    public void Move_ADirectorWithTwoWorkingKeysOfThisAccount_IsRefusedAsAmbiguous()
+    {
+        // Not something enrollment leaves behind any more - written straight into the registry.
+        _devices.RegisterForTenant(new TenantId(_team), Developer, "x|director-a", "M");
+        _devices.RegisterForTenant(new TenantId(_secondTeam), Developer, "y|director-a", "M");
+
+        var result = Move(Developer, "director-a", null);
+
+        Assert.Equal(409, result.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.MoveAmbiguousRefusal, result.Error);
+    }
+
+    [Fact]
+    public void Enroll_TheSameDirectorSomewhereElse_RevokesItsOtherKeys_SoItIsInOnePlace()
+    {
+        var teamKey = Enroll(Owner, "director-o", _team).Response!.DeviceKey;
+        var otherTeamKey = Enroll(Owner, "director-o", _collaboratorTeam).Response!.DeviceKey;
+        Assert.Equal(DeviceCredentialResolutionKind.Revoked, _devices.ResolveCredential(teamKey).Kind);
+        Assert.Equal(_collaboratorTeam, Active(otherTeamKey).TenantId);
+
+        var personalKey = Enroll(Owner, "director-o", null).Response!.DeviceKey;
+        Assert.Equal(DeviceCredentialResolutionKind.Revoked, _devices.ResolveCredential(otherTeamKey).Kind);
+        Assert.Equal(_tenants.LookupBySubject(Owner)!.Value.Value, Active(personalKey).TenantId);
+
+        // Another Director of the same person, and the same Director id of another person, are untouched.
+        var sibling = Enroll(Owner, "director-sibling", _team).Response!.DeviceKey;
+        var managersOwn = Enroll(Manager, "director-o", _team).Response!.DeviceKey;
+        Enroll(Owner, "director-o", _team);
+        Assert.Equal(_team, Active(sibling).TenantId);
+        Assert.Equal(_team, Active(managersOwn).TenantId);
+    }
+
+    [Fact]
+    public void Enroll_Personal_WhereTeamsIsNotReleased_RevokesNothing()
+    {
+        var teamRow = HostedEnrollmentEndpoint.TeamScopedDeviceId(_team, Owner, "director-o");
+        _devices.RegisterForTenant(new TenantId(_team), Owner, teamRow, "M");
+
+        Assert.Equal(200, Enroll(Owner, "director-o", null, released: false).Status);
+
+        using var ctx = _db.CreateUnscopedContext();
+        Assert.Equal(DeviceRegistry.StatusActive, ctx.DeviceCredentials.Single(d => d.DeviceId == teamRow).Status);
     }
 
     [Fact]
@@ -412,8 +461,8 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
     {
         Assert.Equal(400, HostedEnrollmentEndpoint.Move(Token(Owner), null, _devices, _tenants, _validator, TeamEnrollment()).Status);
         Assert.Equal(400, HostedEnrollmentEndpoint.Move(Token(Owner), new MoveDirectorRequest(), _devices, _tenants, _validator, TeamEnrollment()).Status);
-        Assert.Equal(401, HostedEnrollmentEndpoint.Move(null, new MoveDirectorRequest { DeviceKey = "k" }, _devices, _tenants, _validator, TeamEnrollment()).Status);
-        Assert.Equal(401, HostedEnrollmentEndpoint.Move("bad", new MoveDirectorRequest { DeviceKey = "k" }, _devices, _tenants, _validator, TeamEnrollment()).Status);
+        Assert.Equal(401, HostedEnrollmentEndpoint.Move(null, new MoveDirectorRequest { DeviceId = "d" }, _devices, _tenants, _validator, TeamEnrollment()).Status);
+        Assert.Equal(401, HostedEnrollmentEndpoint.Move("bad", new MoveDirectorRequest { DeviceId = "d" }, _devices, _tenants, _validator, TeamEnrollment()).Status);
         Assert.Throws<ArgumentNullException>(() => HostedEnrollmentEndpoint.Move(Token(Owner), null, _devices, _tenants, _validator, null!));
     }
 
@@ -451,7 +500,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
 
         using var move = new HttpRequestMessage(HttpMethod.Post, HostedEnrollmentEndpoint.MovePath)
         {
-            Content = JsonContent.Create(new { deviceKey = enrolled.DeviceKey, teamId = _secondTeam }),
+            Content = JsonContent.Create(new { deviceId = "director-w", teamId = _secondTeam }),
         };
         move.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token(Developer));
         var moveResponse = await http.SendAsync(move);
@@ -481,7 +530,7 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
 
         using var move = new HttpRequestMessage(HttpMethod.Post, HostedEnrollmentEndpoint.MovePath)
         {
-            Content = JsonContent.Create(new { deviceKey = "k" }),
+            Content = JsonContent.Create(new { deviceId = "d" }),
         };
         move.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token(Owner));
         Assert.Equal(HttpStatusCode.NotFound, (await http.SendAsync(move)).StatusCode);

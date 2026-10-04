@@ -170,6 +170,12 @@ internal static class HostedEnrollmentEndpoint
             req.Platform,
             req.DeviceType);
 
+        // Where Teams is released a Director may have been set up for a team before; set up again for the person's
+        // own account, its team key goes (devthrottle_internal#2311). A Director holds one working key, in one place.
+        // Dark, no other key of this Director can be live, and nothing is asked.
+        if (teamAccess is not null)
+            devices.RevokeOtherKeysOfDirector(validation.Subject, req.DeviceId, scopedDeviceId, SetUpAgainReason);
+
         // RegisterForTenant counts inside the same tenant-bound transaction, so the response never exposes
         // the hosted fleet-wide count.
 
@@ -332,6 +338,9 @@ internal static class HostedEnrollmentEndpoint
     /// <summary>The revocation reason on the key a Director held before it moved.</summary>
     public const string MovedReason = "director_moved_to_another_team";
 
+    /// <summary>The revocation reason on a Director's other keys when it is set up again somewhere else.</summary>
+    public const string SetUpAgainReason = "director_set_up_again";
+
     /// <summary>What a request naming a team is told on a Gateway where Teams is not released.</summary>
     public const string TeamsNotReleasedRefusal =
         "This DevThrottle service does not offer teams yet, so a Director cannot be set up for one. Leave the team out to set it up for your own account.";
@@ -347,17 +356,18 @@ internal static class HostedEnrollmentEndpoint
     /// <summary>What a move to the team (or account) the Director is already set up for is told.</summary>
     public const string MoveToSameTeamRefusal = "This Director is already set up for that team. Nothing was changed.";
 
-    /// <summary>What a move naming a key that is not active is told.</summary>
-    public const string MoveKeyNotActiveRefusal =
-        "That device key is not active - it is unknown, or it was revoked - so it cannot be moved. Set the Director up again.";
+    /// <summary>What a move naming a Director this account has no working key for is told.</summary>
+    public const string MoveNoSuchDirectorRefusal =
+        "This account has no Director set up with that id, or its key is no longer active, so it cannot be moved. Set the Director up again.";
 
-    /// <summary>What a move naming a key issued to another person is told.</summary>
+    /// <summary>What a move naming a Director set up by another person is told.</summary>
     public const string MoveSomeoneElsesKeyRefusal =
         "That Director was set up by a different account, so it cannot be moved from yours. Sign in with the account that set it up.";
 
-    /// <summary>What a move naming a key that hosted Director setup did not issue is told.</summary>
-    public const string MoveKeyNotFromSetupRefusal =
-        "That device key was not issued by Director setup, so it cannot be moved. Set the Director up again instead.";
+    /// <summary>What a move is told when one Director id has more than one working key for this person - a state
+    /// enrollment no longer leaves behind.</summary>
+    public const string MoveAmbiguousRefusal =
+        "This Director is set up in more than one place, so DevThrottle cannot tell which one to move. Set the Director up again.";
 
     /// <summary>The Teams half of the enrollment routes: present only on a Gateway where Teams is released.</summary>
     /// <param name="RegisteredSessions">How many sessions a Director has registered on the Gateway, by tenant and
@@ -386,8 +396,9 @@ internal static class HostedEnrollmentEndpoint
             return refusal;
 
         var team = new TenantId(teamId);
-        var response = devices.RegisterForTenant(team, subject, TeamScopedDeviceId(teamId, subject, req.DeviceId),
-            req.MachineName, req.Platform, req.DeviceType);
+        var scopedDeviceId = TeamScopedDeviceId(teamId, subject, req.DeviceId);
+        var response = devices.RegisterForTenant(team, subject, scopedDeviceId, req.MachineName, req.Platform, req.DeviceType);
+        devices.RevokeOtherKeysOfDirector(subject, req.DeviceId, scopedDeviceId, SetUpAgainReason);
         FileLog.Write($"[HostedEnrollment] enrolled deviceId={req.DeviceId}, machine={req.MachineName} -> bound to team " +
                       $"{team.ToLogString()} for its member (no subject/email logged), deviceCount={response.DeviceCount}");
         return new EnrollResult(StatusCodes.Status200OK, response, "");
@@ -457,12 +468,12 @@ internal static class HostedEnrollmentEndpoint
 
     /// <summary>
     /// MOVE ONE ENROLLED DIRECTOR to another team the person may run sessions in, or back to their own account. The
-    /// Director is named by the key it holds; the person by their account token, which must be the account the key was
-    /// issued to. Refused while the Director has any session registered on the Gateway. On success the old key is
-    /// revoked FIRST - so it never works again, and a failure after that point leaves the Director with no working key
-    /// (it is set up again), never with two - its old tunnel is cut, and a new key bound to the new team is returned.
-    /// The permission check is enrollment's: <see cref="TeamRefusal"/> for a team, <see cref="PersonalAccountGate"/>
-    /// for the person's own account.
+    /// Director is named by its own id (the device id it was set up with); the person by their account token, and the
+    /// Director's working key must have been issued to that same account. Refused while the Director has any session
+    /// registered on the Gateway. On success the old key is revoked FIRST - so it never works again, and a failure
+    /// after that point leaves the Director with no working key (it is set up again), never with two - its old tunnel
+    /// is cut, and a new key bound to the new team is returned. The permission check is enrollment's:
+    /// <see cref="TeamRefusal"/> for a team, <see cref="PersonalAccountGate"/> for the person's own account.
     /// </summary>
     public static EnrollResult Move(string? bearer, MoveDirectorRequest? req, DeviceRegistry devices,
         Tenancy.TenantRegistry tenants, JwtAccessTokenValidator accountTokenValidator, TeamEnrollment teams,
@@ -473,8 +484,8 @@ internal static class HostedEnrollmentEndpoint
         ArgumentNullException.ThrowIfNull(accountTokenValidator);
         ArgumentNullException.ThrowIfNull(teams);
 
-        if (req is null || string.IsNullOrWhiteSpace(req.DeviceKey))
-            return new EnrollResult(StatusCodes.Status400BadRequest, null, "deviceKey is required");
+        if (req is null || string.IsNullOrWhiteSpace(req.DeviceId))
+            return new EnrollResult(StatusCodes.Status400BadRequest, null, "deviceId is required");
         if (bearer is null)
             return new EnrollResult(StatusCodes.Status401Unauthorized, null, "an account access token is required");
         var validation = accountTokenValidator.ValidateForAuthorization(bearer);
@@ -484,29 +495,27 @@ internal static class HostedEnrollmentEndpoint
             return new EnrollResult(StatusCodes.Status401Unauthorized, null, "the account token is not valid");
         }
         var subject = validation.Subject;
+        var directorId = req.DeviceId.Trim();
 
-        var resolution = devices.ResolveCredential(req.DeviceKey);
-        if (resolution.Kind == DeviceCredentialResolutionKind.Unavailable)
-            return new EnrollResult(StatusCodes.Status503ServiceUnavailable, null,
-                "the device registry is temporarily unavailable; please try again");
-        if (resolution.Kind != DeviceCredentialResolutionKind.Active || resolution.Identity is not { } current)
+        // The Director's working key, by its own id. Only this person's counts; a working key of the same id issued to
+        // someone else is the one case that says "not yours" rather than "no such Director".
+        var keys = devices.ActiveKeysOfDirector(directorId);
+        var mine = keys.Where(k => string.Equals(k.AccountSubject, subject, StringComparison.Ordinal)).ToList();
+        if (mine.Count == 0)
         {
-            FileLog.Write($"[HostedEnrollment] Move REFUSED: the key is {resolution.Kind}, not active");
-            return new EnrollResult(StatusCodes.Status401Unauthorized, null, MoveKeyNotActiveRefusal);
+            var someoneElses = keys.Count > 0;
+            FileLog.Write($"[HostedEnrollment] Move REFUSED: director={directorId} has no working key of this account (another account's: {someoneElses})");
+            return someoneElses
+                ? new EnrollResult(StatusCodes.Status403Forbidden, null, MoveSomeoneElsesKeyRefusal)
+                : new EnrollResult(StatusCodes.Status404NotFound, null, MoveNoSuchDirectorRefusal);
         }
-        if (!string.Equals(current.AccountSubject, subject, StringComparison.Ordinal))
+        if (mine.Count > 1 || mine[0].TenantId is null)
         {
-            FileLog.Write("[HostedEnrollment] Move REFUSED: the key was issued to another account");
-            return new EnrollResult(StatusCodes.Status403Forbidden, null, MoveSomeoneElsesKeyRefusal);
+            FileLog.Write($"[HostedEnrollment] Move REFUSED: director={directorId} has {mine.Count} working keys of this account");
+            return new EnrollResult(StatusCodes.Status409Conflict, null, MoveAmbiguousRefusal);
         }
-        var separator = current.DeviceId.IndexOf('|');
-        if (separator <= 0 || separator == current.DeviceId.Length - 1 || current.TenantId is null)
-        {
-            FileLog.Write($"[HostedEnrollment] Move REFUSED: device row {current.DeviceId} was not issued by hosted Director setup");
-            return new EnrollResult(StatusCodes.Status400BadRequest, null, MoveKeyNotFromSetupRefusal);
-        }
-        var directorId = current.DeviceId[(separator + 1)..];
-        var from = new TenantId(current.TenantId);
+        var current = mine[0];
+        var from = new TenantId(current.TenantId!);
 
         // Where to: the team named, after the same question enrollment asks, or the person's own account, after its
         // paid gate.
@@ -546,9 +555,9 @@ internal static class HostedEnrollmentEndpoint
         var display = devices.DisplayOfDevice(current.DeviceId);
         if (!devices.RevokeDevice(current.DeviceId, MovedReason))
         {
-            // Revoked between the resolution above and here, by someone else: this key is no longer one that moves.
+            // Revoked between the lookup above and here, by someone else: there is no longer a working key to move.
             FileLog.Write($"[HostedEnrollment] Move REFUSED: director={directorId} - its key was revoked while the move was being made");
-            return new EnrollResult(StatusCodes.Status401Unauthorized, null, MoveKeyNotActiveRefusal);
+            return new EnrollResult(StatusCodes.Status404NotFound, null, MoveNoSuchDirectorRefusal);
         }
         teams.Connections.AbortForDirector(from, directorId, MovedReason);
 

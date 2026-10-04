@@ -61,13 +61,14 @@ public sealed class EnrollHostedTeam
 /// <summary>
 /// HOSTED ONLY (devthrottle_internal#2311): move one enrolled Director to another team, or back to the person's own
 /// account. Posted to <c>/devices/enroll-hosted/move</c> with the person's account token as the bearer, like
-/// enrollment. The Director is named by the device key it holds now; on success that key is revoked and a new one,
-/// bound to the new team, is returned in a <see cref="DeviceRegistrationResponse"/>.
+/// enrollment. The Director is named by its own id - the <see cref="EnrollSignedInRequest.DeviceId"/> it was set up
+/// with - and must have been set up by the same account. On success its key is revoked and a new one, bound to the
+/// new team, is returned in a <see cref="DeviceRegistrationResponse"/>.
 /// </summary>
 public sealed class MoveDirectorRequest
 {
-    /// <summary>The device key the Director holds now.</summary>
-    public string DeviceKey { get; set; } = "";
+    /// <summary>The Director's own id: the device id it was set up with.</summary>
+    public string DeviceId { get; set; } = "";
 
     /// <summary>The team to move to; null or absent moves it to the person's own account.</summary>
     public string? TeamId { get; set; }

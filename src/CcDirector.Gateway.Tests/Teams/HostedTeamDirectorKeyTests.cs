@@ -127,6 +127,20 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Healthz_SaysTeamsIsOffered()
+    {
+        Assert.True(await HealthzTeams(_http));
+    }
+
+    internal static async Task<bool?> HealthzTeams(HttpClient http)
+    {
+        using var resp = await http.GetAsync("healthz");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        return doc.RootElement.TryGetProperty("teams", out var teams) ? teams.GetBoolean() : null;
+    }
+
+    [Fact]
     public async Task TheTwoTeamEnrollmentRoutes_AreMapped_AndAskForTheAccountToken()
     {
         Assert.Equal(HttpStatusCode.Unauthorized, (await Get("devices/enroll-hosted/teams", null)).Status);
@@ -179,6 +193,12 @@ public sealed class HostedTeamDirectorKeyDarkTests : IAsyncLifetime
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
+    }
+
+    [Fact]
+    public async Task Dark_HealthzSaysTeamsIsNotOffered_Explicitly()
+    {
+        Assert.False(await HostedTeamDirectorKeyTests.HealthzTeams(_http));
     }
 
     [Fact]

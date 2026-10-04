@@ -20,7 +20,9 @@ joins a team, behaviour is as before - proven by the dark tests below.
 | Removing a person | `Teams/TeamMemberAccessRevoker.cs`, `TeamRegistry.MembershipCommitted` | At `CommitMembershipChange`: removed, or made a Collaborator, means that person's keys in that team are revoked and their open tunnels on that team cut. |
 | One person's tunnels | `Streaming/DirectorConnectionRegistry.cs`, `DirectorHub.Hello` | Each live tunnel is indexed by the key's person and the Director id, so `AbortForTenantMember` and `AbortForDirector` cut only those. |
 | The gate knows who is calling | `Teams/TeamEndpointGate.cs`, `Teams/TeamCallerOwnership.cs` | In a team's tenant the caller is the device key's person; a Director is its Hello key's person's, a session its Director's. Unknown is still refused. |
-| Moving a Director | `Api/HostedEnrollmentEndpoint.cs` `Move` | `POST /devices/enroll-hosted/move`: refused with any session registered; otherwise the old key is revoked, its tunnel cut, and a new key issued for the new team. |
+| Moving a Director | `Api/HostedEnrollmentEndpoint.cs` `Move` | `POST /devices/enroll-hosted/move` `{ deviceId, teamId }` with the account token: refused with any session registered; otherwise the old key is revoked, its tunnel cut, and a new key issued for the new team. |
+| One key per Director | `DeviceRegistry.RevokeOtherKeysOfDirector`, `ActiveKeysOfDirector` | Where Teams is released, setting a Director up again revokes that person's other keys for the same Director id, so a move by id names exactly one key. |
+| The "Teams released" signal | `Contracts/HealthDto.Teams`, `GatewayEndpoints` `/healthz` | `teams: true` only on hosted with the switch on; `false` on a dark hosted Gateway; absent before Teams and on self-host. The Director reads it before asking for teams (review round 1, F1). |
 | Comment corrected | `Discovery/DirectorRegistry.cs` | "Several Directors on one machine share one device key" was no longer true. Each Director enrolls its own key now; the one-credential-several-ids tolerance stays because the machine's shared Gateway token registers as one credential (`machine-token`) for every Director using it, and Directors enrolled before per-instance keys may still share one. |
 
 ## #2311's tests, and where each stands
@@ -37,6 +39,8 @@ joins a team, behaviour is as before - proven by the dark tests below.
 | 8 | Start-up quarantine keeps a valid team key and still quarantines a bad one | PASS | `TeamDirectorKeyTests.Initialize_*` |
 | - | A person with one team is never asked to choose | Director side - the list above is what it decides from | (desktop work) |
 | - | The team gate knows who is calling | PASS | `TeamCallerOwnershipTests.*` |
+| - | Review F1: both team routes pass the auth middleware without a device key; one explicit Teams signal | PASS | `AuthMiddlewareTests.The_team_enrollment_routes_are_public_...`, `A_path_under_the_hosted_enroll_route_...`, `HostedTeamDirectorKeyTests.Healthz_SaysTeamsIsOffered`, `HostedTeamDirectorKeyDarkTests.Dark_HealthzSaysTeamsIsNotOffered_Explicitly` |
+| - | One Director, one key | PASS | `HostedTeamEnrollmentTests.Enroll_TheSameDirectorSomewhereElse_...`, `Enroll_Personal_WhereTeamsIsNotReleased_RevokesNothing`, `Move_ADirectorWithTwoWorkingKeys...`, `Move_TheSameDirectorTwice_...` |
 
 One existing test changed meaning on purpose: `TeamEndpointWalkTests.OverTheWire_AKeyBoundToATeamsTenant_...` pinned
 "a team key never authenticates today". It now pins the new truth: a Developer's team key authenticates and meets the

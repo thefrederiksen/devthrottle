@@ -222,35 +222,103 @@ public sealed class DeviceRegistry : IDisposable
                 return DeviceCredentialResolution.Unavailable;
             }
 
-            var tenant = string.IsNullOrWhiteSpace(row.TenantId) ? null : row.TenantId;
-            var invalidHostedBinding = _isHosted
-                && (tenant is null
-                    || string.Equals(tenant, TenantId.Local.Value, StringComparison.Ordinal)
-                    || string.Equals(tenant, TenantId.System.Value, StringComparison.Ordinal)
-                    || string.IsNullOrWhiteSpace(row.AccountSubject)
-                    || (!ctx.Tenants.AsNoTracking().Any(t =>
-                            t.Id == tenant && t.AccountSubject == row.AccountSubject)
-                        && !IsLiveTeamBinding(ctx, tenant, row.AccountSubject)));
-
-            var identity = new DeviceCredentialIdentity(
-                row.DeviceId,
-                tenant,
-                string.IsNullOrWhiteSpace(row.DeviceType) ? DefaultDeviceType : row.DeviceType,
-                row.Status,
-                string.IsNullOrWhiteSpace(row.AccountSubject) ? null : row.AccountSubject);
-
-            if (invalidHostedBinding
-                || !string.Equals(row.Status, StatusActive, StringComparison.Ordinal)
-                || row.RevokedAtUtc is not null)
-                return new DeviceCredentialResolution(DeviceCredentialResolutionKind.Revoked, identity);
-
-            return new DeviceCredentialResolution(DeviceCredentialResolutionKind.Active, identity);
+            return Judge(ctx, row);
         }
         catch (Exception ex) when (IsDatabaseFailure(ex))
         {
             FileLog.Write($"[DeviceRegistry] ResolveCredential FAILED: authoritative database unavailable ({ex.GetType().Name})");
             return DeviceCredentialResolution.Unavailable;
         }
+    }
+
+    /// <summary>
+    /// The one judgement of a stored credential row: its identity, and whether it is active - its status is active,
+    /// it carries no revocation, and on the hosted Gateway its binding is valid (its account owns the tenant, or the
+    /// tenant is a team its person may run sessions in).
+    /// </summary>
+    private DeviceCredentialResolution Judge(GatewayDbContext ctx, DeviceCredentialEntity row)
+    {
+        var tenant = string.IsNullOrWhiteSpace(row.TenantId) ? null : row.TenantId;
+        var invalidHostedBinding = _isHosted
+            && (tenant is null
+                || string.Equals(tenant, TenantId.Local.Value, StringComparison.Ordinal)
+                || string.Equals(tenant, TenantId.System.Value, StringComparison.Ordinal)
+                || string.IsNullOrWhiteSpace(row.AccountSubject)
+                || (!ctx.Tenants.AsNoTracking().Any(t =>
+                        t.Id == tenant && t.AccountSubject == row.AccountSubject)
+                    && !IsLiveTeamBinding(ctx, tenant, row.AccountSubject)));
+
+        var identity = new DeviceCredentialIdentity(
+            row.DeviceId,
+            tenant,
+            string.IsNullOrWhiteSpace(row.DeviceType) ? DefaultDeviceType : row.DeviceType,
+            row.Status,
+            string.IsNullOrWhiteSpace(row.AccountSubject) ? null : row.AccountSubject);
+
+        if (invalidHostedBinding
+            || !string.Equals(row.Status, StatusActive, StringComparison.Ordinal)
+            || row.RevokedAtUtc is not null)
+            return new DeviceCredentialResolution(DeviceCredentialResolutionKind.Revoked, identity);
+
+        return new DeviceCredentialResolution(DeviceCredentialResolutionKind.Active, identity);
+    }
+
+    /// <summary>
+    /// The ACTIVE keys of one Director, by the Director's own id: every row whose registry id is
+    /// <c>&lt;namespace&gt;|<paramref name="directorId"/></c> and that <see cref="ResolveCredential"/> would judge
+    /// active, whoever it was issued to. A move names its Director this way (devthrottle_internal#2311); the caller
+    /// filters by person. Normally one; enrollment with Teams released keeps it to one per person.
+    /// </summary>
+    public IReadOnlyList<DeviceCredentialIdentity> ActiveKeysOfDirector(string directorId)
+    {
+        if (string.IsNullOrWhiteSpace(directorId))
+            throw new ArgumentException("directorId is required", nameof(directorId));
+        var suffix = "|" + directorId.Trim();
+        using var ctx = _db.CreateUnscopedContext();
+        var rows = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.DeviceId.EndsWith(suffix) && d.Status == StatusActive && d.RevokedAtUtc == null)
+            .ToList();
+        var active = rows
+            .Select(row => Judge(ctx, row))
+            .Where(r => r.Kind == DeviceCredentialResolutionKind.Active)
+            .Select(r => r.Identity!)
+            .ToList();
+        FileLog.Write($"[DeviceRegistry] ActiveKeysOfDirector: director={directorId.Trim()} active={active.Count} of {rows.Count} row(s)");
+        return active;
+    }
+
+    /// <summary>
+    /// Revoke every OTHER active key one person holds for one Director - the rows <c>&lt;namespace&gt;|<paramref
+    /// name="directorId"/></c> of <paramref name="accountSubject"/> other than <paramref name="keepDeviceId"/>. Called
+    /// when that Director is set up again, for a team or for the person's own account, so a Director holds exactly one
+    /// working key and is in exactly one place (devthrottle_internal#2311). Returns the number revoked.
+    /// </summary>
+    public int RevokeOtherKeysOfDirector(string accountSubject, string directorId, string keepDeviceId, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(accountSubject))
+            throw new ArgumentException("accountSubject is required", nameof(accountSubject));
+        if (string.IsNullOrWhiteSpace(directorId))
+            throw new ArgumentException("directorId is required", nameof(directorId));
+        if (string.IsNullOrWhiteSpace(keepDeviceId))
+            throw new ArgumentException("keepDeviceId is required", nameof(keepDeviceId));
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("reason is required", nameof(reason));
+
+        var subject = accountSubject.Trim();
+        var suffix = "|" + directorId.Trim();
+        var why = reason.Trim();
+        var when = DateTime.UtcNow;
+        using var ctx = _db.CreateUnscopedContext();
+        var changed = ctx.DeviceCredentials
+            .Where(d => d.AccountSubject == subject && d.DeviceId.EndsWith(suffix) && d.DeviceId != keepDeviceId
+                        && d.Status == StatusActive)
+            .ExecuteUpdate(setters => setters
+                .SetProperty(d => d.Status, StatusRevoked)
+                .SetProperty(d => d.RevokedAtUtc, when)
+                .SetProperty(d => d.RevokedReason, why));
+        FileLog.Write($"[DeviceRegistry] RevokeOtherKeysOfDirector: director={directorId.Trim()} revoked={changed} (reason={why})");
+        return changed;
     }
 
     public bool IsValidDeviceKey(string? key)

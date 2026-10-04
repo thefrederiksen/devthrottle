@@ -4181,6 +4181,9 @@ public sealed class GatewayHost : IAsyncDisposable
             gatewayPort: () => Port,
             // Not-ready until the database is open - see the /healthz handler.
             databaseReady: () => _gatewayDb.IsOpen,
+            // The one "Teams released" signal on /healthz (devthrottle_internal#2311): true exactly where the team
+            // enrollment routes are mapped - the hosted enrollment routes exist only on hosted.
+            teamsOffered: GatewayHostedMode.IsHosted && TeamsReleased,
             // Per-subsystem readiness on /healthz, so a deploy can tell "the process is up" apart from
             // "the pages work". Statistics is the one subsystem that is designed to fail on its own without
             // stopping the Gateway, so it is the one that can be silently down after a green deploy - which

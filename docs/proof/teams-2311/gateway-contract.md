@@ -5,12 +5,37 @@ here is on the **hosted** Gateway only, and the team parts exist only where Team
 (`CC_GATEWAY_TEAMS=1`, the same switch as #2300 and #2302). With the switch off nothing below exists except the
 unchanged personal enrollment, and a `teamId` is refused.
 
-All three routes take the person's **account token** (the Supabase access token) as the bearer, exactly as
+The three enrollment routes (sections 1 to 3) take the person's **account token** (the Supabase access token) as the bearer, exactly as
 `POST /devices/enroll-hosted` always has: a Director being set up has no device key yet, and a Director changing team
 proves its person afresh. All three are public paths in the auth middleware and validate the token themselves
 (signature, expiry, audience, issuer). Errors are JSON `{ "error": "<sentence>" }` unless stated otherwise.
 
 The sentences are constants on `HostedEnrollmentEndpoint`, so a client can match on them; the Gateway owns their wording.
+
+---
+
+## 0. The one "Teams released" signal - `GET /healthz`
+
+Read this FIRST. `/healthz` is anonymous and the Director already reads it. Its answer now carries:
+
+```json
+{ "status": "ok", "version": "...", "teams": true, "serverTime": "..." }
+```
+
+| `teams` | Meaning | What the Director does |
+|---|---|---|
+| `true` | hosted Gateway, `CC_GATEWAY_TEAMS=1`: the routes below are mapped | ask for teams; from then on any non-200 is an error shown as it is |
+| `false` | hosted Gateway, Teams not released | exactly today's path: no teams call, no question, no chip |
+| absent | a Gateway from before Teams, or a self-host Gateway | the same as `false` |
+
+`teams` is the same answer during start-up, when `/healthz` is 503 `starting`. It is a process fact, the same for every
+account, so it is safe on this public endpoint. It is NOT one of the `subsystems` (the deploy asserts every subsystem
+is "available").
+
+Why not "404 means no teams": `AuthMiddleware` used to let only the exact path `/devices/enroll-hosted` through without
+a device key, so a Gateway without the Teams half answers **401** to `/devices/enroll-hosted/teams`, which cannot be
+told apart from a refused token. Both team routes are now public paths (a test proves it), but a Gateway from before
+this change still answers 401 - hence the explicit signal.
 
 ---
 
@@ -67,6 +92,11 @@ session that Director registers belongs to that team. The registry id is namespa
 two members presenting the same `deviceId` never share a row, and one person's Directors on two teams are two rows.
 `deviceCount` counts the keys in the team's tenant.
 
+**One Director, one key, one place.** Where Teams is released, setting a Director up (for a team or for the person's
+own account) revokes that person's OTHER keys for the same `deviceId` (reason `director_set_up_again`). Another
+Director of the same person, and the same `deviceId` set up by someone else, are untouched. Where Teams is dark nothing
+is revoked - no other key of that Director can be live there.
+
 A team enrollment **never reaches the personal trial or paid gate**: a team has no trial, and a member is never
 refused for the bill here. It also mints no personal tenant.
 
@@ -86,19 +116,20 @@ set up for it."); the role table's own sentence follows. No key is minted on any
 
 ## 3. `POST /devices/enroll-hosted/move` - move one Director to another team, or back home
 
-**Route shape chosen.** It sits beside enrollment because it IS a re-enrollment: same bearer (the account token, which
-proves the person afresh), the same permission check, and the same answer shape. The Director is named by the key it
-holds now.
+**Route shape (fixed with the Tech Lead).** It sits beside enrollment because it IS a re-enrollment: same bearer (the
+account token - a team key could not be used, the access lease answers 402 for it until the next step), the same
+permission check, and the same answer shape. The Director is named by its own id.
 
 **Request.** `Authorization: Bearer <account token>`.
 
 ```json
-{ "deviceKey": "<the key the Director holds now>", "teamId": "9a1d..." }
+{ "deviceId": "<the Director's own id - the deviceId it was set up with>", "teamId": "9a1d..." }
 ```
 
-`teamId` null, absent or blank = move it to the person's own account.
+`teamId` null, absent or blank = move it to the person's own account. The Director's working key must have been issued
+to the account the token names.
 
-**200** - a `DeviceRegistrationResponse` exactly as enrollment returns, carrying the **new** key. Store it and
+**200** - a `DeviceRegistrationResponse` exactly as enrollment returns, carrying the **new** `deviceKey`. Store it and
 reconnect with it. On success, in this order:
 
 1. the old key is **revoked** (reason `director_moved_to_another_team`) - it never works again;
@@ -113,20 +144,19 @@ own account, the personal paid gate (trial on a first arrival, 402 / 503 as enro
 
 | Status | When | Body `error` |
 |---|---|---|
-| 400 | no `deviceKey` | `deviceKey is required` |
-| 400 | the key was not issued by Director setup (its registry id is not `<namespace>|<director id>`) | `That device key was not issued by Director setup, so it cannot be moved. Set the Director up again instead.` |
-| 400 | `teamId` given, Teams not released (cannot happen: the route is not mapped then) | as enrollment |
+| 400 | no `deviceId` | `deviceId is required` |
 | 401 | no bearer / token not valid | as enrollment |
-| 401 | the key is unknown or revoked (including the old key of a Director that already moved) | `That device key is not active - it is unknown, or it was revoked - so it cannot be moved. Set the Director up again.` |
 | 402 / 503 | moving to the person's own account and the personal gate refuses | as enrollment (402 carries `message` and `subscribeUrl`) |
-| 403 | the key was issued to a different account | `That Director was set up by a different account, so it cannot be moved from yours. Sign in with the account that set it up.` |
+| 403 | that Director's working key was issued to a different account | `That Director was set up by a different account, so it cannot be moved from yours. Sign in with the account that set it up.` |
 | 403 | not a member of the target team / a Collaborator there | as enrollment |
+| 404 | this account has no working key for that Director id (never set up, revoked, its person removed from the team) | `This account has no Director set up with that id, or its key is no longer active, so it cannot be moved. Set the Director up again.` |
 | 409 | the Director is already in that team (or already personal) | `This Director is already set up for that team. Nothing was changed.` |
 | 409 | the Director has **any session registered on the Gateway** (its last known roster there) | `This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.` |
+| 409 | this account holds more than one working key for that id (enrollment no longer leaves this behind) | `This Director is set up in more than one place, so DevThrottle cannot tell which one to move. Set the Director up again.` |
 | 404 | Teams not released (route not mapped) | the ordinary not-found answer |
-| 503 | the device registry could not be read | `the device registry is temporarily unavailable; please try again` |
 
-The server enforces the "no sessions" rule; the Director should check too, before it asks (D3).
+A 401 from the move means the token: "sign in again". The server enforces the "no sessions" rule; the Director checks
+too, before it asks (D3), and holds session creation while the move runs.
 
 ---
 
