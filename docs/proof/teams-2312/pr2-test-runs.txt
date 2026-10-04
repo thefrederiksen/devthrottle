@@ -1,0 +1,46 @@
+Pull request 2 - the Fleet Map by role (devthrottle_internal#2312)
+Final head 5d752df33, on pull request 1 head 07b39291c, on origin/main d3c225be2. Run 2026-10-04 on SOREN_NORTH.
+
+== Gateway unit suite (dotnet test src\CcDirector.Gateway.UnitTests), final head ==
+Passed!  - Failed:     0, Passed:  8373, Skipped:     8, Total:  8381, Duration: 7 m 54 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+== Default gate (.\scripts\test-local.ps1), final head ==
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=1161   executed=1161
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
+
+== Web, final head ==
+client-core: 142 files, 1669 tests: 1668 passed, 1 failed - src/devreports/devReportNotes.test.ts (not touched by this work). Run alone 4 times: 1 failed, 3 passed - intermittent, as the pull request 1 review recorded.
+cockpit: 69 files, 608 tests passed. mobile: 125 tests passed. npm run typecheck: clean. eslint on the changed files: clean.
+
+== Hosted Gateway Teams suite (.\scripts\test-local.ps1 -Gateway -Filter FullyQualifiedName~Teams) ==
+Before the rebase onto the reviewed pull request 1 (head 5d9ccbfb8): outcome=Completed total=32 executed=32, 0 failed.
+On the final head: see the line appended below.
+
+== Red proof: each rule broken on purpose, the tests run, then restored ==
+Gateway (CcDirector.Gateway.UnitTests):
+1. Server-side cut removed (a Developer gets everyone) + a SessionId added to TeamFleetMapSession:
+   Failed: Issue2312Test1_Read_Developer_GetsOnlyTheirOwnDirectorsAndSessionsOnThatTeam, Read_ADeveloperWithNoDirectors_GetsAnEmptyMap,
+   Read_ADirectorWithNoSessions_IsStillListed, TeamFleetMapDto_FieldSet_IsTheAllowList, TeamFleetMapDto_OnTheWire_CarriesExactlyTheAllowedKeys
+   (5 failed | 37 passed).
+2. Credential tenant check dropped + the route declared as a plain Team target:
+   Failed: Read_ACredentialBoundToAnotherTenant_IsOnNobodysMap, Find_TheTeamFleetMap_IsAReadThatTheEndpointNarrowsToTheCaller_AndNothingUnderIt,
+   Check_TheTeamFleetMap_EveryRoleWithAFleetMap_GoesOn_TheDeveloperBecauseTheEndpointCutsItToTheirOwn(Developer) (3 failed | 413 passed).
+Web:
+3. A teammate's session made a link -> TeamFleetMapView_NothingOnATeammatesSession_Opens FAILED (1 failed | 8 passed).
+4. Extra wire fields passed through -> GetTeamFleetMap_ExtraFieldsOnASession_AreDropped FAILED (1 failed | 9 passed).
+All restored; the source diff was empty afterwards.
+
+== Screenshots ==
+Retaken on the final head from a fresh `npm run build --workspace @devthrottle/cockpit`. Read through the browser in the same run:
+switcher lists "Your own account", "DevThrottle - Manager", "Paul's project - Developer", "Marketing - Collaborator";
+D5 lanes: priya | rob | soren; links or buttons inside lanes: 0; D4 lanes: Rob - laptop; Collaborator: the Gateway's refusal.
