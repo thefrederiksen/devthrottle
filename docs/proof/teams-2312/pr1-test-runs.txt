@@ -1,0 +1,57 @@
+Pull request 1 - the Cockpit team switcher (devthrottle_internal#2312)
+Run 2026-10-04 on commit 6e083d1a0, worktree D:\ReposFred\devthrottle-teams-2312
+
+== client-core: the new tests ==
+ [PASS] src/teams/teamsClient.test.ts > getMyTeams > GetMyTeams_ReleasedGateway_ReturnsTheTeamsWithTheirRoles
+ [PASS] src/teams/teamsClient.test.ts > getMyTeams > GetMyTeams_NoTeams_ReturnsAnEmptyList
+ [PASS] src/teams/teamsClient.test.ts > getMyTeams > GetMyTeams_TeamsDark_AppShellIsNotOffered
+ [PASS] src/teams/teamsClient.test.ts > getMyTeams > GetMyTeams_SelfHosted404_IsNotOfferedWithTheGatewaysSentence
+ [PASS] src/teams/teamsClient.test.ts > getMyTeams > GetMyTeams_Refused_ThrowsWithTheGatewaysReason
+ [PASS] src/teams/teamsClient.test.ts > getMyTeams > GetMyTeams_UnlabelledBody_Throws
+ [PASS] src/teams/teamsClient.test.ts > getMyTeams > GetMyTeams_NoTeamsArray_Throws
+ [PASS] src/teams/teamsClient.test.ts > getMyTeams > GetMyTeams_UnknownRole_Throws
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > CurrentTeamProvider_BeforeTheGatewayAnswers_IsLoadingWithNoTeam
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > CurrentTeamProvider_Teams_StartsOnTheOwnAccount
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > CurrentTeamProvider_NotOffered_HasNoTeams
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > CurrentTeamProvider_ReadFails_ReportsTheErrorAndNoTeam
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > Choose_ATeam_PutsItOnScreenAndRemembersItForThisAccount
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > Choose_ATeamThatIsNotTheirs_IsRefused
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > CurrentTeamProvider_RememberedTeam_IsRestoredOnTheNextLoad
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > CurrentTeamProvider_RememberedTeamNoLongerListed_GoesBackToTheOwnAccountAndForgetsIt
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > CurrentTeamStorageKey_IsPerAccount_SoAnotherAccountDoesNotInheritTheChoice
+ [PASS] src/teams/CurrentTeam.test.tsx > CurrentTeam > UseCurrentTeam_OutsideTheProvider_Throws
+ Test Files  2 passed (2)
+      Tests  18 passed (18)
+
+== Cockpit: the switcher and the shell ==
+ [PASS] src/teams/TeamSwitcher.test.tsx > TeamSwitcher > TeamSwitcher_NoTeams_RendersNothing
+ [PASS] src/teams/TeamSwitcher.test.tsx > TeamSwitcher > TeamSwitcher_TeamsNotOffered_RendersNothing
+ [PASS] src/teams/TeamSwitcher.test.tsx > TeamSwitcher > TeamSwitcher_OneTeam_ListsOwnAccountThenTheTeamWithTheRole
+ [PASS] src/teams/TeamSwitcher.test.tsx > TeamSwitcher > TeamSwitcher_SeveralTeams_ListsEachWithTheRoleAndPicksOne
+ [PASS] src/teams/TeamSwitcher.test.tsx > TeamSwitcher > TeamSwitcher_TeamsCouldNotBeRead_SaysSo
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > opens with the Fleet Manager, then Sessions, then Fleet Map
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > badges the Fleet Manager with the Gateway's count of what is waiting
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no badge when nothing is waiting
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > has no Assistant entry anywhere in the rail
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > leaves the rest of the rail where it was
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows Factory Agents after Fleet Map and before History when the Gateway says the area is on
+ [PASS] src/railCollapse.test.tsx > the Cockpit rail collapse > opens expanded, and the toggle says so
+ [PASS] src/railCollapse.test.tsx > the Cockpit rail collapse > keeps every destination, and every destination's name, when it collapses
+ [PASS] src/railCollapse.test.tsx > the Cockpit rail collapse > still shows the attention count when collapsed
+ [PASS] src/railCollapse.test.tsx > the Cockpit rail collapse > remembers the choice for the next time this browser opens the Cockpit
+ [PASS] src/railCollapse.test.tsx > the Cockpit rail collapse > expands again, and remembers that too
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > has no Factory Agents item when the Gateway says the area is off
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no team switcher to a person with no team
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no team switcher on a Gateway that has not turned Teams on
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > puts the team switcher at the top of the rail, above the navigation, for a person in a team
+ Test Files  3 passed (3)
+      Tests  20 passed (20)
+
+== Full suites, same commit ==
+client-core: Test Files 141 passed (141), Tests 1653 passed (1653)
+cockpit:     Test Files 68 passed (68),   Tests 593 passed (593)
+npm run typecheck (client-core, cockpit, mobile): clean
+
+== Red proof: each rule broken on purpose, then restored ==
+1. TeamSwitcher shows the control with zero teams  -> TeamSwitcher_NoTeams_RendersNothing FAILED (1 failed | 4 passed)
+2. teamsClient stops reading the app shell as dark -> GetMyTeams_TeamsDark_AppShellIsNotOffered FAILED (1 failed | 7 passed)
