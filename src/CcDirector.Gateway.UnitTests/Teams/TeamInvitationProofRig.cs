@@ -14,8 +14,11 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// SKIPPED unless <c>CC_TEAMS_2301_PROOF_RIG</c> names the directory to write <c>rig.json</c> into; the driver is
 /// <c>docs/proof/teams-2301/take-screenshots.py</c>. The invitation mailer records and never sends, so no email leaves
 /// the machine, and the database is a scratch one deleted afterwards.
+///
+/// It lives here rather than in CcDirector.Gateway.Tests on purpose: that suite holds a machine-wide lock for the whole of
+/// a run, so a rig there waits behind every other session's parked gate. This rig is skipped in every suite run and is
+/// only ever run on its own, by its driver.
 /// </summary>
-[Collection("GatewayHostedMode")]
 public sealed class TeamInvitationProofRig
 {
     private const string RigEnvVar = "CC_TEAMS_2301_PROOF_RIG";

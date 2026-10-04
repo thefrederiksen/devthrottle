@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -27,8 +28,8 @@ from playwright.sync_api import sync_playwright
 
 REPO = Path(__file__).resolve().parents[3]
 OUT = Path(__file__).resolve().parent
-RIG_DIR = OUT / ".rig"
-TEST_PROJECT = REPO / "src" / "CcDirector.Gateway.Tests"
+RIG_DIR = Path(tempfile.gettempdir()) / "cc-teams-2301-rig"
+TEST_PROJECT = REPO / "src" / "CcDirector.Gateway.UnitTests"
 TEST_BIN = TEST_PROJECT / "bin" / "Debug" / "net10.0"
 
 
@@ -45,6 +46,16 @@ def account_script(email, key):
         "localStorage.setItem('cc.activeAccount', 'rig-1');"
         "} catch (e) {}"
     )
+
+
+def wait_text(page, text):
+    try:
+        page.get_by_text(text).first.wait_for(timeout=15000)
+    except Exception:
+        debug = Path(tempfile.gettempdir()) / "cc-teams-2301-failed.png"
+        page.screenshot(path=str(debug), full_page=True)
+        body = page.evaluate("document.body.innerText")
+        sys.exit(f"ERROR: '{text}' never appeared at {page.url}. Screenshot: {debug}\nPage text:\n{body[:1500]}")
 
 
 def shot(page, name):
@@ -89,18 +100,24 @@ def main():
         with sync_playwright() as p:
             browser = p.chromium.launch()
 
+            def sign_in(ctx, who):
+                # What a finished sign-in leaves in a browser: the account in the Cockpit's account store, and the
+                # device key mirrored into the cookie a browser navigation carries past the Gateway's sign-in gate.
+                ctx.add_init_script(account_script(who["email"], who["key"]))
+                ctx.add_cookies([{"name": "cc-gateway-token", "value": who["key"], "url": base}])
+
             def context_for(who):
                 ctx = browser.new_context(viewport={"width": 1280, "height": 860})
                 if who is not None:
-                    ctx.add_init_script(account_script(who["email"], who["key"]))
+                    sign_in(ctx, who)
                 return ctx
 
             # S2 - the Owner invites someone, and sees what is waiting.
             ctx = context_for(r["owner"])
             page = ctx.new_page()
             page.goto(f"{base}/team/{r['teamId']}/invite")
-            page.get_by_text("Waiting invitations").wait_for()
-            page.get_by_text("contractor@example.org").wait_for()
+            wait_text(page, "Waiting invitations")
+            wait_text(page, "contractor@example.org")
             shot(page, "s2-invite-owner.png")
             page.get_by_placeholder("name@any-company.com").fill("new.hire@example.org")
             page.get_by_role("button", name="Send invitation").click()
@@ -113,7 +130,7 @@ def main():
             ctx = context_for(r["manager"])
             page = ctx.new_page()
             page.goto(f"{base}/team/{r['teamId']}/invite")
-            page.get_by_text("Waiting invitations").wait_for()
+            wait_text(page, "Waiting invitations")
             shot(page, "s2-invite-manager.png")
             ctx.close()
 
@@ -124,11 +141,11 @@ def main():
             page.get_by_role("button", name="Join the team").wait_for()
             shot(page, "s3-signed-in-1-open.png")
             page.get_by_role("button", name="Join the team").click()
-            page.get_by_text("You joined the Acme QA team").wait_for()
+            wait_text(page, "You joined the Acme QA team")
             shot(page, "s3-signed-in-2-joined.png")
             # A cancelled invitation's link says so, in plain words.
             page.goto(f"{base}/invite/{r['cancelledToken']}")
-            page.get_by_text("This invitation cannot be used").wait_for()
+            wait_text(page, "This invitation cannot be used")
             shot(page, "s3-cancelled-link.png")
             ctx.close()
 
@@ -146,12 +163,12 @@ def main():
             # The sign-up itself happens at devthrottle.com and is not driven here (no account is created on the
             # real identity provider). Its end state is a device key for the new account in this browser, which
             # is what is seeded now; the Cockpit then returns to the `next` address the sign-in page carried.
-            page.evaluate(account_script(r["newcomer"]["email"], r["newcomer"]["key"]))
+            sign_in(ctx, r["newcomer"])
             page.goto(f"{base}{next_path}")
             page.get_by_role("button", name="Join the team").wait_for()
             shot(page, "s3-signed-out-2-back-on-the-invitation.png")
             page.get_by_role("button", name="Join the team").click()
-            page.get_by_text("You joined the Acme QA team").wait_for()
+            wait_text(page, "You joined the Acme QA team")
             shot(page, "s3-signed-out-3-joined.png")
             ctx.close()
 
@@ -161,8 +178,7 @@ def main():
         try:
             rig.wait(timeout=120)
         except subprocess.TimeoutExpired:
-            # The rig never started (it queues behind the machine-wide Gateway.Tests lock). Stop this script's
-            # OWN test run and its test host, and nothing else, so no queued rig is left behind.
+            # The rig did not stop. Stop this script's OWN test run and its test host, and nothing else.
             print("[rig] not stopped after 120s - stopping this script's own test run", flush=True)
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(rig.pid)], check=False)
             rig.wait(timeout=30)
