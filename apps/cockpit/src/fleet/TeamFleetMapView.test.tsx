@@ -61,15 +61,36 @@ const D5: TeamFleetMap = {
   ],
 };
 
-// D4, as the Gateway sends it to Rob, a Developer: his own Directors only, one layout.
+// D4, as the Gateway sends it to Rob, a Developer: his own Directors only. His own sessions carry their repository and
+// mission, so he is offered By repository and By mission as well.
 const D4: TeamFleetMap = {
   ...D5,
   role: "Developer",
   scope: "own",
   summary: "Your Directors on this team.",
-  layouts: ["by-director"],
+  layouts: ["by-director", "by-repository", "by-mission"],
   emptyText: "None of your Directors is on this team yet.",
-  people: [{ ...D5.people[1], isYou: true }],
+  people: [
+    {
+      person: "rob@example.com",
+      isYou: true,
+      directors: [
+        {
+          name: "Rob - laptop",
+          machine: "ROB-XPS",
+          sessions: [
+            { name: "Signup - Developer", status: "working", repository: "thefrederiksen/devthrottle", mission: "Onboarding" },
+            { name: "Installer bug - Developer", status: "waiting", repository: "thefrederiksen/cc-installer", mission: "Standalone" },
+          ],
+        },
+        {
+          name: "Rob - desk",
+          machine: "ROB-DESK",
+          sessions: [{ name: "Signup copy - Writer", status: "done", repository: "thefrederiksen/devthrottle", mission: "Onboarding" }],
+        },
+      ],
+    },
+  ],
 };
 
 beforeEach(() => {
@@ -121,17 +142,76 @@ describe("TeamFleetMapView", () => {
     expect(within(byDirector).getByText("rob@example.com")).toBeTruthy();
   });
 
-  it("TeamFleetMapView_D4Developer_ShowsOnlyWhatWasSent_ByDirector_WithNoLayoutChoice", async () => {
+  it("TeamFleetMapView_D4Developer_OpensByDirector_WithOnlyHisOwnAndTheThreeLayoutsSent", async () => {
     read.fn.mockResolvedValue(D4);
     render(<TeamFleetMapView team={{ ...TEAM, role: "Developer" }} />);
 
     const byDirector = await screen.findByTestId("team-fleet-map-by-director");
     expect(screen.getByText("Your Directors on this team.")).toBeTruthy();
-    expect(within(byDirector).getAllByRole("region").map((l) => l.getAttribute("aria-label"))).toEqual(["Rob - laptop"]);
-    expect(screen.queryByRole("group", { name: "Lay the team's fleet out" })).toBeNull();
+    expect(within(byDirector).getAllByRole("region").map((l) => l.getAttribute("aria-label"))).toEqual(["Rob - laptop", "Rob - desk"]);
+    const pivots = within(screen.getByRole("group", { name: "Lay the team's fleet out" })).getAllByRole("button");
+    expect(pivots.map((b) => b.textContent)).toEqual(["By director", "By repository", "By mission"]);
     expect(screen.queryByText("Soren - DevThrottle")).toBeNull();
     // His own map does not label his Directors with his own name.
     expect(within(byDirector).queryByText("rob@example.com")).toBeNull();
+  });
+
+  it("TeamFleetMapView_D4Developer_ByRepository_OneLanePerRepositoryWithEachSessionsDirector", async () => {
+    read.fn.mockResolvedValue(D4);
+    render(<TeamFleetMapView team={{ ...TEAM, role: "Developer" }} />);
+    await screen.findByTestId("team-fleet-map-by-director");
+
+    fireEvent.click(screen.getByRole("button", { name: "By repository" }));
+
+    const byRepository = await screen.findByTestId("team-fleet-map-by-repository");
+    const lanes = within(byRepository).getAllByRole("region");
+    expect(lanes.map((l) => l.getAttribute("aria-label"))).toEqual(["thefrederiksen/cc-installer", "thefrederiksen/devthrottle"]);
+    const devthrottle = lanes[1];
+    expect(within(devthrottle).getByText("Signup - Developer")).toBeTruthy();
+    expect(within(devthrottle).getByText("Signup copy - Writer")).toBeTruthy();
+    expect(within(devthrottle).getByText("Rob - laptop")).toBeTruthy();
+    expect(within(devthrottle).getByText("Rob - desk")).toBeTruthy();
+    expect(within(lanes[0]).getByText("waiting")).toBeTruthy();
+  });
+
+  it("TeamFleetMapView_D4Developer_ByMission_OneLanePerMission", async () => {
+    read.fn.mockResolvedValue(D4);
+    render(<TeamFleetMapView team={{ ...TEAM, role: "Developer" }} />);
+    await screen.findByTestId("team-fleet-map-by-director");
+
+    fireEvent.click(screen.getByRole("button", { name: "By mission" }));
+
+    const byMission = await screen.findByTestId("team-fleet-map-by-mission");
+    const lanes = within(byMission).getAllByRole("region");
+    expect(lanes.map((l) => l.getAttribute("aria-label"))).toEqual(["Onboarding", "Standalone"]);
+    expect(within(lanes[0]).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(lanes[1]).getByText("Installer bug - Developer")).toBeTruthy();
+  });
+
+  it("TeamFleetMapView_OneLayoutSent_OffersNoLayoutChoice", async () => {
+    read.fn.mockResolvedValue({ ...D5, layouts: ["by-director"] });
+    render(<TeamFleetMapView team={TEAM} />);
+
+    await screen.findByTestId("team-fleet-map-by-director");
+    expect(screen.queryByRole("group", { name: "Lay the team's fleet out" })).toBeNull();
+  });
+
+  it("TeamFleetMapView_D4Developer_NothingOpensInAnyLayout", async () => {
+    read.fn.mockResolvedValue(D4);
+    const { container } = render(<TeamFleetMapView team={{ ...TEAM, role: "Developer" }} />);
+    await screen.findByTestId("team-fleet-map-by-director");
+
+    for (const [name, testId] of [
+      ["By repository", "team-fleet-map-by-repository"],
+      ["By mission", "team-fleet-map-by-mission"],
+    ]) {
+      fireEvent.click(screen.getByRole("button", { name }));
+      const layout = await screen.findByTestId(testId);
+      expect(within(layout).queryAllByRole("link")).toEqual([]);
+      expect(within(layout).queryAllByRole("button")).toEqual([]);
+      expect(layout.querySelectorAll("a, [href], [onclick], [tabindex]").length).toBe(0);
+    }
+    expect(container.querySelectorAll("a, [href]").length).toBe(0);
   });
 
   it("TeamFleetMapView_NothingOnATeammatesSession_Opens", async () => {

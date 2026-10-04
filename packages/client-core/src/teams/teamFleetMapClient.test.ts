@@ -93,6 +93,71 @@ describe("getTeamFleetMap", () => {
     await expect(getTeamFleetMap("t1")).rejects.toThrow(/no layout/);
   });
 
+  // A Developer's own map: their sessions carry repository and mission, and the Gateway offers the two layouts that
+  // group by them.
+  const OWN = {
+    ...MAP,
+    role: "Developer",
+    scope: "own",
+    summary: "Your Directors on this team.",
+    layouts: ["by-director", "by-repository", "by-mission"],
+    people: [
+      {
+        person: "rob@example.com",
+        isYou: true,
+        directors: [
+          {
+            name: "Rob - laptop",
+            machine: "ROB-XPS",
+            sessions: [{ name: "Signup", status: "working", repository: "thefrederiksen/devthrottle", mission: "Teams v1" }],
+          },
+        ],
+      },
+    ],
+  };
+
+  it("GetTeamFleetMap_TheirOwnSessions_KeepRepositoryAndMission", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(OWN)));
+
+    const map = await getTeamFleetMap("t1");
+    expect(map.layouts).toEqual(["by-director", "by-repository", "by-mission"]);
+    expect(map.people[0].directors[0].sessions[0]).toEqual({
+      name: "Signup",
+      status: "working",
+      repository: "thefrederiksen/devthrottle",
+      mission: "Teams v1",
+    });
+  });
+
+  it("GetTeamFleetMap_SomeoneElsesSession_HasNoRepositoryOrMissionKeys", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(MAP)));
+
+    const session = (await getTeamFleetMap("t1")).people[0].directors[0].sessions[0];
+    expect(Object.keys(session).sort()).toEqual(["name", "status"]);
+  });
+
+  it("GetTeamFleetMap_ByRepositoryOfferedButASessionHasNoRepository_Throws", async () => {
+    const bad = structuredClone(OWN) as unknown as typeof MAP;
+    bad.people[0].directors[0].sessions[0] = { name: "Signup", status: "working" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(bad)));
+    await expect(getTeamFleetMap("t1")).rejects.toThrow(/By repository but a session has no repository/);
+  });
+
+  it("GetTeamFleetMap_ByMissionOfferedButASessionHasNoMission_Throws", async () => {
+    const bad = structuredClone(OWN) as typeof OWN & { layouts: string[] };
+    bad.layouts = ["by-director", "by-mission"];
+    (bad.people[0].directors[0].sessions[0] as Record<string, unknown>).mission = undefined;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(bad)));
+    await expect(getTeamFleetMap("t1")).rejects.toThrow(/By mission but a session has no mission/);
+  });
+
+  it("GetTeamFleetMap_ARepositoryThatIsNotText_Throws", async () => {
+    const bad = structuredClone(OWN);
+    (bad.people[0].directors[0].sessions[0] as Record<string, unknown>).repository = 42;
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(bad)));
+    await expect(getTeamFleetMap("t1")).rejects.toThrow(/repository is not text/);
+  });
+
   it("GetTeamFleetMap_MissingPeople_Throws", async () => {
     const { people: _people, ...noPeople } = MAP;
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(noPeople)));

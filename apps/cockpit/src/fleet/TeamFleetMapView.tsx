@@ -5,6 +5,7 @@ import {
   type TeamFleetMap,
   type TeamFleetMapDirector,
   type TeamFleetMapLayout,
+  type TeamFleetMapSession,
   type TeamSessionStatus,
 } from "@devthrottle/client-core/teams/teamFleetMapClient";
 import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
@@ -27,6 +28,8 @@ export const TEAM_MAP_POLL_MS = 10_000;
 const LAYOUT_LABELS: Record<TeamFleetMapLayout, string> = {
   "by-person": "By person",
   "by-director": "By director",
+  "by-repository": "By repository",
+  "by-mission": "By mission",
 };
 
 const STATUS_CLASS: Record<TeamSessionStatus, string> = {
@@ -115,13 +118,78 @@ export function TeamFleetMapView({ team }: { team: TeamSummary }) {
           {load.error !== null && <div className="fmap-error">{load.error}</div>}
           {load.map.people.length === 0 ? (
             <div className="fmap-empty">{load.map.emptyText}</div>
-          ) : (layout ?? load.map.layouts[0]) === "by-person" ? (
-            <ByPerson map={load.map} />
           ) : (
-            <ByDirector map={load.map} />
+            <Layout map={load.map} layout={layout ?? load.map.layouts[0]} />
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function Layout({ map, layout }: { map: TeamFleetMap; layout: TeamFleetMapLayout }) {
+  switch (layout) {
+    case "by-person":
+      return <ByPerson map={map} />;
+    case "by-director":
+      return <ByDirector map={map} />;
+    case "by-repository":
+      return <ByGroup map={map} kind="Repository" testId="team-fleet-map-by-repository" keyOf={(s) => s.repository} />;
+    case "by-mission":
+      return <ByGroup map={map} kind="Mission" testId="team-fleet-map-by-mission" keyOf={(s) => s.mission} />;
+  }
+}
+
+/**
+ * D4, a Developer's own Directors by repository or by mission: one lane per repository (or mission), each session in
+ * it with the Director it runs on. Only offered when every session carries the field (the reader checks), so keyOf
+ * always has an answer here.
+ */
+function ByGroup({
+  map,
+  kind,
+  testId,
+  keyOf,
+}: {
+  map: TeamFleetMap;
+  kind: string;
+  testId: string;
+  keyOf: (session: TeamFleetMapSession) => string | undefined;
+}) {
+  const groups = new Map<string, { session: TeamFleetMapSession; director: TeamFleetMapDirector }[]>();
+  for (const person of map.people) {
+    for (const director of person.directors) {
+      for (const session of director.sessions) {
+        const key = keyOf(session);
+        if (key === undefined) throw new Error(`The team Fleet Map offered By ${kind.toLowerCase()} for a session without one.`);
+        const list = groups.get(key) ?? [];
+        list.push({ session, director });
+        groups.set(key, list);
+      }
+    }
+  }
+  const lanes = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  if (lanes.length === 0) return <div className="fmap-empty">No sessions running</div>;
+  return (
+    <div className="tmap-lanes" data-testid={testId}>
+      {lanes.map(([key, entries]) => (
+        <section key={key} className="fmap-lane tmap-lane" aria-label={key}>
+          <div className="fmap-lane-head">
+            <span className="fmap-lane-k">{kind}</span>
+            <span className="fmap-lane-t">{key}</span>
+          </div>
+          <ul className="tmap-sessions">
+            {entries.map(({ session, director }, i) => (
+              <li key={`${director.name}|${session.name}|${i}`} className="tmap-session">
+                <span className={`tmap-dot ${STATUS_CLASS[session.status]}`} aria-hidden="true" />
+                <span className="tmap-session-name">{session.name}</span>
+                <span className="tmap-owner">{director.name}</span>
+                <span className="tmap-session-status">{session.status}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   );
 }

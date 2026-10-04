@@ -331,7 +331,7 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
         _gateway.Registry.RegisterFromStream(directorId, machine, "user", "1.0", 4321, DateTime.UtcNow, tenant, name, "device:" + deviceId);
         _gateway.PushedSessions.RegisterConnection(tenant, directorId, "conn-" + directorId);
         Assert.True(_gateway.PushedSessions.ApplySnapshot(tenant, directorId, "conn-" + directorId, 1,
-            sessions.Select(x => new Contracts.SessionDto { SessionId = x.Id, Name = x.Name, ActivityState = x.State }).ToList()));
+            sessions.Select(x => new Contracts.SessionDto { SessionId = x.Id, Name = x.Name, ActivityState = x.State, RepoName = "thefrederiksen/" + x.Id, MissionName = "Mission " + x.Id }).ToList()));
     }
 
     private void SeedTheTeamsFleet()
@@ -367,6 +367,14 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
         Assert.DoesNotContain("\"o1\"", raw);
         Assert.DoesNotContain("map-owner", raw);
         Assert.DoesNotContain("DEV-HOME", raw);
+
+        // Another person's session is its name and status only - no repository, no mission.
+        Assert.DoesNotContain("thefrederiksen/d1", raw);
+        Assert.DoesNotContain("Mission d1", raw);
+        var developers = body.GetProperty("people").EnumerateArray()
+            .Single(p => p.GetProperty("directors")[0].GetProperty("name").GetString() == "Developer - laptop");
+        Assert.False(developers.GetProperty("isYou").GetBoolean());
+        Assert.Equal(new[] { "name", "status" }, developers.GetProperty("directors")[0].GetProperty("sessions")[0].EnumerateObject().Select(k => k.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
     }
 
     [Fact]
@@ -383,6 +391,12 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
         var session = body.GetProperty("people")[0].GetProperty("directors")[0].GetProperty("sessions")[0];
         Assert.Equal("Developer work", session.GetProperty("name").GetString());
         Assert.Equal("waiting", session.GetProperty("status").GetString());
+
+        // Their own session carries its repository and mission, so D4 can lay it out by either.
+        Assert.Equal("thefrederiksen/d1", session.GetProperty("repository").GetString());
+        Assert.Equal("Mission d1", session.GetProperty("mission").GetString());
+        Assert.Equal(new[] { "by-director", "by-repository", "by-mission" },
+            body.GetProperty("layouts").EnumerateArray().Select(l => l.GetString()!).ToArray());
     }
 
     [Fact]

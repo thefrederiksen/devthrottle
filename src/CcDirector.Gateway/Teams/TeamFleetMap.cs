@@ -5,6 +5,7 @@ using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Streaming;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json.Serialization;
 
 namespace CcDirector.Gateway.Teams;
 
@@ -25,7 +26,12 @@ namespace CcDirector.Gateway.Teams;
 /// or a person who is no longer a member - is NOT on the map: it cannot be said whose it is, so it is shown to nobody.</item>
 /// <item>THE ANSWER IS AN ALLOW-LIST (<see cref="TeamFleetMapDto"/>): a Director's name and machine, a person's display
 /// label, and per session its name and status (working, waiting, done). No session id, no Director id, no transcript,
-/// screen, input, prompt or repository - nothing a follow-up request could use to open a session.</item>
+/// screen, input, prompt or path - nothing a follow-up request could use to open a session.</item>
+/// <item>THE CALLER'S OWN SESSIONS ALSO CARRY THEIR REPOSITORY AND MISSION (Tech Lead ruling, 4 Oct 2026): the
+/// "names and status only" ruling governs seeing OTHER people's Directors, and a person's own repository and mission
+/// are their own data. So the entry is decided per session, here: the caller's own carries both, everyone else's
+/// carries name and status and nothing more (<see cref="SessionEntry"/>). That is what lets a Developer lay their own
+/// Directors out by repository and by mission (mockup D4).</item>
 /// </list>
 ///
 /// The account subject and email are personally identifying and are never logged; a team id is logged only hashed.
@@ -102,13 +108,14 @@ public sealed class TeamFleetMap
                 unattributed++;
                 continue;
             }
-            if (onlyOwn && !string.Equals(subject, caller, StringComparison.Ordinal))
+            var isCallers = string.Equals(subject, caller, StringComparison.Ordinal);
+            if (onlyOwn && !isCallers)
                 continue;
 
             var sessions = _sessions.GetLastKnown(tenant, director.DirectorId).Sessions
                 .Select(s => (Session: s, Status: TeamFleetMapStatus.Fold(s)))
                 .Where(x => x.Status is not null)
-                .Select(x => new TeamFleetMapSession(SessionName(x.Session), x.Status!))
+                .Select(x => SessionEntry(x.Session, x.Status!, isCallers))
                 .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
@@ -181,6 +188,41 @@ public sealed class TeamFleetMap
     /// <summary>A session's name as the map shows it.</summary>
     internal static string SessionName(SessionDto session) =>
         string.IsNullOrWhiteSpace(session.Name) ? TeamFleetMapSession.UnnamedSession : session.Name!;
+
+    /// <summary>
+    /// ONE SESSION'S ENTRY ON THE MAP, DECIDED PER ENTRY. Every entry has the session's name and status. Only a session
+    /// on one of the CALLER'S OWN Directors also carries its repository and its mission; anyone else's carries nothing
+    /// more, and the two fields are then absent from the wire altogether.
+    /// </summary>
+    internal static TeamFleetMapSession SessionEntry(SessionDto session, string status, bool isCallers)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return isCallers
+            ? new TeamFleetMapSession(SessionName(session), status, RepositoryOf(session), MissionOf(session))
+            : new TeamFleetMapSession(SessionName(session), status);
+    }
+
+    /// <summary>
+    /// The repository a session is in, by the rule the own Fleet Map and the Repos page use: the "owner/repo" name its
+    /// Director read from the checkout's origin, else the last folder of its path. Never the path itself.
+    /// </summary>
+    internal static string RepositoryOf(SessionDto session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        if (!string.IsNullOrWhiteSpace(session.RepoName)) return session.RepoName.Trim();
+        var trimmed = (session.RepoPath ?? "").Trim().TrimEnd('/', '\\');
+        if (trimmed.Length == 0) return TeamFleetMapSession.UnknownRepository;
+        var cut = trimmed.LastIndexOfAny(new[] { '/', '\\' });
+        return cut >= 0 ? trimmed[(cut + 1)..] : trimmed;
+    }
+
+    /// <summary>The mission a session is attached to, or <see cref="TeamFleetMapSession.Standalone"/> when it is on
+    /// none - the same word the Missions board uses.</summary>
+    internal static string MissionOf(SessionDto session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return string.IsNullOrWhiteSpace(session.MissionName) ? TeamFleetMapSession.Standalone : session.MissionName.Trim();
+    }
 }
 
 /// <summary>THE ONE FOLD FROM A SESSION'S STATE TO THE THREE WORDS THE TEAM MAP SHOWS: working, waiting or done.</summary>
@@ -259,9 +301,15 @@ public sealed record TeamFleetMapDto(string TeamId, string TeamName, string Role
 
     public const string LayoutByPerson = "by-person";
     public const string LayoutByDirector = "by-director";
+    public const string LayoutByRepository = "by-repository";
+    public const string LayoutByMission = "by-mission";
 
+    /// <summary>Owner and Manager: by person and by Director. Not by repository or mission - other people's entries do
+    /// not carry them.</summary>
     public static readonly IReadOnlyList<string> LayoutsEveryone = new[] { LayoutByPerson, LayoutByDirector };
-    public static readonly IReadOnlyList<string> LayoutsOwn = new[] { LayoutByDirector };
+
+    /// <summary>A Developer: their own Directors by Director, by repository and by mission (mockup D4).</summary>
+    public static readonly IReadOnlyList<string> LayoutsOwn = new[] { LayoutByDirector, LayoutByRepository, LayoutByMission };
 }
 
 /// <summary>One person's Directors. <see cref="Person"/> is a display label - their email - never the account subject.</summary>
@@ -270,9 +318,22 @@ public sealed record TeamFleetMapPerson(string Person, bool IsYou, IReadOnlyList
 /// <summary>One Director: its name and the machine it runs on, and its sessions.</summary>
 public sealed record TeamFleetMapDirector(string Name, string Machine, IReadOnlyList<TeamFleetMapSession> Sessions);
 
-/// <summary>One session: its name and its status (working, waiting or done). Nothing else.</summary>
-public sealed record TeamFleetMapSession(string Name, string Status)
+/// <summary>
+/// One session: its name and its status (working, waiting or done). On the caller's OWN Directors only, also its
+/// repository and mission; on anyone else's those two are null and left off the wire entirely.
+/// </summary>
+public sealed record TeamFleetMapSession(
+    string Name,
+    string Status,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Repository = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Mission = null)
 {
     /// <summary>What a session with no name is called on the map.</summary>
     public const string UnnamedSession = "Unnamed session";
+
+    /// <summary>The repository of one of the caller's own sessions whose Director reported neither a name nor a path.</summary>
+    public const string UnknownRepository = "Repository not known";
+
+    /// <summary>The mission of one of the caller's own sessions that is attached to none.</summary>
+    public const string Standalone = "Standalone";
 }

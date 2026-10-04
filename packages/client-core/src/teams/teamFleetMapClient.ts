@@ -7,18 +7,24 @@
 // page lays out what arrives; it never filters by role.
 //
 // The answer is an allow-list: names and status only. It carries no session id and no Director id, so nothing on the
-// page can open, read or type into a teammate's session.
+// page can open, read or type into a teammate's session. The ONE widening: a session on one of the signed-in person's
+// OWN Directors also carries its repository and its mission (their own data), which is what the Developer's "By
+// repository" and "By mission" layouts group by. Which entries carry them is decided on the Gateway, per entry.
 import { authHeaders, gatewayFetch, GatewayError, POLL_TIMEOUT_MS } from "../api/client";
 
 /** One of the three words a session's status can be, exactly as the Gateway folds it. */
 export type TeamSessionStatus = "working" | "waiting" | "done";
 
 /** A layout the Gateway offers this person. */
-export type TeamFleetMapLayout = "by-person" | "by-director";
+export type TeamFleetMapLayout = "by-person" | "by-director" | "by-repository" | "by-mission";
 
 export interface TeamFleetMapSession {
   name: string;
   status: TeamSessionStatus;
+  /** Only on the signed-in person's OWN sessions: the repository it is in. Absent on anyone else's. */
+  repository?: string;
+  /** Only on the signed-in person's OWN sessions: the mission it is on ("Standalone" for none). Absent on anyone else's. */
+  mission?: string;
 }
 
 export interface TeamFleetMapDirector {
@@ -51,7 +57,7 @@ export interface TeamFleetMap {
 }
 
 const STATUSES: ReadonlyArray<TeamSessionStatus> = ["working", "waiting", "done"];
-const LAYOUTS: ReadonlyArray<TeamFleetMapLayout> = ["by-person", "by-director"];
+const LAYOUTS: ReadonlyArray<TeamFleetMapLayout> = ["by-person", "by-director", "by-repository", "by-mission"];
 
 function unreadable(what: string): GatewayError {
   return new GatewayError(502, `The Gateway sent a team Fleet Map the Cockpit cannot read: ${what}.`);
@@ -92,6 +98,16 @@ function readMap(raw: unknown): TeamFleetMap {
     return l as TeamFleetMapLayout;
   });
   if (layouts.length === 0) throw unreadable("it offers no layout");
+  const people = m.people.map(readPerson);
+  // A layout the Gateway offers must be one its entries can fill: "By repository" with a session that has no
+  // repository would put that session nowhere.
+  const sessions = people.flatMap((p) => p.directors.flatMap((d) => d.sessions));
+  if (layouts.includes("by-repository") && sessions.some((s) => s.repository === undefined)) {
+    throw unreadable("it offers By repository but a session has no repository");
+  }
+  if (layouts.includes("by-mission") && sessions.some((s) => s.mission === undefined)) {
+    throw unreadable("it offers By mission but a session has no mission");
+  }
   return {
     teamId: m.teamId,
     teamName: m.teamName,
@@ -100,7 +116,7 @@ function readMap(raw: unknown): TeamFleetMap {
     summary: m.summary,
     emptyText: m.emptyText,
     layouts,
-    people: m.people.map(readPerson),
+    people,
   };
 }
 
@@ -125,6 +141,11 @@ function readSession(raw: unknown): TeamFleetMapSession {
   if (typeof s.name !== "string" || !STATUSES.includes(s.status as TeamSessionStatus)) {
     throw unreadable("a session is missing its name or has a status other than working, waiting or done");
   }
-  // Only the two allowed fields are kept, whatever else arrives: nothing that could open a session reaches the page.
-  return { name: s.name, status: s.status as TeamSessionStatus };
+  if (s.repository !== undefined && typeof s.repository !== "string") throw unreadable("a session's repository is not text");
+  if (s.mission !== undefined && typeof s.mission !== "string") throw unreadable("a session's mission is not text");
+  // Only the allowed fields are kept, whatever else arrives: nothing that could open a session reaches the page.
+  const session: TeamFleetMapSession = { name: s.name, status: s.status as TeamSessionStatus };
+  if (typeof s.repository === "string") session.repository = s.repository;
+  if (typeof s.mission === "string") session.mission = s.mission;
+  return session;
 }

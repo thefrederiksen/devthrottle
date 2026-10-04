@@ -69,17 +69,17 @@ public sealed class TeamFleetMapTests : IDisposable
         // The DevThrottle team's fleet: the Owner has one Director, the Developer two, the second Developer one, the
         // Manager one.
         SeedDirector(_team, "dir-owner", Owner, "Soren - DevThrottle", "SOREN_NORTH",
-            Session("s-o1", "Teams - Developer - invitations", "Working"),
+            Session("s-o1", "Teams - Developer - invitations", "Working", repoName: "thefrederiksen/devthrottle", mission: "Teams v1"),
             Session("s-o2", "Signup page - Reviewer", "WaitingForInput"),
             Session("s-o3", "Release - Release Manager", "Idle"));
         SeedDirector(_team, "dir-dev-laptop", Developer, "Rob - laptop", "ROB-XPS",
-            Session("s-d1", "Signup - Developer", "Working"),
+            Session("s-d1", "Signup - Developer", "Working", repoName: "thefrederiksen/devthrottle", mission: "Onboarding push"),
             Session("s-d2", "Installer bug - Developer", "WaitingForPerm"));
         SeedDirector(_team, "dir-dev-desk", Developer, "Rob - desk", "ROB-DESK");
         SeedDirector(_team, "dir-dev2", Developer2, "Mike - desktop", "MIKE-PC",
             Session("s-m1", "Mike's work", "Working"));
         SeedDirector(_team, "dir-manager", Manager, "Priya - desktop", "PRIYA-PC",
-            Session("s-p1", "October release", "Idle"));
+            Session("s-p1", "October release", "Idle", repoName: "thefrederiksen/devthrottle_internal", mission: "October release"));
 
         // The Developer's Director on the OTHER team.
         SeedDirector(_otherTeam, "dir-dev-elsewhere", Developer, "Rob - home lab", "ROB-HOME",
@@ -94,8 +94,8 @@ public sealed class TeamFleetMapTests : IDisposable
         catch { /* best-effort */ }
     }
 
-    private static SessionDto Session(string id, string name, string state, string? assessed = null) =>
-        new() { SessionId = id, Name = name, ActivityState = state, AssessedState = assessed, RepoPath = @"D:\secret\repo-" + id };
+    private static SessionDto Session(string id, string name, string state, string? assessed = null, string repoName = "", string? mission = null) =>
+        new() { SessionId = id, Name = name, ActivityState = state, AssessedState = assessed, RepoPath = @"D:\secret\checkouts\devthrottle", RepoName = repoName, MissionName = mission };
 
     /// <summary>A device credential bound to <paramref name="teamId"/> for <paramref name="subject"/>, and a Director that
     /// said Hello on it under the team's tenant, with these sessions pushed.</summary>
@@ -345,9 +345,110 @@ public sealed class TeamFleetMapTests : IDisposable
         Assert.Equal(TeamFleetMapDto.EmptyEveryone, manager.EmptyText);
 
         var developer = MapFor(Developer);
-        Assert.Equal(new[] { "by-director" }, developer.Layouts);
+        Assert.Equal(new[] { "by-director", "by-repository", "by-mission" }, developer.Layouts);
         Assert.Equal(TeamFleetMapDto.SummaryOwn, developer.Summary);
         Assert.Equal(TeamFleetMapDto.EmptyOwn, developer.EmptyText);
+    }
+
+    // ---- Per entry: the caller's own sessions carry repository and mission; nobody else's do ------------------------
+
+    [Fact]
+    public void Read_Developer_TheirOwnSessionsCarryRepositoryAndMission()
+    {
+        var sessions = MapFor(Developer).People.Single().Directors.SelectMany(d => d.Sessions).OrderBy(s => s.Name, StringComparer.Ordinal).ToArray();
+
+        Assert.Equal(
+            new (string, string?, string?)[]
+            {
+                ("Installer bug - Developer", "devthrottle", TeamFleetMapSession.Standalone),
+                ("Signup - Developer", "thefrederiksen/devthrottle", "Onboarding push"),
+            },
+            sessions.Select(s => (s.Name, s.Repository, s.Mission)).ToArray());
+    }
+
+    [Theory]
+    [InlineData(Owner, "owner@example.com")]
+    [InlineData(Manager, "manager@example.com")]
+    public void Read_OwnerAndManager_OnlyTheirOwnEntriesCarryRepositoryAndMission(string subject, string ownLabel)
+    {
+        var map = MapFor(subject);
+
+        var own = map.People.Single(p => p.IsYou);
+        Assert.Equal(ownLabel, own.Person);
+        Assert.All(own.Directors.SelectMany(d => d.Sessions), s =>
+        {
+            Assert.NotNull(s.Repository);
+            Assert.NotNull(s.Mission);
+        });
+
+        var others = map.People.Where(p => !p.IsYou).SelectMany(p => p.Directors).SelectMany(d => d.Sessions).ToList();
+        Assert.NotEmpty(others);
+        Assert.All(others, s =>
+        {
+            Assert.Null(s.Repository);
+            Assert.Null(s.Mission);
+        });
+
+        // On the wire: another person's session is exactly its name and status.
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(map, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        foreach (var person in doc.RootElement.GetProperty("people").EnumerateArray().Where(p => !p.GetProperty("isYou").GetBoolean()))
+            foreach (var director in person.GetProperty("directors").EnumerateArray())
+                foreach (var session in director.GetProperty("sessions").EnumerateArray())
+                    Assert.Equal(new[] { "name", "status" }, session.EnumerateObject().Select(k => k.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public void Read_Manager_NeverSeesAnotherPersonsRepositoryOrMission()
+    {
+        var json = JsonSerializer.Serialize(MapFor(Manager));
+
+        // The Owner's and the Developer's repository and mission names are theirs; the Manager's own are allowed.
+        foreach (var leak in new[] { "Teams v1", "Onboarding push", "thefrederiksen/devthrottle\"", "\"devthrottle\"" })
+            Assert.DoesNotContain(leak, json, StringComparison.Ordinal);
+        Assert.Contains("October release", json, StringComparison.Ordinal);
+        Assert.Contains("thefrederiksen/devthrottle_internal", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SessionEntry_TheCallersOwn_CarriesRepositoryAndMission()
+    {
+        var entry = TeamFleetMap.SessionEntry(
+            new SessionDto { Name = "Work", RepoName = "owner/repo", MissionName = "Launch" }, "working", isCallers: true);
+
+        Assert.Equal(new TeamFleetMapSession("Work", "working", "owner/repo", "Launch"), entry);
+    }
+
+    [Fact]
+    public void SessionEntry_SomeoneElses_CarriesNameAndStatusOnly()
+    {
+        var entry = TeamFleetMap.SessionEntry(
+            new SessionDto { Name = "Work", RepoName = "owner/repo", MissionName = "Launch", RepoPath = @"C:\x\repo" }, "waiting", isCallers: false);
+
+        Assert.Equal(new TeamFleetMapSession("Work", "waiting"), entry);
+        Assert.Null(entry.Repository);
+        Assert.Null(entry.Mission);
+    }
+
+    [Theory]
+    [InlineData("owner/repo", @"D:\code\checkout", "owner/repo")]
+    [InlineData("  owner/repo ", "", "owner/repo")]
+    [InlineData("", @"D:\code\my-tool\", "my-tool")]
+    [InlineData("", "/home/me/projects/site", "site")]
+    [InlineData("", "", TeamFleetMapSession.UnknownRepository)]
+    [InlineData("  ", "  ", TeamFleetMapSession.UnknownRepository)]
+    public void RepositoryOf_NameElseFolderElseUnknown_NeverThePath(string repoName, string repoPath, string expected)
+    {
+        Assert.Equal(expected, TeamFleetMap.RepositoryOf(new SessionDto { RepoName = repoName, RepoPath = repoPath }));
+    }
+
+    [Theory]
+    [InlineData("Teams v1", "Teams v1")]
+    [InlineData(" Teams v1 ", "Teams v1")]
+    [InlineData(null, TeamFleetMapSession.Standalone)]
+    [InlineData("", TeamFleetMapSession.Standalone)]
+    public void MissionOf_TheAttachedMissionElseStandalone(string? missionName, string expected)
+    {
+        Assert.Equal(expected, TeamFleetMap.MissionOf(new SessionDto { MissionName = missionName }));
     }
 
     [Fact]
@@ -422,7 +523,23 @@ public sealed class TeamFleetMapDtoTests
         Assert.Equal(new[] { "EmptyText", "Layouts", "People", "Role", "Scope", "Summary", "TeamId", "TeamName" }, Fields<TeamFleetMapDto>());
         Assert.Equal(new[] { "Directors", "IsYou", "Person" }, Fields<TeamFleetMapPerson>());
         Assert.Equal(new[] { "Machine", "Name", "Sessions" }, Fields<TeamFleetMapDirector>());
-        Assert.Equal(new[] { "Name", "Status" }, Fields<TeamFleetMapSession>());
+        // Repository and Mission are filled ONLY on the caller's own sessions (pinned below and in TeamFleetMapTests).
+        Assert.Equal(new[] { "Mission", "Name", "Repository", "Status" }, Fields<TeamFleetMapSession>());
+    }
+
+    [Fact]
+    public void TeamFleetMapSession_OnTheWire_TwoShapes_SomeoneElsesIsNameAndStatus_TheCallersOwnAddsRepositoryAndMission()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        static string[] Keys(string json)
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray();
+        }
+
+        Assert.Equal(new[] { "name", "status" }, Keys(JsonSerializer.Serialize(new TeamFleetMapSession("S", "working"), options)));
+        Assert.Equal(new[] { "mission", "name", "repository", "status" },
+            Keys(JsonSerializer.Serialize(new TeamFleetMapSession("S", "working", "owner/repo", "Launch"), options)));
     }
 
     [Fact]
