@@ -76,6 +76,9 @@ const devProxy = proxyTarget
       "/client-errors": { target: proxyTarget, changeOrigin: true },
       "/lists": { target: proxyTarget, changeOrigin: true },
       "/account": { target: proxyTarget, changeOrigin: true },
+      // The team routes (devthrottle_internal#2300, #2312): the switcher's list and the team Fleet Map. Without this the
+      // dev server answers /teams with its own index.html, which the switcher reads as "Teams is dark" (review F2).
+      "/teams": { target: proxyTarget, changeOrigin: true },
       "/gateway": { target: proxyTarget, changeOrigin: true },
       "/ingest": { target: proxyTarget, changeOrigin: true },
       "/dictation": { target: proxyTarget, changeOrigin: true },

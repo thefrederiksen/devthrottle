@@ -21,6 +21,10 @@ vi.mock("@devthrottle/client-core/fleetmanager/pageClient", () => ({
   getFleetManagerPage: vi.fn(async () => ({ waitingCount: page.waitingCount })),
 }));
 
+vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
+  getMyTeams: vi.fn(async () => ({ kind: "teams", teams: [] })),
+}));
+
 import { AppShell } from "./AppShell";
 
 function mount() {

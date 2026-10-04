@@ -1,0 +1,41 @@
+/* The team switcher at the top of the rail (devthrottle_internal#2312, screens S11 and D4-D5). */
+.team-switcher {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.team-switcher-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.team-switcher-select {
+  width: 100%;
+  padding: 4px 6px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.team-switcher-role {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.team-switcher-error {
+  font-size: 12px;
+  color: var(--text-dim);
+}

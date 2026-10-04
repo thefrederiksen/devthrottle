@@ -23,6 +23,7 @@
     "./sessions/WingmanNow": "./src/sessions/WingmanNow.tsx",
     "./sessions/WingmanErrorLine": "./src/sessions/WingmanErrorLine.tsx",
     "./stats/ThrottleWindowSelector": "./src/stats/ThrottleWindowSelector.tsx",
+    "./teams/CurrentTeam": "./src/teams/CurrentTeam.tsx",
     "./transcription/MicrophoneQualityPanel": "./src/transcription/MicrophoneQualityPanel.tsx",
     "./devreports/DevReportList": "./src/devreports/DevReportList.tsx",
     "./devreports/DevReportViewer": "./src/devreports/DevReportViewer.tsx",
