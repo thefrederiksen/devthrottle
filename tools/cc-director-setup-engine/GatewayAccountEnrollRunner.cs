@@ -638,9 +638,44 @@ public sealed class GatewayAccountEnrollRunner
             : OperationResult<HostedTeamsAnswer>.Fail(listed.ErrorMessage!);
     }
 
-    /// <summary>What a move answers when this Director holds no key to name itself with.</summary>
-    public const string NoKeyToMove =
-        "This Director holds no Gateway key, so it cannot be moved. Connect it from the Gateway tab first.";
+    /// <summary>A move refused with 404: the account has no working key for this Director.</summary>
+    public const string MoveNoWorkingKey =
+        "DevThrottle has no working key for this Director on your account, so it cannot be moved. Connect it again from the Gateway tab.";
+
+    /// <summary>A move refused with 403 because another account set this Director up.</summary>
+    public const string MoveSomeoneElses =
+        "This Director was set up with a different DevThrottle account, so it cannot be moved from yours. Sign in with the account that set it up.";
+
+    /// <summary>A move refused with 409 because the Director already works for that team.</summary>
+    public const string MoveAlreadyThere = "This Director already works for that team. Nothing was changed.";
+
+    /// <summary>A move refused with 409 because the Gateway still has sessions registered for this Director.</summary>
+    public const string MoveSessionsOpen =
+        "The Gateway still has sessions registered for this Director. Close every session on it, then move it. Nothing was changed.";
+
+    // The Gateway's own sentences for the refusals that share a status (its contract: "the sentences are constants on
+    // HostedEnrollmentEndpoint, so a client can match on them"). Copied, because the Director does not reference the
+    // Gateway.
+    private const string GatewaySomeoneElsesKey =
+        "That Director was set up by a different account, so it cannot be moved from yours. Sign in with the account that set it up.";
+    private const string GatewaySameTeam = "This Director is already set up for that team. Nothing was changed.";
+    private const string GatewaySessionsOpen =
+        "This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.";
+
+    /// <summary>
+    /// The words a person reads for a refused move. 404 is always "no working key"; 403 and 409 each have more than
+    /// one cause, told apart by the Gateway's own sentence. A refusal not named here - a team the person cannot run
+    /// sessions in, the payment gate, a Director set up in two places - is shown in the Gateway's words, which are
+    /// already written for a person.
+    /// </summary>
+    public static string MoveRefusalInPlainWords(HttpStatusCode status, string gatewayWords) => status switch
+    {
+        HttpStatusCode.NotFound => MoveNoWorkingKey,
+        HttpStatusCode.Forbidden when gatewayWords == GatewaySomeoneElsesKey => MoveSomeoneElses,
+        HttpStatusCode.Conflict when gatewayWords == GatewaySameTeam => MoveAlreadyThere,
+        HttpStatusCode.Conflict when gatewayWords == GatewaySessionsOpen => MoveSessionsOpen,
+        _ => gatewayWords,
+    };
 
     /// <summary>What a move answers when the account token it holds is no longer accepted (review finding F9).</summary>
     public const string MoveSignInExpired =
@@ -648,28 +683,28 @@ public sealed class GatewayAccountEnrollRunner
 
     /// <summary>
     /// Move this Director to another team (screen D3), with the account token a preceding
-    /// <see cref="SignInAndListHostedTeamsAsync"/> captured. The Director is named by the key it holds now
-    /// (<c>{deviceKey, teamId}</c>, the Gateway contract), which proves the caller holds it. Returns the new
-    /// device key; the Gateway revokes the old one. Neither key is ever logged. A refusal - a session is still registered, or the person cannot run sessions there - comes back
+    /// <see cref="SignInAndListHostedTeamsAsync"/> captured. The Director is named by its own id
+    /// (<c>{deviceId, teamId}</c>, the Gateway contract); the Gateway finds its working key on the signed-in
+    /// account. Returns the new device key; the Gateway revokes the old one. The key is never logged. A refusal - a session is still registered, or the person cannot run sessions there - comes back
     /// in the Gateway's own words; an expired sign-in says how to sign in again. Stores nothing: the caller
     /// stores the team and the key.
     /// </summary>
-    /// <param name="currentDeviceKey">The key this Director holds now.</param>
+    /// <param name="directorId">This Director's own id - the device id it was set up with.</param>
     /// <param name="teamId">The team to move to, or null for the personal account.</param>
     /// <param name="ct">Cancels the call.</param>
-    public async Task<OperationResult<string>> MoveHostedDirectorAsync(string currentDeviceKey, string? teamId, CancellationToken ct = default)
+    public async Task<OperationResult<string>> MoveHostedDirectorAsync(string directorId, string? teamId, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(currentDeviceKey))
-            return OperationResult<string>.Fail(NoKeyToMove);
+        if (string.IsNullOrWhiteSpace(directorId))
+            return OperationResult<string>.Fail("This Director has no id yet - it is still starting. Try again in a moment.");
         var tokens = _pendingTokens;
         if (tokens is null || string.IsNullOrWhiteSpace(tokens.AccessToken))
             return OperationResult<string>.Fail("Please sign in to DevThrottle first.");
 
         var hostedUrl = HostedGateway.ResolveUrl();
-        EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync: hosted={hostedUrl}, team={(teamId ?? "personal account")}");
+        EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync: hosted={hostedUrl}, director={directorId}, team={(teamId ?? "personal account")}");
 
         using var http = HostedClient(hostedUrl, tokens.AccessToken);
-        var body = new JsonObject { ["deviceKey"] = currentDeviceKey, ["teamId"] = teamId };
+        var body = new JsonObject { ["deviceId"] = directorId, ["teamId"] = teamId };
 
         HttpResponseMessage resp;
         try
@@ -692,7 +727,7 @@ public sealed class GatewayAccountEnrollRunner
         {
             var refusal = await ReadErrorAsync(resp, ct).ConfigureAwait(false);
             EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync refused: HTTP {(int)resp.StatusCode}");
-            return OperationResult<string>.Fail(refusal);
+            return OperationResult<string>.Fail(MoveRefusalInPlainWords(resp.StatusCode, refusal));
         }
 
         // A 200 means the Gateway HAS moved the Director. A reply without a readable key is handed back as an empty

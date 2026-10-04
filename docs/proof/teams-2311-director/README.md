@@ -29,13 +29,16 @@ cut from origin/main `cdaab4f2b`. Desktop only; no Gateway code.
   account token), the other teams, "Move to <team>". Disabled with "Close the N running sessions first." while any
   session is held. `DirectorTeamMover` holds session creation in `SessionManager` for the whole move - every create
   path is refused with the reason - and counts under that hold, so no session can start between the count and the
-  re-apply (F3). It calls `POST /devices/enroll-hosted/move` (bearer = account token, body `{deviceKey, teamId|null}`
-  per the Gateway contract; the key is never logged), records the team FIRST and the key LAST, then re-applies.
+  re-apply (F3). It calls `POST /devices/enroll-hosted/move` (bearer = account token, body `{deviceId, teamId|null}`
+  per the Gateway contract on #3530 - the Director's own id; the key is never sent or logged), records the team
+  FIRST and the key LAST, then re-applies. The Gateway's refusals read plainly: 404 "no working key for this
+  Director on your account", 403 "set up with a different account", 409 "already works for that team" or "the
+  Gateway still has sessions registered"; any other refusal keeps the Gateway's own sentence.
   Any local failure after the Gateway's yes says the move happened, what was not stored and what to do (F4); a 401
   says to sign in again with "Choose another team..." (F9).
 
-Decisions taken with the Tech Lead (session 14117e2d), 4 October 2026: the move route shape above (body changed to
-`{deviceKey, teamId}` by the Gateway contract); the `teams` field on `/healthz` as the one signal; and no person name
+Decisions taken with the Tech Lead (session 14117e2d), 4 October 2026: the move route shape above (body corrected to
+`{deviceId, teamId}` by the Gateway on #3530); the `teams` field on `/healthz` as the one signal; and no person name
 guessed from the token - the personal account reads "Personal", and the name box starts with the computer's name.
 Review round 1 rulings: `rulings-2311-review-round1.md`; every finding is answered in `reviews/review-2311-director.md`.
 

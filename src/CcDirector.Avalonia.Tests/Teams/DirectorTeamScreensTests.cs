@@ -211,7 +211,7 @@ public sealed class DirectorTeamScreensTests
 
     private sealed class FakeService : IDirectorTeamService
     {
-        public List<(string Key, string? TeamId)> Moves { get; } = new();
+        public List<(string DirectorId, string? TeamId)> Moves { get; } = new();
         public IReadOnlyList<HostedTeam> Teams { get; init; } = new[]
         {
             new HostedTeam { TeamId = "8f1d2c34-dev", Name = "DevThrottle", Role = "owner", MemberCount = 5 },
@@ -221,9 +221,9 @@ public sealed class DirectorTeamScreensTests
         public Task<OperationResult<HostedTeamsAnswer>> ListTeamsAsync(CancellationToken ct) =>
             Task.FromResult(OperationResult<HostedTeamsAnswer>.Ok(new HostedTeamsAnswer(Released, Teams)));
 
-        public Task<OperationResult<string>> MoveAsync(string currentDeviceKey, string? teamId, CancellationToken ct)
+        public Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
         {
-            Moves.Add((currentDeviceKey, teamId));
+            Moves.Add((directorId, teamId));
             return Task.FromResult(OperationResult<string>.Ok("new-team-key"));
         }
     }
@@ -248,7 +248,7 @@ public sealed class DirectorTeamScreensTests
             service,
             () => rig!.Running,
             reason => new SessionCreationHold(rig!.Running, () => { }),
-            () => "current-key-1",
+            () => "director-1",
             // What the resolver would answer: the last team the panel stored, else the starting one.
             _ => Task.FromResult(OperationResult<DirectorTeam?>.Ok(rig!.Teams.LastOrDefault() ?? current)),
             k => rig!.Keys.Add(k),
@@ -296,7 +296,7 @@ public sealed class DirectorTeamScreensTests
 
         await rig.Panel.MoveAsync();
 
-        Assert.Equal(("current-key-1", (string?)"8f1d2c34-dev"), Assert.Single(rig.Service.Moves));
+        Assert.Equal(("director-1", (string?)"8f1d2c34-dev"), Assert.Single(rig.Service.Moves));
         Assert.Equal("new-team-key", Assert.Single(rig.Keys));
         Assert.Equal(new DirectorTeam("8f1d2c34-dev", "DevThrottle"), Assert.Single(rig.Teams));
         Assert.Equal(1, rig.Reapplied);

@@ -34,7 +34,6 @@ public class HostedTeamEnrollRunnerTests
     private const string DeviceId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     private const string MachineName = "SOREN_NORTH";
     private const string AccountToken = "account-access-token-teams";
-    private const string CurrentKey = "current-device-key-of-this-director";
 
     // The hosted Gateway's real /healthz answer on 4 October 2026 (production, before Teams): no "teams" field.
     private const string PreTeamsHealth =
@@ -306,7 +305,7 @@ public class HostedTeamEnrollRunnerTests
             move: () => Ok("{\"deviceKey\":\"moved-key\"}")));
 
         Assert.True((await h.Runner.SignInAndListHostedTeamsAsync(CancellationToken.None)).Success);
-        var moved = await h.Runner.MoveHostedDirectorAsync(CurrentKey, "t-dev", CancellationToken.None);
+        var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, "t-dev", CancellationToken.None);
 
         Assert.True(moved.Success, moved.ErrorMessage);
         Assert.Equal("moved-key", moved.Value);
@@ -314,13 +313,58 @@ public class HostedTeamEnrollRunnerTests
         Assert.Equal("POST", move.Method);
         Assert.Equal(AccountToken, move.Bearer);
         var body = JsonNode.Parse(move.Body)!.AsObject();
-        // The Gateway contract: the Director is named by the key it holds now, not by its id.
-        Assert.Equal(CurrentKey, (string?)body["deviceKey"]);
-        Assert.Null(body["deviceId"]);
+        // The Gateway contract (#3530): the Director is named by its own id; its key is never sent.
+        Assert.Equal(DeviceId, (string?)body["deviceId"]);
+        Assert.Null(body["deviceKey"]);
         Assert.Equal("t-dev", (string?)body["teamId"]);
         // The runner stores nothing on a move; the mover stores team and key.
         Assert.Empty(h.Keys);
         Assert.Empty(h.Teams);
+    }
+
+    // The Gateway's own refusal sentences (HostedEnrollmentEndpoint on #3530), sent exactly as it sends them.
+    private const string GatewayNoSuchDirector =
+        "This account has no Director set up with that id, or its key is no longer active, so it cannot be moved. Set the Director up again.";
+    private const string GatewaySomeoneElses =
+        "That Director was set up by a different account, so it cannot be moved from yours. Sign in with the account that set it up.";
+    private const string GatewaySameTeam = "This Director is already set up for that team. Nothing was changed.";
+    private const string GatewaySessions =
+        "This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.";
+    private const string GatewayAmbiguous =
+        "This Director is set up in more than one place, so DevThrottle cannot tell which one to move. Set the Director up again.";
+    private const string GatewayCollaborator =
+        "You cannot run sessions in that team, so a Director cannot be set up for it. In this team you are a Collaborator, and a Collaborator may not run sessions on their own computers.";
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound, GatewayNoSuchDirector, GatewayAccountEnrollRunner.MoveNoWorkingKey)]
+    [InlineData(HttpStatusCode.Forbidden, GatewaySomeoneElses, GatewayAccountEnrollRunner.MoveSomeoneElses)]
+    [InlineData(HttpStatusCode.Conflict, GatewaySameTeam, GatewayAccountEnrollRunner.MoveAlreadyThere)]
+    [InlineData(HttpStatusCode.Conflict, GatewaySessions, GatewayAccountEnrollRunner.MoveSessionsOpen)]
+    // The causes not mapped keep the Gateway's words, which are already written for a person.
+    [InlineData(HttpStatusCode.Conflict, GatewayAmbiguous, GatewayAmbiguous)]
+    [InlineData(HttpStatusCode.Forbidden, GatewayCollaborator, GatewayCollaborator)]
+    public async Task MoveHostedDirector_EachGatewayRefusal_InPlainWords(HttpStatusCode status, string gatewayWords, string shown)
+    {
+        var h = Build(Gateway(TeamsHealth,
+            teams: () => Ok(TeamsReply()),
+            move: () => Json(status, JsonSerializer.Serialize(new { error = gatewayWords }))));
+
+        await h.Runner.SignInAndListHostedTeamsAsync(CancellationToken.None);
+        var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, "t-dev", CancellationToken.None);
+
+        Assert.False(moved.Success);
+        Assert.Equal(shown, moved.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task MoveHostedDirector_404WithAnyBody_IsNoWorkingKey()
+    {
+        var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply()), move: () => Json(HttpStatusCode.NotFound, "")));
+
+        await h.Runner.SignInAndListHostedTeamsAsync(CancellationToken.None);
+        var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, null, CancellationToken.None);
+
+        Assert.Equal(GatewayAccountEnrollRunner.MoveNoWorkingKey, moved.ErrorMessage);
     }
 
     [Fact]
@@ -332,7 +376,7 @@ public class HostedTeamEnrollRunnerTests
             move: () => Json(HttpStatusCode.Conflict, JsonSerializer.Serialize(new { error = refusal }))));
 
         await h.Runner.SignInAndListHostedTeamsAsync(CancellationToken.None);
-        var moved = await h.Runner.MoveHostedDirectorAsync(CurrentKey, null, CancellationToken.None);
+        var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, null, CancellationToken.None);
 
         Assert.False(moved.Success);
         Assert.Equal(refusal, moved.ErrorMessage);
@@ -344,7 +388,7 @@ public class HostedTeamEnrollRunnerTests
         var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply())));
 
         await h.Runner.SignInAndListHostedTeamsAsync(CancellationToken.None);
-        var moved = await h.Runner.MoveHostedDirectorAsync(CurrentKey, "t-dev", CancellationToken.None);
+        var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, "t-dev", CancellationToken.None);
 
         Assert.False(moved.Success);
         Assert.Equal(GatewayAccountEnrollRunner.MoveSignInExpired, moved.ErrorMessage);
@@ -357,7 +401,7 @@ public class HostedTeamEnrollRunnerTests
         var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply()), move: () => Ok("garbage")));
 
         await h.Runner.SignInAndListHostedTeamsAsync(CancellationToken.None);
-        var moved = await h.Runner.MoveHostedDirectorAsync(CurrentKey, "t-dev", CancellationToken.None);
+        var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, "t-dev", CancellationToken.None);
 
         Assert.True(moved.Success);
         Assert.Equal("", moved.Value);
@@ -368,7 +412,7 @@ public class HostedTeamEnrollRunnerTests
     {
         var h = Build(_ => throw new InvalidOperationException("nothing may be sent"));
 
-        var moved = await h.Runner.MoveHostedDirectorAsync(CurrentKey, "t-dev", CancellationToken.None);
+        var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, "t-dev", CancellationToken.None);
 
         Assert.False(moved.Success);
         Assert.Empty(h.Requests);

@@ -13,11 +13,11 @@ public interface IDirectorTeamService
     Task<OperationResult<HostedTeamsAnswer>> ListTeamsAsync(CancellationToken ct);
 
     /// <summary>
-    /// Move the Director that holds <paramref name="currentDeviceKey"/> to <paramref name="teamId"/> (null = the
-    /// personal account). The Gateway names the Director by the key it holds now, refuses while it has a session
-    /// registered, and on success revokes that key and returns the new one. The key is never logged.
+    /// Move the Director whose own id is <paramref name="directorId"/> to <paramref name="teamId"/> (null = the
+    /// personal account). The Gateway finds that Director's working key on the signed-in account, refuses while it
+    /// has a session registered, and on success revokes that key and returns the new one.
     /// </summary>
-    Task<OperationResult<string>> MoveAsync(string currentDeviceKey, string? teamId, CancellationToken ct);
+    Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct);
 }
 
 /// <summary>
@@ -96,19 +96,19 @@ public sealed class DirectorTeamMover
     /// Move this Director to <paramref name="target"/>. Refused, with nothing sent and nothing stored, while any
     /// session is running; no session can start until it returns. The Gateway's refusal is returned as it is.
     /// </summary>
-    /// <param name="currentDeviceKey">The key this Director holds now, which names it to the Gateway. Never logged.</param>
+    /// <param name="directorId">This Director's own id - the device id it was set up with.</param>
     /// <param name="target">The team to move to.</param>
     /// <param name="ct">Cancels the Gateway call.</param>
-    public async Task<OperationResult<DirectorTeam>> MoveAsync(string currentDeviceKey, TeamChoice target, CancellationToken ct)
+    public async Task<OperationResult<DirectorTeam>> MoveAsync(string directorId, TeamChoice target, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(currentDeviceKey))
-            throw new ArgumentException("currentDeviceKey is required", nameof(currentDeviceKey));
+        if (string.IsNullOrWhiteSpace(directorId))
+            throw new ArgumentException("directorId is required", nameof(directorId));
         ArgumentNullException.ThrowIfNull(target);
 
         using var hold = _holdSessionCreation(
             $"this Director is moving to {target.Name}. Start the session again once the move is done.");
         var running = hold.SessionsAtHold;
-        FileLog.Write($"[DirectorTeamMover] MoveAsync: target={(target.IsPersonal ? "personal account" : "team " + target.TeamId)}, sessionsAtHold={running}");
+        FileLog.Write($"[DirectorTeamMover] MoveAsync: director={directorId}, target={(target.IsPersonal ? "personal account" : "team " + target.TeamId)}, sessionsAtHold={running}");
 
         var refusal = RefusalFor(running);
         if (refusal is not null)
@@ -117,7 +117,7 @@ public sealed class DirectorTeamMover
             return OperationResult<DirectorTeam>.Fail(refusal);
         }
 
-        var moved = await _service.MoveAsync(currentDeviceKey, target.TeamId, ct).ConfigureAwait(false);
+        var moved = await _service.MoveAsync(directorId, target.TeamId, ct).ConfigureAwait(false);
         if (!moved.Success)
         {
             FileLog.Write($"[DirectorTeamMover] MoveAsync: the Gateway refused: {moved.ErrorMessage}");

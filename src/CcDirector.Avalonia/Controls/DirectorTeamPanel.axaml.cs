@@ -14,8 +14,8 @@ namespace CcDirector.Avalonia.Controls;
 /// <param name="Service">The hosted Gateway's list and move routes.</param>
 /// <param name="RunningSessions">How many sessions this Director holds right now, for drawing the button.</param>
 /// <param name="HoldSessionCreation">Holds new sessions for the length of a move, with a reason.</param>
-/// <param name="CurrentDeviceKey">The Gateway key this Director holds now (it names the Director to the move
-/// route), or null when it holds none. Never logged.</param>
+/// <param name="DirectorId">This Director's own id (it names the Director to the move route), or null while it
+/// is still starting.</param>
 /// <param name="ResolveTeam">The team this Director shows: recorded, or personal on a Gateway with Teams, or null
 /// when its Gateway has none (see <see cref="DirectorTeamView"/>).</param>
 /// <param name="PersistKey">Stores the new device key after a move.</param>
@@ -25,7 +25,7 @@ internal sealed record DirectorTeamPanelDeps(
     IDirectorTeamService Service,
     Func<int> RunningSessions,
     Func<string, SessionCreationHold> HoldSessionCreation,
-    Func<string?> CurrentDeviceKey,
+    Func<string?> DirectorId,
     Func<CancellationToken, Task<OperationResult<DirectorTeam?>>> ResolveTeam,
     Action<string> PersistKey,
     Action<DirectorTeam> PersistTeam,
@@ -76,7 +76,7 @@ public partial class DirectorTeamPanel : UserControl
             new HostedDirectorTeamService(),
             () => Sessions().ListSessions().Count,
             reason => Sessions().HoldSessionCreation(reason),
-            () => GatewayConfig.Load().Token is var key && !string.IsNullOrWhiteSpace(key) ? key : null,
+            () => app?.ControlApiHost?.DirectorId,
             ResolveThisDirectorsTeamAsync,
             key => GatewayCredentialStore.SaveEnrolledKey(HostedGateway.ResolveUrl(), key),
             DirectorTeamStore.Save,
@@ -204,10 +204,10 @@ public partial class DirectorTeamPanel : UserControl
     internal async Task MoveAsync()
     {
         var target = SelectedTarget ?? throw new InvalidOperationException("No team is selected.");
-        var currentKey = await Task.Run(_deps.CurrentDeviceKey);
-        if (currentKey is null)
+        var directorId = _deps.DirectorId();
+        if (directorId is null)
         {
-            ShowStatus(GatewayAccountEnrollRunner.NoKeyToMove, "#F14C4C");
+            ShowStatus("This Director is still starting, so it cannot move yet. Try again in a moment.", "#F14C4C");
             return;
         }
 
@@ -217,7 +217,7 @@ public partial class DirectorTeamPanel : UserControl
         ShowStatus($"Moving this Director to {target.Name}...", "#888888");
         try
         {
-            var moved = await _mover.MoveAsync(currentKey, target, CancellationToken.None);
+            var moved = await _mover.MoveAsync(directorId, target, CancellationToken.None);
             if (!moved.Success)
             {
                 ShowStatus(moved.ErrorMessage ?? "The move did not happen.", "#F14C4C");

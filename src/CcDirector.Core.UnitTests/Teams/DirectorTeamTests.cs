@@ -232,16 +232,16 @@ public sealed class DirectorTeamMoverTests
 {
     private sealed class FakeService : IDirectorTeamService
     {
-        public List<(string Key, string? TeamId)> Moves { get; } = new();
+        public List<(string DirectorId, string? TeamId)> Moves { get; } = new();
         public OperationResult<string> Answer { get; set; } = OperationResult<string>.Ok("new-key");
         public Action? DuringMove { get; set; }
 
         public Task<OperationResult<HostedTeamsAnswer>> ListTeamsAsync(CancellationToken ct) =>
             Task.FromResult(OperationResult<HostedTeamsAnswer>.Ok(new HostedTeamsAnswer(true, Array.Empty<HostedTeam>())));
 
-        public Task<OperationResult<string>> MoveAsync(string currentDeviceKey, string? teamId, CancellationToken ct)
+        public Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
         {
-            Moves.Add((currentDeviceKey, teamId));
+            Moves.Add((directorId, teamId));
             DuringMove?.Invoke();
             return Task.FromResult(Answer);
         }
@@ -272,7 +272,7 @@ public sealed class DirectorTeamMoverTests
         var stored = new List<string>();
         var mover = new DirectorTeamMover(service, holds.Take, t => stored.Add("team"), k => stored.Add("key"), null);
 
-        var result = await mover.MoveAsync("key-1", DevThrottle, CancellationToken.None);
+        var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal("Close the 1 running session first.", result.ErrorMessage);
@@ -292,11 +292,11 @@ public sealed class DirectorTeamMoverTests
             () => { holds.Log.Add($"reapply held={holds.Held}"); return Task.CompletedTask; });
         service.DuringMove = () => holds.Log.Add($"gateway held={holds.Held}");
 
-        var result = await mover.MoveAsync("key-1", DevThrottle, CancellationToken.None);
+        var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.Equal(new DirectorTeam("t-dev", "DevThrottle"), result.Value);
-        Assert.Equal(("key-1", (string?)"t-dev"), Assert.Single(service.Moves));
+        Assert.Equal(("dir-1", (string?)"t-dev"), Assert.Single(service.Moves));
         // The team first and the key last, so the screen never names the old team over the new team's key; the
         // hold covers the Gateway call, both writes and the re-apply.
         Assert.Equal(new[] { "hold", "gateway held=True", "team:t-dev held=True", "key:new-key held=True", "reapply held=True", "release" }, holds.Log);
@@ -308,7 +308,7 @@ public sealed class DirectorTeamMoverTests
         var service = new FakeService();
         var mover = new DirectorTeamMover(service, new Holds().Take, _ => { }, _ => { }, null);
 
-        await mover.MoveAsync("key-1", new TeamChoice(null, "Personal", "Just you"), CancellationToken.None);
+        await mover.MoveAsync("dir-1", new TeamChoice(null, "Personal", "Just you"), CancellationToken.None);
 
         Assert.Null(Assert.Single(service.Moves).TeamId);
     }
@@ -321,7 +321,7 @@ public sealed class DirectorTeamMoverTests
         var mover = new DirectorTeamMover(service, holds.Take,
             _ => throw new InvalidOperationException("must not store"), _ => throw new InvalidOperationException("must not store"), null);
 
-        var result = await mover.MoveAsync("key-1", DevThrottle, CancellationToken.None);
+        var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal("This Director still has a session registered.", result.ErrorMessage);
@@ -335,7 +335,7 @@ public sealed class DirectorTeamMoverTests
         var mover = new DirectorTeamMover(new FakeService(), new Holds().Take,
             _ => throw new IOException("disk full"), keys.Add, null);
 
-        var result = await mover.MoveAsync("key-1", DevThrottle, CancellationToken.None);
+        var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(DirectorTeamMover.MovedButTeamNotRecorded("DevThrottle", "disk full"), result.ErrorMessage);
@@ -353,7 +353,7 @@ public sealed class DirectorTeamMoverTests
         var mover = new DirectorTeamMover(new FakeService(), new Holds().Take,
             teams.Add, _ => throw new UnauthorizedAccessException("file locked"), () => { reapplied = true; return Task.CompletedTask; });
 
-        var result = await mover.MoveAsync("key-1", DevThrottle, CancellationToken.None);
+        var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(DirectorTeamMover.MovedButKeyNotSaved("DevThrottle", "file locked"), result.ErrorMessage);
@@ -368,7 +368,7 @@ public sealed class DirectorTeamMoverTests
         var mover = new DirectorTeamMover(new FakeService(), new Holds().Take, _ => { }, _ => { },
             () => throw new InvalidOperationException("stream down"));
 
-        var result = await mover.MoveAsync("key-1", DevThrottle, CancellationToken.None);
+        var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(DirectorTeamMover.MovedButNotApplied("DevThrottle", "stream down"), result.ErrorMessage);
@@ -382,7 +382,7 @@ public sealed class DirectorTeamMoverTests
         var stored = new List<string>();
         var mover = new DirectorTeamMover(service, new Holds().Take, _ => stored.Add("team"), _ => stored.Add("key"), null);
 
-        var result = await mover.MoveAsync("key-1", DevThrottle, CancellationToken.None);
+        var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(DirectorTeamMover.MovedButKeyNotSaved("DevThrottle", "the Gateway sent no new key"), result.ErrorMessage);
@@ -475,7 +475,7 @@ public sealed class SessionCreationHoldTests : IDisposable
                 sessions.CreateEmbeddedSession(_repo, null, new ScriptedAgentTerminal(AgentKind.ClaudeCode, "", _repo))));
         var mover = new DirectorTeamMover(service, sessions.HoldSessionCreation, _ => { }, _ => { }, null);
 
-        var result = await mover.MoveAsync("key-1", new TeamChoice("t-dev", "DevThrottle", ""), CancellationToken.None);
+        var result = await mover.MoveAsync("dir-1", new TeamChoice("t-dev", "DevThrottle", ""), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.IsType<InvalidOperationException>(startDuringMove);
@@ -487,7 +487,7 @@ public sealed class SessionCreationHoldTests : IDisposable
     {
         public Task<OperationResult<HostedTeamsAnswer>> ListTeamsAsync(CancellationToken ct) => throw new NotSupportedException();
 
-        public Task<OperationResult<string>> MoveAsync(string currentDeviceKey, string? teamId, CancellationToken ct)
+        public Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
         {
             start();
             return Task.FromResult(OperationResult<string>.Ok("new-key"));

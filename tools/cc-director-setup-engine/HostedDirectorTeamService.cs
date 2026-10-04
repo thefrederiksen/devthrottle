@@ -23,6 +23,6 @@ public sealed class HostedDirectorTeamService : IDirectorTeamService
         => _runner.SignInAndListHostedTeamsAsync(ct);
 
     /// <inheritdoc />
-    public Task<OperationResult<string>> MoveAsync(string currentDeviceKey, string? teamId, CancellationToken ct)
-        => _runner.MoveHostedDirectorAsync(currentDeviceKey, teamId, ct);
+    public Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
+        => _runner.MoveHostedDirectorAsync(directorId, teamId, ct);
 }
