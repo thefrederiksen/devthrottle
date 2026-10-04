@@ -73,3 +73,14 @@ D4 lanes: Rob - desk | Rob - laptop; By repository: paul/storefront | paul/store
 links or buttons inside D4 lanes: 0. Collaborator: the Gateway's refusal.
 Found by reading these shots and fixed before the final run: in By repository and By mission the session name was cut
 short beside its Director's name; the Director now sits on its own line under the session.
+
+== Review fixes (review of #3533, F1 and F3), code head d532a582f ==
+Short local runs only, as the Tech Lead asked; continuous integration runs the full Gateway suites on this head.
+dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams:
+Passed!  - Failed:     0, Passed:   469, Skipped:     0, Total:   469 - CcDirector.Gateway.UnitTests.dll (net10.0)
+Red proof (filter TeamFleetMap), each restored afterwards, tree clean:
+11. F1 reverted (every member owns Directors, whatever the role): Read_APersonChangedToCollaborator_IsNoLongerOnTheMap
+    (Owner and Manager) and Read_ACollaboratorWithADirectorOnTheTeam_IsOnNobodysMap FAILED (3 failed | 69 passed).
+12. F3 reverted (an unknown state reaches the fold, which throws):
+    Read_ASessionInAStateTheFoldDoesNotKnow_IsLeftOff_AndTheRestOfTheMapStands FAILED (1 failed | 71 passed).
+The answered review is copied beside this file as review-2312-pr2.md.
