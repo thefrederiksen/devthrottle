@@ -83,6 +83,28 @@ dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
      test) have not been run. Section 3's 100/100 is for the earlier head 577dbf919.
 Whole Gateway unit suite: see section 5, third run.
 
+== 9. CI run 37224142118 red on 4 Gateway tests, fixed (rebased on origin/main f2c5c29a9) ==
+Root cause, census (2 tests): clone, enable and disable now take the HttpContext to read the server-stamped author,
+so they left the context-less set. The census now says so, with the verdict, and lists 6 fewer rows.
+Root cause, dark switch (2 tests): the dark tests pinned 404 on GET of an unmapped team path. Any unmapped GET is
+answered by the Cockpit fallback: 404 without wwwroot/c in the test output, the 200 shell with it. CI builds the
+Cockpit into it; CockpitReactAppServingTests deletes that folder when it finishes. On main's last CI it ran first, so
+the dark test saw 404; on this run it ran last, so the dark tests saw the shell. Now each team route must be answered
+exactly as a never-mapped control path is (same status, same kind of body, never 200 JSON), the route table must hold
+nothing under /teams or /team-invitations, and nothing may be written. Main's invitations dark test got the same proof.
+The rebase also put TeamLibraryEndpoints.Map outside the Teams switch (a merge, not a conflict); moved back inside.
+
+dotnet test src/CcDirector.Gateway.Tests --filter "...HostedTeamsDarkTests|...ContextLessRouteCensusTests|...CcDirector.Gateway.Tests.Teams"
+  Passed! Failed 0, Passed 59, Total 59 (no Cockpit in the test output)
+  Dark tests with a Cockpit index.html in the test output (the CI condition): Passed 3 of 3
+dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
+  Passed! Failed 0, Passed 576, Skipped 1 (main's opt-in invitation proof rig), Total 577
+Red checks:
+  - The test file CI ran (c3b6de244), Cockpit page present: both dark tests FAILED (reproduces CI)
+  - TeamLibraryEndpoints mapped outside the switch, page present: all 3 dark tests FAILED
+  - Same break, no page: all 3 dark tests FAILED
+  Source restored and rebuilt before the green run above.
+
 == Not run here ==
 -Parked in full (the Tech Lead runs it). No migration, so the PostgreSQL migration-count pins were not affected.
 No web or Python code changed in this part.
