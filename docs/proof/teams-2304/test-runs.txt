@@ -29,6 +29,17 @@ dotnet test src\CcDirector.Gateway.UnitTests --no-build   (same build, run again
   second run: Passed!  - Failed: 0, Passed: 8355, Skipped: 8, Total: 8363, Duration: 9 m 49 s
   The one failure did not recur and is not named. The 8 skips are the PostgreSQL proofs that need the
   -Parked run's own database.
+  third run (review of #3532: rebased on origin/main d3c225be2, review fixes, head bf4fd8127),
+  with a result file:
+dotnet test src\CcDirector.Gateway.UnitTests --logger trx
+  Failed!  - Failed: 1, Passed: 8371, Skipped: 8, Total: 8380, Duration: 7 m 34 s
+  The failure, named: CcDirector.Gateway.Tests.Factory.Memory.FactoryMembershipThroughTheCallersTests.
+    A_GRANDCHILD_IS_BORN_INTO_THE_FACTORY_THROUGH_TWO_REAL_HOPS
+    SQLite Error 19: 'UNIQUE constraint failed: device_import_markers.SourcePath'
+dotnet test src\CcDirector.Gateway.UnitTests --no-build --filter "FullyQualifiedName~FactoryMembershipThroughTheCallersTests"  (x3)
+  Passed! 19/19, 19/19, 19/19
+  No file in that area is changed by this branch. Likely a shared default device-file path between tests running
+  in parallel (the test builds new DeviceRegistry() with no path) - a reading, not observed.
 
 == 6. The default local gate ==
 .\scripts\test-local.ps1
@@ -59,6 +70,18 @@ C. TeamLibraryEndpoints.cs: TeamToEnter ignores the gate's record
    dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~TeamLibraryEndpointsTests"
    CcDirector.Gateway.Tests.Teams.TeamLibraryEndpointsTests.TeamToEnter_TheGateNeverRan_ReturnsNull [FAIL]
 After each: git checkout restored the source; git status clean. Runs 3, 4 and 5 rebuilt from the restored source.
+
+== 8. After the review of #3532 (head bf4fd8127, rebased on origin/main d3c225be2) ==
+dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
+  Passed!  - Failed: 0, Passed: 415, Skipped: 0, Total: 415
+.\scripts	est-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams|FullyQualifiedName~Skill|FullyQualifiedName~Workflow"
+  attempt 1: waited 10+ minutes on the machine-wide lock held by another seat's gate run (teams-2303-gate),
+             then aborted with executed=0 (exit 5). No verdict.
+  attempt 2: started, then STOPPED by the session host because the machine was critically low on memory.
+             No verdict.
+  => The Gateway suite has NO VERDICT on this head. The new hosted tests (ChangedBy_..., the renamed session-side
+     test) have not been run. Section 3's 100/100 is for the earlier head 577dbf919.
+Whole Gateway unit suite: see section 5, third run.
 
 == Not run here ==
 -Parked in full (the Tech Lead runs it). No migration, so the PostgreSQL migration-count pins were not affected.
