@@ -91,6 +91,14 @@ public static class TeamEndpointRules
         // not inside a team, so they are not here: in a team's tenant they are refused like any undeclared route.
         new TeamEndpointRule("/teams/{teamId}/members", TeamMethods.Read, TeamAction.SeeMembersAndRoles, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
 
+        // Team invitations (devthrottle_internal#2301). Reading - the invite form's options and the waiting list - is
+        // open to every member, like the member list: the form tells a Developer why they cannot invite, and the list
+        // is empty for anyone the table does not let invite. Every change (invite, resend, cancel) needs the right to
+        // invite; WHICH role a person may invite is then the cell for adding that role
+        // (TeamPermissions.ActionToAddOrRemove), asked inside the registry, because the role is in the request body.
+        new TeamEndpointRule("/teams/{teamId}/invitations", TeamMethods.Read, TeamAction.SeeMembersAndRoles, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        new TeamEndpointRule("/teams/{teamId}/invitations", TeamMethods.Write, TeamAction.InviteOrRemoveDevelopersAndCollaborators, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+
         // Sessions: a person's own sessions; touching another person's is joining or watching it.
         new TeamEndpointRule("/sessions", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
         new TeamEndpointRule("/interrupted", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
@@ -134,6 +142,23 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/gateway/skills", TeamMethods.Write, TeamAction.ChangeSharedSkillsAndWorkflows, TeamTarget.Team),
         new TeamEndpointRule("/gateway/workflows", TeamMethods.Read, TeamAction.UseSharedSkillsAndWorkflows, TeamTarget.Team),
         new TeamEndpointRule("/gateway/workflows", TeamMethods.Write, TeamAction.ChangeSharedSkillsAndWorkflows, TeamTarget.Team),
+    };
+
+    /// <summary>
+    /// ENDPOINTS DECLARED AS ACTING FOR THE PERSON'S OWN ACCOUNT, NEVER INSIDE A TEAM - written down so that their absence
+    /// from <see cref="All"/> is a decision, not an omission.
+    ///
+    /// The accept page's three calls (devthrottle_internal#2301): the person holding an invitation link is, by definition,
+    /// not yet a member of the team, so no cell of the role table can be asked about them. Who may answer is the link
+    /// itself, checked by the registry: a waiting, unexpired invitation, not already used, while the team's bill runs.
+    /// From a person's own account these are not team requests; from a key bound to a team's tenant they are refused like
+    /// any undeclared endpoint, which is right - an invitation is accepted by a person, not from inside a team.
+    /// </summary>
+    public static readonly IReadOnlyList<string> OwnAccountOnly = new[]
+    {
+        "/team-invitations/open",
+        "/team-invitations/accept",
+        "/team-invitations/decline",
     };
 
     /// <summary>

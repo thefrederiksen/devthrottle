@@ -3,9 +3,10 @@ using System.Net.Mail;
 namespace CcDirector.Gateway.Teams;
 
 /// <summary>
-/// The rules for team invitations (devthrottle_internal#2301), each a small pure function so it is tested directly
-/// and so the single "may this person do this" place (devthrottle_internal#2302) can fold <see cref="MayInvite"/> in
-/// without moving any logic.
+/// The rules for team invitations (devthrottle_internal#2301), each a small pure function so it is tested directly.
+/// WHO MAY INVITE WHOM is not decided here: it is the role table's cell for adding that role
+/// (<see cref="TeamPermissions.ActionToAddOrRemove"/>, devthrottle_internal#2302), read by <see cref="MayInvite"/> and
+/// asked through <see cref="TeamAccess"/> by every write. This file only chooses the words.
 /// </summary>
 public static class TeamInvitationRules
 {
@@ -16,21 +17,19 @@ public static class TeamInvitationRules
     public const int MaxEmailLength = 254;
 
     /// <summary>
-    /// WHO MAY INVITE WHOM (decided 3 Oct 2026). The Owner invites a Manager, a Developer or a Collaborator; a Manager
-    /// invites a Developer or a Collaborator, never a Manager; a Developer and a Collaborator invite nobody. Nobody is
-    /// ever invited as Owner - a team has exactly one. The same rule decides who may resend or cancel an invitation:
-    /// the people who could have sent it.
+    /// Whether <paramref name="inviter"/> may invite <paramref name="invited"/>: the role table's cell for adding that
+    /// role (<see cref="TeamPermissions.ActionToAddOrRemove"/>) - today the Owner invites a Manager, a Developer or a
+    /// Collaborator, a Manager a Developer or a Collaborator, and a Developer or Collaborator nobody. Nobody is ever
+    /// invited as Owner - a team has exactly one. The same answer decides who may resend or cancel an invitation: the
+    /// people who could have sent it.
     /// </summary>
     public static bool MayInvite(TeamRole inviter, TeamRole invited)
     {
         RequireRole(inviter, nameof(inviter));
         RequireRole(invited, nameof(invited));
-        return inviter switch
-        {
-            TeamRole.Owner => invited is TeamRole.Manager or TeamRole.Developer or TeamRole.Collaborator,
-            TeamRole.Manager => invited is TeamRole.Developer or TeamRole.Collaborator,
-            _ => false,
-        };
+        if (invited == TeamRole.Owner)
+            return false;
+        return TeamPermissions.Grant(inviter, TeamPermissions.ActionToAddOrRemove(invited)) == TeamGrant.Yes;
     }
 
     /// <summary>
@@ -43,7 +42,9 @@ public static class TeamInvitationRules
             return null;
         if (invited == TeamRole.Owner)
             return TeamInvitationRefusals.InviteOwner;
-        if (inviter is TeamRole.Developer or TeamRole.Collaborator)
+        // A role that may not invite even a Collaborator invites nobody; one that may, but not this role, is being
+        // refused a Manager.
+        if (TeamPermissions.Grant(inviter, TeamAction.InviteOrRemoveDevelopersAndCollaborators) != TeamGrant.Yes)
             return TeamInvitationRefusals.NotAllowedToInvite;
         return TeamInvitationRefusals.OnlyOwnerInvitesManager;
     }

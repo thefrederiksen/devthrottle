@@ -74,12 +74,10 @@ public sealed partial class TeamRegistry
         {
             using var ctx = _db.CreateUnscopedContext();
             var team = string.IsNullOrWhiteSpace(teamId) ? null : ctx.Teams.AsNoTracking().FirstOrDefault(t => t.Id == teamId);
-            var inviterRole = team is null ? null : MemberRole(ctx, team.Id, inviter);
-            if (team is null || inviterRole is null)
+            if (team is null)
                 return InvitationNotFound("CreateInvitation");
-
-            if (TeamInvitationRules.InviteRefusal(inviterRole.Value, role) is { } notAllowed)
-                return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Forbidden, RefusalKinds.NotAllowed, notAllowed);
+            if (InviteDenial("CreateInvitation", team.Id, inviter, role) is { } denied)
+                return denied;
 
             var address = TeamInvitationRules.NormalizeEmail(email);
             if (address is null)
@@ -131,7 +129,8 @@ public sealed partial class TeamRegistry
             FileLog.Write($"[TeamRegistry] ListInvitations: team {LogTeam(teamId)} - no such team for this caller");
             return null;
         }
-        if (!TeamRoles.IsAtLeast(callerRole.Value, TeamRole.Manager))
+        // Who sees the invitations is who may send them: the role table's cell, asked through TeamAccess (#2302).
+        if (!_access.Decide(team.Id, caller, TeamAction.InviteOrRemoveDevelopersAndCollaborators).Allowed)
         {
             FileLog.Write($"[TeamRegistry] ListInvitations: team {LogTeam(team.Id)} - a {callerRole} invites nobody, so has no invitations to see");
             return Array.Empty<TeamInvitation>();
@@ -423,9 +422,36 @@ public sealed partial class TeamRegistry
             : ctx.TeamInvitations.FirstOrDefault(i => i.Id == invitationId && i.TeamId == team.Id);
         if (team is null || callerRole is null || row is null)
             return (null, null, InvitationNotFound(method));
-        if (TeamInvitationRules.InviteRefusal(callerRole.Value, row.Role) is { } notAllowed)
-            return (null, null, InvitationRefused(method, TeamInvitationOutcome.Forbidden, RefusalKinds.NotAllowed, notAllowed));
+        if (InviteDenial(method, team.Id, caller, row.Role) is { } denied)
+            return (null, null, denied);
         return (team, row, null);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="subject"/> may invite - or resend or cancel an invitation of - <paramref name="invited"/>
+    /// in this team: null when they may, else the not-found or refusal to return. The decision is the role table's
+    /// cell for adding that role (<see cref="TeamPermissions.ActionToAddOrRemove"/>), asked through
+    /// <see cref="TeamAccess"/>, the one place that answers "may this person do this in this team"
+    /// (devthrottle_internal#2302); only the words are chosen here.
+    /// </summary>
+    private TeamInvitationResult? InviteDenial(string method, string teamId, string subject, TeamRole invited)
+    {
+        if (invited == TeamRole.Owner)
+        {
+            // A team has exactly one Owner; nobody is invited as one. A non-member still learns nothing about the team.
+            return RoleOf(teamId, subject) is null
+                ? InvitationNotFound(method)
+                : InvitationRefused(method, TeamInvitationOutcome.Forbidden, RefusalKinds.NotAllowed, TeamInvitationRefusals.InviteOwner);
+        }
+
+        var decision = _access.Decide(teamId, subject, TeamPermissions.ActionToAddOrRemove(invited));
+        if (!decision.IsMember)
+            return InvitationNotFound(method);
+        if (!decision.Allowed)
+            return InvitationRefused(method, TeamInvitationOutcome.Forbidden, RefusalKinds.NotAllowed,
+                TeamInvitationRules.InviteRefusal(decision.Role!.Value, invited)
+                ?? throw new InvalidOperationException("The role table refused an invitation that the invitation rules allow."));
+        return null;
     }
 
     private static TeamInvitationEntity? FindByToken(GatewayDbContext ctx, string? token, bool tracked = false)
