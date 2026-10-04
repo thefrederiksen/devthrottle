@@ -105,7 +105,8 @@ use (`LeaveOtherPlaces`):
 
 Setting a Director up again in the **same** tenant is today's behaviour: no session check, no tunnel cut, a fresh key.
 Another Director of the same person, and the same `deviceId` set up by someone else, are untouched. Where Teams is dark
-nothing is revoked - no other key of that Director can be live there.
+nothing is revoked: no other key of that Director can be live while Teams is dark. That stops being true when Teams is
+switched back on, because a dark start leaves team keys untouched (section 4) - see the switch note there.
 
 A team enrollment **never reaches the personal trial or paid gate**: a team has no trial, and a member is never
 refused for the bill here. It also mints no personal tenant.
@@ -193,6 +194,11 @@ too, before it asks (D3), and holds session creation while the move runs.
   back on restores it, with nothing set up again by hand. **For whoever flips `CC_GATEWAY_TEAMS`:** turning it off
   for a start (an incident, a missing variable on a deploy) cuts every team's Directors off until it is on again, but
   destroys nothing. A key bound to a tenant that is no team's and not its person's own is quarantined as before.
+  **One consequence to expect:** a member whose Director was set up again for their OWN account while Teams was off
+  holds two working keys for that Director once Teams is back on - the untouched team key, which the Director no
+  longer uses, and the personal one - because nothing is revoked while dark. Nothing gets in that should not, but a
+  move of that Director is refused with the 409 `This Director is set up in more than one place, so DevThrottle cannot
+  tell which one to move. Set the Director up again.` until it is set up again, which revokes the other key.
 - **The team gate knows who is calling.** Inside a team's tenant the caller is the key's person. For a person's
   private things, the gate asks whose they are: the tunnel is the key's own; a Director is the person its Hello key
   was issued to; a session (any route naming `{sid}`) is the caller's own only when **exactly one** Director in the
@@ -203,7 +209,7 @@ too, before it asks (D3), and holds session creation while the move runs.
   its current generation - must be the caller's too (Tech Lead ruling on the review). Otherwise the route is refused
   (403), never guessed. This is what stops a member whose Director lists a colleague's ENDED session id - the only
   holder now that the colleague's roster has dropped it - from being served the colleague's stored turns, through
-  `/sessions/{sid}/conversation` or any other `{sid}` route, since they all ask this one question. Every writer, not
+  `GET /sessions/{sid}/history` or any other `{sid}` route, since they all ask this one question. Every writer, not
   just the head, because a Director that pushes into a session's current conversation becomes the head's Director
   while the colleague's rows are still served. Personal tenants are unchanged: they never reach this check. Touching another member's session is joining or
   watching it, which no role may (403). A list across the team, an unknown session or Director, or a request not made
