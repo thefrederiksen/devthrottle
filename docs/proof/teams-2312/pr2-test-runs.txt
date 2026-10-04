@@ -84,3 +84,22 @@ Red proof (filter TeamFleetMap), each restored afterwards, tree clean:
 12. F3 reverted (an unknown state reaches the fold, which throws):
     Read_ASessionInAStateTheFoldDoesNotKnow_IsLeftOff_AndTheRestOfTheMapStands FAILED (1 failed | 71 passed).
 The answered review is copied beside this file as review-2312-pr2.md.
+
+== Rebased onto main after #3526 and #3532; the shared "whose Director" answer, code head 8ba28bebf ==
+Rebased onto origin/main d32b175d5. Conflicts resolved by keeping both sides: GatewayHost.cs (the Fleet Map beside the
+invitation and team library routes), TeamEndpointRules.cs (the Fleet Map rule beside theirs), TeamEndpoints.cs
+(ReadFleetMap beside MemberName), HostedTeamsDarkTests.cs (the fleet-map path now goes through #3532's
+AssertAnsweredAsAPathThatDoesNotExist, and the route-table test uses its MappedPatterns helper).
+New: TeamDirectorOwnership.PersonOfDirector(tenant, directorId) is the one public answer; TeamFleetMap calls it per Director.
+dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams:
+Passed!  - Failed:     0, Passed:   660, Skipped:     1, Total:   661 - CcDirector.Gateway.UnitTests.dll (net10.0)
+(the skip is TeamInvitationProofRig, a proof rig that runs only with its environment variable set)
+dotnet test src\CcDirector.Gateway.Tests --filter "FullyQualifiedName~HostedTeamsDarkTests|FullyQualifiedName~ContextLessRouteCensusTests|FullyQualifiedName~Teams":
+Passed!  - Failed:     0, Passed:    65, Skipped:     1, Total:    66, Duration: 5 m 1 s - CcDirector.Gateway.Tests.dll (net10.0)
+(the skip is a real-Postgres proof that runs only with a connection string set)
+Red proof (whole Teams unit filter), committed first, each mutation restored in a finally, tree clean, restore run rebuilt:
+13. The revoked check dropped from PersonOfDirector: PersonOfDirector_ARevokedCredential_IsNobody and
+    Read_ARevokedCredential_IsOnNobodysMap FAILED (2 failed | 658 passed).
+14. The tenant check dropped from PersonOfDirector: PersonOfDirector_ACredentialBoundToAnotherTenant_IsNobody and
+    Read_ACredentialBoundToAnotherTenant_IsOnNobodysMap FAILED (2 failed | 658 passed).
+Restored: 660 passed, 0 failed.

@@ -20,7 +20,7 @@ Two pull requests:
 | The switcher | `apps/cockpit/src/teams/TeamSwitcher.tsx` | Top of the rail. "Your own account", then each team with the person's role. Renders nothing for a person in no team. |
 | The roster by role | `src/CcDirector.Gateway/Teams/TeamFleetMap.cs` | `GET /teams/{teamId}/fleet-map`, decided by `TeamAccess.Decide(..., SeeFleetMap)`. Owner and Manager: every Director on the team by person. Developer: only their own, cut on the server. Collaborator: refused (403). Not a member: no such team (404). |
 | The rule | `src/CcDirector.Gateway/Teams/TeamEndpointRules.cs` | The route is declared, read only, exact. A new target, `TeamNarrowedToCaller`, lets a Developer's "only their own" cell through to an endpoint that cuts its own answer; the gate code is unchanged. |
-| Whose a Director is | `src/CcDirector.Gateway/Discovery/DirectorRegistry.cs` | `RegisteringCredentialOf(tenant, director)`: the device key a Director said Hello on. Its `device_credentials` row (tenant = the team) names the person. |
+| Whose a Director is | `src/CcDirector.Gateway/Teams/TeamDirectorOwnership.cs` | `PersonOfDirector(tenant, directorId)`: the ONE shared answer, for the Fleet Map and for #2311's team-key resolver. It reads `DirectorRegistry.RegisteringCredentialOf(tenant, directorId)` (the device key the Director said Hello on), then that device's `device_credentials` row: active and bound to the team's tenant, or nobody. |
 | The team map | `apps/cockpit/src/fleet/TeamFleetMapView.tsx` | Shown by `FleetMapView` when a team is on screen. In the layouts the Gateway offers: By person and By director for the Owner and a Manager (D5); By director, By repository and By mission for a Developer (D4). Plain text: no link, no button. |
 
 **The answer is an allow-list.** `TeamFleetMapDto`: team id and name, the caller's role, the scope, two sentences
@@ -38,10 +38,10 @@ the wire, not null. The Gateway decides this per entry (`TeamFleetMap.SessionEnt
 reflection and serialisation in `TeamFleetMapDtoTests`, on a real map in `TeamFleetMapTests` (a Manager's own entries
 carry them, the Owner's and Developers' do not), and over the wire in `TeamEndpointWalkTests`.
 
-**Whose a Director is.** The registry records the credential each Director said Hello on (`device:<id>`). The team map
-reads that device's `device_credentials` row and takes its `account_subject` - but only when the row is active (not
-revoked), bound to THIS team's tenant, and names a person who is still a member. A Director that fails any of those is
-on nobody's map, because nobody can say whose it is. Enrollment into a team is #2311 and is not built here; the tests
+**Whose a Director is.** The registry records the credential each Director said Hello on (`device:<id>`).
+`TeamDirectorOwnership.PersonOfDirector` - the one public answer every team feature asks, #2311 included - reads that device's `device_credentials` row and takes its `account_subject` - but only when the row is active (not
+revoked) and bound to THIS team's tenant. The map then also requires a person who is still a member, in a role the
+table lets run sessions. A Director that fails any of those is on nobody's map, because nobody can say whose it is. Enrollment into a team is #2311 and is not built here; the tests
 seed credentials directly.
 
 **Status.** One fold (`TeamFleetMapStatus.Fold`) from the state every surface shows (the assessed state if one stands,
