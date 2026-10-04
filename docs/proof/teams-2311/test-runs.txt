@@ -162,3 +162,37 @@ ENDED-SESSION RULING (Tech Lead, after the hand-back of 627970c57). Fix commit f
   2 of 3 failed. The failure is in the test's own set-up - "System.InvalidOperationException : the busy process never
   kept the processor busy" at BusyProcessor..ctor - before any Gateway code runs: the machine was at 100% processor
   load from other work (6.3 GB free). The same three passed in run 13 on this branch. Not caused by this change.
+
+CONTINUOUS INTEGRATION 37225566489 on 70698b569: 3 failures in Gateway.Tests, everything else 0 failed. Fix commit b1fa8fd17.
+
+19. The cause, reproduced and proven (dotnet build src/CcDirector.Gateway.Tests -p:BuildCockpit=true, so the test output
+    carries the Cockpit exactly as the Release build in continuous integration does; then
+    dotnet test --no-build --filter "FullyQualifiedName~HostedTeamsDarkTests|FullyQualifiedName~HostedTeamDirectorKeyTests|FullyQualifiedName~HostedTeamDirectorKeyDarkTests"):
+  On 70698b569: Failed 3 of 7 - the same three tests, the same lines, the same Expected/Actual as continuous integration.
+  (1) TheTwoTeamEnrollmentRoutes_AreMapped_AndAskForTheAccountToken: the TEST posted the move's old body
+      { deviceKey }. Since review round 1 the move names the Director by deviceId, and a missing deviceId is 400
+      before the token is read - the contract's order. The test now sends { deviceId }, and gets the 401 it is about.
+  (2) and (3), the dark routes: the 200 is the Cockpit's page. A diagnostic print of the dark GET /teams answer (local,
+      never committed): "GET teams -> 200 text/html; charset=utf-8 <!doctype html>". An unmapped GET falls to
+      CockpitReactApp's single-page fallback, which serves index.html whenever wwwroot/c exists.
+  Not caused by this branch for /teams: HostedTeamsDarkTests fails the same way on clean 24cf04bfa built with the
+  Cockpit (scratch worktree, removed afterwards): Failed 1 of 1, Expected NotFound, Actual OK.
+  Why another branch's run passed it: CockpitReactAppServingTests deletes the real wwwroot/c when it finishes
+  (CockpitReactAppServingTests.cs:59), so any Gateway test that runs AFTER it sees no Cockpit and gets 404, and any
+  that runs BEFORE it gets the 200 page. The dark tests passed or failed by run order.
+  The production meaning: every deployed Gateway carries the Cockpit, so a dark Gateway answered GET /teams with 200
+  HTML - and the Cockpit's own team switcher calls GET /teams.
+  The fix: TeamsDarkRoutes, a middleware added only while Teams is not released, before authentication, answers every
+  team path 404 text/plain. Not a mapped endpoint, so the dark route table still has no team route.
+
+20. After the fix, same build and filter: Passed 7 of 7.
+    Revert proof (the middleware not added, restore in finally, rebuilt with the Cockpit): Failed 2 of 7 -
+    Dark_TheTeamEnrollmentRoutesAreAbsent_... and SwitchUnset_EveryTeamRouteIsAbsent_...; restored: Passed 7 of 7, no diff.
+    TeamsDarkRoutesTests (Gateway.UnitTests, a real web host whose fallback answers 200 to everything, so the result
+    cannot depend on run order): Passed 9 of 9.
+
+21. .\scripts\test-local.ps1 (default gate): every suite outcome=Completed, executed = total; 3,476 passed, 0 failed.
+    dotnet test src/CcDirector.Gateway.UnitTests in the two halves of run 9:
+      Half A: Passed: 3199, Failed: 0, Total: 3199
+      Half B: Passed: 5293, Skipped: 8, Total: 5301
+      Together 8,500 = the whole suite, 0 failed.

@@ -61,7 +61,7 @@ this change still answers 401 - hence the explicit signal.
 |---|---|---|
 | 401 | no bearer | `an account access token is required` |
 | 401 | token not valid (signature, expiry, audience, issuer, or no subject) | `the account token is not valid` |
-| 404 | Teams not released on this Gateway (route not mapped) | the Gateway's ordinary not-found answer |
+| 404 | Teams not released on this Gateway (route not mapped) | `text/plain`: `Not found: GET /devices/enroll-hosted/teams` - signed in or not, and never the Cockpit's page (see below) |
 
 Skipping the question (issue: "a person with one team is never asked to choose") is the Director's decision from this
 list: one entry plus personal, or none.
@@ -166,12 +166,19 @@ own account, the personal paid gate (trial on a first arrival, 402 / 503 as enro
 | 409 | the Director is already in that team (or already personal) | `This Director is already set up for that team. Nothing was changed.` |
 | 409 | the Director has **any session registered on the Gateway** (its last known roster there, read by the id it said Hello with - which for a team key is the id it was set up with, section 4) | `This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.` |
 | 409 | this account holds more than one working key for that id (enrollment leaves this behind only across a period with Teams switched off - section 4) | `This Director is set up in more than one place, so DevThrottle cannot tell which one to move. Set the Director up again.` |
-| 404 | Teams not released (route not mapped) | the ordinary not-found answer |
+| 404 | Teams not released (route not mapped) | `text/plain`: `Not found: POST /devices/enroll-hosted/move` |
 
 A 401 from the move means the token: "sign in again". The server enforces the "no sessions" rule; the Director checks
 too, before it asks (D3), and holds session creation while the move runs.
 
 ---
+
+**Dark means 404, and the Cockpit cannot change that.** Where Teams is not released, every team path - `/teams` and
+everything under it, and the two routes above - is answered 404 `text/plain` `Not found: <method> <path>` by one
+middleware (`TeamsDarkRoutes`), before authentication. Without it, an unmapped GET on a Gateway with the Cockpit built
+in (every deployed one) falls to the Cockpit's single-page fallback and answers **200 with the Cockpit's HTML** - which
+the Cockpit's own team switcher (`GET /teams`) would read as an answer. The route table of a dark Gateway still carries
+no team route.
 
 ## 4. What a team key does after enrollment
 
