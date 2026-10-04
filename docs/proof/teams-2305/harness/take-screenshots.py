@@ -68,11 +68,14 @@ def main() -> int:
                 page.close()
             browser.close()
     finally:
-        if server is not None:
-            server.terminate()
-            server.wait(timeout=30)
-        for target in copied:
-            target.unlink(missing_ok=True)
+        try:
+            if server is not None:
+                server.terminate()
+                server.wait(timeout=30)
+        finally:
+            # Removed even when the server will not stop in time (review of the delta, D5).
+            for target in copied:
+                target.unlink(missing_ok=True)
     return 0
 
 

@@ -55,10 +55,24 @@ const mentorRead = vi.hoisted(() => ({
 vi.mock("@devthrottle/client-core/teams/mentorClient", () => ({
   getMentorPage: vi.fn(async (teamId: string) => {
     mentorRead.calls.push(teamId);
-    const answer = mentorRead.answers.get(teamId);
-    if (answer === undefined) throw new Error(`no Mentor answer staged for ${teamId}`);
+    const staged = mentorRead.answers.get(teamId);
+    if (staged === undefined) throw new Error(`no Mentor answer staged for ${teamId}`);
+    // A list is a sequence of answers, one per read; the last one repeats.
+    const answer = Array.isArray(staged) ? (staged.length > 1 ? staged.shift() : staged[0]) : staged;
     if (answer instanceof Error) throw answer;
     return answer;
+  }),
+}));
+
+// The probe asks again after a failure on the shell's rhythm, CurrentTeam's retryDelayMs (review of the delta, D2).
+// The tests set that rhythm: an hour by default, so a failure is asked once; milliseconds where the re-ask is the
+// point. Only the probe's import is replaced - the provider calls its own function.
+const rhythm = vi.hoisted(() => ({ delayMs: 3_600_000, asked: [] as number[] }));
+vi.mock("@devthrottle/client-core/teams/CurrentTeam", async (importActual) => ({
+  ...(await importActual<typeof import("@devthrottle/client-core/teams/CurrentTeam")>()),
+  retryDelayMs: vi.fn((failuresInARow: number) => {
+    rhythm.asked.push(failuresInARow);
+    return rhythm.delayMs;
   }),
 }));
 
@@ -96,6 +110,8 @@ describe("Cockpit left rail", () => {
     mentorRead.answers.clear();
     mentorRead.calls = [];
     reported.calls = [];
+    rhythm.delayMs = 3_600_000;
+    rhythm.asked = [];
     window.localStorage.clear();
   });
 
@@ -320,6 +336,40 @@ describe("Cockpit left rail", () => {
       expect(reported.calls).toHaveLength(1);
       expect(reported.calls[0][0]).toBe("cockpit-mentor-entry");
       expect(reported.calls[0][3]).toBe(failure);
+    });
+
+    it("asks again on the shell's rhythm after a failure, and hides the entry when the Gateway then refuses", async () => {
+      // One failed read at load must not leave a Collaborator - or someone just removed - with the entry for good.
+      rhythm.delayMs = 5;
+      mentorRead.answers.set(TEAM.id, [new GatewayError(500, "fault"), { kind: "refused" }]);
+      renderOn([TEAM], TEAM.id);
+
+      await waitFor(() => expect(railLabels()).toContain("Mentor"));
+      await waitFor(() => expect(railLabels()).not.toContain("Mentor"));
+      expect(mentorRead.calls).toEqual([TEAM.id, TEAM.id]);
+      expect(rhythm.asked).toEqual([1]);
+      expect(reported.calls).toHaveLength(1);
+    });
+
+    it("keeps asking, one failure later each time, until the Gateway answers - then stops", async () => {
+      rhythm.delayMs = 5;
+      mentorRead.answers.set(TEAM.id, [new TypeError("Failed to fetch"), new GatewayError(503, "restarting"), { kind: "page" }]);
+      renderOn([TEAM], TEAM.id);
+
+      await waitFor(() => expect(mentorRead.calls).toHaveLength(3));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mentorRead.calls).toHaveLength(3);
+      expect(rhythm.asked).toEqual([1, 2]);
+      expect(railLabels()).toContain("Mentor");
+    });
+
+    it("reports a failure under the route the person is on", async () => {
+      mentorRead.answers.set(TEAM.id, new GatewayError(500, "fault"));
+      renderOn([TEAM], TEAM.id);
+
+      await waitFor(() => expect(reported.calls).toHaveLength(1));
+      expect(reported.calls[0][1]).toBe(window.location.pathname);
+      expect(reported.calls[0][1]).not.toBe("rail");
     });
 
     it("follows the team now on screen, not an answer for the team it left", async () => {

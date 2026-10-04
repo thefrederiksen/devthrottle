@@ -118,7 +118,12 @@ export async function getMentorPage(teamId: string, week?: string, signal?: Abor
   } catch {
     throw new GatewayError(502, `${UNREADABLE}: its answer is not valid JSON.`);
   }
-  return { kind: "page", page: readPage(parsed) };
+  const page = readPage(parsed);
+  // A week the page did not ask for would put one week in the title and another in the blocks (review of the delta, D3).
+  if (week !== undefined && page.week !== week) {
+    throw new GatewayError(502, `${UNREADABLE}: it was asked for week ${week} and answered week ${page.week}.`);
+  }
+  return { kind: "page", page };
 }
 
 const UNREADABLE = "The Gateway sent a Mentor page the Cockpit cannot read";
@@ -133,6 +138,17 @@ function isDate(value: unknown): value is string {
   const [y, m, d] = value.split("-").map(Number);
   const date = new Date(Date.UTC(y, m - 1, d));
   return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+/** A label that says something: a string with at least one character that is not a space. */
+function isLabel(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/** An email as the contract gives it: a label, or null for "no email on record" - never an empty string, which would
+ *  head a block with nothing (review of the delta, D1). */
+function isEmailOrNull(value: unknown): value is string | null {
+  return value === null || isLabel(value);
 }
 
 function isTextOrNull(value: unknown): value is string | null {
@@ -156,6 +172,14 @@ function readPage(raw: unknown): MentorPage {
   }
   if (p.scope !== "everyone" && p.scope !== "own") {
     throw new GatewayError(502, `${UNREADABLE}: its scope "${p.scope}" is neither "everyone" nor "own".`);
+  }
+  // The chooser steps a week at a time from the Monday, so the week must be the Monday-to-Sunday ISO week it names
+  // (review of the delta, D3).
+  if (isoWeekOf(p.weekStart) !== p.week || weekday(p.weekStart) !== 1 || daysBetween(p.weekStart, p.weekEnd) !== 6) {
+    throw new GatewayError(
+      502,
+      `${UNREADABLE}: week ${p.week} is not the Monday ${p.weekStart} to the Sunday ${p.weekEnd}.`,
+    );
   }
   if (!p.written && p.blocks.length > 0) {
     throw new GatewayError(502, `${UNREADABLE}: it has blocks for a week the Mentor has not written.`);
@@ -183,8 +207,8 @@ function readBlock(raw: unknown): MentorBlock {
   const b = (raw ?? {}) as Record<string, unknown>;
   if (
     !isText(b.personSubject) ||
-    !isTextOrNull(b.personEmail) ||
-    !isText(b.role) ||
+    !isEmailOrNull(b.personEmail) ||
+    !isLabel(b.role) ||
     !(isText(b.tone) && TONES.includes(b.tone)) ||
     !isText(b.toneLabel) ||
     !isText(b.workedOn) ||
@@ -232,7 +256,7 @@ function readQuote(raw: unknown): MentorQuote {
 
 function readReader(raw: unknown): MentorReader {
   const r = (raw ?? {}) as Record<string, unknown>;
-  if (!isTextOrNull(r.email) || !isText(r.role)) {
+  if (!isEmailOrNull(r.email) || !isLabel(r.role)) {
     throw new GatewayError(502, `${UNREADABLE}: someone listed as reading the page has no email or role.`);
   }
   return { email: r.email, role: r.role };
@@ -241,6 +265,21 @@ function readReader(raw: unknown): MentorReader {
 // THE WEEK CHOOSER'S ARITHMETIC. The Gateway names a week ("2026-W40") and its Monday ("2026-09-28") in the team's
 // own time zone; stepping to the week before is calendar arithmetic on that Monday, not a decision about time zones,
 // so it is done on the date alone (in UTC, where a date has no daylight-saving edge).
+
+function utcDay(date: string): Date {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+/** 1 for Monday to 7 for Sunday. */
+function weekday(date: string): number {
+  const day = utcDay(date).getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
+function daysBetween(from: string, to: string): number {
+  return Math.round((utcDay(to).getTime() - utcDay(from).getTime()) / 86_400_000);
+}
 
 /** The ISO week ("YYYY-Www") that contains a calendar date given as YYYY-MM-DD. */
 export function isoWeekOf(date: string): string {

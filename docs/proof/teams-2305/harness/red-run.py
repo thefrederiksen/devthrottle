@@ -41,8 +41,14 @@ BREAKS = [
      CORE, "src/teams/mentorClient.test.ts"),
     ("The client accepts an empty readers list", CLIENT, "if (p.readers.length === 0) {", "if (p.readers.length < 0) {",
      CORE, "src/teams/mentorClient.test.ts"),
-    ("The client rejects a null person email", CLIENT, "!isTextOrNull(b.personEmail) ||", "!isText(b.personEmail) ||",
+    ("The client rejects a null person email", CLIENT, "!isEmailOrNull(b.personEmail) ||", "!isLabel(b.personEmail) ||",
      CORE, "src/teams/mentorClient.test.ts"),
+    ("The client accepts an empty-string email", CLIENT, "!isEmailOrNull(b.personEmail) ||",
+     "!(b.personEmail === null || typeof b.personEmail === \"string\") ||", CORE, "src/teams/mentorClient.test.ts"),
+    ("The client accepts a week whose dates do not match it", CLIENT, "if (isoWeekOf(p.weekStart) !== p.week ||",
+     "if (false && isoWeekOf(p.weekStart) !== p.week ||", CORE, "src/teams/mentorClient.test.ts"),
+    ("The rail never asks again after a failed read", ENTRY, "timer = window.setTimeout(ask, retryDelayMs(failures));",
+     "void retryDelayMs;", COCKPIT, "src/AppShell.test.tsx"),
 ]
 
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -52,6 +58,10 @@ def run(cwd: Path, test: str) -> list[str]:
     result = subprocess.run(["node", str(VITEST), "run", test], cwd=cwd, capture_output=True, text=True, encoding="utf-8")
     lines = ANSI.sub("", result.stdout + result.stderr).splitlines()
     keep = [l.replace("\u00d7", "[FAIL]").strip() for l in lines if "\u00d7" in l or l.strip().startswith("Tests ")]
+    if not any(l.startswith("Tests ") for l in keep):
+        # A run that died before reporting - a break that does not compile, a runner that would not start - recorded
+        # nothing; that is not a result (review of the delta, D5).
+        raise RuntimeError(f"vitest gave no test count for {test} in {cwd}: " + " | ".join(lines[-30:]))
     return keep
 
 
@@ -68,6 +78,10 @@ def main() -> int:
         finally:
             path.write_bytes(source.encode("utf-8"))
         green = run(cwd, test)
+        if not any(l.startswith("[FAIL]") for l in red):
+            raise RuntimeError(f"The break '{name}' turned no test red.")
+        if not any(l.startswith("Tests ") and "failed" not in l for l in green):
+            raise RuntimeError(f"After restoring from '{name}' the tests are not green: {green}")
         report.append(f"=== BREAK: {name}\n    {path.relative_to(ROOT).as_posix()}: '{original}' -> '{broken}'")
         report.append("--- with the break:")
         report.extend(f"    {l}" for l in red)

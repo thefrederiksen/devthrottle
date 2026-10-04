@@ -147,6 +147,13 @@ describe("getMentorPage", () => {
     });
   });
 
+  it("GetMentorPage_AnswerForAnotherWeek_Throws", async () => {
+    // Asked for week 39, answered with the contract's week 40.
+    answering(CONTRACT_EXAMPLE);
+
+    await expect(getMentorPage("6f0c", "2026-W39")).rejects.toMatchObject({ status: 502 });
+  });
+
   it("GetMentorPage_BodyThatIsNotJson_ThrowsAGatewayErrorNotAParseError", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond("{ not json", "application/json")));
 
@@ -180,6 +187,13 @@ describe("getMentorPage", () => {
       },
     ],
     ["a reader with no role", (b) => delete b.readers[0].role],
+    ["a person email that is an empty string", (b) => (b.blocks[0].personEmail = "")],
+    ["a reader email that is an empty string", (b) => (b.readers[0].email = "")],
+    ["a block role that is an empty string", (b) => (b.blocks[0].role = "")],
+    ["a reader role that is only spaces", (b) => (b.readers[1].role = "  ")],
+    ["a week start that is not a Monday", (b) => (b.weekStart = "2026-09-29")],
+    ["a week end that is not the Sunday after", (b) => (b.weekEnd = "2026-10-05")],
+    ["a week that is not the one its dates fall in", (b) => (b.week = "2026-W41")],
   ];
   it.each(broken)("GetMentorPage_ContractBroken_%s_Throws", async (_name, breakIt) => {
     const body = example();

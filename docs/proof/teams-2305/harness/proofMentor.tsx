@@ -15,10 +15,10 @@ import "./styles.css";
 import "./components/components.css";
 
 const as = new URLSearchParams(window.location.search).get("as") === "developer" ? "developer" : "manager";
-const TEAM_ID = "6f0c2d1e-0000-4000-8000-000000002305";
+const TEAM_ID = "6f0c...";
 
 const ROB_BLOCK = {
-  personSubject: "a1b2c3d4",
+  personSubject: "a1b2...",
   personEmail: "rob@example.com",
   role: "Developer",
   tone: "hard",
@@ -27,7 +27,7 @@ const ROB_BLOCK = {
   howItWent: null,
   wentBadlyAndWhy:
     "On Tuesday they restarted the same task four times. Their first instruction didn't say which file to change, so the agent guessed differently each time.",
-  quotes: [{ promptId: "p_3f9a", at: "2026-09-29T09:14:03Z", text: "fix the signup thing so it doesnt break on mobile" }],
+  quotes: [{ promptId: "p_3f9a...", at: "2026-09-29T09:14:03Z", text: "fix the signup thing so it doesnt break on mobile" }],
   oneThingToTry: "Name the file and the result you expect in the first line, before asking for the change.",
   writtenAtUtc: "2026-10-05T00:20:11Z",
 };
