@@ -25,6 +25,12 @@ namespace CcDirector.Gateway.Mobile;
 /// <c>/signin</c> when its <c>next</c> is an invitation, and the Cockpit's own <c>/device-callback</c>, which a phone only
 /// ever reaches from a sign-in the Cockpit's sign-in page started (the mobile app's callback is
 /// <c>/mobile/device-callback</c>). Every other phone navigation still goes to the mobile app.
+///
+/// THE SAME FOR THE COLLABORATOR'S PAGES (devthrottle_internal#2306), while Teams is released: a Collaborator's whole app
+/// is three Cockpit pages - <see cref="Teams.TeamApp.Pages"/>, read from there so the list is written once - and the
+/// mobile app has none of them, so a phone at one of those addresses is given the Cockpit page, and so is the sign-in
+/// round trip that starts from one. While Teams is dark the addresses are not exempt and a phone goes to the mobile app
+/// exactly as before.
 /// </summary>
 public static class MobileRedirect
 {
@@ -53,8 +59,9 @@ public static class MobileRedirect
     /// </summary>
     /// <param name="next">The request's <c>next</c> query value, when it has one: a <c>/signin</c> carrying an
     /// invitation is part of that invitation's round trip and is not redirected.</param>
+    /// <param name="teamsReleased">Whether Teams is released on this Gateway; only then are the team pages exempt.</param>
     public static bool ShouldRedirectToMobile(string method, PathString path, string? acceptHeader, string? userAgent,
-        string? next = null)
+        string? next = null, bool teamsReleased = false)
     {
         // A navigation is a GET; HEAD is the bodiless twin of GET, so it redirects identically
         // (this is also what `curl -I` issues).
@@ -63,6 +70,7 @@ public static class MobileRedirect
             return false;
         if (IsUnderMobileRoot(path)) return false;
         if (IsInvitationRoundTrip(path, next)) return false;
+        if (teamsReleased && IsTeamPageRoundTrip(path, next)) return false;
         return IsPhoneUserAgent(userAgent);
     }
 
@@ -80,6 +88,23 @@ public static class MobileRedirect
             return next is not null && next.StartsWith(Api.TeamInvitationEndpoints.CockpitAcceptPagePrefix, StringComparison.OrdinalIgnoreCase);
         return string.Equals(value, CockpitDeviceCallbackPath, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// True for a team page (<see cref="Teams.TeamApp.Pages"/>: Questions, Requests, Reports) or anything under one, and
+    /// for the Cockpit's <c>/signin</c> when its <c>next</c> is one. The sign-in's return, <c>/device-callback</c>, is
+    /// already exempt (<see cref="IsInvitationRoundTrip"/>).
+    /// </summary>
+    public static bool IsTeamPageRoundTrip(PathString path, string? next)
+    {
+        var value = path.Value ?? "";
+        if (IsTeamPage(value)) return true;
+        return string.Equals(value, Util.AuthMiddleware.CockpitSignInPath, StringComparison.OrdinalIgnoreCase)
+            && next is not null && IsTeamPage(next.Split('?', 2)[0]);
+    }
+
+    private static bool IsTeamPage(string path) =>
+        Teams.TeamApp.Pages.Any(p => string.Equals(path, p.Path, StringComparison.OrdinalIgnoreCase)
+                                     || path.StartsWith(p.Path + "/", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The Cockpit's sign-in return address. The mobile app's is <c>/mobile/device-callback</c>.</summary>
     public const string CockpitDeviceCallbackPath = "/device-callback";
@@ -104,14 +129,15 @@ public static class MobileRedirect
     /// Cockpit's browser-page routes and the fallback proxy, so a phone never reaches the Cockpit
     /// sitemap; a desktop UA (or any non-navigation request) is passed straight through unchanged.
     /// </summary>
-    public static void UseMobileRedirect(WebApplication app)
+    /// <param name="teamsReleased">Whether Teams is released on this Gateway (the team pages are exempt only then).</param>
+    public static void UseMobileRedirect(WebApplication app, bool teamsReleased)
     {
         app.Use(async (ctx, next) =>
         {
             if (ShouldRedirectToMobile(
                     ctx.Request.Method, ctx.Request.Path,
                     ctx.Request.Headers.Accept, ctx.Request.Headers.UserAgent,
-                    ctx.Request.Query["next"].FirstOrDefault()))
+                    ctx.Request.Query["next"].FirstOrDefault(), teamsReleased))
             {
                 FileLog.Write($"[MobileRedirect] phone navigation {Api.TeamInvitationEndpoints.RedactForLog(ctx.Request.Path.Value ?? "")} -> {MobileRoot}");
                 ctx.Response.Redirect(MobileRoot);

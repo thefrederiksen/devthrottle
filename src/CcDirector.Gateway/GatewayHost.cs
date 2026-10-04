@@ -3944,7 +3944,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // (Accept: text/html, phone User-Agent) not already under the mobile app gets a 302 to the mobile
         // app at /mobile/; a desktop UA falls through unchanged to the Cockpit. After auth, before the
         // Cockpit's browser-page routes - so a phone never reaches the Cockpit sitemap.
-        Mobile.MobileRedirect.UseMobileRedirect(_app);
+        Mobile.MobileRedirect.UseMobileRedirect(_app, TeamsReleased);
 
         // Browser-aware front door (the Cockpit sitemap): a PERSON navigating to /sessions,
         // /directors, or /cockpit (Accept: text/html) gets the React Cockpit shell; programs keep

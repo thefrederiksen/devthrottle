@@ -470,4 +470,51 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
                 $"{method} {pattern} was refused, but not by the team gate: {text}");
         }
     }
+
+    private const string PhoneUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+
+    private async Task<(HttpStatusCode Status, string? Location, string Body)> PhoneGet(string path, string? deviceKey)
+    {
+        using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = _http.BaseAddress };
+        using var req = new HttpRequestMessage(HttpMethod.Get, path);
+        req.Headers.Accept.ParseAdd("text/html");
+        req.Headers.TryAddWithoutValidation("User-Agent", PhoneUserAgent);
+        if (deviceKey is not null)
+            req.Headers.Add("Cookie", $"cc-gateway-token={deviceKey}");
+        using var resp = await client.SendAsync(req);
+        return (resp.StatusCode, resp.Headers.Location?.OriginalString, await resp.Content.ReadAsStringAsync());
+    }
+
+    private static void AssertTheCockpitAnswered((HttpStatusCode Status, string? Location, string Body) answer, string what)
+    {
+        Assert.True(answer.Status == HttpStatusCode.OK
+                ? answer.Body.Contains("<html", StringComparison.OrdinalIgnoreCase)
+                : answer.Status == HttpStatusCode.NotFound && answer.Body.Contains("React Cockpit not built", StringComparison.Ordinal),
+            $"a phone at {what} was not given the Cockpit: {(int)answer.Status} {answer.Location} {answer.Body}");
+    }
+
+    /// <summary>
+    /// A Collaborator's app is three Cockpit pages the mobile app does not have, so a PHONE reaches them, signed in and
+    /// through sign-in, instead of being sent to /mobile/ - while every other phone navigation still goes there.
+    /// </summary>
+    [Theory]
+    [InlineData("questions")]
+    [InlineData("requests")]
+    [InlineData("reports")]
+    public async Task Issue2306_OverTheWire_APhoneAtATeamPage_GetsTheCockpit_NotTheMobileApp(string page)
+    {
+        var key = Enroll("dev-walk-phone-" + page, _collaborator);
+
+        AssertTheCockpitAnswered(await PhoneGet(page, key), "/" + page + " signed in");
+
+        var signedOut = await PhoneGet(page, deviceKey: null);
+        Assert.Equal(HttpStatusCode.Redirect, signedOut.Status);
+        Assert.Equal($"/signin?next={Uri.EscapeDataString("/" + page)}", signedOut.Location);
+        AssertTheCockpitAnswered(await PhoneGet(signedOut.Location!.TrimStart('/'), deviceKey: null), signedOut.Location!);
+
+        var elsewhere = await PhoneGet("sessions", key);
+        Assert.Equal(HttpStatusCode.Redirect, elsewhere.Status);
+        Assert.Equal("/mobile/", elsewhere.Location);
+    }
 }
