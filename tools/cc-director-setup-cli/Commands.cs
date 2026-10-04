@@ -270,9 +270,17 @@ internal static class Commands
     /// same browser sign-in, but the account token goes straight to the hosted gateway, which mints this
     /// machine's key bound to the account's tenant. There is no address to give and nothing to discover, so
     /// <c>--hosted</c> and <c>--gateway</c> are mutually exclusive.
+    ///
+    /// <c>--hosted</c> always joins the person's PERSONAL account and says so (devthrottle_internal#2311): the
+    /// "which team is this Director for" question belongs to the Director's own setup, and the team can be changed
+    /// afterwards in the Director's Settings, Team tab.
     /// </summary>
     public static Task<int> EnrollAsync(CliArgs args, InstallLayout layout, bool json)
         => EnrollAsync(args, layout, json, persist => new GatewayAccountEnrollRunner(persist: persist));
+
+    /// <summary>What <c>enroll --hosted</c> prints about the team it joins.</summary>
+    public const string HostedEnrollsPersonal =
+        "This joins your personal DevThrottle account, not a team. To put this Director on a team, open it and use Settings, Team.";
 
     /// <summary>
     /// <see cref="EnrollAsync(CliArgs, InstallLayout, bool)"/> with the runner built by
@@ -324,7 +332,13 @@ internal static class Commands
         // to the account's tenant. No address to prove reachable and no discovery - enrolling IS the join.
         if (hosted)
         {
-            if (!json) Console.WriteLine("Joining the DevThrottle hosted gateway...");
+            if (!json)
+            {
+                Console.WriteLine("Joining the DevThrottle hosted gateway...");
+                // devthrottle_internal#2311: a command line cannot show the "which team" question, so it says
+                // plainly what it does instead of asking.
+                Console.WriteLine(HostedEnrollsPersonal);
+            }
             var host = await runner.SignInAndEnrollHostedAsync(deviceId, machineName);
             return ReportEnroll(host.Success, host.ErrorMessage, json);
         }

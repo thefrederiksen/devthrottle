@@ -1,9 +1,12 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using CcDirector.Core.Account;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Network;
+using CcDirector.Core.Teams;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -18,6 +21,15 @@ namespace CcDirector.Setup.Engine;
 /// <param name="Name">The gateway's device name, shown in the chooser when the account has more than one.</param>
 /// <param name="EndpointUrl">The gateway's reachable front-door URL, used as the enroll target.</param>
 public sealed record DiscoveredGateway(string Name, string EndpointUrl);
+
+/// <summary>
+/// A hosted enrollment for a team (devthrottle_internal#2311): the issued key, the team this Director now works
+/// for, and the name the person gave it on screen D1.
+/// </summary>
+/// <param name="DeviceKey">The device key the hosted Gateway issued.</param>
+/// <param name="Team">The team chosen - null when the Gateway has no teams (no chip).</param>
+/// <param name="DirectorName">The name typed on D1, or null when nothing was asked.</param>
+public sealed record HostedTeamEnrollment(string DeviceKey, DirectorTeam? Team, string? DirectorName);
 
 /// <summary>
 /// The installer-time gateway-join gate for a Workstation install. A machine that joins an existing
@@ -88,6 +100,8 @@ public sealed class GatewayAccountEnrollRunner
     private readonly Func<CancellationToken, Task<DevThrottleTokens>> _signIn;
     private readonly Func<HttpMessageHandler> _handlerFactory;
     private readonly Action<string, string> _persist;
+    private readonly Action<DirectorTeam?> _persistTeam;
+    private readonly IHostedTeamsSignal _teamsSignal;
     private readonly TimeSpan _httpTimeout;
 
     // The account token captured by SignInAndDiscoverGatewaysAsync, held in memory ONLY for the immediately
@@ -109,16 +123,43 @@ public sealed class GatewayAccountEnrollRunner
     /// <param name="persist">Persists the verified (gatewayUrl, localDeviceKey) pair; null uses
     /// <see cref="GatewayCredentialStore.SaveEnrolledKey"/>.</param>
     /// <param name="httpTimeout">Per-call timeout for the HTTP calls; null uses 15 seconds.</param>
+    /// <param name="persistTeam">Records the team a hosted enrollment chose for THIS Director, beside its key
+    /// (devthrottle_internal#2311); null means the Gateway has no teams and any recorded team is forgotten.
+    /// Null uses <see cref="DirectorTeamStore"/> in this process's own storage home.</param>
+    /// <param name="teamsSignal">Asks the hosted Gateway whether it has Teams released; null reads its anonymous
+    /// health answer through the same HTTP handler.</param>
     public GatewayAccountEnrollRunner(
         Func<CancellationToken, Task<DevThrottleTokens>>? signIn = null,
         Func<HttpMessageHandler>? handlerFactory = null,
         Action<string, string>? persist = null,
-        TimeSpan? httpTimeout = null)
+        TimeSpan? httpTimeout = null,
+        Action<DirectorTeam?>? persistTeam = null,
+        IHostedTeamsSignal? teamsSignal = null)
     {
         _signIn = signIn ?? SignInViaBrowserAsync;
         _handlerFactory = handlerFactory ?? (() => new HttpClientHandler());
         _persist = persist ?? GatewayCredentialStore.SaveEnrolledKey;
+        _persistTeam = persistTeam ?? PersistTeamInThisHome;
         _httpTimeout = httpTimeout ?? TimeSpan.FromSeconds(15);
+        _teamsSignal = teamsSignal ?? new HealthzTeamsSignal(_handlerFactory, _httpTimeout);
+    }
+
+    /// <summary>The route the hosted Gateway lists the signed-in person's teams on, asked only when its signal
+    /// says it has Teams.</summary>
+    public const string HostedTeamsRoute = "devices/enroll-hosted/teams";
+
+    /// <summary>
+    /// The route that moves an enrolled Director to another team (screen D3). Its exact shape is the Gateway
+    /// Developer's contract for devthrottle_internal#2311; this is the shape the Director codes against.
+    /// </summary>
+    public const string HostedMoveRoute = "devices/enroll-hosted/move";
+
+    private static void PersistTeamInThisHome(DirectorTeam? team)
+    {
+        if (team is null)
+            DirectorTeamStore.Clear();
+        else
+            DirectorTeamStore.Save(team);
     }
 
     /// <summary>
@@ -354,7 +395,7 @@ public sealed class GatewayAccountEnrollRunner
             return OperationResult<MobileEnrollmentResponse>.Fail(
                 "Sign-in did not return a usable credential. Please try again.");
 
-        return await EnrollAtHostedGatewayAsync(hostedUrl, tokens.AccessToken, deviceId, machineName, ct).ConfigureAwait(false);
+        return await EnrollAtHostedGatewayAsync(hostedUrl, tokens.AccessToken, deviceId, machineName, null, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -389,7 +430,7 @@ public sealed class GatewayAccountEnrollRunner
         }
 
         EngineLog.Write($"[GatewayAccountEnrollRunner] EnrollWithHostedGatewayAsync: hosted={hostedUrl}, deviceId={deviceId}, machine={machineName}");
-        return await EnrollAtHostedGatewayAsync(hostedUrl, tokens.AccessToken, deviceId, machineName, ct).ConfigureAwait(false);
+        return await EnrollAtHostedGatewayAsync(hostedUrl, tokens.AccessToken, deviceId, machineName, null, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -401,7 +442,7 @@ public sealed class GatewayAccountEnrollRunner
     /// issued device key is ever logged (security rule DT-05).
     /// </summary>
     private async Task<OperationResult<MobileEnrollmentResponse>> EnrollAtHostedGatewayAsync(
-        string hostedUrl, string accountAccessToken, string deviceId, string machineName, CancellationToken ct)
+        string hostedUrl, string accountAccessToken, string deviceId, string machineName, string? teamId, CancellationToken ct)
     {
         var request = new EnrollSignedInRequest
         {
@@ -419,7 +460,18 @@ public sealed class GatewayAccountEnrollRunner
         HttpResponseMessage resp;
         try
         {
-            resp = await http.PostAsJsonAsync("devices/enroll-hosted", request, ct).ConfigureAwait(false);
+            // With no team the request is exactly the one sent before Teams existed - the same object, so the
+            // same bytes. With a team, the same fields plus "teamId" (devthrottle_internal#2311).
+            if (teamId is null)
+            {
+                resp = await http.PostAsJsonAsync("devices/enroll-hosted", request, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                var withTeam = JsonSerializer.SerializeToNode(request, WebJson)!.AsObject();
+                withTeam["teamId"] = teamId;
+                resp = await http.PostAsJsonAsync("devices/enroll-hosted", withTeam, WebJson, ct).ConfigureAwait(false);
+            }
         }
         catch (Exception ex)
         {
@@ -433,6 +485,14 @@ public sealed class GatewayAccountEnrollRunner
             EngineLog.Write("[GatewayAccountEnrollRunner] EnrollAtHostedGatewayAsync rejected: HTTP 401 (account token not accepted)");
             return OperationResult<MobileEnrollmentResponse>.Fail(
                 "The DevThrottle hosted gateway did not accept your sign-in. Please sign in again and try once more.");
+        }
+        if (resp.StatusCode == HttpStatusCode.Forbidden)
+        {
+            // The person cannot run sessions in the chosen team. The Gateway says why in plain words; the person
+            // reads exactly that, not a status code.
+            var refusal = await ReadErrorAsync(resp, ct).ConfigureAwait(false);
+            EngineLog.Write("[GatewayAccountEnrollRunner] EnrollAtHostedGatewayAsync refused: HTTP 403");
+            return OperationResult<MobileEnrollmentResponse>.Fail(refusal);
         }
         if (!resp.IsSuccessStatusCode)
         {
@@ -461,11 +521,362 @@ public sealed class GatewayAccountEnrollRunner
         }
 
         _persist(hostedUrl, body.DeviceKey);
-        EngineLog.Write($"[GatewayAccountEnrollRunner] EnrollAtHostedGatewayAsync: persisted hosted url + local per-device key (machine={machineName})");
+        EngineLog.Write($"[GatewayAccountEnrollRunner] EnrollAtHostedGatewayAsync: persisted hosted url + local per-device key (machine={machineName}, team={(teamId ?? "none")})");
 
         // The hosted reply carries the registry echo as well as the key; the callers of every enroll path only
         // need the key, so it is handed back in the same shape the self-hosted paths return.
         return OperationResult<MobileEnrollmentResponse>.Ok(new MobileEnrollmentResponse { DeviceKey = body.DeviceKey });
+    }
+
+    private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
+
+    /// <summary>
+    /// Join the HOSTED gateway FOR A TEAM (devthrottle_internal#2311, screen D1): ask the Gateway whether it has
+    /// Teams, sign in, ask the Gateway which teams the person may run sessions in, ask the person which one this
+    /// Director is for, and enroll with that team's id. The new key and the chosen team are stored together in
+    /// this Director's own home, so two Directors on one computer can work for two teams.
+    ///
+    /// The Gateway's own signal decides, never a guess from another route's answer (review finding F1):
+    /// <list type="bullet">
+    /// <item>The Gateway says it has no Teams, or says nothing about Teams (a Gateway from before Teams): no teams
+    /// call, nothing asked, the enrollment is exactly the one sent before Teams, and no team is recorded.</item>
+    /// <item>It says it has Teams: the teams call, and any answer but 200 is an error shown as it is. No team
+    /// listed: nothing asked, today's enrollment, the personal account recorded. One or more: the person is
+    /// asked, the chosen team's id is sent, and a refusal is returned in the Gateway's own words.</item>
+    /// </list>
+    /// The account token is held in memory only and never logged.
+    /// </summary>
+    /// <param name="deviceId">This Director's own id, sent as the hosted device id.</param>
+    /// <param name="machineName">The computer's name, recorded on the Gateway.</param>
+    /// <param name="chooseTeam">Asks the person (screen D1). Returns null when they cancel.</param>
+    /// <param name="ct">Cancels the sign-in, the listing or the enrollment.</param>
+    public async Task<OperationResult<HostedTeamEnrollment>> SignInChooseTeamAndEnrollHostedAsync(
+        string deviceId, string machineName,
+        Func<TeamQuestion, CancellationToken, Task<TeamAnswer?>> chooseTeam,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(chooseTeam);
+        if (string.IsNullOrWhiteSpace(deviceId))
+            return OperationResult<HostedTeamEnrollment>.Fail("This machine has no device id.");
+
+        EngineLog.Write($"[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: deviceId={deviceId}, machine={machineName}");
+
+        var released = await HostedTeamsReleasedAsync(ct).ConfigureAwait(false);
+        if (!released.Success)
+            return OperationResult<HostedTeamEnrollment>.Fail(released.ErrorMessage!);
+        var (hostedUrl, teamsReleased) = released.Value;
+
+        var signedIn = await SignInAsync(ct).ConfigureAwait(false);
+        if (!signedIn.Success)
+            return OperationResult<HostedTeamEnrollment>.Fail(signedIn.ErrorMessage!);
+        var accessToken = signedIn.Value!;
+
+        DirectorTeam? team;
+        string? directorName = null;
+        if (!teamsReleased)
+        {
+            EngineLog.Write("[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: this Gateway has no teams; enrolling as before Teams");
+            team = null;
+        }
+        else
+        {
+            var listed = await ListHostedTeamsAsync(hostedUrl, accessToken, ct).ConfigureAwait(false);
+            if (!listed.Success)
+                return OperationResult<HostedTeamEnrollment>.Fail(listed.ErrorMessage!);
+
+            var choices = TeamChoices.Build(listed.Value!);
+            if (!TeamChoices.MustAsk(choices))
+            {
+                EngineLog.Write("[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: no team to choose; the personal account, not asked");
+                team = choices[0].ToTeam();
+            }
+            else
+            {
+                EngineLog.Write($"[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: asking which team ({choices.Count} choices)");
+                var chosen = await chooseTeam(new TeamQuestion(choices, machineName), ct).ConfigureAwait(false);
+                if (chosen is null)
+                {
+                    EngineLog.Write("[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: no team chosen; nothing enrolled");
+                    return OperationResult<HostedTeamEnrollment>.Fail("No team was chosen, so this Director was not connected.");
+                }
+                team = chosen.Choice.ToTeam();
+                directorName = chosen.DirectorName;
+                EngineLog.Write($"[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: chose {(team.IsPersonal ? "the personal account" : "team " + team.TeamId)}");
+            }
+        }
+
+        var enrolled = await EnrollAtHostedGatewayAsync(hostedUrl, accessToken, deviceId, machineName, team?.TeamId, ct).ConfigureAwait(false);
+        if (!enrolled.Success)
+            return OperationResult<HostedTeamEnrollment>.Fail(enrolled.ErrorMessage!);
+
+        _persistTeam(team);
+        return OperationResult<HostedTeamEnrollment>.Ok(new HostedTeamEnrollment(enrolled.Value!.DeviceKey, team, directorName));
+    }
+
+    /// <summary>
+    /// List the teams the person may move this Director to (screen D3). Asks the Gateway's signal first: with no
+    /// Teams there, it answers so without signing in. Otherwise it signs in and keeps the account token in memory
+    /// for the <see cref="MoveHostedDirectorAsync"/> that follows; the token is never written or logged.
+    /// </summary>
+    public async Task<OperationResult<HostedTeamsAnswer>> SignInAndListHostedTeamsAsync(CancellationToken ct = default)
+    {
+        EngineLog.Write("[GatewayAccountEnrollRunner] SignInAndListHostedTeamsAsync");
+        var released = await HostedTeamsReleasedAsync(ct).ConfigureAwait(false);
+        if (!released.Success)
+            return OperationResult<HostedTeamsAnswer>.Fail(released.ErrorMessage!);
+        var (hostedUrl, teamsReleased) = released.Value;
+        if (!teamsReleased)
+            return OperationResult<HostedTeamsAnswer>.Ok(new HostedTeamsAnswer(false, Array.Empty<HostedTeam>()));
+
+        var signedIn = await SignInAsync(ct).ConfigureAwait(false);
+        if (!signedIn.Success)
+            return OperationResult<HostedTeamsAnswer>.Fail(signedIn.ErrorMessage!);
+
+        var listed = await ListHostedTeamsAsync(hostedUrl, signedIn.Value!, ct).ConfigureAwait(false);
+        return listed.Success
+            ? OperationResult<HostedTeamsAnswer>.Ok(new HostedTeamsAnswer(true, listed.Value!))
+            : OperationResult<HostedTeamsAnswer>.Fail(listed.ErrorMessage!);
+    }
+
+    /// <summary>A move refused with 404: the account has no working key for this Director.</summary>
+    public const string MoveNoWorkingKey =
+        "DevThrottle has no working key for this Director on your account, so it cannot be moved. Connect it again from the Gateway tab.";
+
+    /// <summary>A move refused with 403 because another account set this Director up.</summary>
+    public const string MoveSomeoneElses =
+        "This Director was set up with a different DevThrottle account, so it cannot be moved from yours. Sign in with the account that set it up.";
+
+    /// <summary>A move refused with 409 because the Director already works for that team.</summary>
+    public const string MoveAlreadyThere = "This Director already works for that team. Nothing was changed.";
+
+    /// <summary>A move refused with 409 because the Gateway still has sessions registered for this Director.</summary>
+    public const string MoveSessionsOpen =
+        "The Gateway still has sessions registered for this Director. Close every session on it, then move it. Nothing was changed.";
+
+    // The Gateway's own sentences for the refusals that share a status (its contract: "the sentences are constants on
+    // HostedEnrollmentEndpoint, so a client can match on them"). Copied, because the Director does not reference the
+    // Gateway.
+    private const string GatewaySomeoneElsesKey =
+        "That Director was set up by a different account, so it cannot be moved from yours. Sign in with the account that set it up.";
+    private const string GatewaySameTeam = "This Director is already set up for that team. Nothing was changed.";
+    private const string GatewaySessionsOpen =
+        "This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.";
+
+    /// <summary>
+    /// The words a person reads for a refused move. 404 is always "no working key"; 403 and 409 each have more than
+    /// one cause, told apart by the Gateway's own sentence. A refusal not named here - a team the person cannot run
+    /// sessions in, the payment gate, a Director set up in two places - is shown in the Gateway's words, which are
+    /// already written for a person.
+    /// </summary>
+    public static string MoveRefusalInPlainWords(HttpStatusCode status, string gatewayWords) => status switch
+    {
+        HttpStatusCode.NotFound => MoveNoWorkingKey,
+        HttpStatusCode.Forbidden when gatewayWords == GatewaySomeoneElsesKey => MoveSomeoneElses,
+        HttpStatusCode.Conflict when gatewayWords == GatewaySameTeam => MoveAlreadyThere,
+        HttpStatusCode.Conflict when gatewayWords == GatewaySessionsOpen => MoveSessionsOpen,
+        _ => gatewayWords,
+    };
+
+    /// <summary>What a move answers when the account token it holds is no longer accepted (review finding F9).</summary>
+    public const string MoveSignInExpired =
+        "Your DevThrottle sign-in has run out. Press \"Choose another team...\" to sign in again, then move.";
+
+    /// <summary>
+    /// Move this Director to another team (screen D3), with the account token a preceding
+    /// <see cref="SignInAndListHostedTeamsAsync"/> captured. The Director is named by its own id
+    /// (<c>{deviceId, teamId}</c>, the Gateway contract); the Gateway finds its working key on the signed-in
+    /// account. Returns the new device key; the Gateway revokes the old one. The key is never logged. A refusal - a session is still registered, or the person cannot run sessions there - comes back
+    /// in the Gateway's own words; an expired sign-in says how to sign in again. Stores nothing: the caller
+    /// stores the team and the key.
+    /// </summary>
+    /// <param name="directorId">This Director's own id - the device id it was set up with.</param>
+    /// <param name="teamId">The team to move to, or null for the personal account.</param>
+    /// <param name="ct">Cancels the call.</param>
+    public async Task<OperationResult<string>> MoveHostedDirectorAsync(string directorId, string? teamId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(directorId))
+            return OperationResult<string>.Fail("This Director has no id yet - it is still starting. Try again in a moment.");
+        var tokens = _pendingTokens;
+        if (tokens is null || string.IsNullOrWhiteSpace(tokens.AccessToken))
+            return OperationResult<string>.Fail("Please sign in to DevThrottle first.");
+
+        var hostedUrl = HostedGateway.ResolveUrl();
+        EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync: hosted={hostedUrl}, director={directorId}, team={(teamId ?? "personal account")}");
+
+        using var http = HostedClient(hostedUrl, tokens.AccessToken);
+        var body = new JsonObject { ["deviceId"] = directorId, ["teamId"] = teamId };
+
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await http.PostAsJsonAsync(HostedMoveRoute, body, WebJson, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync transport FAILED: {ex.Message}");
+            return OperationResult<string>.Fail(
+                $"Could not reach the DevThrottle hosted gateway at {hostedUrl}. Please check your connection and try again.");
+        }
+
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            EngineLog.Write("[GatewayAccountEnrollRunner] MoveHostedDirectorAsync refused: HTTP 401 (the held sign-in is no longer accepted)");
+            return OperationResult<string>.Fail(MoveSignInExpired);
+        }
+        if (!resp.IsSuccessStatusCode)
+        {
+            var refusal = await ReadErrorAsync(resp, ct).ConfigureAwait(false);
+            EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync refused: HTTP {(int)resp.StatusCode}");
+            return OperationResult<string>.Fail(MoveRefusalInPlainWords(resp.StatusCode, refusal));
+        }
+
+        // A 200 means the Gateway HAS moved the Director. A reply without a readable key is handed back as an empty
+        // key, so the mover tells the person the move happened and the key did not arrive.
+        var reply = await ReadJsonAsync<DeviceRegistrationResponse>(resp, ct).ConfigureAwait(false);
+        if (reply is null || string.IsNullOrWhiteSpace(reply.DeviceKey))
+        {
+            EngineLog.Write("[GatewayAccountEnrollRunner] MoveHostedDirectorAsync: 2xx with no readable device key in reply");
+            return OperationResult<string>.Ok("");
+        }
+
+        EngineLog.Write("[GatewayAccountEnrollRunner] MoveHostedDirectorAsync: moved; new device key received");
+        return OperationResult<string>.Ok(reply.DeviceKey);
+    }
+
+    // The hosted address and whether the Gateway there says it has Teams.
+    private async Task<OperationResult<(string HostedUrl, bool TeamsReleased)>> HostedTeamsReleasedAsync(CancellationToken ct)
+    {
+        string hostedUrl;
+        try
+        {
+            hostedUrl = HostedGateway.ResolveUrl();
+        }
+        catch (Exception ex)
+        {
+            EngineLog.Write($"[GatewayAccountEnrollRunner] HostedTeamsReleasedAsync: hosted address unusable: {ex.Message}");
+            return OperationResult<(string, bool)>.Fail(ex.Message);
+        }
+
+        var released = await _teamsSignal.TeamsReleasedAsync(hostedUrl, ct).ConfigureAwait(false);
+        if (!released.Success)
+            return OperationResult<(string, bool)>.Fail(released.ErrorMessage!);
+        EngineLog.Write($"[GatewayAccountEnrollRunner] HostedTeamsReleasedAsync: hosted={hostedUrl}, teams={released.Value}");
+        return OperationResult<(string, bool)>.Ok((hostedUrl, released.Value));
+    }
+
+    // Sign in, keeping the token in memory for a follow-up call in this run. Returns the access token.
+    private async Task<OperationResult<string>> SignInAsync(CancellationToken ct)
+    {
+        DevThrottleTokens tokens;
+        try
+        {
+            tokens = await _signIn(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            EngineLog.Write("[GatewayAccountEnrollRunner] SignInAsync: sign-in cancelled before a credential arrived");
+            return OperationResult<string>.Fail("Sign-in was cancelled.");
+        }
+        catch (Exception ex)
+        {
+            EngineLog.Write($"[GatewayAccountEnrollRunner] SignInAsync: sign-in failed: {ex.Message}");
+            return OperationResult<string>.Fail(
+                "Sign-in did not complete. Please return to your browser and finish signing in, then try again.");
+        }
+
+        if (tokens is null || string.IsNullOrWhiteSpace(tokens.AccessToken))
+            return OperationResult<string>.Fail("Sign-in did not return a usable credential. Please try again.");
+
+        _pendingTokens = tokens;
+        return OperationResult<string>.Ok(tokens.AccessToken);
+    }
+
+    // GET the teams route, on a Gateway that SAID it has Teams. Any answer but 200 is an error, shown in the
+    // Gateway's words - never read as "no teams", which would quietly put a team member's Director on their
+    // personal account. An unreadable 200 is a failure too, not an exception.
+    private async Task<OperationResult<IReadOnlyList<HostedTeam>>> ListHostedTeamsAsync(string hostedUrl, string accessToken, CancellationToken ct)
+    {
+        using var http = HostedClient(hostedUrl, accessToken);
+
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await http.GetAsync(HostedTeamsRoute, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            EngineLog.Write($"[GatewayAccountEnrollRunner] ListHostedTeamsAsync transport FAILED: {ex.Message}");
+            return OperationResult<IReadOnlyList<HostedTeam>>.Fail(
+                $"Could not reach the DevThrottle hosted gateway at {hostedUrl}. Please check your connection and try again.");
+        }
+
+        if (!resp.IsSuccessStatusCode)
+        {
+            var refusal = await ReadErrorAsync(resp, ct).ConfigureAwait(false);
+            EngineLog.Write($"[GatewayAccountEnrollRunner] ListHostedTeamsAsync failed: HTTP {(int)resp.StatusCode}");
+            return OperationResult<IReadOnlyList<HostedTeam>>.Fail(refusal);
+        }
+
+        var reply = await ReadJsonAsync<HostedTeamsReply>(resp, ct).ConfigureAwait(false);
+        if (reply?.Teams is null)
+        {
+            EngineLog.Write("[GatewayAccountEnrollRunner] ListHostedTeamsAsync: 200 with an unreadable body");
+            return OperationResult<IReadOnlyList<HostedTeam>>.Fail(
+                "The DevThrottle hosted gateway answered the team list with something this Director cannot read.");
+        }
+        foreach (var team in reply.Teams)
+        {
+            if (TeamChoices.Unreadable(team) is { } problem)
+            {
+                EngineLog.Write($"[GatewayAccountEnrollRunner] ListHostedTeamsAsync: unreadable entry: {problem}");
+                return OperationResult<IReadOnlyList<HostedTeam>>.Fail(
+                    $"The DevThrottle hosted gateway listed {problem}, so this Director cannot offer the list.");
+            }
+        }
+
+        EngineLog.Write($"[GatewayAccountEnrollRunner] ListHostedTeamsAsync: {reply.Teams.Count} team(s) listed");
+        return OperationResult<IReadOnlyList<HostedTeam>>.Ok(reply.Teams);
+    }
+
+    // A JSON reply, or null when it is not readable as T.
+    private static async Task<T?> ReadJsonAsync<T>(HttpResponseMessage resp, CancellationToken ct) where T : class
+    {
+        try
+        {
+            return await resp.Content.ReadFromJsonAsync<T>(WebJson, ct).ConfigureAwait(false);
+        }
+        catch (JsonException ex)
+        {
+            EngineLog.Write($"[GatewayAccountEnrollRunner] ReadJsonAsync: reply is not readable as {typeof(T).Name}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private HttpClient HostedClient(string hostedUrl, string accessToken)
+    {
+        var http = new HttpClient(_handlerFactory(), disposeHandler: true) { Timeout = _httpTimeout };
+        http.BaseAddress = new Uri(hostedUrl.TrimEnd('/') + "/");
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        return http;
+    }
+
+    // The Gateway's refusals are {"error": "<plain words>"}. Its words are shown as they are; a reply that does
+    // not carry them is named for what it is, with its status, rather than guessed at.
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        var text = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        try
+        {
+            if (JsonNode.Parse(text) is JsonObject obj && obj["error"] is JsonValue v
+                && v.TryGetValue<string>(out var message) && !string.IsNullOrWhiteSpace(message))
+                return message;
+        }
+        catch (JsonException)
+        {
+            // Not JSON: reported below with its status.
+        }
+        return $"The DevThrottle hosted gateway refused: HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}.";
     }
 
     /// <summary>

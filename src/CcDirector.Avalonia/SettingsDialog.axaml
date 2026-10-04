@@ -163,6 +163,12 @@
                 <Border x:Name="GatewaySettingsHost" Padding="0,4,14,0" />
             </TabItem>
 
+            <TabItem Header="Team">
+                <!-- Screen D3 (devthrottle_internal#2311): which team this Director works for, and moving it to
+                     another with every session closed. Created in code-behind (LoadAsync). -->
+                <Border x:Name="TeamSettingsHost" Padding="0,4,14,0" />
+            </TabItem>
+
             <TabItem Header="Agents">
                 <!-- Issue #494: list ONLY. Add/Edit happens in a separate modal (AgentEditorDialog),
                      so there is no inline editor here and the only Save is the dialog's Save and Close. -->

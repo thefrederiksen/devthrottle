@@ -1,0 +1,60 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CcDirector.Avalonia.TeamChoiceDialog"
+        Title="DevThrottle Director - setup"
+        Width="560" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="#252526">
+
+    <Window.Styles>
+        <!-- One option card per team (screen D1): the radio, the team name, and the role line under it. -->
+        <Style Selector="RadioButton.teamOption">
+            <Setter Property="Background" Value="#1E1E1E" />
+            <Setter Property="BorderBrush" Value="#3C3C3C" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="RadioButton.teamOption:checked">
+            <Setter Property="BorderBrush" Value="#007ACC" />
+            <Setter Property="Background" Value="#16254A" />
+        </Style>
+    </Window.Styles>
+
+    <StackPanel Margin="24,20" Spacing="0">
+
+        <TextBlock Text="Which team is this Director for?"
+                   Foreground="#CCCCCC" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,4" />
+        <TextBlock Foreground="#AAAAAA" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,16"
+                   Text="Every session on this Director belongs to the team you choose: its skills, its Mentor page, its bill." />
+
+        <StackPanel x:Name="OptionsPanel" />
+
+        <TextBlock Text="Name this Director" Foreground="#CCCCCC" FontSize="13" Margin="0,8,0,6" />
+        <TextBox x:Name="NameInput"
+                 Background="#1E1E1E" Foreground="#CCCCCC" CaretBrush="#CCCCCC"
+                 BorderBrush="#3C3C3C" Padding="8,6" FontSize="14" />
+
+        <TextBlock x:Name="ErrorText" Foreground="#F14C4C" FontSize="12"
+                   TextWrapping="Wrap" IsVisible="False" Margin="0,6,0,0" />
+
+        <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,18,0,0">
+            <Button x:Name="StartButton" Grid.Column="0" Content="Start the Director" Height="30" Padding="14,0"
+                    Click="BtnStart_Click"
+                    Background="#007ACC" Foreground="White" FontWeight="SemiBold"
+                    BorderThickness="0" Cursor="Hand" VerticalContentAlignment="Center" />
+            <TextBlock Grid.Column="1" Foreground="#888888" FontSize="12" TextWrapping="Wrap"
+                       VerticalAlignment="Center" Margin="12,0,12,0"
+                       Text="You can change the team later, with every session closed." />
+            <Button Grid.Column="2" Content="Cancel" Width="80" Height="30"
+                    Click="BtnCancel_Click"
+                    Background="#3C3C3C" Foreground="#CCCCCC"
+                    BorderThickness="0" Cursor="Hand"
+                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+        </Grid>
+    </StackPanel>
+</Window>

@@ -87,6 +87,9 @@ public partial class SettingsDialog : Window
             // current step so a connected+signed-in Director lands on the Done view, not the scan.
             GatewaySettingsHost.Child = Controls.GatewayConnectionPanel.CreateForCurrentState(GatewayChoiceConsumer.Settings);
 
+            // The Team tab (screen D3): which team this Director works for, and the move to another.
+            TeamSettingsHost.Child = Controls.DirectorTeamPanel.CreateForThisDirector();
+
             // Tools auto-update opt-out (issue #828): reflect tools.autoUpdate.enabled (default ON).
             // The read ran off the UI thread above; suppress the write that the programmatic set
             // would otherwise trigger, then show the current on/off explanation.

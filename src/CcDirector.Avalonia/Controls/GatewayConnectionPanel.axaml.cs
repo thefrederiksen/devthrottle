@@ -1345,11 +1345,16 @@ public partial class GatewayConnectionPanel : UserControl
         _ = TimeoutAsync(attempt);
     }
 
-    // The real hosted-enroll seam: sign in with DevThrottle and enroll at the hosted Gateway for this
-    // machine's tenant-scoped device key, persisting the hosted url + key on success only.
-    private static Task<OperationResult<MobileEnrollmentResponse>> DefaultHostedEnroll(
+    // The real hosted-enroll seam: sign in with DevThrottle, ask which team this Director is for when there is
+    // one to choose (screen D1, devthrottle_internal#2311), and enroll at the hosted Gateway for that team's device
+    // key, persisting the hosted url + key + team on success only.
+    private Task<OperationResult<MobileEnrollmentResponse>> DefaultHostedEnroll(
         string deviceId, string machineName, CancellationToken ct)
-        => new GatewayAccountEnrollRunner().SignInAndEnrollHostedAsync(deviceId, machineName, ct);
+    {
+        var owner = TopLevel.GetTopLevel(this) as Window
+            ?? throw new InvalidOperationException("The Gateway connection panel is not in a window, so it cannot ask which team.");
+        return HostedTeamSetup.SignInChooseTeamAndEnrollAsync(owner, deviceId, machineName, ct);
+    }
 
     private enum EnrollFirst { Enrolled, SignInNeeded, RemoteNotSupported, FellThrough }
 

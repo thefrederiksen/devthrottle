@@ -163,4 +163,16 @@ public sealed class GatewayCredentialStoreTests : IDisposable
         GatewayCredentialStore.ClearConnection();
         Assert.False(GatewayConfig.Load().IsEnabled);
     }
+
+    [Fact]
+    public void ClearConnection_ForgetsTheTeamThatCameWithTheKey()
+    {
+        // devthrottle_internal#2311: the team is the key's team, so with the key gone the chip must go too.
+        GatewayCredentialStore.SaveEnrolledKey("https://gateway.example", "team-key");
+        CcDirector.Core.Teams.DirectorTeamStore.Save(new CcDirector.Core.Teams.DirectorTeam("t-dev", "DevThrottle"));
+
+        GatewayCredentialStore.ClearConnection();
+
+        Assert.Null(CcDirector.Core.Teams.DirectorTeamStore.Load());
+    }
 }

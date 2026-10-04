@@ -31,6 +31,7 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.Settings;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Core.Skills;
+using CcDirector.Core.Teams;
 using CcDirector.Core.Tools;
 using CcDirector.Core.Utilities;
 using FileViewerControls = CcDirector.Avalonia.Controls;
@@ -682,6 +683,72 @@ public partial class MainWindow : Window
         // the machine name cannot distinguish this Director from its neighbours, and nothing reaches a
         // Director by port any more - the fleet goes through the Gateway.
         DirectorInfoText.Text = DirectorHandle.Label(InstanceContext.DisplayName, Environment.MachineName);
+
+        // The team chip (screen D2). Redrawn whenever this Director's team is recorded - after setup chooses one
+        // on screen D1, or after a move on the Settings Team tab (D3) - together with the name, which D1 can set.
+        DirectorTeamStore.Changed += OnDirectorTeamChanged;
+        Closed += (_, _) => DirectorTeamStore.Changed -= OnDirectorTeamChanged;
+        _ = RefreshDirectorTeamAsync();
+    }
+
+    /// <summary>How the window learns which team to show; a test points it at a fake Gateway.</summary>
+    internal Func<CancellationToken, Task<OperationResult<DirectorTeam?>>> ResolveDirectorTeam { get; set; }
+        = Controls.DirectorTeamPanel.ResolveThisDirectorsTeamAsync;
+
+    private void OnDirectorTeamChanged() => Dispatcher.UIThread.Post(() => _ = RefreshDirectorTeamAsync());
+
+    // True when the last chip read could not tell the team - the Gateway could not be reached when the window
+    // opened, say. The account poll then asks again as soon as the Gateway answers.
+    private bool _directorTeamUnknown;
+
+    /// <summary>
+    /// Called with each account read: when the Gateway answers and the chip could not be read before, read it
+    /// again. A Director with a recorded team never needs the Gateway for its chip, so this only matters for one
+    /// that recorded none.
+    /// </summary>
+    internal void RetryDirectorTeamIfUnknown(bool gatewayReachable)
+    {
+        if (!gatewayReachable || !_directorTeamUnknown) return;
+        FileLog.Write("[MainWindow] RetryDirectorTeamIfUnknown: the Gateway answers again, reading the team chip");
+        _directorTeamUnknown = false;
+        _ = RefreshDirectorTeamAsync();
+    }
+
+    /// <summary>
+    /// Read this Director's team and name off the UI thread and draw them: the name on the toolbar and in the
+    /// window title, the team as a chip beside the name. The team is the recorded one, or the personal account
+    /// when none is recorded and the Gateway says it has Teams (review finding F2); otherwise no chip.
+    /// </summary>
+    internal async Task RefreshDirectorTeamAsync()
+    {
+        FileLog.Write("[MainWindow] RefreshDirectorTeamAsync");
+        try
+        {
+            var name = await Task.Run(() =>
+                NamedInstanceRegistry.Get(InstanceContext.Slug)?.DisplayName ?? InstanceContext.DisplayName);
+            DirectorInfoText.Text = DirectorHandle.Label(name, Environment.MachineName);
+
+            var resolved = await ResolveDirectorTeam(CancellationToken.None);
+            if (!resolved.Success)
+            {
+                FileLog.Write($"[MainWindow] RefreshDirectorTeamAsync: team unknown: {resolved.ErrorMessage}");
+                DirectorTeamChip.Show(null);
+                // Asked again the next time the Gateway answers (review note R2-F3), not only after a restart.
+                _directorTeamUnknown = true;
+                return;
+            }
+            _directorTeamUnknown = false;
+            var team = resolved.Value;
+            DirectorTeamChip.Show(team);
+            Title = "DevThrottle Director" + InstanceTitleSuffix() + (team is null ? "" : $" [{team.Name}]");
+            FileLog.Write($"[MainWindow] RefreshDirectorTeamAsync: chip {(team is null ? "hidden (no team)" : "shown")}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] RefreshDirectorTeamAsync FAILED: {ex.Message}");
+            DirectorTeamChip.Show(null);
+            ShowNotification($"Could not read which team this Director works for: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -1121,6 +1188,7 @@ public partial class MainWindow : Window
         // Log the state and booleans, never the email (PII; CodingStyle Section 4 / 12).
         FileLog.Write($"[MainWindow] ApplyAccountStatus: account={_boxAccount}, deviceKey={_boxDeviceKeyPresent}, configured={status.GatewayConfigured}, reachable={status.Reachable}");
         UpdateGatewayStatusBox();
+        RetryDirectorTeamIfUnknown(status.Reachable);
     }
 
     // Map the Gateway's account report onto the resolver's signed-in input. A not-configured Gateway is
