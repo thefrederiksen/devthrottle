@@ -257,9 +257,10 @@ internal static class GatewayWingmanVoiceEndpoint
             var reqTenant = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
             if (reqTenant is null)
                 return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
-            var audio = voice.GetAudio(reqTenant.Value, sid);
-            return audio is { Length: > 0 }
-                ? Results.Bytes(audio, voice.GetAudioContentType(reqTenant.Value, sid) ?? "audio/mpeg", enableRangeProcessing: true)
+            // Read from the clip file for each request and served from that copy; range requests are answered from it.
+            var audio = voice.OpenAudio(reqTenant.Value, sid);
+            return audio is not null
+                ? Results.Stream(audio, voice.GetAudioContentType(reqTenant.Value, sid) ?? "audio/mpeg", enableRangeProcessing: true)
                 : Results.Json(new { error = "no voice ready for this session" }, statusCode: StatusCodes.Status404NotFound);
         });
 

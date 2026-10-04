@@ -45,7 +45,26 @@ namespace CcDirector.Gateway.Wingman;
 /// </summary>
 public sealed class WingmanVoiceService
 {
-    public sealed record VoiceReady(string Spoken, string Reply, byte[] Audio, DateTime AtUtc, string ContentType = "audio/mpeg", bool ServedViaFallback = false, string? SourceIdentity = null, string? SourceKind = null);
+    /// <summary>
+    /// A session's ready narration: its words and where its clip came from. The AUDIO is not held here - it lives on
+    /// disk beside the description file and is read only when a phone asks for it (<see cref="GetAudio"/>). Holding
+    /// every clip ever made in memory cost the hosted Gateway about 420 MB for one account, growing every day
+    /// (Money Saver, 4 October 2026).
+    /// </summary>
+    public sealed record VoiceReady(string Spoken, string Reply, DateTime AtUtc, string ContentType = "audio/mpeg", bool ServedViaFallback = false, string? SourceIdentity = null, string? SourceKind = null);
+
+    /// <summary>
+    /// A clip is removed by the clip sweep when it is at least this old AND no Director this Gateway knows of reports
+    /// its session. "Knows of" is memory only: it covers every Director that has pushed since this Gateway started
+    /// and has not passed the eviction horizon. A machine that has been switched off since before the last deploy is
+    /// therefore not known, and its sessions' clips older than this are removed. The cost is bounded: a voice session
+    /// still at that stop is narrated again when it comes back, and an explain clip is gone.
+    /// </summary>
+    public static readonly TimeSpan ClipRetention = TimeSpan.FromDays(14);
+
+    /// <summary>A half-written clip file (a <c>.tmp</c> left by a write that did not finish) older than this is
+    /// removed by the sweep. Long enough that no write still in progress can be caught.</summary>
+    public static readonly TimeSpan PartialClipFileAge = TimeSpan.FromHours(1);
 
     /// <summary>The outcome of one text-to-speech synthesis (issue #939): the audio bytes on success,
     /// or the shared <see cref="HostedAiState"/> when hosted AI is unavailable (out of credits, cap
@@ -120,7 +139,7 @@ public sealed class WingmanVoiceService
     private sealed class TenantVoiceState
     {
         public readonly ConcurrentDictionary<string, byte> VoiceSessions = new();          // sid -> marker
-        public readonly ConcurrentDictionary<string, VoiceReady> Ready = new();            // sid -> spoken+audio
+        public readonly ConcurrentDictionary<string, VoiceReady> Ready = new();            // sid -> spoken text; the audio is on disk
         public readonly ConcurrentDictionary<string, byte> Generating = new();             // sid -> wingman is running now
         public readonly ConcurrentDictionary<string, HostedAiState> Unavailable = new();   // sid -> why voice is off (issue #939)
         public readonly ConcurrentDictionary<string, byte> NothingToNarrate = new();       // sid -> the last turn has no text reply to read aloud (waiting on a prompt)
@@ -180,7 +199,10 @@ public sealed class WingmanVoiceService
         /// Held while a session joins or leaves voice together with its listening-ledger entry, and while a narration is
         /// entered and published. Without it a narration finishing while a session is being marked could be entered and
         /// then wiped by the mark, leaving a playable clip the ledger never heard of (review of voice mode auto-off,
-        /// step 1). Only in-memory work runs under it; the file writes happen after it is released.
+        /// step 1). Since the clip audio moved to disk (Money Saver, 4 October 2026) the clip files are written and
+        /// deleted under it too: the file IS the clip, so publishing and removing one must be a single step against
+        /// every other publish and removal. A slow share write therefore delays Mark and Unmark for that account by
+        /// the length of one write.
         /// </summary>
         public readonly object ListeningGate = new();
     }
@@ -629,10 +651,11 @@ public sealed class WingmanVoiceService
             ? text
             : text.Replace(tenant.Value, tenant.ToLogString(), StringComparison.Ordinal);
 
-    /// <summary>Restore the per-session ready audio cache from disk on startup (issue #553) so
+    /// <summary>Restore the per-session ready narrations from disk on startup (issue #553) so
     /// HasVoice / ReadySessionIds survive a gateway restart. A session is only loaded ready when BOTH
     /// its metadata (.json) and its audio (.mp3, non-empty) are present - the "if anything fails,
-    /// remove the triangle" rule extends to a half-written or missing cache.</summary>
+    /// remove the triangle" rule extends to a half-written or missing cache. Only the small description
+    /// file is read; the audio stays on disk and is read when a phone asks for it.</summary>
     private void LoadReadyAudio(TenantId tenant)
     {
         try
@@ -645,13 +668,12 @@ public sealed class WingmanVoiceService
             {
                 var sid = Path.GetFileNameWithoutExtension(metaPath);
                 var audioPath = Path.Combine(audioDir, sid + ".mp3");
-                if (!File.Exists(audioPath)) continue;
-                var audio = File.ReadAllBytes(audioPath);
-                if (audio.Length == 0) continue;
+                var audioFile = new FileInfo(audioPath);
+                if (!audioFile.Exists || audioFile.Length == 0) continue;
                 var meta = JsonSerializer.Deserialize<PersistedVoice>(File.ReadAllText(metaPath));
                 if (meta is null) continue;
-                var contentType = NormalizeContentType(meta.ContentType) ?? DetectAudioContentType(audio);
-                state.Ready[sid] = new VoiceReady(meta.Spoken, meta.Reply, audio, meta.AtUtc, contentType, meta.ServedViaFallback, meta.SourceIdentity, meta.SourceKind);
+                var contentType = NormalizeContentType(meta.ContentType) ?? DetectAudioContentType(ReadHead(audioPath));
+                state.Ready[sid] = new VoiceReady(meta.Spoken, meta.Reply, meta.AtUtc, contentType, meta.ServedViaFallback, meta.SourceIdentity, meta.SourceKind);
                 loaded++;
             }
             FileLog.Write($"[WingmanVoiceService] loaded {loaded} ready voice audio cache(s) from disk for tenant={tenant.ToLogString()}");
@@ -659,8 +681,19 @@ public sealed class WingmanVoiceService
         catch (Exception ex) { FileLog.Write($"[WingmanVoiceService] load ready audio FAILED for tenant={tenant.ToLogString()}: {Redact(ex.Message, tenant)}"); }
     }
 
-    private void SaveReadyAudio(TenantId tenant, string sid, VoiceReady ready)
+    /// <summary>How far a clip write got. Only <see cref="AudioOnly"/> leaves the folder holding something that does not
+    /// match what is published.</summary>
+    private enum ClipWrite { Both, Nothing, AudioOnly }
+
+    /// <summary>
+    /// Write a clip's audio and description to disk, and say how far it got: the audio is served from this file and
+    /// nowhere else, so a clip that could not be written is not a clip. Each file is written to a temporary name and
+    /// moved into place, so a phone reading the clip while a newer one is written gets the old file or the new one
+    /// whole, never a mix.
+    /// </summary>
+    private ClipWrite SaveReadyAudio(TenantId tenant, string sid, VoiceReady ready, byte[] audio)
     {
+        var audioMoved = false;
         try
         {
             // The session id is a file name here, and on the persisting path it is caller-controlled (see
@@ -671,16 +704,40 @@ public sealed class WingmanVoiceService
             if (mp3Path is null || metaPath is null)
             {
                 FileLog.Write($"[WingmanVoiceService] save ready audio REFUSED (session id is not a safe path segment) tenant={tenant.ToLogString()} sid={sid}");
-                return;
+                return ClipWrite.Nothing;
             }
             Directory.CreateDirectory(AudioDirFor(tenant));
             // Write the audio first, then the metadata, so a startup load (which requires BOTH the
             // .mp3 and the .json) never sees a session ready before its bytes are on disk.
-            File.WriteAllBytes(mp3Path, ready.Audio);
-            File.WriteAllText(metaPath,
-                JsonSerializer.Serialize(new PersistedVoice(ready.Spoken, ready.Reply, ready.AtUtc, ready.ContentType, ready.ServedViaFallback, ready.SourceIdentity, ready.SourceKind)));
+            WriteThenMove(mp3Path, temp => File.WriteAllBytes(temp, audio));
+            audioMoved = true;
+            WriteThenMove(metaPath, temp => File.WriteAllText(temp,
+                JsonSerializer.Serialize(new PersistedVoice(ready.Spoken, ready.Reply, ready.AtUtc, ready.ContentType, ready.ServedViaFallback, ready.SourceIdentity, ready.SourceKind))));
+            return ClipWrite.Both;
         }
-        catch (Exception ex) { FileLog.Write($"[WingmanVoiceService] save ready audio FAILED tenant={tenant.ToLogString()} sid={sid}: {Redact(ex.Message, tenant)}"); }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[WingmanVoiceService] save ready audio FAILED tenant={tenant.ToLogString()} sid={sid} " +
+                          $"(audio {(audioMoved ? "was" : "was not")} replaced): {Redact(ex.Message, tenant)}");
+            return audioMoved ? ClipWrite.AudioOnly : ClipWrite.Nothing;
+        }
+    }
+
+    /// <summary>Write <paramref name="path"/> through a temporary file beside it, then move it into place.</summary>
+    private static void WriteThenMove(string path, Action<string> write)
+    {
+        var temp = path + ".tmp";
+        write(temp);
+        File.Move(temp, path, overwrite: true);
+    }
+
+    /// <summary>The first bytes of a clip, enough to recognise its format when its description names none.</summary>
+    private static byte[] ReadHead(string path)
+    {
+        using var stream = File.OpenRead(path);
+        var head = new byte[16];
+        var read = stream.Read(head, 0, head.Length);
+        return head[..read];
     }
 
     private void DeleteReadyAudio(TenantId tenant, string sid)
@@ -717,6 +774,126 @@ public sealed class WingmanVoiceService
     /// </summary>
     public IReadOnlyCollection<TenantId> PartitionedTenants()
         => _tenants.Keys.Select(k => new TenantId(k)).ToArray();
+
+    /// <summary>
+    /// THE CLIP SWEEP. Removes the narration clips of sessions that are gone, so the clip folder - and, before the audio
+    /// moved to disk, the Gateway's memory - stops growing for ever. Until 4 October 2026 a clip was removed only when
+    /// its session started a new turn, switched voice off or reached a newer stop; a session that simply ended kept its
+    /// clip for good, and one account had 2,000 of them going back to July.
+    ///
+    /// A clip is removed only on POSITIVE evidence, all three of:
+    ///  - its newest file is at least <see cref="ClipRetention"/> old, and any narration published for it is too;
+    ///  - <paramref name="knownSessionIds"/> - every session this Gateway last heard of in the account, connected or
+    ///    not - does not name its session;
+    ///  - that list is NOT EMPTY. An empty list means nothing has reported yet (a Gateway that has just started) or
+    ///    every machine has gone quiet, and either way it says nothing about which sessions are gone, so the whole
+    ///    account is left alone.
+    ///
+    /// Also removed: a half-written <c>.tmp</c> clip file older than <see cref="PartialClipFileAge"/>. Any other file in
+    /// the folder is not ours and is left where it is. Returns how many clips were removed.
+    /// </summary>
+    public int SweepClips(Func<TenantId, IReadOnlyCollection<string>> knownSessionIds, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(knownSessionIds);
+        var removed = 0;
+        foreach (var tenant in TenantsOnDisk())
+        {
+            // EACH ACCOUNT ON ITS OWN. A share error or a locked file in one account's folder must not stop every
+            // account after it in directory order from ever being swept.
+            try { removed += SweepClipsFor(tenant, knownSessionIds(tenant), nowUtc); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                FileLog.Write($"[WingmanVoiceService] SweepClips FAILED for tenant={tenant.ToLogString()} (the other accounts are still swept): {Redact(ex.Message, tenant)}");
+            }
+        }
+        return removed;
+    }
+
+    private int SweepClipsFor(TenantId tenant, IReadOnlyCollection<string> knownSessionIds, DateTime nowUtc)
+    {
+        var audioDir = AudioDirFor(tenant);
+        if (!Directory.Exists(audioDir)) return 0;
+        var known = new HashSet<string>(knownSessionIds, StringComparer.Ordinal);
+        if (known.Count == 0)
+        {
+            FileLog.Write($"[WingmanVoiceService] SweepClips: no session is known for tenant={tenant.ToLogString()} - nothing can be shown gone, so nothing is removed");
+            return 0;
+        }
+
+        var state = StateFor(tenant);
+        var partials = 0;
+        var clipsFor = new Dictionary<string, DateTime>(StringComparer.Ordinal);   // sid -> newest file time
+        foreach (var file in Directory.EnumerateFiles(audioDir))
+        {
+            var name = Path.GetFileName(file);
+            var written = File.GetLastWriteTimeUtc(file);
+            if (name.EndsWith(".mp3.tmp", StringComparison.Ordinal) || name.EndsWith(".json.tmp", StringComparison.Ordinal))
+            {
+                if (nowUtc - written >= PartialClipFileAge)
+                {
+                    try
+                    {
+                        File.Delete(file);
+                        partials++;
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // One stuck leftover must not stop this account's clips from being looked at.
+                        FileLog.Write($"[WingmanVoiceService] SweepClips: could not remove a half-written file for tenant={tenant.ToLogString()}: {Redact(ex.Message, tenant)}");
+                    }
+                }
+                continue;
+            }
+            if (!name.EndsWith(".mp3", StringComparison.Ordinal) && !name.EndsWith(".json", StringComparison.Ordinal))
+                continue;
+            var sid = Path.GetFileNameWithoutExtension(name);
+            // A name this service could never have written is not one of its clips: left alone, and never counted.
+            if (SafeClipPath(tenant, sid, ".mp3") is null) continue;
+            clipsFor[sid] = clipsFor.TryGetValue(sid, out var seen) && seen > written ? seen : written;
+        }
+
+        var removedHere = 0;
+        foreach (var (sid, newest) in clipsFor)
+        {
+            if (known.Contains(sid) || nowUtc - newest < ClipRetention) continue;
+            // One step against a narration being stored and against voice being switched on or off (ListeningGate):
+            // a clip published while the sweep was walking the folder is new, and is kept.
+            lock (state.ListeningGate)
+            {
+                if (state.Ready.TryGetValue(sid, out var ready) && nowUtc - ready.AtUtc < ClipRetention) continue;
+                state.Ready.TryRemove(sid, out _);
+                Listening.Forget(tenant, sid);   // a stop with nothing left to play is not one the owner can be counted as missing
+                DeleteReadyAudio(tenant, sid);
+            }
+            // Counted only when the files are really gone: the delete logs and carries on when the share refuses it.
+            if (!File.Exists(SafeClipPath(tenant, sid, ".mp3")!) && !File.Exists(SafeClipPath(tenant, sid, ".json")!))
+                removedHere++;
+        }
+        FileLog.Write($"[WingmanVoiceService] SweepClips: tenant={tenant.ToLogString()} removed {removedHere} clip(s) of gone sessions " +
+                      $"and {partials} half-written file(s); {clipsFor.Count - removedHere} clip(s) kept; {known.Count} session(s) known");
+        return removedHere;
+    }
+
+    /// <summary>Every tenant with a voice partition on disk - the same validation the startup load applies.</summary>
+    private IEnumerable<TenantId> TenantsOnDisk()
+    {
+        var tenantsRoot = Path.Combine(_baseDir, "tenants");
+        if (!Directory.Exists(tenantsRoot)) yield break;
+        foreach (var dir in Directory.EnumerateDirectories(tenantsRoot))
+        {
+            TenantId tenant;
+            try
+            {
+                tenant = new TenantId(Path.GetFileName(dir));
+                _ = CanonicalTenantKey(tenant);
+            }
+            catch (ArgumentException)
+            {
+                continue;
+            }
+            yield return tenant;
+        }
+    }
 
     /// <summary>True when this session currently has a fresh, playable cached summary, within this tenant.</summary>
     public bool HasVoice(TenantId tenant, string sid) => StateFor(tenant).Ready.ContainsKey(sid);
@@ -953,7 +1130,60 @@ public sealed class WingmanVoiceService
                || (ex is OperationCanceledException && !ct.IsCancellationRequested));
 
     public VoiceReady? Get(TenantId tenant, string sid) => StateFor(tenant).Ready.TryGetValue(sid, out var v) ? v : null;
-    public byte[]? GetAudio(TenantId tenant, string sid) => StateFor(tenant).Ready.TryGetValue(sid, out var v) ? v.Audio : null;
+    /// <summary>
+    /// This session's ready clip, read from disk now into a stream the caller owns - or null when there is none.
+    ///
+    /// The file is read whole and closed at once, and the copy is what is served (range requests are answered from
+    /// it). Holding the file open for the length of a phone's download would block a newer clip from being moved into
+    /// place on Windows, where a self-hosted Gateway runs, and the store would fail and go round the paid retry
+    /// schedule. A clip is a few hundred kilobytes and the copy lives only for one request.
+    ///
+    /// A clip removed between the ready check and the read (a new turn, voice switched off, the clip sweep) is "no
+    /// clip", exactly as if the check had come a moment later.
+    /// </summary>
+    public MemoryStream? OpenAudio(TenantId tenant, string sid)
+    {
+        var audio = GetAudio(tenant, sid);
+        return audio is null ? null : new MemoryStream(audio, writable: false);
+    }
+
+    /// <summary>The whole of this session's ready clip, read from disk now - or null when there is none.</summary>
+    public byte[]? GetAudio(TenantId tenant, string sid)
+    {
+        var state = StateFor(tenant);
+        if (!state.Ready.TryGetValue(sid, out var ready)) return null;
+        var path = SafeClipPath(tenant, sid, ".mp3");
+        if (path is null) return null;
+        try
+        {
+            var audio = File.ReadAllBytes(path);
+            if (audio.Length > 0) return audio;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // Fall through: a clip removed between the ready check and the read.
+        }
+        WithdrawUnplayable(tenant, state, sid, ready);
+        return null;
+    }
+
+    /// <summary>
+    /// THE FILE IS THE CLIP. A narration still published with no audio behind it would keep offering a play button that
+    /// can only fail, so it stops being ready - the "if anything fails, remove the triangle" rule - and goes the way a
+    /// switched-off one does: off the listening ledger (a stop with nothing to play is not one the owner can be counted
+    /// as missing) and off the disk. Only THIS narration is withdrawn: one published meanwhile is a different record
+    /// and is left alone, files and all.
+    /// </summary>
+    private void WithdrawUnplayable(TenantId tenant, TenantVoiceState state, string sid, VoiceReady ready)
+    {
+        lock (state.ListeningGate)
+        {
+            if (!state.Ready.TryRemove(new KeyValuePair<string, VoiceReady>(sid, ready))) return;
+            Listening.Forget(tenant, sid);
+            DeleteReadyAudio(tenant, sid);
+        }
+        FileLog.Write($"[WingmanVoiceService] the clip file is gone, narration withdrawn tenant={tenant.ToLogString()} sid={sid}");
+    }
     public string? GetAudioContentType(TenantId tenant, string sid) => StateFor(tenant).Ready.TryGetValue(sid, out var v) ? v.ContentType : null;
 
     /// <summary>
@@ -986,8 +1216,11 @@ public sealed class WingmanVoiceService
     private void DropReadySupersededByANewerStop(TenantId tenant, TenantVoiceState state, string sid, string why)
     {
         SupersedeStop(state, sid);
-        if (!state.Ready.TryRemove(sid, out _)) return;
-        DeleteReadyAudio(tenant, sid);
+        lock (state.ListeningGate)   // one step with the file delete, for the reason given in OnSessionWorking
+        {
+            if (!state.Ready.TryRemove(sid, out _)) return;
+            DeleteReadyAudio(tenant, sid);
+        }
         FileLog.Write($"[WingmanVoiceService] stale voice + text cache cleared ({why}): tenant={tenant.ToLogString()} sid={sid}");
     }
 
@@ -1078,11 +1311,16 @@ public sealed class WingmanVoiceService
         // audio, not about the session.
         state.SpeechRetries.TryRemove(sid, out _);
         SupersedeStop(state, sid);   // a narration call still running for the old stop must not be stored (slice J)
-        if (state.Ready.TryRemove(sid, out _))
+        // The removal and the file delete are one step under the gate, as a store is: outside it, a clip stored between
+        // the two would have its new files deleted and be left published with nothing to play.
+        bool cleared;
+        lock (state.ListeningGate)
         {
-            DeleteReadyAudio(tenant, sid);   // issue #553: keep the durable cache in step so a stale tap can't 404
-            FileLog.Write($"[WingmanVoiceService] voice + text cache cleared (session working): tenant={tenant.ToLogString()} sid={sid}");
+            cleared = state.Ready.TryRemove(sid, out _);
+            if (cleared) DeleteReadyAudio(tenant, sid);   // issue #553: keep the durable cache in step so a stale tap can't 404
         }
+        if (cleared)
+            FileLog.Write($"[WingmanVoiceService] voice + text cache cleared (session working): tenant={tenant.ToLogString()} sid={sid}");
         // ...AND THE PLACE THAT RULES ON IT. See the note above: the cache and the ruling must not learn this
         // separately, or a reading in flight is stored about a screen that is gone.
         _verdicts?.OnSessionWorking(tenant, sid);
@@ -1123,10 +1361,11 @@ public sealed class WingmanVoiceService
         // The "if anything fails, remove the triangle" rule: when synthesis returns null/empty we
         // leave this tenant's Ready map WITHOUT this session, so HasVoice stays false and no triangle shows. Only a
         // real, playable summary becomes ready - and is persisted (issue #553) so it survives a restart.
+        var stored = false;
         if (tts.Audio is { Length: > 0 })
         {
             StateFor(tenant).Unavailable.TryRemove(sid, out _);   // success clears any prior unavailable-state (dismissible)
-            StoreReady(tenant, sid, spoken, reply ?? "", tts.Audio, tts.ContentType, tts.ServedViaFallback, sourceIdentity, sourceKind);
+            stored = StoreReady(tenant, sid, spoken, reply ?? "", tts.Audio, tts.ContentType, tts.ServedViaFallback, sourceIdentity, sourceKind);
         }
         else if (tts.Unavailable is HostedAiState unavailable)
         {
@@ -1141,20 +1380,22 @@ public sealed class WingmanVoiceService
         // actionable sentence on the screen. Every other failure goes on the one retry schedule, whatever kind it
         // was (owner ruling, 2026-09-19): a refusal, a call that never answered, an answered 5xx, an empty body.
         // An account condition is the one outcome that records a state and names no failure.
-        var producedAudio = tts.Audio is { Length: > 0 };
+        // Audio that could not be written to disk is not playable, so it counts as none and goes on the retry schedule.
+        var producedAudio = stored;
         return new SpeechAttempt(
             ProducedAudio: producedAudio,
             RetryAfter: tts.RetryAfter,
             WorthAnotherAttempt: !producedAudio && (tts.Failure != SpeechFailure.None || tts.Unavailable is null));
     }
 
-    /// <summary>Mark a session ready with already-synthesized audio: update the in-memory cache and
-    /// persist it to disk so it survives a gateway restart (issue #553). The single place the success
+    /// <summary>Mark a session ready with already-synthesized audio: write the clip to disk (it is served from
+    /// there, and survives a gateway restart - issue #553), then publish it. The single place the success
     /// branch lives - the test seam (<see cref="StoreReadyAudioForTest"/>) reuses it so persistence is
-    /// exercised without a live provider call.</summary>
-    private void StoreReady(TenantId tenant, string sid, string spoken, string reply, byte[] audio, string? contentType, bool servedViaFallback = false, string? sourceIdentity = null, string? sourceKind = null)
+    /// exercised without a live provider call. Returns false, publishing nothing, when the clip could not be
+    /// written: there would be nothing to serve.</summary>
+    private bool StoreReady(TenantId tenant, string sid, string spoken, string reply, byte[] audio, string? contentType, bool servedViaFallback = false, string? sourceIdentity = null, string? sourceKind = null)
     {
-        var ready = new VoiceReady(spoken, reply, audio, DateTime.UtcNow,
+        var ready = new VoiceReady(spoken, reply, DateTime.UtcNow,
             NormalizeContentType(contentType) ?? DetectAudioContentType(audio), servedViaFallback, sourceIdentity ?? reply, sourceKind);
         var state = StateFor(tenant);
         // Entered in the listening ledger BEFORE it is published below: the moment Ready holds it, a phone can fetch it,
@@ -1164,6 +1405,20 @@ public sealed class WingmanVoiceService
         // check, the entry and the publish are one step against Mark and Unmark (see ListeningGate).
         lock (state.ListeningGate)
         {
+            // ON DISK BEFORE IT IS PUBLISHED, and inside the gate. The audio is served from the file, so the moment
+            // Ready holds this clip the file must be there; and Unmark deletes the clip files inside this same gate,
+            // so a switch-off cannot delete the files of a clip that is published a moment later.
+            var written = SaveReadyAudio(tenant, sid, ready, audio);
+            if (written == ClipWrite.AudioOnly)
+            {
+                // The write failed half way, AFTER the older clip's audio was replaced, so the narration still published
+                // would play new audio under old words. Whatever this session had is withdrawn with its files.
+                if (state.Ready.TryRemove(sid, out _)) Listening.Forget(tenant, sid);
+                DeleteReadyAudio(tenant, sid);
+                return false;
+            }
+            // Nothing was replaced: whatever this session had published is still intact and still matches its files.
+            if (written == ClipWrite.Nothing) return false;
             if (state.VoiceSessions.ContainsKey(sid))
                 Listening.NoteNarrationReady(tenant, sid, ready.AtUtc);
             state.Ready[sid] = ready;
@@ -1171,14 +1426,14 @@ public sealed class WingmanVoiceService
         state.NothingToNarrate.TryRemove(sid, out _);   // audio exists, so there was something to narrate after all
         state.DirectorCannotSend.TryRemove(sid, out _); // ...and a narration proves that computer CAN send its conversation
         state.SpeechRetries.TryRemove(sid, out _);      // ...and the audio ARRIVED, so the speech retry schedule ends on its first success
-        SaveReadyAudio(tenant, sid, ready);
+        return true;
     }
 
     /// <summary>Test seam: store ready audio exactly as a successful synthesis would (in-memory +
     /// durable), so the persistence round-trip can be tested without calling a provider. The optional
     /// <paramref name="servedViaFallback"/> lets a test store a backup-served clip and assert the notice.</summary>
     internal void StoreReadyAudioForTest(TenantId tenant, string sid, string spoken, string reply, byte[] audio, string? contentType = null, bool servedViaFallback = false)
-        => StoreReady(tenant, sid, spoken, reply, audio, contentType, servedViaFallback);
+        => _ = StoreReady(tenant, sid, spoken, reply, audio, contentType, servedViaFallback);
 
     /// <summary>
     /// The periodic sweep's inputs, captured before generation starts: the live screen it read, and whether an
