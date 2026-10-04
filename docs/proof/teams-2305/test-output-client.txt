@@ -7,6 +7,7 @@
  [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_NotAMember404_IsNotOffered
  [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_TeamsDarkAppShell_IsNotOffered
  [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_InvalidWeek400_ThrowsTheGatewaysSentence
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_AnswerForAnotherWeek_Throws
  [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_BodyThatIsNotJson_ThrowsAGatewayErrorNotAParseError
  [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_a block missing its text_Throws
  [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_no readers list_Throws
@@ -21,7 +22,14 @@
  [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_an unknown scope_Throws
  [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_two blocks on a person's own page_Throws
  [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_a reader with no role_Throws
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_a person email that is an empty string_Throws
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_a reader email that is an empty string_Throws
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_a block role that is an empty string_Throws
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_a reader role that is only spaces_Throws
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_a week start that is not a Monday_Throws
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_a week end that is not the Sunday after_Throws
+ [PASS] src/teams/mentorClient.test.ts > getMentorPage > GetMentorPage_ContractBroken_a week that is not the one its dates fall in_Throws
  [PASS] src/teams/mentorClient.test.ts > the week chooser's arithmetic > IsoWeekOf_KnownDates_MatchTheIsoCalendar
  [PASS] src/teams/mentorClient.test.ts > the week chooser's arithmetic > ShiftWeek_StepsOneWeekEitherWayAcrossAYear
  Test Files  1 passed (1)
-      Tests  25 passed (25)
+      Tests  33 passed (33)

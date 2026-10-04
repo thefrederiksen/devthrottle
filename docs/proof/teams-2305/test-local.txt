@@ -10,7 +10,7 @@ TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
   cc-director-setup-engine.Tests           outcome=Completed    total=676    executed=676
   cc-director-setup-cli.Tests              outcome=Completed    total=35     executed=35
 
-TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-b0ed98b3
+TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-95bed63c
 
 RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
 This is the gate - you do not need to wait for GitHub CI to merge.

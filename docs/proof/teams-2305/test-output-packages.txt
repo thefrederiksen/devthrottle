@@ -1,9 +1,9 @@
 client-core (whole package):
 typecheck: clean
  Test Files  143 passed (143)
-      Tests  1688 passed (1688)
+      Tests  1696 passed (1696)
 
 cockpit (whole package):
 typecheck: clean
  Test Files  70 passed (70)
-      Tests  635 passed (635)
+      Tests  638 passed (638)
