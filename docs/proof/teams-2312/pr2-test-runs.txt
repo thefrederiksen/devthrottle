@@ -1,10 +1,13 @@
 Pull request 2 - the Fleet Map by role (devthrottle_internal#2312)
-Final head 5d752df33, on pull request 1 head 07b39291c, on origin/main d3c225be2. Run 2026-10-04 on SOREN_NORTH.
+Code head 722dac119, rebased onto origin/main 24cf04bfa (pull request 1, #3527, squash-merged). Run 2026-10-04 on SOREN_NORTH.
+This head adds the Tech Lead's ruling of 4 October: a session on one of the CALLER'S OWN Directors also carries its
+repository and mission, so a Developer gets By director, By repository and By mission (mockup D4); everyone else's
+entries stay name and status, with the two fields absent from the wire.
 
-== Gateway unit suite (dotnet test src\CcDirector.Gateway.UnitTests), final head ==
-Passed!  - Failed:     0, Passed:  8373, Skipped:     8, Total:  8381, Duration: 7 m 54 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+== Gateway unit suite (dotnet test src\CcDirector.Gateway.UnitTests), this head ==
+Passed!  - Failed:     0, Passed:  8458, Skipped:     8, Total:  8466, Duration: 10 m 14 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
-== Default gate (.\scripts\test-local.ps1), final head ==
+== Default gate (.\scripts\test-local.ps1), this head ==
 TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
   CcDirector.Core.UnitTests                outcome=Completed    total=1161   executed=1161
   CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
@@ -17,16 +20,38 @@ TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
   cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
   cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
 RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
+(The COVERAGE GAP line names the parked Gateway suites: the unit suite is above, the hosted Teams suite below.)
 
-== Web, final head ==
-client-core: 142 files, 1669 tests: 1668 passed, 1 failed - src/devreports/devReportNotes.test.ts (not touched by this work). Run alone 4 times: 1 failed, 3 passed - intermittent, as the pull request 1 review recorded.
-cockpit: 69 files, 608 tests passed. mobile: 125 tests passed. npm run typecheck: clean. eslint on the changed files: clean.
+== Web, this head ==
+cockpit: 69 files, 612 tests passed. mobile: 23 files, 125 tests passed. client-core: 142 files, 1674 tests passed
+(devReportNotes passed this time; it is the intermittent one the pull request 1 review recorded).
+npm run typecheck: clean. eslint on the changed folders (apps/cockpit/src/fleet, apps/cockpit/src/teams,
+packages/client-core/src/teams): clean. The root `npm run lint` reports 3 errors, all in files this pull request does
+not touch (apps/cockpit/src/push/sw.test.ts, apps/mobile/src/pages/Recorder.tsx, apps/mobile/src/pages/VoiceMode.tsx:
+"Definition for rule ... was not found").
 
 == Hosted Gateway Teams suite (.\scripts\test-local.ps1 -Gateway -Filter FullyQualifiedName~Teams) ==
-Before the rebase onto the reviewed pull request 1 (head 5d9ccbfb8): outcome=Completed total=32 executed=32, 0 failed.
-On the final head: see the line appended below.
+NOT RUN ON THIS HEAD. The run started (test host up at 13:11 after queueing on the machine-wide Gateway lock) and was stopped by the session harness when the machine ran critically low on memory; it produced no verdict, and I did not restart it on a memory-starved machine. Before the rebase (head 5d9ccbfb8, without the repository and mission change): outcome=Completed total=32 executed=32, 0 failed. The two over-the-wire tests this head changes (OverTheWire_TheFleetMap_OwnerAndManager_SeeEveryDirectorOnTheTeam, OverTheWire_TheFleetMap_ADeveloper_SeesOnlyTheirOwnDirectorsOnThisTeam) have therefore NOT been run; they compile (the Gateway.Tests project built in the run).
 
 == Red proof: each rule broken on purpose, the tests run, then restored ==
+Repository and mission per entry (this head; CcDirector.Gateway.UnitTests, filter TeamFleetMap):
+5. Every entry carries repository and mission (SessionEntry ignores whose it is):
+   Failed: Read_OwnerAndManager_OnlyTheirOwnEntriesCarryRepositoryAndMission (Owner and Manager),
+   SessionEntry_SomeoneElses_CarriesNameAndStatusOnly, Read_Manager_NeverSeesAnotherPersonsRepositoryOrMission (4 failed | 55 passed).
+6. No entry carries them:
+   Failed: Read_OwnerAndManager_OnlyTheirOwnEntriesCarryRepositoryAndMission (Owner and Manager),
+   SessionEntry_TheCallersOwn_CarriesRepositoryAndMission, Read_Developer_TheirOwnSessionsCarryRepositoryAndMission,
+   Read_Manager_NeverSeesAnotherPersonsRepositoryOrMission (5 failed | 54 passed).
+7. A Developer offered By director only:
+   Failed: Read_TheGatewayDecidesTheLayoutsAndTheSentence (1 failed | 58 passed).
+Web, this head:
+8. The reader drops a session's repository -> GetTeamFleetMap_TheirOwnSessions_KeepRepositoryAndMission FAILED (1 failed | 14 passed).
+9. The reader accepts By repository when a session has none -> GetTeamFleetMap_ByRepositoryOfferedButASessionHasNoRepository_Throws
+   FAILED (1 failed | 14 passed).
+10. The view lays By repository out by Director -> TeamFleetMapView_D4Developer_ByRepository_OneLanePerRepositoryWithEachSessionsDirector
+   and TeamFleetMapView_D4Developer_NothingOpensInAnyLayout FAILED (2 failed | 11 passed).
+
+Earlier, on the pull request's first head (still guarding the same code):
 Gateway (CcDirector.Gateway.UnitTests):
 1. Server-side cut removed (a Developer gets everyone) + a SessionId added to TeamFleetMapSession:
    Failed: Issue2312Test1_Read_Developer_GetsOnlyTheirOwnDirectorsAndSessionsOnThatTeam, Read_ADeveloperWithNoDirectors_GetsAnEmptyMap,
@@ -38,9 +63,13 @@ Gateway (CcDirector.Gateway.UnitTests):
 Web:
 3. A teammate's session made a link -> TeamFleetMapView_NothingOnATeammatesSession_Opens FAILED (1 failed | 8 passed).
 4. Extra wire fields passed through -> GetTeamFleetMap_ExtraFieldsOnASession_AreDropped FAILED (1 failed | 9 passed).
-All restored; the source diff was empty afterwards.
+All restored; the source diff was empty afterwards, each time.
 
 == Screenshots ==
-Retaken on the final head from a fresh `npm run build --workspace @devthrottle/cockpit`. Read through the browser in the same run:
+Retaken on this head from a fresh `npm run build --workspace @devthrottle/cockpit`. Read through the browser in the same run:
 switcher lists "Your own account", "DevThrottle - Manager", "Paul's project - Developer", "Marketing - Collaborator";
-D5 lanes: priya | rob | soren; links or buttons inside lanes: 0; D4 lanes: Rob - laptop; Collaborator: the Gateway's refusal.
+D5 lanes: priya | rob | soren; links or buttons inside lanes: 0.
+D4 lanes: Rob - desk | Rob - laptop; By repository: paul/storefront | paul/storefront-api; By mission: Spring launch | Standalone;
+links or buttons inside D4 lanes: 0. Collaborator: the Gateway's refusal.
+Found by reading these shots and fixed before the final run: in By repository and By mission the session name was cut
+short beside its Director's name; the Director now sits on its own line under the session.
