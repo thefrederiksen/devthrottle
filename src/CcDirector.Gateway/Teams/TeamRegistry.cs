@@ -39,6 +39,8 @@ public sealed partial class TeamRegistry
     private readonly Func<DateTime> _utcNow;
     private readonly TeamSeatSync? _seatSync;
     private readonly Func<string, TeamBilledSeats> _readTeamBill;
+    // "May this person do this in this team", asked of the one place that answers it (devthrottle_internal#2302).
+    private readonly TeamAccess _access;
     private readonly object _writeLock = new();
     private readonly ConcurrentDictionary<Task, byte> _seatSyncsInFlight = new();
 
@@ -68,6 +70,7 @@ public sealed partial class TeamRegistry
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _seatSync = seatSync;
         _readTeamBill = readTeamBill ?? new EntitlementRegistry(db).ReadTeamBilledSeats;
+        _access = new TeamAccess(this);
     }
 
     /// <summary>
