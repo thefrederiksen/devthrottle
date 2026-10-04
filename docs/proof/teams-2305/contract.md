@@ -76,7 +76,8 @@ Field rules - every one of them decided on the Gateway; a client renders, it doe
   the Gateway (role, then email). The same list for every caller - it is what S7's "your Manager reads this same
   page" shows. A member with no email on record is listed with `email: null`.
 - `blocks` - one per person who ran sessions that week and had prompts. A person with no sessions, or sessions but
-  no prompts, has NO block - never an empty or invented one. Ordered by `personEmail`.
+  no prompts, has NO block - never an empty or invented one. Ordered by `personEmail`. Only people who are members
+  of the team NOW: the block of someone who has since left is not served.
 - `personEmail` - who the block is about, as the Team page shows people; head the block with it. The block's own
   words never name anyone: they speak of the person as "they" (owner ruling via the Tech Lead, 4 Oct 2026 - a name
   derived from an email would be a guess). `null` when the person has no email on record.
