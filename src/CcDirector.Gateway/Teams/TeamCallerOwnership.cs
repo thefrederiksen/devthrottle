@@ -131,19 +131,36 @@ public sealed class TeamCallerOwnership
         return TeamOwnership.Callers;
     }
 
-    private TeamOwnership OwnerOfDirector(TenantId tenant, string directorId, string callerSubject, string what)
+    /// <summary>
+    /// THE ONE ANSWER TO "WHOSE DIRECTOR IS THIS" in a tenant (devthrottle_internal#2311, seam-director-key.md): the
+    /// account subject on the ACTIVE device credential the Director said Hello on, bound to THIS tenant. Null - nobody's,
+    /// so refused wherever it is asked - when the Director was registered with no device key, or its credential is
+    /// revoked, bound to another tenant, or names nobody. The team gate asks it here; the team Fleet Map (#2312) is to ask
+    /// it too, so the question has one copy. Personally identifying: the answer is never logged.
+    /// </summary>
+    public string? OwnerOf(TenantId tenant, string directorId)
     {
+        if (string.IsNullOrWhiteSpace(directorId))
+            return null;
         var credential = _directors.RegisteringCredentialOf(tenant, directorId);
         if (credential is null || !credential.StartsWith(DeviceCredentialPrefix, StringComparison.Ordinal))
         {
-            FileLog.Write($"[TeamCallerOwnership] Whose: {what} of director={directorId} - the Director was not registered by a device key in tenant {tenant.ToLogString()}, unknown");
-            return TeamOwnership.Unknown;
+            FileLog.Write($"[TeamCallerOwnership] OwnerOf: director={directorId} was not registered by a device key in tenant {tenant.ToLogString()} - nobody's");
+            return null;
         }
 
-        var owner = _devices.AccountSubjectOfDevice(credential[DeviceCredentialPrefix.Length..]);
+        var owner = _devices.AccountSubjectOfActiveDevice(credential[DeviceCredentialPrefix.Length..], tenant);
+        if (owner is null)
+            FileLog.Write($"[TeamCallerOwnership] OwnerOf: director={directorId} - its credential is revoked, bound to another tenant, or names nobody - nobody's");
+        return owner;
+    }
+
+    private TeamOwnership OwnerOfDirector(TenantId tenant, string directorId, string callerSubject, string what)
+    {
+        var owner = OwnerOf(tenant, directorId);
         if (owner is null)
         {
-            FileLog.Write($"[TeamCallerOwnership] Whose: {what} of director={directorId} - its key names nobody, unknown");
+            FileLog.Write($"[TeamCallerOwnership] Whose: {what} of director={directorId} in tenant {tenant.ToLogString()} - nobody's, unknown");
             return TeamOwnership.Unknown;
         }
 

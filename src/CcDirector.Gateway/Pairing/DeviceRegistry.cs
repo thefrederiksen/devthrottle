@@ -545,20 +545,23 @@ public sealed class DeviceRegistry : IDisposable
     }
 
     /// <summary>
-    /// The person a device row's key was issued to, or null when there is no such row or it names nobody. The team
-    /// gate asks it to learn whose a Director is (devthrottle_internal#2311). Personally identifying: never logged.
+    /// The person a device row's key was issued to - only while that key is ACTIVE (active status, no revocation) and
+    /// bound to <paramref name="tenant"/>. Null when there is no such row, it names nobody, it is revoked, or it is bound
+    /// to another tenant. Read by <see cref="Teams.TeamCallerOwnership.OwnerOf"/>, the one answer to "whose Director is
+    /// this" (devthrottle_internal#2311, seam-director-key.md). Personally identifying: never logged.
     /// </summary>
-    public string? AccountSubjectOfDevice(string deviceId)
+    public string? AccountSubjectOfActiveDevice(string deviceId, TenantId tenant)
     {
-        if (string.IsNullOrWhiteSpace(deviceId))
+        if (string.IsNullOrWhiteSpace(deviceId) || !tenant.IsValid)
             return null;
         using var ctx = _db.CreateUnscopedContext();
         var subject = ctx.DeviceCredentials
             .AsNoTracking()
-            .Where(d => d.DeviceId == deviceId)
+            .Where(d => d.DeviceId == deviceId && d.TenantId == tenant.Value
+                        && d.Status == StatusActive && d.RevokedAtUtc == null)
             .Select(d => d.AccountSubject)
             .FirstOrDefault();
-        return string.IsNullOrWhiteSpace(subject) ? null : subject;
+        return string.IsNullOrWhiteSpace(subject) ? null : subject.Trim();
     }
 
     /// <summary>

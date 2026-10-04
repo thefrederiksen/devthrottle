@@ -242,19 +242,31 @@ public sealed class TeamDirectorKeyTests : IDisposable
     }
 
     [Fact]
-    public void AccountSubjectOfDevice_AndDisplayOfDevice_ReadTheRow_OrNullWhenThereIsNone()
+    public void AccountSubjectOfActiveDevice_NamesNobody_ForARevokedKey_OrAKeyBoundToAnotherTenant()
+    {
+        _devices.RegisterForTenant(new TenantId(_team), Developer, "row-live", "M");
+        _devices.RegisterForTenant(new TenantId(_team), Developer, "row-revoked", "M");
+        Assert.True(_devices.RevokeDevice("row-revoked", "test_reason"));
+
+        Assert.Equal(Developer, _devices.AccountSubjectOfActiveDevice("row-live", new TenantId(_team)));
+        Assert.Null(_devices.AccountSubjectOfActiveDevice("row-revoked", new TenantId(_team)));
+        Assert.Null(_devices.AccountSubjectOfActiveDevice("row-live", new TenantId(_otherTeam)));
+    }
+
+    [Fact]
+    public void AccountSubjectOfActiveDevice_AndDisplayOfDevice_ReadTheRow_OrNullWhenThereIsNone()
     {
         _devices.RegisterForTenant(new TenantId(_team), Developer, "row-1", "Laptop", "linux", "workstation");
 
-        Assert.Equal(Developer, _devices.AccountSubjectOfDevice("row-1"));
+        Assert.Equal(Developer, _devices.AccountSubjectOfActiveDevice("row-1", new TenantId(_team)));
         Assert.Equal(new DeviceDisplay("Laptop", "linux", "workstation"), _devices.DisplayOfDevice("row-1"));
-        Assert.Null(_devices.AccountSubjectOfDevice("no-such-row"));
+        Assert.Null(_devices.AccountSubjectOfActiveDevice("no-such-row", new TenantId(_team)));
         Assert.Null(_devices.DisplayOfDevice("no-such-row"));
-        Assert.Null(_devices.AccountSubjectOfDevice(" "));
+        Assert.Null(_devices.AccountSubjectOfActiveDevice(" ", new TenantId(_team)));
         Assert.Null(_devices.DisplayOfDevice(""));
         // A self-host key names nobody.
         _devices.Register("local-row", "M");
-        Assert.Null(_devices.AccountSubjectOfDevice("local-row"));
+        Assert.Null(_devices.AccountSubjectOfActiveDevice("local-row", TenantId.Local));
     }
 
     // ---- Two Directors, one person, two teams ---------------------------------------------------------------------

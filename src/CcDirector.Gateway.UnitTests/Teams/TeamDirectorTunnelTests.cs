@@ -321,6 +321,22 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     }
 
     [Fact]
+    public void OwnerOf_ADirectorWhoseKeyIsRevoked_IsNobodys_AndItsSessionIsRefusedToItsFormerOwner()
+    {
+        var key = EnrolledKey(Alice, "director-alice", _teamA);
+        var alice = SayHello(key, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-alice" } });
+        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary);
+        Assert.Equal(Alice, ownership.OwnerOf(new TenantId(_teamA), "director-alice"));
+
+        Assert.True(_devices.RevokeDevice(_devices.ResolveCredential(key).Identity!.DeviceId, "test_reason"));
+
+        Assert.Null(ownership.OwnerOf(new TenantId(_teamA), "director-alice"));
+        Assert.Equal(TeamOwnership.Unknown, Whose(_teamA, Alice, "session-alice"));
+        Assert.Null(ownership.OwnerOf(new TenantId(_teamB), "director-alice"));
+    }
+
+    [Fact]
     public void AMembersOwnSession_WithItsOwnStoredConversation_IsTheirs_AndNoOneElses()
     {
         var alice = Hello(_teamA, Alice, "director-alice");
