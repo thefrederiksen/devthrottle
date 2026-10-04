@@ -76,3 +76,11 @@ the new test class run, and the source restored in a `finally`. All eight went r
 - What did NOT run here: `Gateway.Tests` and `Core.Tests` (parked; the mandate says not to run the long Gateway
   suite on this machine). Neither suite's source names any type this change touches. The Tech Lead starts CI for
   the full run.
+
+## Review round (review-2311-convergence.md, F1 and F2)
+
+Text and the summary count only. F1: the pass summary counts a call refused as ended apart from the retried
+failures. F2: the error code's comment says it decides the stop. Revert check: putting the ended refusal back under
+the retried failures turns `RunOnceAsync_WebsiteSaysSubscriptionEnded_MarksTheTeamLogsOnceAndStopsCalling` red
+(1 of 25). Reruns: the convergence, seat sync and invitation tests 93 passed, 0 failed; `.\scripts\test-local.ps1`
+default, all ten suites outcome=Completed, 3,476 tests, exit 0.
