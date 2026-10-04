@@ -86,9 +86,20 @@ describe("TeamLibraryView", () => {
     client.getTeamLibrary.mockRejectedValue(new GatewayError(403, sentence, { reason: sentence, code: "team_action_refused" }));
     render(<TeamLibraryView team={{ ...ACME, role: "Collaborator" }} />);
 
-    expect((await screen.findByRole("alert")).textContent).toContain(sentence);
+    // An answer, not a failure: the Gateway's sentence as a note, no red banner and no "Try again".
+    expect((await screen.findByRole("note")).textContent).toBe(sentence);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByText(/Every session you start on this team/)).toBeNull();
     expect(screen.queryByText("release-checklist")).toBeNull();
     expect(screen.queryByRole("button", { name: "Add skill" })).toBeNull();
+  });
+
+  it("TeamLibraryView_AGatewayFailure_IsAnErrorWithRetry_NotANote", async () => {
+    client.getTeamLibrary.mockRejectedValue(new GatewayError(503, "The Gateway is restarting.", { reason: "The Gateway is restarting." }));
+    render(<TeamLibraryView team={ACME} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("The Gateway is restarting.");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("TeamLibraryView_TheVerdictNotTheRole_DecidesWhatIsOffered", async () => {

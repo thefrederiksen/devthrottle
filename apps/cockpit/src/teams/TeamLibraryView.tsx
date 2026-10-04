@@ -14,7 +14,7 @@ import {
   type TeamLibraryItem,
 } from "@devthrottle/client-core/teams/teamLibraryClient";
 import { suggestSkillId } from "@devthrottle/client-core/skills/skillsClient";
-import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { gatewayErrorMessage, GatewayError } from "@devthrottle/client-core/api/client";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, useDismissOnBackdrop } from "../components";
 import "./teams.css";
 
@@ -40,6 +40,9 @@ export function TeamOrOwn({ own }: { own: ReactNode }) {
   return current === null ? <>{own}</> : <TeamLibraryView key={current.id} team={current} />;
 }
 
+/** The code the Gateway's team gate puts on every refusal (TeamEndpointGate.RefusalCode). */
+const TEAM_REFUSAL_CODE = "team_action_refused";
+
 type Dialog =
   | { kind: "view"; item: TeamLibraryItem }
   | { kind: "change"; item: TeamLibraryItem }
@@ -49,6 +52,9 @@ type Dialog =
 export function TeamLibraryView({ team }: { team: TeamSummary }) {
   const [library, setLibrary] = useState<TeamLibrary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The Gateway's refusal of the list itself (a Collaborator): an answer, not a failure, so it is shown as a note
+  // with no retry - in the Gateway's own words.
+  const [refusal, setRefusal] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [pendingRemove, setPendingRemove] = useState<TeamLibraryItem | null>(null);
 
@@ -57,8 +63,13 @@ export function TeamLibraryView({ team }: { team: TeamSummary }) {
       const fresh = await getTeamLibrary(team.id, signal);
       setLibrary(fresh);
       setError(null);
+      setRefusal(null);
     } catch (err) {
       if (signal?.aborted === true) return;
+      if (err instanceof GatewayError && err.code === TEAM_REFUSAL_CODE && err.serverReason !== undefined) {
+        setRefusal(err.serverReason);
+        return;
+      }
       setError(gatewayErrorMessage(err, "read the team's skills and workflows"));
     }
   }, [team.id]);
@@ -80,9 +91,11 @@ export function TeamLibraryView({ team }: { team: TeamSummary }) {
         <div className="ui-page-header-text">
           <p className="wf-eyebrow">Shared by the team</p>
           <h1 className="ui-page-title">Skills and workflows</h1>
-          <p className="ui-page-subtitle">
-            Shared by the {team.name} team. Every session you start on this team can use them.
-          </p>
+          {refusal === null ? (
+            <p className="ui-page-subtitle">
+              Shared by the {team.name} team. Every session you start on this team can use them.
+            </p>
+          ) : null}
         </div>
         {library?.canChange === true ? (
           <div className="tl-header-actions">
@@ -92,7 +105,9 @@ export function TeamLibraryView({ team }: { team: TeamSummary }) {
         ) : null}
       </header>
 
-      {error !== null ? (
+      {refusal !== null ? (
+        <p className="tl-hint" role="note">{refusal}</p>
+      ) : error !== null ? (
         <ErrorBanner message={error} onRetry={() => void load()} />
       ) : library === null ? (
         <LoadingState message="Loading the team's skills and workflows..." />
