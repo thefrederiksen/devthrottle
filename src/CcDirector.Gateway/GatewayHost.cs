@@ -780,6 +780,14 @@ public sealed class GatewayHost : IAsyncDisposable
     // held here and fetched, instead of copied onto every machine by the installer. Served by
     // Api.SkillEndpoints - a separate register from workflows, sharing their storage shape.
     private readonly Skills.SkillStore _skills;
+
+    /// <summary>The skill library, for tests that read it inside a tenant (devthrottle_internal#2304: what a team's
+    /// session is served).</summary>
+    internal Skills.SkillStore SkillLibrary => _skills;
+
+    /// <summary>The workflow library, for the same tests.</summary>
+    internal Workflows.WorkflowStore WorkflowLibrary => _workflows;
+
     // The standing instructions an account gives about its sessions, and the record of every time one
     // fired (Session Rules mission). Served by Api.SessionRuleEndpoints; read by the evaluator below.
     private readonly Rules.SessionRuleStore _sessionRules;
@@ -4690,6 +4698,12 @@ public sealed class GatewayHost : IAsyncDisposable
         if (TeamSeatConvergence is { } convergence)
             _teamSeatConvergenceTimer = new Timer(_ => _ = convergence.RunSafeAsync(), null,
                 TimeSpan.FromMinutes(1), Teams.TeamSeatConvergence.Interval);
+
+            // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow
+            // routes mounted again under /teams/{teamId}, answering for the team's tenant, plus the Skills and
+            // workflows page's read. Dark with the rest of Teams.
+            TeamLibraryEndpoints.Map(_app, _skills, _workflows, TeamRegistry, TeamAccess, _tenantBoundary, TenantRegistry);
+        }
 
         // The administrator trial EXTENSION: POST /gateway/admin/trials/extend. The write twin of the read
         // above, and the only way a trial's end date moves. It lives here rather than as a database grant to

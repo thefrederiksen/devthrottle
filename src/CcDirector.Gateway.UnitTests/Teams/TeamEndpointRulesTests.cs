@@ -22,6 +22,14 @@ public sealed class TeamEndpointRulesTests
     [InlineData("GET", "/gateway/workflows/{id}/instructions", TeamAction.UseSharedSkillsAndWorkflows)]
     [InlineData("PUT", "/gateway/mentor-report", TeamAction.ReadOwnMentorPage)]
     [InlineData("GET", "/prompts/export", TeamAction.RunSessionsOnOwnComputers)]
+    [InlineData("GET", "/teams/{teamId}/library", TeamAction.UseSharedSkillsAndWorkflows)]
+    [InlineData("GET", "/teams/{teamId}/skills", TeamAction.UseSharedSkillsAndWorkflows)]
+    [InlineData("GET", "/teams/{teamId}/skills/{id}/body", TeamAction.UseSharedSkillsAndWorkflows)]
+    [InlineData("POST", "/teams/{teamId}/skills", TeamAction.ChangeSharedSkillsAndWorkflows)]
+    [InlineData("PUT", "/teams/{teamId}/skills/{id}/draft", TeamAction.ChangeSharedSkillsAndWorkflows)]
+    [InlineData("DELETE", "/teams/{teamId}/skills/{id}", TeamAction.ChangeSharedSkillsAndWorkflows)]
+    [InlineData("GET", "/teams/{teamId}/workflows/{id}/instructions", TeamAction.UseSharedSkillsAndWorkflows)]
+    [InlineData("POST", "/teams/{teamId}/workflows/{id}/publish", TeamAction.ChangeSharedSkillsAndWorkflows)]
     public void Find_ADeclaredEndpoint_StatesItsAction(string method, string pattern, TeamAction expected)
     {
         Assert.Equal(expected, TeamEndpointRules.Find(method, pattern)?.Action);
@@ -83,6 +91,25 @@ public sealed class TeamEndpointRulesTests
     {
         Assert.Equal(TeamFrom.RouteTeamId, TeamEndpointRules.Find("GET", "/teams/{teamId}/members")!.TeamFrom);
         Assert.Equal(TeamFrom.RequestTenant, TeamEndpointRules.Find("GET", "/gateway/skills")!.TeamFrom);
+    }
+
+    [Theory]
+    [InlineData("GET", "/teams/{teamId}/library")]
+    [InlineData("GET", "/teams/{teamId}/skills/{id}")]
+    [InlineData("POST", "/teams/{teamId}/workflows")]
+    public void Find_TheTeamLibraryRoutes_TakeTheTeamFromTheRoute_AndAnswerForTheWholeTeam(string method, string pattern)
+    {
+        var rule = TeamEndpointRules.Find(method, pattern)!;
+        Assert.Equal(TeamFrom.RouteTeamId, rule.TeamFrom);
+        Assert.Equal(TeamTarget.Team, rule.Target);
+    }
+
+    [Theory]
+    [InlineData("POST", "/teams/{teamId}/library")]
+    [InlineData("GET", "/teams/{teamId}/library/{id}")]
+    public void Find_TheLibraryRead_CoversOnlyItself(string method, string pattern)
+    {
+        Assert.Null(TeamEndpointRules.Find(method, pattern));
     }
 
     [Fact]

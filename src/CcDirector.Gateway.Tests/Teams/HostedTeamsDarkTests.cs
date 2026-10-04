@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -134,5 +135,33 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
             Assert.Equal(hash, row.AcceptTokenHash);
         }
         Assert.Null(_gateway.TeamRegistry.RoleOf(team, joiner));
+    }
+
+    [Fact]
+    public async Task SwitchUnset_TheTeamLibraryRoutesAreAbsent_AndThePersonalLibraryStillAnswers()
+    {
+        // devthrottle_internal#2304. Read from the finalised route table: nothing under /teams is mapped at all - while
+        // the ordinary skill and workflow routes are, so the table read is not an empty one.
+        var patterns = _gateway.MappedEndpoints.OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
+            .Select(e => CcDirector.Gateway.Teams.TeamEndpointRules.Normalize(e.RoutePattern.RawText)).ToArray();
+        Assert.Contains("/gateway/skills", patterns);
+        Assert.Contains("/gateway/workflows", patterns);
+        Assert.DoesNotContain(patterns, p => p.StartsWith("/teams", StringComparison.Ordinal));
+
+        var team = Guid.NewGuid();
+        foreach (var (method, path) in new[] { (HttpMethod.Get, $"teams/{team}/skills"), (HttpMethod.Get, $"teams/{team}/workflows"),
+                     (HttpMethod.Get, $"teams/{team}/library"), (HttpMethod.Post, $"teams/{team}/skills") })
+        {
+            using var req = new HttpRequestMessage(method, path);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
+            if (method == HttpMethod.Post) req.Content = JsonContent.Create(new { id = "dark-skill", name = "Dark", summary = "s", bodyMarkdown = "# d" });
+            using var resp = await _http.SendAsync(req);
+            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        }
+
+        using var own = new HttpRequestMessage(HttpMethod.Get, "gateway/skills");
+        own.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
+        using var ownResp = await _http.SendAsync(own);
+        Assert.Equal(HttpStatusCode.OK, ownResp.StatusCode);
     }
 }

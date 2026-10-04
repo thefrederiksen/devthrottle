@@ -46,9 +46,21 @@ namespace CcDirector.Gateway.Api;
 /// </summary>
 internal static class WorkflowEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, WorkflowStore store)
+    /// <summary>Where the routes live for the caller's own account.</summary>
+    public const string DefaultRoot = "/gateway/workflows";
+
+    /// <summary>
+    /// Maps the routes under <paramref name="root"/>. The store answers for the AMBIENT tenant, so the same routes
+    /// serve a team's library when mounted under <c>/teams/{teamId}/workflows</c> with the team's tenant entered
+    /// (<see cref="TeamLibraryEndpoints"/>, devthrottle_internal#2304) - one set of handlers, never a copy.
+    /// </summary>
+    public static void Map(IEndpointRouteBuilder app, WorkflowStore store, string root = DefaultRoot)
     {
-        app.MapGet("/gateway/workflows", (HttpContext ctx) =>
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentException.ThrowIfNullOrWhiteSpace(root);
+
+        app.MapGet(root, (HttpContext ctx) =>
         {
             var workflows = store.ListPublished();
             FileLog.Write($"[WorkflowEndpoints] list workflows: count={workflows.Count}");
@@ -57,7 +69,7 @@ internal static class WorkflowEndpoints
             return ConditionalJson.Serve(ctx, new { workflows });
         });
 
-        app.MapGet("/gateway/workflows/{id}", (string id) =>
+        app.MapGet(root + "/{id}", (string id) =>
         {
             var workflow = store.GetPublished(id);
             if (workflow is null)
@@ -76,7 +88,7 @@ internal static class WorkflowEndpoints
         // ruling, 2026-07-17) - authorship is recorded on every version and a bad publish is fixed by
         // publishing again.
 
-        app.MapPost("/gateway/workflows", async (HttpContext ctx) =>
+        app.MapPost(root, async (HttpContext ctx) =>
         {
             var content = await ReadBody(ctx);
             if (content is null)
@@ -89,7 +101,7 @@ internal static class WorkflowEndpoints
             });
         });
 
-        app.MapPut("/gateway/workflows/{id}/draft", async (string id, HttpContext ctx) =>
+        app.MapPut(root + "/{id}/draft", async (string id, HttpContext ctx) =>
         {
             var content = await ReadBody(ctx);
             if (content is null)
@@ -105,7 +117,7 @@ internal static class WorkflowEndpoints
             });
         });
 
-        app.MapPost("/gateway/workflows/{id}/publish", (string id) => Guard(() =>
+        app.MapPost(root + "/{id}/publish", (string id) => Guard(() =>
         {
             var published = store.Publish(id);
             if (published is null)
@@ -120,7 +132,7 @@ internal static class WorkflowEndpoints
         // Clone (Shared Workflow Library phase 4): copy a workflow's published content into a new
         // tenant-owned, fully editable workflow - the sanctioned customization path for the
         // read-only built-ins. ?newId names the clone; ?by records who cloned (the authoring actor).
-        app.MapPost("/gateway/workflows/{id}/clone", (string id, string? newId, string? by) => Guard(() =>
+        app.MapPost(root + "/{id}/clone", (string id, string? newId, string? by) => Guard(() =>
         {
             var clone = store.Clone(id, newId ?? "", by ?? "");
             if (clone is null)
@@ -129,7 +141,7 @@ internal static class WorkflowEndpoints
             return Results.Json(clone, statusCode: StatusCodes.Status201Created);
         }));
 
-        app.MapDelete("/gateway/workflows/{id}", (string id) => Guard(() =>
+        app.MapDelete(root + "/{id}", (string id) => Guard(() =>
         {
             if (!store.Archive(id))
                 return NotFound(id);
@@ -137,13 +149,13 @@ internal static class WorkflowEndpoints
             return Results.Json(new { id, archived = true });
         }));
 
-        app.MapGet("/gateway/workflows/{id}/versions", (string id) =>
+        app.MapGet(root + "/{id}/versions", (string id) =>
         {
             var versions = store.ListVersions(id);
             return versions is null ? NotFound(id) : Results.Json(new { versions });
         });
 
-        app.MapGet("/gateway/workflows/{id}/versions/{version:int}", (string id, int version) =>
+        app.MapGet(root + "/{id}/versions/{version:int}", (string id, int version) =>
         {
             var detail = store.GetVersionDetail(id, version);
             return detail is null ? NotFound(id) : Results.Json(detail);
@@ -151,7 +163,7 @@ internal static class WorkflowEndpoints
 
         // The agent read path: raw markdown, no JSON envelope, so `cc-devthrottle workflow
         // instructions <id>` can print it verbatim into an agent's context.
-        app.MapGet("/gateway/workflows/{id}/instructions", (string id, int? version) => Guard(() =>
+        app.MapGet(root + "/{id}/instructions", (string id, int? version) => Guard(() =>
         {
             // Guard: a workflow the owner turned OFF refuses the default read with a clear 400
             // message (never a misleading 404); pinned explicit-version reads keep serving.
@@ -164,17 +176,17 @@ internal static class WorkflowEndpoints
         // deleted, instant both ways fleet-wide.
         // Both verbs REQUIRE ?by=<who> - a governance change has an actor, always (the run-
         // acceptance posture). Attribution is log-based until governance's event ledger lands.
-        app.MapPost("/gateway/workflows/{id}/enable", (string id, string? by) => Guard(() =>
+        app.MapPost(root + "/{id}/enable", (string id, string? by) => Guard(() =>
             store.SetEnabled(id, true, by ?? "")
                 ? Results.Json(new { id, enabled = true })
                 : NotFound(id)));
 
-        app.MapPost("/gateway/workflows/{id}/disable", (string id, string? by) => Guard(() =>
+        app.MapPost(root + "/{id}/disable", (string id, string? by) => Guard(() =>
             store.SetEnabled(id, false, by ?? "")
                 ? Results.Json(new { id, enabled = false })
                 : NotFound(id)));
 
-        app.MapGet("/gateway/workflows/{id}/files/{fileName}", (string id, string fileName, int? version) =>
+        app.MapGet(root + "/{id}/files/{fileName}", (string id, string fileName, int? version) =>
         {
             var content = store.GetFileContent(id, fileName, version);
             return content is null
