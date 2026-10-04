@@ -62,6 +62,23 @@ public sealed class MobileRedirectTests : IAsyncLifetime
         Assert.Equal(expected, MobileRedirect.IsPhoneUserAgent(userAgent));
     }
 
+    // Review F1 (devthrottle_internal#2301): the team invitation link is opened on phones, and the mobile app has no
+    // invitation page - so the accept page and the sign-in round trip it starts stay where the invitation can be shown.
+    [Theory]
+    [InlineData("/invite/abc123", null, false)]
+    [InlineData("/signin", "/invite/abc123", false)]
+    [InlineData("/device-callback", null, false)]
+    [InlineData("/signin", "/sessions", true)]
+    [InlineData("/signin", null, true)]
+    [InlineData("/", null, true)]
+    [InlineData("/sessions", "/invite/abc123", true)]
+    [InlineData("/inviter", null, true)]
+    public void ShouldRedirect_phone_invitation_round_trip_is_not_redirected_and_everything_else_still_is(
+        string path, string? next, bool expected)
+    {
+        Assert.Equal(expected, MobileRedirect.ShouldRedirectToMobile("GET", path, "text/html", "iPhone Mobile", next));
+    }
+
     [Fact]
     public void ShouldRedirect_phone_html_navigation_is_redirected()
     {

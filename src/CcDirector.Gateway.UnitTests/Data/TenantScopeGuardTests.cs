@@ -112,6 +112,15 @@ public sealed class TenantScopeGuardTests : IDisposable
         //    by the payment side as the service role and this Gateway holds SELECT and nothing more - and it
         //    carries no tenant content: one subject, one subscription state, one period end.
         //
+        //  - TeamEntitlementEntity is a team's bill (thefrederiksen/devthrottle_internal#2299), the team
+        //    counterpart of EntitlementEntity and global for the same reasons. The website owns the table: it
+        //    creates it, the payment side writes it as the service role, and this Gateway holds SELECT and
+        //    nothing more. It carries no tenant content: one team id, one subscription state, a seat count, a
+        //    period end. Every read is an equality on one team id the caller already holds. And it is read
+        //    BEFORE or ACROSS tenant resolution - by the access lease deciding whether a tenant may be served
+        //    at all, and by seat convergence, which runs outside any request's tenant - so scoping it to a
+        //    tenant would be circular in the same way. It has no tenant_id column to scope by.
+        //
         //  - DeviceCredentialEntity is the device registry (MTR-14) - an AUTH-RESOLUTION lookup, not tenant
         //    data. A presented key is resolved to its device by its SHA-256 hash BEFORE any tenant is known, and
         //    the tenant is then READ OFF the matched record (each row carries its own tenant binding as a
@@ -162,12 +171,19 @@ public sealed class TenantScopeGuardTests : IDisposable
         //    scoping them would be circular in the same way as TenantEntity. A team's member list is served only to
         //    a member of that team, and a team is created only for the verified caller's own subject, so no tenant
         //    reaches another tenant's rows through them.
+        //
+        //  - TeamInvitationEntity is an invitation to a team (devthrottle_internal#2301). It is opened by the person
+        //    invited, from their own personal tenant, before they are a member of the team's tenant, so scoping it to
+        //    the team would be circular in the same way. It is listed and changed only by the team's Owner and
+        //    Managers, and opened only by whoever holds the secret token from the email.
         var allowedGlobalTables = new HashSet<Type>
         {
             typeof(TenantEntity),
             typeof(TeamEntity),
             typeof(TeamMemberEntity),
+            typeof(TeamInvitationEntity),
             typeof(EntitlementEntity),
+            typeof(TeamEntitlementEntity),
             typeof(AccountTrialEntity),
             typeof(TrialExtensionEntity),
             typeof(DeviceCredentialEntity),

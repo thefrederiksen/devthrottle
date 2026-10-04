@@ -70,7 +70,8 @@ public sealed class AddTeamsPostgresTests
         {
             var all = ctx.Database.GetMigrations().ToList();
             Assert.Equal(MigrationBefore, all[all.IndexOf(MigrationUnderTest) - 1]);
-            ctx.Database.Migrate();
+            // Migrated TO this migration, not to the newest: later migrations (AddTeamInvitations, #2301) follow it.
+            ctx.GetService<IMigrator>().Migrate(MigrationUnderTest);
             Assert.Equal(MigrationUnderTest, ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }

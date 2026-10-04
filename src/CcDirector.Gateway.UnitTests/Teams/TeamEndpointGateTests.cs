@@ -192,7 +192,8 @@ public sealed class TeamEndpointGateTests : IDisposable
     [Theory]
     [InlineData("POST", "/teams/{teamId}/members")]
     [InlineData("DELETE", "/teams/{teamId}/members")]
-    [InlineData("POST", "/teams/{teamId}/invitations")]
+    // Was /teams/{teamId}/invitations until #2301 declared it; a route no rule covers yet takes its place.
+    [InlineData("POST", "/teams/{teamId}/rename")]
     [InlineData("GET", "/gateway/team/{teamSlug}/billing")]
     [InlineData("PUT", "/x/{TeamId}")]
     public void Check_AnUndeclaredRouteThatNamesATeam_FromAPersonalAccount_IsRefusedByTheGate(string method, string pattern)

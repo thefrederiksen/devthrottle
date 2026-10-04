@@ -2396,6 +2396,45 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("snoozes", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamEntitlementEntity", b =>
+                {
+                    b.Property<string>("TeamId")
+                        .HasColumnType("text")
+                        .HasColumnName("team_id");
+
+                    b.Property<DateTime?>("CurrentPeriodEnd")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("current_period_end");
+
+                    b.Property<bool?>("Livemode")
+                        .HasColumnType("boolean")
+                        .HasColumnName("livemode");
+
+                    b.Property<int?>("Seats")
+                        .HasColumnType("integer")
+                        .HasColumnName("seats");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<string>("StripeSubscriptionId")
+                        .HasColumnType("text")
+                        .HasColumnName("stripe_subscription_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("TeamId");
+
+                    b.ToTable("team_entitlements", "gateway", t =>
+                        {
+                            t.ExcludeFromMigrations();
+                        });
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -2415,6 +2454,76 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("teams", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamInvitationEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AcceptTokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("accept_token_hash");
+
+                    b.Property<string>("AcceptedBySubject")
+                        .HasColumnType("text")
+                        .HasColumnName("accepted_by_subject");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("email");
+
+                    b.Property<DateTime>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_at_utc");
+
+                    b.Property<string>("InvitedBySubject")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("invited_by_subject");
+
+                    b.Property<DateTime?>("RespondedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("responded_at_utc");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("role");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at_utc");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("state");
+
+                    b.Property<string>("TeamId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("team_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AcceptTokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("TeamId", "Email");
+
+                    b.ToTable("team_invitations", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMemberEntity", b =>
@@ -3499,6 +3608,15 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         });
 
                     b.Navigation("PrimitiveRuns");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamInvitationEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMemberEntity", b =>

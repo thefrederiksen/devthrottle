@@ -388,11 +388,22 @@ public sealed class GatewayDbContext : DbContext
     /// like <see cref="Tenants"/>: read by account subject before any tenant is chosen.</summary>
     public DbSet<TeamMemberEntity> TeamMembers => Set<TeamMemberEntity>();
 
+    /// <summary>Invitations to join a team, by email (<c>team_invitations</c>, devthrottle_internal#2301). GLOBAL like
+    /// <see cref="TeamMembers"/>: opened by the person invited from their own tenant, before they are in the team's.</summary>
+    public DbSet<TeamInvitationEntity> TeamInvitations => Set<TeamInvitationEntity>();
+
     /// <summary>
     /// The paid-entitlement records the payment side writes and this Gateway only READS. Excluded from
     /// migrations - see the entity for why this one table is not ours to create.
     /// </summary>
     public DbSet<EntitlementEntity> Entitlements => Set<EntitlementEntity>();
+
+    /// <summary>
+    /// The TEAM bills (<c>team_entitlements</c>, devthrottle_internal #2299) the payment side writes and this
+    /// Gateway only READS, keyed by the team (tenant) id. Excluded from migrations exactly like
+    /// <see cref="Entitlements"/> - see the entity for why.
+    /// </summary>
+    public DbSet<TeamEntitlementEntity> TeamEntitlements => Set<TeamEntitlementEntity>();
 
     /// <summary>
     /// The free-trial ledger (<c>account_trials</c>, issue #2117) - the Gateway's OWN record of which accounts
@@ -1305,6 +1316,28 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Tier).HasColumnName("tier");
         });
 
+        modelBuilder.Entity<TeamEntitlementEntity>(b =>
+        {
+            // EXCLUDED FROM MIGRATIONS, for the same reason and in the same shape as EntitlementEntity above:
+            // the website's migration creates this table and its webhook is its only writer; this Gateway holds
+            // SELECT and nothing more. The schema is pinned explicitly on Postgres (and absent on schemaless
+            // SQLite) by the same provider conditional, so this read's qualification does not rest on the
+            // model-wide default either. The key is plain text on both providers - the team id is the tenant
+            // id string, not a uuid column - so no value converter is needed.
+            if (Database.IsNpgsql())
+                b.ToTable("team_entitlements", "gateway", t => t.ExcludeFromMigrations());
+            else
+                b.ToTable("team_entitlements", t => t.ExcludeFromMigrations());
+            b.HasKey(e => e.TeamId);
+            b.Property(e => e.TeamId).HasColumnName("team_id").IsRequired();
+            b.Property(e => e.Status).HasColumnName("status").IsRequired();
+            b.Property(e => e.Seats).HasColumnName("seats");
+            b.Property(e => e.CurrentPeriodEnd).HasColumnName("current_period_end");
+            b.Property(e => e.StripeSubscriptionId).HasColumnName("stripe_subscription_id");
+            b.Property(e => e.Livemode).HasColumnName("livemode");
+            b.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+        });
+
         modelBuilder.Entity<TenantEntity>(b =>
         {
             b.ToTable("tenants");
@@ -1352,6 +1385,33 @@ public sealed class GatewayDbContext : DbContext
                 .HasDatabaseName("IX_team_members_one_owner_per_team")
                 .HasFilter("\"role\" = 'owner'");
             // A membership cannot outlive its team.
+            b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TeamInvitationEntity>(b =>
+        {
+            b.ToTable("team_invitations");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
+            b.Property(e => e.TeamId).HasColumnName("team_id").IsRequired();
+            b.Property(e => e.Email).HasColumnName("email").IsRequired().HasMaxLength(CcDirector.Gateway.Teams.TeamInvitationRules.MaxEmailLength);
+            // The role's lower-case NAME, exactly as team_members stores it, so the website reads both tables the same way.
+            b.Property(e => e.Role).HasColumnName("role").IsRequired()
+                .HasConversion(r => CcDirector.Gateway.Teams.TeamRoles.ToStored(r), s => CcDirector.Gateway.Teams.TeamRoles.FromStored(s))
+                .HasMaxLength(20);
+            b.Property(e => e.State).HasColumnName("state").IsRequired().HasMaxLength(20);
+            b.Property(e => e.InvitedBySubject).HasColumnName("invited_by_subject").IsRequired();
+            b.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            b.Property(e => e.SentAtUtc).HasColumnName("sent_at_utc").IsRequired();
+            b.Property(e => e.ExpiresAtUtc).HasColumnName("expires_at_utc").IsRequired();
+            b.Property(e => e.AcceptTokenHash).HasColumnName("accept_token_hash").IsRequired().HasMaxLength(64);
+            b.Property(e => e.RespondedAtUtc).HasColumnName("responded_at_utc");
+            b.Property(e => e.AcceptedBySubject).HasColumnName("accepted_by_subject");
+            // The accept page finds its invitation by the hash of the token in the link; two invitations never share one.
+            b.HasIndex(e => e.AcceptTokenHash).IsUnique();
+            // A team's invitations page, and the "already invited" check, read by team and address.
+            b.HasIndex(e => new { e.TeamId, e.Email });
+            // An invitation cannot outlive its team.
             b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
         });
 
