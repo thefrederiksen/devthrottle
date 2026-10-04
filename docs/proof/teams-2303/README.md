@@ -1,6 +1,8 @@
 # Proof - the Team page (devthrottle_internal#2303)
 
-Stacked on pull request #3526 (devthrottle_internal#2301, invitations), which is not yet merged.
+Built on main after pull request #3526 (devthrottle_internal#2301, invitations) merged. The dark test for the three
+routes uses the shared helper from #3532: the finalised route table holds nothing under /teams, and each route is
+answered exactly as a path that was never mapped.
 
 ## What was built
 
