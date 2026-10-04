@@ -61,3 +61,37 @@ All runs with MSBUILDDISABLENODEREUSE=1, on the final code.
   restored.
 
 Not run: .\scripts\test-local.ps1 -Parked (Gateway.Tests in full, Core.Tests) - longer than one command here.
+
+==== Review round 1 (head after rebase onto d3c225be2) ====
+Changes: /healthz "teams" signal; tests that both team routes pass the auth middleware; the move names the Director by
+deviceId; setting a Director up again revokes that person's other keys for the same Director id.
+
+8. .\scripts\test-local.ps1  (default gate)
+  CcDirector.Core.UnitTests                outcome=Completed    total=1161   executed=1161
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+  RESULT: all projects exited zero. 3,476 passed, 0 failed.
+
+9. dotnet test src/CcDirector.Gateway.UnitTests, whole suite in two complementary halves (one run no longer fits in a
+   10-minute command). Half A = namespaces CcDirector.Gateway.Tests.{Wingman,Teams,Fleet,Api,History,Messaging,
+   Factory,Rules,DevReports}.  Half B = everything not in half A (the same nine as "!~" filters, joined with "&").
+  Half A: Failed: 5, Passed: 3173, Total: 3178
+  Half B: Passed: 5225, Skipped: 8, Total: 5233
+  Together 8,411 = the whole suite.
+  The 5 failures are all Wingman.OwnedSessionsAreNotReadTests (TurnEnd_SessionTheOwnerOwns_... x3,
+  SpeechTriggers_TheOwnersOwnVoiceSession_IsRead x2, "Expected 1, Actual 2"). They FAIL THE SAME WAY ON CLEAN
+  origin/main d3c225be2 (built in a scratch worktree off origin/main, class run alone: Failed 5, Passed 19), and they
+  passed in run 2 on the old base cdaab4f2b - so they came in with #3531, not with this change.
+
+10. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~.Teams.|FullyQualifiedName~Healthz|FullyQualifiedName~HostedMobile"
+  NOT COMPLETED. Queued behind another session's Gateway run, then stopped by the session host because the machine
+  was critically low on memory. No verdict. Not restarted. The round-1 Gateway.Tests changes (the /healthz signal
+  tests, the move body) therefore have NO Gateway.Tests run on this head; the -Parked run is where they are proven.
+  Run 3 (round 0) covered the rest of these classes on the earlier head.
