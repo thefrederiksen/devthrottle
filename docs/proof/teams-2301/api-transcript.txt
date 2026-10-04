@@ -1,0 +1,157 @@
+Team invitations over real HTTP (devthrottle_internal#2301): HostedTeamInvitationEndpointsTests.Transcript_TheWholeInvitationFlow,
+a hosted Gateway with Teams released, on head 3f9017d5e. The invitation mailer records and sends nothing. Each link token
+is shown as "<the secret from the email link>": the transcript is committed, and a token is a credential.
+
+POST /teams {"name":"Acme"} as owner@acme.example -> 201
+
+POST /teams/{teamId}/invitations {"email":"bob@gmail.example","role":"Developer"} as owner@acme.example (no bill yet) -> 409 Conflict
+{
+  "error": "The team\u0027s bill has not started - the Owner finishes billing first."
+}
+(website webhook) team_entitlements row written: active, 1 seat
+
+GET /teams/{teamId}/invitations/options as owner@acme.example -> 200 OK
+{
+  "teamId": "d677aea3-ff3d-4f2d-9d9c-fd667aa8c806",
+  "teamName": "Acme",
+  "yourRole": "Owner",
+  "roles": [
+    {
+      "role": "Manager",
+      "allowed": true,
+      "hint": "Invites and removes Developers and Collaborators. A paid seat on owner@acme.example\u0027s bill."
+    },
+    {
+      "role": "Developer",
+      "allowed": true,
+      "hint": "Runs sessions on their own computer. A paid seat on owner@acme.example\u0027s bill."
+    },
+    {
+      "role": "Collaborator",
+      "allowed": true,
+      "hint": "Answers questions, sends requests, reads reports. Free."
+    }
+  ],
+  "blocked": null,
+  "expiryNote": "The invitation expires in 7 days."
+}
+
+POST /teams/{teamId}/invitations {"email":"bob@gmail.example","role":"Developer"} as owner@acme.example -> 201 Created
+{
+  "invitation": {
+    "id": "364ee9cf-ba7f-45eb-9b21-b5fa6897d885",
+    "teamId": "d677aea3-ff3d-4f2d-9d9c-fd667aa8c806",
+    "teamName": "Acme",
+    "email": "bob@gmail.example",
+    "role": "Developer",
+    "state": "sent",
+    "invitedBy": "owner@acme.example",
+    "acceptedBy": null,
+    "paidBy": "owner@acme.example",
+    "sentAtUtc": "2026-10-04T02:49:57.9973821Z",
+    "expiresAtUtc": "2026-10-11T02:49:57.9973821Z",
+    "signedInAs": null,
+    "canRespond": false,
+    "refusal": null
+  },
+  "email": {
+    "sent": true,
+    "message": "The invitation email is on its way."
+  }
+}
+
+POST /team-invitations/open {"token":"\u003Cthe secret from the email link\u003E"} as bob@gmail.example -> 200 OK
+{
+  "invitation": {
+    "id": "364ee9cf-ba7f-45eb-9b21-b5fa6897d885",
+    "teamId": "d677aea3-ff3d-4f2d-9d9c-fd667aa8c806",
+    "teamName": "Acme",
+    "email": "bob@gmail.example",
+    "role": "Developer",
+    "state": "sent",
+    "invitedBy": "owner@acme.example",
+    "acceptedBy": null,
+    "paidBy": "owner@acme.example",
+    "sentAtUtc": "2026-10-04T02:49:57.9973821Z",
+    "expiresAtUtc": "2026-10-11T02:49:57.9973821Z",
+    "signedInAs": "bob@gmail.example",
+    "canRespond": true,
+    "refusal": null
+  }
+}
+
+POST /team-invitations/accept {"token":"\u003Cthe secret from the email link\u003E"} as bob@gmail.example -> 200 OK
+{
+  "invitation": {
+    "id": "364ee9cf-ba7f-45eb-9b21-b5fa6897d885",
+    "teamId": "d677aea3-ff3d-4f2d-9d9c-fd667aa8c806",
+    "teamName": "Acme",
+    "email": "bob@gmail.example",
+    "role": "Developer",
+    "state": "accepted",
+    "invitedBy": "owner@acme.example",
+    "acceptedBy": "bob@gmail.example",
+    "paidBy": "owner@acme.example",
+    "sentAtUtc": "2026-10-04T02:49:57.9973821Z",
+    "expiresAtUtc": "2026-10-11T02:49:57.9973821Z",
+    "signedInAs": "bob@gmail.example",
+    "canRespond": false,
+    "refusal": null
+  }
+}
+
+POST /team-invitations/accept {"token":"\u003Cthe secret from the email link\u003E"} as bob@gmail.example (second time) -> 409 Conflict
+{
+  "error": "This invitation has already been accepted. Each invitation can be used once."
+}
+
+GET /teams/{teamId}/members as owner@acme.example -> 200 OK
+{
+  "team": {
+    "id": "d677aea3-ff3d-4f2d-9d9c-fd667aa8c806",
+    "name": "Acme",
+    "role": "Owner",
+    "memberCount": 2,
+    "people": "2 people"
+  },
+  "count": 2,
+  "members": [
+    {
+      "name": "owner@acme.example",
+      "email": "owner@acme.example",
+      "role": "Owner",
+      "isYou": true,
+      "joinedAtUtc": "2026-10-04T02:49:57.9787128Z"
+    },
+    {
+      "name": "bob@gmail.example",
+      "email": "bob@gmail.example",
+      "role": "Developer",
+      "isYou": false,
+      "joinedAtUtc": "2026-10-04T02:49:58.0046102Z"
+    }
+  ]
+}
+
+GET /teams/{teamId}/invitations as owner@acme.example -> 200 OK
+{
+  "count": 1,
+  "invitations": [
+    {
+      "id": "364ee9cf-ba7f-45eb-9b21-b5fa6897d885",
+      "teamId": "d677aea3-ff3d-4f2d-9d9c-fd667aa8c806",
+      "teamName": "Acme",
+      "email": "bob@gmail.example",
+      "role": "Developer",
+      "state": "accepted",
+      "invitedBy": "owner@acme.example",
+      "acceptedBy": "bob@gmail.example",
+      "paidBy": "owner@acme.example",
+      "sentAtUtc": "2026-10-04T02:49:57.9973821Z",
+      "expiresAtUtc": "2026-10-11T02:49:57.9973821Z",
+      "signedInAs": null,
+      "canRespond": false,
+      "refusal": null
+    }
+  ]
+}
