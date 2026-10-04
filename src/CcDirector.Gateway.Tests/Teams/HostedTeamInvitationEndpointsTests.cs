@@ -241,6 +241,37 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         return (resp.StatusCode, resp.Headers.Location?.OriginalString, await resp.Content.ReadAsStringAsync());
     }
 
+    /// <summary>
+    /// Review of the fold, finding F1: the gate does not read <see cref="TeamEndpointRules.OwnAccountOnly"/>, so a later
+    /// route under <c>/team-invitations</c> would pass from a person's own account without anyone deciding it should.
+    /// This reads the HOST's finalised route table - every endpoint, every method - and fails for any route in an
+    /// own-account family that is neither on the list nor covered by a rule, and for any list entry that is no route.
+    /// </summary>
+    [Fact]
+    public void EveryRouteUnderTeamInvitations_IsDeclaredOwnAccountOrHasARule()
+    {
+        var routes = _gateway.MappedEndpoints.OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
+            .Select(e => (Pattern: TeamEndpointRules.Normalize(e.RoutePattern.RawText),
+                Methods: e.Metadata.GetMetadata<Microsoft.AspNetCore.Routing.HttpMethodMetadata>()?.HttpMethods ?? Array.Empty<string>()))
+            .SelectMany(r => r.Methods.Count == 0 ? new[] { "GET", "POST" } : r.Methods.ToArray(), (r, m) => (Method: m, r.Pattern))
+            .Distinct()
+            .ToArray();
+        Assert.True(routes.Length > 300, $"The route table read only {routes.Length} endpoints - the check would prove nothing.");
+
+        var inFamilies = routes
+            .Where(r => TeamEndpointRules.OwnAccountFamilies.Any(f => r.Pattern == f || r.Pattern.StartsWith(f + "/", StringComparison.Ordinal)))
+            .ToArray();
+        Assert.NotEmpty(inFamilies);
+        foreach (var (method, pattern) in inFamilies)
+            Assert.True(TeamEndpointRules.OwnAccountOnly.Contains(pattern) || TeamEndpointRules.Find(method, pattern) is not null,
+                $"{method} {pattern} is under an own-account family but is neither declared own-account (TeamEndpointRules.OwnAccountOnly) " +
+                "nor covered by a rule (TeamEndpointRules.All). Decide which, and write it down.");
+
+        foreach (var entry in TeamEndpointRules.OwnAccountOnly)
+            Assert.True(inFamilies.Any(r => r.Pattern == entry),
+                $"{entry} is declared own-account but is not a mapped route under an own-account family - the entry is stale.");
+    }
+
     [Fact]
     public async Task ResendAndCancel_OverTheWire_RenewTheLinkAndThenStopIt()
     {

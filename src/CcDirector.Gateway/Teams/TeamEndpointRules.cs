@@ -148,6 +148,14 @@ public static class TeamEndpointRules
     /// ENDPOINTS DECLARED AS ACTING FOR THE PERSON'S OWN ACCOUNT, NEVER INSIDE A TEAM - written down so that their absence
     /// from <see cref="All"/> is a decision, not an omission.
     ///
+    /// WHAT ENFORCES IT. The gate does not read this list: a route outside <c>/teams/</c> with no team in its parameters is
+    /// "not a team request" from a person's own account whether it is listed or not. What makes a NEW route in an
+    /// own-account family impossible to add unnoticed is a test over the host's mapped route table,
+    /// <c>HostedTeamInvitationEndpointsTests.EveryRouteUnderTeamInvitations_IsDeclaredOwnAccountOrHasARule</c>: every
+    /// route under <see cref="OwnAccountFamilies"/> must be on this list or have a rule in <see cref="All"/>, and every
+    /// entry here must be a mapped route. A later <c>/team-invitations/...</c> route therefore turns that test red until
+    /// someone decides, in writing, which of the two it is (review of the fold, finding F1).
+    ///
     /// The accept page's three calls (devthrottle_internal#2301): the person holding an invitation link is, by definition,
     /// not yet a member of the team, so no cell of the role table can be asked about them. Who may answer is the link
     /// itself, checked by the registry: a waiting, unexpired invitation, not already used, while the team's bill runs.
@@ -159,6 +167,13 @@ public static class TeamEndpointRules
         "/team-invitations/open",
         "/team-invitations/accept",
         "/team-invitations/decline",
+    };
+
+    /// <summary>The route families whose every endpoint must be declared, here or in <see cref="All"/> - checked by the
+    /// test named on <see cref="OwnAccountOnly"/>.</summary>
+    public static readonly IReadOnlyList<string> OwnAccountFamilies = new[]
+    {
+        "/team-invitations",
     };
 
     /// <summary>
