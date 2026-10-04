@@ -3,7 +3,7 @@ DevThrottle
 TEAM
 Your own account
 Teams test - Manager
-Manager - 2 people
+Manager - 3 people
 Fleet Manager
 Sessions
 Fleet Map
@@ -42,7 +42,7 @@ The new signup page and two bug fixes in the installer.
 
 WHERE IT WENT BADLY, AND WHY
 
-On Tuesday the same task was restarted four times. The first instruction didn't say which file to change, so the agent guessed differently each time.
+On Tuesday they restarted the same task four times. Their first instruction didn't say which file to change, so the agent guessed differently each time.
 
 fix the signup thing so it doesnt break on mobile
 ONE THING TO TRY NEXT WEEK

@@ -2,10 +2,11 @@
 
 Run from the repository root:  python docs/proof/teams-2305/harness/take-screenshots.py
 
-It copies the harness next to the Cockpit's source, starts the Cockpit's own Vite dev server for the length of the
-run, opens the page as a Manager and as the Developer in a headless Chromium (Playwright, used as a library: this is a
-repeatable proof script, not interactive work), saves the two screenshots and the rendered text, and removes the
-harness files again whatever happens.
+It copies the harness next to the Cockpit's source, starts the Cockpit's own Vite dev server (run with node directly,
+no shell, so it can be stopped the same way on any operating system), opens the page as a Manager and as the Developer
+in a headless Chromium (Playwright, used as a library: this is a repeatable proof script, not interactive work), saves
+the two screenshots and the rendered text, and removes the harness files again whatever happens - including a failure
+part-way through the copy.
 """
 import shutil
 import subprocess
@@ -39,14 +40,17 @@ def wait_for_server(url: str, seconds: int) -> None:
 
 
 def main() -> int:
-    for source, target in COPIES:
+    for _, target in COPIES:
         if target.exists():
             raise RuntimeError(f"{target} already exists; refusing to overwrite it.")
-        shutil.copyfile(source, target)
-    server = subprocess.Popen(
-        ["npx", "vite", "--port", str(PORT), "--strictPort"], cwd=COCKPIT, shell=True,
-    )
+    copied = []
+    server = None
     try:
+        for source, target in COPIES:
+            shutil.copyfile(source, target)
+            copied.append(target)
+        vite = ROOT / "node_modules" / "vite" / "bin" / "vite.js"
+        server = subprocess.Popen(["node", str(vite), "--port", str(PORT), "--strictPort"], cwd=COCKPIT)
         base = f"http://localhost:{PORT}/proof-mentor.html"
         wait_for_server(base, 90)
         with sync_playwright() as p:
@@ -64,8 +68,10 @@ def main() -> int:
                 page.close()
             browser.close()
     finally:
-        subprocess.run(["taskkill", "/PID", str(server.pid), "/T", "/F"], capture_output=True)
-        for _, target in COPIES:
+        if server is not None:
+            server.terminate()
+            server.wait(timeout=30)
+        for target in copied:
             target.unlink(missing_ok=True)
     return 0
 

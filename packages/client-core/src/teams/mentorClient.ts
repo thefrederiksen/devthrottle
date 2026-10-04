@@ -14,6 +14,11 @@
 //   - `not-offered`: 404 (not a member, or no such team - one answer for both) or the Cockpit's own HTML shell, which
 //     is what a Gateway with Teams dark answers for a route it never mapped;
 //   - anything else (a week the Gateway calls invalid, a fault, a body that is not the contract) is thrown.
+//
+// AN ANSWER THAT BREAKS THE CONTRACT IS THROWN, NEVER DRAWN AS A GUESS (review of devthrottle#3538, F3 and F4): an
+// unknown tone, a date that is not a date, quotes the contract does not allow, blocks in an unwritten week, more than
+// one block on a person's own page, or nobody listed as reading the page. Each would otherwise reach the screen as
+// something plausible - above all "nobody else reads this", composed from an absence.
 import { authHeaders, gatewayFetch, GatewayError } from "../api/client";
 
 /** One of the person's own prompts, quoted by the Mentor as the example of where the week went badly. */
@@ -29,8 +34,8 @@ export interface MentorQuote {
 /** One person's block for one week. Every field is the Gateway's; a page lays them out and changes none. */
 export interface MentorBlock {
   personSubject: string;
-  /** How the block is headed - the way the Team page shows people. */
-  personEmail: string;
+  /** How the block is headed - the way the Team page shows people. null when the person has no email on record. */
+  personEmail: string | null;
   /** The person's role in the team now, as the Team page names it. */
   role: string;
   /** good, mixed or hard - used only to colour the label beside the person. */
@@ -48,7 +53,8 @@ export interface MentorBlock {
 
 /** Someone else who reads the caller's page: the team's Owner and Managers, as the Gateway lists them. */
 export interface MentorReader {
-  email: string;
+  /** null when the reader has no email on record. */
+  email: string | null;
   role: string;
 }
 
@@ -70,14 +76,10 @@ export interface MentorPage {
   readers: MentorReader[];
 }
 
-export type MentorAnswer =
-  | { kind: "page"; page: MentorPage }
-  | { kind: "refused"; reason: string }
-  | { kind: "not-offered"; reason: string };
+export type MentorAnswer = { kind: "page"; page: MentorPage } | { kind: "refused" } | { kind: "not-offered" };
 
-/** Why there is no Mentor page when the Gateway sent no sentence of its own. */
-export const MENTOR_REFUSED_REASON = "Your role in this team has no Mentor page.";
-export const MENTOR_NOT_OFFERED_REASON = "This team has no Mentor page for you on this Gateway.";
+/** The tones the contract allows. */
+const TONES = ["good", "mixed", "hard"];
 
 function contentType(res: Response): string {
   return (res.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
@@ -94,18 +96,12 @@ export async function getMentorPage(teamId: string, week?: string, signal?: Abor
     signal,
   });
 
-  if (res.status === 403) {
-    const refusal = await GatewayError.from(res, "read the Mentor page");
-    return { kind: "refused", reason: refusal.serverReason ?? MENTOR_REFUSED_REASON };
-  }
-  if (res.status === 404) {
-    const missing = await GatewayError.from(res, "read the Mentor page");
-    return { kind: "not-offered", reason: missing.serverReason ?? MENTOR_NOT_OFFERED_REASON };
-  }
+  if (res.status === 403) return { kind: "refused" };
+  if (res.status === 404) return { kind: "not-offered" };
   if (!res.ok) throw await GatewayError.from(res, "read the Mentor page");
 
   // Teams dark: the route is not mapped, so the read reached the Cockpit's page fallback and got the app shell.
-  if (contentType(res) === "text/html") return { kind: "not-offered", reason: MENTOR_NOT_OFFERED_REASON };
+  if (contentType(res) === "text/html") return { kind: "not-offered" };
   if (contentType(res) !== "application/json") {
     throw new GatewayError(
       502,
@@ -113,13 +109,30 @@ export async function getMentorPage(teamId: string, week?: string, signal?: Abor
     );
   }
 
-  return { kind: "page", page: readPage(await res.json()) };
+  // The Gateway WAS reached; a body that is not JSON is its fault and is said so - never left to surface as a
+  // SyntaxError, which the error wording reads as "cannot reach the Gateway" (review F8).
+  const body = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    throw new GatewayError(502, `${UNREADABLE}: its answer is not valid JSON.`);
+  }
+  return { kind: "page", page: readPage(parsed) };
 }
 
 const UNREADABLE = "The Gateway sent a Mentor page the Cockpit cannot read";
 
 function isText(value: unknown): value is string {
   return typeof value === "string";
+}
+
+/** A real calendar date written YYYY-MM-DD. */
+function isDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
 }
 
 function isTextOrNull(value: unknown): value is string | null {
@@ -131,18 +144,27 @@ function readPage(raw: unknown): MentorPage {
   if (
     !isText(p.teamId) ||
     !isText(p.week) ||
-    !isText(p.weekStart) ||
-    !isText(p.weekEnd) ||
+    !isDate(p.weekStart) ||
+    !isDate(p.weekEnd) ||
     !isText(p.timeZone) ||
     !isText(p.scope) ||
     typeof p.written !== "boolean" ||
     !Array.isArray(p.blocks) ||
     !Array.isArray(p.readers)
   ) {
-    throw new GatewayError(502, `${UNREADABLE}: it is missing its week, its scope, its blocks or its readers.`);
+    throw new GatewayError(502, `${UNREADABLE}: it is missing its week, its dates, its scope, its blocks or its readers.`);
   }
   if (p.scope !== "everyone" && p.scope !== "own") {
     throw new GatewayError(502, `${UNREADABLE}: its scope "${p.scope}" is neither "everyone" nor "own".`);
+  }
+  if (!p.written && p.blocks.length > 0) {
+    throw new GatewayError(502, `${UNREADABLE}: it has blocks for a week the Mentor has not written.`);
+  }
+  if (p.scope === "own" && p.blocks.length > 1) {
+    throw new GatewayError(502, `${UNREADABLE}: a person's own page holds more than one block.`);
+  }
+  if (p.readers.length === 0) {
+    throw new GatewayError(502, `${UNREADABLE}: nobody is listed as reading the page, yet every team has an Owner.`);
   }
   return {
     teamId: p.teamId,
@@ -161,9 +183,9 @@ function readBlock(raw: unknown): MentorBlock {
   const b = (raw ?? {}) as Record<string, unknown>;
   if (
     !isText(b.personSubject) ||
-    !isText(b.personEmail) ||
+    !isTextOrNull(b.personEmail) ||
     !isText(b.role) ||
-    !isText(b.tone) ||
+    !(isText(b.tone) && TONES.includes(b.tone)) ||
     !isText(b.toneLabel) ||
     !isText(b.workedOn) ||
     !isTextOrNull(b.howItWent) ||
@@ -178,6 +200,12 @@ function readBlock(raw: unknown): MentorBlock {
   // the page, so a block carrying one is not the contract and is said so rather than shown with a quote hidden.
   if (b.wentBadlyAndWhy === null && b.quotes.length > 0) {
     throw new GatewayError(502, `${UNREADABLE}: a block quotes a prompt but says nothing about where the week went badly.`);
+  }
+  if (b.wentBadlyAndWhy !== null && (b.quotes.length < 1 || b.quotes.length > 2)) {
+    throw new GatewayError(
+      502,
+      `${UNREADABLE}: a block says where the week went badly with ${b.quotes.length} quoted prompts, not one or two.`,
+    );
   }
   return {
     personSubject: b.personSubject,
@@ -204,7 +232,7 @@ function readQuote(raw: unknown): MentorQuote {
 
 function readReader(raw: unknown): MentorReader {
   const r = (raw ?? {}) as Record<string, unknown>;
-  if (!isText(r.email) || !isText(r.role)) {
+  if (!isTextOrNull(r.email) || !isText(r.role)) {
     throw new GatewayError(502, `${UNREADABLE}: someone listed as reading the page has no email or role.`);
   }
   return { email: r.email, role: r.role };
@@ -227,16 +255,10 @@ export function isoWeekOf(date: string): string {
   return `${isoYear}-W${String(week).padStart(2, "0")}`;
 }
 
-/** The ISO week before the one starting on `weekStart` (a Monday, YYYY-MM-DD). */
-export function weekBefore(weekStart: string): string {
+/** The week `weeks` weeks away from the one starting on `weekStart` (a Monday, YYYY-MM-DD): its ISO week and its
+ *  Monday, so a page can name the week it is asking for before the Gateway has answered. */
+export function shiftWeek(weekStart: string, weeks: number): { week: string; weekStart: string } {
   const [y, m, d] = weekStart.split("-").map(Number);
-  const previousMonday = new Date(Date.UTC(y, m - 1, d) - 7 * 86_400_000);
-  return isoWeekOf(previousMonday.toISOString().slice(0, 10));
-}
-
-/** The ISO week after the one starting on `weekStart` (a Monday, YYYY-MM-DD). */
-export function weekAfter(weekStart: string): string {
-  const [y, m, d] = weekStart.split("-").map(Number);
-  const nextMonday = new Date(Date.UTC(y, m - 1, d) + 7 * 86_400_000);
-  return isoWeekOf(nextMonday.toISOString().slice(0, 10));
+  const monday = new Date(Date.UTC(y, m - 1, d) + weeks * 7 * 86_400_000).toISOString().slice(0, 10);
+  return { week: isoWeekOf(monday), weekStart: monday };
 }

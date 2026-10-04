@@ -1,34 +1,44 @@
- [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Manager_ShowsEveryBlockTheGatewaySent_AndNoneForThePersonWithNoSessions
- [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Owner_ShowsTheSameBlocksAsTheManager
- [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Developer_ShowsOnlyTheirOwnBlock_WordForWordWhatTheManagerReads
- [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Developer_RendersOnlyWhatTheGatewayReturned
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_ScopeEveryone_ShowsEveryBlockSent_AndNothingAboutAnyoneWithNoBlock
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_ScopeOwn_ShowsTheOwnHeading_AndWhoElseReadsIt
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorBlockCard_TheSameBlock_IsDrawnIdenticallyOnBothPages
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_NullPersonEmail_IsHeadedByRoleAndNoEmailOnRecord
  [PASS] src/AppShell.test.tsx > Cockpit left rail > opens with the Fleet Manager, then Sessions, then Fleet Map
- [PASS] src/AppShell.test.tsx > Cockpit left rail > badges the Fleet Manager with the Gateway's count of what is waiting
- [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no badge when nothing is waiting
- [PASS] src/AppShell.test.tsx > Cockpit left rail > has no Assistant entry anywhere in the rail
- [PASS] src/AppShell.test.tsx > Cockpit left rail > leaves the rest of the rail where it was
- [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Collaborator_HasNoPage
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Refused_HasNoPage
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_NotOffered_HasNoPage
  [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_NotOnATeam_IsTheOrdinaryMissingPage_AndAsksNothing
  [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_TeamsNotOffered_IsTheOrdinaryMissingPage
  [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_QuoteText_IsExactlyTheTextInTheResponse
  [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_WrittenEmptyWeek_RendersNoInventedBlock
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > badges the Fleet Manager with the Gateway's count of what is waiting
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no badge when nothing is waiting
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > has no Assistant entry anywhere in the rail
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > leaves the rest of the rail where it was
  [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_UnwrittenWeek_SaysSoAndRendersNoBlock
  [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_HasNoLeaderboardOrRanking_AndKeepsTheGatewaysOrder
  [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_HasNoLinkThatBrowsesWhatAPersonTyped
  [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_Footer_SaysTheMentorIsAnAI
  [PASS] src/AppShell.test.tsx > Cockpit left rail > shows Factory Agents after Fleet Map and before History when the Gateway says the area is on
  [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_WeekChooser_AsksForThePreviousWeek_AndCannotGoPastTheLatest
- [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_FailedRead_SaysWhy
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_WeekChooser_StaysWhileAWeekLoads_AndCanBeClickedTwiceInARow
  [PASS] src/AppShell.test.tsx > Cockpit left rail > has no Factory Agents item when the Gateway says the area is off
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_FailedChosenWeek_KeepsTheChooser_SaysWhy_AndCanStepAway
+ [PASS] src/mentor/MentorView.test.tsx > MentorView > MentorView_FailedRead_SaysWhy_AndTryAgainAsksAgain
+ [PASS] src/mentor/MentorView.test.tsx > readersSentence > ReadersSentence_OneManager_NamesThemAsYourManager
+ [PASS] src/mentor/MentorView.test.tsx > readersSentence > ReadersSentence_OnlyTheOwner_NamesThemAsTheTeamsOwner
+ [PASS] src/mentor/MentorView.test.tsx > readersSentence > ReadersSentence_ThreeReaders_ListsEveryoneInTheGatewaysOrder
+ [PASS] src/mentor/MentorView.test.tsx > readersSentence > ReadersSentence_NoEmailOnRecord_NamesTheRoleNeverAMadeUpName
  [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no team switcher to a person with no team
  [PASS] src/AppShell.test.tsx > Cockpit left rail > shows no team switcher on a Gateway that has not turned Teams on
  [PASS] src/AppShell.test.tsx > Cockpit left rail > shows nothing about teams to a person with no team when the read of their teams fails
  [PASS] src/AppShell.test.tsx > Cockpit left rail > puts the team switcher at the top of the rail, above the navigation, for a person in a team
- [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Owner with a page
- [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Manager with a page
- [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Developer with a page
- [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is not offered to a Collaborator, whom the Gateway refuses
- [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is not offered, and nothing is asked, for a person with no team
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Mentor read with a page
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is hidden when the Gateway's answer is refused (a Collaborator)
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is hidden when the Gateway's answer is not offered (no such team)
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is SHOWN, and the failure reported, on a network failure
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is SHOWN, and the failure reported, on a Gateway fault
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is SHOWN, and the failure reported, on an answer that breaks the contract
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > follows the team now on screen, not an answer for the team it left
+ [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is not offered, and nothing is asked, for a person on their own account with no team
  [PASS] src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is not offered on a Gateway that has not turned Teams on
  Test Files  2 passed (2)
-      Tests  32 passed (32)
+      Tests  42 passed (42)

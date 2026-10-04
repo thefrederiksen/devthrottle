@@ -10,15 +10,7 @@ TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
   cc-director-setup-engine.Tests           outcome=Completed    total=676    executed=676
   cc-director-setup-cli.Tests              outcome=Completed    total=35     executed=35
 
-TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-18ffec72
+TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-b0ed98b3
 
-
-COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
-  CcDirector.Core.Tests
-  CcDirector.Gateway.Tests
-  CcDirector.Gateway.UnitTests
-
-Run '.\scripts	est-local.ps1 -Parked' before merging, or say in the pull request why not.
-(Explain the reasoning with: .\scripts\select-tests.ps1 -Explain)
 RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
 This is the gate - you do not need to wait for GitHub CI to merge.

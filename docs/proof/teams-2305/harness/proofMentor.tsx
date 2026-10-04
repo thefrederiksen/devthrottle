@@ -2,10 +2,10 @@
 // Cockpit's source only while the screenshots are taken (see take-screenshots.py), then removed.
 //
 // It renders the REAL Cockpit shell and the REAL Mentor page with the real styles, and answers the page's Gateway reads
-// with the contract's example data (docs/proof/teams-2305/contract.md in the Gateway worktree): a test team of two -
-// priya@example.com, a Manager who ran no sessions that week and so has no block, and rob@example.com, a Developer who
-// has one. `?as=manager` answers as the Gateway answers a Manager (scope "everyone"); `?as=developer` as it answers
-// Rob (scope "own", his block only, and who else reads it). Nothing here is the running Gateway.
+// with the contract's own example (docs/proof/teams-2305/contract.md in the Gateway worktree, 4 October 2026): the team
+// is olivia@example.com (Owner) and priya@example.com (Manager), who ran no sessions that week and so have no block,
+// and rob@example.com (Developer), who has one. `?as=manager` answers as the Gateway answers a Manager (scope
+// "everyone"); `?as=developer` as it answers Rob (scope "own", his block only). Nothing here is the running Gateway.
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { RouterProvider, createMemoryRouter } from "react-router-dom";
@@ -26,7 +26,7 @@ const ROB_BLOCK = {
   workedOn: "The new signup page and two bug fixes in the installer.",
   howItWent: null,
   wentBadlyAndWhy:
-    "On Tuesday the same task was restarted four times. The first instruction didn't say which file to change, so the agent guessed differently each time.",
+    "On Tuesday they restarted the same task four times. Their first instruction didn't say which file to change, so the agent guessed differently each time.",
   quotes: [{ promptId: "p_3f9a", at: "2026-09-29T09:14:03Z", text: "fix the signup thing so it doesnt break on mobile" }],
   oneThingToTry: "Name the file and the result you expect in the first line, before asking for the change.",
   writtenAtUtc: "2026-10-05T00:20:11Z",
@@ -35,7 +35,7 @@ const ROB_BLOCK = {
 const answers: Record<string, unknown> = {
   "/teams": {
     count: 1,
-    teams: [{ id: TEAM_ID, name: "Teams test", role: as === "developer" ? "Developer" : "Manager", memberCount: 2, people: "2 people" }],
+    teams: [{ id: TEAM_ID, name: "Teams test", role: as === "developer" ? "Developer" : "Manager", memberCount: 3, people: "3 people" }],
   },
   [`/teams/${TEAM_ID}/mentor`]: {
     teamId: TEAM_ID,
@@ -46,7 +46,10 @@ const answers: Record<string, unknown> = {
     scope: as === "developer" ? "own" : "everyone",
     written: true,
     blocks: [ROB_BLOCK],
-    readers: [{ email: "priya@example.com", role: "Manager" }],
+    readers: [
+      { email: "olivia@example.com", role: "Owner" },
+      { email: "priya@example.com", role: "Manager" },
+    ],
   },
 };
 

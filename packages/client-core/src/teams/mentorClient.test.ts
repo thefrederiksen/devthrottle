@@ -1,30 +1,28 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import {
-  getMentorPage,
-  isoWeekOf,
-  MENTOR_NOT_OFFERED_REASON,
-  MENTOR_REFUSED_REASON,
-  weekAfter,
-  weekBefore,
-} from "./mentorClient";
+import { getMentorPage, isoWeekOf, shiftWeek } from "./mentorClient";
 
 // GET /teams/{teamId}/mentor?week=YYYY-Www (devthrottle_internal#2305) read against its contract,
-// docs/proof/teams-2305/contract.md. The 200 body below is the contract's own example, with the readers the Gateway
-// adds; the client must hand it over verbatim - above all the quoted prompt, which is the person's own words.
+// docs/proof/teams-2305/contract.md in the Gateway worktree. CONTRACT_EXAMPLE is the contract's own 200 example, copied
+// field for field (as it stands on 4 October 2026); the client must hand it over verbatim - above all the quoted
+// prompt, which is the person's own words. An answer that breaks the contract is thrown, never drawn as a guess.
 
 const APP_SHELL = '<!doctype html><html><head><title>DevThrottle Cockpit</title></head><body><div id="root"></div></body></html>';
 
 const CONTRACT_EXAMPLE = {
-  teamId: "6f0c",
+  teamId: "6f0c...",
   week: "2026-W40",
   weekStart: "2026-09-28",
   weekEnd: "2026-10-04",
   timeZone: "Europe/Copenhagen",
   scope: "everyone",
   written: true,
+  readers: [
+    { email: "olivia@example.com", role: "Owner" },
+    { email: "priya@example.com", role: "Manager" },
+  ],
   blocks: [
     {
-      personSubject: "a1b2",
+      personSubject: "a1b2...",
       personEmail: "rob@example.com",
       role: "Developer",
       tone: "hard",
@@ -32,14 +30,21 @@ const CONTRACT_EXAMPLE = {
       workedOn: "The new signup page and two bug fixes in the installer.",
       howItWent: null,
       wentBadlyAndWhy:
-        "On Tuesday the same task was restarted four times. The first instruction didn't say which file to change, so the agent guessed differently each time.",
-      quotes: [{ promptId: "p_3f9a", at: "2026-09-29T09:14:03Z", text: "fix the signup thing so it doesnt break on mobile" }],
+        "On Tuesday they restarted the same task four times. Their first instruction didn't say which file to change, so the agent guessed differently each time.",
+      quotes: [
+        { promptId: "p_3f9a...", at: "2026-09-29T09:14:03Z", text: "fix the signup thing so it doesnt break on mobile" },
+      ],
       oneThingToTry: "Name the file and the result you expect in the first line, before asking for the change.",
       writtenAtUtc: "2026-10-05T00:20:11Z",
     },
   ],
-  readers: [{ email: "priya@example.com", role: "Manager" }],
 };
+
+type Body = Record<string, unknown> & { blocks: Array<Record<string, unknown>>; readers: Array<Record<string, unknown>> };
+
+function example(): Body {
+  return structuredClone(CONTRACT_EXAMPLE) as unknown as Body;
+}
 
 function respond(body: string, contentType: string, status = 200): Response {
   return new Response(body, { status, headers: { "Content-Type": contentType } });
@@ -47,6 +52,10 @@ function respond(body: string, contentType: string, status = 200): Response {
 
 function json(body: unknown, status = 200): Response {
   return respond(JSON.stringify(body), "application/json; charset=utf-8", status);
+}
+
+function answering(body: unknown) {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body)));
 }
 
 afterEach(() => {
@@ -65,11 +74,12 @@ describe("getMentorPage", () => {
   });
 
   it("GetMentorPage_QuoteText_IsTheResponseTextByteForByte", async () => {
-    // Quotes are typed by people: odd spacing, no punctuation, symbols. Not one character may change on the way.
-    const raw = "  fix  the signup thing so it doesnt break on mobile!!  <b>not bold</b> é ";
-    const body = structuredClone(CONTRACT_EXAMPLE);
-    body.blocks[0].quotes[0].text = raw;
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body)));
+    // Quotes are typed by people: odd spacing, no punctuation, markup-looking text, accents. Not one character may
+    // change on the way.
+    const raw = "  fix  the signup thing so it doesnt break on mobile!!  <b>not bold</b> \u00e9 ";
+    const body = example();
+    (body.blocks[0].quotes as Array<{ text: string }>)[0].text = raw;
+    answering(body);
 
     const answer = await getMentorPage("6f0c");
 
@@ -87,38 +97,45 @@ describe("getMentorPage", () => {
   });
 
   it("GetMentorPage_WrittenWithNoBlocks_IsAPageWithNoBlocks", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ ...CONTRACT_EXAMPLE, blocks: [] })));
+    answering({ ...CONTRACT_EXAMPLE, blocks: [] });
+
+    expect(await getMentorPage("6f0c")).toEqual({ kind: "page", page: { ...CONTRACT_EXAMPLE, blocks: [] } });
+  });
+
+  it("GetMentorPage_NullEmails_AreAccepted", async () => {
+    // The contract: a person or a reader with no email on record carries `null`. That must not cost the whole team
+    // its page (review F1).
+    const body = example();
+    body.blocks[0].personEmail = null;
+    body.readers[1].email = null;
+    answering(body);
 
     const answer = await getMentorPage("6f0c");
 
-    expect(answer).toEqual({ kind: "page", page: { ...CONTRACT_EXAMPLE, blocks: [] } });
+    if (answer.kind !== "page") throw new Error(`expected a page, got ${answer.kind}`);
+    expect(answer.page.blocks[0].personEmail).toBeNull();
+    expect(answer.page.readers[1]).toEqual({ email: null, role: "Manager" });
   });
 
-  it("GetMentorPage_Collaborator403_IsRefusedWithTheGatewaysSentence", async () => {
+  it("GetMentorPage_Collaborator403_IsRefused", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(json({ error: "A Collaborator has no Mentor page.", code: "team_action_refused" }, 403)),
     );
 
-    expect(await getMentorPage("6f0c")).toEqual({ kind: "refused", reason: "A Collaborator has no Mentor page." });
-  });
-
-  it("GetMentorPage_403WithNoSentence_IsRefused", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond("", "text/plain", 403)));
-
-    expect(await getMentorPage("6f0c")).toEqual({ kind: "refused", reason: MENTOR_REFUSED_REASON });
+    expect(await getMentorPage("6f0c")).toEqual({ kind: "refused" });
   });
 
   it("GetMentorPage_NotAMember404_IsNotOffered", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ error: "There is no such team." }, 404)));
 
-    expect(await getMentorPage("6f0c")).toEqual({ kind: "not-offered", reason: "There is no such team." });
+    expect(await getMentorPage("6f0c")).toEqual({ kind: "not-offered" });
   });
 
   it("GetMentorPage_TeamsDarkAppShell_IsNotOffered", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(APP_SHELL, "text/html; charset=utf-8")));
 
-    expect(await getMentorPage("6f0c")).toEqual({ kind: "not-offered", reason: MENTOR_NOT_OFFERED_REASON });
+    expect(await getMentorPage("6f0c")).toEqual({ kind: "not-offered" });
   });
 
   it("GetMentorPage_InvalidWeek400_ThrowsTheGatewaysSentence", async () => {
@@ -130,26 +147,44 @@ describe("getMentorPage", () => {
     });
   });
 
-  it("GetMentorPage_BlockMissingItsText_Throws", async () => {
-    const body = structuredClone(CONTRACT_EXAMPLE) as unknown as { blocks: Array<Record<string, unknown>> };
-    delete body.blocks[0].workedOn;
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body)));
+  it("GetMentorPage_BodyThatIsNotJson_ThrowsAGatewayErrorNotAParseError", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond("{ not json", "application/json")));
 
-    await expect(getMentorPage("6f0c")).rejects.toMatchObject({ status: 502 });
+    await expect(getMentorPage("6f0c")).rejects.toMatchObject({ name: "GatewayError", status: 502 });
   });
 
-  it("GetMentorPage_NoReadersList_Throws", async () => {
-    const body: Record<string, unknown> = { ...CONTRACT_EXAMPLE };
-    delete body.readers;
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body)));
-
-    await expect(getMentorPage("6f0c")).rejects.toMatchObject({ status: 502 });
-  });
-
-  it("GetMentorPage_QuoteWithNothingWentBadly_Throws", async () => {
-    const body = structuredClone(CONTRACT_EXAMPLE) as unknown as { blocks: Array<Record<string, unknown>> };
-    body.blocks[0].wentBadlyAndWhy = null;
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(body)));
+  // Every way an answer can break the contract is thrown as unreadable (review F3 and F4).
+  const broken: Array<[string, (b: Body) => void]> = [
+    ["a block missing its text", (b) => delete b.blocks[0].workedOn],
+    ["no readers list", (b) => delete (b as Record<string, unknown>).readers],
+    ["an empty readers list", (b) => (b.readers = [])],
+    ["a quote with nothing went badly", (b) => (b.blocks[0].wentBadlyAndWhy = null)],
+    ["went badly with no quote", (b) => (b.blocks[0].quotes = [])],
+    [
+      "went badly with three quotes",
+      (b) => {
+        const q = (b.blocks[0].quotes as unknown[])[0];
+        b.blocks[0].quotes = [q, q, q];
+      },
+    ],
+    ["an unknown tone", (b) => (b.blocks[0].tone = "terrible")],
+    ["a week start that is not a date", (b) => (b.weekStart = "next Monday")],
+    ["a week end that is not a real date", (b) => (b.weekEnd = "2026-02-30")],
+    ["blocks in a week not written", (b) => (b.written = false)],
+    ["an unknown scope", (b) => (b.scope = "team")],
+    [
+      "two blocks on a person's own page",
+      (b) => {
+        b.scope = "own";
+        b.blocks = [b.blocks[0], { ...b.blocks[0], personSubject: "other" }];
+      },
+    ],
+    ["a reader with no role", (b) => delete b.readers[0].role],
+  ];
+  it.each(broken)("GetMentorPage_ContractBroken_%s_Throws", async (_name, breakIt) => {
+    const body = example();
+    breakIt(body);
+    answering(body);
 
     await expect(getMentorPage("6f0c")).rejects.toMatchObject({ status: 502 });
   });
@@ -165,10 +200,10 @@ describe("the week chooser's arithmetic", () => {
     expect(isoWeekOf("2025-12-29")).toBe("2026-W01");
   });
 
-  it("WeekBefore_And_WeekAfter_StepOneWeekAcrossAYear", () => {
-    expect(weekBefore("2026-09-28")).toBe("2026-W39");
-    expect(weekAfter("2026-09-28")).toBe("2026-W41");
-    expect(weekBefore("2025-12-29")).toBe("2025-W52");
-    expect(weekAfter("2026-12-28")).toBe("2027-W01");
+  it("ShiftWeek_StepsOneWeekEitherWayAcrossAYear", () => {
+    expect(shiftWeek("2026-09-28", -1)).toEqual({ week: "2026-W39", weekStart: "2026-09-21" });
+    expect(shiftWeek("2026-09-28", 1)).toEqual({ week: "2026-W41", weekStart: "2026-10-05" });
+    expect(shiftWeek("2025-12-29", -1)).toEqual({ week: "2025-W52", weekStart: "2025-12-22" });
+    expect(shiftWeek("2026-12-28", 1)).toEqual({ week: "2027-W01", weekStart: "2027-01-04" });
   });
 });

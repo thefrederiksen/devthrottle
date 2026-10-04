@@ -1,15 +1,68 @@
-   [FAIL] MentorView > MentorView_QuoteText_IsExactlyTheTextInTheResponse 25ms
-   [FAIL] MentorView > MentorView_WrittenEmptyWeek_RendersNoInventedBlock 1007ms
-   [FAIL] MentorView > MentorView_HasNoLeaderboardOrRanking_AndKeepsTheGatewaysOrder 23ms
-   [FAIL] Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Developer with a page 1031ms
- Failed Tests 4 
- FAIL  src/AppShell.test.tsx > Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Developer with a page
- FAIL  src/mentor/MentorView.test.tsx > MentorView > MentorView_QuoteText_IsExactlyTheTextInTheResponse
- FAIL  src/mentor/MentorView.test.tsx > MentorView > MentorView_WrittenEmptyWeek_RendersNoInventedBlock
- FAIL  src/mentor/MentorView.test.tsx > MentorView > MentorView_HasNoLeaderboardOrRanking_AndKeepsTheGatewaysOrder
-      Tests  4 failed | 28 passed (32)
-   [FAIL] getMentorPage > GetMentorPage_QuoteText_IsTheResponseTextByteForByte 9ms
-   [FAIL] getMentorPage > GetMentorPage_Collaborator403_IsRefusedWithTheGatewaysSentence 5ms
-   [FAIL] getMentorPage > GetMentorPage_403WithNoSentence_IsRefused 1ms
- Failed Tests 3 
-      Tests  3 failed | 11 passed (14)
+=== BREAK: The page trims the quoted prompt
+    apps/cockpit/src/mentor/MentorView.tsx: '{quote.text}' -> '{quote.text.trim()}'
+--- with the break:
+    [FAIL] MentorView > MentorView_QuoteText_IsExactlyTheTextInTheResponse 28ms
+    Tests  1 failed | 21 passed (22)
+--- after restoring:
+    Tests  22 passed (22)
+
+=== BREAK: The page sorts the blocks by email
+    apps/cockpit/src/mentor/MentorView.tsx: '{page.blocks.map((block) => (' -> '{[...page.blocks].sort((a, b) => (a.personEmail ?? "").localeCompare(b.personEmail ?? "")).map((block) => ('
+--- with the break:
+    [FAIL] MentorView > MentorView_HasNoLeaderboardOrRanking_AndKeepsTheGatewaysOrder 39ms
+    Tests  1 failed | 21 passed (22)
+--- after restoring:
+    Tests  22 passed (22)
+
+=== BREAK: The page calls every reader 'your' role
+    apps/cockpit/src/mentor/MentorView.tsx: 'return reader.role === "Owner" ? "the team's Owner" : `your ${reader.role}`;' -> 'return `your ${reader.role}`;'
+--- with the break:
+    [FAIL] MentorView > MentorView_ScopeOwn_ShowsTheOwnHeading_AndWhoElseReadsIt 41ms
+    [FAIL] readersSentence > ReadersSentence_OnlyTheOwner_NamesThemAsTheTeamsOwner 4ms
+    [FAIL] readersSentence > ReadersSentence_ThreeReaders_ListsEveryoneInTheGatewaysOrder 1ms
+    Tests  3 failed | 19 passed (22)
+--- after restoring:
+    Tests  22 passed (22)
+
+=== BREAK: The rail hides the entry when the read fails
+    apps/cockpit/src/mentor/useMentorEntry.ts: 'setOffered({ teamId, offered: true });' -> 'setOffered({ teamId, offered: false });'
+--- with the break:
+    [FAIL] Cockpit left rail > the Mentor entry > is SHOWN, and the failure reported, on a network failure 1038ms
+    [FAIL] Cockpit left rail > the Mentor entry > is SHOWN, and the failure reported, on a Gateway fault 1022ms
+    [FAIL] Cockpit left rail > the Mentor entry > is SHOWN, and the failure reported, on an answer that breaks the contract 1025ms
+    Tests  3 failed | 17 passed (20)
+--- after restoring:
+    Tests  20 passed (20)
+
+=== BREAK: The rail decides the entry from the role label
+    apps/cockpit/src/mentor/useMentorEntry.ts: 'setOffered({ teamId, offered: answer.kind === "page" });' -> 'setOffered({ teamId, offered: answer.kind === "page" && current?.role !== "Developer" });'
+--- with the break:
+    [FAIL] Cockpit left rail > the Mentor entry > is offered after Skills when the Gateway answers the Mentor read with a page 1093ms
+    Tests  1 failed | 19 passed (20)
+--- after restoring:
+    Tests  20 passed (20)
+
+=== BREAK: The client trims the quoted prompt
+    packages/client-core/src/teams/mentorClient.ts: 'text: q.text }' -> 'text: q.text.trim() }'
+--- with the break:
+    [FAIL] getMentorPage > GetMentorPage_QuoteText_IsTheResponseTextByteForByte 11ms
+    Tests  1 failed | 24 passed (25)
+--- after restoring:
+    Tests  25 passed (25)
+
+=== BREAK: The client accepts an empty readers list
+    packages/client-core/src/teams/mentorClient.ts: 'if (p.readers.length === 0) {' -> 'if (p.readers.length < 0) {'
+--- with the break:
+    [FAIL] getMentorPage > GetMentorPage_ContractBroken_an empty readers list_Throws 15ms
+    Tests  1 failed | 24 passed (25)
+--- after restoring:
+    Tests  25 passed (25)
+
+=== BREAK: The client rejects a null person email
+    packages/client-core/src/teams/mentorClient.ts: '!isTextOrNull(b.personEmail) ||' -> '!isText(b.personEmail) ||'
+--- with the break:
+    [FAIL] getMentorPage > GetMentorPage_NullEmails_AreAccepted 9ms
+    Tests  1 failed | 24 passed (25)
+--- after restoring:
+    Tests  25 passed (25)
+

@@ -1,9 +1,9 @@
 client-core (whole package):
-CLIENT-CORE-TYPECHECK-OK
+typecheck: clean
  Test Files  143 passed (143)
-      Tests  1677 passed (1677)
+      Tests  1688 passed (1688)
 
 cockpit (whole package):
-COCKPIT-TYPECHECK-OK
+typecheck: clean
  Test Files  70 passed (70)
-      Tests  625 passed (625)
+      Tests  635 passed (635)

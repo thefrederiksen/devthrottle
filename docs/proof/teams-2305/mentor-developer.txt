@@ -3,7 +3,7 @@ DevThrottle
 TEAM
 Your own account
 Teams test - Developer
-Developer - 2 people
+Developer - 3 people
 Fleet Manager
 Sessions
 Fleet Map
@@ -28,7 +28,7 @@ Cockpit (React)
 --- page ---
 Your week, from the Mentor
 
-priya@example.com, your Manager, reads this same page.
+olivia@example.com (the team's Owner) and priya@example.com (your Manager) read this same page.
 
 Previous week
 Week of 28 September to 4 October
@@ -42,7 +42,7 @@ The new signup page and two bug fixes in the installer.
 
 WHERE IT WENT BADLY, AND WHY
 
-On Tuesday the same task was restarted four times. The first instruction didn't say which file to change, so the agent guessed differently each time.
+On Tuesday they restarted the same task four times. Their first instruction didn't say which file to change, so the agent guessed differently each time.
 
 fix the signup thing so it doesnt break on mobile
 ONE THING TO TRY NEXT WEEK

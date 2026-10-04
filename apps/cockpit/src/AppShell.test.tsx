@@ -46,19 +46,34 @@ vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
 }));
 
 // The Mentor entry (devthrottle_internal#2305) follows the Gateway's answer to the Mentor read for the team on screen:
-// a page offers it, a refusal or a missing team hides it. The rail never decides it from a role label.
+// a page offers it, a refusal or a missing team hides it, and any failure SHOWS it and is reported (review F2). The
+// rail never decides it from a role label.
 const mentorRead = vi.hoisted(() => ({
-  answer: { kind: "refused", reason: "A Collaborator has no Mentor page." } as { kind: string; reason?: string },
+  answers: new Map<string, unknown>(),
   calls: [] as string[],
 }));
 vi.mock("@devthrottle/client-core/teams/mentorClient", () => ({
   getMentorPage: vi.fn(async (teamId: string) => {
     mentorRead.calls.push(teamId);
-    return mentorRead.answer;
+    const answer = mentorRead.answers.get(teamId);
+    if (answer === undefined) throw new Error(`no Mentor answer staged for ${teamId}`);
+    if (answer instanceof Error) throw answer;
+    return answer;
   }),
 }));
 
-import { screen, waitFor } from "@testing-library/react";
+const reported = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual) => ({
+  ...(await importActual<typeof import("@devthrottle/client-core/errors/reportClientError")>()),
+  reportClientError: vi.fn((...args: unknown[]) => {
+    reported.calls.push(args);
+  }),
+}));
+
+import { screen, waitFor, within, fireEvent } from "@testing-library/react";
+import { GatewayError } from "@devthrottle/client-core/api/client";
+import { getMyTeams } from "@devthrottle/client-core/teams/teamsClient";
+import { getMentorPage } from "@devthrottle/client-core/teams/mentorClient";
 import { AppShell } from "./AppShell";
 import { resetFactorySwitchCache } from "./factory/useFactorySwitch";
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
@@ -77,8 +92,10 @@ describe("Cockpit left rail", () => {
     factory.enabled = false;
     resetFactorySwitchCache();
     myTeams.answer = { kind: "teams", teams: [] };
-    mentorRead.answer = { kind: "refused", reason: "A Collaborator has no Mentor page." };
+    vi.clearAllMocks();
+    mentorRead.answers.clear();
     mentorRead.calls = [];
+    reported.calls = [];
     window.localStorage.clear();
   });
 
@@ -246,12 +263,12 @@ describe("Cockpit left rail", () => {
   });
 
   describe("the Mentor entry", () => {
-    function onTeam(role: string) {
-      myTeams.answer = {
-        kind: "teams",
-        teams: [{ id: "team-test", name: "Teams test", role, memberCount: 2, people: "2 people" }],
-      };
-      window.localStorage.setItem(currentTeamStorageKey(), "team-test");
+    const TEAM = { id: "team-test", name: "Teams test", role: "Developer", memberCount: 2, people: "2 people" };
+    const OTHER = { id: "team-other", name: "Other team", role: "Manager", memberCount: 4, people: "4 people" };
+
+    function renderOn(teams: (typeof TEAM)[], chosen: string | null) {
+      myTeams.answer = { kind: "teams", teams };
+      if (chosen !== null) window.localStorage.setItem(currentTeamStorageKey(), chosen);
       render(
         <MemoryRouter initialEntries={["/sessions"]}>
           <AppShell />
@@ -259,42 +276,81 @@ describe("Cockpit left rail", () => {
       );
     }
 
-    it.each(["Owner", "Manager", "Developer"])("is offered after Skills when the Gateway answers the %s with a page", async (role) => {
-      mentorRead.answer = { kind: "page" };
-      onTeam(role);
+    // The absence tests below wait until the shell has READ the teams and every Mentor read has settled, so "no entry"
+    // is never just "not drawn yet" (review F6).
+    async function settled() {
+      await Promise.all(vi.mocked(getMyTeams).mock.results.map((r) => r.value).map((p) => Promise.resolve(p).catch(() => undefined)));
+      await Promise.all(vi.mocked(getMentorPage).mock.results.map((r) => Promise.resolve(r.value).catch(() => undefined)));
+      await new Promise((r) => setTimeout(r, 0));
+    }
+
+    it("is offered after Skills when the Gateway answers the Mentor read with a page", async () => {
+      mentorRead.answers.set(TEAM.id, { kind: "page" });
+      renderOn([TEAM], TEAM.id);
 
       await waitFor(() => expect(railLabels()).toContain("Mentor"));
       const labels = railLabels();
       expect(labels[labels.indexOf("Skills") + 1]).toBe("Mentor");
       expect(screen.getByRole("link", { name: /Mentor/ }).getAttribute("href")).toBe("/mentor");
-      expect(mentorRead.calls).toEqual(["team-test"]);
+      expect(mentorRead.calls).toEqual([TEAM.id]);
     });
 
-    it("is not offered to a Collaborator, whom the Gateway refuses", async () => {
-      mentorRead.answer = { kind: "refused", reason: "A Collaborator has no Mentor page." };
-      onTeam("Collaborator");
+    it.each([
+      ["refused (a Collaborator)", { kind: "refused" }],
+      ["not offered (no such team)", { kind: "not-offered" }],
+    ])("is hidden when the Gateway's answer is %s", async (_name, answer) => {
+      mentorRead.answers.set(TEAM.id, answer);
+      renderOn([TEAM], TEAM.id);
 
-      await waitFor(() => expect(mentorRead.calls).toEqual(["team-test"]));
-      await new Promise((r) => setTimeout(r, 20));
+      await waitFor(() => expect(mentorRead.calls).toEqual([TEAM.id]));
+      await settled();
       expect(railLabels()).not.toContain("Mentor");
+      expect(reported.calls).toEqual([]);
     });
 
-    it("is not offered, and nothing is asked, for a person with no team", async () => {
-      mentorRead.answer = { kind: "page" };
-      myTeams.answer = { kind: "teams", teams: [] };
-      render(
-        <MemoryRouter initialEntries={["/sessions"]}>
-          <AppShell />
-        </MemoryRouter>,
-      );
+    it.each([
+      ["a network failure", new TypeError("Failed to fetch")],
+      ["a Gateway fault", new GatewayError(500, "fault")],
+      ["an answer that breaks the contract", new GatewayError(502, "The Gateway sent a Mentor page the Cockpit cannot read")],
+    ])("is SHOWN, and the failure reported, on %s", async (_name, failure) => {
+      mentorRead.answers.set(TEAM.id, failure);
+      renderOn([TEAM], TEAM.id);
 
-      await new Promise((r) => setTimeout(r, 20));
+      await waitFor(() => expect(railLabels()).toContain("Mentor"));
+      expect(reported.calls).toHaveLength(1);
+      expect(reported.calls[0][0]).toBe("cockpit-mentor-entry");
+      expect(reported.calls[0][3]).toBe(failure);
+    });
+
+    it("follows the team now on screen, not an answer for the team it left", async () => {
+      // The first team's read is still in flight when the person switches team; its late refusal must not hide the
+      // entry the second team's answer offered.
+      let settleFirst: (answer: unknown) => void = () => {};
+      mentorRead.answers.set(TEAM.id, new Promise((resolve) => (settleFirst = resolve)));
+      mentorRead.answers.set(OTHER.id, { kind: "page" });
+      renderOn([TEAM, OTHER], TEAM.id);
+
+      const select = within(await screen.findByTestId("team-switcher")).getByRole("combobox");
+      await waitFor(() => expect(mentorRead.calls).toEqual([TEAM.id]));
+      fireEvent.change(select, { target: { value: OTHER.id } });
+      await waitFor(() => expect(railLabels()).toContain("Mentor"));
+
+      settleFirst({ kind: "refused" });
+      await settled();
+      expect(railLabels()).toContain("Mentor");
+      expect(mentorRead.calls).toEqual([TEAM.id, OTHER.id]);
+    });
+
+    it("is not offered, and nothing is asked, for a person on their own account with no team", async () => {
+      renderOn([], null);
+
+      await settled();
+      expect(vi.mocked(getMyTeams)).toHaveBeenCalled();
       expect(railLabels()).not.toContain("Mentor");
       expect(mentorRead.calls).toEqual([]);
     });
 
     it("is not offered on a Gateway that has not turned Teams on", async () => {
-      mentorRead.answer = { kind: "page" };
       myTeams.answer = { kind: "not-offered", reason: "dark" };
       render(
         <MemoryRouter initialEntries={["/sessions"]}>
@@ -302,7 +358,8 @@ describe("Cockpit left rail", () => {
         </MemoryRouter>,
       );
 
-      await new Promise((r) => setTimeout(r, 20));
+      await settled();
+      expect(vi.mocked(getMyTeams)).toHaveBeenCalled();
       expect(railLabels()).not.toContain("Mentor");
       expect(mentorRead.calls).toEqual([]);
     });
