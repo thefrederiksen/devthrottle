@@ -36,3 +36,13 @@ devthrottle_internal#2302 - test runs on branch teams/2302-permissions, SOREN_NO
 6. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams"
   NOT COMPLETED. Queued behind the machine-wide Gateway lock held by two other sessions' runs, then stopped
   after ~20 minutes because the machine was low on memory. No verdict.
+
+--- After the review (findings F2, F3, F4) ---
+
+7. .\scripts	est-local.ps1 (default gate): 10 suites outcome=Completed, 3,463 passed, 0 failed.
+8. dotnet test src/CcDirector.Gateway.UnitTests (whole suite): Passed 8326, Failed 0, Skipped 8, Total 8334.
+9. Teams filter of Gateway.UnitTests: Passed 369, Failed 0.
+10. Revert check 3 - the gate's refusal of an undeclared team-naming route disabled:
+  Failed Check_AnUndeclaredRouteThatNamesATeam_FromAPersonalAccount_IsRefusedByTheGate (5 cases)
+  Failed RunAsync_AnUndeclaredTeamRoute_FromAPersonalAccount_IsRefused
+  Failed!  - Failed: 6, Passed: 363, Total: 369        (restored: 369 passed)

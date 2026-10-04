@@ -12,16 +12,27 @@ below ran locally on SOREN_NORTH. No production database and no deploy was touch
 | What each endpoint states | `src/CcDirector.Gateway/Teams/TeamEndpointRules.cs` | One list: which action each endpoint states inside a team. |
 | The gate | `src/CcDirector.Gateway/Teams/TeamEndpointGate.cs` | Middleware after routing on the hosted Gateway. A request acting in a team goes on only if the endpoint states an action, the person is known, is a member, and the table gives their role the action - and, for private things, touches only their own. Anything else is refused by the server (403, code `team_action_refused`; 404 for a team route naming a team the caller is not in). |
 
-The three actions beside the table, from #2098's own text:
+The four actions beside the table, from #2098's own text:
 
 - **See the members and roles** - "Shared with the team: ... the member list and roles". Every role.
 - **Read another person's prompts** - prompts are "private to the person". No role.
 - **Read the prompts the Mentor quotes on its page about a person** - the one exception, named so #2305 can use it.
   Owner and Manager, exactly where "read the Mentor's page about each person" is granted.
+- **Change the Mentor's settings for another person** - #2098 grants reading that page and nothing more, so no role;
+  kept apart so a permission to read never grants a change (review finding F3).
 
 **Default deny.** An endpoint not in the list states no action and is refused inside a team. The walk test reads the
 real hosted route table and proves every undeclared endpoint is refused, every endpoint of the named families states
 one, and no rule in the list is stale.
+
+**A route that names a team** (under `/teams/`, or with a parameter named for a team) acts in that team even from a
+person's own account. The gate refuses one that states no action, for a member and a stranger alike - so a later
+`/teams/{teamId}/...` endpoint, or a method the members rule does not cover, cannot be served unchecked (review
+finding F2; `TeamEndpointGateTests.Check_AnUndeclaredRouteThatNamesATeam_...`, `RunAsync_AnUndeclaredTeamRoute_...`).
+
+**"Is this tenant a team" fails closed** (review finding F4). Only settled answers are kept in memory: a team's id,
+or a personal account's id. Any other id is read from the database every time, so a team created by another
+process is recognised on its first request (`TeamAccessTests.IsTeam_ATeamCreatedByAnotherProcess_...`).
 
 **Who invites whom** (#2301). `TeamPermissions.ActionToAddOrRemove(role)` and `ActionToChangeRole` put the rule in the
 table: adding or removing a Developer or Collaborator is the "invite or remove" row; adding or removing a Manager, and
@@ -72,12 +83,13 @@ Y = yes, O = only their own, N = no. Every cell below passed in the run listed u
 | See the members and roles (beside the table) | Y pass | Y pass | Y pass | Y pass | `GET /teams/{teamId}/members`, also over real HTTP | - |
 | Read another person's prompts (beside the table) | N pass | N pass | N pass | N pass | `GET /prompts` (another person's) | - |
 | Read the prompts the Mentor quotes (beside the table) | Y pass | Y pass | N pass | N pass | policy only | #2305 |
+| Change the Mentor's settings for another person (beside the table) | N pass | N pass | N pass | N pass | `PUT /gateway/mentor-report` (another person's) | - |
 
 ## The four tests from the issue
 
 | Issue test | Where it is proven |
 |---|---|
-| 1. One test per cell, calling the API, all four roles; a "no" is refused by the server | The table above: `TeamEndpointGateTests.Check_EveryCellWithAnEndpointToday_...` (36 cases), `..._WaitsOnALaterIssue_...` (20), `TeamAccessTests.Decide_EveryCell_...` (56), `TeamPermissionsTests.Grant_EveryCell_...` (56); over real HTTP, `TeamEndpointWalkTests.OverTheWire_EveryRole_SeesTheMembersAndRoles` (4) and `..._SomeoneWhoIsNotAMember_...` |
+| 1. One test per cell, calling the API, all four roles; a "no" is refused by the server | The table above: `TeamEndpointGateTests.Check_EveryCellWithAnEndpointToday_...` (40 cases), `..._WaitsOnALaterIssue_...` (20), `TeamAccessTests.Decide_EveryCell_...` (60), `TeamPermissionsTests.Grant_EveryCell_...` (60); over real HTTP, `TeamEndpointWalkTests.OverTheWire_EveryRole_SeesTheMembersAndRoles` (4) and `..._SomeoneWhoIsNotAMember_...` |
 | 2. A Collaborator calling any session, computer, Mentor or skills endpoint is refused | `TeamEndpointWalkTests.Issue2302Test2_...` - every such endpoint on the real hosted route table, as the Collaborator's own and as someone else's; `TeamEndpointGateTests.Check_ACollaborator_...` over every rule |
 | 3. No role can read another person's live session or full transcript | `TeamEndpointWalkTests.Issue2302Test3_...` - all four roles, every session and transcript endpoint on the real route table; `TeamEndpointGateTests.Check_AnyRole_AnotherPersonsLiveSessionOrTranscript_IsRefused` |
 | 4. A Manager reading another person's prompts is refused, except the Mentor's quotes | `TeamEndpointWalkTests.Issue2302Test4_...` - every prompt endpoint on the real route table; `TeamEndpointGateTests.Check_AManager_AnotherPersonsPrompts_...` (and the exception granted, as a named action) |
@@ -93,10 +105,11 @@ See `test-runs.txt` for the exact output.
 | Run | Result |
 |---|---|
 | `.\scripts\test-local.ps1` (default gate) | 10 suites, all `outcome=Completed`, 3,463 passed, 0 failed |
-| `CcDirector.Gateway.UnitTests`, whole suite (`dotnet test`) | 8,293 passed, 0 failed, 8 skipped (its PostgreSQL proofs, which run only under `-Parked`) |
+| `CcDirector.Gateway.UnitTests`, whole suite (`dotnet test`) | 8,326 passed, 0 failed, 8 skipped (its PostgreSQL proofs, which run only under `-Parked`) |
 | `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams"` | FILLED IN BELOW |
 | Revert check 1: one cell flipped (Manager may change roles) | 4 tests red, green again restored |
 | Revert check 2: the gate lets an undeclared endpoint through | 3 tests red, green again restored |
+| Revert check 3: the gate's refusal of an undeclared route that names a team removed | 6 tests red, green again restored |
 
 ## Not run, and why
 
