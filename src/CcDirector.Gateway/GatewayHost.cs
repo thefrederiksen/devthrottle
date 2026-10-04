@@ -3931,6 +3931,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // Both orderings are pinned by DevReportLinkRouteTests. See DevReportLinkRoute for the full reasoning.
         Api.DevReportLinkRoute.UseDevReportLink(_app);
 
+        // Teams dark (devthrottle_internal#2300, #2311): the team routes are not mapped, and an unmapped GET would
+        // otherwise fall to the Cockpit's fallback and answer 200 with its page. Every team path answers 404 here,
+        // before authentication, so a dark Gateway says the same thing to everyone: there is no such route.
+        if (!TeamsReleased)
+            Teams.TeamsDarkRoutes.Use(_app);
+
         if (AuthEnabled)
         {
             // Issue #469: a per-device key issued at enrollment is a valid Bearer credential

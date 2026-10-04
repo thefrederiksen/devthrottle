@@ -147,7 +147,7 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
 
         using var move = new HttpRequestMessage(HttpMethod.Post, "devices/enroll-hosted/move")
         {
-            Content = JsonContent.Create(new { deviceKey = "k" }),
+            Content = JsonContent.Create(new { deviceId = "director-1" }),
         };
         using var resp = await _http.SendAsync(move);
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
@@ -208,7 +208,7 @@ public sealed class HostedTeamDirectorKeyDarkTests : IAsyncLifetime
         using (var resp = await _http.SendAsync(list))
             Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
 
-        using (var move = new HttpRequestMessage(HttpMethod.Post, "devices/enroll-hosted/move") { Content = JsonContent.Create(new { deviceKey = "k" }) })
+        using (var move = new HttpRequestMessage(HttpMethod.Post, "devices/enroll-hosted/move") { Content = JsonContent.Create(new { deviceId = "director-1" }) })
         using (var resp = await _http.SendAsync(move))
             Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
 
