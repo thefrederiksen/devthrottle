@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -86,6 +86,9 @@ public partial class SettingsDialog : Window
             // The Gateway tab IS the connection panel now (Phase 4). Embed it opened on the resolver's
             // current step so a connected+signed-in Director lands on the Done view, not the scan.
             GatewaySettingsHost.Child = Controls.GatewayConnectionPanel.CreateForCurrentState(GatewayChoiceConsumer.Settings);
+
+            // The Team tab (screen D3): which team this Director works for, and the move to another.
+            TeamSettingsHost.Child = Controls.DirectorTeamPanel.CreateForThisDirector();
 
             // Tools auto-update opt-out (issue #828): reflect tools.autoUpdate.enabled (default ON).
             // The read ran off the UI thread above; suppress the write that the programmatic set

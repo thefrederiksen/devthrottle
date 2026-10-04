@@ -1,4 +1,4 @@
-using System.Text.Json.Nodes;
+﻿using System.Text.Json.Nodes;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Storage;
 using Xunit;
@@ -162,5 +162,17 @@ public sealed class GatewayCredentialStoreTests : IDisposable
         // Disconnecting a never-connected Director (no credential file yet) is a no-op clear, not an error.
         GatewayCredentialStore.ClearConnection();
         Assert.False(GatewayConfig.Load().IsEnabled);
+    }
+
+    [Fact]
+    public void ClearConnection_ForgetsTheTeamThatCameWithTheKey()
+    {
+        // devthrottle_internal#2311: the team is the key's team, so with the key gone the chip must go too.
+        GatewayCredentialStore.SaveEnrolledKey("https://gateway.example", "team-key");
+        CcDirector.Core.Teams.DirectorTeamStore.Save(new CcDirector.Core.Teams.DirectorTeam("t-dev", "DevThrottle"));
+
+        GatewayCredentialStore.ClearConnection();
+
+        Assert.Null(CcDirector.Core.Teams.DirectorTeamStore.Load());
     }
 }

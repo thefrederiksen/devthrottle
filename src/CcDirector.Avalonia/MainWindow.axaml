@@ -91,6 +91,9 @@
                                    FontSize="11"
                                    FontFamily="Cascadia Mono,Consolas,monospace"
                                    VerticalAlignment="Center" />
+                        <!-- The team this Director works for, in the team's colour (screen D2,
+                             devthrottle_internal#2311). Hidden when the Gateway has no teams. -->
+                        <controls:TeamChip x:Name="DirectorTeamChip" Margin="8,0,0,0" />
                         <Button x:Name="BtnCopyDirectorInfo"
                                 Content="Copy"
                                 Click="BtnCopyDirectorInfo_Click"

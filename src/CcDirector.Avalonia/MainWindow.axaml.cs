@@ -31,6 +31,7 @@ using CcDirector.Core.Sessions;
 using CcDirector.Core.Settings;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Core.Skills;
+using CcDirector.Core.Teams;
 using CcDirector.Core.Tools;
 using CcDirector.Core.Utilities;
 using FileViewerControls = CcDirector.Avalonia.Controls;
@@ -682,6 +683,38 @@ public partial class MainWindow : Window
         // the machine name cannot distinguish this Director from its neighbours, and nothing reaches a
         // Director by port any more - the fleet goes through the Gateway.
         DirectorInfoText.Text = DirectorHandle.Label(InstanceContext.DisplayName, Environment.MachineName);
+
+        // The team chip (screen D2). Redrawn whenever this Director's team is recorded - after setup chooses one
+        // on screen D1, or after a move on the Settings Team tab (D3) - together with the name, which D1 can set.
+        DirectorTeamStore.Changed += OnDirectorTeamChanged;
+        Closed += (_, _) => DirectorTeamStore.Changed -= OnDirectorTeamChanged;
+        _ = RefreshDirectorTeamAsync();
+    }
+
+    private void OnDirectorTeamChanged() => Dispatcher.UIThread.Post(() => _ = RefreshDirectorTeamAsync());
+
+    /// <summary>
+    /// Read this Director's team and name off the UI thread and draw them: the name on the toolbar and in the
+    /// window title, the team as a chip beside the name. No team recorded means no chip.
+    /// </summary>
+    internal async Task RefreshDirectorTeamAsync()
+    {
+        FileLog.Write("[MainWindow] RefreshDirectorTeamAsync");
+        try
+        {
+            var (team, name) = await Task.Run(() =>
+                (DirectorTeamStore.Load(), NamedInstanceRegistry.Get(InstanceContext.Slug)?.DisplayName ?? InstanceContext.DisplayName));
+            DirectorInfoText.Text = DirectorHandle.Label(name, Environment.MachineName);
+            DirectorTeamChip.Show(team);
+            Title = "DevThrottle Director" + InstanceTitleSuffix() + (team is null ? "" : $" [{team.Name}]");
+            FileLog.Write($"[MainWindow] RefreshDirectorTeamAsync: chip {(team is null ? "hidden (no team)" : "shown")}");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] RefreshDirectorTeamAsync FAILED: {ex.Message}");
+            DirectorTeamChip.Show(null);
+            ShowNotification($"Could not read which team this Director works for: {ex.Message}");
+        }
     }
 
     /// <summary>

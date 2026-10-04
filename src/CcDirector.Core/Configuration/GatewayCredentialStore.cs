@@ -127,5 +127,9 @@ public static class GatewayCredentialStore
         };
         CcDirectorConfigService.MergePatch(patch);
         FileLog.Write("[GatewayCredentialStore] Cleared gateway url + urls + token + tailnetEndpoint + streamMode in config.json (disconnected)");
+
+        // The team was the key's team (devthrottle_internal#2311). With the key gone the Director works for no
+        // team, so the chip goes too; the next enrollment records the team it is for.
+        Teams.DirectorTeamStore.Clear();
     }
 }

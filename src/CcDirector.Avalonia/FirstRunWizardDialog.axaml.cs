@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -2323,8 +2323,10 @@ public partial class FirstRunWizardDialog : Window
 
         try
         {
-            var result = await new GatewayAccountEnrollRunner()
-                .SignInAndEnrollHostedAsync(directorId, Environment.MachineName, ct);
+            // Signs in, asks which team this Director is for when there is one to choose (screen D1,
+            // devthrottle_internal#2311), and enrolls for that team.
+            var result = await HostedTeamSetup.SignInChooseTeamAndEnrollAsync(
+                this, directorId, Environment.MachineName, ct);
 
             if (!result.Success)
             {
