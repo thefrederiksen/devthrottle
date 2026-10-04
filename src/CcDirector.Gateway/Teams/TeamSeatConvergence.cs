@@ -70,6 +70,7 @@ public sealed class TeamSeatConvergence
             var counts = PaidMemberCounts();
             var called = 0;
             var failed = 0;
+            var endedNow = 0;
             var stopped = 0;
             foreach (var (teamId, paid) in counts)
             {
@@ -81,9 +82,12 @@ public sealed class TeamSeatConvergence
                     stopped++;
                 if (call is null) continue;
                 called++;
-                if (!call.Synced) failed++;
+                // A refusal because the subscription has ended is NOT retried next pass - TeamSeatSync has just
+                // stopped the team - so it is counted apart from the failures that are.
+                if (call.SubscriptionEnded) endedNow++;
+                else if (!call.Synced) failed++;
             }
-            FileLog.Write($"[TeamSeatConvergence] RunOnceAsync: {counts.Count} team(s) checked, sync called for {called}, {failed} of those not done (retried next pass), {stopped} not called because their subscription has ended and their bill has not changed");
+            FileLog.Write($"[TeamSeatConvergence] RunOnceAsync: {counts.Count} team(s) checked, sync called for {called}, {failed} of those not done (retried next pass), {endedNow} refused because their subscription has ended (stopped until their bill changes), {stopped} not called because their subscription has ended and their bill has not changed");
             return called;
         }
         finally

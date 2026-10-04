@@ -94,6 +94,13 @@ public sealed class TeamSeatConvergenceEndedSubscriptionTests : IDisposable
         }
 
         Assert.Equal(1, _website.CallsFor(_ended));
+        // The pass summary never says the stopped team will be retried: the first pass counts it as stopped, the
+        // later ones as not called.
+        var summaries = lines.Where(l => l.Contains("[TeamSeatConvergence] RunOnceAsync:", StringComparison.Ordinal)).ToList();
+        Assert.Equal(3, summaries.Count);
+        Assert.Contains("0 of those not done (retried next pass), 1 refused because their subscription has ended", summaries[0]);
+        Assert.Contains("0 of those not done (retried next pass), 0 refused because their subscription has ended", summaries[1]);
+        Assert.Contains("1 not called because their subscription has ended", summaries[1]);
         var stopped = Assert.Single(lines, l => l.Contains(StoppedMarker, StringComparison.Ordinal));
         // The team is logged only in its hashed form, and no person is named.
         Assert.Contains(new Core.Tenancy.TenantId(_ended).ToLogString(), stopped);

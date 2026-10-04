@@ -13,7 +13,9 @@ namespace CcDirector.Core.Account;
 /// <param name="StatusCode">The website's HTTP status (0 when no call was made or no response arrived).</param>
 /// <param name="Error">The website's own human-readable message on a refusal, or a sentence saying why no call
 /// was made. Null on success.</param>
-/// <param name="ErrorCode">The website's machine-readable code on a refusal, for logging only.</param>
+/// <param name="ErrorCode">The website's machine-readable code on a refusal. NOT for logging only: it decides
+/// <see cref="SubscriptionEnded"/>, which stops a team's seat convergence, so a change to how it is read
+/// (<c>AccountNotifyByTenantClient.ParseError</c>) can bring back the never-ending retry.</param>
 public sealed record TeamSeatSyncResult(bool Synced, int StatusCode, string? Error, string? ErrorCode)
 {
     /// <summary>
