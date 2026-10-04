@@ -5,6 +5,9 @@ website route that sends the email), 3 October 2026. Everything below ran locall
 database, no deploy, no Stripe, and no email was sent: every test that sends stubs the sender, and the screenshot rig
 records the send instead of making it.
 
+- `api-transcript.txt` - the whole flow over real HTTP on a hosted Gateway with Teams released: the bill gate
+  refusing, the invite options, invite, open the link signed in, accept, a second accept refused, list, resend,
+  cancel.
 - `s2-*.png`, `s3-*.png` - the two screens, taken from a local hosted Gateway with Teams released, serving the
   built Cockpit (`take-screenshots.py`, which runs the rig `TeamInvitationProofRig` in Gateway.UnitTests). The
   accounts are the fleet's test accounts only (qa@, tech@, dev@ and docs@ mindzie.com), seeded into a scratch
@@ -58,13 +61,13 @@ session key reaches none of them.
 
 | Run | Result |
 |---|---|
-| `.\scripts\test-local.ps1` (default gate) | 10 suites, all `outcome=Completed`, 3,463 passed, 0 failed |
-| `CcDirector.Gateway.UnitTests`, whole suite (`dotnet test`) | 8,222 passed, 0 failed, 8 skipped (its PostgreSQL proofs, which only run under `-Parked`) |
-| `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams\|FullyQualifiedName~AddTeam"` - its own throwaway PostgreSQL | `executed=18`, 18 passed, 0 failed; includes `AddTeamsPostgresTests` and `AddTeamInvitationsPostgresTests` |
+| `.\scripts\test-local.ps1` (default gate), on 3f9017d5e | 10 suites, all `outcome=Completed`, 3,463 passed, 0 failed |
+| `CcDirector.Gateway.UnitTests`, whole suite (`dotnet test`), on 3f9017d5e | 8,228 passed, 0 failed, 9 skipped (its PostgreSQL proofs, which only run under `-Parked`, and the screenshot rig) |
+| `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams\|FullyQualifiedName~MobileRedirect\|FullyQualifiedName~AddTeam"` - its own throwaway PostgreSQL, on 3f9017d5e | `executed=52`, 52 passed, 0 failed; includes the phone test, the `MobileRedirect` cases, `AddTeamsPostgresTests` and `AddTeamInvitationsPostgresTests` |
 | Cockpit `npx vitest run` | 68 files, 594 passed |
 | client-core `npx vitest run` | 140 files, 1,639 passed |
 | `npm run typecheck` (all four workspaces), `eslint` on the changed folders | clean |
-| Website `npm test` | exit 0; the node test runner reports 785 passed, 0 failed (includes `team-invitation-email.test.js`) |
+| Website `npm test`, on 64476bbd | exit 0; the node test runner reports 786 passed, 0 failed (includes `team-invitation-email.test.js`) |
 | Website `npm run build` | exit 0 |
 | Website `npm run test:team-invitation` (Docker PostgreSQL 16) | PASS, 28 assertions, all checked |
 
@@ -80,3 +83,12 @@ session key reaches none of them.
   then - with the new account's device key in the browser, which is what a finished sign-up leaves - the same
   invitation page, and the join. The redirect and the return are also proven by `inviteRoutes.test.tsx` and the
   over-the-wire test above.
+
+## The review and its answers
+
+The review of both pull requests, and the answer to each finding, is in the mission record:
+`docs/missions/teams-v1-2026-10-03/reviews/review-2301.md` in devthrottle_internal. F1 (the link on a phone, and the
+secret in two more log lines), F2 (an address in the log), F4 (resend's missing checks) and F5 (accept and the bill,
+Tech Lead ruling) are fixed in 3f9017d5e; F3 (the link in the email log, Tech Lead ruling) in devthrottle_internal
+64476bbd. The screenshots above were taken before those fixes; none of the fixes changes what the two screens show
+on a desktop.
