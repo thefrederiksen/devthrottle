@@ -1,0 +1,22 @@
+﻿=== RED PROOF: No phone exemption for the team pages
+Broke src\CcDirector.Gateway\Mobile\MobileRedirect.cs
+  was:         if (teamsReleased && IsTeamPageRoundTrip(path, next)) return false;
+  now:         // red proof: the team-page exemption removed
+Ran: .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~MobileRedirect|FullyQualifiedName~Issue2306_OverTheWire_APhone"
+
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:01:01.18
+FAILED: CcDirector.Gateway.Tests.MobileRedirectTests.ShouldRedirect_TeamsReleased_PhoneAtATeamPage_IsNotRedirected_AndEverythingElseStillIs(path: "/reports", next: null, expected: False)
+FAILED: CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_APhoneAtATeamPage_GetsTheCockpit_NotTheMobileApp(page: "questions")
+FAILED: CcDirector.Gateway.Tests.MobileRedirectTests.ShouldRedirect_TeamsReleased_PhoneAtATeamPage_IsNotRedirected_AndEverythingElseStillIs(path: "/signin", next: "/questions", expected: False)
+FAILED: CcDirector.Gateway.Tests.MobileRedirectTests.ShouldRedirect_TeamsReleased_PhoneAtATeamPage_IsNotRedirected_AndEverythingElseStillIs(path: "/questions", next: null, expected: False)
+FAILED: CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_APhoneAtATeamPage_GetsTheCockpit_NotTheMobileApp(page: "reports")
+FAILED: CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_APhoneAtATeamPage_GetsTheCockpit_NotTheMobileApp(page: "requests")
+FAILED: CcDirector.Gateway.Tests.MobileRedirectTests.ShouldRedirect_TeamsReleased_PhoneAtATeamPage_IsNotRedirected_AndEverythingElseStillIs(path: "/Reports", next: null, expected: False)
+FAILED: CcDirector.Gateway.Tests.MobileRedirectTests.ShouldRedirect_TeamsReleased_PhoneAtATeamPage_IsNotRedirected_AndEverythingElseStillIs(path: "/requests", next: null, expected: False)
+FAILED: CcDirector.Gateway.Tests.MobileRedirectTests.ShouldRedirect_TeamsReleased_PhoneAtATeamPage_IsNotRedirected_AndEverythingElseStillIs(path: "/questions/q-1", next: null, expected: False)
+FAILED: CcDirector.Gateway.Tests.MobileRedirectTests.ShouldRedirect_TeamsReleased_PhoneAtATeamPage_IsNotRedirected_AndEverythingElseStillIs(path: "/signin", next: "/reports?from=email", expected: False)

@@ -31,6 +31,7 @@ Each break was made in one file, the guarding tests run, and the file restored i
 | The rail ignores the verdict and draws the whole app | 4: three items, drawn from the verdict not the role, switch to Developer, switch to Collaborator | `red-2-cockpit-rail.txt` |
 | A typed address renders the page instead of the not-available page | 9: every typed address, including a page that does not exist | `red-3-cockpit-not-available.txt` |
 | The role table lets a Collaborator run sessions | 2: the server refuses the data behind every page (GET /sessions was Allowed), and `GET /teams` over the wire carries the Collaborator's verdict | `red-4-server-refusal.txt` |
+| The phone exemption for the three team pages is removed | 10: 7 policy cases (each team page, under one, and the sign-in round trip) and the 3 over-the-wire phone tests (`Issue2306_OverTheWire_APhoneAtATeamPage_GetsTheCockpit_NotTheMobileApp`) | `red-6-phone-exemption.txt` |
 | The team gate lets a role-refused invitation write through | 1: over real HTTP, `POST /teams/{teamId}/invitations` as the team's Collaborator "was refused, but not by the team gate" | `red-5-team-route-refusal-over-http.txt` |
 
 Over real HTTP, the routes that carry the team in the address (`/teams/{teamId}/...`, called with the person's own key) DO run inside a team today, so for them the Collaborator's refusal is proven through the real pipeline: every such route whose action the role table does not give a Collaborator - today the three invitation writes behind the invite page - answers the gate's 403 (`Issue2306_OverTheWire_ACollaborator_EveryTeamRouteTheTableRefusesThem_Is403`).
@@ -49,4 +50,4 @@ Desktop (1280 px):
 
 Phone width (390 px): `phone-390-1-questions.png`, `phone-390-2-requests.png`, `phone-390-3-reports.png`, `phone-390-4-typed-sessions-not-available.png`, `phone-390-6-developer-team-full-app.png`.
 
-The phone-width shots are a 390 px browser window with a desktop browser's identity. A real phone's browser is sent to the mobile app by the Gateway's mobile front door before the Cockpit loads; see the pull request.
+The phone-width shots are a 390 px browser window with a desktop browser's identity. A real phone reaches the same pages: while Teams is released, the Gateway's mobile front door no longer sends a phone at `/questions`, `/requests` or `/reports` (or the sign-in round trip from one) to the mobile app, the same exemption the invitation page has. Proven over real HTTP with an iPhone browser identity, signed in and signed out, in `gateway-tests-teams-and-mobile-redirect.log` (97 of 97 executed). While Teams is dark a phone goes to the mobile app exactly as before.
