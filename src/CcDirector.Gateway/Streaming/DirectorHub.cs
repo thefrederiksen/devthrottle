@@ -304,8 +304,12 @@ public sealed class DirectorHub : Hub
         // MTR-15 cancellation cutoff: index this live tunnel by tenant with a server-side abort, so a revoked
         // tenant's connection is severed the moment the sweep (or a request re-read) finds it NotEntitled. The
         // durable device tombstone denies NEW auth; this ends the tunnel already up. Cleared on disconnect.
+        // Indexed by the person the key was issued to and this Director's id too, so a team that removes one person
+        // cuts only that person's tunnels, and a Director that moves to another team has its old tunnel cut
+        // (devthrottle_internal#2311). Both come from the authenticated key and this Hello's bound id.
         var abortContext = Context;
-        _connections?.Register(tenant, Context.ConnectionId, () => abortContext.Abort());
+        var keyHolder = AuthMiddleware.AuthenticatedDevice(Context.GetHttpContext())?.AccountSubject;
+        _connections?.Register(tenant, Context.ConnectionId, () => abortContext.Abort(), keyHolder, directorId);
         // Gateway Cleanup mission (tunnel-only): the stream IS the registration now (HTTP register is gone).
         // Register this Director from the Hello identity so registry.Get(tenant, id) - the gate on create-session
         // and the other director-level routes - resolves it. Source="stream", no dialable endpoint.

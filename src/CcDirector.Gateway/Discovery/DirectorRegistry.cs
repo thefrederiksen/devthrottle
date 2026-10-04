@@ -250,11 +250,30 @@ public sealed class DirectorRegistry : IDisposable
     /// The credential each stream-registered Director said Hello on (<see cref="Util.AuthMiddleware.RegisteringCredential"/>),
     /// by (tenant, id). Not a second identity: it is the device key the hub already authenticated and bound this
     /// Director id to, kept so an HTTP route can ask whether its caller is that Director (the Message Load
-    /// mission, inspection 11). Several Directors on one machine share one device key, so one credential may
-    /// register several ids, and one id is never shared by two credentials: the FIRST credential to register an
-    /// id keeps it (see <see cref="BoundToAnotherCredential"/>). Cleared when the entry is removed, and only then.
+    /// mission, inspection 11). One id is never shared by two credentials: the FIRST credential to register an id
+    /// keeps it (see <see cref="BoundToAnotherCredential"/>). Cleared when the entry is removed, and only then.
+    ///
+    /// ONE CREDENTIAL MAY STILL REGISTER SEVERAL IDS, and that is deliberate. A Director set up today enrolls with its
+    /// OWN Director id as the device id - each instance has its own storage root and its own key - so on the hosted
+    /// Gateway one device key normally registers exactly one id, and the team gate reads a Director's owner from it
+    /// (devthrottle_internal#2311). But the machine's shared Gateway token registers as the one credential
+    /// "machine-token" for every Director that authenticates with it (self-host and loopback), and a Director
+    /// enrolled before per-instance keys may still share its machine's key with a sibling. Refusing a second id per
+    /// credential would disconnect those, so the tolerance stays.
     /// </summary>
     private readonly ConcurrentDictionary<DirectorKey, string> _registeredBy = new();
+
+    /// <summary>
+    /// The credential a registered Director's stream Hello was authenticated by (<c>device:&lt;device id&gt;</c> for a
+    /// device key), or null when no such Director is registered in <paramref name="tenant"/> or it was registered some
+    /// other way. The team gate reads whose a Director is from it (devthrottle_internal#2311).
+    /// </summary>
+    public string? RegisteringCredentialOf(TenantId tenant, string directorId)
+    {
+        if (string.IsNullOrEmpty(directorId)) return null;
+        var key = new DirectorKey(tenant, directorId);
+        return _directors.ContainsKey(key) && _registeredBy.TryGetValue(key, out var registered) ? registered : null;
+    }
 
     /// <summary>
     /// True when <paramref name="directorId"/> is registered in <paramref name="tenant"/> AND its stream Hello was

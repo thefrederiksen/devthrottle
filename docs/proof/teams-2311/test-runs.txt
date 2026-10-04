@@ -1,0 +1,63 @@
+devthrottle_internal#2311 (Gateway part 1) - test runs on branch teams/2311-gateway-team-key, SOREN_NORTH, 4 October 2026
+All runs with MSBUILDDISABLENODEREUSE=1, on the final code.
+
+1. .\scripts\test-local.ps1  (default gate)
+  CcDirector.Core.UnitTests                outcome=Completed    total=1148   executed=1148
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+  RESULT: all projects exited zero. 3,463 passed, 0 failed.
+  COVERAGE GAP named by the script: CcDirector.Core.Tests, CcDirector.Gateway.Tests, CcDirector.Gateway.UnitTests
+  (runs 2 and 3 below cover the last two; the full -Parked run is the Tech Lead's).
+
+2. dotnet test src/CcDirector.Gateway.UnitTests  (whole suite)
+  Passed!  - Failed: 0, Passed: 8397, Skipped: 8, Total: 8405, Duration: 8 m 18 s
+
+3. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~.Teams.|FullyQualifiedName~HostedMobile|FullyQualifiedName~HostedAccount|FullyQualifiedName~DeviceListTenantScoping|FullyQualifiedName~CrossTenantDuplicateDirectorId|FullyQualifiedName~DirectorRouteTenantScoping|FullyQualifiedName~PromptLogTenantIsolation|FullyQualifiedName~OmittedTenantBoundary"
+  CcDirector.Gateway.Tests                 outcome=Completed    total=110    executed=110
+  Passed!  - Failed: 0, Passed: 110, Skipped: 0, Total: 110, Duration: 7 m 48 s
+  (An earlier run of a narrower filter, before TeamEndpointWalkTests was updated, failed exactly that one test:
+   OverTheWire_AKeyBoundToATeamsTenant_IsNotAcceptedToday_... expected 401, got 402 - the behaviour this step changes.)
+
+4. The new tests alone
+  dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~TeamDirectorKeyTests|FullyQualifiedName~HostedTeamEnrollmentTests|FullyQualifiedName~TeamMemberAccessRevokerTests|FullyQualifiedName~TeamCallerOwnershipTests|FullyQualifiedName~TeamDirectorTunnelTests"
+  Passed!  - Failed: 0, Passed: 69, Total: 69
+  Gateway.Tests: HostedTeamDirectorKeyTests (3) and HostedTeamDirectorKeyDarkTests (1) are inside run 3.
+
+5. Revert check 1 - DeviceRegistry.IsLiveTeamBinding: "return member is not null && ..." -> "return false && member is not null && ..."
+  filter FullyQualifiedName~TeamDirectorKeyTests
+  Failed!  - Failed: 8, Passed: 7, Total: 15
+    ResolveCredential_ATeamKeyOfEveryRoleThatRunsSessions_IsActive_AndNamesThePerson
+    ResolveCredential_RemovingTheMember_RevokesTheirTeamKeyOnTheVeryNextRequest
+    ResolveCredential_MakingTheMemberACollaborator_RevokesTheirTeamKey_AndMakingThemADeveloperAgainRestoresIt
+    ResolveCredential_OnePersonsKeyOnOneTeam_IsUntouchedByTheirRemovalFromAnother
+    Initialize_KeepsAValidTeamKey_AndStillQuarantinesABadOne
+    RevokeTenantMember_RevokesOnlyThatPersonsKeysInThatTenant
+    RevokeDevice_RevokesExactlyThatKey_Once
+    TwoDirectorsOfOnePerson_OnTwoTeams_EachResolveToTheirOwnTeam_AndRegisterOnlyThere
+  restored; run 2 above is on the restored source (it rebuilt).
+
+6. Revert check 2 - TeamCallerOwnership: "return mine ? Callers : SomeoneElses" -> "return Callers"
+  filter FullyQualifiedName~TeamCallerOwnershipTests
+  Failed!  - Failed: 3, Passed: 8, Total: 11
+    Whose_ADirector_IsItsKeysPersons
+    Whose_ADirectorsOwnSession_IsTheCallersOwn_AnotherMembersIsSomeoneElses
+    RunAsync_AMembersDirectorKey_TouchingAnotherMembersSession_IsRefusedAsWatchingIt
+  restored.
+
+7. Revert check 3 - TeamMemberAccessRevoker: "AbortForTenantMember(...)" -> "0" (no tunnel cut)
+  filter FullyQualifiedName~TeamDirectorTunnelTests|FullyQualifiedName~TeamMemberAccessRevokerTests
+  Failed!  - Failed: 4, Passed: 12, Total: 16
+    TeamDirectorTunnelTests.RemovingAPerson_CutsTheirOpenTunnelOnThatTeamOnly
+    TeamDirectorTunnelTests.DemotingAPersonToCollaborator_CutsTheirOpenTunnelOnThatTeamOnly
+    TeamMemberAccessRevokerTests.MakingAPersonACollaborator_RevokesTheirKeysAndCutsTheirTunnelsOnThatTeam_AndTheyStayRevoked
+    TeamMemberAccessRevokerTests.RemovingAPerson_RevokesTheirKeysAndCutsTheirTunnelsOnThatTeamOnly
+  restored.
+
+Not run: .\scripts\test-local.ps1 -Parked (Gateway.Tests in full, Core.Tests) - longer than one command here.

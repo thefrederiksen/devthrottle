@@ -1702,8 +1702,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // deferInitialize: establishing the credential authority READS the database, and that read used to
         // sit in front of the listener bind. StartAsync initialises it immediately after the database opens,
         // and the readiness gate refuses everything but /healthz until it has.
+        // teamsReleased: only where Teams is released may a hosted key be bound to a team's tenant
+        // (devthrottle_internal#2311); dark, every key is judged exactly as before.
         Devices = new Pairing.DeviceRegistry(_gatewayDb, devicesPath, GatewayHostedMode.IsHosted,
-            deferInitialize: true);
+            deferInitialize: true, teamsReleased: TeamsReleased);
         // Remove-the-network-port phase 1b: the per-session credential registry. A Director registers one key
         // per session over the tunnel it already holds, and an agent inside that session authenticates as the
         // session rather than with its Director's account-wide key. Same database and the same stored-hash
@@ -1760,7 +1762,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // the stores read (so a scope it enters is what they resolve) and the device registry.
         _tenantBoundary = new Tenancy.HostedTenantBoundary(_tenantContext, Devices);
         TeamAccess = new Teams.TeamAccess(TeamRegistry);
-        TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary);
+        TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary,
+            new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices));
+        // Removing a person from a team, or making them a Collaborator, cuts their Directors off that team: their keys
+        // there are revoked and their open tunnels there cut (devthrottle_internal#2311). Attached only where Teams is
+        // released, at the one place a membership change is committed.
+        if (TeamsReleased)
+        {
+            var memberAccess = new Teams.TeamMemberAccessRevoker(Devices, _directorConnections);
+            TeamRegistry.MembershipCommitted += change => memberAccess.OnMembershipCommitted(change);
+        }
         // The background-loop seam (Hosted Multi-Tenancy, session-serving PR2). Its tenant list is the live
         // push-store partition set - exactly the tenants with a Director bound to the tunnel, which is the
         // only fleet a push-store-driven sweep could act on - so a sweep costs no per-tick database scan.
@@ -4438,9 +4449,18 @@ public sealed class GatewayHost : IAsyncDisposable
             // The paid gate rides along here and ONLY here. This route is mapped on hosted only, so passing
             // the entitlement registry means the gate is active wherever enrollment is possible - self-host
             // never maps this route at all and therefore cannot be gated by accident.
+            //
+            // The Teams half (devthrottle_internal#2311) - the teams a Director may be set up for, enrollment into one,
+            // and moving a Director between them - exists only where Teams is released. A move is refused while the
+            // Director has a session on this Gateway: its last known roster here.
+            var teamEnrollment = TeamsReleased
+                ? new Api.HostedEnrollmentEndpoint.TeamEnrollment(TeamRegistry, TeamAccess,
+                    (tenant, directorId) => PushedSessions.GetLastKnown(tenant, directorId).Sessions.Count,
+                    _directorConnections)
+                : null;
             Api.HostedEnrollmentEndpoint.Map(_app, hostedEnrollDeps.Devices, hostedEnrollDeps.Tenants,
                 hostedEnrollDeps.AccountTokenValidator, entitlements: hostedEnrollDeps.Entitlements,
-                trials: hostedEnrollDeps.Trials);
+                trials: hostedEnrollDeps.Trials, teams: teamEnrollment);
         }
 
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a

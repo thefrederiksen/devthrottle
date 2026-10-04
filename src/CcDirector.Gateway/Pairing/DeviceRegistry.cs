@@ -31,6 +31,7 @@ public sealed class DeviceRegistry : IDisposable
     private readonly GatewayDatabase _db;
     private readonly bool _ownsDatabase;
     private readonly bool _isHosted;
+    private readonly bool _teamsReleased;
     private readonly string _storePath;
     private readonly object _enrollLock = new();
     private bool _disposed;
@@ -68,12 +69,18 @@ public sealed class DeviceRegistry : IDisposable
     /// platform from giving up on the site; it is not permission to serve without knowing which device keys
     /// are valid.
     /// </param>
+    /// <param name="teamsReleased">
+    /// Whether Teams is released on this Gateway (<see cref="Teams.TeamsReleaseSwitch"/>). Only then may a hosted key
+    /// be bound to a TEAM's tenant (devthrottle_internal#2311). Off, a hosted key is valid exactly as before: only when
+    /// its account owns the tenant it is bound to.
+    /// </param>
     public DeviceRegistry(GatewayDatabase db, string? storePath = null, bool isHosted = false,
-        bool deferInitialize = false)
+        bool deferInitialize = false, bool teamsReleased = false)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _storePath = ResolveStorePath(storePath);
         _isHosted = isHosted;
+        _teamsReleased = teamsReleased;
         if (!deferInitialize)
             InitializeAuthority();
     }
@@ -221,14 +228,16 @@ public sealed class DeviceRegistry : IDisposable
                     || string.Equals(tenant, TenantId.Local.Value, StringComparison.Ordinal)
                     || string.Equals(tenant, TenantId.System.Value, StringComparison.Ordinal)
                     || string.IsNullOrWhiteSpace(row.AccountSubject)
-                    || !ctx.Tenants.AsNoTracking().Any(t =>
-                        t.Id == tenant && t.AccountSubject == row.AccountSubject));
+                    || (!ctx.Tenants.AsNoTracking().Any(t =>
+                            t.Id == tenant && t.AccountSubject == row.AccountSubject)
+                        && !IsLiveTeamBinding(ctx, tenant, row.AccountSubject)));
 
             var identity = new DeviceCredentialIdentity(
                 row.DeviceId,
                 tenant,
                 string.IsNullOrWhiteSpace(row.DeviceType) ? DefaultDeviceType : row.DeviceType,
-                row.Status);
+                row.Status,
+                string.IsNullOrWhiteSpace(row.AccountSubject) ? null : row.AccountSubject);
 
             if (invalidHostedBinding
                 || !string.Equals(row.Status, StatusActive, StringComparison.Ordinal)
@@ -405,6 +414,94 @@ public sealed class DeviceRegistry : IDisposable
         FileLog.Write($"[DeviceRegistry] ReinstateRevokedBefore: reason={trimmed}, tenants={tenantIds.Count}, " +
                       $"reinstated={reinstated}, tenantsSkipped={tenantsSkipped}");
         return reinstated;
+    }
+
+    /// <summary>
+    /// Tombstone every ACTIVE key one person holds in one tenant - their Directors set up for one team
+    /// (devthrottle_internal#2311). Only that person's keys in that tenant: the team's other members, the person's
+    /// other teams and their personal tenant are untouched. Durable, like <see cref="RevokeTenant"/>, so a key cut
+    /// off when its person left the team stays cut off if they are invited back - they set the Director up again,
+    /// exactly as the start-up quarantine would require after a restart.
+    /// </summary>
+    /// <returns>The number of keys revoked.</returns>
+    public int RevokeTenantMember(TenantId tenant, string accountSubject, string reason, DateTime? revokedAtUtc = null)
+    {
+        if (!tenant.IsValid || tenant.IsLocal || tenant.IsSystem)
+            throw new ArgumentException("A hosted tenant is required.", nameof(tenant));
+        if (string.IsNullOrWhiteSpace(accountSubject))
+            throw new ArgumentException("accountSubject is required", nameof(accountSubject));
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("reason is required", nameof(reason));
+
+        var when = revokedAtUtc ?? DateTime.UtcNow;
+        var subject = accountSubject.Trim();
+        var why = reason.Trim();
+        using var ctx = _db.CreateUnscopedContext();
+        var changed = ctx.DeviceCredentials
+            .Where(d => d.TenantId == tenant.Value && d.AccountSubject == subject && d.Status == StatusActive)
+            .ExecuteUpdate(setters => setters
+                .SetProperty(d => d.Status, StatusRevoked)
+                .SetProperty(d => d.RevokedAtUtc, when)
+                .SetProperty(d => d.RevokedReason, why));
+        FileLog.Write($"[DeviceRegistry] RevokeTenantMember: tenant {tenant.ToLogString()} revoked={changed} (reason={why})");
+        return changed;
+    }
+
+    /// <summary>
+    /// Tombstone ONE key, by the device row it belongs to. Used when a Director moves to another team: its old key
+    /// must never work again (devthrottle_internal#2311). Returns whether an active key was revoked.
+    /// </summary>
+    public bool RevokeDevice(string deviceId, string reason, DateTime? revokedAtUtc = null)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId))
+            throw new ArgumentException("deviceId is required", nameof(deviceId));
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("reason is required", nameof(reason));
+
+        var when = revokedAtUtc ?? DateTime.UtcNow;
+        var why = reason.Trim();
+        using var ctx = _db.CreateUnscopedContext();
+        var changed = ctx.DeviceCredentials
+            .Where(d => d.DeviceId == deviceId && d.Status == StatusActive)
+            .ExecuteUpdate(setters => setters
+                .SetProperty(d => d.Status, StatusRevoked)
+                .SetProperty(d => d.RevokedAtUtc, when)
+                .SetProperty(d => d.RevokedReason, why));
+        FileLog.Write($"[DeviceRegistry] RevokeDevice: device id={deviceId}, revoked={changed == 1} (reason={why})");
+        return changed == 1;
+    }
+
+    /// <summary>
+    /// The person a device row's key was issued to, or null when there is no such row or it names nobody. The team
+    /// gate asks it to learn whose a Director is (devthrottle_internal#2311). Personally identifying: never logged.
+    /// </summary>
+    public string? AccountSubjectOfDevice(string deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId))
+            return null;
+        using var ctx = _db.CreateUnscopedContext();
+        var subject = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.DeviceId == deviceId)
+            .Select(d => d.AccountSubject)
+            .FirstOrDefault();
+        return string.IsNullOrWhiteSpace(subject) ? null : subject;
+    }
+
+    /// <summary>
+    /// What a device row shows - machine name, platform and device type - or null when there is no such row. A
+    /// Director that moves to another team keeps them on its new row (devthrottle_internal#2311).
+    /// </summary>
+    public DeviceDisplay? DisplayOfDevice(string deviceId)
+    {
+        if (string.IsNullOrWhiteSpace(deviceId))
+            return null;
+        using var ctx = _db.CreateUnscopedContext();
+        return ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.DeviceId == deviceId)
+            .Select(d => new DeviceDisplay(d.MachineName, d.Platform, d.DeviceType))
+            .FirstOrDefault();
     }
 
     public IReadOnlyList<ChildMirrorEntry> MirrorSnapshot()
@@ -586,6 +683,28 @@ public sealed class DeviceRegistry : IDisposable
                     .Select(d => d.DeviceId)
                     .ToList();
 
+                // A key bound to a TEAM's tenant fails the personal-account test above by design - a team's tenant
+                // is no one person's row in the tenants table. It is kept when its person is still a member of that
+                // team in a role that may run sessions there (devthrottle_internal#2311), and quarantined otherwise,
+                // exactly as a bad personal binding is. The same rule ResolveCredential applies on every request.
+                if (_teamsReleased && invalidIds.Count > 0)
+                {
+                    var bindings = ctx.DeviceCredentials
+                        .AsNoTracking()
+                        .Where(d => invalidIds.Contains(d.DeviceId))
+                        .Select(d => new { d.DeviceId, d.TenantId, d.AccountSubject })
+                        .ToList();
+                    var keptForTeams = bindings
+                        .Where(b => IsLiveTeamBinding(ctx, b.TenantId, b.AccountSubject))
+                        .Select(b => b.DeviceId)
+                        .ToHashSet(StringComparer.Ordinal);
+                    if (keptForTeams.Count > 0)
+                    {
+                        invalidIds = invalidIds.Where(id => !keptForTeams.Contains(id)).ToList();
+                        FileLog.Write($"[DeviceRegistry] InitializeAuthority: kept={keptForTeams.Count} hosted credential(s) bound to a team whose person may run sessions there");
+                    }
+                }
+
                 if (invalidIds.Count > 0)
                 {
                     var now = DateTime.UtcNow;
@@ -626,6 +745,24 @@ public sealed class DeviceRegistry : IDisposable
         {
             FileLog.Write($"[DeviceRegistry] ArchiveLegacyFile: rename deferred ({ex.GetType().Name}); the durable import marker prevents re-import");
         }
+    }
+
+    /// <summary>
+    /// THE TEAM HALF OF A HOSTED KEY'S VALIDITY (devthrottle_internal#2311): a key bound to a team's tenant is valid
+    /// while its person is a member of that team in a role the role table lets run sessions on their own computers.
+    /// Removing the member, or making them a Collaborator, makes the key resolve revoked on the very next request.
+    /// The role list is never written here - it is the role table's cell (<see cref="Teams.TeamPermissions"/>).
+    /// Always false while Teams is not released, so a dark Gateway judges every key exactly as before.
+    /// </summary>
+    private bool IsLiveTeamBinding(GatewayDbContext ctx, string? tenant, string? accountSubject)
+    {
+        if (!_teamsReleased || string.IsNullOrWhiteSpace(tenant) || string.IsNullOrWhiteSpace(accountSubject))
+            return false;
+        var member = ctx.TeamMembers
+            .AsNoTracking()
+            .FirstOrDefault(m => m.TeamId == tenant && m.AccountSubject == accountSubject);
+        return member is not null
+            && Teams.TeamPermissions.Allows(member.Role, Teams.TeamAction.RunSessionsOnOwnComputers);
     }
 
     private static string ResolveStorePath(string? storePath)
@@ -702,12 +839,17 @@ public enum DeviceCredentialResolutionKind
     Unavailable,
 }
 
-/// <summary>An authenticated device identity with no raw key and no stored key hash.</summary>
+/// <summary>
+/// An authenticated device identity with no raw key and no stored key hash. <see cref="AccountSubject"/> is the
+/// person the key was issued to (null for a self-host key that names nobody). It is personally identifying: never
+/// log it, and never log this record whole.
+/// </summary>
 public sealed record DeviceCredentialIdentity(
     string DeviceId,
     string? TenantId,
     string DeviceType,
-    string Status);
+    string Status,
+    string? AccountSubject = null);
 
 /// <summary>The typed result of one authoritative credential lookup.</summary>
 public readonly record struct DeviceCredentialResolution(
@@ -720,6 +862,9 @@ public readonly record struct DeviceCredentialResolution(
     public static DeviceCredentialResolution Unavailable { get; } =
         new(DeviceCredentialResolutionKind.Unavailable, null);
 }
+
+/// <summary>What a device row shows about the device: its machine name, platform and device type.</summary>
+public sealed record DeviceDisplay(string MachineName, string Platform, string DeviceType);
 
 public sealed record ChildMirrorEntry(
     string DeviceId,
