@@ -160,6 +160,8 @@ public static class LoadTestMetrics
     public static object Snapshot(bool reset)
     {
         var process = Process.GetCurrentProcess();
+        // Read BEFORE anything resets: a failure here must not throw away a load step's histograms and counters.
+        var memory = MemorySnapshot(process);
         var snapshot = new
         {
             capturedAtUtc = DateTime.UtcNow,
@@ -199,8 +201,71 @@ public static class LoadTestMetrics
                 threadPoolPendingWorkItems = ThreadPool.PendingWorkItemCount,
                 processorCount = Environment.ProcessorCount,
             },
+            memory,
         };
         return snapshot;
+    }
+
+    /// <summary>
+    /// Where the process's memory is, so a working set far above the managed heap can be explained (Money Saver,
+    /// 4 October 2026: 476 MB working set against an 87 MB heap). Three layers, each a subset of the next:
+    /// <list type="bullet">
+    /// <item>the managed heap as of the last collection, and how much of it is free fragments;</item>
+    /// <item>what the garbage collector has COMMITTED - memory it holds for the heap whether or not anything lives
+    /// in it, which a runtime setting (for example GCConserveMemory) can make it hand back;</item>
+    /// <item>everything else in the process (native libraries, the runtime, compiled code).</item>
+    /// </list>
+    /// On Linux the kernel's own split of the resident memory is added: VmRSS (all resident memory, the working
+    /// set), anonymous (heap and native allocations), file-backed (mapped assemblies and libraries, which the
+    /// kernel can drop and reload) and shared. That file exists only on Linux; elsewhere the field is null,
+    /// because there is nothing to read. On Linux RssAnon, not privateBytes, is the resident private figure:
+    /// .NET reports privateBytes there from the process's virtual data size, which can sit far above the
+    /// working set, so the "each a subset of the next" reading holds for privateBytes on Windows only.
+    /// containerMemoryInUseBytes and memoryLimitBytes describe the whole machine or container the process runs
+    /// in, as the garbage collector sees it - not memory this process holds.
+    /// The garbage collector's configuration is included so the settings in effect are read, not assumed.
+    /// </summary>
+    internal static object MemorySnapshot(Process process)
+    {
+        var info = GC.GetGCMemoryInfo();
+        return new
+        {
+            gcHeapAfterLastCollectionBytes = info.HeapSizeBytes,
+            gcFragmentedBytes = info.FragmentedBytes,
+            gcCommittedBytes = info.TotalCommittedBytes,
+            containerMemoryInUseBytes = info.MemoryLoadBytes,
+            memoryLimitBytes = info.TotalAvailableMemoryBytes,
+            gcHighMemoryLoadThresholdBytes = info.HighMemoryLoadThresholdBytes,
+            gcIsServer = System.Runtime.GCSettings.IsServerGC,
+            gcLatencyMode = System.Runtime.GCSettings.LatencyMode.ToString(),
+            gcConfiguration = GC.GetConfigurationVariables()
+                .ToDictionary(kv => kv.Key, kv => kv.Value.ToString()),
+            privateBytes = process.PrivateMemorySize64,
+            workingSetBytes = process.WorkingSet64,
+            linuxResident = File.Exists(ProcSelfStatus) ? ReadLinuxResident(File.ReadAllLines(ProcSelfStatus)) : null,
+        };
+    }
+
+    private const string ProcSelfStatus = "/proc/self/status";
+
+    /// <summary>The VmRSS, RssAnon, RssFile and RssShmem lines of /proc/self/status, in bytes (the file reports kB).
+    /// A line the kernel does not print is absent from the result rather than reported as zero.</summary>
+    internal static Dictionary<string, long> ReadLinuxResident(IEnumerable<string> statusLines)
+    {
+        var wanted = new[] { "RssAnon", "RssFile", "RssShmem", "VmRSS" };
+        var result = new Dictionary<string, long>();
+        foreach (var line in statusLines)
+        {
+            var colon = line.IndexOf(':');
+            if (colon <= 0) continue;
+            var name = line[..colon];
+            if (Array.IndexOf(wanted, name) < 0) continue;
+            var parts = line[(colon + 1)..].Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 2 || parts[1] != "kB" || !long.TryParse(parts[0], out var kb))
+                throw new FormatException($"/proc/self/status line not in the 'N kB' form: '{line}'");
+            result[name + "Bytes"] = kb * 1024;
+        }
+        return result;
     }
 }
 
