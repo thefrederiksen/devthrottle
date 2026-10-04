@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Money Saver, item 3: a load test for the Gateway. Runs a private hosted Gateway in one process ("host")
+       and simulated accounts against it from another ("drive"), so the Gateway's memory is measured without the
+       load generator's own. Never pointed at production. See README.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>gateway-load</AssemblyName>
+    <RootNamespace>CcDirector.GatewayLoad</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- The production host (CcDirector.Gateway.Host) runs workstation GC; so does this, or the memory it
+         measures would not be the memory production uses. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Protocols.MessagePack" Version="10.0.9" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CcDirector.Gateway\CcDirector.Gateway.csproj" />
+    <ProjectReference Include="..\..\src\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="session-template.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
