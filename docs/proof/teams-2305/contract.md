@@ -12,9 +12,10 @@ GET /teams/{teamId}/mentor?week=YYYY-Www
   route.
 - Called from a person's own account, with the team in the route (`TeamFrom.RouteTeamId`), exactly as
   `GET /teams/{teamId}/members` is.
-- `week` is an ISO week, for example `2026-W40`. The week is Monday to Sunday in the TEAM's own time zone (the
-  team tenant's time zone setting). When `week` is left out, the answer is for the most recent week that has
-  closed in the team's time zone.
+- `week` is an ISO week, for example `2026-W40`. The week is Monday to Sunday in the team tenant's time zone. **No
+  one can set a team's time zone yet** (the settings routes are refused inside a team), so today that is the Gateway
+  machine's own time zone, and `timeZone` in the answer says which one it was. When `week` is left out, the answer
+  is for the most recent week that has closed in that zone.
 - There is no write route. Blocks are written by the Gateway's weekly Mentor run only.
 
 ## Who gets what
@@ -38,7 +39,7 @@ serialized by the same code: byte for byte the same JSON object.
   "week": "2026-W40",
   "weekStart": "2026-09-28",
   "weekEnd": "2026-10-04",
-  "timeZone": "Europe/Copenhagen",
+  "timeZone": "UTC",
   "scope": "everyone",
   "written": true,
   "readers": [

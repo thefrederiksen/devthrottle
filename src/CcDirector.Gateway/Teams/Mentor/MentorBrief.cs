@@ -36,6 +36,8 @@ public sealed record MentorAnswer(
 public sealed record MentorAnswerCheck(MentorAnswer? Answer, string? Refusal)
 {
     public static MentorAnswerCheck Accept(MentorAnswer answer) => new(answer, null);
+    /// <summary>Refuse. The reason names the KIND of refusal and counts only - never text the model wrote - because it
+    /// is logged and stored (devthrottle_internal#2305, review G2).</summary>
     public static MentorAnswerCheck Refuse(string reason) => new(null, reason);
 }
 
@@ -67,6 +69,12 @@ public static class MentorBrief
 
     /// <summary>The most prompts a block may quote.</summary>
     public const int MaxQuotes = 2;
+
+    /// <summary>A free-text field holding this many consecutive words of a prompt the model was shown is refused: a
+    /// prompt reaches the page only as a quote the Gateway copies (devthrottle_internal#2305, review G1).</summary>
+    public const int MaxEchoedWords = 8;
+
+    private static readonly string[] FreeTextFields = { "workedOn", "howItWent", "wentBadlyAndWhy", "oneThingToTry" };
 
     private static readonly string[] Fields = { "tone", "workedOn", "howItWent", "wentBadlyAndWhy", "quotes", "oneThingToTry" };
 
@@ -122,9 +130,9 @@ public static class MentorBrief
         {
             doc = JsonDocument.Parse(json);
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            return MentorAnswerCheck.Refuse($"The answer was not valid JSON: {ex.Message}");
+            return MentorAnswerCheck.Refuse("The answer was not valid JSON.");
         }
 
         using (doc)
@@ -136,7 +144,7 @@ public static class MentorBrief
             var names = root.EnumerateObject().Select(p => p.Name).ToList();
             var extra = names.Where(n => !Fields.Contains(n, StringComparer.Ordinal)).ToList();
             if (extra.Count > 0)
-                return MentorAnswerCheck.Refuse($"The answer carried fields that were not asked for: {string.Join(", ", extra)}.");
+                return MentorAnswerCheck.Refuse($"The answer carried {extra.Count} field(s) that were not asked for.");
             if (names.Count != names.Distinct(StringComparer.Ordinal).Count())
                 return MentorAnswerCheck.Refuse("The answer named a field twice.");
             var missing = Fields.Where(f => !names.Contains(f, StringComparer.Ordinal)).ToList();
@@ -153,6 +161,11 @@ public static class MentorBrief
             if (howItWent is null && wentBadly is null)
                 return MentorAnswerCheck.Refuse("The answer said neither how the week went nor where it went badly.");
 
+            var echoRefusal = RefuseEchoedPrompts(
+                new[] { workedOn, howItWent, wentBadly, oneThing }, request.PromptsByLabel.Values);
+            if (echoRefusal is not null)
+                return MentorAnswerCheck.Refuse(echoRefusal);
+
             var quotes = root.GetProperty("quotes");
             if (quotes.ValueKind != JsonValueKind.Array)
                 return MentorAnswerCheck.Refuse("The answer's quotes were not a list.");
@@ -163,7 +176,7 @@ public static class MentorBrief
                     return MentorAnswerCheck.Refuse("The answer's quotes held something other than prompt ids.");
                 var label = q.GetString()!.Trim();
                 if (!request.PromptsByLabel.ContainsKey(label))
-                    return MentorAnswerCheck.Refuse($"The answer quoted '{Shorten(label)}', which is not one of this person's prompts of this week.");
+                    return MentorAnswerCheck.Refuse("The answer quoted something that is not one of this person's prompts of this week.");
                 if (labels.Contains(label, StringComparer.Ordinal))
                     return MentorAnswerCheck.Refuse($"The answer quoted {label} twice.");
                 labels.Add(label);
@@ -178,6 +191,59 @@ public static class MentorBrief
 
             return MentorAnswerCheck.Accept(new MentorAnswer(tone!, workedOn!, howItWent, wentBadly, labels, oneThing!));
         }
+    }
+
+    /// <summary>
+    /// The one rule that keeps a prompt's words out of the summary: a free-text field may not contain a double quotation
+    /// mark, nor <see cref="MaxEchoedWords"/> or more consecutive words of any prompt the model was shown (compared
+    /// without case or punctuation). Null when the fields are clean; otherwise the refusal, naming the field only.
+    /// </summary>
+    private static string? RefuseEchoedPrompts(IReadOnlyList<string?> fieldValues, IEnumerable<PromptRecord> shown)
+    {
+        var promptRuns = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var prompt in shown)
+            foreach (var run in WordRuns(prompt.Text))
+                promptRuns.Add(run);
+
+        for (var i = 0; i < FreeTextFields.Length; i++)
+        {
+            var value = fieldValues[i];
+            if (value is null)
+                continue;
+            if (value.IndexOfAny(DoubleQuotationMarks) >= 0)
+                return $"The answer's {FreeTextFields[i]} contained a quotation mark; a prompt may be quoted only through quotes.";
+            if (WordRuns(value).Any(promptRuns.Contains))
+                return $"The answer's {FreeTextFields[i]} repeated {MaxEchoedWords} or more consecutive words of a prompt; a prompt may be quoted only through quotes.";
+        }
+        return null;
+    }
+
+    private static readonly char[] DoubleQuotationMarks = { '"', '\u201C', '\u201D', '\u201E', '\u201F', '\uFF02' };
+
+    /// <summary>Every run of <see cref="MaxEchoedWords"/> consecutive words in <paramref name="text"/>, lower-cased,
+    /// with punctuation dropped. Words are split on white space.</summary>
+    private static IEnumerable<string> WordRuns(string? text)
+    {
+        var words = new List<string>();
+        var current = new StringBuilder();
+        foreach (var c in text ?? "")
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                current.Append(char.ToLowerInvariant(c));
+            }
+            else if ((char.IsWhiteSpace(c) || char.IsSeparator(c)) && current.Length > 0)
+            {
+                words.Add(current.ToString());
+                current.Clear();
+            }
+            // Any other character - punctuation, a symbol - is dropped, so "doesn't" and "doesnt" are the same word.
+        }
+        if (current.Length > 0)
+            words.Add(current.ToString());
+
+        for (var i = 0; i + MaxEchoedWords <= words.Count; i++)
+            yield return string.Join(' ', words.GetRange(i, MaxEchoedWords));
     }
 
     /// <summary>One string field: present as a string (or null when not required), trimmed, not empty, not too long.</summary>
@@ -230,8 +296,6 @@ public static class MentorBrief
         var oneLine = string.Join(' ', (text ?? "").Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         return oneLine.Length <= MaxPromptCharsShown ? oneLine : oneLine[..MaxPromptCharsShown] + " [cut]";
     }
-
-    private static string Shorten(string s) => s.Length <= 40 ? s : s[..40] + "...";
 
     private static string LoadInstruction()
     {

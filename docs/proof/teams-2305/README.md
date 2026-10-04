@@ -3,7 +3,7 @@
 | File | What it shows |
 |---|---|
 | `contract.md` | The read route and the block's JSON shape, written before the code for the Cockpit. |
-| `team-week.json` | One generated team-week for a test team of two people: Rob ran sessions and sent prompts, the Owner ran none. Written by the real writer with a FAKE model (`TeamMentorProofRig`, run with `CC_TEAMS_2305_PROOF` set). It holds every stored row: the one block (with its quote copied verbatim from Rob's stamped prompt record), the two outcomes (`written` for Rob, `no-sessions` for the Owner), the run marker, the person column on session history, and the stamped prompt records. One model call was made - for Rob, none for the Owner. |
+| `team-week.json` | One generated team-week for a test team of two people: Rob ran sessions and sent prompts, the Owner ran none. Written by the real writer with a FAKE model (`TeamMentorProofRig`, run with `CC_TEAMS_2305_PROOF` set). It holds every stored row: the one block (with its quote copied verbatim from Rob's stamped prompt record), the two outcomes (`written` for Rob, `no-sessions` for the Owner), the run marker, the person column on session history, and the stamped prompt records. One model call was made - for Rob, none for the Owner. The log also holds a message another session put into Rob's session (no typed or spoken modality): it is stored, and the model was not shown it. |
 | `test-runs.md` | The test runs, and the red proofs. |
 
 No test, proof run or manual try called a paid model. Every model in these runs is the fake `FakeBrain`.
@@ -16,5 +16,9 @@ No test, proof run or manual try called a paid model. Every model in these runs 
   nothing stored) rather than stamped with a guessed person, and no team session carries a person - so the writer,
   even if switched on, would find no sessions and write nothing. The proof's rows were produced by stamping in the test
   rig, the way the follow-up stamps from the key.
+- **The team's own time zone.** A team cannot set a time zone yet: the settings routes are refused inside a team's
+  tenant, so the team tenant has none stored and the week is cut in the Gateway machine's own zone. The week
+  arithmetic is correct for any zone, across a change of clocks (`MentorWeekTests`); what does not exist is a way to
+  give a team its zone. Until one exists, every team's week is the Gateway's week.
 - **The model's real output.** Only the fake model ran. The instruction file is reviewed text; how a real model
   follows it has not been measured, and switching the writer on is the owner's decision (`CC_GATEWAY_TEAM_MENTOR`).

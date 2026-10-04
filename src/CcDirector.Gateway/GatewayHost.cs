@@ -2215,7 +2215,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 {
                     var mode = Core.Configuration.TranscriptionModeConfig.Get();
                     var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
-                    var key = _keyVault.Get(ep.KeyName) ?? "";
+                    // No key is a setup fault, not a week to give up on: it throws before any member is visited, so
+                    // nothing is recorded and the week is tried again once the key is there.
+                    var key = _keyVault.Get(ep.KeyName);
+                    if (string.IsNullOrWhiteSpace(key))
+                        throw new InvalidOperationException(
+                            $"[TeamMentor] The Mentor is switched on but the Gateway holds no key '{ep.KeyName}' for the hosted model. Add it to the Gateway's key vault, or switch {Teams.Mentor.TeamMentorSwitch.EnvVar} off.");
                     var model = _tenantSettingsResolver.WingmanModel(tenant, mode, Core.Configuration.WingmanModelRole.Fast);
                     CcDirector.AgentBrain.IAgentBrain brain = new Wingman.HostedInferenceBrain(
                         ep.BaseUrl, key, model, log: FileLog.Write, callTimeout: TimeSpan.FromMinutes(2),

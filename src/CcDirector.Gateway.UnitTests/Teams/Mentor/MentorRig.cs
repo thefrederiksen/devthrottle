@@ -68,8 +68,8 @@ internal sealed class MentorRig : IDisposable
         Now = Week.UtcBounds(Zone).ToUtc.AddHours(2);
     }
 
-    public TeamMentorWriter Writer() =>
-        new(Teams, Store, Sessions, Prompts, (_, _) => Task.FromResult<(IAgentBrain, string)>((Brain, "fake-model")), () => Now);
+    public TeamMentorWriter Writer(TeamMentorWriter.MentorBrainFactory? brains = null) =>
+        new(Teams, Store, Sessions, Prompts, brains ?? ((_, _) => Task.FromResult<(IAgentBrain, string)>((Brain, "fake-model"))), () => Now);
 
     /// <summary>A session of <paramref name="person"/> in the team, alive at <paramref name="atUtc"/>.</summary>
     public void SessionOf(string person, DateTime atUtc, string sessionId, TenantId? tenant = null)
@@ -95,9 +95,10 @@ internal sealed class MentorRig : IDisposable
 
     /// <summary>One prompt pushed into the team as <paramref name="person"/> would push it - stamped by the Gateway.
     /// Returns the stored record, with its Gateway id.</summary>
-    public PromptRecord PromptOf(string person, DateTime atUtc, string text, string sessionId = "s-1", string role = "user")
+    public PromptRecord PromptOf(string person, DateTime atUtc, string text, string sessionId = "s-1", string role = "user",
+        string? modality = "typed")
     {
-        var stamped = PromptStamp.ForTeam(new[] { Record(atUtc, text, sessionId, role) }, person);
+        var stamped = PromptStamp.ForTeam(new[] { Record(atUtc, text, sessionId, role) with { Modality = modality } }, person);
         Prompts.Append(Team, stamped);
         return stamped[0];
     }
@@ -153,7 +154,7 @@ internal sealed class FakeBrain : IAgentBrain
     public Task KillAsync(CancellationToken ct = default) => Task.CompletedTask;
     public Task<BrainHealth> GetHealthAsync(CancellationToken ct = default) => throw new NotSupportedException();
 
-    // The writer disposes the brain after each call; the fake is reused across calls, so disposing does nothing.
+    // The writer disposes the brain after the week; the fake is reused across runs, so disposing does nothing.
     public void Dispose() { }
 
     /// <summary>A well-formed hard-week answer quoting <paramref name="labels"/>.</summary>

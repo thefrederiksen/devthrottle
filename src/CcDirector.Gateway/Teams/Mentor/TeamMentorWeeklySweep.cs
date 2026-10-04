@@ -12,6 +12,9 @@ namespace CcDirector.Gateway.Teams.Mentor;
 /// never visited: a person who never joins a team sees no change anywhere.
 ///
 /// IDEMPOTENT: the stored run row per team-week is the "already ran" marker, so a restart never writes a week twice.
+/// Each tick looks at the last closed week AND the one before it: a week whose model could not be reached is left
+/// unmarked by the writer and is tried again here, until the following week has closed and the writer records it for
+/// good.
 /// OFF unless <see cref="TeamMentorSwitch"/> says on (both <c>CC_GATEWAY_TEAMS=1</c> and <c>CC_GATEWAY_TEAM_MENTOR=1</c>):
 /// switched off, a tick does nothing at all.
 ///
@@ -45,7 +48,8 @@ public sealed class TeamMentorWeeklySweep : TenantScopedSweep
         _now = now ?? (() => DateTime.UtcNow);
     }
 
-    /// <summary>One tick: for each team whose last week is due and not yet written, write it.</summary>
+    /// <summary>One tick: for each team, the week before its last closed week and then the last closed week, each one
+    /// that is due and not yet marked run is written.</summary>
     public Task SweepAsync(CancellationToken ct = default)
     {
         if (!_enabled)
@@ -59,12 +63,15 @@ public sealed class TeamMentorWeeklySweep : TenantScopedSweep
 
             var zone = TimeZoneInfo.FindSystemTimeZoneById(_timeZoneOf(tenant));
             var nowUtc = _now();
-            var week = MentorWeek.LastClosed(nowUtc, zone);
-            if (!IsDue(week, zone, nowUtc) || _store.HasRun(tenant, week))
-                return;
+            var last = MentorWeek.LastClosed(nowUtc, zone);
+            foreach (var week in new[] { last.Previous, last })
+            {
+                if (!IsDue(week, zone, nowUtc) || _store.HasRun(tenant, week))
+                    continue;
 
-            FileLog.Write($"[TeamMentorWeeklySweep] week {week} due for team {tenant.ToLogString()} zone={zone.Id}");
-            await _writer.WriteWeekAsync(tenant, week, zone, ct).ConfigureAwait(false);
+                FileLog.Write($"[TeamMentorWeeklySweep] week {week} due for team {tenant.ToLogString()} zone={zone.Id}");
+                await _writer.WriteWeekAsync(tenant, week, zone, ct).ConfigureAwait(false);
+            }
         }, ct);
     }
 

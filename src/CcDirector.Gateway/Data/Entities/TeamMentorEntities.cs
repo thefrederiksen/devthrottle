@@ -55,7 +55,8 @@ public sealed class TeamMentorOutcomeEntity : TenantScopedEntity
 
     public string Outcome { get; set; } = "";
 
-    /// <summary>Why, in plain words, for <c>refused</c> and <c>model-failed</c>; null otherwise.</summary>
+    /// <summary>Why, for <c>refused</c> (the KIND of refusal and counts) and <c>model-failed</c> (the exception's type);
+    /// null otherwise. Never text the model wrote.</summary>
     public string? Reason { get; set; }
 
     public DateTime AtUtc { get; set; }
@@ -63,7 +64,9 @@ public sealed class TeamMentorOutcomeEntity : TenantScopedEntity
 
 /// <summary>
 /// THE "ALREADY RAN" MARKER for one team's Mentor week (devthrottle_internal#2305): written once the run has visited
-/// every member, so a Gateway restart never runs a team's week twice and never skips one.
+/// every member, so a Gateway restart never runs a team's week twice. A week whose model could not be reached is left
+/// unmarked and tried again on later ticks until the following week has closed; a week the Gateway was down across
+/// for longer than that is not written.
 /// </summary>
 public sealed class TeamMentorRunEntity : TenantScopedEntity
 {

@@ -36,7 +36,9 @@ public sealed class TeamMentorProofRig
         rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1, 9), "s-rob-signup");
         var quoted = rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1, 9), "fix the signup thing so it doesnt break on mobile", "s-rob-signup");
         rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1, 10), "no, the signup page, not the login page", "s-rob-signup");
-        rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1, 10), "Understood - I will change the signup page.", "s-rob-signup", role: "assistant");
+        rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1, 10), "Understood - I will change the signup page.", "s-rob-signup", role: "assistant", modality: null);
+        // A message another session put into Rob's session: role "user", but not typed or spoken by him, so not read.
+        rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1, 11), "[from the Tech Lead] please rebase", "s-rob-signup", modality: null);
         rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(3, 14), "add the installer fix for the missing folder", "s-rob-installer");
         rig.Brain.Answer = _ => FakeBrain.HardWeek("P1");
 
@@ -63,6 +65,6 @@ public sealed class TeamMentorProofRig
             JsonSerializer.Serialize(dump, new JsonSerializerOptions { WriteIndented = true }));
 
         Assert.Equal(1, run.BlocksWritten);
-        Assert.Single(rig.Brain.Asked);
+        Assert.DoesNotContain("from the Tech Lead", Assert.Single(rig.Brain.Asked));
     }
 }

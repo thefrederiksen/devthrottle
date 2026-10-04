@@ -29,7 +29,7 @@ public sealed class MentorBriefTests
     }
 
     [Fact]
-    public void Build_LabelsEachPromptOldestFirst_AndNamesThePerson()
+    public void Build_LabelsEachPromptOldestFirst_AndSpeaksOfThePersonAsThey()
     {
         var request = Request();
 
@@ -76,7 +76,7 @@ public sealed class MentorBriefTests
     {
         var check = MentorBrief.Check(Answer(tone: "good", howItWent: "Fine.", wentBadly: null, quotes: Array.Empty<string>()), Request());
 
-        Assert.NotNull(check.Answer);
+        Assert.True(check.Answer is not null, check.Refusal);
         Assert.Empty(check.Answer!.QuoteLabels);
     }
 
@@ -104,7 +104,7 @@ public sealed class MentorBriefTests
         { Answer(quotes: Array.Empty<string>()), "without quoting a prompt" },
         { Answer(tone: "good", howItWent: "Fine.", wentBadly: null, quotes: new[] { "P1" }), "without saying where the week went badly" },
         { "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"oneThingToTry\":\"z\"}", "left out fields: quotes" },
-        { "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"quotes\":[],\"oneThingToTry\":\"z\",\"rank\":1}", "not asked for: rank" },
+        { "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"quotes\":[],\"oneThingToTry\":\"z\",\"rank\":1}", "1 field(s) that were not asked for" },
         { "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"quotes\":\"P1\",\"oneThingToTry\":\"z\"}", "quotes were not a list" },
         { "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"quotes\":[1],\"oneThingToTry\":\"z\"}", "other than prompt ids" },
     };
@@ -117,6 +117,79 @@ public sealed class MentorBriefTests
 
         Assert.Null(check.Answer);
         Assert.Contains(reasonContains, check.Refusal);
+    }
+
+    // ---- a prompt reaches the page only as a quote (review G1) ------------------------------------------------------
+
+    private const string Typed = "please fix the signup thing so it doesn't break on mobile again today";
+
+    private static MentorRequest RequestWith(string text) =>
+        MentorBrief.Build(Week, new[]
+        {
+            MentorRig.Record(new DateTime(2026, 9, 29, 9, 0, 0, DateTimeKind.Utc), text) with { PromptId = "id-1", PersonSubject = "sub-rob" },
+        });
+
+    public static TheoryData<string, string> EchoingAnswers => new()
+    {
+        // Eight consecutive words of the prompt, in each free-text field.
+        { Answer(workedOn: "They asked to fix the signup thing so it doesn't break on mobile."), "workedOn repeated" },
+        { Answer(tone: "good", howItWent: "Fine: fix the signup thing so it doesn't break on mobile.", wentBadly: null, quotes: Array.Empty<string>()), "howItWent repeated" },
+        { Answer(wentBadly: "They typed fix the signup thing so it doesn't break on mobile four times."), "wentBadlyAndWhy repeated" },
+        { Answer(oneThing: "Instead of fix the signup thing so it doesn't break on mobile, name the file."), "oneThingToTry repeated" },
+        // Without case or punctuation: the same words still count.
+        { Answer(wentBadly: "They typed FIX THE SIGNUP THING, SO IT DOESNT BREAK ON MOBILE four times."), "wentBadlyAndWhy repeated" },
+        // Any double quotation mark, straight or curly, even around words of their own.
+        { Answer(wentBadly: "They asked for \"the fix\" four times."), "wentBadlyAndWhy contained a quotation mark" },
+        { Answer(workedOn: "The \u201Csignup\u201D page."), "workedOn contained a quotation mark" },
+    };
+
+    [Theory]
+    [MemberData(nameof(EchoingAnswers))]
+    public void Check_AFreeTextFieldCarryingAPromptsWords_IsRefused(string answer, string reasonContains)
+    {
+        var check = MentorBrief.Check(answer, RequestWith(Typed));
+
+        Assert.Null(check.Answer);
+        Assert.Contains(reasonContains, check.Refusal);
+    }
+
+    [Fact]
+    public void Check_SevenConsecutiveWordsOfAPrompt_AreNotAnEcho_AndTheAnswerIsAccepted()
+    {
+        // "fix the signup thing so it doesn't" - seven words of the prompt, then the answer's own.
+        var check = MentorBrief.Check(Answer(wentBadly: "They asked to fix the signup thing so it doesn't, and then restarted."), RequestWith(Typed));
+
+        Assert.True(check.Answer is not null, check.Refusal);
+    }
+
+    [Fact]
+    public void Check_AnEchoOfAPromptNotShownToTheModel_IsNotChecked_BecauseTheModelNeverSawIt()
+    {
+        // The check is against the prompts THIS request showed; the words of another prompt are not the model's to repeat.
+        var check = MentorBrief.Check(Answer(wentBadly: "They typed fix the signup thing so it doesn't break on mobile four times."), Request());
+
+        Assert.True(check.Answer is not null, check.Refusal);
+    }
+
+    // ---- a refusal never carries what the model wrote (review G2) ---------------------------------------------------
+
+    public static TheoryData<string> AnswersCarryingModelText => new()
+    {
+        "{\"please fix the signup thing so it doesnt break\": 1}",
+        "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"quotes\":[],\"oneThingToTry\":\"z\",\"please fix the signup thing so it doesnt break\":1}",
+        Answer(quotes: new[] { "please fix the signup thing so it doesnt break" }),
+        "{\"tone\": please fix the signup thing so it doesnt break}",
+    };
+
+    [Theory]
+    [MemberData(nameof(AnswersCarryingModelText))]
+    public void Check_ARefusal_NamesTheKindOnly_NeverTextTheModelWrote(string answer)
+    {
+        var check = MentorBrief.Check(answer, Request());
+
+        Assert.Null(check.Answer);
+        Assert.DoesNotContain("signup", check.Refusal);
+        Assert.DoesNotContain("please", check.Refusal);
     }
 
     [Theory]

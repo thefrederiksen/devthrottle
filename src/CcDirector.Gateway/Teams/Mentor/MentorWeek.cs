@@ -21,6 +21,9 @@ public readonly record struct MentorWeek(int Year, int Week)
     /// <summary>The week before this one.</summary>
     public MentorWeek Previous => Of(Start.AddDays(-7));
 
+    /// <summary>The ISO week after this one.</summary>
+    public MentorWeek Next => Of(Start.AddDays(7));
+
     /// <summary><c>YYYY-Www</c>, for example <c>2026-W40</c>.</summary>
     public override string ToString() => $"{Year:D4}-W{Week:D2}";
 

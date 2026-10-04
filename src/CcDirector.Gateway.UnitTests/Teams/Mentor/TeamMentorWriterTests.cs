@@ -109,8 +109,9 @@ public sealed class TeamMentorWriterTests : IDisposable
         Assert.Equal(0, run.BlocksWritten);
         Assert.Empty(_rig.Store.Blocks(_rig.Team, MentorRig.Week));
         Assert.Empty(_rig.Brain.Asked);
-        Assert.All(run.Outcomes, o => Assert.Equal(MentorOutcomes.NoSessions, o.Outcome));
         Assert.Equal(5, run.Outcomes.Count);
+        Assert.All(run.Outcomes.Where(o => o.PersonSubject != MentorRig.Collaborator), o => Assert.Equal(MentorOutcomes.NoSessions, o.Outcome));
+        Assert.Equal(MentorOutcomes.MayNotRead, Assert.Single(run.Outcomes, o => o.PersonSubject == MentorRig.Collaborator).Outcome);
         Assert.True(_rig.Store.HasRun(_rig.Team, MentorRig.Week));
     }
 
@@ -163,24 +164,128 @@ public sealed class TeamMentorWriterTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteWeekAsync_TheModelFails_RecordsModelFailed_AndWritesNoBlock()
+    public async Task WriteWeekAsync_AnAnswerCarryingModelText_IsRefused_AndNeitherTheRowNorTheLogHoldsThatText()
+    {
+        _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1), "a prompt");
+        _rig.Brain.Answer = _ => "{\"the person typed fix the login page please\": 1}";
+
+        await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+
+        var outcome = _rig.Store.OutcomeOf(_rig.Team, MentorRig.Week, MentorRig.Rob)!;
+        Assert.Equal(MentorOutcomes.Refused, outcome.Outcome);
+        Assert.DoesNotContain("login", outcome.Reason);
+    }
+
+    [Fact]
+    public async Task WriteWeekAsync_TheModelCannotBeReached_RecordsNothing_LeavesTheWeekUnmarked_AndALaterRunWritesIt()
     {
         _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
         _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1), "a prompt");
         _rig.Brain.Answer = _ => throw new HttpRequestException("the model host is down");
 
-        await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+        var first = await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
 
+        Assert.Equal(1, first.Unfinished);
+        Assert.Null(_rig.Store.OutcomeOf(_rig.Team, MentorRig.Week, MentorRig.Rob));
+        Assert.False(_rig.Store.HasRun(_rig.Team, MentorRig.Week));
+        Assert.Empty(_rig.Store.Blocks(_rig.Team, MentorRig.Week));
+
+        // The model is back on a later tick, still before the following week closes.
+        _rig.Now = _rig.Now.AddHours(1);
+        _rig.Brain.Answer = _ => FakeBrain.GoodWeek();
+        var second = await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+
+        Assert.Equal(0, second.Unfinished);
+        Assert.Equal(MentorOutcomes.Written, _rig.Store.OutcomeOf(_rig.Team, MentorRig.Week, MentorRig.Rob)!.Outcome);
+        Assert.True(_rig.Store.HasRun(_rig.Team, MentorRig.Week));
+        // Rob was asked twice; nobody else was asked at all.
+        Assert.Equal(2, _rig.Brain.Asked.Count);
+    }
+
+    [Fact]
+    public async Task WriteWeekAsync_TheModelStillFailsAfterTheFollowingWeekClosed_RecordsModelFailedForGood_WithTheExceptionTypeOnly()
+    {
+        _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1), "a prompt");
+        _rig.Brain.Answer = _ => throw new HttpRequestException("upstream said: a prompt");
+        _rig.Now = MentorRig.Week.Next.UtcBounds(MentorRig.Zone).ToUtc;
+
+        var run = await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+
+        Assert.Equal(0, run.Unfinished);
         Assert.Empty(_rig.Store.Blocks(_rig.Team, MentorRig.Week));
         var outcome = _rig.Store.OutcomeOf(_rig.Team, MentorRig.Week, MentorRig.Rob)!;
         Assert.Equal(MentorOutcomes.ModelFailed, outcome.Outcome);
-        Assert.Contains("the model host is down", outcome.Reason);
+        Assert.Contains(nameof(HttpRequestException), outcome.Reason);
+        Assert.DoesNotContain("upstream said", outcome.Reason);
+        Assert.True(_rig.Store.HasRun(_rig.Team, MentorRig.Week));
+    }
+
+    [Fact]
+    public async Task WriteWeekAsync_NoModelCanBeResolved_Throws_BeforeAnyMemberIsVisited()
+    {
+        _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1), "a prompt");
+        var writer = _rig.Writer((_, _) => throw new InvalidOperationException("no key for the hosted model"));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => writer.WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone));
+
+        Assert.Empty(_rig.Store.Outcomes(_rig.Team, MentorRig.Week));
+        Assert.False(_rig.Store.HasRun(_rig.Team, MentorRig.Week));
+    }
+
+    // ---- whose prompts, and about whom (review G8, G9) ------------------------------------------------------------------
+
+    [Fact]
+    public async Task WriteWeekAsync_AUserMessageThePersonDidNotTypeOrSpeak_IsNotRead()
+    {
+        _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
+        // A message another session put into Rob's session: role "user", but tied to no submission of his.
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1), "a message from another session", modality: null);
+
+        await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+
+        Assert.Empty(_rig.Brain.Asked);
+        Assert.Equal(MentorOutcomes.NoPrompts, _rig.Store.OutcomeOf(_rig.Team, MentorRig.Week, MentorRig.Rob)!.Outcome);
+    }
+
+    [Fact]
+    public async Task WriteWeekAsync_TypedAndSpokenPrompts_AreBothRead_AndNothingElse()
+    {
+        _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1), "typed by rob", modality: "typed");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1, 11), "spoken by rob", modality: "voice");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1, 12), "a doorbell line", modality: null);
+        _rig.Brain.Answer = _ => FakeBrain.GoodWeek();
+
+        await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+
+        var asked = Assert.Single(_rig.Brain.Asked);
+        Assert.Contains("typed by rob", asked);
+        Assert.Contains("spoken by rob", asked);
+        Assert.DoesNotContain("a doorbell line", asked);
+    }
+
+    [Fact]
+    public async Task WriteWeekAsync_AMemberWhoMayNotReadTheirOwnPage_GetsNoBlock_AndNoModelCall()
+    {
+        // A Collaborator who ran sessions and typed prompts - for example a Developer moved to Collaborator before the run.
+        _rig.SessionOf(MentorRig.Collaborator, MentorRig.InWeek(1), "s-collab");
+        _rig.PromptOf(MentorRig.Collaborator, MentorRig.InWeek(1), "collaborator's prompt");
+        _rig.Brain.Answer = _ => FakeBrain.GoodWeek();
+
+        await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+
+        Assert.Empty(_rig.Brain.Asked);
+        Assert.Empty(_rig.Store.Blocks(_rig.Team, MentorRig.Week));
+        Assert.Equal(MentorOutcomes.MayNotRead, _rig.Store.OutcomeOf(_rig.Team, MentorRig.Week, MentorRig.Collaborator)!.Outcome);
     }
 
     // ---- what the model is given ----------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task WriteWeekAsync_TheModelIsGivenOnlyThatPersonsOwnPrompts_AndTheirName()
+    public async Task WriteWeekAsync_TheModelIsGivenOnlyThatPersonsOwnPrompts_AndNoNameOrAccount()
     {
         _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
         _rig.SessionOf(MentorRig.Dana, MentorRig.InWeek(1), "s-dana");

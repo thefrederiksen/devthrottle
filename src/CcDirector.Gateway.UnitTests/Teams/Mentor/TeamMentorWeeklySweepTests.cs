@@ -57,6 +57,40 @@ public sealed class TeamMentorWeeklySweepTests : IDisposable
     }
 
     [Fact]
+    public async Task SweepAsync_TheModelIsDownAtTheFirstTick_ALaterTickWritesTheWeek()
+    {
+        RobRanAWeek();
+        _rig.Brain.Answer = _ => throw new HttpRequestException("down");
+        var sweep = Sweep(enabled: true);
+        await sweep.SweepAsync();
+        Assert.False(_rig.Store.HasRun(_rig.Team, MentorRig.Week));
+
+        _rig.Now = _rig.Now.AddMinutes(15);
+        _rig.Brain.Answer = _ => FakeBrain.GoodWeek();
+        await sweep.SweepAsync();
+
+        Assert.True(_rig.Store.HasRun(_rig.Team, MentorRig.Week));
+        Assert.Single(_rig.Store.Blocks(_rig.Team, MentorRig.Week));
+    }
+
+    [Fact]
+    public async Task SweepAsync_TheModelIsStillDownOnceTheFollowingWeekHasClosed_TheWeekIsRecordedForGood()
+    {
+        RobRanAWeek();
+        _rig.Brain.Answer = _ => throw new HttpRequestException("down");
+        var sweep = Sweep(enabled: true);
+        await sweep.SweepAsync();
+
+        // A tick after the FOLLOWING week has closed and settled: the week is now the one before the last closed one.
+        _rig.Now = MentorRig.Week.Next.UtcBounds(MentorRig.Zone).ToUtc + TeamMentorWeeklySweep.SettleDelay;
+        await sweep.SweepAsync();
+
+        Assert.True(_rig.Store.HasRun(_rig.Team, MentorRig.Week));
+        Assert.Equal(MentorOutcomes.ModelFailed, _rig.Store.OutcomeOf(_rig.Team, MentorRig.Week, MentorRig.Rob)!.Outcome);
+        Assert.Empty(_rig.Store.Blocks(_rig.Team, MentorRig.Week));
+    }
+
+    [Fact]
     public async Task SweepAsync_BeforeTheWeekHasSettled_WritesNothing()
     {
         RobRanAWeek();

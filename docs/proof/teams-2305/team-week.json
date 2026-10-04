@@ -2,19 +2,19 @@
   "week": "2026-W40",
   "timeZone": "UTC",
   "team": {
-    "tenantId": "15fbab70-c9a6-4b17-b2aa-407137871ae6",
+    "tenantId": "43c36811-b9f7-4579-ac50-6b24d068917b",
     "members": [
       {
         "AccountSubject": "sub-owner",
         "Email": "olivia.owner@example.com",
         "Role": 3,
-        "JoinedAtUtc": "2026-10-04T21:49:09.3308157Z"
+        "JoinedAtUtc": "2026-10-04T23:28:31.5415693Z"
       },
       {
         "AccountSubject": "sub-rob",
         "Email": "rob.keller@example.com",
         "Role": 1,
-        "JoinedAtUtc": "2026-10-04T21:49:09.3818713Z"
+        "JoinedAtUtc": "2026-10-04T23:28:31.6121805Z"
       }
     ]
   },
@@ -44,13 +44,13 @@
       "agent": null,
       "missionName": null,
       "role": "user",
-      "modality": null,
+      "modality": "typed",
       "surface": null,
       "tsFromAgent": true,
       "charCount": 49,
       "wordCount": 10,
       "text": "fix the signup thing so it doesnt break on mobile",
-      "id": "3d51d636f74f4c54b58627d01ee1652c",
+      "id": "bcbfbf4fbf164a1dbb3b6e72cfd5577d",
       "person": "sub-rob"
     },
     {
@@ -63,13 +63,13 @@
       "agent": null,
       "missionName": null,
       "role": "user",
-      "modality": null,
+      "modality": "typed",
       "surface": null,
       "tsFromAgent": true,
       "charCount": 39,
       "wordCount": 8,
       "text": "no, the signup page, not the login page",
-      "id": "fd823798213947f3abfb8a31673f32b7",
+      "id": "44cb0e8d6c26417c9517f380ffeaec76",
       "person": "sub-rob"
     },
     {
@@ -88,7 +88,26 @@
       "charCount": 43,
       "wordCount": 8,
       "text": "Understood - I will change the signup page.",
-      "id": "aa6703d7692f45c1a1e77b6ee2a1d6d5",
+      "id": "2291eeb16010437d90540453feab2502",
+      "person": "sub-rob"
+    },
+    {
+      "ts": "2026-09-29T11:00:00Z",
+      "machine": null,
+      "sessionId": "s-rob-signup",
+      "contextId": null,
+      "sessionName": null,
+      "repoPath": null,
+      "agent": null,
+      "missionName": null,
+      "role": "user",
+      "modality": null,
+      "surface": null,
+      "tsFromAgent": true,
+      "charCount": 34,
+      "wordCount": 6,
+      "text": "[from the Tech Lead] please rebase",
+      "id": "6b08573bfb1b4353b5b6abc92b653ed0",
       "person": "sub-rob"
     },
     {
@@ -101,13 +120,13 @@
       "agent": null,
       "missionName": null,
       "role": "user",
-      "modality": null,
+      "modality": "typed",
       "surface": null,
       "tsFromAgent": true,
       "charCount": 44,
       "wordCount": 8,
       "text": "add the installer fix for the missing folder",
-      "id": "e50851b2a2f84590a425b3652f40dffa",
+      "id": "18b73e5054864631921022b2f543f98a",
       "person": "sub-rob"
     }
   ],
@@ -120,10 +139,10 @@
       "HowItWent": null,
       "WentBadlyAndWhy": "On Tuesday they restarted the same task four times. Their first instruction did not say which file to change, so the agent guessed differently each time.",
       "OneThingToTry": "Name the file and the result you expect in the first line, before asking for the change.",
-      "QuotesJson": "[{\u0022promptId\u0022:\u00223d51d636f74f4c54b58627d01ee1652c\u0022,\u0022at\u0022:\u00222026-09-29T09:00:00Z\u0022,\u0022text\u0022:\u0022fix the signup thing so it doesnt break on mobile\u0022}]",
+      "QuotesJson": "[{\u0022promptId\u0022:\u0022bcbfbf4fbf164a1dbb3b6e72cfd5577d\u0022,\u0022at\u0022:\u00222026-09-29T09:00:00Z\u0022,\u0022text\u0022:\u0022fix the signup thing so it doesnt break on mobile\u0022}]",
       "WrittenAtUtc": "2026-10-05T02:00:00Z",
       "Model": "fake-model",
-      "TenantId": "15fbab70-c9a6-4b17-b2aa-407137871ae6"
+      "TenantId": "43c36811-b9f7-4579-ac50-6b24d068917b"
     }
   ],
   "teamMentorOutcomes": [
@@ -133,7 +152,7 @@
       "Outcome": "no-sessions",
       "Reason": null,
       "AtUtc": "2026-10-05T02:00:00Z",
-      "TenantId": "15fbab70-c9a6-4b17-b2aa-407137871ae6"
+      "TenantId": "43c36811-b9f7-4579-ac50-6b24d068917b"
     },
     {
       "Week": "2026-W40",
@@ -141,7 +160,7 @@
       "Outcome": "written",
       "Reason": null,
       "AtUtc": "2026-10-05T02:00:00Z",
-      "TenantId": "15fbab70-c9a6-4b17-b2aa-407137871ae6"
+      "TenantId": "43c36811-b9f7-4579-ac50-6b24d068917b"
     }
   ],
   "teamMentorRuns": [
@@ -150,8 +169,8 @@
       "TimeZone": "UTC",
       "RanAtUtc": "2026-10-05T02:00:00Z",
       "BlocksWritten": 1,
-      "TenantId": "15fbab70-c9a6-4b17-b2aa-407137871ae6"
+      "TenantId": "43c36811-b9f7-4579-ac50-6b24d068917b"
     }
   ],
-  "quotedPromptId": "3d51d636f74f4c54b58627d01ee1652c"
+  "quotedPromptId": "bcbfbf4fbf164a1dbb3b6e72cfd5577d"
 }
