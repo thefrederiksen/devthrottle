@@ -291,6 +291,49 @@ public sealed class TeamFleetMapTests : IDisposable
         Assert.DoesNotContain("Mike - desktop", DirectorNames(MapFor(Owner)));
     }
 
+    [Theory]
+    [InlineData(Owner)]
+    [InlineData(Manager)]
+    public void Read_APersonChangedToCollaborator_IsNoLongerOnTheMap(string viewer)
+    {
+        Assert.Contains("Mike - desktop", DirectorNames(MapFor(viewer)));
+
+        Assert.True(_teams.ChangeRole(_team, Developer2, TeamRole.Collaborator).IsDone);
+
+        var map = MapFor(viewer);
+        Assert.DoesNotContain("Mike - desktop", DirectorNames(map));
+        Assert.DoesNotContain("Mike's work", SessionNames(map));
+        Assert.DoesNotContain(map.People, p => p.Person == "developer2@example.com");
+    }
+
+    [Fact]
+    public void Read_ACollaboratorWithADirectorOnTheTeam_IsOnNobodysMap()
+    {
+        // Seeded straight in as a Collaborator with an active credential bound to the team: the table gives the role no
+        // sessions, so the Director is attributed to nobody.
+        SeedDirector(_team, "dir-collab", Collaborator, "Casey - laptop", "CASEY-PC", Session("s-c1", "Casey's draft", "Working"));
+
+        Assert.DoesNotContain("Casey - laptop", DirectorNames(MapFor(Owner)));
+        Assert.DoesNotContain("Casey - laptop", DirectorNames(MapFor(Manager)));
+    }
+
+    [Fact]
+    public void Read_ASessionInAStateTheFoldDoesNotKnow_IsLeftOff_AndTheRestOfTheMapStands()
+    {
+        SeedDirector(_team, "dir-dev2-new", Developer2, "Mike - new build", "MIKE-NEW",
+            Session("s-n1", "Known work", "Working"),
+            Session("s-n2", "From the future", "Hibernating"),
+            Session("s-n3", "Blank state", ""));
+
+        var map = MapFor(Owner);
+
+        Assert.Contains("Mike - new build", DirectorNames(map));
+        Assert.Contains("Known work", SessionNames(map));
+        Assert.DoesNotContain("From the future", SessionNames(map));
+        Assert.DoesNotContain("Blank state", SessionNames(map));
+        Assert.Contains("Teams - Developer - invitations", SessionNames(map));
+    }
+
     [Fact]
     public void Read_ADeveloperWithNoDirectors_GetsAnEmptyMap()
     {
@@ -499,6 +542,29 @@ public sealed class TeamFleetMapStatusTests
     public void Fold_TheGatewaysAssessedState_WinsOverTheDirectorsOwn()
     {
         Assert.Equal("done", TeamFleetMapStatus.Fold(new SessionDto { ActivityState = "WaitingForInput", AssessedState = "Idle" }));
+    }
+
+    [Theory]
+    [InlineData("Starting", true)]
+    [InlineData("Working", true)]
+    [InlineData("WaitingForInput", true)]
+    [InlineData("WaitingForPerm", true)]
+    [InlineData("Idle", true)]
+    [InlineData("Exited", true)]
+    [InlineData("Dreaming", false)]
+    [InlineData("", false)]
+    public void Knows_ExactlyTheStatesTheFoldHandles(string state, bool expected)
+    {
+        Assert.Equal(expected, TeamFleetMapStatus.Knows(new SessionDto { ActivityState = state }));
+        // Knows and Fold agree: a known state folds without throwing.
+        if (expected) TeamFleetMapStatus.Fold(new SessionDto { ActivityState = state });
+    }
+
+    [Fact]
+    public void Knows_TheGatewaysAssessedState_WinsOverTheDirectorsOwn()
+    {
+        Assert.False(TeamFleetMapStatus.Knows(new SessionDto { ActivityState = "Working", AssessedState = "Dreaming" }));
+        Assert.True(TeamFleetMapStatus.Knows(new SessionDto { ActivityState = "Dreaming", AssessedState = "Idle" }));
     }
 
     [Fact]

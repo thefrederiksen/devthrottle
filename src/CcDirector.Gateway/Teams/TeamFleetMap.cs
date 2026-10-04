@@ -23,7 +23,8 @@ namespace CcDirector.Gateway.Teams;
 /// Hello on (<see cref="DirectorRegistry.RegisteringCredentialOf"/>), and that device's credential row names the
 /// person who enrolled it (<c>device_credentials.account_subject</c>, with <c>tenant_id</c> the team). A Director whose
 /// person cannot be read that way - registered with no device key, a credential that is revoked or bound elsewhere,
-/// or a person who is no longer a member - is NOT on the map: it cannot be said whose it is, so it is shown to nobody.</item>
+/// a person who is no longer a member, or a member whose role the table does not let run sessions (a Collaborator) -
+/// is NOT on the map: it cannot be said whose it is, so it is shown to nobody.</item>
 /// <item>THE ANSWER IS AN ALLOW-LIST (<see cref="TeamFleetMapDto"/>): a Director's name and machine, a person's display
 /// label, and per session its name and status (working, waiting, done). No session id, no Director id, no transcript,
 /// screen, input, prompt or path - nothing a follow-up request could use to open a session.</item>
@@ -90,7 +91,12 @@ public sealed class TeamFleetMap
             return TeamFleetMapResult.NoSuchTeam;
 
         var onlyOwn = decision.Grant == TeamGrant.Own;
-        var labels = members.Members.ToDictionary(
+        // Only a member whose role the TABLE lets run sessions can own a Director on the map. A person changed to
+        // Collaborator stays a member, and nothing revokes their device credential when the role changes, so asking
+        // "still a member?" alone would keep their Directors on everyone's map (review of #3533, F1).
+        var labels = members.Members
+            .Where(m => TeamPermissions.Grant(m.Role, TeamAction.RunSessionsOnOwnComputers) != TeamGrant.No)
+            .ToDictionary(
             m => m.AccountSubject,
             m => string.IsNullOrWhiteSpace(m.Email) ? NoEmailLabel : m.Email!,
             StringComparer.Ordinal);
@@ -113,6 +119,7 @@ public sealed class TeamFleetMap
                 continue;
 
             var sessions = _sessions.GetLastKnown(tenant, director.DirectorId).Sessions
+                .Where(s => KnownOrLogged(s, logTeam))
                 .Select(s => (Session: s, Status: TeamFleetMapStatus.Fold(s)))
                 .Where(x => x.Status is not null)
                 .Select(x => SessionEntry(x.Session, x.Status!, isCallers))
@@ -181,6 +188,21 @@ public sealed class TeamFleetMap
         return owners;
     }
 
+    /// <summary>
+    /// Whether a session's state is one the fold knows. One that is not - a Director on a later build with a new state,
+    /// or a blank - is LEFT OFF the map and logged loudly, rather than failing the whole team's map for one row (review
+    /// of #3533, F3). The map still never invents a word for it.
+    /// </summary>
+    private static bool KnownOrLogged(SessionDto session, string logTeam)
+    {
+        if (TeamFleetMapStatus.Knows(session)) return true;
+        var state = TeamFleetMapStatus.StateOf(session);
+        var shown = state.Length > 40 ? state[..40] + "..." : state;
+        FileLog.Write($"[TeamFleetMap] Read: UNKNOWN SESSION STATE '{shown}' on team {logTeam} - that session is LEFT OFF " +
+                      "the team Fleet Map. Teach TeamFleetMapStatus.Fold the state.");
+        return false;
+    }
+
     /// <summary>A Director's name as the map shows it: the name it was given, or its machine when it was given none.</summary>
     internal static string DirectorName(DirectorDto director) =>
         !string.IsNullOrWhiteSpace(director.DisplayName) ? director.DisplayName! : director.MachineName ?? "";
@@ -241,7 +263,7 @@ public static class TeamFleetMapStatus
     public static string? Fold(SessionDto session)
     {
         ArgumentNullException.ThrowIfNull(session);
-        var state = string.IsNullOrWhiteSpace(session.AssessedState) ? session.ActivityState : session.AssessedState!;
+        var state = StateOf(session);
         return state switch
         {
             "Starting" or "Working" => Working,
@@ -252,6 +274,17 @@ public static class TeamFleetMapStatus
                 $"A session reported the state '{state}', which the team Fleet Map does not know how to show."),
         };
     }
+
+    /// <summary>Whether <see cref="Fold"/> knows this session's state (including Exited, which it leaves off).</summary>
+    public static bool Knows(SessionDto session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return StateOf(session) is "Starting" or "Working" or "WaitingForInput" or "WaitingForPerm" or "Idle" or "Exited";
+    }
+
+    /// <summary>The state every surface displays: the Gateway's assessed state when one stands, else the Director's own.</summary>
+    internal static string StateOf(SessionDto session) =>
+        (string.IsNullOrWhiteSpace(session.AssessedState) ? session.ActivityState : session.AssessedState!) ?? "";
 }
 
 /// <summary>Whether the team Fleet Map was found for the caller.</summary>
