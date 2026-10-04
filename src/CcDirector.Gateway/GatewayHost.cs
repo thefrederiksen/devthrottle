@@ -737,6 +737,13 @@ public sealed class GatewayHost : IAsyncDisposable
     public Teams.TeamAccess TeamAccess { get; }
 
     /// <summary>
+    /// Whose a Director on a team is (devthrottle_internal#2312): the ONE answer every team feature asks -
+    /// <see cref="Teams.TeamDirectorOwnership.PersonOfDirector"/>. The team Fleet Map reads it; the team-key resolver
+    /// (devthrottle_internal#2311) is to read the same instance rather than keep a second copy of the lookup.
+    /// </summary>
+    public Teams.TeamDirectorOwnership TeamDirectorOwnership { get; }
+
+    /// <summary>
     /// The check every endpoint that acts in a team passes through (devthrottle_internal#2302). Present on every host;
     /// installed in the request pipeline only on the hosted Gateway, the only one that has teams.
     /// </summary>
@@ -1762,6 +1769,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // the stores read (so a scope it enters is what they resolve) and the device registry.
         _tenantBoundary = new Tenancy.HostedTenantBoundary(_tenantContext, Devices);
         TeamAccess = new Teams.TeamAccess(TeamRegistry);
+        TeamDirectorOwnership = new Teams.TeamDirectorOwnership(Registry, _gatewayDb);
         // The stored conversations. Built here, before the team gate, because whose a session is in a team also asks
         // who wrote its stored conversation (devthrottle_internal#2311) - and it must be THIS one store, whose cache the
         // hub writes through, never a second instance.
@@ -4733,7 +4741,7 @@ public sealed class GatewayHost : IAsyncDisposable
         if (TeamsReleased)
         {
             TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry,
-                new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, PushedSessions, _gatewayDb));
+                new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, TeamDirectorOwnership, PushedSessions));
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
             TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
             // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow

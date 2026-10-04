@@ -36,6 +36,7 @@ public sealed class TeamFleetMapTests : IDisposable
     private readonly TeamRegistry _teams;
     private readonly TeamAccess _access;
     private readonly DirectorRegistry _directors;
+    private readonly TeamDirectorOwnership _ownership;
     private readonly PushedSessionStore _sessions = new();
     private readonly TeamFleetMap _map;
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-teammap-" + Guid.NewGuid().ToString("N"));
@@ -54,7 +55,8 @@ public sealed class TeamFleetMapTests : IDisposable
         _teams = new TeamRegistry(_db, _tenants);
         _access = new TeamAccess(_teams);
         _directors = new DirectorRegistry(_instancesDir);
-        _map = new TeamFleetMap(_teams, _access, _directors, _sessions, _db);
+        _ownership = new TeamDirectorOwnership(_directors, _db);
+        _map = new TeamFleetMap(_teams, _access, _directors, _ownership, _sessions);
 
         _team = _teams.CreateTeam(Owner, "DevThrottle").Team!.TeamId;
         Assert.True(_teams.AddMember(_team, Manager, TeamRole.Manager).IsDone);
@@ -515,6 +517,70 @@ public sealed class TeamFleetMapTests : IDisposable
         Assert.Null(_directors.RegisteringCredentialOf(new TenantId(_otherTeam), "dir-owner"));
         Assert.Null(_directors.RegisteringCredentialOf(new TenantId(_team), "no-such-director"));
         Assert.Null(_directors.RegisteringCredentialOf(new TenantId(_team), ""));
+    }
+
+    // ---- Whose a Director is: the ONE shared answer, TeamDirectorOwnership.PersonOfDirector -------------------------
+
+    [Fact]
+    public void PersonOfDirector_AnActiveCredentialBoundToTheTeam_IsThePersonWhoEnrolledIt()
+    {
+        Assert.Equal(Owner, _ownership.PersonOfDirector(new TenantId(_team), "dir-owner"));
+        Assert.Equal(Developer, _ownership.PersonOfDirector(new TenantId(_team), "dir-dev-laptop"));
+        Assert.Equal(Developer, _ownership.PersonOfDirector(new TenantId(_otherTeam), "dir-dev-elsewhere"));
+    }
+
+    [Fact]
+    public void PersonOfDirector_ARevokedCredential_IsNobody()
+    {
+        // The same seeding as an active Director in every respect but the revocation, so only that refuses it.
+        SeedCredential("device-revoked", Developer2, _team, revokedAtUtc: DateTime.UtcNow);
+        RegisterDirector(_team, "dir-revoked", "Revoked", "REVOKED-PC", "device:device-revoked");
+
+        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-revoked"));
+    }
+
+    [Fact]
+    public void PersonOfDirector_ACredentialBoundToAnotherTenant_IsNobody()
+    {
+        // Registered under THIS team's tenant, on a device whose active credential is bound to the other team.
+        SeedCredential("device-elsewhere", Developer, _otherTeam);
+        RegisterDirector(_team, "dir-bound-elsewhere", "Bound elsewhere", "ELSE-PC", "device:device-elsewhere");
+
+        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-bound-elsewhere"));
+    }
+
+    [Fact]
+    public void PersonOfDirector_NoDeviceKeyNoPersonOrNotRegisteredThere_IsNobody()
+    {
+        RegisterDirector(_team, "dir-no-key", "No key", "NOKEY-PC", credential: null);
+        RegisterDirector(_team, "dir-token", "Token", "TOKEN-PC", "machine-token");
+        SeedCredential("device-nobody", null, _team);
+        RegisterDirector(_team, "dir-nobody", "Nobody's", "NOBODY-PC", "device:device-nobody");
+
+        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-no-key"));
+        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-token"));
+        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-nobody"));
+        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "no-such-director"));
+        // Registered on the other team only: not this team's.
+        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-dev-elsewhere"));
+    }
+
+    [Fact]
+    public void PersonOfDirector_ACollaborator_IsStillNamed_TheRoleCheckIsTheCallers()
+    {
+        // It answers WHO, not whether they may: the Fleet Map asks the role table itself (review of #3533, F1).
+        SeedDirector(_team, "dir-collaborator", Collaborator, "Collaborator box", "COLLAB-PC");
+
+        Assert.Equal(Collaborator, _ownership.PersonOfDirector(new TenantId(_team), "dir-collaborator"));
+        Assert.DoesNotContain("Collaborator box", DirectorNames(MapFor(Owner)));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void PersonOfDirector_NoDirectorId_Throws(string directorId)
+    {
+        Assert.Throws<ArgumentException>(() => _ownership.PersonOfDirector(new TenantId(_team), directorId));
     }
 }
 

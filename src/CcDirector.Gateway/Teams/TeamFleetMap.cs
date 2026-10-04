@@ -1,10 +1,8 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
-using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Streaming;
-using Microsoft.EntityFrameworkCore;
 using System.Text.Json.Serialization;
 
 namespace CcDirector.Gateway.Teams;
@@ -19,12 +17,11 @@ namespace CcDirector.Gateway.Teams;
 /// permission check. Owner and Manager (<see cref="TeamGrant.Yes"/>) get every Director on the team. A Developer
 /// (<see cref="TeamGrant.Own"/>) gets ONLY their own Directors: the list is cut HERE, on the server, never hidden by a
 /// page. A Collaborator is refused; someone who is not a member is told there is no such team.</item>
-/// <item>WHOSE A DIRECTOR IS: a Director on a team is registered under the team's tenant by the device key it said
-/// Hello on (<see cref="DirectorRegistry.RegisteringCredentialOf"/>), and that device's credential row names the
-/// person who enrolled it (<c>device_credentials.account_subject</c>, with <c>tenant_id</c> the team). A Director whose
-/// person cannot be read that way - registered with no device key, a credential that is revoked or bound elsewhere,
-/// a person who is no longer a member, or a member whose role the table does not let run sessions (a Collaborator) -
-/// is NOT on the map: it cannot be said whose it is, so it is shown to nobody.</item>
+/// <item>WHOSE A DIRECTOR IS comes from the one shared answer, <see cref="TeamDirectorOwnership.PersonOfDirector"/>:
+/// the device key the Director said Hello on, and that device's active credential bound to this team. A Director
+/// whose person cannot be read that way - registered with no device key, a credential that is revoked or bound
+/// elsewhere - or whose person is no longer a member, or is a member whose role the table does not let run sessions
+/// (a Collaborator), is NOT on the map: it cannot be said whose it is, so it is shown to nobody.</item>
 /// <item>THE ANSWER IS AN ALLOW-LIST (<see cref="TeamFleetMapDto"/>): a Director's name and machine, a person's display
 /// label, and per session its name and status (working, waiting, done). No session id, no Director id, no transcript,
 /// screen, input, prompt or path - nothing a follow-up request could use to open a session.</item>
@@ -42,26 +39,23 @@ public sealed class TeamFleetMap
     /// <summary>The route, exactly as the Gateway's route table writes it.</summary>
     public const string RoutePattern = "/teams/{teamId}/fleet-map";
 
-    /// <summary>How the Director registry records a Director that said Hello on a per-device key:
-    /// <c>device:&lt;device id&gt;</c> (<see cref="Util.AuthMiddleware.RegisteringCredential"/>).</summary>
-    public const string CredentialPrefix = "device:";
-
     /// <summary>The label for a member whose personal account has no email recorded. Never the account subject.</summary>
     public const string NoEmailLabel = "A member with no email recorded";
 
     private readonly TeamRegistry _teams;
     private readonly TeamAccess _access;
     private readonly DirectorRegistry _directors;
+    private readonly TeamDirectorOwnership _ownership;
     private readonly PushedSessionStore _sessions;
-    private readonly GatewayDatabase _db;
 
-    public TeamFleetMap(TeamRegistry teams, TeamAccess access, DirectorRegistry directors, PushedSessionStore sessions, GatewayDatabase db)
+    public TeamFleetMap(TeamRegistry teams, TeamAccess access, DirectorRegistry directors, TeamDirectorOwnership ownership,
+        PushedSessionStore sessions)
     {
         _teams = teams ?? throw new ArgumentNullException(nameof(teams));
         _access = access ?? throw new ArgumentNullException(nameof(access));
         _directors = directors ?? throw new ArgumentNullException(nameof(directors));
+        _ownership = ownership ?? throw new ArgumentNullException(nameof(ownership));
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
-        _db = db ?? throw new ArgumentNullException(nameof(db));
     }
 
     /// <summary>
@@ -103,13 +97,12 @@ public sealed class TeamFleetMap
 
         var tenant = new TenantId(teamId);
         var registered = _directors.ListDirectors(tenant);
-        var owners = OwnersOf(teamId, registered);
 
         var byPerson = new Dictionary<string, List<TeamFleetMapDirector>>(StringComparer.Ordinal);
         var unattributed = 0;
         foreach (var director in registered)
         {
-            if (!owners.TryGetValue(director.DirectorId, out var subject) || !labels.ContainsKey(subject))
+            if (_ownership.PersonOfDirector(tenant, director.DirectorId) is not { } subject || !labels.ContainsKey(subject))
             {
                 unattributed++;
                 continue;
@@ -154,38 +147,6 @@ public sealed class TeamFleetMap
         FileLog.Write($"[TeamFleetMap] Read: team {logTeam} role={decision.Role} scope={map.Scope} people={people.Count} " +
                       $"directors={people.Sum(p => p.Directors.Count)} notAttributed={unattributed}");
         return TeamFleetMapResult.Found(map);
-    }
-
-    /// <summary>
-    /// Whose each registered Director is: the account subject on the ACTIVE device credential it said Hello on, bound to
-    /// THIS team. A Director registered with no device key, or whose credential is revoked, bound to another tenant, or
-    /// carries no subject, has no owner here.
-    /// </summary>
-    private Dictionary<string, string> OwnersOf(string teamId, IReadOnlyCollection<DirectorDto> registered)
-    {
-        var deviceOf = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var d in registered)
-        {
-            var credential = _directors.RegisteringCredentialOf(new TenantId(teamId), d.DirectorId);
-            if (credential is not null && credential.StartsWith(CredentialPrefix, StringComparison.Ordinal))
-                deviceOf[d.DirectorId] = credential[CredentialPrefix.Length..];
-        }
-
-        var deviceIds = deviceOf.Values.Distinct(StringComparer.Ordinal).ToList();
-        using var ctx = _db.CreateUnscopedContext();
-        var subjects = ctx.DeviceCredentials.AsNoTracking()
-            .Where(c => deviceIds.Contains(c.DeviceId) && c.TenantId == teamId && c.RevokedAtUtc == null && c.AccountSubject != null)
-            .Select(c => new { c.DeviceId, c.AccountSubject })
-            .ToList()
-            .ToDictionary(c => c.DeviceId, c => c.AccountSubject!, StringComparer.Ordinal);
-
-        var owners = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var (directorId, deviceId) in deviceOf)
-        {
-            if (subjects.TryGetValue(deviceId, out var subject) && !string.IsNullOrWhiteSpace(subject))
-                owners[directorId] = subject.Trim();
-        }
-        return owners;
     }
 
     /// <summary>
