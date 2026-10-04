@@ -12,10 +12,10 @@ Run on 2026-10-04 in the worktree `devthrottle-teams-2306`, branch `teams/2306-c
 
 | Check | Result | File |
 |---|---|---|
-| `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams"` | 45 of 45 executed, all passed, outcome Completed | `gateway-tests-teams.log` |
+| `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams"` | 46 of 46 executed, all passed, outcome Completed | `gateway-tests-teams.log` |
 | `dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"` | 546 passed, 0 failed, 2 skipped (the two proof rigs, which only run on their own) | `gateway-unittests-teams.txt` |
 | `.\scripts\test-local.ps1` (the default gate) | 10 suites, every one outcome Completed, 0 failures: Core.UnitTests 1221, Avalonia 892, Engine 68, HostedAgent 88, Launcher 197, Terminal.Avalonia 82, Reclaim 310, setup 25, setup-engine 676, setup-cli 35. The script reported Core.UnitTests OVER BUDGET (it ran past the 120-second ceiling while the machine was loaded); every one of its 1221 tests executed and passed. | (summary only) |
-| Cockpit web tests (`apps/cockpit`, `npx vitest run`) | 70 files, 623 tests passed | `cockpit-vitest.txt` |
+| Cockpit web tests (`apps/cockpit`, `npx vitest run`) | 70 files, 624 tests passed | `cockpit-vitest.txt` |
 | client-core web tests (`packages/client-core`, `npx vitest run`) | 142 files, 1666 tests passed | `client-core-vitest.txt` |
 | `tsc --noEmit` for cockpit, mobile, client-core | clean | `tsc.txt` |
 
@@ -31,6 +31,9 @@ Each break was made in one file, the guarding tests run, and the file restored i
 | The rail ignores the verdict and draws the whole app | 4: three items, drawn from the verdict not the role, switch to Developer, switch to Collaborator | `red-2-cockpit-rail.txt` |
 | A typed address renders the page instead of the not-available page | 9: every typed address, including a page that does not exist | `red-3-cockpit-not-available.txt` |
 | The role table lets a Collaborator run sessions | 2: the server refuses the data behind every page (GET /sessions was Allowed), and `GET /teams` over the wire carries the Collaborator's verdict | `red-4-server-refusal.txt` |
+| The team gate lets a role-refused invitation write through | 1: over real HTTP, `POST /teams/{teamId}/invitations` as the team's Collaborator "was refused, but not by the team gate" | `red-5-team-route-refusal-over-http.txt` |
+
+Over real HTTP, the routes that carry the team in the address (`/teams/{teamId}/...`, called with the person's own key) DO run inside a team today, so for them the Collaborator's refusal is proven through the real pipeline: every such route whose action the role table does not give a Collaborator - today the three invitation writes behind the invite page - answers the gate's 403 (`Issue2306_OverTheWire_ACollaborator_EveryTeamRouteTheTableRefusesThem_Is403`).
 
 What the red record does NOT cover: `Issue2306_OverTheWire_AKeyBoundToTheTeam_GetsNoDataBehindAnyPageACollaboratorCannotOpen` stayed green under break 4, because a key bound to a team's tenant is refused by the hosted device registry before the role table is asked. That test proves no request from inside a team gets the data today; the role-table refusal for each page is proven against the host's own installed gate over its real route table (`Issue2306_ACollaboratorInTheTeam_TheDataBehindEveryPageTheyCannotOpen_IsRefused`), which is the test break 4 turned red.
 

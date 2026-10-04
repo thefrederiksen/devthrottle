@@ -1,0 +1,16 @@
+﻿=== RED PROOF: The gate lets a role-refused invitation write through
+Broke src\CcDirector.Gateway\Teams\TeamEndpointGate.cs
+  was:         if (!decision.Allowed)
+            return Refuse(where, action, decision.Role, decision.Refusal!);
+  now:         if (!decision.Allowed && action != TeamAction.InviteOrRemoveDevelopersAndCollaborators)
+            return Refuse(where, action, decision.Role, decision.Refusal!);
+Ran: .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Issue2306_OverTheWire_ACollaborator"
+
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:01:00.38
+FAILED: CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_ACollaborator_EveryTeamRouteTheTableRefusesThem_Is403
+   POST /teams/{teamId}/invitations was refused, but not by the team gate: {"error":"Only the team's Owner and Managers can invite people."}

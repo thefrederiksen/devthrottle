@@ -1,2 +1,2 @@
  Test Files  70 passed (70)
-      Tests  623 passed (623)
+      Tests  624 passed (624)
