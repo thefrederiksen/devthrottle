@@ -11,7 +11,7 @@ Collaborator in "DevThrottle" and a Developer in "Paul's project"), drives a hea
 
 Playwright is used as a library here, deliberately (the same choice as docs/proof/teams-2301): the screenshots must be
 repeatable by a reviewer, and the rig's account is seeded into a fresh browser context rather than into a signed-in
-persona browser.
+persona browser. Each context is a fresh browser, so it opens on the Gateway's start verdict: here, the chooser.
 """
 
 import json
@@ -120,15 +120,17 @@ def main():
                 ctx = context(width, height)
                 page = ctx.new_page()
 
-                # The person's own account first: today's Cockpit, with the switcher at the top of the rail.
-                page.goto(f"{base}/about")
-                page.locator(".team-switcher-select").wait_for(timeout=15000)
-                if prefix == "desktop":
-                    shot(page, f"{prefix}-0-own-account-full-app.png")
-
-                # Switching to the team where they are a Collaborator opens Questions, with three pages and nothing else.
-                choose_team(page, "DevThrottle - Collaborator")
+                # A fresh browser: this account has two teams and no Director on its own account, so the Gateway says
+                # "choose" and the chooser (S11) is what opens at the bare address.
+                page.goto(f"{base}/")
+                wait_text(page, "Choose a team")
+                shot(page, f"{prefix}-0-fresh-browser-chooser.png")
+                page.get_by_role("button", name="Open DevThrottle").click()
                 wait_text(page, "No questions waiting on you.")
+                page.locator(".team-switcher-select").wait_for(timeout=15000)
+
+                # The team where they are a Collaborator: Questions, three pages and nothing else, and at the foot who is
+                # signed in, their role and Sign out.
                 labels = rail_labels(page)
                 if labels != ["Questions", "Requests", "Reports"]:
                     sys.exit(f"ERROR: the Collaborator's rail is {labels}")
@@ -158,6 +160,10 @@ def main():
                 if labels[:3] != ["Fleet Manager", "Sessions", "Fleet Map"]:
                     sys.exit(f"ERROR: the Developer's rail is {labels}")
                 shot(page, f"{prefix}-6-developer-team-full-app.png")
+                if prefix == "desktop":
+                    choose_team(page, "Your own account")
+                    page.locator(".nav-list-foot").wait_for(timeout=15000)
+                    shot(page, f"{prefix}-7-own-account-full-app.png")
                 ctx.close()
 
             browser.close()

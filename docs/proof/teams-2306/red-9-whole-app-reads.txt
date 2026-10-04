@@ -1,0 +1,30 @@
+﻿=== RED PROOF: The pages-only shell makes the whole app's reads
+Broke apps\cockpit\src\AppShell.tsx
+  was: const wholeApp = !team.resolving && !team.choosing && teamPages === null;
+  now: const wholeApp = true;
+Ran: Push-Location apps\cockpit; npx vitest run src/teams/collaborator; Pop-Location
+
+
+ RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2306/apps/cockpit
+
+ ❯ src/teams/collaborator/collaboratorApp.test.tsx (27 tests | 2 failed) 622ms
+   × The Collaborator's app > Navigation_Collaborator_HasExactlyTheThreePagesTheGatewayListsAndNothingElse 51ms
+     → expected …(9) to have a length of 3 but got 9
+   × The Collaborator's app > PagesOnly_TheWholeAppsFiveReads_AreNeverMade 45ms
+     → expected "spy" to not be called at all, but actually been called 1 times
+
+Received: 
+
+  1st spy call:
+
+    Array []
+
+
+Number of calls: 1
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 25 passed (27)
+   Start at  19:24:04
+   Duration  3.00s (transform 778ms, setup 11ms, collect 1.30s, tests 622ms, environment 596ms, prepare 166ms)
+

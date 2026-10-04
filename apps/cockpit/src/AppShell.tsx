@@ -274,8 +274,10 @@ function ShellFrame() {
   const mainNav = team.resolving || team.choosing ? [] : teamPages !== null ? teamPagesNav(teamPages) : fullNav;
   // A pages-only rail never collapses (review finding F4): three rows need no room back, and at phone width the bar
   // hides the collapse control - a remembered collapse would otherwise leave no switcher and no way back.
-  const collapsed = railCollapsed && teamPages === null;
-  const shellClass = ["shell", collapsed ? "shell-rail-collapsed" : "", teamPages !== null ? "shell-team-pages" : ""]
+  // The chooser (S11) has no rail rows either, so it takes the same short rail: no collapse, and a bar at phone width.
+  const shortRail = teamPages !== null || team.choosing;
+  const collapsed = railCollapsed && !shortRail;
+  const shellClass = ["shell", collapsed ? "shell-rail-collapsed" : "", shortRail ? "shell-team-pages" : ""]
     .filter((c) => c.length > 0)
     .join(" ");
 
@@ -302,7 +304,7 @@ function ShellFrame() {
             {!collapsed && <div className="brand">DevThrottle</div>}
             {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
                 is the one row still in reach, pointing the way back. */}
-            {teamPages === null && (
+            {!shortRail && (
             <button
               type="button"
               className="rail-toggle"
@@ -318,7 +320,8 @@ function ShellFrame() {
           </div>
           {/* The team switcher sits at the top of the rail on every screen (S11). It renders nothing for a person
               with no team, so their rail is exactly as it was. */}
-          {!collapsed && <TeamSwitcher onSwitched={onSwitched} />}
+          {/* While the chooser is on screen it IS the choice; a switcher beside it would claim "Your own account". */}
+          {!collapsed && !team.choosing && <TeamSwitcher onSwitched={onSwitched} />}
           {!collapsed && teamPages === null && <CockpitStatusPill />}
           <div className="nav">
             {teamPages !== null ? (

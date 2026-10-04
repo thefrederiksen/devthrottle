@@ -13,7 +13,7 @@
 
 /* A PHONE-WIDE COLLABORATOR'S COCKPIT (devthrottle_internal#2306). Three pages need no side rail: on a narrow screen the
    rail becomes a bar across the top - the name, the team switcher, and the three pages side by side - and the page
-   fills the width below it. Only the pages-only shell changes; the whole app is untouched. */
+   fills the width below it. Only the pages-only shell and the team chooser change; the whole app is untouched. */
 @media (max-width: 600px) {
   .shell.shell-team-pages {
     grid-template-columns: 1fr;
@@ -64,6 +64,24 @@
 
   .shell-team-pages .main-pane {
     min-width: 0;
+  }
+
+  /* The foot is one line in the bar: who, their role, Sign out. */
+  .shell-team-pages .team-pages-foot {
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 8px 4px 0;
+  }
+
+  .shell-team-pages .team-pages-foot-who {
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+
+  .shell-team-pages .team-pages-foot-signout {
+    margin: 0 0 0 auto;
   }
 }
 
@@ -130,6 +148,14 @@
 
 .team-chooser-text {
   min-width: 0;
+}
+
+/* At phone width a row is the name and role above, the Open button below - side by side they overlap. */
+@media (max-width: 600px) {
+  .team-chooser-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 .team-chooser-name {

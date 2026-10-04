@@ -303,6 +303,10 @@ describe("The Collaborator's app", () => {
     expect(chooser.textContent).toContain("Developer - 2 people");
     expect(screen.queryByText("fleet manager page")).toBeNull();
     expect(railLabels()).toEqual([]);
+    expect(screen.queryByTestId("team-switcher")).toBeNull();
+    // The chooser takes the short rail: a bar at phone width, never collapsed.
+    expect(document.querySelector(".shell-team-pages")).not.toBeNull();
+    expect(screen.queryByTestId("rail-toggle")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Open DevThrottle" }));
 

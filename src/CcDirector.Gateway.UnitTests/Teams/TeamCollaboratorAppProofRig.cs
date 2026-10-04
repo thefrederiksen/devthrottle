@@ -54,7 +54,10 @@ public sealed class TeamCollaboratorAppProofRig
             gateway.TenantRegistry.MintOrLookupBySubject("sub-rig-qa", "qa@mindzie.com");
             gateway.TenantRegistry.MintOrLookupBySubject("sub-rig-tech", "tech@mindzie.com");
             var tenant = gateway.TenantRegistry.MintOrLookupBySubject("sub-rig-docs", "docs@mindzie.com");
-            var key = gateway.Devices.Register("rig-docs", "RIG-docs").DeviceKey;
+            // A BROWSER, as a Cockpit sign-in records it - not a Director - so this account has no computer on its own
+            // account and a fresh browser opens where the Gateway's start verdict says (review finding F1).
+            var key = gateway.Devices.Register("rig-docs", "RIG-docs", platform: "browser",
+                deviceType: Gateway.Account.MobileDeviceEnrollmentService.BrowserDeviceType).DeviceKey;
             gateway.Devices.SetAccountBinding("rig-docs", "sub-rig-docs", tenant.Value);
 
             var registry = gateway.TeamRegistry;

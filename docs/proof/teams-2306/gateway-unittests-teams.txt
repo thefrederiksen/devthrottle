@@ -1,3 +1,1 @@
-  Skipped CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [1 ms]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [1 ms]
-Passed!  - Failed:     0, Passed:   546, Skipped:     2, Total:   548, Duration: 31 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   557, Skipped:     2, Total:   559, Duration: 33 s - CcDirector.Gateway.UnitTests.dll (net10.0)
