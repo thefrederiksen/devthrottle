@@ -60,8 +60,9 @@ public sealed partial class TeamRegistry
 
         var rows = members.Members.Select(m => DescribeMember(team.TeamId, caller, callerRole, mayChangeRoles, m)).ToList();
 
-        // The waiting invitations: the ones still to be answered, live or lapsed (a lapsed one can be resent). Who sees
-        // them is ListInvitations' rule - the people who may invite - so a Developer's list is empty.
+        // The invitations still to be answered, live or lapsed: a lapsed one can be resent or cancelled (its stored state
+        // is still sent, so CancelInvitation allows it - review F1), so it stays listed until someone does one of the two.
+        // Who sees them is ListInvitations' rule - the people who may invite - so a Developer's list is empty.
         var invitations = (ListInvitations(team.TeamId, caller) ?? Array.Empty<TeamInvitation>())
             .Where(i => i.State is TeamInvitationStates.Sent or TeamInvitationStates.Expired)
             .Select(i => new TeamPageInvitation(
@@ -69,12 +70,14 @@ public sealed partial class TeamRegistry
                 SeatLabel(i.Role, invited: true),
                 i.InvitedBy, i.SentAtUtc, i.ExpiresAtUtc,
                 CanResend: TeamInvitationRules.MayInvite(callerRole, i.Role),
-                CanCancel: i.State == TeamInvitationStates.Sent && TeamInvitationRules.MayInvite(callerRole, i.Role)))
+                CanCancel: TeamInvitationRules.MayInvite(callerRole, i.Role)))
             .ToList();
 
         var paid = members.Members.Count(m => IsPaid(m.Role));
         var free = members.Members.Count - paid;
-        var summary = Summary(paid, free, mayInvite ? invitations.Count : null);
+        // "Waiting" counts only the live ones: a lapsed invitation is waiting on nobody (review F1).
+        var waiting = invitations.Count(i => i.State == TeamInvitationStates.Sent);
+        var summary = Summary(paid, free, mayInvite ? waiting : null);
 
         FileLog.Write($"[TeamRegistry] DescribeTeamPage: team {LogTeam(team.TeamId)} callerRole={callerRole} members={rows.Count} paid={paid} invitations={invitations.Count} canChangeRoles={mayChangeRoles} canInvite={mayInvite}");
         return TeamPageResult.Found(new TeamPage(team.TeamId, team.Name, TeamRoles.Label(callerRole), summary, mayInvite, rows, invitations));
@@ -91,20 +94,25 @@ public sealed partial class TeamRegistry
         RequireRole(newRole);
         FileLog.Write($"[TeamRegistry] ChangeMemberRole: team {LogTeam(teamId)} newRole={newRole}");
 
-        var decision = _access.Decide(teamId ?? "", caller, TeamPermissions.ActionToChangeRole);
-        if (!decision.IsMember)
-            return MemberChangeNotFound("ChangeMemberRole");
-        if (!decision.Allowed)
-            return MemberChangeRefused("ChangeMemberRole", TeamMemberChangeOutcome.Forbidden, "role-table", decision.Refusal!);
+        // Decided and written under the write lock, so the roles the decision reads cannot change before the write
+        // lands (review F2). Every membership write takes this lock; it is re-entrant, so ChangeRole takes it again.
+        lock (_writeLock)
+        {
+            var decision = _access.Decide(teamId ?? "", caller, TeamPermissions.ActionToChangeRole);
+            if (!decision.IsMember)
+                return MemberChangeNotFound("ChangeMemberRole");
+            if (!decision.Allowed)
+                return MemberChangeRefused("ChangeMemberRole", TeamMemberChangeOutcome.Forbidden, "role-table", decision.Refusal!);
 
-        var target = FindMember(teamId!, memberId);
-        if (target is null)
-            return MemberChangeRefused("ChangeMemberRole", TeamMemberChangeOutcome.NotFound, "no-such-member", TeamRefusals.NotAMember);
+            var target = FindMember(teamId!, memberId);
+            if (target is null)
+                return MemberChangeRefused("ChangeMemberRole", TeamMemberChangeOutcome.NotFound, "no-such-member", TeamRefusals.NotAMember);
 
-        var written = ChangeRole(teamId!, target.Value.Subject, newRole);
-        return written.IsDone
-            ? TeamMemberChangeResult.Done
-            : MemberChangeRefused("ChangeMemberRole", TeamMemberChangeOutcome.Refused, "team-invariant", written.Refusal!);
+            var written = ChangeRole(teamId!, target.Value.Subject, newRole);
+            return written.IsDone
+                ? TeamMemberChangeResult.Done
+                : MemberChangeRefused("ChangeMemberRole", TeamMemberChangeOutcome.Refused, "team-invariant", written.Refusal!);
+        }
     }
 
     /// <summary>
@@ -117,24 +125,30 @@ public sealed partial class TeamRegistry
         var caller = RequireSubject(callerSubject);
         FileLog.Write($"[TeamRegistry] RemoveTeamMember: team {LogTeam(teamId)}");
 
-        var callerRole = RoleOf(teamId ?? "", caller);
-        if (callerRole is null)
-            return MemberChangeNotFound("RemoveTeamMember");
+        // Decided and written under the write lock (review F2): the target's role and the caller's are read where no
+        // other membership write can move them, so a Manager can never remove someone made a Manager a moment before,
+        // and a Manager demoted a moment before can never complete a removal. Re-entrant: RemoveMember takes it again.
+        lock (_writeLock)
+        {
+            var callerRole = RoleOf(teamId ?? "", caller);
+            if (callerRole is null)
+                return MemberChangeNotFound("RemoveTeamMember");
 
-        var target = FindMember(teamId!, memberId);
-        if (target is null)
-            return MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.NotFound, "no-such-member", TeamRefusals.NotAMember);
-        if (target.Value.Role == TeamRole.Owner)
-            return MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.Refused, "owner",
-                target.Value.Subject == caller ? TeamRefusals.OwnerRemovesSelf : TeamRefusals.RemoveOwner);
+            var target = FindMember(teamId!, memberId);
+            if (target is null)
+                return MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.NotFound, "no-such-member", TeamRefusals.NotAMember);
+            if (target.Value.Role == TeamRole.Owner)
+                return MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.Refused, "owner",
+                    target.Value.Subject == caller ? TeamRefusals.OwnerRemovesSelf : TeamRefusals.RemoveOwner);
 
-        if (RemoveRefusal(teamId!, caller, target.Value.Role) is { } refusal)
-            return MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.Forbidden, "role-table", refusal);
+            if (RemoveRefusal(teamId!, caller, target.Value.Role) is { } refusal)
+                return MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.Forbidden, "role-table", refusal);
 
-        var written = RemoveMember(teamId!, target.Value.Subject);
-        return written.IsDone
-            ? TeamMemberChangeResult.Done
-            : MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.Refused, "team-invariant", written.Refusal!);
+            var written = RemoveMember(teamId!, target.Value.Subject);
+            return written.IsDone
+                ? TeamMemberChangeResult.Done
+                : MemberChangeRefused("RemoveTeamMember", TeamMemberChangeOutcome.Refused, "team-invariant", written.Refusal!);
+        }
     }
 
     // ---- helpers -------------------------------------------------------------------------------------------------

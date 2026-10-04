@@ -36,7 +36,7 @@ public sealed class TeamPageTests : IDisposable
     private readonly TenantRegistry _tenants;
     private readonly RecordingWebsite _website = new();
     private readonly TeamRegistry _teams;
-    private readonly DateTime _now = new(2026, 10, 1, 10, 0, 0, DateTimeKind.Utc);
+    private DateTime _now = new(2026, 10, 1, 10, 0, 0, DateTimeKind.Utc);
     private readonly string _team;
 
     public TeamPageTests()
@@ -175,6 +175,37 @@ public sealed class TeamPageTests : IDisposable
 
         Assert.False(row.CanResend);
         Assert.False(row.CanCancel);
+    }
+
+    [Fact]
+    public void DescribeTeamPage_AnExpiredInvitation_IsListedWithResendAndCancel_AndIsNotCountedAsWaiting()
+    {
+        var lapsed = _teams.CreateInvitation(_team, Owner, "wrong.address@acme.example", TeamRole.Developer).Invitation!;
+        _now = _now.AddDays(8);
+        var live = _teams.CreateInvitation(_team, Owner, "anna@acme.example", TeamRole.Developer).Invitation!;
+
+        var page = PageFor(Owner);
+
+        var expired = page.Invitations.Single(i => i.Id == lapsed.Id);
+        Assert.Equal(TeamInvitationStates.Expired, expired.State);
+        Assert.True(expired.CanResend);
+        Assert.True(expired.CanCancel);
+        Assert.Equal(TeamInvitationStates.Sent, page.Invitations.Single(i => i.Id == live.Id).State);
+        // Waiting means waiting on someone: the lapsed one is listed but not counted (review F1).
+        Assert.Equal("4 paid seats, 1 Collaborator (free), 1 invitation waiting", page.Summary);
+    }
+
+    [Fact]
+    public void CancelInvitation_AnExpiredInvitation_ClearsItFromThePage_WithoutSendingAnything()
+    {
+        var lapsed = _teams.CreateInvitation(_team, Owner, "wrong.address@acme.example", TeamRole.Developer).Invitation!;
+        _now = _now.AddDays(8);
+
+        Assert.Equal(TeamInvitationOutcome.Done, _teams.CancelInvitation(_team, lapsed.Id, Owner).Outcome);
+
+        var page = PageFor(Owner);
+        Assert.Empty(page.Invitations);
+        Assert.Equal("4 paid seats, 1 Collaborator (free), 0 invitations waiting", page.Summary);
     }
 
     // ---- Change a role --------------------------------------------------------------------------------------------

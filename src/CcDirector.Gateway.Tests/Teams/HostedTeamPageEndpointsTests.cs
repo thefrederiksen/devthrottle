@@ -179,20 +179,23 @@ public sealed class HostedTeamPageEndpointsTests : IAsyncLifetime
     public async Task Transcript_TheTeamPage()
     {
         var rob = IdOf(_developer);
-        await Show(HttpMethod.Get, $"teams/{_team}/page", "teams/{teamId}/page", _owner, "soren@acme.example (Owner)");
-        await Show(HttpMethod.Get, $"teams/{_team}/page", "teams/{teamId}/page", _collaborator, "mike@client.example (Collaborator)");
-        await Show(HttpMethod.Put, $"teams/{_team}/members/{rob}/role", "teams/{teamId}/members/{rob}/role", _manager, "priya@acme.example (Manager)", new { role = "Collaborator" });
-        await Show(HttpMethod.Put, $"teams/{_team}/members/{rob}/role", "teams/{teamId}/members/{rob}/role", _owner, "soren@acme.example (Owner)", new { role = "Collaborator" });
-        await Show(HttpMethod.Delete, $"teams/{_team}/members/{IdOf(_manager2)}", "teams/{teamId}/members/{pat}", _manager, "priya@acme.example (Manager)");
-        await Show(HttpMethod.Delete, $"teams/{_team}/members/{IdOf(_owner)}", "teams/{teamId}/members/{soren}", _owner, "soren@acme.example (Owner)");
-        await Show(HttpMethod.Delete, $"teams/{_team}/members/{rob}", "teams/{teamId}/members/{rob}", _developer, "rob@acme.example (Developer)");
-        await Show(HttpMethod.Delete, $"teams/{_team}/members/{rob}", "teams/{teamId}/members/{rob}", _manager, "priya@acme.example (Manager)");
-        await Show(HttpMethod.Get, $"teams/{_team}/page", "teams/{teamId}/page", _developer, "rob@acme.example (removed)");
+        // Each step asserts its answer (review F3), so the transcript cannot pass while a route answers wrongly.
+        await Show(HttpStatusCode.OK, HttpMethod.Get, $"teams/{_team}/page", "teams/{teamId}/page", _owner, "soren@acme.example (Owner)");
+        await Show(HttpStatusCode.Forbidden, HttpMethod.Get, $"teams/{_team}/page", "teams/{teamId}/page", _collaborator, "mike@client.example (Collaborator)");
+        await Show(HttpStatusCode.Forbidden, HttpMethod.Put, $"teams/{_team}/members/{rob}/role", "teams/{teamId}/members/{rob}/role", _manager, "priya@acme.example (Manager)", new { role = "Collaborator" });
+        await Show(HttpStatusCode.OK, HttpMethod.Put, $"teams/{_team}/members/{rob}/role", "teams/{teamId}/members/{rob}/role", _owner, "soren@acme.example (Owner)", new { role = "Collaborator" });
+        await Show(HttpStatusCode.Forbidden, HttpMethod.Delete, $"teams/{_team}/members/{IdOf(_manager2)}", "teams/{teamId}/members/{pat}", _manager, "priya@acme.example (Manager)");
+        await Show(HttpStatusCode.Conflict, HttpMethod.Delete, $"teams/{_team}/members/{IdOf(_owner)}", "teams/{teamId}/members/{soren}", _owner, "soren@acme.example (Owner)");
+        await Show(HttpStatusCode.Forbidden, HttpMethod.Delete, $"teams/{_team}/members/{rob}", "teams/{teamId}/members/{rob}", _developer, "rob@acme.example (Developer, now Collaborator)");
+        await Show(HttpStatusCode.OK, HttpMethod.Delete, $"teams/{_team}/members/{rob}", "teams/{teamId}/members/{rob}", _manager, "priya@acme.example (Manager)");
+        await Show(HttpStatusCode.NotFound, HttpMethod.Get, $"teams/{_team}/page", "teams/{teamId}/page", _developer, "rob@acme.example (removed)");
+        Assert.Null(_gateway.TeamRegistry.RoleOf(_team, _developer));
     }
 
-    private async Task Show(HttpMethod method, string path, string shownPath, string caller, string who, object? body = null)
+    private async Task Show(HttpStatusCode expected, HttpMethod method, string path, string shownPath, string caller, string who, object? body = null)
     {
         var (status, answer) = await Send(method, path, caller, body);
+        Assert.True(status == expected, $"{method} /{shownPath} as {who}: expected {(int)expected}, got {(int)status}");
         _output.WriteLine("");
         _output.WriteLine($"{method} /{shownPath}{(body is null ? "" : " " + JsonSerializer.Serialize(body))} as {who} -> {(int)status} {status}");
         _output.WriteLine(JsonSerializer.Serialize(answer, new JsonSerializerOptions { WriteIndented = true }));

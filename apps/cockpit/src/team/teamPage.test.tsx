@@ -168,6 +168,25 @@ describe("the Team page, per role", () => {
     expect(within(invited).getByRole("button", { name: "Cancel" })).toBeTruthy();
   });
 
+  it("an expired invitation shows Expired, and offers Resend and Cancel when the Gateway says so", async () => {
+    const page = ownerPage();
+    page.invitations = [{
+      ...page.invitations[0], id: "inv-old", email: "wrong.address@devthrottle.com", state: "expired",
+      expiresAtUtc: "2026-09-20T10:00:00Z", canResend: true, canCancel: true,
+    }];
+    client.getTeamPage.mockResolvedValue(page);
+    invitations.cancelInvitation.mockResolvedValue({});
+    renderAt(PATH);
+
+    const row = (await screen.findByText("wrong.address@devthrottle.com")).closest("tr") as HTMLElement;
+    expect(within(row).getByText(/^Expired /)).toBeTruthy();
+    expect(within(row).getByRole("button", { name: "Resend" })).toBeTruthy();
+    fireEvent.click(within(row).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Cancel invitation" }));
+
+    await waitFor(() => expect(invitations.cancelInvitation).toHaveBeenCalledWith(TEAM, "inv-old"));
+  });
+
   it("Manager: role is plain text, Remove only on Developers and Collaborators, can invite", async () => {
     client.getTeamPage.mockResolvedValue(managerPage());
     renderAt(PATH);

@@ -59,7 +59,8 @@ public sealed partial class TeamRegistry
     /// <param name="utcNow">The clock; the system clock when omitted.</param>
     /// <param name="seatSync">Tells the website a team's membership changed so it recounts the team's paid seats
     /// (devthrottle_internal#2301, seam-team-billing.md section 4). Null on a Gateway with no team bills - a
-    /// self-hosted one, or one where Teams is not released - and then every change says so in the log.</param>
+    /// self-hosted one, or one where Teams is not released - and then every change that moved the paid-seat count says
+    /// so in the log (a change that did not move it never asks; see <see cref="CommitMembershipChange"/>).</param>
     /// <param name="readTeamBill">Reads a team's bill (team_entitlements) for the invitation bill gate. Defaults to
     /// the entitlement reader over this same database.</param>
     public TeamRegistry(GatewayDatabase db, TenantRegistry tenants, Func<DateTime>? utcNow = null,
