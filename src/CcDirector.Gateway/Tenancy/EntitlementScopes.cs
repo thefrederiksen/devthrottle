@@ -87,6 +87,10 @@ public static class EntitlementScopes
             // truthful statement of what the plan grants, and it is what any Gateway-side check must read the
             // day one is added.
             [EntitlementRegistry.TierFree] = Set(HostedGateway),
+
+            // A TEAM seat (#2299): exactly what Pro grants. Stated as its own line rather than aliased to Pro so
+            // the day a team seat and a personal Pro are priced or scoped differently, it is one edit here.
+            [EntitlementRegistry.TierTeam] = Set(Dictation, Tts, Wingman, HostedGateway),
         };
 
     // The pre-column row. Carried separately from the table because its key is null and because its reason is
