@@ -1,8 +1,10 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Discovery;
+using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Streaming;
+using CcDirector.Gateway.Tenancy;
 
 namespace CcDirector.Gateway.Teams;
 
@@ -24,7 +26,12 @@ namespace CcDirector.Gateway.Teams;
 /// caller's. The session ids in a roster are client-written: the roster accepts any id from any Director, so two
 /// Directors holding one id is not a session anyone can be said to own, and it is answered Unknown and refused - never
 /// the first one found. The roster itself does not refuse the duplicate: a roster that kept the first writer would let a
-/// Director that pushed a colleague's id first hide the colleague's own session from them.</item>
+/// Director that pushed a colleague's id first hide the colleague's own session from them.
+/// AND the session's STORED conversation, when the Gateway holds one, must have been written only by Directors the
+/// caller owns - its head's Director and the Director of every turn row of its current generation. A roster lists live
+/// sessions only, so once a colleague's session has ended a member's Director can be the only holder of the colleague's
+/// old id; the stored conversation still names the colleague's Director, and the route that would serve it is refused.
+/// Personal tenants never reach this class.</item>
 /// </list>
 ///
 /// Anything else - a list across the whole team, a session or Director this Gateway does not know, one registered by
@@ -38,12 +45,20 @@ public sealed class TeamCallerOwnership
     private readonly DirectorRegistry _directors;
     private readonly PushedSessionStore _sessions;
     private readonly DeviceRegistry _devices;
+    private readonly SessionTurnStore _turns;
+    private readonly HostedTenantBoundary _boundary;
 
-    public TeamCallerOwnership(DirectorRegistry directors, PushedSessionStore sessions, DeviceRegistry devices)
+    /// <param name="turns">The stored conversations - the one store the Gateway serves them from.</param>
+    /// <param name="boundary">Enters the team's tenant scope for the stored-conversation read, which is partitioned by
+    /// it.</param>
+    public TeamCallerOwnership(DirectorRegistry directors, PushedSessionStore sessions, DeviceRegistry devices,
+        SessionTurnStore turns, HostedTenantBoundary boundary)
     {
         _directors = directors ?? throw new ArgumentNullException(nameof(directors));
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _devices = devices ?? throw new ArgumentNullException(nameof(devices));
+        _turns = turns ?? throw new ArgumentNullException(nameof(turns));
+        _boundary = boundary ?? throw new ArgumentNullException(nameof(boundary));
     }
 
     /// <summary>
@@ -84,10 +99,36 @@ public sealed class TeamCallerOwnership
                 FileLog.Write($"[TeamCallerOwnership] Whose: session {sessionId} is held by {holders.Count} Directors in tenant {tenant.ToLogString()} - unknown");
                 return TeamOwnership.Unknown;
             }
-            return OwnerOfDirector(tenant, holders[0], callerSubject, "session");
+            var live = OwnerOfDirector(tenant, holders[0], callerSubject, "session");
+            if (live != TeamOwnership.Callers)
+                return live;
+            return OwnerOfStoredConversation(tenant, sessionId, holders[0], callerSubject);
         }
 
         return TeamOwnership.Unknown;
+    }
+
+    /// <summary>The caller's own only when every Director that wrote the session's stored conversation is the caller's;
+    /// nothing stored is nothing to refuse. Otherwise the first writer that is not the caller's decides the answer -
+    /// someone else's, or unknown - and either is refused.</summary>
+    private TeamOwnership OwnerOfStoredConversation(TenantId tenant, string sessionId, string liveHolder, string callerSubject)
+    {
+        IReadOnlyList<string> writers;
+        using (_boundary.EnterScope(tenant))
+            writers = _turns.DirectorsOfCurrentConversation(sessionId);
+
+        foreach (var writer in writers)
+        {
+            if (string.Equals(writer, liveHolder, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var owner = OwnerOfDirector(tenant, writer, callerSubject, "stored conversation");
+            if (owner != TeamOwnership.Callers)
+            {
+                FileLog.Write($"[TeamCallerOwnership] Whose: session {sessionId} - its stored conversation was written by director={writer}, not the caller's - refused");
+                return owner;
+            }
+        }
+        return TeamOwnership.Callers;
     }
 
     private TeamOwnership OwnerOfDirector(TenantId tenant, string directorId, string callerSubject, string what)

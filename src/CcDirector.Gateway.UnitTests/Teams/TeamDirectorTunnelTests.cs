@@ -4,6 +4,7 @@ using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Discovery;
+using CcDirector.Gateway.History;
 using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Stats;
 using CcDirector.Gateway.Streaming;
@@ -46,6 +47,8 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     private readonly GatewayStreamRegistry _streams = new();
     private readonly DirectorConnectionRegistry _connections = new();
     private readonly GatewayInputStatsAggregator _inputStats;
+    private readonly AsyncLocalTenantContext _tenantContext = new();
+    private readonly SessionTurnStore _turns;
     private readonly TestEs256Key _key = new();
     private readonly JwtAccessTokenValidator _validator;
     private int _connectionCount;
@@ -54,11 +57,14 @@ public sealed class TeamDirectorTunnelTests : IDisposable
 
     public TeamDirectorTunnelTests()
     {
-        _db = _harness.Open();
+        // The database reads the SAME ambient tenant the boundary enters, as in production - so a stored-conversation
+        // read made outside the team's scope fails here instead of quietly answering from a fixed tenant.
+        _db = _harness.Open(_tenantContext);
+        _turns = new SessionTurnStore(_db);
         _tenants = new TenantRegistry(_db);
         _teams = new TeamRegistry(_db, _tenants);
         _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
-        _boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices);
+        _boundary = new HostedTenantBoundary(_tenantContext, _devices);
         _directors = new DirectorRegistry(_harness.LegacyPath("instances"));
         _inputStats = new GatewayInputStatsAggregator(_harness.LegacyPath("stats.db"));
         _validator = new JwtAccessTokenValidator(
@@ -107,7 +113,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         http.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = resolution.Identity;
         var ctx = new FakeHubCtx("conn-" + directorId + "-" + Interlocked.Increment(ref _connectionCount), http);
         var hub = new DirectorHub(_store, _directors, InputStatsHandle.Available(_inputStats), _streams,
-            tenantBoundary: _boundary, connections: _connections) { Context = ctx };
+            tenantBoundary: _boundary, connections: _connections, sessionTurns: _turns) { Context = ctx };
         hub.Hello(new DirectorStreamHello { DirectorId = directorId, MachineName = "M", User = "u", Version = "1", Pid = 1, StartedAt = DateTime.UtcNow });
         return new Connected(hub, ctx);
     }
@@ -138,7 +144,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     private DeviceCredentialResolutionKind KindOf(string key) => _devices.ResolveCredential(key).Kind;
 
     private TeamOwnership Whose(string team, string caller, string sessionId) =>
-        new TeamCallerOwnership(_directors, _store, _devices)
+        new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary)
             .Whose(new TenantId(team), caller, "/sessions/{sid}", name => name == "sid" ? sessionId : null);
 
     private string[] Sessions(string team) =>
@@ -258,6 +264,71 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Alice, "session-alice"));
         Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Bob, "session-alice"));
         Assert.Equal(TeamOwnership.Unknown, Whose(_teamA, Alice, "session-nobody-has"));
+    }
+
+    // ---- Gateway review, the ended-session gap: a stored conversation is its writers' ----------------------------
+
+    private static TurnPushBatch Conversation(string sid, int start, int count) => new()
+    {
+        SessionId = sid,
+        Generation = "C:/transcripts/" + sid + ".jsonl",
+        GenerationStartedUtc = new DateTime(2026, 10, 4, 12, 0, 0, DateTimeKind.Utc),
+        Agent = "ClaudeCode",
+        StartOrdinal = start,
+        TotalCount = start + count,
+        Turns = Enumerable.Range(start, count).Select(i => new PushedTurn
+        {
+            Ordinal = i,
+            Role = i % 2 == 0 ? "User" : "Assistant",
+            Parts = { new HistoryPartDto { Kind = "Text", Text = "turn " + i } },
+        }).ToList(),
+    };
+
+    [Fact]
+    public void AColleaguesEndedSession_WhoseOldIdOnlyAnotherMembersDirectorNowHolds_IsRefusedToThatMember()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2));
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
+
+        // Bob's session ends and leaves his roster; Alice's Director then lists his old id - it is the only holder.
+        bob.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Equal(new[] { "director-alice" }, _store.DirectorsHoldingSession(new TenantId(_teamA), "session-bob").ToArray());
+
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+    }
+
+    [Fact]
+    public void AMemberPushingIntoAColleaguesStoredConversation_DoesNotMakeItTheirs()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2));
+        bob.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+
+        // Alice's Director appends to Bob's conversation, so the stored head now names Alice's Director - but the rows
+        // the conversation would serve are still Bob's.
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        alice.Hub.PushTurns(1, Conversation("session-bob", 2, 1));
+        using (_boundary.EnterScope(new TenantId(_teamA)))
+            Assert.Equal("director-alice", _turns.ReadHead("session-bob")!.DirectorId);
+
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+    }
+
+    [Fact]
+    public void AMembersOwnSession_WithItsOwnStoredConversation_IsTheirs_AndNoOneElses()
+    {
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-alice" } });
+        alice.Hub.PushTurns(1, Conversation("session-alice", 0, 2));
+
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Alice, "session-alice"));
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Bob, "session-alice"));
     }
 
     // ---- Review F1: setting a Director up again somewhere else is a move, with the move's rules -------------------

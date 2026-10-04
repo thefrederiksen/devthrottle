@@ -50,9 +50,9 @@ public sealed class TeamCallerOwnershipTests : IDisposable
         _teams = new TeamRegistry(_db, _tenants);
         _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
         _directors = new DirectorRegistry(_harness.LegacyPath("instances"));
-        _ownership = new TeamCallerOwnership(_directors, _sessions, _devices);
-        _gate = new TeamEndpointGate(new TeamAccess(_teams), _teams, _tenants,
-            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices), _ownership);
+        var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices);
+        _ownership = new TeamCallerOwnership(_directors, _sessions, _devices, new CcDirector.Gateway.History.SessionTurnStore(_db), boundary);
+        _gate = new TeamEndpointGate(new TeamAccess(_teams), _teams, _tenants, boundary, _ownership);
 
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         _tenant = new TenantId(_team);
@@ -63,6 +63,10 @@ public sealed class TeamCallerOwnershipTests : IDisposable
         _aliceKey = DirectorWithSession(Alice, "director-alice", "session-alice");
         _bobKey = DirectorWithSession(Bob, "director-bob", "session-bob");
     }
+
+    private CcDirector.Gateway.History.SessionTurnStore Turns() => new(_db);
+
+    private HostedTenantBoundary Boundary() => new(new AsyncLocalTenantContext(), _devices);
 
     public void Dispose()
     {
@@ -134,9 +138,11 @@ public sealed class TeamCallerOwnershipTests : IDisposable
     [Fact]
     public void Constructor_AndWhose_NullArguments_Throw()
     {
-        Assert.Throws<ArgumentNullException>(() => new TeamCallerOwnership(null!, _sessions, _devices));
-        Assert.Throws<ArgumentNullException>(() => new TeamCallerOwnership(_directors, null!, _devices));
-        Assert.Throws<ArgumentNullException>(() => new TeamCallerOwnership(_directors, _sessions, null!));
+        Assert.Throws<ArgumentNullException>(() => new TeamCallerOwnership(null!, _sessions, _devices, Turns(), Boundary()));
+        Assert.Throws<ArgumentNullException>(() => new TeamCallerOwnership(_directors, null!, _devices, Turns(), Boundary()));
+        Assert.Throws<ArgumentNullException>(() => new TeamCallerOwnership(_directors, _sessions, null!, Turns(), Boundary()));
+        Assert.Throws<ArgumentNullException>(() => new TeamCallerOwnership(_directors, _sessions, _devices, null!, Boundary()));
+        Assert.Throws<ArgumentNullException>(() => new TeamCallerOwnership(_directors, _sessions, _devices, Turns(), null!));
         Assert.Throws<ArgumentNullException>(() => _ownership.Whose(_tenant, Alice, "/sessions", null!));
     }
 

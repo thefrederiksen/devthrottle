@@ -1762,8 +1762,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // the stores read (so a scope it enters is what they resolve) and the device registry.
         _tenantBoundary = new Tenancy.HostedTenantBoundary(_tenantContext, Devices);
         TeamAccess = new Teams.TeamAccess(TeamRegistry);
+        // The stored conversations. Built here, before the team gate, because whose a session is in a team also asks
+        // who wrote its stored conversation (devthrottle_internal#2311) - and it must be THIS one store, whose cache the
+        // hub writes through, never a second instance.
+        _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary,
-            new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices));
+            new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary));
         // Removing a person from a team, or making them a Collaborator, cuts their Directors off that team: their keys
         // there are revoked and their open tunnels there cut (devthrottle_internal#2311). Attached only where Teams is
         // released, at the one place a membership change is committed.
@@ -2198,7 +2202,6 @@ public sealed class GatewayHost : IAsyncDisposable
         _devReportSettleSweep = new DevReports.DevReportSettleSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _devReports, _devReportDelivery);
         _knownRepositories = new History.KnownRepositoryStore(_gatewayDb);
-        _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         // The Wingman-on-every-turn mission: the judged-stop record, and its seven-day purge on the same
         // per-tenant worker seam the activity ledger's retention uses.
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);

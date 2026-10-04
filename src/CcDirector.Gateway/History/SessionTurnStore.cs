@@ -201,6 +201,36 @@ public sealed class SessionTurnStore
         }
     }
 
+    /// <summary>
+    /// EVERY Director that wrote the session's current stored conversation: the head's Director and the Director of
+    /// every turn row of the current generation, distinct (ignoring letter case). Empty when nothing has been stored
+    /// for the session. Read in the ambient tenant scope, like every other read here.
+    ///
+    /// The head alone does not answer "whose conversation is this" (devthrottle_internal#2311, Gateway review): any
+    /// Director that pushes into a session's current generation becomes the head's Director, while the rows the
+    /// session's own Director pushed are still served as part of it. So a team asks of every writer.
+    /// </summary>
+    public IReadOnlyList<string> DirectorsOfCurrentConversation(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var head = ctx.SessionTurnHeads.AsNoTracking().FirstOrDefault(h => h.SessionId == sessionId);
+            if (head is null)
+                return Array.Empty<string>();
+            var rows = ctx.SessionTurns.AsNoTracking()
+                .Where(t => t.SessionId == sessionId && t.Generation == head.Generation)
+                .Select(t => t.DirectorId)
+                .Distinct()
+                .ToList();
+            return rows.Append(head.DirectorId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
     /// <summary>The watermark of every session this Director has pushed, for its <c>Hello</c>.</summary>
     public IReadOnlyList<TurnWatermark> WatermarksFor(string directorId)
     {
