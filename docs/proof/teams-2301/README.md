@@ -5,11 +5,22 @@ website route that sends the email), 3 October 2026. Everything below ran locall
 database, no deploy, no Stripe, and no email was sent: every test that sends stubs the sender, and the screenshot rig
 records the send instead of making it.
 
-- `api-transcript.txt` - the whole flow over real HTTP on a hosted Gateway with Teams released: create a team, the
-  bill starts, invite, open the link signed in, accept, list, resend, cancel.
-- `s2-*.png`, `s3-*.png` - the two screens, taken from a local hosted Gateway serving the built Cockpit
-  (`take-screenshots.py`, rig `TeamInvitationProofRig`). The accounts are the fleet's test accounts only
-  (qa@, tech@, dev@ and docs@ mindzie.com), seeded into a scratch database that is deleted afterwards.
+- `s2-*.png`, `s3-*.png` - the two screens, taken from a local hosted Gateway with Teams released, serving the
+  built Cockpit (`take-screenshots.py`, which runs the rig `TeamInvitationProofRig` in Gateway.UnitTests). The
+  accounts are the fleet's test accounts only (qa@, tech@, dev@ and docs@ mindzie.com), seeded into a scratch
+  database that is deleted afterwards; the invitation mailer records and sends nothing.
+
+| Screenshot | What it shows |
+|---|---|
+| `s2-invite-owner.png` | S2 for the Owner: all three roles offered, each with who pays; three waiting invitations with Resend and Cancel |
+| `s2-invite-owner-after-sending.png` | The Owner sent one: the confirmation, and the new invitation at the top of the list |
+| `s2-invite-manager.png` | S2 for a Manager: Manager is offered but disabled, with the reason "Only the Owner can invite a Manager." |
+| `s3-signed-in-1-open.png` | S3 signed in: who invited, which team, which role, who pays, and which account is about to join |
+| `s3-signed-in-2-joined.png` | After Join the team |
+| `s3-cancelled-link.png` | A cancelled invitation's link: refused in plain words, naming who to ask |
+| `s3-signed-out-1-sign-in.png` | S3 signed out: the browser is sent to sign in, carrying `next=/invite/<token>` (printed by the driver) |
+| `s3-signed-out-2-back-on-the-invitation.png` | Signed in as the new account: back on the same invitation |
+| `s3-signed-out-3-joined.png` | The new account joined, as a Collaborator |
 
 ## Dark until released
 
