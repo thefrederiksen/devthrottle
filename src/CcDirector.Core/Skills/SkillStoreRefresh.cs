@@ -31,14 +31,17 @@ public sealed class SkillStoreRefresh
     private readonly string? _storeRootOverride;
     private readonly string? _gatewayUrlOverride;
     private readonly string? _tokenOverride;
+    private readonly HeldGatewayAnswers _held;
 
     public SkillStoreRefresh() : this(null) { }
 
     /// <summary>Creates the refresher; the parameters exist so tests can point it at a temporary
-    /// store and a hermetic Gateway.</summary>
+    /// store, a hermetic Gateway, and their own held answers.</summary>
     public SkillStoreRefresh(
-        string? storeRoot = null, HttpClient? client = null, string? gatewayUrl = null, string? token = null)
+        string? storeRoot = null, HttpClient? client = null, string? gatewayUrl = null, string? token = null,
+        HeldGatewayAnswers? held = null)
     {
+        _held = held ?? HeldGatewayAnswers.Shared;
         _storeRootOverride = storeRoot;
         _client = client ?? SharedClient;
         _gatewayUrlOverride = gatewayUrl;
@@ -48,7 +51,8 @@ public sealed class SkillStoreRefresh
     private string StoreRoot() => _storeRootOverride ?? SkillDirectoryInstaller.StoreRoot();
 
     /// <summary>Fetch every enabled skill and materialize it into the store. Returns how many skills
-    /// the store now holds, or -1 when no Gateway is configured and nothing was attempted.</summary>
+    /// the store now holds, or -1 when nothing was changed: no Gateway is configured, or the register
+    /// could not be read.</summary>
     public async Task<int> RefreshAsync(CancellationToken ct = default)
     {
         string? gatewayUrl;
@@ -72,9 +76,16 @@ public sealed class SkillStoreRefresh
         }
 
         var baseUrl = gatewayUrl.TrimEnd('/');
-        var register = await GetAsync<RegisterResponse>(baseUrl + "/gateway/skills", token, ct)
-            .ConfigureAwait(false);
-        var wanted = (register?.Skills ?? new List<RegisterRow>())
+        var register = await GetRegisterAsync(baseUrl + "/gateway/skills", token, ct).ConfigureAwait(false);
+        if (register?.Skills is null)
+        {
+            // A register we could not read - or one with no skill list in it at all - says nothing about
+            // which skills exist. Reconciling against it as if it were empty would delete every skill in the
+            // store because one request failed. Only an explicit empty list means "no skills".
+            FileLog.Write("[SkillStoreRefresh] RefreshAsync: the register could not be read -> keeping the current store");
+            return -1;
+        }
+        var wanted = register.Skills
             .Where(s => s.Enabled && !string.IsNullOrWhiteSpace(s.Id))
             .ToList();
 
@@ -190,6 +201,30 @@ public sealed class SkillStoreRefresh
             detail.Compatibility,
             detail.AllowedTools,
             detail.Metadata);
+    }
+
+    /// <summary>
+    /// The register, read through the held answers: it is polled every minute and changes only when a
+    /// skill is published or switched, so an unchanged register is answered "not changed" and the copy
+    /// already held is parsed again. Version details are NOT held - each is read once, when it changes.
+    /// </summary>
+    private async Task<RegisterResponse?> GetRegisterAsync(string url, string? token, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        if (!string.IsNullOrEmpty(token))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var answer = await _held.SendAsync(_client, request, ct).ConfigureAwait(false);
+        if (!answer.IsSuccess)
+            return null;
+        if (!string.Equals(answer.MediaType, "application/json", StringComparison.OrdinalIgnoreCase))
+        {
+            FileLog.Write($"[SkillStoreRefresh] GET {url} answered '{answer.MediaType}' instead of JSON - this Gateway " +
+                          "does not serve the skill library yet. The store is left as it is.");
+            return null;
+        }
+        return JsonSerializer.Deserialize<RegisterResponse>(answer.Body, JsonOpts);
     }
 
     private async Task<T?> GetAsync<T>(string url, string? token, CancellationToken ct) where T : class

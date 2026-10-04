@@ -48,11 +48,13 @@ internal static class WorkflowEndpoints
 {
     public static void Map(IEndpointRouteBuilder app, WorkflowStore store)
     {
-        app.MapGet("/gateway/workflows", () =>
+        app.MapGet("/gateway/workflows", (HttpContext ctx) =>
         {
             var workflows = store.ListPublished();
             FileLog.Write($"[WorkflowEndpoints] list workflows: count={workflows.Count}");
-            return Results.Json(new { workflows });
+            // Every Director reads this once a minute and it changes only when someone edits it, so the answer is
+            // tagged and an unchanged one is sent as 304 with no body (Money Saver, night traffic). See ConditionalJson.
+            return ConditionalJson.Serve(ctx, new { workflows });
         });
 
         app.MapGet("/gateway/workflows/{id}", (string id) =>

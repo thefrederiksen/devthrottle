@@ -67,14 +67,17 @@ public sealed class WorkflowIndexStore
     private readonly HttpClient _client;
     private readonly string? _gatewayUrlOverride;
     private readonly string? _tokenOverride;
+    private readonly HeldGatewayAnswers _held;
 
     /// <summary>The store over the real Director cache file and the real <c>gateway.url</c>.</summary>
     public WorkflowIndexStore() : this(null) { }
 
     /// <summary>Creates the store; parameters mirror <see cref="InjectedTextStore"/> (tests inject a
-    /// temporary cache path, a stub client, and a hermetic gateway url + token).</summary>
-    public WorkflowIndexStore(string? cachePath = null, HttpClient? client = null, string? gatewayUrl = null, string? token = null)
+    /// temporary cache path, a stub client, a hermetic gateway url + token, and their own held answers).</summary>
+    public WorkflowIndexStore(string? cachePath = null, HttpClient? client = null, string? gatewayUrl = null, string? token = null,
+        HeldGatewayAnswers? held = null)
     {
+        _held = held ?? HeldGatewayAnswers.Shared;
         _cachePath = string.IsNullOrWhiteSpace(cachePath) ? CcStorage.WorkflowIndexCache() : cachePath;
         _client = client ?? SharedClient;
         _gatewayUrlOverride = gatewayUrl;
@@ -136,9 +139,9 @@ public sealed class WorkflowIndexStore
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         FileLog.Write($"[WorkflowIndexStore] RefreshAsync: GET {endpoint}");
-        using var response = await _client.SendAsync(request, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        var payload = await response.Content.ReadFromJsonAsync<CatalogResponse>(JsonOpts, ct).ConfigureAwait(false);
+        var answer = await _held.SendAsync(_client, request, ct).ConfigureAwait(false);
+        answer.EnsureSuccess(endpoint);
+        var payload = JsonSerializer.Deserialize<CatalogResponse>(answer.Body, JsonOpts);
         if (payload is null)
             throw new InvalidOperationException($"Gateway returned an empty body from {endpoint}");
 

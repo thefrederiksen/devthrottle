@@ -52,6 +52,23 @@ public sealed class SkillStoreRefreshTests : IDisposable
     }
 
     [Fact]
+    public async Task ARegisterThatCannotBeRead_KeepsEverySkillInTheStore()
+    {
+        // A failed register read says nothing about which skills exist. Until 4 October 2026 it was
+        // reconciled as an EMPTY register, so one 503 from the Gateway deleted every skill on the machine.
+        var gateway = new FakeGateway();
+        gateway.Serve("alpha", version: 3, hash: "h3", body: "alpha body");
+        var refresh = new SkillStoreRefresh(_store, gateway.Client, "http://gateway.test", "token",
+            new CcDirector.Core.Utilities.HeldGatewayAnswers());
+        Assert.Equal(1, await refresh.RefreshAsync());
+
+        gateway.RegisterFails = true;
+        Assert.Equal(-1, await refresh.RefreshAsync());
+
+        Assert.Contains("alpha body", File.ReadAllText(Path.Combine(_store, "alpha", "SKILL.md")));
+    }
+
+    [Fact]
     public async Task ABumpedVersion_IsDownloadedAndInstalled()
     {
         var gateway = new FakeGateway();
@@ -134,6 +151,7 @@ public sealed class SkillStoreRefreshTests : IDisposable
     {
         private readonly Dictionary<string, (int Version, string Hash, string Body)> _skills = new(StringComparer.OrdinalIgnoreCase);
         public int RegisterRequests;
+        public bool RegisterFails;
         public int VersionRequests;
         public bool IncludeHashInRegister { get; init; } = true;
         public HttpClient Client { get; }
@@ -152,6 +170,8 @@ public sealed class SkillStoreRefreshTests : IDisposable
             if (path == "/gateway/skills")
             {
                 Interlocked.Increment(ref RegisterRequests);
+                if (RegisterFails)
+                    return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
                 var rows = _skills.Select(kv => IncludeHashInRegister
                     ? (object)new { id = kv.Key, version = kv.Value.Version, enabled = true, contentHash = kv.Value.Hash }
                     : new { id = kv.Key, version = kv.Value.Version, enabled = true });

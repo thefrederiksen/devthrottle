@@ -46,11 +46,13 @@ internal static class SkillEndpoints
 {
     public static void Map(IEndpointRouteBuilder app, SkillStore store)
     {
-        app.MapGet("/gateway/skills", () =>
+        app.MapGet("/gateway/skills", (HttpContext ctx) =>
         {
             var skills = store.ListPublished();
             FileLog.Write($"[SkillEndpoints] list skills: count={skills.Count}");
-            return Results.Json(new { skills });
+            // Every Director reads this once a minute and it changes only when someone edits it, so the answer is
+            // tagged and an unchanged one is sent as 304 with no body (Money Saver, night traffic). See ConditionalJson.
+            return ConditionalJson.Serve(ctx, new { skills });
         });
 
         app.MapGet("/gateway/skills/{id}", (string id) =>
