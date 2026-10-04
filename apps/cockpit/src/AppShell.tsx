@@ -8,6 +8,8 @@ import { CockpitStatusPill } from "./network/CockpitStatusPill";
 import { StopSessionProvider } from "./sessions/StopSessionProvider";
 import { useFleetManagerWaitingCount } from "./fleetmanager/useWaitingCount";
 import { useFactorySwitch } from "./factory/useFactorySwitch";
+import { CurrentTeamProvider } from "@devthrottle/client-core/teams/CurrentTeam";
+import { TeamSwitcher } from "./teams/TeamSwitcher";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
 // pane (the routed page). The main pane fills all remaining width. Desktop-first: the frame stays
@@ -211,39 +213,47 @@ export function AppShell() {
   // poll unmounts that row within two seconds - so a stop dialog owned by the row would be torn down,
   // unread, by the refresh that the stop itself caused. This provider outlives every route change, so
   // neither the outstanding request nor the Gateway's answer can go with the row.
+  //
+  // THE CURRENT TEAM IS OWNED HERE TOO (devthrottle_internal#2312), for the same reason: the switcher in the rail
+  // writes it and the routed pages read it, so it must outlive every route change.
   return (
-    <StopSessionProvider>
-      <div className={railCollapsed ? "shell shell-rail-collapsed" : "shell"}>
-        <nav className="rail rail-left" aria-label="Primary">
-          <div className="rail-head">
-            {!railCollapsed && <div className="brand">DevThrottle</div>}
-            {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
-                is the one row still in reach, pointing the way back. */}
-            <button
-              type="button"
-              className="rail-toggle"
-              data-testid="rail-toggle"
-              aria-expanded={!railCollapsed}
-              aria-label={railCollapsed ? "Expand the menu" : "Collapse the menu"}
-              title={railCollapsed ? "Expand the menu" : "Collapse the menu"}
-              onClick={toggleRail}
-            >
-              <Chevron pointing={railCollapsed ? "right" : "left"} />
-            </button>
-          </div>
-          {!railCollapsed && <CockpitStatusPill />}
-          <div className="nav">
-            <NavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
-            <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={railCollapsed} />
-          </div>
-          {!railCollapsed && <div className="rail-foot">Cockpit (React)</div>}
-        </nav>
+    <CurrentTeamProvider>
+      <StopSessionProvider>
+        <div className={railCollapsed ? "shell shell-rail-collapsed" : "shell"}>
+          <nav className="rail rail-left" aria-label="Primary">
+            <div className="rail-head">
+              {!railCollapsed && <div className="brand">DevThrottle</div>}
+              {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
+                  is the one row still in reach, pointing the way back. */}
+              <button
+                type="button"
+                className="rail-toggle"
+                data-testid="rail-toggle"
+                aria-expanded={!railCollapsed}
+                aria-label={railCollapsed ? "Expand the menu" : "Collapse the menu"}
+                title={railCollapsed ? "Expand the menu" : "Collapse the menu"}
+                onClick={toggleRail}
+              >
+                <Chevron pointing={railCollapsed ? "right" : "left"} />
+              </button>
+            </div>
+            {/* The team switcher sits at the top of the rail on every screen (S11). It renders nothing for a person
+                with no team, so their rail is exactly as it was. */}
+            {!railCollapsed && <TeamSwitcher />}
+            {!railCollapsed && <CockpitStatusPill />}
+            <div className="nav">
+              <NavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
+              <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={railCollapsed} />
+            </div>
+            {!railCollapsed && <div className="rail-foot">Cockpit (React)</div>}
+          </nav>
 
-        <main className="main-pane" aria-label="Main">
-          <Outlet />
-        </main>
-      </div>
-    </StopSessionProvider>
+          <main className="main-pane" aria-label="Main">
+            <Outlet />
+          </main>
+        </div>
+      </StopSessionProvider>
+    </CurrentTeamProvider>
   );
 }
 

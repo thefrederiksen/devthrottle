@@ -31,6 +31,16 @@ vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => ({
   getFactoryAgentsSwitch: vi.fn(async () => ({ enabled: factory.enabled })),
 }));
 
+// The person's teams (devthrottle_internal#2312). The switcher at the top of the rail follows the Gateway's answer.
+const myTeams = vi.hoisted(() => ({
+  answer: { kind: "teams", teams: [] } as
+    | { kind: "teams"; teams: Array<{ id: string; name: string; role: string; memberCount: number; people: string }> }
+    | { kind: "not-offered"; reason: string },
+}));
+vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
+  getMyTeams: vi.fn(async () => myTeams.answer),
+}));
+
 import { screen, waitFor } from "@testing-library/react";
 import { AppShell } from "./AppShell";
 import { resetFactorySwitchCache } from "./factory/useFactorySwitch";
@@ -48,6 +58,8 @@ describe("Cockpit left rail", () => {
     cleanup();
     factory.enabled = false;
     resetFactorySwitchCache();
+    myTeams.answer = { kind: "teams", teams: [] };
+    window.localStorage.clear();
   });
 
   it("opens with the Fleet Manager, then Sessions, then Fleet Map", () => {
@@ -152,5 +164,49 @@ describe("Cockpit left rail", () => {
 
     await new Promise((r) => setTimeout(r, 20));
     expect(railLabels()).not.toContain("Factory Agents");
+  });
+
+  // Teams must change nothing for a person who never joins one: no switcher, and the rail exactly as it was.
+  it("shows no team switcher to a person with no team", async () => {
+    myTeams.answer = { kind: "teams", teams: [] };
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("team-switcher")).toBeNull();
+    expect(screen.queryByTestId("team-switcher-error")).toBeNull();
+  });
+
+  it("shows no team switcher on a Gateway that has not turned Teams on", async () => {
+    myTeams.answer = { kind: "not-offered", reason: "dark" };
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("team-switcher")).toBeNull();
+  });
+
+  it("puts the team switcher at the top of the rail, above the navigation, for a person in a team", async () => {
+    myTeams.answer = {
+      kind: "teams",
+      teams: [{ id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people" }],
+    };
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    const switcher = await screen.findByTestId("team-switcher");
+    const nav = document.querySelector(".nav");
+    expect(nav).not.toBeNull();
+    expect(switcher.compareDocumentPosition(nav!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(switcher.textContent).toContain("DevThrottle - Owner");
   });
 });
