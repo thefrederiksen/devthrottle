@@ -160,7 +160,7 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           { path: "/skills", element: <TeamOrOwn own={<SkillsView />} /> },
           // One workflow in full (Workflows mission, phase 7): the step summary plus the
           // instruction markdown - the authoritative conduct agents fetch - rendered read-only.
-          { path: "/workflows/:id", element: <WorkflowDetail /> },
+          { path: "/workflows/:id", element: <TeamOrOwn own={<WorkflowDetail />} team={<Navigate to="/workflows" replace />} /> },
           // The tools + data pages (issue #977): one-to-one ports of the Blazor Dictionary.razor and
           // Transcripts.razor over the same Gateway REST surface. Each has a nav entry (issue #1247,
           // which exposed Voice Recorder by address only before). Pages deleted rather than left as

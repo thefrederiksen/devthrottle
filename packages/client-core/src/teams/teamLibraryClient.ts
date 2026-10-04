@@ -104,14 +104,58 @@ export async function getTeamItemText(teamId: string, item: Pick<TeamLibraryItem
   return res.text();
 }
 
-/** Add a skill to the team: create it, then publish it so the team's sessions get it. */
+/**
+ * How far an add got, held by the dialog across attempts. Adding is two writes - create (or copy), then publish - and
+ * when the second fails the item already exists on the Gateway, so a second attempt must not create it again (the id
+ * is taken): it rewrites what the first attempt left and publishes that.
+ */
+export interface AddProgress {
+  /** The id the Gateway already holds from an earlier attempt; null until the first write succeeded. */
+  createdId: string | null;
+  /** The published version a copied workflow started at; null for a skill. */
+  createdVersion: number | null;
+}
+
+export function newAddProgress(): AddProgress {
+  return { createdId: null, createdVersion: null };
+}
+
+/**
+ * Add a skill to the team: create it, then publish it so the team's sessions get it. A second attempt after a
+ * publish that failed rewrites the unpublished skill the first attempt left, then publishes it.
+ */
 export async function addTeamSkill(
   teamId: string,
   skill: { id: string; name: string; summary: string; bodyMarkdown: string },
+  progress: AddProgress,
   signal?: AbortSignal,
 ): Promise<void> {
-  await send(teamPath(teamId, "/skills"), json("POST", { ...skill, triggers: [] }), `add ${skill.name}`, signal);
-  await send(teamPath(teamId, `/skills/${encodeURIComponent(skill.id)}/publish`), json("POST"), `publish ${skill.name}`, signal);
+  const content = { name: skill.name, summary: skill.summary, triggers: [] as string[], bodyMarkdown: skill.bodyMarkdown };
+  if (progress.createdId === null) {
+    await send(teamPath(teamId, "/skills"), json("POST", { id: skill.id, ...content }), `add ${skill.name}`, signal);
+    progress.createdId = skill.id;
+  } else {
+    // A new skill's only versions are the ones this dialog wrote, so its newest version is the one to write over.
+    const base = `/skills/${encodeURIComponent(progress.createdId)}`;
+    const newest = (await listVersions(teamId, base, `add ${skill.name}`, signal))[0];
+    if (newest === undefined) throw new GatewayError(502, `The Gateway has no version of ${progress.createdId} to finish adding.`);
+    await send(teamPath(teamId, `${base}/draft`), json("PUT", { ...content, files: [] }, { "If-Match": newest.contentHash }), `add ${skill.name}`, signal);
+  }
+  await send(teamPath(teamId, `/skills/${encodeURIComponent(progress.createdId)}/publish`), json("POST"), `publish ${skill.name}`, signal);
+}
+
+interface VersionInfo {
+  version: number;
+  status: string;
+  contentHash: string;
+}
+
+/** An item's version history, newest first. */
+async function listVersions(teamId: string, base: string, what: string, signal?: AbortSignal): Promise<VersionInfo[]> {
+  const res = await send(teamPath(teamId, `${base}/versions`), json("GET"), what, signal);
+  const body = await readJson<{ versions?: VersionInfo[] }>(res, what);
+  if (!Array.isArray(body.versions)) throw new GatewayError(502, "The Gateway's version history had no versions in it.");
+  return body.versions;
 }
 
 interface SkillVersion {
@@ -140,18 +184,24 @@ interface WorkflowVersion {
 }
 
 /**
- * Change a team skill or workflow: its one line and its words. Everything else the published version carries -
- * triggers, files, steps - is kept exactly. Written against the published version's hash, so a change someone else
- * published in the meantime is refused rather than overwritten. Then published.
+ * Change a team skill or workflow: its name, its one line and its words (whichever are given). Everything else the
+ * published version carries - triggers, files, steps - is kept exactly. Then published.
+ *
+ * The write is made against the hash of the version the person read, so a change someone else published in the
+ * meantime is refused rather than overwritten. One exception: an unpublished draft left by a change whose publish
+ * failed. The Gateway compares against that draft when one exists, and the library never shows it, so writing against
+ * the published hash would be refused for every later change, for good. Every change this page makes publishes
+ * straight after writing, so a draft that is still there is a change that did not finish; this change replaces it.
  */
 export async function changeTeamItem(
   teamId: string,
   item: Pick<TeamLibraryItem, "id" | "kind" | "version">,
-  change: { summary: string; text: string },
+  change: { name?: string; summary?: string; text?: string },
   signal?: AbortSignal,
 ): Promise<void> {
   const root = item.kind === "Workflow" ? "/workflows" : "/skills";
   const base = `${root}/${encodeURIComponent(item.id)}`;
+  const leftover = (await listVersions(teamId, base, `read ${item.id}`, signal)).find((v) => v.status === "draft");
   const current = await send(teamPath(teamId, `${base}/versions/${item.version}`), json("GET"), `read ${item.id}`, signal);
   const body = item.kind === "Workflow"
     ? await (async () => {
@@ -159,9 +209,9 @@ export async function changeTeamItem(
         return {
           hash: v.contentHash,
           content: {
-            name: v.name, summary: change.summary, whenToUse: v.whenToUse, humanCheckpoint: v.humanCheckpoint,
-            steps: v.steps, instructionsMarkdown: change.text, outcomeCriteria: v.outcomeCriteria,
-            files: v.files.map((f) => ({ fileName: f.fileName, content: f.content })),
+            name: change.name ?? v.name, summary: change.summary ?? v.summary, whenToUse: v.whenToUse,
+            humanCheckpoint: v.humanCheckpoint, steps: v.steps, instructionsMarkdown: change.text ?? v.instructionsMarkdown,
+            outcomeCriteria: v.outcomeCriteria, files: v.files.map((f) => ({ fileName: f.fileName, content: f.content })),
           },
         };
       })()
@@ -170,12 +220,14 @@ export async function changeTeamItem(
         return {
           hash: v.contentHash,
           content: {
-            name: v.name, summary: change.summary, triggers: v.triggers, bodyMarkdown: change.text, files: v.files,
-            license: v.license, compatibility: v.compatibility, allowedTools: v.allowedTools, metadata: v.metadata,
+            name: change.name ?? v.name, summary: change.summary ?? v.summary, triggers: v.triggers,
+            bodyMarkdown: change.text ?? v.bodyMarkdown, files: v.files, license: v.license,
+            compatibility: v.compatibility, allowedTools: v.allowedTools, metadata: v.metadata,
           },
         };
       })();
-  await send(teamPath(teamId, `${base}/draft`), json("PUT", body.content, { "If-Match": body.hash }), `change ${item.id}`, signal);
+  const ifMatch = leftover?.contentHash ?? body.hash;
+  await send(teamPath(teamId, `${base}/draft`), json("PUT", body.content, { "If-Match": ifMatch }), `change ${item.id}`, signal);
   await send(teamPath(teamId, `${base}/publish`), json("POST"), `publish ${item.id}`, signal);
 }
 
@@ -194,8 +246,28 @@ export async function getStartingWorkflows(teamId: string, signal?: AbortSignal)
   return body.workflows.filter((w) => w.isBuiltIn === true).map((w) => ({ id: w.id, name: w.name, summary: w.summary }));
 }
 
-/** Add a workflow to the team as a copy of a built-in one, under a new id. The copy is the team's to change. */
-export async function addTeamWorkflowFrom(teamId: string, sourceId: string, newId: string, signal?: AbortSignal): Promise<void> {
-  const query = new URLSearchParams({ newId });
-  await send(teamPath(teamId, `/workflows/${encodeURIComponent(sourceId)}/clone?${query.toString()}`), json("POST"), `add ${newId}`, signal);
+/**
+ * Add a workflow to the team as a copy of a built-in one, under the team's own id and name. The Gateway's copy keeps
+ * the built-in's name, so the copy is then renamed and published. A second attempt after a failed rename finishes the
+ * rename on the copy the first attempt made, rather than copying again (the id is taken).
+ */
+export async function addTeamWorkflowFrom(
+  teamId: string,
+  sourceId: string,
+  workflow: { id: string; name: string },
+  progress: AddProgress,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (progress.createdId === null || progress.createdVersion === null) {
+    const query = new URLSearchParams({ newId: workflow.id });
+    const res = await send(teamPath(teamId, `/workflows/${encodeURIComponent(sourceId)}/clone?${query.toString()}`), json("POST"), `add ${workflow.name}`, signal);
+    const copy = await readJson<{ id?: string; name?: string; version?: number }>(res, `add ${workflow.name}`);
+    if (typeof copy.id !== "string" || typeof copy.version !== "number") {
+      throw new GatewayError(502, "The Gateway's answer to copying the workflow is missing its id or version.");
+    }
+    progress.createdId = copy.id;
+    progress.createdVersion = copy.version;
+    if (copy.name === workflow.name) return;
+  }
+  await changeTeamItem(teamId, { id: progress.createdId, kind: "Workflow", version: progress.createdVersion }, { name: workflow.name }, signal);
 }

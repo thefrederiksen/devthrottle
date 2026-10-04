@@ -19,7 +19,10 @@ const client = vi.hoisted(() => ({
   getStartingWorkflows: vi.fn(),
   removeTeamItem: vi.fn(),
 }));
-vi.mock("@devthrottle/client-core/teams/teamLibraryClient", () => client);
+vi.mock("@devthrottle/client-core/teams/teamLibraryClient", () => ({
+  ...client,
+  newAddProgress: () => ({ createdId: null, createdVersion: null }),
+}));
 
 const team = vi.hoisted(() => ({ state: null as unknown as CurrentTeamState }));
 vi.mock("@devthrottle/client-core/teams/CurrentTeam", () => ({ useCurrentTeam: () => team.state }));
@@ -137,8 +140,34 @@ describe("TeamLibraryView", () => {
 
     await waitFor(() => expect(client.addTeamSkill).toHaveBeenCalledWith("team-acme", {
       id: "deploy-notes", name: "Deploy notes", summary: "How we deploy.", bodyMarkdown: "# Deploy notes",
-    }));
+    }, { createdId: null, createdVersion: null }));
     await waitFor(() => expect(client.getTeamLibrary).toHaveBeenCalledTimes(2));
+  });
+
+  it("TeamLibraryView_AddSkill_ASecondAttemptAfterThePublishFailed_FinishesTheSameSkill", async () => {
+    client.getTeamLibrary.mockResolvedValue(library("Manager", true));
+    // The first attempt creates the skill and then its publish fails; the client records that in the progress.
+    client.addTeamSkill.mockImplementationOnce(async (_team: string, skill: { id: string }, progress: { createdId: string | null }) => {
+      progress.createdId = skill.id;
+      throw new GatewayError(503, "The Gateway is restarting.", { reason: "The Gateway is restarting." });
+    });
+    client.addTeamSkill.mockResolvedValueOnce(undefined);
+    render(<TeamLibraryView team={ACME} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add skill" }));
+    fireEvent.change(screen.getByPlaceholderText("Release checklist"), { target: { value: "Deploy notes" } });
+    fireEvent.change(screen.getByPlaceholderText("The steps every release follows."), { target: { value: "s" } });
+    fireEvent.change(screen.getByPlaceholderText(/# Release checklist/), { target: { value: "b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to the team" }));
+    expect(await screen.findByText(/The Gateway is restarting/)).toBeTruthy();
+
+    // Renaming it now cannot move it to a second id: the skill already exists under the first one.
+    fireEvent.change(screen.getByPlaceholderText("Release checklist"), { target: { value: "Deploy guide" } });
+    expect(screen.getByText("deploy-notes")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add to the team" }));
+
+    await waitFor(() => expect(client.addTeamSkill).toHaveBeenCalledTimes(2));
+    expect(client.addTeamSkill.mock.calls[1][1]).toMatchObject({ id: "deploy-notes", name: "Deploy guide" });
+    expect(client.addTeamSkill.mock.calls[1][2]).toMatchObject({ createdId: "deploy-notes" });
   });
 
   it("TeamLibraryView_AddRefusedByTheServer_ShowsItsSentence_AndStaysOpen", async () => {
@@ -171,6 +200,16 @@ describe("TeamLibraryView", () => {
       { summary: "The steps every release follows.", text: "# new words" }));
   });
 
+  it("TeamLibraryView_Change_EmptyWords_AreNeverOffered", async () => {
+    // The Gateway would accept empty words as a draft and then refuse to publish them.
+    client.getTeamLibrary.mockResolvedValue(library("Owner", true));
+    client.getTeamItemText.mockResolvedValue("# old words");
+    render(<TeamLibraryView team={ACME} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Change release-checklist" }));
+    fireEvent.change(await screen.findByDisplayValue("# old words"), { target: { value: "   " } });
+    expect((screen.getByRole("button", { name: "Save for the team" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("TeamLibraryView_Remove_AsksFirst_ThenRemoves", async () => {
     client.getTeamLibrary.mockResolvedValue(library("Owner", true));
     client.removeTeamItem.mockResolvedValue(undefined);
@@ -188,10 +227,13 @@ describe("TeamLibraryView", () => {
     client.addTeamWorkflowFrom.mockResolvedValue(undefined);
     render(<TeamLibraryView team={ACME} />);
     fireEvent.click(await screen.findByRole("button", { name: "Add workflow" }));
-    fireEvent.change(await screen.findByPlaceholderText("team-review"), { target: { value: "Our review" } });
+    fireEvent.change(await screen.findByPlaceholderText("Our review"), { target: { value: "Our review" } });
+    expect(screen.getByText("our-review")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add to the team" }));
 
-    await waitFor(() => expect(client.addTeamWorkflowFrom).toHaveBeenCalledWith("team-acme", "standalone-with-review", "our-review"));
+    // The name typed is the name sent - the row is called what the person called it, not the built-in's name.
+    await waitFor(() => expect(client.addTeamWorkflowFrom).toHaveBeenCalledWith(
+      "team-acme", "standalone-with-review", { id: "our-review", name: "Our review" }, { createdId: null, createdVersion: null }));
   });
 });
 

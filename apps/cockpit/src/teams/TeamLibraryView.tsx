@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 import {
@@ -8,6 +8,7 @@ import {
   getStartingWorkflows,
   getTeamItemText,
   getTeamLibrary,
+  newAddProgress,
   removeTeamItem,
   type StartingWorkflow,
   type TeamLibrary,
@@ -28,8 +29,12 @@ import "./teams.css";
 // A Collaborator is refused the list by the Gateway, and the page shows the Gateway's own sentence. The server refuses
 // a change whatever this page shows; hiding a button here is presentation, not the rule.
 
-/** The Skills and Workflows routes: the team's page when a team is on screen, otherwise the person's own page. */
-export function TeamOrOwn({ own }: { own: ReactNode }) {
+/**
+ * The Skills and Workflows routes: the team's page when a team is on screen, otherwise the person's own page. A page
+ * that only exists for the own library (one workflow's detail) passes `team` to say where a team on screen goes
+ * instead, so no page acts on the own library while the rail names a team.
+ */
+export function TeamOrOwn({ own, team }: { own: ReactNode; team?: ReactNode }) {
   const { current, resolving, status, error } = useCurrentTeam();
   // A remembered team the Gateway has not confirmed yet: never flash the person's own library in its place.
   if (resolving) {
@@ -37,7 +42,8 @@ export function TeamOrOwn({ own }: { own: ReactNode }) {
       ? <div className="page"><ErrorBanner message={error} /></div>
       : <div className="page"><LoadingState message="Loading your team..." /></div>;
   }
-  return current === null ? <>{own}</> : <TeamLibraryView key={current.id} team={current} />;
+  if (current === null) return <>{own}</>;
+  return team !== undefined ? <>{team}</> : <TeamLibraryView key={current.id} team={current} />;
 }
 
 /** The code the Gateway's team gate puts on every refusal (TeamEndpointGate.RefusalCode). */
@@ -244,7 +250,8 @@ function ChangeDialog({ teamId, item, onClose, onDone }: { teamId: string; item:
       {error !== null ? <p className="wf-dialog-error">{error}</p> : null}
       <div className="wf-dialog-actions">
         <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="primary" onClick={() => void save()} disabled={busy || text === null || summary.trim() === ""}>
+        {/* Empty words are never offered: the Gateway accepts them as a draft and then refuses to publish them. */}
+        <Button variant="primary" onClick={() => void save()} disabled={busy || text === null || text.trim() === "" || summary.trim() === ""}>
           {busy ? "Saving..." : "Save for the team"}
         </Button>
       </div>
@@ -258,15 +265,19 @@ function AddSkillDialog({ teamId, onClose, onDone }: { teamId: string; onClose: 
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const id = suggestSkillId(name);
+  // How far an earlier attempt got: once the skill exists, its id is fixed and a second attempt finishes it.
+  const progress = useRef(newAddProgress());
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const id = createdId ?? suggestSkillId(name);
 
   const save = async () => {
     setBusy(true);
     setError(null);
     try {
-      await addTeamSkill(teamId, { id, name: name.trim(), summary: summary.trim(), bodyMarkdown: body });
+      await addTeamSkill(teamId, { id, name: name.trim(), summary: summary.trim(), bodyMarkdown: body }, progress.current);
       onDone();
     } catch (err) {
+      setCreatedId(progress.current.createdId);
       setError(gatewayErrorMessage(err, `add ${name.trim()}`));
       setBusy(false);
     }
@@ -301,9 +312,14 @@ function AddSkillDialog({ teamId, onClose, onDone }: { teamId: string; onClose: 
 function AddWorkflowDialog({ teamId, onClose, onDone }: { teamId: string; onClose: () => void; onDone: () => void }) {
   const [starts, setStarts] = useState<StartingWorkflow[] | null>(null);
   const [source, setSource] = useState("");
-  const [newId, setNewId] = useState("");
+  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // How far an earlier attempt got: once the copy exists, its id and starting point are fixed and a second attempt
+  // finishes naming it.
+  const progress = useRef(newAddProgress());
+  const [createdId, setCreatedId] = useState<string | null>(null);
+  const id = createdId ?? suggestSkillId(name);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -323,10 +339,11 @@ function AddWorkflowDialog({ teamId, onClose, onDone }: { teamId: string; onClos
     setBusy(true);
     setError(null);
     try {
-      await addTeamWorkflowFrom(teamId, source, suggestSkillId(newId));
+      await addTeamWorkflowFrom(teamId, source, { id, name: name.trim() }, progress.current);
       onDone();
     } catch (err) {
-      setError(gatewayErrorMessage(err, `add ${newId}`));
+      setCreatedId(progress.current.createdId);
+      setError(gatewayErrorMessage(err, `add ${name.trim()}`));
       setBusy(false);
     }
   };
@@ -342,21 +359,21 @@ function AddWorkflowDialog({ teamId, onClose, onDone }: { teamId: string; onClos
         <>
           <label className="wf-field">
             <span>Start from</span>
-            <select value={source} onChange={(e) => setSource(e.target.value)}>
+            <select value={source} onChange={(e) => setSource(e.target.value)} disabled={createdId !== null}>
               {starts.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </label>
           <label className="wf-field">
-            <span>The team&apos;s name for it</span>
-            <input type="text" value={newId} onChange={(e) => setNewId(e.target.value)} placeholder="team-review" />
+            <span>Name</span>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Our review" />
           </label>
-          {suggestSkillId(newId) !== "" ? <p className="wf-dialog-hint">Id: <code>{suggestSkillId(newId)}</code></p> : null}
+          {id !== "" ? <p className="wf-dialog-hint">Id: <code>{id}</code></p> : null}
         </>
       ) : null}
       {error !== null ? <p className="wf-dialog-error">{error}</p> : null}
       <div className="wf-dialog-actions">
         <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button variant="primary" onClick={() => void save()} disabled={busy || source === "" || suggestSkillId(newId) === ""}>
+        <Button variant="primary" onClick={() => void save()} disabled={busy || source === "" || id === "" || name.trim() === ""}>
           {busy ? "Adding..." : "Add to the team"}
         </Button>
       </div>
