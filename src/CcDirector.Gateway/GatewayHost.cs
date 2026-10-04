@@ -4726,12 +4726,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // what a missing answer means. Inherits the host-wide token middleware like the other /account routes.
         AccountTrialEndpoint.Map(_app, TrialRegistry, tenantBoundary: _tenantBoundary, tenants: TenantRegistry);
 
-        // Teams (devthrottle_internal#2300): GET /teams, POST /teams, GET /teams/{teamId}/members. The caller is the
-        // account behind their own device key; a self-hosted Gateway answers that it has no teams. DARK until the owner
-        // releases Teams: mapped only when CC_GATEWAY_TEAMS=1, so a deploy of main exposes no team route.
+        // Teams (devthrottle_internal#2300, #2312): GET /teams, POST /teams, GET /teams/{teamId}/members and
+        // GET /teams/{teamId}/fleet-map. The caller is the account behind their own device key; a self-hosted Gateway
+        // answers that it has no teams. DARK until the owner releases Teams: mapped only when CC_GATEWAY_TEAMS=1, so a
+        // deploy of main exposes no team route.
         if (TeamsReleased)
         {
-            TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry);
+            TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry,
+                new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, PushedSessions, _gatewayDb));
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
             TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
             // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow

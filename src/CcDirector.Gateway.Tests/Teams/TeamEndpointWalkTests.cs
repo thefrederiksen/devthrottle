@@ -315,4 +315,98 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.PaymentRequired, (await Get("gateway/skills", developerKey)).Status);
         Assert.Equal(HttpStatusCode.Unauthorized, (await Get("gateway/skills", collaboratorKey)).Status);
     }
+
+    // ---- The team Fleet Map over the wire (devthrottle_internal#2312) ---------------------------------------------
+
+    /// <summary>A Director set up for the team the way #2311 will make one: a device credential bound to the TEAM's
+    /// tenant for <paramref name="subject"/>, and a Director registered under the team's tenant on that device's key,
+    /// with these sessions pushed.</summary>
+    private void SeedTeamDirector(string teamId, string directorId, string subject, string name, string machine,
+        params (string Id, string Name, string State)[] sessions)
+    {
+        var deviceId = "dev-map-" + directorId;
+        _gateway.Devices.Register(deviceId, machine);
+        _gateway.Devices.SetAccountBinding(deviceId, subject, teamId);
+        var tenant = new TenantId(teamId);
+        _gateway.Registry.RegisterFromStream(directorId, machine, "user", "1.0", 4321, DateTime.UtcNow, tenant, name, "device:" + deviceId);
+        _gateway.PushedSessions.RegisterConnection(tenant, directorId, "conn-" + directorId);
+        Assert.True(_gateway.PushedSessions.ApplySnapshot(tenant, directorId, "conn-" + directorId, 1,
+            sessions.Select(x => new Contracts.SessionDto { SessionId = x.Id, Name = x.Name, ActivityState = x.State }).ToList()));
+    }
+
+    private void SeedTheTeamsFleet()
+    {
+        SeedTeamDirector(_team, "map-owner", _owner, "Owner - desk", "OWNER-PC", ("o1", "Owner work", "Working"));
+        SeedTeamDirector(_team, "map-dev", _developer, "Developer - laptop", "DEV-XPS", ("d1", "Developer work", "WaitingForInput"));
+        // Another team the Developer is on: never on this team's map.
+        var elsewhere = _gateway.TeamRegistry.CreateTeam(_stranger, "Elsewhere").Team!.TeamId;
+        Assert.True(_gateway.TeamRegistry.AddMember(elsewhere, _developer, TeamRole.Developer).IsDone);
+        SeedTeamDirector(elsewhere, "map-elsewhere", _developer, "Developer - home lab", "DEV-HOME", ("x1", "Elsewhere work", "Working"));
+    }
+
+    private static string[] DirectorNamesOf(JsonElement map) =>
+        map.GetProperty("people").EnumerateArray()
+            .SelectMany(p => p.GetProperty("directors").EnumerateArray())
+            .Select(d => d.GetProperty("name").GetString()!)
+            .OrderBy(n => n, StringComparer.Ordinal).ToArray();
+
+    [Theory]
+    [InlineData(TeamRole.Owner)]
+    [InlineData(TeamRole.Manager)]
+    public async Task OverTheWire_TheFleetMap_OwnerAndManager_SeeEveryDirectorOnTheTeam(TeamRole role)
+    {
+        SeedTheTeamsFleet();
+        var key = Enroll("dev-map-read-" + role, SubjectFor(role));
+
+        var (status, body) = await Get($"teams/{_team}/fleet-map", key);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("everyone", body.GetProperty("scope").GetString());
+        Assert.Equal(new[] { "Developer - laptop", "Owner - desk" }, DirectorNamesOf(body));
+        var raw = body.GetRawText();
+        Assert.DoesNotContain("\"o1\"", raw);
+        Assert.DoesNotContain("map-owner", raw);
+        Assert.DoesNotContain("DEV-HOME", raw);
+    }
+
+    [Fact]
+    public async Task OverTheWire_TheFleetMap_ADeveloper_SeesOnlyTheirOwnDirectorsOnThisTeam()
+    {
+        SeedTheTeamsFleet();
+        var key = Enroll("dev-map-read-dev", _developer);
+
+        var (status, body) = await Get($"teams/{_team}/fleet-map", key);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("own", body.GetProperty("scope").GetString());
+        Assert.Equal(new[] { "Developer - laptop" }, DirectorNamesOf(body));
+        var session = body.GetProperty("people")[0].GetProperty("directors")[0].GetProperty("sessions")[0];
+        Assert.Equal("Developer work", session.GetProperty("name").GetString());
+        Assert.Equal("waiting", session.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task OverTheWire_TheFleetMap_ACollaborator_GetsNoRoster()
+    {
+        SeedTheTeamsFleet();
+        var key = Enroll("dev-map-read-collab", _collaborator);
+
+        var (status, body) = await Get($"teams/{_team}/fleet-map", key);
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal(TeamEndpointGate.RefusalCode, body.GetProperty("code").GetString());
+        Assert.False(body.TryGetProperty("people", out _));
+    }
+
+    [Fact]
+    public async Task OverTheWire_TheFleetMap_SomeoneWhoIsNotAMember_IsToldThereIsNoSuchTeam()
+    {
+        SeedTheTeamsFleet();
+        var key = Enroll("dev-map-read-stranger", _stranger);
+
+        var (status, body) = await Get($"teams/{_team}/fleet-map", key);
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(Api.TeamEndpoints.NoSuchTeamRefusal, body.GetProperty("error").GetString());
+    }
 }
