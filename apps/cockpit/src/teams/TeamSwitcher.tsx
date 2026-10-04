@@ -15,11 +15,13 @@ import "./teams.css";
 const OWN_ACCOUNT = "own-account";
 
 export function TeamSwitcher() {
-  const { status, teams, current, error, choose } = useCurrentTeam();
+  const { status, teams, current, resolving, error, choose } = useCurrentTeam();
 
   if (status === "error") {
-    // Teams IS on for this Gateway but the list could not be read. Said, quietly, rather than hidden: a person in a
-    // team who sees no switcher would otherwise take it that they had been removed.
+    // The list could not be read, and is being asked again. Said, quietly, ONLY to a person this browser knows is on
+    // a team (review finding F1): they would otherwise take a missing switcher to mean they had been removed. Someone
+    // who has never picked a team sees nothing - they may have no team at all, and must see no change.
+    if (!resolving) return null;
     return (
       <div className="team-switcher team-switcher-error" data-testid="team-switcher-error" title={error ?? undefined}>
         Your teams could not be read just now.

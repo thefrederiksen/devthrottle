@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, cleanup, screen, waitFor, act } from "@testing-library/react";
-import { CurrentTeamProvider, currentTeamStorageKey, useCurrentTeam, type CurrentTeamState } from "./CurrentTeam";
+import { CurrentTeamProvider, currentTeamStorageKey, retryDelayMs, useCurrentTeam, type CurrentTeamState } from "./CurrentTeam";
 import type { MyTeamsAnswer, TeamSummary } from "./teamsClient";
 
 // The ONE current team a shell has (devthrottle_internal#2312). The switcher writes it; the Fleet Map, the Team page
@@ -64,6 +64,72 @@ describe("CurrentTeam", () => {
     await waitFor(() => expect(seen!.status).toBe("error"));
     expect(seen!.error).toBeTruthy();
     expect(seen!.current).toBeNull();
+  });
+
+  // Review finding F1: one failed read must not leave the tab without its teams until a reload.
+  it("CurrentTeamProvider_ReadFails_IsAskedAgainWithBackoff_AndRecovers", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      window.localStorage.setItem("devthrottle.currentTeam.account-a", "team-b");
+      const load = vi
+        .fn<() => Promise<MyTeamsAnswer>>()
+        .mockRejectedValueOnce(new Error("502"))
+        .mockRejectedValueOnce(new Error("502"))
+        .mockResolvedValue({ kind: "teams", teams: [TEAM_A, TEAM_B] });
+      mount(load);
+
+      await waitFor(() => expect(seen!.status).toBe("error"));
+      expect(load).toHaveBeenCalledTimes(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(14_000));
+      expect(load).toHaveBeenCalledTimes(1);
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(load).toHaveBeenCalledTimes(2);
+
+      await act(() => vi.advanceTimersByTimeAsync(30_000));
+      expect(load).toHaveBeenCalledTimes(3);
+      await waitFor(() => expect(seen!.status).toBe("ready"));
+      // The remembered team is back on screen once the Gateway answers.
+      expect(seen!.current?.id).toBe("team-b");
+
+      // And nothing asks again once it has succeeded.
+      await act(() => vi.advanceTimersByTimeAsync(120_000));
+      expect(load).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("RetryDelayMs_BacksOff_15Then30ThenEvery60", () => {
+    expect([1, 2, 3, 4, 10].map(retryDelayMs)).toEqual([15_000, 30_000, 60_000, 60_000, 60_000]);
+  });
+
+  // Review finding F3: a null current is not "the own account" while a remembered team is unconfirmed.
+  it("Resolving_ARememberedTeam_IsTrueWhileUnconfirmed_AndFalseOnceRead", async () => {
+    window.localStorage.setItem("devthrottle.currentTeam.account-a", "team-a");
+    let answer!: (a: MyTeamsAnswer) => void;
+    mount(() => new Promise<MyTeamsAnswer>((resolve) => (answer = resolve)));
+
+    expect(seen!.current).toBeNull();
+    expect(seen!.resolving).toBe(true);
+
+    act(() => answer({ kind: "teams", teams: [TEAM_A] }));
+    await waitFor(() => expect(seen!.current?.id).toBe("team-a"));
+    expect(seen!.resolving).toBe(false);
+  });
+
+  it("Resolving_ARememberedTeamAndTheReadFails_StaysTrue", async () => {
+    window.localStorage.setItem("devthrottle.currentTeam.account-a", "team-a");
+    mount(() => Promise.reject(new Error("boom")));
+    await waitFor(() => expect(seen!.status).toBe("error"));
+    expect(seen!.resolving).toBe(true);
+  });
+
+  it("Resolving_NoRememberedTeam_IsNeverTrue", async () => {
+    mount(() => Promise.reject(new Error("boom")));
+    expect(seen!.resolving).toBe(false);
+    await waitFor(() => expect(seen!.status).toBe("error"));
+    expect(seen!.resolving).toBe(false);
   });
 
   it("Choose_ATeam_PutsItOnScreenAndRemembersItForThisAccount", async () => {

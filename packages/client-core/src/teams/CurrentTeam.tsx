@@ -6,6 +6,16 @@
 // `current` is null for the person's OWN account - the fleet they had before Teams existed. That is where every
 // shell starts, and where it stays for a person with no team: nothing changes for them until they pick a team.
 //
+// READ `resolving` BEFORE TREATING A NULL `current` AS "THE OWN ACCOUNT" (review finding F3). While the Gateway has
+// not yet confirmed a team this browser remembers - the first read is in flight, or it failed - `current` is null
+// but the person may well be on a team. A page that shows one team at a time shows a loading state (or `error`)
+// while `resolving` is true, rather than flashing the person's own data. `resolving` is never true for a person who
+// has never picked a team, so they see no change.
+//
+// THE READ RECOVERS BY ITSELF (review finding F1). The teams are read once per page load; a failed read is asked again
+// after 15 seconds, then 30, then every 60 until it succeeds - never a tight loop - so a Gateway that was restarting
+// for a moment does not leave the tab without its teams until a reload.
+//
 // The choice is remembered per browser AND per signed-in account (an origin's storage holds every account the
 // browser has signed in with, so a choice keyed to the origin alone would carry one person's team over to
 // another). A remembered team that is no longer in the Gateway's list - the person left it - is dropped, and the
@@ -22,7 +32,7 @@ import { getMyTeams, type MyTeamsAnswer, type TeamSummary } from "./teamsClient"
  * - `loading`: the Gateway has not answered yet.
  * - `not-offered`: this Gateway has no teams (Teams dark, or self-hosted). Nothing about teams is shown.
  * - `ready`: the Gateway listed the person's teams - possibly none.
- * - `error`: the Gateway could not be asked. `error` says why.
+ * - `error`: the last attempt to read the teams failed. `error` says why; the read is being asked again.
  */
 export type CurrentTeamStatus = "loading" | "not-offered" | "ready" | "error";
 
@@ -30,9 +40,12 @@ export interface CurrentTeamState {
   status: CurrentTeamStatus;
   /** The person's teams, in the Gateway's order. Empty unless `status` is `ready`. */
   teams: TeamSummary[];
-  /** The team on screen, or null for the person's own account. */
+  /** The team on screen, or null for the person's own account. See `resolving`. */
   current: TeamSummary | null;
-  /** Why the teams could not be read, when `status` is `error`. */
+  /** True while this browser remembers a team the Gateway has not yet confirmed. While true, a null `current`
+   *  does NOT mean the own account. Never true for a person who has never picked a team. */
+  resolving: boolean;
+  /** Why the latest read of the teams failed, when `status` is `error`. */
   error: string | null;
   /** Put a team on screen by its id, or the person's own account with null. An id not in `teams` is refused. */
   choose: (teamId: string | null) => void;
@@ -41,6 +54,13 @@ export interface CurrentTeamState {
 const CurrentTeamContext = createContext<CurrentTeamState | null>(null);
 
 const STORAGE_PREFIX = "devthrottle.currentTeam";
+
+/** How long to wait before asking again after the Nth failure in a row (1-based), in milliseconds. */
+export function retryDelayMs(failuresInARow: number): number {
+  if (failuresInARow <= 1) return 15_000;
+  if (failuresInARow === 2) return 30_000;
+  return 60_000;
+}
 
 /** The storage key for the signed-in account's choice. Exported for tests. */
 export function currentTeamStorageKey(): string {
@@ -85,21 +105,34 @@ export function CurrentTeamProvider({
 
   useEffect(() => {
     const controller = new AbortController();
-    load(controller.signal).then(
-      (answer) => {
-        if (controller.signal.aborted) return;
-        setLoaded(
-          answer.kind === "teams"
-            ? { status: "ready", teams: answer.teams, error: null }
-            : { status: "not-offered", teams: [], error: null },
-        );
-      },
-      (err: unknown) => {
-        if (controller.signal.aborted) return;
-        setLoaded({ status: "error", teams: [], error: gatewayErrorMessage(err, "read your teams") });
-      },
-    );
-    return () => controller.abort();
+    let timer: number | undefined;
+    let failures = 0;
+
+    const read = () => {
+      load(controller.signal).then(
+        (answer) => {
+          if (controller.signal.aborted) return;
+          failures = 0;
+          setLoaded(
+            answer.kind === "teams"
+              ? { status: "ready", teams: answer.teams, error: null }
+              : { status: "not-offered", teams: [], error: null },
+          );
+        },
+        (err: unknown) => {
+          if (controller.signal.aborted) return;
+          failures += 1;
+          setLoaded({ status: "error", teams: [], error: gatewayErrorMessage(err, "read your teams") });
+          timer = window.setTimeout(read, retryDelayMs(failures));
+        },
+      );
+    };
+
+    read();
+    return () => {
+      controller.abort();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, [load]);
 
   // A remembered team the Gateway no longer lists for this person (they left it, or it is another account's) is
@@ -124,7 +157,8 @@ export function CurrentTeamProvider({
 
   const value = useMemo<CurrentTeamState>(() => {
     const current = loaded.status === "ready" ? loaded.teams.find((t) => t.id === chosenId) ?? null : null;
-    return { status: loaded.status, teams: loaded.teams, current, error: loaded.error, choose };
+    const resolving = chosenId !== null && (loaded.status === "loading" || loaded.status === "error");
+    return { status: loaded.status, teams: loaded.teams, current, resolving, error: loaded.error, choose };
   }, [loaded, chosenId, choose]);
 
   return <CurrentTeamContext.Provider value={value}>{children}</CurrentTeamContext.Provider>;

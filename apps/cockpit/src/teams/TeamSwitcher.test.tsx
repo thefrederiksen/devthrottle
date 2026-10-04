@@ -84,7 +84,19 @@ describe("TeamSwitcher", () => {
     expect(screen.getByTestId("probe").textContent).toBe("own account");
   });
 
-  it("TeamSwitcher_TeamsCouldNotBeRead_SaysSo", async () => {
+  // Review finding F1: a failed read speaks only to someone this browser knows is on a team.
+  it("TeamSwitcher_TeamsCouldNotBeRead_NoRememberedTeam_RendersNothing", async () => {
+    const { container } = renderSwitcher(loader(new Error("network down")));
+
+    await waitFor(() => expect(screen.getByTestId("probe").textContent).toBe("own account"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("team-switcher")).toBeNull();
+    expect(screen.queryByTestId("team-switcher-error")).toBeNull();
+    expect(container.textContent).toBe("own account");
+  });
+
+  it("TeamSwitcher_TeamsCouldNotBeRead_ARememberedTeam_SaysSo", async () => {
+    window.localStorage.setItem("devthrottle.currentTeam", "team-dt");
     renderSwitcher(loader(new Error("network down")));
 
     await waitFor(() => expect(screen.getByTestId("team-switcher-error")).toBeTruthy());

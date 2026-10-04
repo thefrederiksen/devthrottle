@@ -13,14 +13,12 @@
 // change anywhere. Anything else that is not a JSON team list is a real failure and is thrown.
 import { authHeaders, gatewayFetch, GatewayError } from "../api/client";
 
-/** One of the four roles, exactly as the Gateway labels it. */
-export type TeamRoleLabel = "Owner" | "Manager" | "Developer" | "Collaborator";
-
-/** One team as the signed-in person sees it. `role` is THEIR role in that team. */
+/** One team as the signed-in person sees it. `role` is THEIR role in that team, exactly as the Gateway labels it -
+ *  shown verbatim, never compared: the Gateway owns the list of roles (review finding F5). */
 export interface TeamSummary {
   id: string;
   name: string;
-  role: TeamRoleLabel;
+  role: string;
   memberCount: number;
   /** The Gateway's own wording of the member count: "1 person", "5 people". */
   people: string;
@@ -73,19 +71,17 @@ export async function getMyTeams(signal?: AbortSignal): Promise<MyTeamsAnswer> {
   return { kind: "teams", teams: body.teams.map(readTeam) };
 }
 
-const ROLES: ReadonlyArray<TeamRoleLabel> = ["Owner", "Manager", "Developer", "Collaborator"];
-
 function readTeam(raw: unknown): TeamSummary {
   const t = raw as Partial<Record<keyof TeamSummary, unknown>>;
   if (
     typeof t.id !== "string" ||
     typeof t.name !== "string" ||
     typeof t.role !== "string" ||
-    !ROLES.includes(t.role as TeamRoleLabel) ||
+    t.role.trim().length === 0 ||
     typeof t.memberCount !== "number" ||
     typeof t.people !== "string"
   ) {
     throw new GatewayError(502, "The Gateway sent a team the Cockpit cannot read: it is missing its id, name, role or size.");
   }
-  return { id: t.id, name: t.name, role: t.role as TeamRoleLabel, memberCount: t.memberCount, people: t.people };
+  return { id: t.id, name: t.name, role: t.role, memberCount: t.memberCount, people: t.people };
 }

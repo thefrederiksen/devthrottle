@@ -81,12 +81,25 @@ describe("getMyTeams", () => {
     await expect(getMyTeams()).rejects.toThrow(/had no teams in it/);
   });
 
-  it("GetMyTeams_UnknownRole_Throws", async () => {
+  // Review finding F5: the role is the Gateway's label, shown verbatim. A role the client has never heard of is still
+  // shown, and never costs the person their whole list of teams.
+  it("GetMyTeams_ARoleTheClientDoesNotKnow_IsShownAsSent", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
-        respond('{"teams":[{"id":"t","name":"n","role":"Admin","memberCount":1,"people":"1 person"}]}', "application/json"),
+        respond('{"teams":[{"id":"t","name":"n","role":"Billing admin","memberCount":1,"people":"1 person"}]}', "application/json"),
       ),
+    );
+    expect(await getMyTeams()).toEqual({
+      kind: "teams",
+      teams: [{ id: "t", name: "n", role: "Billing admin", memberCount: 1, people: "1 person" }],
+    });
+  });
+
+  it("GetMyTeams_AnEmptyRole_Throws", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(respond('{"teams":[{"id":"t","name":"n","role":" ","memberCount":1,"people":"1 person"}]}', "application/json")),
     );
     await expect(getMyTeams()).rejects.toThrow(/cannot read/);
   });

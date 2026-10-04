@@ -35,10 +35,14 @@ vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => ({
 const myTeams = vi.hoisted(() => ({
   answer: { kind: "teams", teams: [] } as
     | { kind: "teams"; teams: Array<{ id: string; name: string; role: string; memberCount: number; people: string }> }
-    | { kind: "not-offered"; reason: string },
+    | { kind: "not-offered"; reason: string }
+    | Error,
 }));
 vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
-  getMyTeams: vi.fn(async () => myTeams.answer),
+  getMyTeams: vi.fn(async () => {
+    if (myTeams.answer instanceof Error) throw myTeams.answer;
+    return myTeams.answer;
+  }),
 }));
 
 import { screen, waitFor } from "@testing-library/react";
@@ -190,6 +194,21 @@ describe("Cockpit left rail", () => {
 
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId("team-switcher")).toBeNull();
+    expect(screen.queryByTestId("team-switcher-error")).toBeNull();
+  });
+
+  // Review finding F1: a person with no team sees no change even when the read of their teams fails.
+  it("shows nothing about teams to a person with no team when the read of their teams fails", async () => {
+    myTeams.answer = new Error("Gateway restarting");
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("team-switcher")).toBeNull();
+    expect(screen.queryByTestId("team-switcher-error")).toBeNull();
   });
 
   it("puts the team switcher at the top of the rail, above the navigation, for a person in a team", async () => {
