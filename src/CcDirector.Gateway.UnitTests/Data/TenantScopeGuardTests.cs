@@ -171,11 +171,17 @@ public sealed class TenantScopeGuardTests : IDisposable
         //    scoping them would be circular in the same way as TenantEntity. A team's member list is served only to
         //    a member of that team, and a team is created only for the verified caller's own subject, so no tenant
         //    reaches another tenant's rows through them.
+        //
+        //  - TeamInvitationEntity is an invitation to a team (devthrottle_internal#2301). It is opened by the person
+        //    invited, from their own personal tenant, before they are a member of the team's tenant, so scoping it to
+        //    the team would be circular in the same way. It is listed and changed only by the team's Owner and
+        //    Managers, and opened only by whoever holds the secret token from the email.
         var allowedGlobalTables = new HashSet<Type>
         {
             typeof(TenantEntity),
             typeof(TeamEntity),
             typeof(TeamMemberEntity),
+            typeof(TeamInvitationEntity),
             typeof(EntitlementEntity),
             typeof(TeamEntitlementEntity),
             typeof(AccountTrialEntity),

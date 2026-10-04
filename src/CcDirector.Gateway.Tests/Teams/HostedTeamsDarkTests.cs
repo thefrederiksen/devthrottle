@@ -4,7 +4,9 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Teams;
@@ -79,5 +81,58 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         // Absence is proven by what was written, not by the words of the answer (the Gateway's not-found answer
         // echoes the path, which itself says "teams"): the create did not reach the registry.
         Assert.Empty(_gateway.TeamRegistry.ListTeamsFor(_subject));
+    }
+
+    [Fact]
+    public async Task SwitchUnset_EveryInvitationRouteIsAbsent_AndNothingIsInvitedOrJoined()
+    {
+        // A team and a waiting invitation made directly through the registry, so each route has something real to act
+        // on: if a route were mapped, these requests would succeed.
+        var team = _gateway.TeamRegistry.CreateTeam(_subject, "Dark team").Team!.TeamId;
+        using (var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext())
+        {
+            ctx.Database.ExecuteSqlRaw(
+                "CREATE TABLE IF NOT EXISTS team_entitlements (team_id TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, seats INTEGER NULL, " +
+                "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, livemode INTEGER NULL, updated_at TEXT NULL)");
+            ctx.Database.ExecuteSqlRaw("INSERT INTO team_entitlements (team_id, status, seats, livemode) VALUES ({0}, 'active', 1, 1)", team);
+        }
+        var created = _gateway.TeamRegistry.CreateInvitation(team, _subject, "waiting@example.com", CcDirector.Gateway.Teams.TeamRole.Developer);
+        var waiting = created.Invitation!;
+        var token = created.AcceptToken!;
+        var hash = CcDirector.Gateway.Teams.TeamInvitationRules.HashAcceptToken(token);
+        var joiner = "sub-dark-joiner-" + Guid.NewGuid().ToString("N");
+        var joinerTenant = _gateway.TenantRegistry.MintOrLookupBySubject(joiner, "joiner@example.com");
+        var joinerKey = _gateway.Devices.Register("dev-dark-joiner", "M-dark-joiner").DeviceKey;
+        _gateway.Devices.SetAccountBinding("dev-dark-joiner", joiner, joinerTenant.Value);
+
+        var routes = new (HttpMethod Method, string Path, string Key, object? Body)[]
+        {
+            (HttpMethod.Get, $"teams/{team}/invitations/options", _key, null),
+            (HttpMethod.Get, $"teams/{team}/invitations", _key, null),
+            (HttpMethod.Post, $"teams/{team}/invitations", _key, new { email = "new@example.com", role = "Developer" }),
+            (HttpMethod.Post, $"teams/{team}/invitations/{waiting.Id}/resend", _key, new { }),
+            (HttpMethod.Post, $"teams/{team}/invitations/{waiting.Id}/cancel", _key, new { }),
+            (HttpMethod.Post, "team-invitations/open", joinerKey, new { token }),
+            (HttpMethod.Post, "team-invitations/accept", joinerKey, new { token }),
+            (HttpMethod.Post, "team-invitations/decline", joinerKey, new { token }),
+        };
+        foreach (var (method, path, key, body) in routes)
+        {
+            using var req = new HttpRequestMessage(method, path);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            if (body is not null) req.Content = JsonContent.Create(body);
+            using var resp = await _http.SendAsync(req);
+            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        }
+
+        // Absence proven by what was written: still exactly one invitation, still waiting, still the same link, and
+        // nobody joined.
+        using (var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext())
+        {
+            var row = Assert.Single(ctx.TeamInvitations.AsNoTracking().Where(i => i.TeamId == team).ToList());
+            Assert.Equal("sent", row.State);
+            Assert.Equal(hash, row.AcceptTokenHash);
+        }
+        Assert.Null(_gateway.TeamRegistry.RoleOf(team, joiner));
     }
 }
