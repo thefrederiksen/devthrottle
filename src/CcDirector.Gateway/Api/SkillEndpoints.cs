@@ -113,6 +113,7 @@ internal static class SkillEndpoints
             var content = await ReadBody(ctx);
             if (content is null)
                 return Results.BadRequest(new { error = "a skill body is required" });
+            content.AuthoredBy = ServerStampedAuthor.Resolve(ctx, content.AuthoredBy);
             return Guard(() =>
             {
                 var created = store.CreateDraft(content);
@@ -126,6 +127,7 @@ internal static class SkillEndpoints
             var content = await ReadBody(ctx);
             if (content is null)
                 return Results.BadRequest(new { error = "a skill body is required" });
+            content.AuthoredBy = ServerStampedAuthor.Resolve(ctx, content.AuthoredBy);
             var ifMatch = ReadIfMatch(ctx);
             return Guard(() =>
             {
@@ -148,9 +150,9 @@ internal static class SkillEndpoints
 
         // Clone: the sanctioned customization path for the read-only built-ins. ?newId names the clone;
         // ?by records who cloned.
-        app.MapPost(root + "/{id}/clone", (string id, string? newId, string? by) => Guard(() =>
+        app.MapPost(root + "/{id}/clone", (string id, string? newId, string? by, HttpContext ctx) => Guard(() =>
         {
-            var clone = store.Clone(id, newId ?? "", by ?? "");
+            var clone = store.Clone(id, newId ?? "", ServerStampedAuthor.Resolve(ctx, by) ?? "");
             if (clone is null)
                 return NotFound(id);
             FileLog.Write($"[SkillEndpoints] clone: '{id}' -> '{clone.Id}' v{clone.Version}");
@@ -179,13 +181,13 @@ internal static class SkillEndpoints
 
         // The owner's switch. Off = left out of every briefing and the default fetch refused; nothing
         // deleted, instant both ways fleet-wide. Both verbs REQUIRE ?by=<who>.
-        app.MapPost(root + "/{id}/enable", (string id, string? by) => Guard(() =>
-            store.SetEnabled(id, true, by ?? "")
+        app.MapPost(root + "/{id}/enable", (string id, string? by, HttpContext ctx) => Guard(() =>
+            store.SetEnabled(id, true, ServerStampedAuthor.Resolve(ctx, by) ?? "")
                 ? Results.Json(new { id, enabled = true })
                 : NotFound(id)));
 
-        app.MapPost(root + "/{id}/disable", (string id, string? by) => Guard(() =>
-            store.SetEnabled(id, false, by ?? "")
+        app.MapPost(root + "/{id}/disable", (string id, string? by, HttpContext ctx) => Guard(() =>
+            store.SetEnabled(id, false, ServerStampedAuthor.Resolve(ctx, by) ?? "")
                 ? Results.Json(new { id, enabled = false })
                 : NotFound(id)));
     }

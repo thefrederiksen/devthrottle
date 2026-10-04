@@ -24,10 +24,11 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// account's own library behaving exactly as before.
 ///
 /// THE SESSION SIDE. A session on a Director set up for the team pulls with a key bound to the team's tenant through the
-/// ordinary <c>/gateway/skills</c>. Such a key is not accepted by today's hosted device registry and the gate cannot yet
-/// name the person behind it - both are devthrottle_internal#2311. So here the session side is proven at the two places
-/// that request will meet once #2311 lands: the gate the host installed, asked with the team's tenant and the Developer
-/// as the caller, and the skill store read inside the team's tenant.
+/// ordinary <c>/gateway/skills</c>. TODAY THAT REQUEST IS REFUSED: such a key is not accepted by the hosted device
+/// registry, and the gate cannot name the person behind a team device key or a team session key - all three wait on
+/// devthrottle_internal#2311's one resolver (seam-director-key.md). So the session-side test here proves only the role
+/// table (with the caller SUPPLIED BY THE TEST, which the real middleware cannot yet do) and the tenant partition of the
+/// store. What is proven over the wire is a Developer reaching the team's library from their OWN account.
 ///
 /// This class sets the process-wide CC_GATEWAY_HOSTED, so it belongs to the hosted-mode collection.
 /// </summary>
@@ -35,6 +36,9 @@ namespace CcDirector.Gateway.Tests.Teams;
 public sealed class HostedTeamLibraryTests : IAsyncLifetime
 {
     private const string Token = "test-token";
+
+    /// <summary>What the client claims as the author. The team routes ignore it and record the member they identified.</summary>
+    private const string ClientClaimedAuthor = "someone-the-client-named@example.com";
 
     private readonly string _owner = "sub-lib-owner-" + Guid.NewGuid().ToString("N");
     private readonly string _manager = "sub-lib-manager-" + Guid.NewGuid().ToString("N");
@@ -129,7 +133,7 @@ public sealed class HostedTeamLibraryTests : IAsyncLifetime
         summary = "The steps every release follows.",
         triggers = new[] { "release checklist" },
         bodyMarkdown = body,
-        authoredBy = "manager@example.com",
+        authoredBy = ClientClaimedAuthor,
     };
 
     private static object Workflow(string id) => new
@@ -139,7 +143,7 @@ public sealed class HostedTeamLibraryTests : IAsyncLifetime
         summary = "One person builds, another reviews.",
         steps = new[] { new { name = "Build", description = "Build it", doer = "Developer", done = "merged" } },
         instructionsMarkdown = "# Team review\n\nBuild, then review.",
-        authoredBy = "manager@example.com",
+        authoredBy = ClientClaimedAuthor,
     };
 
     /// <summary>A Manager adds a skill to the team: create the draft, publish it. Returns its id.</summary>
@@ -190,7 +194,7 @@ public sealed class HostedTeamLibraryTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Issue2304Test1_TheSessionSide_ATeamSessionsOwnPull_IsAllowedAndServedTheTeamSkill_WaitingOnlyOn2311ToAuthenticate()
+    public async Task Issue2304Test1_TheSessionSide_RoleTableAndStoreOnly_CallerSuppliedByTheTest_TheRealPullWaitsOn2311()
     {
         var id = await ManagerAddsSkill("session-skill", "# Session skill\n\nLoaded in the team's session.");
         var team = new TenantId(_team);
@@ -387,6 +391,53 @@ public sealed class HostedTeamLibraryTests : IAsyncLifetime
 
         // The team does not get the Owner's personal skill.
         Assert.DoesNotContain("my-own-skill", Ids((await Send(HttpMethod.Get, $"teams/{_team}/skills", _keyDeveloper)).Text, "skills"));
+    }
+
+    // ---- who changed it: the member the server identified (review findings F1, F3) ---------------------------------
+
+    [Fact]
+    public async Task ChangedBy_IsTheMemberTheServerIdentified_StoredAsAReferenceWithNoEmailOrSubject()
+    {
+        var id = await ManagerAddsSkill("stamped-skill", "# Stamped");
+        var (cloned, clonedText) = await Send(HttpMethod.Post,
+            $"teams/{_team}/skills/{id}/clone?newId=stamped-copy&by={Uri.EscapeDataString(ClientClaimedAuthor)}", _keyOwner);
+        Assert.True(cloned == HttpStatusCode.Created, $"{cloned} {clonedText}");
+
+        // The recorded author - the value the store also writes to the Gateway log - is the opaque member reference of
+        // whoever made the request, whatever the client typed.
+        var expected = new[]
+        {
+            (Id: id, Who: _manager),
+            (Id: "stamped-copy", Who: _owner),
+        };
+        foreach (var (skillId, who) in expected)
+        {
+            var (status, text) = await Send(HttpMethod.Get, $"teams/{_team}/skills/{skillId}/versions", _keyOwner);
+            Assert.Equal(HttpStatusCode.OK, status);
+            foreach (var version in Json(text).GetProperty("versions").EnumerateArray())
+            {
+                var author = version.GetProperty("authoredBy").GetString()!;
+                Assert.Equal(Api.TeamLibraryEndpoints.MemberReference(_team, who), author);
+                Assert.DoesNotContain("@", author);
+                Assert.DoesNotContain(who, author);
+            }
+        }
+
+        // The page shows the member's name as the Team page shows it - the Owner's clone under the Owner.
+        var (_, libraryText) = await Send(HttpMethod.Get, $"teams/{_team}/library", _keyDeveloper);
+        var items = Json(libraryText).GetProperty("items").EnumerateArray().ToArray();
+        Assert.Equal("manager@example.com", items.Single(i => i.GetProperty("id").GetString() == id).GetProperty("changedBy").GetString());
+        Assert.Equal("owner@example.com", items.Single(i => i.GetProperty("id").GetString() == "stamped-copy").GetProperty("changedBy").GetString());
+        Assert.DoesNotContain(ClientClaimedAuthor, libraryText);
+    }
+
+    [Fact]
+    public async Task ChangedBy_APersonalAccountsAuthor_IsStillWhatTheClientTyped()
+    {
+        // Outside a team nothing changes: the ordinary routes record the author the client gives, as before.
+        Assert.Equal(HttpStatusCode.Created, (await Send(HttpMethod.Post, "gateway/skills", _keyStranger, Skill("personal-author", "# P"))).Status);
+        var (_, text) = await Send(HttpMethod.Get, "gateway/skills/personal-author/versions", _keyStranger);
+        Assert.Equal(ClientClaimedAuthor, Json(text).GetProperty("versions")[0].GetProperty("authoredBy").GetString());
     }
 
     // ---- the page's read -------------------------------------------------------------------------------------------

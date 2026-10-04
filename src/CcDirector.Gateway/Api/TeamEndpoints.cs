@@ -177,13 +177,22 @@ internal static class TeamEndpoints
             count = result.Members.Count,
             members = result.Members.Select(m => new
             {
-                name = m.Email ?? "An account with no email recorded",
+                name = MemberName(m),
                 email = m.Email,
                 role = TeamRoles.Label(m.Role),
                 isYou = string.Equals(m.AccountSubject, callerSubject.Trim(), StringComparison.Ordinal),
                 joinedAtUtc = m.JoinedAtUtc,
             }).ToList(),
         });
+    }
+
+    /// <summary>A member's name as every team screen shows it - the member list here and "changed by" on the Skills and
+    /// workflows page (devthrottle_internal#2304). One rule, so the two never disagree. The Gateway holds no display name
+    /// for a person today, so it is the email they signed up with.</summary>
+    internal static string MemberName(TeamMember member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return member.Email ?? "An account with no email recorded";
     }
 
     /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team.</summary>

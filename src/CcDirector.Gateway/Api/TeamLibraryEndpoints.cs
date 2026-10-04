@@ -25,8 +25,12 @@ namespace CcDirector.Gateway.Api;
 /// workflows in one list, and whether the CALLER may change them, decided here (rule 7: the page renders it).</item>
 /// </list>
 ///
-/// A session on a Director that belongs to the team needs none of this: its key is bound to the team's tenant, so the
-/// ordinary <c>/gateway/skills</c> and <c>/gateway/workflows</c> already answer with the team's library.
+/// WHAT IS PROVEN TODAY is a member reaching the team's library from their OWN account, through these routes. A session
+/// on a Director set up for the team will instead pull through the ordinary <c>/gateway/skills</c> and
+/// <c>/gateway/workflows</c> with a key bound to the team's tenant - and TODAY THAT REQUEST IS REFUSED: the hosted device
+/// registry does not accept a team-bound key, and the team gate cannot name the person behind a team device key or a
+/// team session key. All three wait on devthrottle_internal#2311's one resolver (seam-director-key.md); nothing here
+/// changes for that request when it lands, because the store already answers for the ambient tenant.
 ///
 /// WHO MAY DO WHAT is not decided here. <see cref="TeamEndpointGate"/> decides every one of these routes from
 /// <see cref="TeamEndpointRules"/> through <see cref="TeamAccess.Decide"/> before the route runs: reading is "use the
@@ -78,9 +82,11 @@ internal static class TeamLibraryEndpoints
         group.AddEndpointFilter(async (filterCtx, next) =>
         {
             var http = filterCtx.HttpContext;
-            var (teamId, denial) = AdmitIntoTeam(http, boundary, tenants);
+            var (teamId, callerSubject, denial) = AdmitIntoTeam(http, boundary, tenants);
             if (denial is not null)
                 return denial;
+            // Who changed a shared skill is the member the server identified, never what the client typed (F1, F3).
+            ServerStampedAuthor.Set(http, MemberReference(teamId!, callerSubject!));
             using (boundary.EnterScope(new TenantId(teamId!)))
                 return await next(filterCtx).ConfigureAwait(false);
         });
@@ -108,25 +114,59 @@ internal static class TeamLibraryEndpoints
     /// <summary>
     /// Whether a request may enter the team its route names: the caller is a person on the hosted Gateway
     /// (<see cref="TeamEndpoints.ResolveCaller"/>), and the team gate ALLOWED this request in exactly that team
-    /// (<see cref="TeamEndpointGate.AllowedTeam"/>). Returns the team id to enter, or the answer to give instead.
-    /// Internal so every branch is tested.
+    /// (<see cref="TeamEndpointGate.AllowedTeam"/>). Returns the team id to enter and the caller's account subject, or
+    /// the answer to give instead. Internal so every branch is tested.
     /// </summary>
-    internal static (string? TeamId, IResult? Denial) AdmitIntoTeam(HttpContext ctx, HostedTenantBoundary boundary, TenantRegistry tenants)
+    internal static (string? TeamId, string? CallerSubject, IResult? Denial) AdmitIntoTeam(HttpContext ctx, HostedTenantBoundary boundary, TenantRegistry tenants)
     {
         ArgumentNullException.ThrowIfNull(ctx);
         var caller = TeamEndpoints.ResolveCaller(ctx, boundary, tenants);
         if (caller.Denial is not null)
-            return (null, caller.Denial);
+            return (null, null, caller.Denial);
 
         var team = TeamToEnter(ctx);
         if (team is null)
         {
             FileLog.Write($"[TeamLibraryEndpoints] AdmitIntoTeam: REFUSED {ctx.Request.Method} - the team gate did not allow this request in this team (MISWIRED: gate not run, or a different team)");
-            return (null, Results.Json(new { error = NotCheckedRefusal, code = TeamEndpointGate.RefusalCode },
+            return (null, null, Results.Json(new { error = NotCheckedRefusal, code = TeamEndpointGate.RefusalCode },
                 statusCode: StatusCodes.Status403Forbidden));
         }
 
-        return (team, null);
+        return (team, caller.Subject, null);
+    }
+
+    /// <summary>The prefix of every <see cref="MemberReference"/>.</summary>
+    public const string MemberReferencePrefix = "team-member:";
+
+    /// <summary>What "changed by" says for a reference to someone who is no longer a member of the team.</summary>
+    internal const string FormerMember = "A former member of the team";
+
+    /// <summary>What "changed by" says for a version whose author DevThrottle did not record - one written before the
+    /// team's routes stamped it, or through a route that does not.</summary>
+    internal const string NotRecorded = "Not recorded";
+
+    /// <summary>
+    /// The author recorded on a team's skill or workflow version: an opaque reference to one member of one team. It
+    /// carries no email and no account subject, because the stores write the author into the Gateway log; and it
+    /// differs per team for the same person, so two teams' records cannot be joined on it. Read back into a name by
+    /// <see cref="Library"/>, from the team's own member list.
+    /// </summary>
+    public static string MemberReference(string teamId, string accountSubject)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(teamId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountSubject);
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(teamId + "|" + accountSubject.Trim()));
+        return MemberReferencePrefix + Convert.ToHexString(hash, 0, 8).ToLowerInvariant();
+    }
+
+    /// <summary>"Changed by" for a recorded author: the member's name as the Team page shows it, a former member, or
+    /// not recorded. Never the raw value - a client-typed author from outside the team routes is not shown as fact.</summary>
+    internal static string ChangedBy(string? authoredBy, IReadOnlyDictionary<string, string> namesByReference)
+    {
+        ArgumentNullException.ThrowIfNull(namesByReference);
+        if (string.IsNullOrWhiteSpace(authoredBy) || !authoredBy.StartsWith(MemberReferencePrefix, StringComparison.Ordinal))
+            return NotRecorded;
+        return namesByReference.TryGetValue(authoredBy, out var name) ? name : FormerMember;
     }
 
     /// <summary>
@@ -159,20 +199,22 @@ internal static class TeamLibraryEndpoints
         }
 
         var change = access.Decide(teamId, callerSubject, TeamAction.ChangeSharedSkillsAndWorkflows);
+        var names = teams.ListMembers(teamId, callerSubject).Members
+            .ToDictionary(m => MemberReference(teamId, m.AccountSubject), TeamEndpoints.MemberName, StringComparer.Ordinal);
 
         var items = new List<TeamLibraryItem>();
         foreach (var skill in skills.ListPublished().Where(s => !s.IsBuiltIn))
         {
             var published = skills.ListVersions(skill.Id)?.FirstOrDefault(v => v.Version == skill.Version);
             items.Add(new TeamLibraryItem(skill.Id, skill.Name, skill.Summary, "Skill", skill.Enabled, skill.Version,
-                skill.UpdatedUtc, published?.AuthoredBy ?? "", change.Allowed && skill.Editable));
+                skill.UpdatedUtc, ChangedBy(published?.AuthoredBy, names), change.Allowed && skill.Editable));
         }
 
         foreach (var workflow in workflows.ListPublished().Where(w => !w.IsBuiltIn))
         {
             var published = workflows.ListVersions(workflow.Id)?.FirstOrDefault(v => v.Version == workflow.Version);
             items.Add(new TeamLibraryItem(workflow.Id, workflow.Name, workflow.Summary, "Workflow", workflow.Enabled,
-                workflow.Version, workflow.UpdatedUtc, published?.AuthoredBy ?? "", change.Allowed && workflow.Editable));
+                workflow.Version, workflow.UpdatedUtc, ChangedBy(published?.AuthoredBy, names), change.Allowed && workflow.Editable));
         }
 
         var ordered = items
@@ -195,7 +237,8 @@ internal static class TeamLibraryEndpoints
 }
 
 /// <summary>One row of the Skills and workflows page. <see cref="Kind"/> is "Skill" or "Workflow";
-/// <see cref="ChangedBy"/> is who authored the published version, as they recorded it; <see cref="CanChange"/> is the
+/// <see cref="ChangedBy"/> is the member who made the published version, as the Team page names them (the Gateway
+/// stamped them; see <see cref="TeamLibraryEndpoints.ChangedBy(string?, IReadOnlyDictionary{string, string})"/>); <see cref="CanChange"/> is the
 /// Gateway's verdict for THIS caller on THIS item.</summary>
 internal sealed record TeamLibraryItem(string Id, string Name, string Summary, string Kind, bool Enabled, int Version,
     DateTime ChangedAtUtc, string ChangedBy, bool CanChange);

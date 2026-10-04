@@ -88,12 +88,96 @@ public sealed class TeamLibraryEndpointsTests : IDisposable
         Assert.False(GatewayHostedMode.IsHosted);
         var boundary = new HostedTenantBoundary(new SingleTenantContext(), _devices);
 
-        var (team, denial) = TeamLibraryEndpoints.AdmitIntoTeam(Request("team-a", "team-a"), boundary, _tenants);
+        var (team, subject, denial) = TeamLibraryEndpoints.AdmitIntoTeam(Request("team-a", "team-a"), boundary, _tenants);
 
         Assert.Null(team);
+        Assert.Null(subject);
         var (status, body) = await RenderAsync(denial!);
         Assert.Equal(404, status);
         Assert.Equal(TeamEndpoints.SelfHostedRefusal, body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public void MemberReference_SamePersonSameTeam_IsStable_AndCarriesNoEmailOrSubject()
+    {
+        var first = TeamLibraryEndpoints.MemberReference("team-a", "sub-priya@example.com");
+        var second = TeamLibraryEndpoints.MemberReference("team-a", " sub-priya@example.com ");
+
+        Assert.Equal(first, second);
+        Assert.StartsWith(TeamLibraryEndpoints.MemberReferencePrefix, first);
+        Assert.DoesNotContain("@", first);
+        Assert.DoesNotContain("sub-priya", first);
+    }
+
+    [Fact]
+    public void MemberReference_SamePersonTwoTeams_Differs()
+    {
+        Assert.NotEqual(TeamLibraryEndpoints.MemberReference("team-a", "sub-priya"), TeamLibraryEndpoints.MemberReference("team-b", "sub-priya"));
+    }
+
+    [Theory]
+    [InlineData(null, "sub")]
+    [InlineData(" ", "sub")]
+    [InlineData("team-a", null)]
+    [InlineData("team-a", "")]
+    public void MemberReference_Blank_Throws(string? teamId, string? subject)
+    {
+        Assert.ThrowsAny<ArgumentException>(() => TeamLibraryEndpoints.MemberReference(teamId!, subject!));
+    }
+
+    [Fact]
+    public void ChangedBy_AReferenceToAMember_IsTheirName()
+    {
+        var reference = TeamLibraryEndpoints.MemberReference("team-a", "sub-priya");
+        var names = new Dictionary<string, string> { [reference] = "Priya" };
+        Assert.Equal("Priya", TeamLibraryEndpoints.ChangedBy(reference, names));
+    }
+
+    [Fact]
+    public void ChangedBy_AReferenceToSomeoneNoLongerInTheTeam_IsAFormerMember()
+    {
+        var reference = TeamLibraryEndpoints.MemberReference("team-a", "sub-gone");
+        Assert.Equal(TeamLibraryEndpoints.FormerMember, TeamLibraryEndpoints.ChangedBy(reference, new Dictionary<string, string>()));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("priya@example.com")]
+    [InlineData("an agent")]
+    public void ChangedBy_AnythingTheServerDidNotStamp_IsNotRecorded_NeverTheTypedText(string? authoredBy)
+    {
+        Assert.Equal(TeamLibraryEndpoints.NotRecorded, TeamLibraryEndpoints.ChangedBy(authoredBy, new Dictionary<string, string>()));
+    }
+
+    [Fact]
+    public void ServerStampedAuthor_Stamped_WinsOverTheClaim()
+    {
+        var ctx = new DefaultHttpContext();
+        ServerStampedAuthor.Set(ctx, "team-member:abc");
+        Assert.Equal("team-member:abc", ServerStampedAuthor.Resolve(ctx, "typed by the client"));
+    }
+
+    [Theory]
+    [InlineData("typed by the client")]
+    [InlineData(null)]
+    public void ServerStampedAuthor_NotStamped_IsTheClaimUnchanged(string? claimed)
+    {
+        Assert.Equal(claimed, ServerStampedAuthor.Resolve(new DefaultHttpContext(), claimed));
+    }
+
+    [Fact]
+    public void ServerStampedAuthor_BlankStampOrNoContext_Throws()
+    {
+        Assert.ThrowsAny<ArgumentException>(() => ServerStampedAuthor.Set(new DefaultHttpContext(), " "));
+        Assert.Throws<ArgumentNullException>(() => ServerStampedAuthor.Resolve(null!, "x"));
+    }
+
+    [Fact]
+    public void MemberName_IsTheEmail_OrSaysNoneIsRecorded()
+    {
+        Assert.Equal("a@example.com", TeamEndpoints.MemberName(new TeamMember("s", "a@example.com", TeamRole.Developer, DateTime.UtcNow)));
+        Assert.Equal("An account with no email recorded", TeamEndpoints.MemberName(new TeamMember("s", null, TeamRole.Developer, DateTime.UtcNow)));
     }
 
     [Fact]
