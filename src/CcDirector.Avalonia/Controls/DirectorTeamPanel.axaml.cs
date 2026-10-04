@@ -17,7 +17,9 @@ namespace CcDirector.Avalonia.Controls;
 /// <param name="DirectorId">This Director's own id (it names the Director to the move route), or null while it
 /// is still starting.</param>
 /// <param name="ResolveTeam">The team this Director shows: recorded, or personal on a Gateway with Teams, or null
-/// when its Gateway has none (see <see cref="DirectorTeamView"/>).</param>
+/// when its Gateway has none or it has no Gateway (see <see cref="DirectorTeamView"/>).</param>
+/// <param name="ConnectedToAGateway">Whether this Director is connected to any Gateway at all, so a Director that
+/// is not yet connected is told to connect rather than that its Gateway has no teams. Reads the disk.</param>
 /// <param name="PersistKey">Stores the new device key after a move.</param>
 /// <param name="PersistTeam">Stores the new team after a move; this is what redraws the title bar.</param>
 /// <param name="Reapply">Makes the running Gateway connection use the new key; null when there is none.</param>
@@ -27,6 +29,7 @@ internal sealed record DirectorTeamPanelDeps(
     Func<string, SessionCreationHold> HoldSessionCreation,
     Func<string?> DirectorId,
     Func<CancellationToken, Task<OperationResult<DirectorTeam?>>> ResolveTeam,
+    Func<bool> ConnectedToAGateway,
     Action<string> PersistKey,
     Action<DirectorTeam> PersistTeam,
     Func<Task>? Reapply);
@@ -47,7 +50,15 @@ public partial class DirectorTeamPanel : UserControl
     private readonly DirectorTeamMover _mover;
     private readonly DispatcherTimer _lockTimer = new() { Interval = TimeSpan.FromSeconds(1) };
     private DirectorTeam? _current;
+    private bool _connected;
     private bool _busy;
+
+    /// <summary>What the tab says when this Director's Gateway has no Teams.</summary>
+    internal const string GatewayHasNoTeams = "This Director's Gateway has no teams, so there is no team to choose.";
+
+    /// <summary>What the tab says when this Director is not connected to any Gateway yet (review note R2-F4).</summary>
+    internal const string NotConnected =
+        "This Director is not connected to a Gateway yet. Connect it on the Gateway tab first; then you can choose its team here.";
 
     internal DirectorTeamPanel(DirectorTeamPanelDeps deps)
     {
@@ -78,6 +89,7 @@ public partial class DirectorTeamPanel : UserControl
             reason => Sessions().HoldSessionCreation(reason),
             () => app?.ControlApiHost?.DirectorId,
             ResolveThisDirectorsTeamAsync,
+            () => GatewayConfig.Load().IsEnabled,
             key => GatewayCredentialStore.SaveEnrolledKey(HostedGateway.ResolveUrl(), key),
             DirectorTeamStore.Save,
             app?.ControlApiHost is { } host ? host.ReapplyGatewayAsync : null);
@@ -119,6 +131,8 @@ public partial class DirectorTeamPanel : UserControl
                 return;
             }
             _current = resolved.Value;
+            // "No team" has two causes, worded differently: a Gateway without Teams, or no Gateway at all.
+            _connected = _current is not null || await Task.Run(_deps.ConnectedToAGateway);
             DrawCurrent();
         }
         catch (Exception ex)
@@ -133,7 +147,7 @@ public partial class DirectorTeamPanel : UserControl
     {
         if (_current is null)
         {
-            CurrentTeamText.Text = "This Director's Gateway has no teams, so there is no team to choose.";
+            CurrentTeamText.Text = _connected ? GatewayHasNoTeams : NotConnected;
             CurrentTeamChip.Show(null);
             ChooseButton.IsVisible = false;
             MovePanel.IsVisible = false;
@@ -221,6 +235,12 @@ public partial class DirectorTeamPanel : UserControl
             if (!moved.Success)
             {
                 ShowStatus(moved.ErrorMessage ?? "The move did not happen.", "#F14C4C");
+                // A failure after the Gateway's yes may already have recorded the new team (review finding
+                // R2-F1), so the heading is read again rather than left naming the team it showed before, and the
+                // same move is not offered again once the recorded team is the target.
+                await LoadCurrentAsync();
+                if (_current is not null && _current.TeamId == target.TeamId)
+                    MovePanel.IsVisible = false;
                 return;
             }
 

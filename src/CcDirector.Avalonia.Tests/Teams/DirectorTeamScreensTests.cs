@@ -179,6 +179,50 @@ public sealed class DirectorTeamScreensTests
     }
 
     [AvaloniaFact]
+    public async Task MainWindow_GatewayUnreachableAtStart_ChipIsReadAgainWhenTheGatewayAnswers()
+    {
+        // Review note R2-F3: the first read fails (offline, or a Gateway mid-deploy); the chip must not stay
+        // hidden for the rest of the run once the Gateway answers again.
+        await WithTempRootAsync(async () =>
+        {
+            var reachable = false;
+            var reads = 0;
+            var window = new MainWindow
+            {
+                ResolveDirectorTeam = ct =>
+                {
+                    reads++;
+                    return reachable
+                        ? DirectorTeamView.ResolveAsync(null, "https://gw.example", new FixedSignal(true), ct)
+                        : Task.FromResult(OperationResult<DirectorTeam?>.Fail("The Gateway could not be reached."));
+                },
+            };
+            await window.RefreshDirectorTeamAsync();
+            Assert.False(window.DirectorTeamChip.IsVisible);
+            var readsAfterFailure = reads;
+
+            window.RetryDirectorTeamIfUnknown(gatewayReachable: false);
+            Assert.Equal(readsAfterFailure, reads);
+
+            reachable = true;
+            window.RetryDirectorTeamIfUnknown(gatewayReachable: true);
+            for (var i = 0; i < 50 && !window.DirectorTeamChip.IsVisible; i++)
+            {
+                Dispatcher.UIThread.RunJobs();
+                await Task.Delay(20);
+            }
+
+            Assert.Equal(readsAfterFailure + 1, reads);
+            Assert.True(window.DirectorTeamChip.IsVisible);
+            Assert.Equal("Personal", window.DirectorTeamChip.Text);
+
+            // Known now: a later account read does not ask again.
+            window.RetryDirectorTeamIfUnknown(gatewayReachable: true);
+            Assert.Equal(readsAfterFailure + 1, reads);
+        });
+    }
+
+    [AvaloniaFact]
     public async Task DirectorTeamStore_SaveAndClear_RaiseChangedSoTheTitleBarRedraws()
     {
         await WithTempRootAsync(() =>
@@ -221,10 +265,13 @@ public sealed class DirectorTeamScreensTests
         public Task<OperationResult<HostedTeamsAnswer>> ListTeamsAsync(CancellationToken ct) =>
             Task.FromResult(OperationResult<HostedTeamsAnswer>.Ok(new HostedTeamsAnswer(Released, Teams)));
 
+        // What the Gateway answers to a move; a yes with a new key unless a test says otherwise.
+        public OperationResult<string> MoveAnswer { get; init; } = OperationResult<string>.Ok("new-team-key");
+
         public Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
         {
             Moves.Add((directorId, teamId));
-            return Task.FromResult(OperationResult<string>.Ok("new-team-key"));
+            return Task.FromResult(MoveAnswer);
         }
     }
 
@@ -236,9 +283,11 @@ public sealed class DirectorTeamScreensTests
         public List<DirectorTeam> Teams { get; } = new();
         public int Running { get; set; }
         public int Reapplied { get; set; }
+        public Exception? ReapplyFails { get; set; }
+        public Exception? KeySaveFails { get; set; }
     }
 
-    private static Rig BuildPanel(DirectorTeam? current, int running, FakeService? service = null)
+    private static Rig BuildPanel(DirectorTeam? current, int running, FakeService? service = null, bool connected = true)
     {
         service ??= new FakeService();
         Rig? rig = null;
@@ -251,9 +300,19 @@ public sealed class DirectorTeamScreensTests
             () => "director-1",
             // What the resolver would answer: the last team the panel stored, else the starting one.
             _ => Task.FromResult(OperationResult<DirectorTeam?>.Ok(rig!.Teams.LastOrDefault() ?? current)),
-            k => rig!.Keys.Add(k),
+            () => connected,
+            k =>
+            {
+                if (rig!.KeySaveFails is { } e) throw e;
+                rig.Keys.Add(k);
+            },
             t => rig!.Teams.Add(t),
-            () => { rig!.Reapplied++; return Task.CompletedTask; });
+            () =>
+            {
+                if (rig!.ReapplyFails is { } e) throw e;
+                rig.Reapplied++;
+                return Task.CompletedTask;
+            });
         rig = new Rig { Panel = new DirectorTeamPanel(deps), Service = service, Running = running };
         return rig;
     }
@@ -324,7 +383,71 @@ public sealed class DirectorTeamScreensTests
         await rig.Panel.LoadCurrentAsync();
 
         Assert.False(rig.Panel.ChooseButton.IsVisible);
-        Assert.Contains("has no teams", rig.Panel.CurrentTeamText.Text);
+        Assert.Equal(DirectorTeamPanel.GatewayHasNoTeams, rig.Panel.CurrentTeamText.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task DirectorTeamPanel_NotConnectedToAnyGateway_SaysToConnectFirst()
+    {
+        // Review note R2-F4: no Gateway at all is not "a Gateway with no teams".
+        var rig = BuildPanel(current: null, running: 0, connected: false);
+
+        await rig.Panel.LoadCurrentAsync();
+
+        Assert.False(rig.Panel.ChooseButton.IsVisible);
+        Assert.Equal(DirectorTeamPanel.NotConnected, rig.Panel.CurrentTeamText.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task DirectorTeamPanel_ReapplyFailsAfterTheGatewaysYes_HeadingNamesTheNewTeamAndTheMoveIsNotOfferedAgain()
+    {
+        // Review finding R2-F1: the new team and key are stored, only the re-apply failed. The heading must name
+        // the team the stored key belongs to, and "Move to DevThrottle" must not be offered a second time.
+        var rig = BuildPanel(DirectorTeam.Personal, running: 0);
+        rig.ReapplyFails = new IOException("the connection would not stop");
+        await rig.Panel.LoadCurrentAsync();
+        await rig.Panel.ListTeamsAsync();
+        Assert.Equal("Personal", rig.Panel.CurrentTeamChip.Text);
+
+        await rig.Panel.MoveAsync();
+
+        Assert.Equal(DirectorTeamMover.MovedButNotApplied("DevThrottle", "the connection would not stop"), rig.Panel.Status);
+        Assert.Equal("This Director works for", rig.Panel.CurrentTeamText.Text);
+        Assert.Equal("DevThrottle", rig.Panel.CurrentTeamChip.Text);
+        Assert.False(rig.Panel.MovePanel.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task DirectorTeamPanel_KeyCannotBeSavedAfterTheGatewaysYes_HeadingNamesTheNewTeam()
+    {
+        // The team is recorded first, so when the key then cannot be saved the heading already names the new team.
+        var rig = BuildPanel(DirectorTeam.Personal, running: 0);
+        rig.KeySaveFails = new IOException("the disk is full");
+        await rig.Panel.LoadCurrentAsync();
+        await rig.Panel.ListTeamsAsync();
+
+        await rig.Panel.MoveAsync();
+
+        Assert.Equal(DirectorTeamMover.MovedButKeyNotSaved("DevThrottle", "the disk is full"), rig.Panel.Status);
+        Assert.Equal("DevThrottle", rig.Panel.CurrentTeamChip.Text);
+        Assert.False(rig.Panel.MovePanel.IsVisible);
+    }
+
+    [AvaloniaFact]
+    public async Task DirectorTeamPanel_GatewayRefusesTheMove_HeadingKeepsTheOldTeamAndTheMoveStaysOffered()
+    {
+        const string refusal = "This Director already works for that team. Nothing was changed.";
+        var rig = BuildPanel(DirectorTeam.Personal, running: 0,
+            new FakeService { MoveAnswer = OperationResult<string>.Fail(refusal) });
+        await rig.Panel.LoadCurrentAsync();
+        await rig.Panel.ListTeamsAsync();
+
+        await rig.Panel.MoveAsync();
+
+        Assert.Equal(refusal, rig.Panel.Status);
+        Assert.Equal("Personal", rig.Panel.CurrentTeamChip.Text);
+        Assert.True(rig.Panel.MovePanel.IsVisible);
+        Assert.Empty(rig.Teams);
     }
 
     // ===================== The pictures =====================

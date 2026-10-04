@@ -697,6 +697,23 @@ public partial class MainWindow : Window
 
     private void OnDirectorTeamChanged() => Dispatcher.UIThread.Post(() => _ = RefreshDirectorTeamAsync());
 
+    // True when the last chip read could not tell the team - the Gateway could not be reached when the window
+    // opened, say. The account poll then asks again as soon as the Gateway answers.
+    private bool _directorTeamUnknown;
+
+    /// <summary>
+    /// Called with each account read: when the Gateway answers and the chip could not be read before, read it
+    /// again. A Director with a recorded team never needs the Gateway for its chip, so this only matters for one
+    /// that recorded none.
+    /// </summary>
+    internal void RetryDirectorTeamIfUnknown(bool gatewayReachable)
+    {
+        if (!gatewayReachable || !_directorTeamUnknown) return;
+        FileLog.Write("[MainWindow] RetryDirectorTeamIfUnknown: the Gateway answers again, reading the team chip");
+        _directorTeamUnknown = false;
+        _ = RefreshDirectorTeamAsync();
+    }
+
     /// <summary>
     /// Read this Director's team and name off the UI thread and draw them: the name on the toolbar and in the
     /// window title, the team as a chip beside the name. The team is the recorded one, or the personal account
@@ -716,8 +733,11 @@ public partial class MainWindow : Window
             {
                 FileLog.Write($"[MainWindow] RefreshDirectorTeamAsync: team unknown: {resolved.ErrorMessage}");
                 DirectorTeamChip.Show(null);
+                // Asked again the next time the Gateway answers (review note R2-F3), not only after a restart.
+                _directorTeamUnknown = true;
                 return;
             }
+            _directorTeamUnknown = false;
             var team = resolved.Value;
             DirectorTeamChip.Show(team);
             Title = "DevThrottle Director" + InstanceTitleSuffix() + (team is null ? "" : $" [{team.Name}]");
@@ -1168,6 +1188,7 @@ public partial class MainWindow : Window
         // Log the state and booleans, never the email (PII; CodingStyle Section 4 / 12).
         FileLog.Write($"[MainWindow] ApplyAccountStatus: account={_boxAccount}, deviceKey={_boxDeviceKeyPresent}, configured={status.GatewayConfigured}, reachable={status.Reachable}");
         UpdateGatewayStatusBox();
+        RetryDirectorTeamIfUnknown(status.Reachable);
     }
 
     // Map the Gateway's account report onto the resolver's signed-in input. A not-configured Gateway is

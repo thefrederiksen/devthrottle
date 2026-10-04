@@ -427,6 +427,13 @@ public sealed class SessionCreationHoldTests : IDisposable
             Assert.Throws<InvalidOperationException>(() => sessions.CreatePipeModeSession(_repo));
             Assert.Throws<InvalidOperationException>(() =>
                 sessions.CreateEmbeddedSession(_repo, null, new ScriptedAgentTerminal(AgentKind.ClaudeCode, "", _repo)));
+            Assert.Throws<InvalidOperationException>(() => sessions.RestoreEmbeddedSession(
+                new PersistedSession { Id = Guid.NewGuid(), RepoPath = _repo, WorkingDirectory = _repo, CreatedAt = DateTimeOffset.UtcNow },
+                new ScriptedAgentTerminal(AgentKind.ClaudeCode, "", _repo)));
+            // The hold is checked before anything else, so a null config is enough to prove the refusal: without
+            // the hold this call throws ArgumentNullException instead, and the reason would not be in the message.
+            var github = Assert.Throws<InvalidOperationException>(() => sessions.CreateGitHubActionsSession(null!));
+            Assert.Contains("this Director is moving to DevThrottle.", github.Message);
         }
 
         Assert.Empty(sessions.ListSessions());
