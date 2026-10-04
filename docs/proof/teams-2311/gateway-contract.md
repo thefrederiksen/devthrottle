@@ -165,7 +165,7 @@ own account, the personal paid gate (trial on a first arrival, 402 / 503 as enro
 | 404 | this account has no working key for that Director id (never set up, revoked, its person removed from the team) | `This account has no Director set up with that id, or its key is no longer active, so it cannot be moved. Set the Director up again.` |
 | 409 | the Director is already in that team (or already personal) | `This Director is already set up for that team. Nothing was changed.` |
 | 409 | the Director has **any session registered on the Gateway** (its last known roster there, read by the id it said Hello with - which for a team key is the id it was set up with, section 4) | `This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.` |
-| 409 | this account holds more than one working key for that id (enrollment no longer leaves this behind) | `This Director is set up in more than one place, so DevThrottle cannot tell which one to move. Set the Director up again.` |
+| 409 | this account holds more than one working key for that id (enrollment leaves this behind only across a period with Teams switched off - section 4) | `This Director is set up in more than one place, so DevThrottle cannot tell which one to move. Set the Director up again.` |
 | 404 | Teams not released (route not mapped) | the ordinary not-found answer |
 
 A 401 from the move means the token: "sign in again". The server enforces the "no sessions" rule; the Director checks
