@@ -208,7 +208,7 @@ REBASED onto origin/main f2c5c29a9 (after #3526 invitations, #3535, #3528 Direct
     TeamId is now left out of the JSON when null (as HealthDto.Teams is). Both setup suites: 676 and 35 passed.
 
 23. On the rebased head:
-    .\scripts	est-local.ps1 (default gate): every suite outcome=Completed, executed = total; 3,594 passed, 0 failed.
+    .\scripts\test-local.ps1 (default gate): every suite outcome=Completed, executed = total; 3,594 passed, 0 failed.
       (A first run under 99% processor load had Core.UnitTests over the 120-second ceiling and one timing test each in
       Avalonia.Tests (GitChangesViewHiddenTabTests) and Core.UnitTests (CodexWrappedComposerTests) red; both passed alone,
       and the whole gate passed on the rerun above.)
