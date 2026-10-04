@@ -99,6 +99,15 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/teams/{teamId}/invitations", TeamMethods.Read, TeamAction.SeeMembersAndRoles, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         new TeamEndpointRule("/teams/{teamId}/invitations", TeamMethods.Write, TeamAction.InviteOrRemoveDevelopersAndCollaborators, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
 
+        // Requests to the team's Owner and Managers (devthrottle_internal#2308). Sending one is open to every member
+        // (#2098, "send requests"); a sender reads their OWN under /mine through the same row. The team's whole list,
+        // and every change of a request's state, is the Owner's and the Managers' alone. Each is its own exact or
+        // narrower rule, so the longest-prefix match never lets a send rule cover a decision.
+        new TeamEndpointRule("/teams/{teamId}/requests", TeamMethods.Write, TeamAction.AnswerQuestionsSendRequestsReadReports, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule("/teams/{teamId}/requests/mine", TeamMethods.Read, TeamAction.AnswerQuestionsSendRequestsReadReports, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule("/teams/{teamId}/requests", TeamMethods.Read, TeamAction.ReadAndDecideTeamRequests, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule("/teams/{teamId}/requests/{requestId}", TeamMethods.Write, TeamAction.ReadAndDecideTeamRequests, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+
         // Sessions: a person's own sessions; touching another person's is joining or watching it.
         new TeamEndpointRule("/sessions", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
         new TeamEndpointRule("/interrupted", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),

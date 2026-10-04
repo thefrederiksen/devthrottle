@@ -135,4 +135,38 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         }
         Assert.Null(_gateway.TeamRegistry.RoleOf(team, joiner));
     }
+    [Fact]
+    public async Task SwitchUnset_EveryRequestRouteIsAbsent_AndNothingIsSentOrChanged()
+    {
+        // A team and a request made directly through the store, so each route has something real to act on: if a route
+        // were mapped, these requests would succeed. The key is a person's own browser key, the one kind the request
+        // routes serve.
+        var team = _gateway.TeamRegistry.CreateTeam(_subject, "Dark requests").Team!.TeamId;
+        var existing = _gateway.TeamRequests.Send(team, _subject, "Made before the routes were asked").Request!;
+        var tenant = _gateway.TenantRegistry.MintOrLookupBySubject(_subject, "dark@example.com");
+        var browserKey = _gateway.Devices.RegisterForTenant(tenant, _subject, "dev-dark-browser", "M-dark-browser", deviceType: "browser").DeviceKey;
+
+        var routes = new (HttpMethod Method, string Path, object? Body)[]
+        {
+            (HttpMethod.Post, $"teams/{team}/requests", new { text = "Should not exist" }),
+            (HttpMethod.Get, $"teams/{team}/requests", null),
+            (HttpMethod.Get, $"teams/{team}/requests/mine", null),
+            (HttpMethod.Post, $"teams/{team}/requests/{existing.Id}/accept", null),
+            (HttpMethod.Post, $"teams/{team}/requests/{existing.Id}/decline", new { reason = "Should not change" }),
+            (HttpMethod.Post, $"teams/{team}/requests/{existing.Id}/done", null),
+        };
+        foreach (var (method, path, body) in routes)
+        {
+            using var req = new HttpRequestMessage(method, path);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", browserKey);
+            if (body is not null) req.Content = JsonContent.Create(body);
+            using var resp = await _http.SendAsync(req);
+            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        }
+
+        // Absence proven by what was written: still the one request, still sent, with its one step.
+        var mine = _gateway.TeamRequests.ListMine(team, _subject).Requests;
+        var only = Assert.Single(mine);
+        Assert.Equal((existing.Id, "sent", 1), (only.Id, only.State, only.Trail.Count));
+    }
 }

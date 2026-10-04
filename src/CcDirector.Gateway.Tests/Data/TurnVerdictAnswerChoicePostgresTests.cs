@@ -91,7 +91,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20261003182436_AddTeams", all[index + 12]);
             // The team invitations (devthrottle_internal#2301), after that.
             Assert.Equal("20261003233544_AddTeamInvitations", all[index + 13]);
-            Assert.Equal(index + 14, all.Count);
+            // The team requests (devthrottle_internal#2308), after that.
+            Assert.Equal("20261004212621_AddTeamRequests", all[index + 14]);
+            Assert.Equal(index + 15, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

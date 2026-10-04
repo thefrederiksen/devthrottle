@@ -743,6 +743,12 @@ public sealed class GatewayHost : IAsyncDisposable
     public Teams.TeamEndpointGate TeamGate { get; }
 
     /// <summary>
+    /// Requests to a team's Owner and Managers (devthrottle_internal#2308). Present on every host; its routes are mapped
+    /// only when Teams is released. Exposed so the hosted tests read the same store the routes write.
+    /// </summary>
+    public Teams.TeamRequestStore TeamRequests { get; }
+
+    /// <summary>
     /// The retry net for the team seat sync (devthrottle_internal#2301): null except on a hosted Gateway with Teams
     /// released, where it runs every <see cref="Teams.TeamSeatConvergence.Interval"/>.
     /// </summary>
@@ -1749,6 +1755,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _tenantBoundary = new Tenancy.HostedTenantBoundary(_tenantContext, Devices);
         TeamAccess = new Teams.TeamAccess(TeamRegistry);
         TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary);
+        TeamRequests = new Teams.TeamRequestStore(_gatewayDb, TeamRegistry);
         // The background-loop seam (Hosted Multi-Tenancy, session-serving PR2). Its tenant list is the live
         // push-store partition set - exactly the tenants with a Director bound to the tunnel, which is the
         // only fleet a push-store-driven sweep could act on - so a sweep costs no per-tick database scan.
@@ -4684,6 +4691,9 @@ public sealed class GatewayHost : IAsyncDisposable
             TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry);
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
             TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
+            // Requests to the Owner and Managers (devthrottle_internal#2308), behind the same switch. People only - a request
+            // is never readable with a session key or a Director's key.
+            TeamRequestEndpoints.Map(_app, TeamRequests, _tenantBoundary, TenantRegistry);
         }
         // The team seat convergence (devthrottle_internal#2301): retries any seat sync that failed. Hosted with Teams
         // released only - TeamSeatConvergence is null everywhere else.

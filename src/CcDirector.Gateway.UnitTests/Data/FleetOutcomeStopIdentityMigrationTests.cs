@@ -38,19 +38,20 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
             var index = all.IndexOf(SqliteUnderTest);
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
-            Assert.Equal("20261003233525_AddTeamInvitations", all[^1]); // the migrations that sort after it
-            Assert.Equal("20261003182410_AddTeams", all[^2]);
-            Assert.Equal("20260928124401_AddFactoryMemoryNotes", all[^3]);
-            Assert.Equal("20260928123819_AddSessionAndScheduleFactory", all[^4]);
-            Assert.Equal("20260927212143_AddFleetMessageUnreachableNotice", all[^5]);
-            Assert.Equal("20260921203243_AddTriggerStartName", all[^6]);
-            Assert.Equal("20260921131049_IndexFactoryActivityReads", all[^7]);
-            Assert.Equal("20260921105211_AddFactoryTriggers", all[^8]);
-            Assert.Equal("20260921081600_AddFactoryActivity", all[^9]);
-            Assert.Equal("20260920052924_AddRaisedSessions", all[^10]);
-            Assert.Equal("20260920021757_AddDiscoveredRepositories", all[^11]);
-            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[^12]);
-            Assert.Equal(SqliteUnderTest, all[^13]);
+            Assert.Equal("20261004212559_AddTeamRequests", all[^1]); // the migrations that sort after it
+            Assert.Equal("20261003233525_AddTeamInvitations", all[^2]);
+            Assert.Equal("20261003182410_AddTeams", all[^3]);
+            Assert.Equal("20260928124401_AddFactoryMemoryNotes", all[^4]);
+            Assert.Equal("20260928123819_AddSessionAndScheduleFactory", all[^5]);
+            Assert.Equal("20260927212143_AddFleetMessageUnreachableNotice", all[^6]);
+            Assert.Equal("20260921203243_AddTriggerStartName", all[^7]);
+            Assert.Equal("20260921131049_IndexFactoryActivityReads", all[^8]);
+            Assert.Equal("20260921105211_AddFactoryTriggers", all[^9]);
+            Assert.Equal("20260921081600_AddFactoryActivity", all[^10]);
+            Assert.Equal("20260920052924_AddRaisedSessions", all[^11]);
+            Assert.Equal("20260920021757_AddDiscoveredRepositories", all[^12]);
+            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[^13]);
+            Assert.Equal(SqliteUnderTest, all[^14]);
 
             // From an EMPTY database to the schema just before, with an open record filed as it was filed then.
             Assert.Empty(context.Database.GetAppliedMigrations());
@@ -65,7 +66,7 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
 
             migrator.Migrate();
 
-            Assert.Equal("20261003233525_AddTeamInvitations", context.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20261004212559_AddTeamRequests", context.Database.GetAppliedMigrations().Last());
             Assert.Empty(context.Database.GetPendingMigrations());
             Assert.False(context.Database.HasPendingModelChanges());
             var columns = ColumnNames(connection);
@@ -92,14 +93,14 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
     /// one: that is what says a later migration did not quietly drop them.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20261003233525_AddTeamInvitations")]
-    [InlineData("postgres", "20261003233544_AddTeamInvitations")]
+    [InlineData("sqlite", "20261004212559_AddTeamRequests")]
+    [InlineData("postgres", "20261004212621_AddTeamRequests")]
     public void TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);
         var assembly = context.GetService<IMigrationsAssembly>();
         Assert.True(assembly.Migrations.TryGetValue(id, out var type), $"'{id}' is not discovered for {provider}.");
-        Assert.Equal("AddTeamInvitations", type!.Name);
+        Assert.Equal("AddTeamRequests", type!.Name);
         Assert.Equal(id, assembly.Migrations.Keys.Max(StringComparer.Ordinal));
         Assert.Equal(typeof(GatewayDbContext), type.GetCustomAttribute<DbContextAttribute>()!.ContextType);
 

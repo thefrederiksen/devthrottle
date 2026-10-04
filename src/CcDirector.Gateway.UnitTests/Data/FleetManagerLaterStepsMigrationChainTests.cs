@@ -39,6 +39,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260928124401_AddFactoryMemoryNotes",
         "20261003182410_AddTeams",
         "20261003233525_AddTeamInvitations",
+        "20261004212559_AddTeamRequests",
     })]
     [InlineData("postgres", new[]
     {
@@ -60,6 +61,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260928124407_AddFactoryMemoryNotes",
         "20261003182436_AddTeams",
         "20261003233544_AddTeamInvitations",
+        "20261004212621_AddTeamRequests",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {
@@ -90,8 +92,9 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         // then the factory activity table and its four indexes, then the factory triggers' two tables and their four
         // indexes, then the factory activity record's two read indexes, then the trigger's start-name column, then
         // the fleet message's unreachable-notice column, then the teams table, the team members table and its two
-        // indexes, then the team invitations table and its two indexes: an empty comparison proves nothing.
-        Assert.Equal(51, changes);
+        // indexes, then the team invitations table and its two indexes, then the team requests table and its trail table
+        // with their six indexes: an empty comparison proves nothing.
+        Assert.Equal(59, changes);
     }
 
     /// <summary>The schema operations, as sorted "kind table.name" lines. Data operations are not schema.</summary>
