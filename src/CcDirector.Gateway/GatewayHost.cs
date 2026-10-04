@@ -1120,6 +1120,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private TurnLog.TurnLogRecorder? _turnLogRecorder;
     private TurnLog.TurnLogSwitchStore? _turnLogSwitches;
     private Timer? _turnLogRetentionTimer;
+    private Timer? _voiceClipSweepTimer;
     private Wingman.WingmanVoiceService? _voiceService;
     // The turn-verdict seat (the Wingman-on-every-turn mission, slice C). Built once, shared by the turn-end
     // boundary, the voice narration and the explain route, so one stop is one judgement whoever asks first.
@@ -3408,6 +3409,15 @@ public sealed class GatewayHost : IAsyncDisposable
             try { turnLogRetention.Sweep(); }
             catch (Exception ex) { FileLog.Write($"[GatewayHost] turn-log retention sweep FAILED: {ex.Message}"); }
         }, null, TimeSpan.FromMinutes(5), TimeSpan.FromHours(6));
+
+        // The narration clip sweep (Money Saver, 4 October 2026): a clip whose session no Director reports, and which
+        // is at least two weeks old, is removed. First run an hour after start, so every connected Director has pushed
+        // its sessions; an account none of whose sessions are known is skipped by the sweep itself.
+        _voiceClipSweepTimer = new Timer(_ =>
+        {
+            try { _voiceService?.SweepClips(PushedSessions.KnownSessionIds, DateTime.UtcNow); }
+            catch (Exception ex) { FileLog.Write($"[GatewayHost] narration clip sweep FAILED: {ex.Message}"); }
+        }, null, TimeSpan.FromHours(1), TimeSpan.FromHours(6));
 
         _fleetManagerEvents = new Fleet.FleetManagerEventService(_fleetManagerEventStore!,
             new Fleet.GatewayFleetManagerEventEnvironment(PushedSessions, _streamStaleAfter,
@@ -6234,6 +6244,8 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnLogSwitches = null;
         try { _turnLogRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn log retention dispose error: {ex.Message}"); }
         _turnLogRetentionTimer = null;
+        try { _voiceClipSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] narration clip sweep dispose error: {ex.Message}"); }
+        _voiceClipSweepTimer = null;
         try { _turnEndWatcher?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] watcher dispose error: {ex.Message}"); }
         // Issue #915: cancel any recovery wait in flight, so a Gateway shutdown does not leave a background
         // ladder holding a token and re-sending into a fleet this process no longer owns.
