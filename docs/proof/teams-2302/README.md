@@ -126,7 +126,13 @@ files; the other suites come from the Tech Lead's track log.
 | `CcDirector.Gateway.UnitTests` | 8,334 passed, 0 failed (its PostgreSQL proofs ran here) |
 | Other suites | All completed. Two known load failures, both outside this branch's code: setup-engine 648 passed and 1 failed (`PythonToolsHealAndShimTests`), Core.Tests 4,801 passed and 1 failed (`RepositoryRegistryConcurrencyTests`). |
 
-## Still owed
+### The Tech Lead's full `CcDirector.Gateway.Tests` rerun on 70782b61e
 
-- **A complete `CcDirector.Gateway.Tests` run on 70782b61e.** The Tech Lead is running it now; it has no result yet,
-  and this proof claims none. The Teams tests within that suite have already passed (above).
+Run by the Tech Lead with `MSBUILDDISABLENODEREUSE=1`; logs in `C:\Users\soren\AppData\Local\Temp\cc-test-local-e471ce23`.
+Counts read from that run's result file.
+
+| Suite | Result |
+|---|---|
+| `CcDirector.Gateway.Tests`, the whole suite | **Green.** `outcome=Completed`: 2,922 total, 2,912 executed, 2,912 passed, 0 failed, 10 skipped |
+| The Teams tests | All 25 passed, including all 17 `TeamEndpointWalkTests` cases |
+| The two failures from the first run | Both passed here: `TunnelShutdownHandoverProofTests.Handover_sameDirector_ridesTheTunnel_asHandoverGenerate` and `StreamCommandTests.PeriodicRePush_KeepsPushedCacheFresh_ForAQuietSession` |

@@ -75,4 +75,10 @@ devthrottle_internal#2302 - test runs on branch teams/2302-permissions, SOREN_NO
   Other suites: every one Completed; two known load failures outside this branch's code
   (setup-engine 648/1 PythonToolsHealAndShimTests; Core.Tests 4801/1 RepositoryRegistryConcurrencyTests).
 
-12. A full Gateway.Tests rerun on 70782b61e is in progress (Tech Lead). PENDING - no result yet.
+12. Full Gateway.Tests rerun on 70782b61e, run by the Tech Lead with MSBUILDDISABLENODEREUSE=1.
+  Logs: C:\Users\soren\AppData\Local\Temp\cc-test-local-e471ce23
+  CcDirector.Gateway.Tests       outcome=Completed total=2922 executed=2912 passed=2912 failed=0 skipped=10
+  All 25 tests under CcDirector.Gateway.Tests.Teams: Passed (including all 17 TeamEndpointWalkTests cases).
+  The two failures from 11 passed here:
+    TunnelShutdownHandoverProofTests.Handover_sameDirector_ridesTheTunnel_asHandoverGenerate  Passed
+    StreamCommandTests.PeriodicRePush_KeepsPushedCacheFresh_ForAQuietSession                 Passed
