@@ -167,6 +167,75 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         Assert.Equal(TeamRole.Collaborator, _gateway.TeamRegistry.RoleOf(team, _newcomer));
     }
 
+    private const string PhoneUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+
+    /// <summary>
+    /// Review F1: the link in the email is very often opened on a phone. A phone navigation is normally sent to the
+    /// mobile app, which has no invitation page, so the invitation was dropped - and that redirect logged the raw
+    /// address, secret included. Signed in or signed out, the phone must reach the accept page and its sign-in round
+    /// trip, and no log line may hold the secret.
+    /// </summary>
+    [Fact]
+    public async Task PhoneAtTheAcceptPage_ReachesItSignedInAndThroughSignIn_NeverTheMobileApp_AndNoLogLineHoldsTheSecret()
+    {
+        var team = await CreateTeamWithBill();
+        var (_, body) = await Send(HttpMethod.Post, $"teams/{team}/invitations", _keyOwner, new { email = "bob@gmail.example", role = "Developer" });
+        var token = TokenOf(body.GetProperty("invitation").GetProperty("id").GetString()!);
+
+        using var log = FileLog.RedirectForTests();
+
+        // Signed in on the phone (a signed-in browser carries its device key in the cookie): the accept page itself.
+        var signedIn = await PhoneGet($"invite/{token}", _keyBob);
+        AssertReachedTheCockpit(signedIn, $"/invite/{token}");
+
+        // Signed out on the phone: sent to sign in carrying the accept page, and the sign-in page is the Cockpit's,
+        // not the mobile app's front page - so the round trip can end on the same invitation.
+        var signedOut = await PhoneGet($"invite/{token}", deviceKey: null);
+        Assert.Equal(HttpStatusCode.Redirect, signedOut.Status);
+        var signIn = signedOut.Location!;
+        Assert.Equal($"/signin?next={Uri.EscapeDataString("/invite/" + token)}", signIn);
+        AssertReachedTheCockpit(await PhoneGet(signIn.TrimStart('/'), deviceKey: null), signIn);
+        // Where that sign-in returns, on the phone.
+        AssertReachedTheCockpit(await PhoneGet("device-callback", deviceKey: null), "/device-callback");
+
+        // Every other phone navigation still goes to the mobile app, signed in or not.
+        var elsewhere = await PhoneGet("sessions", _keyBob);
+        Assert.Equal(HttpStatusCode.Redirect, elsewhere.Status);
+        Assert.Equal("/mobile/", elsewhere.Location);
+        var plainSignIn = await PhoneGet("signin?next=%2Fsessions", deviceKey: null);
+        Assert.Equal(HttpStatusCode.Redirect, plainSignIn.Status);
+        Assert.Equal("/mobile/", plainSignIn.Location);
+
+        var lines = log.DrainAndReadLines();
+        Assert.Contains(lines, l => l.Contains("GET /invite/[redacted]", StringComparison.Ordinal));
+        Assert.Contains(lines, l => l.Contains("[MobileRedirect] phone navigation /sessions -> /mobile/", StringComparison.Ordinal));
+        Assert.DoesNotContain(lines, l => l.Contains(token, StringComparison.Ordinal));
+    }
+
+    /// <summary>The phone was not redirected: the Cockpit answered - with the page when the Cockpit is built into this
+    /// host, or its own "not built" answer in a test host that has none. Either way, never a 302 to the mobile app.</summary>
+    private static void AssertReachedTheCockpit((HttpStatusCode Status, string? Location, string Body) answer, string what)
+    {
+        Assert.True(answer.Status is HttpStatusCode.OK or HttpStatusCode.NotFound,
+            $"a phone at {what} answered {(int)answer.Status} {answer.Location}");
+        Assert.True(answer.Status == HttpStatusCode.OK
+                ? answer.Body.Contains("<html", StringComparison.OrdinalIgnoreCase)
+                : answer.Body.Contains("React Cockpit not built", StringComparison.Ordinal),
+            $"a phone at {what} was answered by something other than the Cockpit: {answer.Body}");
+    }
+
+    private async Task<(HttpStatusCode Status, string? Location, string Body)> PhoneGet(string path, string? deviceKey)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, path);
+        req.Headers.Accept.ParseAdd("text/html");
+        req.Headers.TryAddWithoutValidation("User-Agent", PhoneUserAgent);
+        if (deviceKey is not null)
+            req.Headers.Add("Cookie", $"cc-gateway-token={deviceKey}");
+        using var resp = await _http.SendAsync(req);
+        return (resp.StatusCode, resp.Headers.Location?.OriginalString, await resp.Content.ReadAsStringAsync());
+    }
+
     [Fact]
     public async Task ResendAndCancel_OverTheWire_RenewTheLinkAndThenStopIt()
     {

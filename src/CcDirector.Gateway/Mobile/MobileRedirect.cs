@@ -17,6 +17,14 @@ namespace CcDirector.Gateway.Mobile;
 /// A phone already under the mobile app - whether the canonical <c>/mobile</c> or the legacy
 /// <c>/m</c> (which the Gateway 301s to <c>/mobile</c>) - is left alone here, so this front door
 /// never double-redirects and never competes with the legacy 301.
+///
+/// THE ONE EXCEPTION: ACCEPTING A TEAM INVITATION (devthrottle_internal#2301). The link in an invitation email is
+/// <c>/invite/{token}</c>, and email is very often opened on a phone. The mobile app has no invitation page, so sending
+/// that phone to <c>/mobile/</c> dropped the invitation. Instead the phone is given the same accept page a desktop gets
+/// - a single short page that reads on a narrow screen - and the whole sign-in round trip it starts is kept with it:
+/// <c>/signin</c> when its <c>next</c> is an invitation, and the Cockpit's own <c>/device-callback</c>, which a phone only
+/// ever reaches from a sign-in the Cockpit's sign-in page started (the mobile app's callback is
+/// <c>/mobile/device-callback</c>). Every other phone navigation still goes to the mobile app.
 /// </summary>
 public static class MobileRedirect
 {
@@ -43,7 +51,10 @@ public static class MobileRedirect
     /// whose path is not already under the mobile app (<c>/mobile</c> or the legacy <c>/m</c>). Public
     /// so the policy is unit-testable.
     /// </summary>
-    public static bool ShouldRedirectToMobile(string method, PathString path, string? acceptHeader, string? userAgent)
+    /// <param name="next">The request's <c>next</c> query value, when it has one: a <c>/signin</c> carrying an
+    /// invitation is part of that invitation's round trip and is not redirected.</param>
+    public static bool ShouldRedirectToMobile(string method, PathString path, string? acceptHeader, string? userAgent,
+        string? next = null)
     {
         // A navigation is a GET; HEAD is the bodiless twin of GET, so it redirects identically
         // (this is also what `curl -I` issues).
@@ -51,8 +62,27 @@ public static class MobileRedirect
         if (acceptHeader is null || !acceptHeader.Contains("text/html", StringComparison.OrdinalIgnoreCase))
             return false;
         if (IsUnderMobileRoot(path)) return false;
+        if (IsInvitationRoundTrip(path, next)) return false;
         return IsPhoneUserAgent(userAgent);
     }
+
+    /// <summary>
+    /// True for the pages a person accepting a team invitation passes through, which a phone must reach unredirected:
+    /// the accept page <c>/invite/{token}</c>, the Cockpit's <c>/signin</c> when its <c>next</c> is an accept page, and
+    /// the Cockpit's <c>/device-callback</c> where that sign-in returns. See the class summary for why.
+    /// </summary>
+    public static bool IsInvitationRoundTrip(PathString path, string? next)
+    {
+        var value = path.Value ?? "";
+        if (value.StartsWith(Api.TeamInvitationEndpoints.CockpitAcceptPagePrefix, StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (string.Equals(value, Util.AuthMiddleware.CockpitSignInPath, StringComparison.OrdinalIgnoreCase))
+            return next is not null && next.StartsWith(Api.TeamInvitationEndpoints.CockpitAcceptPagePrefix, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(value, CockpitDeviceCallbackPath, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The Cockpit's sign-in return address. The mobile app's is <c>/mobile/device-callback</c>.</summary>
+    public const string CockpitDeviceCallbackPath = "/device-callback";
 
     /// <summary>
     /// True when the path is the mobile app itself: the canonical <c>/mobile</c> (or anything under
@@ -80,9 +110,10 @@ public static class MobileRedirect
         {
             if (ShouldRedirectToMobile(
                     ctx.Request.Method, ctx.Request.Path,
-                    ctx.Request.Headers.Accept, ctx.Request.Headers.UserAgent))
+                    ctx.Request.Headers.Accept, ctx.Request.Headers.UserAgent,
+                    ctx.Request.Query["next"].FirstOrDefault()))
             {
-                FileLog.Write($"[MobileRedirect] phone navigation {ctx.Request.Path} -> {MobileRoot}");
+                FileLog.Write($"[MobileRedirect] phone navigation {Api.TeamInvitationEndpoints.RedactForLog(ctx.Request.Path.Value ?? "")} -> {MobileRoot}");
                 ctx.Response.Redirect(MobileRoot);
                 return;
             }
