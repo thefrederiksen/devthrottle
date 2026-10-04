@@ -285,7 +285,7 @@ public sealed class SessionHistoryRecorder
         // while a long-lived session is running is written the moment it is observed rather than
         // waiting on the five-minute heartbeat. Sessions here run for days; a version stamped at
         // first sight and never revisited would misattribute the whole run to the old build.
-        => string.Join('|', facts.MachineName, facts.Version,
+        => string.Join('|', facts.MachineName, facts.Version, facts.PersonSubject,
             s.Name, s.Number?.ToString(), s.MachineName, s.RepoPath, s.RepoName,
             s.Agent, s.CurrentModel, s.MissionName, s.ExplicitRole,
             // The birth facts (devthrottle_internal issue #982). They are stamped before launch and

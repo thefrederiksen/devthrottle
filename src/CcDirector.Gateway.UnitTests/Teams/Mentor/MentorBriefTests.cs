@@ -1,0 +1,130 @@
+using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Teams.Mentor;
+using Xunit;
+
+namespace CcDirector.Gateway.Tests.Teams.Mentor;
+
+/// <summary>What the Mentor's model is asked and what is accepted back (devthrottle_internal#2305). Pure: no database,
+/// no model.</summary>
+public sealed class MentorBriefTests
+{
+    private static readonly MentorWeek Week = new(2026, 40);
+
+    private static MentorRequest Request(int prompts = 3) =>
+        MentorBrief.Build(Week, Enumerable.Range(1, prompts)
+            .Select(i => MentorRig.Record(new DateTime(2026, 9, 29, 9, i, 0, DateTimeKind.Utc), $"prompt number {i}") with { PromptId = $"id-{i}", PersonSubject = "sub-rob" })
+            .ToList());
+
+    private static string Answer(string tone = "hard", string? workedOn = "Worked on the signup page.", string? howItWent = null,
+        string? wentBadly = "They restarted the same task four times.", string[]? quotes = null, string? oneThing = "Name the file first.") =>
+        System.Text.Json.JsonSerializer.Serialize(new { tone, workedOn, howItWent, wentBadlyAndWhy = wentBadly, quotes = quotes ?? new[] { "P1" }, oneThingToTry = oneThing });
+
+    [Fact]
+    public void Instruction_IsLoadedFromItsOneFile_AndForbidsComparingPeople()
+    {
+        Assert.Contains("You are the Mentor", MentorBrief.Instruction);
+        Assert.Contains("Never compare the person with anyone else", MentorBrief.Instruction);
+        Assert.Contains("third person", MentorBrief.Instruction);
+        Assert.Contains("never a name", MentorBrief.Instruction);
+    }
+
+    [Fact]
+    public void Build_LabelsEachPromptOldestFirst_AndNamesThePerson()
+    {
+        var request = Request();
+
+        Assert.Equal(new[] { "P1", "P2", "P3" }, request.PromptsByLabel.Keys.OrderBy(k => k));
+        Assert.Equal("prompt number 1", request.PromptsByLabel["P1"].Text);
+        Assert.Contains("[P3]", request.Text);
+        Assert.Contains("as \"they\"", request.Text);
+    }
+
+    [Fact]
+    public void Build_ShowsAtMostTheMostRecentPrompts_AndCutsALongOne()
+    {
+        var many = Enumerable.Range(0, MentorBrief.MaxPromptsShown + 5)
+            .Select(i => MentorRig.Record(new DateTime(2026, 9, 29, 0, 0, 0, DateTimeKind.Utc).AddMinutes(i), i == MentorBrief.MaxPromptsShown + 4 ? new string('x', 2000) : $"p{i}") with { PromptId = $"id-{i}" })
+            .ToList();
+
+        var request = MentorBrief.Build(Week, many);
+
+        Assert.Equal(MentorBrief.MaxPromptsShown, request.PromptsByLabel.Count);
+        Assert.DoesNotContain("] p0", request.Text);
+        Assert.Contains("[cut]", request.Text);
+        // The record kept for quoting is whole.
+        Assert.Equal(2000, request.PromptsByLabel[$"P{MentorBrief.MaxPromptsShown}"].Text.Length);
+    }
+
+    [Fact]
+    public void Build_NoPrompts_Throws_BecauseAPersonWithNoneGetsNoModelCall()
+    {
+        Assert.Throws<ArgumentException>(() => MentorBrief.Build(Week, Array.Empty<PromptRecord>()));
+    }
+
+    [Fact]
+    public void Check_AWellFormedHardWeek_IsAccepted()
+    {
+        var check = MentorBrief.Check(Answer(quotes: new[] { "P1", "P3" }), Request());
+
+        Assert.Null(check.Refusal);
+        Assert.Equal("hard", check.Answer!.Tone);
+        Assert.Equal(new[] { "P1", "P3" }, check.Answer.QuoteLabels);
+    }
+
+    [Fact]
+    public void Check_AWellFormedGoodWeek_WithNoQuotes_IsAccepted()
+    {
+        var check = MentorBrief.Check(Answer(tone: "good", howItWent: "Fine.", wentBadly: null, quotes: Array.Empty<string>()), Request());
+
+        Assert.NotNull(check.Answer);
+        Assert.Empty(check.Answer!.QuoteLabels);
+    }
+
+    [Fact]
+    public void Check_AnswerInsideOneCodeFence_IsAccepted()
+    {
+        Assert.NotNull(MentorBrief.Check("```json\n" + Answer() + "\n```", Request()).Answer);
+    }
+
+    public static TheoryData<string, string> RefusedAnswers => new()
+    {
+        { "", "not one JSON object" },
+        { "Here is the block: " + Answer(), "not one JSON object" },
+        { "[1,2]", "not one JSON object" },
+        { "{\"tone\": }", "not valid JSON" },
+        { Answer(tone: "great"), "tone" },
+        { Answer(workedOn: null), "workedOn was not text" },
+        { Answer(workedOn: "  "), "workedOn was empty" },
+        { Answer(oneThing: new string('a', MentorBrief.MaxFieldChars + 1)), "at most" },
+        { Answer(howItWent: null, wentBadly: null, quotes: Array.Empty<string>()), "neither how the week went" },
+        { Answer(quotes: new[] { "P9" }), "not one of this person's prompts" },
+        { Answer(quotes: new[] { "id-1" }), "not one of this person's prompts" },
+        { Answer(quotes: new[] { "P1", "P1" }), "twice" },
+        { Answer(quotes: new[] { "P1", "P2", "P3" }), "at most 2" },
+        { Answer(quotes: Array.Empty<string>()), "without quoting a prompt" },
+        { Answer(tone: "good", howItWent: "Fine.", wentBadly: null, quotes: new[] { "P1" }), "without saying where the week went badly" },
+        { "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"oneThingToTry\":\"z\"}", "left out fields: quotes" },
+        { "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"quotes\":[],\"oneThingToTry\":\"z\",\"rank\":1}", "not asked for: rank" },
+        { "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"quotes\":\"P1\",\"oneThingToTry\":\"z\"}", "quotes were not a list" },
+        { "{\"tone\":\"good\",\"workedOn\":\"x\",\"howItWent\":\"y\",\"wentBadlyAndWhy\":null,\"quotes\":[1],\"oneThingToTry\":\"z\"}", "other than prompt ids" },
+    };
+
+    [Theory]
+    [MemberData(nameof(RefusedAnswers))]
+    public void Check_AnAnswerNotTheShapeAskedFor_IsRefused_WithAReason(string answer, string reasonContains)
+    {
+        var check = MentorBrief.Check(answer, Request());
+
+        Assert.Null(check.Answer);
+        Assert.Contains(reasonContains, check.Refusal);
+    }
+
+    [Theory]
+    [InlineData("good", "a good week")]
+    [InlineData("mixed", "a mixed week")]
+    [InlineData("hard", "a hard week")]
+    public void Label_NamesEachTone(string tone, string label) => Assert.Equal(label, MentorTones.Label(tone));
+
+    [Fact]
+    public void Label_NotATone_Throws() => Assert.Throws<ArgumentOutOfRangeException>(() => MentorTones.Label("great"));
+}

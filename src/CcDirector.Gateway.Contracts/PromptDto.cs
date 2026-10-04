@@ -53,6 +53,20 @@ public sealed record PromptRecord
     [JsonPropertyName("charCount")] public required int CharCount { get; init; }
     [JsonPropertyName("wordCount")] public required int WordCount { get; init; }
     [JsonPropertyName("text")] public required string Text { get; init; }
+
+    /// <summary>
+    /// A stable reference to this one record, minted by the GATEWAY when a record is written into a team's tenant
+    /// (devthrottle_internal#2305), so the Mentor can name a prompt it quotes. Whatever a client sends here is
+    /// overwritten; null in a personal tenant and on every record written before it existed.
+    /// </summary>
+    [JsonPropertyName("id")] public string? PromptId { get; init; }
+
+    /// <summary>
+    /// In a team's tenant, the account subject of the person whose prompt this is, stamped by the GATEWAY from the
+    /// calling key (devthrottle_internal#2305) - never taken from the client, whose value is overwritten. Null in a
+    /// personal tenant, where the tenant already names the one person.
+    /// </summary>
+    [JsonPropertyName("person")] public string? PersonSubject { get; init; }
 }
 
 /// <summary>A Director's push of recorded messages to the Gateway's prompt log.</summary>

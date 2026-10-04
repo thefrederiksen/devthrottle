@@ -112,6 +112,8 @@ public static class AiFeature
     public const string Rules = "rules";
     /// <summary>The nightly dictionary-suggestion screening.</summary>
     public const string DictionarySuggestions = "dictionary-suggestions";
+    /// <summary>The Mentor's weekly block about one person in a team (devthrottle_internal#2305).</summary>
+    public const string TeamMentor = "team-mentor";
     /// <summary>The Settings "test this model" round trip.</summary>
     public const string AiModelsTest = "ai-models.test";
     /// <summary>The Wingman's spoken reply, produced automatically.</summary>
