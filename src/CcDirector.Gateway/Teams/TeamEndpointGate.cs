@@ -123,10 +123,17 @@ public sealed class TeamEndpointGate
         var rule = routePattern is null ? null : TeamEndpointRules.Find(method, routePattern);
         var inTeamTenant = requestTenant is { } tenant && _teams.IsTeam(tenant);
         var fromRoute = rule?.TeamFrom == TeamFrom.RouteTeamId;
+        var where = $"{method} {routePattern ?? "<no endpoint>"}";
+
+        // A route that NAMES a team acts in that team even from a person's own account. With no rule stating its action
+        // it is refused here, by the gate - not left to a test - so a later /teams/{teamId}/... endpoint, or a method the
+        // existing rule does not cover, cannot be served without the role table being asked (review finding F2).
+        if (!inTeamTenant && rule is null && TeamEndpointRules.NamesATeam(routePattern))
+            return Refuse(where, null, null, UndeclaredRefusal);
+
         if (!inTeamTenant && !fromRoute)
             return TeamGateVerdict.NotATeamRequest;
 
-        var where = $"{method} {routePattern ?? "<no endpoint>"}";
         if (rule is null)
             return Refuse(where, null, null, UndeclaredRefusal);
 

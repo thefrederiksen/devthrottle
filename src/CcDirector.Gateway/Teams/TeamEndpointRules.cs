@@ -124,7 +124,10 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/wingman", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, OthersPrompts),
 
         // The Mentor. Today this is the Mentor report's on/off setting; the Mentor's page itself is #2305.
-        new TeamEndpointRule("/gateway/mentor-report", TeamMethods.Any, TeamAction.ReadOwnMentorPage, TeamTarget.CallersOwn, TeamAction.ReadMentorPageAboutEachPerson),
+        // Reading another person's is the Mentor page about each person; changing another person's is its own action,
+        // which no role has, so a permission to read never grants a change.
+        new TeamEndpointRule("/gateway/mentor-report", TeamMethods.Read, TeamAction.ReadOwnMentorPage, TeamTarget.CallersOwn, TeamAction.ReadMentorPageAboutEachPerson),
+        new TeamEndpointRule("/gateway/mentor-report", TeamMethods.Write, TeamAction.ReadOwnMentorPage, TeamTarget.CallersOwn, TeamAction.ChangeAnotherPersonsMentorSettings),
 
         // The team's shared skills and workflows: reading them is using them, anything else changes them.
         new TeamEndpointRule("/gateway/skills", TeamMethods.Read, TeamAction.UseSharedSkillsAndWorkflows, TeamTarget.Team),
@@ -149,6 +152,26 @@ public static class TeamEndpointRules
             .ThenBy(r => r.Exact ? 0 : 1)
             .ThenBy(r => r.Methods == TeamMethods.Any ? 1 : 0)
             .FirstOrDefault();
+    }
+
+    /// <summary>
+    /// Whether a route pattern NAMES A TEAM: it lies under <c>/teams/</c>, or one of its parameters is named for a team
+    /// (any parameter whose name contains "team", in any case - <c>{teamId}</c>, <c>{team}</c>, <c>{teamSlug}</c>). Such
+    /// an endpoint acts in that team from a person's own account, so <see cref="TeamEndpointGate"/> refuses it unless a
+    /// rule here states its action (review finding F2). <c>/teams</c> itself - the caller's own list, and creating a
+    /// team - names none.
+    /// </summary>
+    public static bool NamesATeam(string? pattern)
+    {
+        var normalized = Normalize(pattern);
+        if (normalized.StartsWith("/teams/", StringComparison.OrdinalIgnoreCase))
+            return true;
+        foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(normalized, @"\{\**([^}:=?]+)"))
+        {
+            if (m.Groups[1].Value.Contains("team", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>A route pattern as the rules write it: one leading slash.</summary>

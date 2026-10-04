@@ -39,6 +39,7 @@ public static class RoleTableSpec
         new(TeamAction.ReadAnotherPersonsPrompts, "NNNN", "GET", "/prompts", TeamOwnership.SomeoneElses, null),
         new(TeamAction.ReadPromptsQuotedOnMentorPage, "YYNN", null, null, TeamOwnership.Unknown,
             "devthrottle_internal#2305 builds the Mentor page that quotes them"),
+        new(TeamAction.ChangeAnotherPersonsMentorSettings, "NNNN", "PUT", "/gateway/mentor-report", TeamOwnership.SomeoneElses, null),
     };
 
     public static readonly TeamRole[] Columns = { TeamRole.Owner, TeamRole.Manager, TeamRole.Developer, TeamRole.Collaborator };

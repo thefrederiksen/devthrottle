@@ -56,6 +56,29 @@ public sealed class TeamEndpointRulesTests
     }
 
     [Fact]
+    public void Find_TheMentorSetting_ReadingAnotherPersonsIsTheMentorPage_ChangingItIsItsOwnAction()
+    {
+        Assert.Equal(TeamAction.ReadMentorPageAboutEachPerson, TeamEndpointRules.Find("GET", "/gateway/mentor-report")!.OthersAction);
+        Assert.Equal(TeamAction.ChangeAnotherPersonsMentorSettings, TeamEndpointRules.Find("PUT", "/gateway/mentor-report")!.OthersAction);
+    }
+
+    [Theory]
+    [InlineData("/teams/{teamId}/members", true)]
+    [InlineData("/teams/{teamId}/invitations/{id}", true)]
+    [InlineData("teams/{id}", true)]
+    [InlineData("/gateway/team/{teamSlug}/billing", true)]
+    [InlineData("/x/{TeamId:guid}", true)]
+    [InlineData("/x/{**team}", true)]
+    [InlineData("/teams", false)]
+    [InlineData("/sessions/{sid}", false)]
+    [InlineData("/gateway/skills/{id}", false)]
+    [InlineData(null, false)]
+    public void NamesATeam_ARouteUnderTeamsOrWithATeamParameter_NamesATeam(string? pattern, bool expected)
+    {
+        Assert.Equal(expected, TeamEndpointRules.NamesATeam(pattern));
+    }
+
+    [Fact]
     public void Find_TheMembersRoute_TakesTheTeamFromTheRoute()
     {
         Assert.Equal(TeamFrom.RouteTeamId, TeamEndpointRules.Find("GET", "/teams/{teamId}/members")!.TeamFrom);

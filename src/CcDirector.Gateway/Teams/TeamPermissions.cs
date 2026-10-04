@@ -53,6 +53,11 @@ public enum TeamAction
     /// <see cref="ReadAnotherPersonsPrompts"/>, for the Mentor page (devthrottle_internal#2305). It goes with
     /// reading that page, so it is granted exactly where <see cref="ReadMentorPageAboutEachPerson"/> is.</summary>
     ReadPromptsQuotedOnMentorPage,
+
+    /// <summary>Change the Mentor's settings for another person. #2098 grants reading the Mentor's page about each
+    /// person and nothing more, so no role may; kept apart so a permission to read never grants a change (review
+    /// finding F3).</summary>
+    ChangeAnotherPersonsMentorSettings,
 }
 
 /// <summary>One cell of the role table.</summary>
@@ -119,6 +124,7 @@ public static class TeamPermissions
         new TeamPermissionRow(TeamAction.SeeMembersAndRoles, "see the team's members and their roles", Yes, Yes, Yes, Yes),
         new TeamPermissionRow(TeamAction.ReadAnotherPersonsPrompts, "read another person's prompts", No, No, No, No),
         new TeamPermissionRow(TeamAction.ReadPromptsQuotedOnMentorPage, "read the prompts the Mentor quotes on its page about a person", Yes, Yes, No, No),
+        new TeamPermissionRow(TeamAction.ChangeAnotherPersonsMentorSettings, "change the Mentor's settings for another person", No, No, No, No),
     };
 
     private static readonly IReadOnlyDictionary<TeamAction, TeamPermissionRow> ByAction = BuildIndex();

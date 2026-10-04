@@ -189,6 +189,31 @@ public sealed class TeamEndpointGateTests : IDisposable
         Assert.Null(verdict.Action);
     }
 
+    [Theory]
+    [InlineData("POST", "/teams/{teamId}/members")]
+    [InlineData("DELETE", "/teams/{teamId}/members")]
+    [InlineData("POST", "/teams/{teamId}/invitations")]
+    [InlineData("GET", "/gateway/team/{teamSlug}/billing")]
+    [InlineData("PUT", "/x/{TeamId}")]
+    public void Check_AnUndeclaredRouteThatNamesATeam_FromAPersonalAccount_IsRefusedByTheGate(string method, string pattern)
+    {
+        // Review finding F2: the gate itself refuses it, for a member and for a stranger alike, without a rule.
+        foreach (var subject in new[] { Owner, Stranger })
+        {
+            var verdict = ByRoute(method, pattern, subject, _team);
+            Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
+            Assert.Equal(TeamEndpointGate.UndeclaredRefusal, verdict.Message);
+        }
+    }
+
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    public void Check_TheCallersOwnTeamList_FromAPersonalAccount_IsNotATeamRequest(string method)
+    {
+        Assert.Equal(TeamGateOutcome.NotATeamRequest, ByRoute(method, "/teams", Owner, null).Outcome);
+    }
+
     [Fact]
     public void Check_NoEndpointReached_InATeam_IsRefused()
     {
@@ -360,6 +385,15 @@ public sealed class TeamEndpointGateTests : IDisposable
         await _gate.RunAsync(stranger, () => throw new InvalidOperationException("the endpoint ran"));
         Assert.Equal(StatusCodes.Status404NotFound, stranger.Response.StatusCode);
         Assert.Equal(TeamEndpoints.NoSuchTeamRefusal, Body(stranger).GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task RunAsync_AnUndeclaredTeamRoute_FromAPersonalAccount_IsRefused()
+    {
+        var ctx = Request("POST", "/teams/{teamId}/members", _tenants.MintOrLookupBySubject(Owner, null).Value, _team);
+        await _gate.RunAsync(ctx, () => throw new InvalidOperationException("the endpoint ran"));
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+        Assert.Equal(TeamEndpointGate.UndeclaredRefusal, Body(ctx).GetProperty("error").GetString());
     }
 
     [Fact]

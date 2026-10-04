@@ -38,11 +38,13 @@ public sealed class TeamRegistry
     private readonly Func<DateTime> _utcNow;
     private readonly object _writeLock = new();
 
-    // The ids of every team, read once and then kept current by CreateTeam - the one place a team comes into being -
-    // so the question every request asks (IsTeam) costs no database read and takes no lock. Replaced, never changed in
-    // place, so a reader always holds a whole set. Null until first asked.
-    private volatile IReadOnlySet<string>? _teamIds;
-    private readonly object _teamIdsLock = new();
+    // What IsTeam has SETTLED about a tenant id, so the question every request asks costs no database read once
+    // answered (review finding F4). Only a settled answer is kept: true for a team's id, false for a PERSONAL account's
+    // id (a row in the tenants table). Both are final - ids are minted separately and never reused, and teams are not
+    // deleted in the first version (deleting one must remove its entry here). An id that is in neither table is not
+    // kept, so it is asked again next time: a team created by ANOTHER process is learned on its first request, and the
+    // answer never fails open to "not a team" from memory alone.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _settled = new(StringComparer.Ordinal);
 
     /// <param name="db">The Gateway database. The team tables are global, so they are read through the UNSCOPED
     /// context, as the <c>tenants</c> table is.</param>
@@ -94,11 +96,7 @@ public sealed class TeamRegistry
             CommitMembershipChange(ctx, teamId, TeamMembershipChange.TeamCreated);
         }
 
-        lock (_teamIdsLock)
-        {
-            if (_teamIds is { } known)
-                _teamIds = new HashSet<string>(known, StringComparer.Ordinal) { teamId };
-        }
+        _settled[teamId] = true;
         _tenants.CensusChanged();
         FileLog.Write($"[TeamRegistry] CreateTeam: created team {LogTeam(teamId)} with its creator as Owner");
         return TeamCreateResult.Created(new TeamSummary(teamId, teamName, TeamRole.Owner, MemberCount: 1));
@@ -141,30 +139,30 @@ public sealed class TeamRegistry
 
     /// <summary>
     /// Whether <paramref name="tenant"/> is a team's tenant. Asked on every hosted request by
-    /// <see cref="TeamEndpointGate"/>, so it is answered from memory: the team ids are read from the database once, on
-    /// the first question, and every team created after that is added by <see cref="CreateTeam"/>. Teams are not
-    /// deleted in the first version, so the set only grows.
+    /// <see cref="TeamEndpointGate"/>. Answered from memory once settled; a tenant that is neither a known team nor a
+    /// known personal account is read from the database every time, so a team this process did not create is still
+    /// recognised (fail closed, review finding F4).
     /// </summary>
     public bool IsTeam(TenantId tenant)
     {
         if (!tenant.IsValid || tenant.IsLocal || tenant.IsSystem)
             return false;
 
-        return (_teamIds ?? LoadTeamIds()).Contains(tenant.Value);
-    }
+        var id = tenant.Value;
+        if (_settled.TryGetValue(id, out var known))
+            return known;
 
-    private IReadOnlySet<string> LoadTeamIds()
-    {
-        lock (_teamIdsLock)
+        using var ctx = _db.CreateUnscopedContext();
+        if (ctx.Teams.AsNoTracking().Any(t => t.Id == id))
         {
-            if (_teamIds is { } known)
-                return known;
-            using var ctx = _db.CreateUnscopedContext();
-            var loaded = new HashSet<string>(ctx.Teams.AsNoTracking().Select(t => t.Id), StringComparer.Ordinal);
-            _teamIds = loaded;
-            FileLog.Write($"[TeamRegistry] IsTeam: loaded {loaded.Count} team id(s)");
-            return loaded;
+            _settled[id] = true;
+            FileLog.Write($"[TeamRegistry] IsTeam: {LogTeam(id)} read from the database - a team");
+            return true;
         }
+
+        if (ctx.Tenants.AsNoTracking().Any(t => t.Id == id))
+            _settled[id] = false;
+        return false;
     }
 
     /// <summary>The account's role in a team, or null when it is not a member (or there is no such team).</summary>

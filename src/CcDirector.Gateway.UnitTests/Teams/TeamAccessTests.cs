@@ -146,6 +146,35 @@ public sealed class TeamAccessTests : IDisposable
     }
 
     [Fact]
+    public void IsTeam_ATeamCreatedByAnotherProcess_IsRecognised_EvenIfItsIdWasAskedAboutBefore()
+    {
+        // Review finding F4: a second registry stands for a second Gateway process over the same database.
+        var other = new TeamRegistry(_db, _tenants);
+        var personal = _tenants.MintOrLookupBySubject(Stranger, "stranger@example.com");
+        Assert.False(_teams.IsTeam(personal));
+
+        var created = other.CreateTeam(Stranger, "Made elsewhere").Team!.TeamId;
+
+        Assert.True(_teams.IsTeam(new TenantId(created)));
+        Assert.False(_teams.IsTeam(personal));
+    }
+
+    [Fact]
+    public void IsTeam_AnIdInNeitherTable_IsAskedAgain_SoATeamMadeUnderItLaterIsRecognised()
+    {
+        var id = Guid.NewGuid().ToString();
+        Assert.False(_teams.IsTeam(new TenantId(id)));
+
+        using (var ctx = _db.CreateUnscopedContext())
+        {
+            ctx.Teams.Add(new CcDirector.Gateway.Data.Entities.TeamEntity { Id = id, Name = "Late", CreatedAtUtc = DateTime.UtcNow });
+            ctx.SaveChanges();
+        }
+
+        Assert.True(_teams.IsTeam(new TenantId(id)));
+    }
+
+    [Fact]
     public void IsTeam_AFreshRegistry_ReadsTheTeamsAlreadyInTheDatabase()
     {
         var fresh = new TeamRegistry(_db, _tenants);
