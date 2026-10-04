@@ -92,17 +92,28 @@ Cockpit into it; CockpitReactAppServingTests deletes that folder when it finishe
 the dark test saw 404; on this run it ran last, so the dark tests saw the shell. Now each team route must be answered
 exactly as a never-mapped control path is (same status, same kind of body, never 200 JSON), the route table must hold
 nothing under /teams or /team-invitations, and nothing may be written. Main's invitations dark test got the same proof.
-The rebase also put TeamLibraryEndpoints.Map outside the Teams switch (a merge, not a conflict); moved back inside.
+The rebase left TeamLibraryEndpoints.Map and a closing brace after the Teams switch's block, beside main's new
+seat-convergence statement. That is a SYNTAX ERROR, not a silent leak: the first build after the rebase stopped with
+CS1519 in GatewayHost.cs, so commits 805e90110 to 333a8e9f2 do not compile and no Gateway with the library outside
+the switch could have been built from them. Corrected in d9f8850ad (whose message says "map ... inside the Teams
+switch again", which reads as if it had been mapped outside; it had not compiled). The pull request is squashed on
+merge, so those commits do not reach main. Correction made after the delta review, finding F1.
 
 dotnet test src/CcDirector.Gateway.Tests --filter "...HostedTeamsDarkTests|...ContextLessRouteCensusTests|...CcDirector.Gateway.Tests.Teams"
   Passed! Failed 0, Passed 59, Total 59 (no Cockpit in the test output)
-  Dark tests with a Cockpit index.html in the test output (the CI condition): Passed 3 of 3
+  Dark tests with a Cockpit index.html in the test output (the CI condition): Passed 3 of 3. This is the ONLY run
+  of the page-present branch: the local gate builds Debug, where wwwroot/c never exists, and in CI it depends on
+  test order. A green CI run does not show that branch ran (delta review, finding F2).
 dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
   Passed! Failed 0, Passed 576, Skipped 1 (main's opt-in invitation proof rig), Total 577
-Red checks:
+Red checks (the second and third are a leak MADE BY HAND to see the new assertions fail - the call moved to just
+before AdminTrialEndpoint.Map, outside the switch, in a file that compiles - not the state the rebase produced):
   - The test file CI ran (c3b6de244), Cockpit page present: both dark tests FAILED (reproduces CI)
-  - TeamLibraryEndpoints mapped outside the switch, page present: all 3 dark tests FAILED
-  - Same break, no page: all 3 dark tests FAILED
+  - Hand-made leak, page present: all 3 dark tests FAILED
+  - Same hand-made leak, no page: all 3 dark tests FAILED
+  Only the failing test NAMES were kept from those runs, not the assertion text, so the record does not show which
+  assertion failed. By reading, the first to fail is the route-table assertion (a /teams/{teamId}/... pattern is in
+  the table), which runs before any request.
   Source restored and rebuilt before the green run above.
 
 == Not run here ==
