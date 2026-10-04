@@ -116,6 +116,28 @@ public sealed class EnrollTargetsTheDefaultDirectorTests : IDisposable
     }
 
     [Fact]
+    public async Task EnrollHosted_SaysPlainlyItJoinsThePersonalAccount()
+    {
+        // devthrottle_internal#2311 review F2: the command line does not ask which team, so it says what it does.
+        var output = new StringWriter();
+        var previous = Console.Out;
+        Console.SetOut(output);
+        int code;
+        try
+        {
+            code = await Commands.EnrollAsync(CliArgs.Parse(["enroll", "--hosted"]), new InstallLayout(_installRoot), json: false, FakeRunner);
+        }
+        finally
+        {
+            Console.SetOut(previous);
+        }
+
+        Assert.True(code == ExitCodes.Ok, output.ToString());
+        Assert.Contains(Commands.HostedEnrollsPersonal, output.ToString());
+        Assert.DoesNotContain("teamId", Assert.Single(_requests));
+    }
+
+    [Fact]
     public async Task Enroll_DefaultDirectorAlreadyConnected_ReportsItAndSignsNothingIn()
     {
         DefaultDirectorConnection.For(new InstallLayout(_installRoot))

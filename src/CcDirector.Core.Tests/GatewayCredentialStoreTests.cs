@@ -1,4 +1,4 @@
-﻿using System.Text.Json.Nodes;
+using System.Text.Json.Nodes;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Storage;
 using Xunit;

@@ -691,20 +691,34 @@ public partial class MainWindow : Window
         _ = RefreshDirectorTeamAsync();
     }
 
+    /// <summary>How the window learns which team to show; a test points it at a fake Gateway.</summary>
+    internal Func<CancellationToken, Task<OperationResult<DirectorTeam?>>> ResolveDirectorTeam { get; set; }
+        = Controls.DirectorTeamPanel.ResolveThisDirectorsTeamAsync;
+
     private void OnDirectorTeamChanged() => Dispatcher.UIThread.Post(() => _ = RefreshDirectorTeamAsync());
 
     /// <summary>
     /// Read this Director's team and name off the UI thread and draw them: the name on the toolbar and in the
-    /// window title, the team as a chip beside the name. No team recorded means no chip.
+    /// window title, the team as a chip beside the name. The team is the recorded one, or the personal account
+    /// when none is recorded and the Gateway says it has Teams (review finding F2); otherwise no chip.
     /// </summary>
     internal async Task RefreshDirectorTeamAsync()
     {
         FileLog.Write("[MainWindow] RefreshDirectorTeamAsync");
         try
         {
-            var (team, name) = await Task.Run(() =>
-                (DirectorTeamStore.Load(), NamedInstanceRegistry.Get(InstanceContext.Slug)?.DisplayName ?? InstanceContext.DisplayName));
+            var name = await Task.Run(() =>
+                NamedInstanceRegistry.Get(InstanceContext.Slug)?.DisplayName ?? InstanceContext.DisplayName);
             DirectorInfoText.Text = DirectorHandle.Label(name, Environment.MachineName);
+
+            var resolved = await ResolveDirectorTeam(CancellationToken.None);
+            if (!resolved.Success)
+            {
+                FileLog.Write($"[MainWindow] RefreshDirectorTeamAsync: team unknown: {resolved.ErrorMessage}");
+                DirectorTeamChip.Show(null);
+                return;
+            }
+            var team = resolved.Value;
             DirectorTeamChip.Show(team);
             Title = "DevThrottle Director" + InstanceTitleSuffix() + (team is null ? "" : $" [{team.Name}]");
             FileLog.Write($"[MainWindow] RefreshDirectorTeamAsync: chip {(team is null ? "hidden (no team)" : "shown")}");

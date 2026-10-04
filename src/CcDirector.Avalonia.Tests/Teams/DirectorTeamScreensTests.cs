@@ -9,6 +9,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using CcDirector.Avalonia.Controls;
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Teams;
 using CcDirector.Core.Utilities;
 using Xunit;
@@ -159,11 +160,58 @@ public sealed class DirectorTeamScreensTests
         });
     }
 
+    [AvaloniaFact]
+    public async Task MainWindow_NoFileOnAGatewayWithTeams_ShowsThePersonalChip()
+    {
+        // Review finding F2: a Director enrolled before Teams has no file; on a Gateway with Teams it is personal.
+        await WithTempRootAsync(async () =>
+        {
+            var window = new MainWindow
+            {
+                ResolveDirectorTeam = ct => DirectorTeamView.ResolveAsync(null, "https://gw.example", new FixedSignal(true), ct),
+            };
+
+            await window.RefreshDirectorTeamAsync();
+
+            Assert.True(window.DirectorTeamChip.IsVisible);
+            Assert.Equal("Personal", window.DirectorTeamChip.Text);
+        });
+    }
+
+    [AvaloniaFact]
+    public async Task DirectorTeamStore_SaveAndClear_RaiseChangedSoTheTitleBarRedraws()
+    {
+        await WithTempRootAsync(() =>
+        {
+            var raised = 0;
+            void Count() => raised++;
+            DirectorTeamStore.Changed += Count;
+            try
+            {
+                DirectorTeamStore.Save(new DirectorTeam("t", "T"));
+                Assert.Equal(1, raised);
+                DirectorTeamStore.Clear();
+                Assert.Equal(2, raised);
+            }
+            finally
+            {
+                DirectorTeamStore.Changed -= Count;
+            }
+            return Task.CompletedTask;
+        });
+    }
+
+    private sealed class FixedSignal(bool released) : IHostedTeamsSignal
+    {
+        public Task<OperationResult<bool>> TeamsReleasedAsync(string gatewayUrl, CancellationToken ct) =>
+            Task.FromResult(OperationResult<bool>.Ok(released));
+    }
+
     // ===================== D3 =====================
 
     private sealed class FakeService : IDirectorTeamService
     {
-        public List<(string DeviceId, string? TeamId)> Moves { get; } = new();
+        public List<(string Key, string? TeamId)> Moves { get; } = new();
         public IReadOnlyList<HostedTeam> Teams { get; init; } = new[]
         {
             new HostedTeam { TeamId = "8f1d2c34-dev", Name = "DevThrottle", Role = "owner", MemberCount = 5 },
@@ -173,9 +221,9 @@ public sealed class DirectorTeamScreensTests
         public Task<OperationResult<HostedTeamsAnswer>> ListTeamsAsync(CancellationToken ct) =>
             Task.FromResult(OperationResult<HostedTeamsAnswer>.Ok(new HostedTeamsAnswer(Released, Teams)));
 
-        public Task<OperationResult<string>> MoveAsync(string deviceId, string? teamId, CancellationToken ct)
+        public Task<OperationResult<string>> MoveAsync(string currentDeviceKey, string? teamId, CancellationToken ct)
         {
-            Moves.Add((deviceId, teamId));
+            Moves.Add((currentDeviceKey, teamId));
             return Task.FromResult(OperationResult<string>.Ok("new-team-key"));
         }
     }
@@ -199,9 +247,10 @@ public sealed class DirectorTeamScreensTests
         var deps = new DirectorTeamPanelDeps(
             service,
             () => rig!.Running,
-            () => "director-1",
-            // What the store would read: the last team the panel stored, else the starting one.
-            () => rig!.Teams.LastOrDefault() ?? current,
+            reason => new SessionCreationHold(rig!.Running, () => { }),
+            () => "current-key-1",
+            // What the resolver would answer: the last team the panel stored, else the starting one.
+            _ => Task.FromResult(OperationResult<DirectorTeam?>.Ok(rig!.Teams.LastOrDefault() ?? current)),
             k => rig!.Keys.Add(k),
             t => rig!.Teams.Add(t),
             () => { rig!.Reapplied++; return Task.CompletedTask; });
@@ -247,7 +296,7 @@ public sealed class DirectorTeamScreensTests
 
         await rig.Panel.MoveAsync();
 
-        Assert.Equal(("director-1", (string?)"8f1d2c34-dev"), Assert.Single(rig.Service.Moves));
+        Assert.Equal(("current-key-1", (string?)"8f1d2c34-dev"), Assert.Single(rig.Service.Moves));
         Assert.Equal("new-team-key", Assert.Single(rig.Keys));
         Assert.Equal(new DirectorTeam("8f1d2c34-dev", "DevThrottle"), Assert.Single(rig.Teams));
         Assert.Equal(1, rig.Reapplied);

@@ -84,6 +84,23 @@ public static class TeamChoices
     public static bool MustAsk(IReadOnlyList<TeamChoice> choices) => choices.Count > 1;
 
     /// <summary>
+    /// Why the Director cannot offer <paramref name="team"/> as a choice - no id, no name, or a role that cannot
+    /// run sessions - or null when it can. The engine checks every listed team with this, so an unreadable list
+    /// is a failure it reports rather than an exception.
+    /// </summary>
+    public static string? Unreadable(HostedTeam team)
+    {
+        ArgumentNullException.ThrowIfNull(team);
+        if (string.IsNullOrWhiteSpace(team.TeamId))
+            return "a team with no id";
+        if (string.IsNullOrWhiteSpace(team.Name))
+            return $"team {team.TeamId} with no name";
+        return (team.Role ?? "").Trim().ToLowerInvariant() is "owner" or "manager" or "developer"
+            ? null
+            : $"team {team.TeamId} with the role \"{team.Role}\", which cannot run sessions";
+    }
+
+    /// <summary>
     /// The line under a team's name: the person's role, the team's size, and "you pay" for the Owner, whose
     /// card the team's bill goes to.
     /// </summary>

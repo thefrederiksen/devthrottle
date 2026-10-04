@@ -17,6 +17,14 @@ namespace CcDirector.Core.Sessions;
 public sealed class SessionManager : IDisposable
 {
     private readonly ConcurrentDictionary<Guid, Session> _sessions = new();
+
+    // The session-creation hold (devthrottle_internal#2311, review finding F3): while a Director changes team,
+    // no session may start, from any path - Settings, a Gateway-started spawn, a schedule. Every create enters
+    // through EnterCreation, and the hold and the in-flight count share one lock, so a create that has already
+    // passed the check is counted as a running session by the hold that follows it.
+    private readonly object _creationLock = new();
+    private string? _creationHoldReason;
+    private int _creationsInFlight;
     private readonly ConcurrentDictionary<string, Guid> _claudeSessionMap = new();
     private readonly AgentOptions _options;
 
@@ -683,6 +691,7 @@ public sealed class SessionManager : IDisposable
     /// read, because the answer is already known. Null on every ordinary create.</param>
     public Session CreateSession(string repoPath, IAgent agent, string? userArgs, SessionBackendType backendType, string? resumeSessionId, Guid? groupId = null, string? groupRole = null, string? groupName = null, Func<Guid, string>? nameFactory = null, Guid? controllerSessionId = null, Action<Session>? beforeLaunch = null, Git.PooledWorktree? reattachPooledWorktree = null)
     {
+        using var creation = EnterCreation();
         if (agent is null)
             throw new ArgumentNullException(nameof(agent));
         if (!Directory.Exists(repoPath))
@@ -1345,6 +1354,7 @@ public sealed class SessionManager : IDisposable
     /// No process is spawned until the user sends a prompt.</summary>
     public Session CreatePipeModeSession(string repoPath, string? claudeArgs = null)
     {
+        using var creation = EnterCreation();
         if (!Directory.Exists(repoPath))
             throw new DirectoryNotFoundException($"Repository path not found: {repoPath}");
 
@@ -1379,6 +1389,7 @@ public sealed class SessionManager : IDisposable
     /// </param>
     public Session CreateGitHubActionsSession(RemoteSessionConfig config, IGitHubClient? client = null)
     {
+        using var creation = EnterCreation();
         if (config is null) throw new ArgumentNullException(nameof(config));
 
         FileLog.Write($"[SessionManager] CreateGitHubActionsSession: {config.Slug} mode={config.TriggerMode}");
@@ -1423,6 +1434,7 @@ public sealed class SessionManager : IDisposable
     /// </summary>
     public Session CreateEmbeddedSession(string repoPath, string? claudeArgs, ISessionBackend embeddedBackend)
     {
+        using var creation = EnterCreation();
         if (!Directory.Exists(repoPath))
             throw new DirectoryNotFoundException($"Repository path not found: {repoPath}");
 
@@ -1436,6 +1448,63 @@ public sealed class SessionManager : IDisposable
         _log?.Invoke($"Embedded session {id} created for repo {repoPath}.");
 
         return session;
+    }
+
+    /// <summary>
+    /// Stop every new session from starting until the returned hold is disposed (devthrottle_internal#2311):
+    /// a create attempted meanwhile throws <see cref="InvalidOperationException"/> carrying
+    /// <paramref name="reason"/>. The hold reports how many sessions this Director held at the moment it took
+    /// effect, counting creates already under way, so "none running" read from it stays true until disposal.
+    /// One hold at a time; a second while one is held throws.
+    /// </summary>
+    public SessionCreationHold HoldSessionCreation(string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+            throw new ArgumentException("A hold needs a reason a person can read.", nameof(reason));
+        lock (_creationLock)
+        {
+            if (_creationHoldReason is not null)
+                throw new InvalidOperationException($"Session creation is already held: {_creationHoldReason}");
+            _creationHoldReason = reason;
+            var held = _sessions.Count + _creationsInFlight;
+            FileLog.Write($"[SessionManager] HoldSessionCreation: held ({held} session(s) at the hold): {reason}");
+            return new SessionCreationHold(held, ReleaseCreationHold);
+        }
+    }
+
+    private void ReleaseCreationHold()
+    {
+        lock (_creationLock)
+        {
+            _creationHoldReason = null;
+        }
+        FileLog.Write("[SessionManager] HoldSessionCreation: released");
+    }
+
+    // Every create starts here: refused while a hold is in force, otherwise counted until it returns.
+    private CreationTicket EnterCreation()
+    {
+        lock (_creationLock)
+        {
+            if (_creationHoldReason is { } reason)
+            {
+                FileLog.Write($"[SessionManager] create REFUSED: session creation is held: {reason}");
+                throw new InvalidOperationException($"No session can start right now: {reason}");
+            }
+            _creationsInFlight++;
+        }
+        return new CreationTicket(this);
+    }
+
+    private readonly struct CreationTicket(SessionManager owner) : IDisposable
+    {
+        public void Dispose()
+        {
+            lock (owner._creationLock)
+            {
+                owner._creationsInFlight--;
+            }
+        }
     }
 
     /// <summary>Get a session by ID.</summary>
@@ -1919,6 +1988,7 @@ public sealed class SessionManager : IDisposable
     /// The WPF layer must provide the reattached backend.</summary>
     public Session RestoreEmbeddedSession(PersistedSession ps, ISessionBackend embeddedBackend)
     {
+        using var creation = EnterCreation();
         var session = new Session(
             ps.Id, ps.RepoPath, ps.WorkingDirectory, ps.ClaudeArgs,
             embeddedBackend, ps.ClaudeSessionId, ps.ActivityState, ps.CreatedAt,

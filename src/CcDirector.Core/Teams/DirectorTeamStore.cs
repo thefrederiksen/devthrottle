@@ -13,12 +13,14 @@ namespace CcDirector.Core.Teams;
 /// <c>instances\&lt;slug&gt;</c>), so two Directors on one computer hold two different teams and two different
 /// keys - which is the owner's ruling of 3 October 2026.
 ///
-/// Three states, and each means something different:
+/// What the file says:
 /// <list type="bullet">
-/// <item>No file: the Gateway has no teams (Teams is not released there) or this Director never enrolled. No
-/// chip is shown, and nothing differs from before Teams.</item>
 /// <item>A team id: the Director works for that team.</item>
 /// <item>A null team id: the Director works for the person's own personal account.</item>
+/// <item>No file: nothing was recorded - the Director enrolled before Teams, through the setup command line, on a
+/// Gateway without Teams, or never. Those enrollments all bind the personal account, so what to SHOW depends on
+/// the Gateway: <see cref="DirectorTeamView"/> reads no file as the personal account on a Gateway with Teams
+/// released, and as no chip on one without.</item>
 /// </list>
 /// </summary>
 public static class DirectorTeamStore

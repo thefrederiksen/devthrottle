@@ -1,3 +1,4 @@
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Teams;
@@ -12,45 +13,53 @@ public interface IDirectorTeamService
     Task<OperationResult<HostedTeamsAnswer>> ListTeamsAsync(CancellationToken ct);
 
     /// <summary>
-    /// Move the Director <paramref name="deviceId"/> to <paramref name="teamId"/> (null = the personal account).
-    /// The Gateway refuses while the Director has a session registered; on success it revokes the old key and
-    /// returns the new one.
+    /// Move the Director that holds <paramref name="currentDeviceKey"/> to <paramref name="teamId"/> (null = the
+    /// personal account). The Gateway names the Director by the key it holds now, refuses while it has a session
+    /// registered, and on success revokes that key and returns the new one. The key is never logged.
     /// </summary>
-    Task<OperationResult<string>> MoveAsync(string deviceId, string? teamId, CancellationToken ct);
+    Task<OperationResult<string>> MoveAsync(string currentDeviceKey, string? teamId, CancellationToken ct);
 }
 
 /// <summary>
 /// Changes the team this Director works for (screen D3) - only with every session closed, so no session ever
 /// starts on one team and finishes on another.
 ///
-/// The rule is enforced HERE, not only by a disabled button: <see cref="MoveAsync"/> counts the running
-/// sessions itself at the moment of the move and refuses without calling the Gateway when there are any. The
-/// Gateway refuses too; the Director does not lean on that.
+/// The rule is enforced HERE, not only by a disabled button, and it holds for the WHOLE move (review finding
+/// F3): session creation is held before the sessions are counted and released only after the new key is stored
+/// and the connection re-applied, so no path - Settings, a Gateway-started spawn, a schedule - can start a
+/// session in between. The Gateway refuses too; that is the backstop, not the rule.
 ///
-/// On success the new key and the new team are stored together, the key first: a Director holding the new
-/// team's name with the old, revoked key would show one team and fail to reach any.
+/// Once the Gateway has answered yes, the move HAS happened: the old key is revoked. Every local failure after
+/// that point says so, says what was not stored, and says what to do (review finding F4). The team is recorded
+/// FIRST and the key LAST, so the screen can never name the old team while the Director holds the new team's
+/// key: if the key cannot be saved, the screen names the team the Gateway now has it on, and the message says
+/// the Director is disconnected until it is connected again.
 /// </summary>
 public sealed class DirectorTeamMover
 {
     private readonly IDirectorTeamService _service;
-    private readonly Func<int> _runningSessionCount;
-    private readonly Action<string> _persistKey;
+    private readonly Func<string, SessionCreationHold> _holdSessionCreation;
     private readonly Action<DirectorTeam> _persistTeam;
+    private readonly Action<string> _persistKey;
+    private readonly Func<Task>? _reapply;
 
     /// <param name="service">The Gateway's move route.</param>
-    /// <param name="runningSessionCount">How many sessions this Director holds right now.</param>
-    /// <param name="persistKey">Stores the new device key for this Director.</param>
+    /// <param name="holdSessionCreation">Holds new sessions with the given reason, reporting how many there are.</param>
     /// <param name="persistTeam">Stores the new team for this Director.</param>
+    /// <param name="persistKey">Stores the new device key for this Director.</param>
+    /// <param name="reapply">Switches the running Gateway connection to the new key; null when there is none.</param>
     public DirectorTeamMover(
         IDirectorTeamService service,
-        Func<int> runningSessionCount,
+        Func<string, SessionCreationHold> holdSessionCreation,
+        Action<DirectorTeam> persistTeam,
         Action<string> persistKey,
-        Action<DirectorTeam> persistTeam)
+        Func<Task>? reapply)
     {
         _service = service ?? throw new ArgumentNullException(nameof(service));
-        _runningSessionCount = runningSessionCount ?? throw new ArgumentNullException(nameof(runningSessionCount));
-        _persistKey = persistKey ?? throw new ArgumentNullException(nameof(persistKey));
+        _holdSessionCreation = holdSessionCreation ?? throw new ArgumentNullException(nameof(holdSessionCreation));
         _persistTeam = persistTeam ?? throw new ArgumentNullException(nameof(persistTeam));
+        _persistKey = persistKey ?? throw new ArgumentNullException(nameof(persistKey));
+        _reapply = reapply;
     }
 
     /// <summary>
@@ -68,19 +77,38 @@ public sealed class DirectorTeamMover
         };
     }
 
+    /// <summary>The words for a move the Gateway made but whose team this computer could not record.</summary>
+    public static string MovedButTeamNotRecorded(string teamName, string error) =>
+        $"The Gateway moved this Director to {teamName}, but this computer could not record the team ({error}). " +
+        $"Its old key no longer works, so it is not connected. Connect it again from the Gateway tab and choose {teamName}.";
+
+    /// <summary>The words for a move the Gateway made but whose new key could not be saved.</summary>
+    public static string MovedButKeyNotSaved(string teamName, string error) =>
+        $"The Gateway moved this Director to {teamName}, but the new key could not be saved ({error}). " +
+        $"Its old key no longer works, so it is not connected. Connect it again from the Gateway tab and choose {teamName}.";
+
+    /// <summary>The words for a move that is stored but that the running connection could not switch to.</summary>
+    public static string MovedButNotApplied(string teamName, string error) =>
+        $"This Director now works for {teamName} and its new key is saved, but the running connection could not " +
+        $"switch to it ({error}). Restart the Director to finish.";
+
     /// <summary>
     /// Move this Director to <paramref name="target"/>. Refused, with nothing sent and nothing stored, while any
-    /// session is running. Otherwise the Gateway's answer decides: its refusal is returned as it is; its new key
-    /// and the new team are stored.
+    /// session is running; no session can start until it returns. The Gateway's refusal is returned as it is.
     /// </summary>
-    public async Task<OperationResult<DirectorTeam>> MoveAsync(string deviceId, TeamChoice target, CancellationToken ct)
+    /// <param name="currentDeviceKey">The key this Director holds now, which names it to the Gateway. Never logged.</param>
+    /// <param name="target">The team to move to.</param>
+    /// <param name="ct">Cancels the Gateway call.</param>
+    public async Task<OperationResult<DirectorTeam>> MoveAsync(string currentDeviceKey, TeamChoice target, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(deviceId))
-            throw new ArgumentException("deviceId is required", nameof(deviceId));
+        if (string.IsNullOrWhiteSpace(currentDeviceKey))
+            throw new ArgumentException("currentDeviceKey is required", nameof(currentDeviceKey));
         ArgumentNullException.ThrowIfNull(target);
 
-        var running = _runningSessionCount();
-        FileLog.Write($"[DirectorTeamMover] MoveAsync: device={deviceId}, target={(target.IsPersonal ? "personal account" : "team " + target.TeamId)}, runningSessions={running}");
+        using var hold = _holdSessionCreation(
+            $"this Director is moving to {target.Name}. Start the session again once the move is done.");
+        var running = hold.SessionsAtHold;
+        FileLog.Write($"[DirectorTeamMover] MoveAsync: target={(target.IsPersonal ? "personal account" : "team " + target.TeamId)}, sessionsAtHold={running}");
 
         var refusal = RefusalFor(running);
         if (refusal is not null)
@@ -89,19 +117,57 @@ public sealed class DirectorTeamMover
             return OperationResult<DirectorTeam>.Fail(refusal);
         }
 
-        var moved = await _service.MoveAsync(deviceId, target.TeamId, ct).ConfigureAwait(false);
+        var moved = await _service.MoveAsync(currentDeviceKey, target.TeamId, ct).ConfigureAwait(false);
         if (!moved.Success)
         {
             FileLog.Write($"[DirectorTeamMover] MoveAsync: the Gateway refused: {moved.ErrorMessage}");
             return OperationResult<DirectorTeam>.Fail(moved.ErrorMessage ?? "The Gateway refused the move.");
         }
-        if (string.IsNullOrWhiteSpace(moved.Value))
-            throw new InvalidOperationException("The Gateway accepted the move but returned no device key.");
 
+        // From here on the Gateway has moved the Director and revoked its old key. A local failure is caught so
+        // the person is told THAT, rather than "the move failed" (finding F4) - which is why this service method
+        // catches, against the usual entry-points-only rule.
         var team = target.ToTeam();
-        _persistKey(moved.Value);
-        _persistTeam(team);
-        FileLog.Write("[DirectorTeamMover] MoveAsync: moved; new device key and team stored");
+        if (string.IsNullOrWhiteSpace(moved.Value))
+        {
+            FileLog.Write("[DirectorTeamMover] MoveAsync: the Gateway accepted the move but sent no key");
+            return OperationResult<DirectorTeam>.Fail(MovedButKeyNotSaved(team.Name, "the Gateway sent no new key"));
+        }
+
+        try
+        {
+            _persistTeam(team);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, team NOT recorded: {ex.Message}");
+            return OperationResult<DirectorTeam>.Fail(MovedButTeamNotRecorded(team.Name, ex.Message));
+        }
+
+        try
+        {
+            _persistKey(moved.Value);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, team recorded, key NOT saved: {ex.Message}");
+            return OperationResult<DirectorTeam>.Fail(MovedButKeyNotSaved(team.Name, ex.Message));
+        }
+
+        if (_reapply is not null)
+        {
+            try
+            {
+                await _reapply().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[DirectorTeamMover] MoveAsync: moved and stored, re-apply FAILED: {ex.Message}");
+                return OperationResult<DirectorTeam>.Fail(MovedButNotApplied(team.Name, ex.Message));
+            }
+        }
+
+        FileLog.Write("[DirectorTeamMover] MoveAsync: moved; team and new device key stored, connection re-applied");
         return OperationResult<DirectorTeam>.Ok(team);
     }
 }
