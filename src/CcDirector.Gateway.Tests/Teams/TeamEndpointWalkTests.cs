@@ -464,8 +464,10 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
             _output.WriteLine($"{method} {pattern} as the team's Collaborator -> {(int)resp.StatusCode} {text}");
 
             Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+            // The refusal must be the role table's, through the gate - not only an endpoint's own later check.
             var body = JsonDocument.Parse(text).RootElement;
-            Assert.Equal(TeamEndpointGate.RefusalCode, body.GetProperty("code").GetString());
+            Assert.True(body.TryGetProperty("code", out var code) && code.GetString() == TeamEndpointGate.RefusalCode,
+                $"{method} {pattern} was refused, but not by the team gate: {text}");
         }
     }
 }
