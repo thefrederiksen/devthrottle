@@ -95,3 +95,49 @@ deviceId; setting a Director up again revokes that person's other keys for the s
   was critically low on memory. No verdict. Not restarted. The round-1 Gateway.Tests changes (the /healthz signal
   tests, the move body) therefore have NO Gateway.Tests run on this head; the -Parked run is where they are proven.
   Run 3 (round 0) covered the rest of these classes on the earlier head.
+
+GATEWAY REVIEW ROUND (rulings-2311-gateway-review1.md), rebased onto origin/main 24cf04bfa, fix commit 0c6ca344a.
+
+11. Revert proofs, each mutation restored in a finally block, then a fresh build (never --no-build on the restore):
+    dotnet build src/CcDirector.Gateway.UnitTests; dotnet test src/CcDirector.Gateway.UnitTests --no-build
+      --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams."
+  Hello check off (IsTeamKey && false)                       Failed 1 of 450  ATeamKey_SayingHelloUnderAnotherMembersDirectorId_...
+  Duplicate holders let through (Count > 99)                 Failed 1 of 450  TwoMembersDirectors_ClaimingOneSessionId_...
+  Session check in LeaveOtherPlaces off (sessions > 999)     Failed 4 of 450  Move_WithASessionRegistered_..., Move_WithASessionInTheRealRoster_...,
+                                                                              SettingADirectorUpForAnotherTeam_WhileItHasASession..., SettingADirectorUpForThePersonsOwnAccount_...
+  Old tunnel cut in LeaveOtherPlaces off                     Failed 3 of 450  Move_WithNoSession_..., Move_WithASessionInTheRealRoster_..., SettingADirectorUpForAnotherTeam_WithNoSession_...
+  TeamEnrollment.Over count returns 0                        Failed 3 of 450  Move_WithASessionInTheRealRoster_..., the two set-up-again 409 tests
+  Dark start tombstones team keys again                      Failed 1 of 450  Initialize_TeamsNotReleased_LeavesATeamKeyUntouched_...
+  Restored: Passed 450 of 450; git diff after restore empty.
+
+12. .\scripts\test-local.ps1  (default gate)
+  CcDirector.Core.UnitTests                outcome=Completed    total=1161   executed=1161
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+  RESULT: all projects exited zero. 3,476 passed, 0 failed.
+
+13. dotnet test src/CcDirector.Gateway.UnitTests in the same two halves as run 9.
+  Half A: Failed: 5, Passed: 3182, Total: 3187
+  Half B: Passed: 5293, Skipped: 8, Total: 5301
+  Together 8,488 = the whole suite (8 skipped is the standing count, as in runs 2 and 9).
+  The 5 failures are the same Wingman.OwnedSessionsAreNotReadTests as run 9.
+
+14. The 5 Wingman.OwnedSessionsAreNotReadTests, this head against clean main, class run alone
+    (--filter "FullyQualifiedName~OwnedSessionsAreNotReadTests"):
+  this head (0c6ca344a on 24cf04bfa)          Failed 5, Passed 19, Total 24
+  clean d3c225be2 (scratch worktree, built)   Failed 5, Passed 19, Total 24   - the same five tests by name
+  clean 24cf04bfa (same worktree, rebuilt)    Failed 5, Passed 19, Total 24
+  The scratch worktree was removed afterwards. They fail identically without this change, so they are not caused by it.
+
+15. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams."
+  STOPPED, no verdict. Still running after 15 minutes when the Tech Lead relayed the owner's instruction to free
+  memory: no long Gateway.Tests runs locally. Stopped, and its throwaway PostgreSQL container removed. The Tech Lead
+  runs the full suite in continuous integration on this branch. The Gateway.Tests classes for teams were not changed
+  in this round; the code under them was, so they have no run on this head.

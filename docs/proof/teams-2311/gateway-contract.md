@@ -92,10 +92,20 @@ session that Director registers belongs to that team. The registry id is namespa
 two members presenting the same `deviceId` never share a row, and one person's Directors on two teams are two rows.
 `deviceCount` counts the keys in the team's tenant.
 
-**One Director, one key, one place.** Where Teams is released, setting a Director up (for a team or for the person's
-own account) revokes that person's OTHER keys for the same `deviceId` (reason `director_set_up_again`). Another
-Director of the same person, and the same `deviceId` set up by someone else, are untouched. Where Teams is dark nothing
-is revoked - no other key of that Director can be live there.
+**One Director, one key, one place - and setting it up somewhere else IS a move (review F1).** Where Teams is released,
+setting a Director up in a DIFFERENT tenant from one where that person already holds a working key for the same
+`deviceId` (another team, or the person's own account) gets exactly the move's rules, from the one piece of code both
+use (`LeaveOtherPlaces`):
+
+- while that Director has **any session registered** in the place it would leave, it is refused with the move's **409**
+  `This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.` -
+  no key is minted and the old key and tunnel stay;
+- otherwise that person's OTHER keys for the same `deviceId` are revoked (reason `director_set_up_again`) and the
+  Director's **open tunnel in the place it left is cut**, before the new key is issued.
+
+Setting a Director up again in the **same** tenant is today's behaviour: no session check, no tunnel cut, a fresh key.
+Another Director of the same person, and the same `deviceId` set up by someone else, are untouched. Where Teams is dark
+nothing is revoked - no other key of that Director can be live there.
 
 A team enrollment **never reaches the personal trial or paid gate**: a team has no trial, and a member is never
 refused for the bill here. It also mints no personal tenant.
@@ -108,6 +118,7 @@ are unchanged and apply only to a personal enrollment):
 | 400 | `teamId` given, Teams not released | `This DevThrottle service does not offer teams yet, so a Director cannot be set up for one. Leave the team out to set it up for your own account.` |
 | 403 | not a member of that team, or no such team (one answer for both) | `You cannot run sessions in that team, so a Director cannot be set up for it. You are not a member of this team, so you cannot do anything in it. Ask the team's Owner or a Manager to invite you.` |
 | 403 | a Collaborator in that team | `You cannot run sessions in that team, so a Director cannot be set up for it. In this team you are a Collaborator, and a Collaborator may not run sessions on their own computers.` |
+| 409 | Teams released, the person's working key for this `deviceId` is in another tenant, and the Director has a session registered there | `This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.` |
 
 Every 403 starts with `CannotRunSessionsInTeamLead` ("You cannot run sessions in that team, so a Director cannot be
 set up for it."); the role table's own sentence follows. No key is minted on any refusal.
@@ -133,7 +144,8 @@ to the account the token names.
 reconnect with it. On success, in this order:
 
 1. the old key is **revoked** (reason `director_moved_to_another_team`) - it never works again;
-2. the Director's open tunnel on the old team, on this Gateway, is cut;
+2. the Director's open tunnel on the old team, on this Gateway, is cut (steps 1 and 2, and the 409 for sessions, are
+   the same code setting a Director up somewhere else runs - section 2);
 3. a new key bound to the new team (or the person's own account) is issued, keeping the machine name, platform and
    device type.
 
@@ -151,7 +163,7 @@ own account, the personal paid gate (trial on a first arrival, 402 / 503 as enro
 | 403 | not a member of the target team / a Collaborator there | as enrollment |
 | 404 | this account has no working key for that Director id (never set up, revoked, its person removed from the team) | `This account has no Director set up with that id, or its key is no longer active, so it cannot be moved. Set the Director up again.` |
 | 409 | the Director is already in that team (or already personal) | `This Director is already set up for that team. Nothing was changed.` |
-| 409 | the Director has **any session registered on the Gateway** (its last known roster there) | `This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.` |
+| 409 | the Director has **any session registered on the Gateway** (its last known roster there, read by the id it said Hello with - which for a team key is the id it was set up with, section 4) | `This Director still has sessions open. Close every session on it, then change its team. Nothing was changed.` |
 | 409 | this account holds more than one working key for that id (enrollment no longer leaves this behind) | `This Director is set up in more than one place, so DevThrottle cannot tell which one to move. Set the Director up again.` |
 | 404 | Teams not released (route not mapped) | the ordinary not-found answer |
 
@@ -170,13 +182,25 @@ too, before it asks (D3), and holds session creation while the move runs.
   `team_member_removed` or `team_role_cannot_run_sessions`) and their **open tunnels on that team** are cut. Never the
   team's other members', never the person's other teams', never their personal tenant's. Invited back, the Director
   is set up again - the same as after a restart, whose start-up check quarantines such a key.
-- **Start-up quarantine** keeps a team key whose person may still run sessions there and quarantines any other
-  (reason `invalid_tenant_binding`), as before.
+- **A team key says Hello for its own Director only (review F2).** A team key's Hello is accepted only under the
+  Director id its own device row was enrolled with (the row id ends in `|<deviceId>`; compared ignoring letter case).
+  Any other id is refused at Hello and the tunnel is closed before anything is registered - so a member can never take
+  a colleague's Director id. A personal key is unchanged.
+- **Start-up quarantine, Teams released**, keeps a team key whose person may still run sessions there and quarantines
+  any other (reason `invalid_tenant_binding`), as before.
+- **Start-up with Teams NOT released leaves every team key UNTOUCHED (review F4)** - no tombstone, no reason written.
+  While dark such a key already resolves revoked on every request and every Hello, so nothing gets in; switching Teams
+  back on restores it, with nothing set up again by hand. **For whoever flips `CC_GATEWAY_TEAMS`:** turning it off
+  for a start (an incident, a missing variable on a deploy) cuts every team's Directors off until it is on again, but
+  destroys nothing. A key bound to a tenant that is no team's and not its person's own is quarantined as before.
 - **The team gate knows who is calling.** Inside a team's tenant the caller is the key's person. For a person's
   private things, the gate asks whose they are: the tunnel is the key's own; a Director is the person its Hello key
-  was issued to; a session (any route naming `{sid}`) is its Director's person's. Touching another member's session is
-  joining or watching it, which no role may (403). A list across the team, an unknown session or Director, or a
-  request not made with a device key is refused, never guessed.
+  was issued to; a session (any route naming `{sid}`) is the caller's own only when **exactly one** Director in the
+  team holds that session id in its roster and that Director is the caller's. Two Directors holding one id is nobody's
+  own and is refused (review F2); the roster itself does not refuse the duplicate, because a roster that kept the first
+  writer would let a Director hide a colleague's session from them. Touching another member's session is joining or
+  watching it, which no role may (403). A list across the team, an unknown session or Director, or a request not made
+  with a device key is refused, never guessed.
 
 ## 5. What is NOT entitled for a team tenant yet (the next step)
 
@@ -185,5 +209,5 @@ The request-path **access lease** (`HostedAccessLeaseService`) reads a PERSONAL 
 authenticated request and every Hello made with a team key is answered 402** `hosted_subscription_required` by the
 auth middleware - the key authenticates, and the bill check refuses it. Nothing is revoked by this (the lease denies
 without a tombstone when the tenant names no subject). Wiring the lease, the narration plan and
-`PreFreeTierKeyReinstatement` to the team's bill through `EvaluateTeamTenant` is the step after #3521 merges. Until
+`PreFreeTierKeyReinstatement` to the team's bill through `EvaluateTeamTenant` (merged in #3521) is the next step. Until
 then a Director set up for a team can enroll, list its teams and move, but cannot connect its tunnel.
