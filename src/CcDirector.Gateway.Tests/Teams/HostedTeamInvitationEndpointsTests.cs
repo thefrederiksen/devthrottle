@@ -116,9 +116,14 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, m);
         Assert.Equal("Only the Owner can invite a Manager.", mBody.GetProperty("error").GetString());
 
+        // A Developer is refused by the team gate (#2302) before the invitation code runs, in the role table's own words.
         var (d, dBody) = await Send(HttpMethod.Post, $"teams/{team}/invitations", _keyBob, new { email = "x@y.example", role = "Collaborator" });
         Assert.Equal(HttpStatusCode.Forbidden, d);
-        Assert.Equal("Only the team's Owner and Managers can invite people.", dBody.GetProperty("error").GetString());
+        Assert.Equal(TeamEndpointGate.RefusalCode, dBody.GetProperty("code").GetString());
+        Assert.Equal(TeamAccessDecision.RoleRefusal(TeamRole.Developer, TeamPermissions.Row(TeamAction.InviteOrRemoveDevelopersAndCollaborators)),
+            dBody.GetProperty("error").GetString());
+        using (var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext())
+            Assert.Equal(0, ctx.TeamInvitations.Count(i => i.TeamId == team));
 
         var (ok, _) = await Send(HttpMethod.Post, $"teams/{team}/invitations", _keyManager, new { email = "x@y.example", role = "Developer" });
         Assert.Equal(HttpStatusCode.Created, ok);
