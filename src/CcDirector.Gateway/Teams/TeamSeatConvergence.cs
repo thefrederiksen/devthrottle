@@ -13,6 +13,11 @@ namespace CcDirector.Gateway.Teams;
 /// <see cref="TeamSeatSync.ConvergeAsync"/>, which compares it with the seats on the team's bill and calls the sync
 /// again only where the two differ. A team with no bill (checkout not finished) or a cancelled one is skipped.
 ///
+/// A TEAM WHOSE SUBSCRIPTION HAS ENDED IS NOT RETRIED FOREVER (devthrottle_internal#2311). When the website refuses
+/// because the team has no running bill, the counts can never match, so <see cref="TeamSeatSync"/> marks the team,
+/// logs it once, and this pass stops calling for it until the team's bill row changes. Every other failure is
+/// retried on the next pass as before.
+///
 /// IT IS NOT A LOOP. One pass calls the sync at most once per team. The website answers by setting the bill's quantity
 /// to the count it reads itself and heals team_entitlements.seats when only the row was behind, so on the next pass the
 /// two counts match and nothing is called. A team that still differs on the next pass is called once more on that
@@ -65,17 +70,20 @@ public sealed class TeamSeatConvergence
             var counts = PaidMemberCounts();
             var called = 0;
             var failed = 0;
+            var stopped = 0;
             foreach (var (teamId, paid) in counts)
             {
                 ct.ThrowIfCancellationRequested();
                 var (verdict, call) = await _seatSync.ConvergeAsync(teamId, paid, ct).ConfigureAwait(false);
                 if (verdict == SeatSyncVerdict.Unknown)
                     FileLog.Write("[TeamSeatConvergence] RunOnceAsync: a team's bill could not be read - left for the next pass");
+                if (verdict == SeatSyncVerdict.SubscriptionEnded)
+                    stopped++;
                 if (call is null) continue;
                 called++;
                 if (!call.Synced) failed++;
             }
-            FileLog.Write($"[TeamSeatConvergence] RunOnceAsync: {counts.Count} team(s) checked, sync called for {called}, {failed} of those not done (retried next pass)");
+            FileLog.Write($"[TeamSeatConvergence] RunOnceAsync: {counts.Count} team(s) checked, sync called for {called}, {failed} of those not done (retried next pass), {stopped} not called because their subscription has ended and their bill has not changed");
             return called;
         }
         finally

@@ -14,7 +14,20 @@ namespace CcDirector.Core.Account;
 /// <param name="Error">The website's own human-readable message on a refusal, or a sentence saying why no call
 /// was made. Null on success.</param>
 /// <param name="ErrorCode">The website's machine-readable code on a refusal, for logging only.</param>
-public sealed record TeamSeatSyncResult(bool Synced, int StatusCode, string? Error, string? ErrorCode);
+public sealed record TeamSeatSyncResult(bool Synced, int StatusCode, string? Error, string? ErrorCode)
+{
+    /// <summary>
+    /// True only for the website's one refusal that means "this team has no running bill": HTTP 409 with the code
+    /// <see cref="TeamSeatSyncClient.NoActiveSubscriptionCode"/>. The website answers it when its own row for the
+    /// team is not billed, and when the payment provider says the subscription has ended - either way no call can
+    /// succeed until the team's bill row changes. Every other failure (no response, a 5xx, a timeout, a missing
+    /// credential, any other refusal) is false, and is retried as before.
+    /// </summary>
+    public bool SubscriptionEnded =>
+        !Synced
+        && StatusCode == 409
+        && string.Equals(ErrorCode, TeamSeatSyncClient.NoActiveSubscriptionCode, StringComparison.Ordinal);
+}
 
 /// <summary>
 /// The Gateway's client for <c>POST /api/v1/teams/sync-seats</c> (devthrottle_internal #2299): "this team's
@@ -32,6 +45,12 @@ public sealed class TeamSeatSyncClient
 {
     /// <summary>The website route that recounts and re-bills one team's seats.</summary>
     public const string SyncSeatsPath = "/api/v1/teams/sync-seats";
+
+    /// <summary>
+    /// The website's machine-readable code, on a 409, for "this team has no running bill, so there is no seat count
+    /// to change" (devthrottle_internal #2299, <c>syncTeamSeats</c>). See <see cref="TeamSeatSyncResult.SubscriptionEnded"/>.
+    /// </summary>
+    public const string NoActiveSubscriptionCode = "no_active_team_subscription";
 
     private readonly HttpClient _client;
     private readonly string _baseUrl;

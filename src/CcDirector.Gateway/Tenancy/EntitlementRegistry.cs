@@ -509,13 +509,32 @@ public sealed class EntitlementRegistry
             var row = ctx.TeamEntitlements.AsNoTracking().FirstOrDefault(e => e.TeamId == id);
             if (row is null)
                 return new TeamBilledSeats(Known: true, HasBill: false, Status: null, Seats: null);
-            return new TeamBilledSeats(Known: true, HasBill: true, Status: (row.Status ?? "").Trim(), Seats: row.Seats);
+            return new TeamBilledSeats(Known: true, HasBill: true, Status: (row.Status ?? "").Trim(), Seats: row.Seats,
+                Fingerprint: TeamBillFingerprint(row));
         }
         catch (Exception ex)
         {
             FileLog.Write($"[EntitlementRegistry] ReadTeamBilledSeats: team={new Core.Tenancy.TenantId(id).ToLogString()} READ FAILED ({ex.GetType().Name}) - the seat count is unknown; convergence will retry");
             return new TeamBilledSeats(Known: false, HasBill: false, Status: null, Seats: null);
         }
+    }
+
+    /// <summary>
+    /// A fingerprint of a team's bill row: its status, seats, period end, subscription reference and when the payment
+    /// side last wrote it. Any change to any of those changes the fingerprint. Used by the seat convergence to tell
+    /// "the bill has changed since the website refused" from "nothing has changed" (devthrottle_internal#2311). A
+    /// one-way hash, so the subscription reference never sits readable in memory or in a printed record.
+    /// </summary>
+    public static string TeamBillFingerprint(Data.Entities.TeamEntitlementEntity row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        var joined = string.Join("\n",
+            (row.Status ?? "").Trim(),
+            row.Seats?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
+            row.CurrentPeriodEnd?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
+            row.StripeSubscriptionId ?? "",
+            row.UpdatedAt?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "");
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(joined)));
     }
 
     /// <summary>The state meaning a live, paid subscription.</summary>
@@ -638,9 +657,10 @@ public sealed record TeamTenantDecision(bool IsMember, EntitlementDecision? Enti
 /// <summary>
 /// What a team row says about its billed seats, for the seat-convergence check. <see cref="Known"/> false means
 /// the read failed (nothing else on the record is meaningful); <see cref="HasBill"/> false means the read
-/// succeeded and the team has no bill yet.
+/// succeeded and the team has no bill yet. <see cref="Fingerprint"/> is
+/// <see cref="EntitlementRegistry.TeamBillFingerprint"/> of the row when there is one, and null when there is not.
 /// </summary>
-public sealed record TeamBilledSeats(bool Known, bool HasBill, string? Status, int? Seats);
+public sealed record TeamBilledSeats(bool Known, bool HasBill, string? Status, int? Seats, string? Fingerprint = null);
 
 /// <summary>
 /// THE ONE PLACE that says which team roles are PAID SEATS (#2299, owner 3 Oct 2026: "Every team member pays.
