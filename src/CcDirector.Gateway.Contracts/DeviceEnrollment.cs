@@ -28,7 +28,10 @@ public sealed class EnrollSignedInRequest
     /// HOSTED ONLY (devthrottle_internal#2311): the team this Director is set up for, one of the teams
     /// <c>GET /devices/enroll-hosted/teams</c> offered. Null or absent sets it up for the person's own account,
     /// exactly as before teams existed. Refused by a Gateway on which Teams is not released.
+    /// Left out of the JSON when null, so a personal enrollment's body is byte-for-byte the body sent before teams
+    /// existed - what an older Gateway has always read, and what the Director's own tests pin.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? TeamId { get; set; }
 }
 
