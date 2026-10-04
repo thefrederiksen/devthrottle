@@ -13,7 +13,7 @@ try {
     }, role);
     await page.goto("http://127.0.0.1:5317/skills", { waitUntil: "domcontentloaded" });
     if (role === "collaborator") await page.getByRole("note").first().waitFor({ timeout: 30000 });
-    else await page.getByText("release-checklist").first().waitFor({ timeout: 30000 });
+    else await page.getByText("Release checklist").first().waitFor({ timeout: 30000 });
     await page.waitForTimeout(800);
     await page.screenshot({ path: `${out}/s5-${role}.png` });
     console.log("captured", role);

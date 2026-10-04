@@ -1,13 +1,15 @@
 // A stand-in Gateway for the S5 screenshots ONLY. It answers /teams and /teams/{id}/library in exactly the shapes
 // the real Gateway's #3532 routes answer (see HostedTeamLibraryTests and docs/proof/teams-2304/README.md); the role
-// comes from the device key the page sends. Everything else answers 404.
+// comes from the device key the page sends. Everything else answers 404, so these screens show the read-only render
+// per role and nothing about Add, Change or Remove (those are covered by the component and client tests). The rows are
+// team-owned ids: the real library never lists a built-in, and a team can never own a built-in's id.
 import http from "node:http";
 const roles = { "key-owner": "Owner", "key-manager": "Manager", "key-developer": "Developer", "key-collaborator": "Collaborator" };
 const refusal = (role, words) => `In this team you are a ${role}, and a ${role} may not ${words}.`;
 const items = (canChange) => [
-  { id: "dev-reports", name: "dev-reports", summary: "A report for the owner is one HTML page, never a file path.", kind: "Skill", enabled: true, version: 4, changedAtUtc: "2026-09-21T15:00:00Z", changedBy: "soren@example.com", canChange },
-  { id: "release-checklist", name: "release-checklist", summary: "The steps every release follows, in order.", kind: "Skill", enabled: true, version: 2, changedAtUtc: "2026-10-02T15:00:00Z", changedBy: "priya@example.com", canChange },
-  { id: "standalone-with-review", name: "standalone-with-review", summary: "One session does the work, a second one reviews it.", kind: "Workflow", enabled: true, version: 1, changedAtUtc: "2026-09-28T15:00:00Z", changedBy: "soren@example.com", canChange },
+  { id: "incident-notes", name: "Incident notes", summary: "What to write down while an incident is still open.", kind: "Skill", enabled: true, version: 4, changedAtUtc: "2026-09-21T15:00:00Z", changedBy: "soren@example.com", canChange },
+  { id: "release-checklist", name: "Release checklist", summary: "The steps every release follows, in order.", kind: "Skill", enabled: true, version: 2, changedAtUtc: "2026-10-02T15:00:00Z", changedBy: "priya@example.com", canChange },
+  { id: "our-review", name: "Our review", summary: "One session does the work, a second one reviews it.", kind: "Workflow", enabled: true, version: 1, changedAtUtc: "2026-09-28T15:00:00Z", changedBy: "soren@example.com", canChange },
 ];
 http.createServer((req, res) => {
   const key = (req.headers.authorization ?? "").replace("Bearer ", "");
