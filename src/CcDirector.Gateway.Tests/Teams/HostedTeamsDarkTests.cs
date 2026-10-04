@@ -17,6 +17,14 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// hosted Gateway does not map the team routes at all: an enrolled account gets the ordinary not-found answer on
 /// every one, and no team can be created. <see cref="HostedTeamEndpointsTests"/> is the other half: switched on, the
 /// same routes answer. A REAL hosted <see cref="GatewayHost"/> over REAL HTTP, so the proof is about what is mapped.
+///
+/// "Not mapped" is proven three ways, none of which depends on how the build was made: the finalised route table
+/// holds nothing under /teams; a request to a team route gets exactly the answer a path that never existed gets (see
+/// <see cref="AssertAnsweredAsAPathThatDoesNotExist"/>); and nothing was written. A fixed 404 is NOT the proof, because
+/// a GET of ANY unmapped path is answered by the Cockpit fallback: 404 when the React Cockpit is not in the test
+/// output, and the 200 Cockpit shell when it is - and whether it is depends on the build (a Release build stages it)
+/// and on test ORDER (CockpitReactAppServingTests deletes that folder when it finishes). Pinned to 404, these tests
+/// passed or failed with the order the runner picked.
 /// </summary>
 [Collection("GatewayHostedMode")]
 public sealed class HostedTeamsDarkTests : IAsyncLifetime
@@ -70,15 +78,10 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
     public async Task SwitchUnset_EveryTeamRouteIsAbsent_AndNoTeamCanBeCreated()
     {
         Assert.False(_gateway.TeamsReleased);
+        Assert.DoesNotContain(MappedPatterns(), p => p.StartsWith("/teams", StringComparison.Ordinal));
 
         foreach (var (method, path) in new[] { (HttpMethod.Get, "teams"), (HttpMethod.Post, "teams"), (HttpMethod.Get, $"teams/{Guid.NewGuid()}/members") })
-        {
-            using var req = new HttpRequestMessage(method, path);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
-            if (method == HttpMethod.Post) req.Content = JsonContent.Create(new { name = "Should not exist" });
-            using var resp = await _http.SendAsync(req);
-            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        }
+            await AssertAnsweredAsAPathThatDoesNotExist(method, path, new { name = "Should not exist" });
         // Absence is proven by what was written, not by the words of the answer (the Gateway's not-found answer
         // echoes the path, which itself says "teams"): the create did not reach the registry.
         Assert.Empty(_gateway.TeamRegistry.ListTeamsFor(_subject));
@@ -142,8 +145,7 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
     {
         // devthrottle_internal#2304. Read from the finalised route table: nothing under /teams is mapped at all - while
         // the ordinary skill and workflow routes are, so the table read is not an empty one.
-        var patterns = _gateway.MappedEndpoints.OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
-            .Select(e => CcDirector.Gateway.Teams.TeamEndpointRules.Normalize(e.RoutePattern.RawText)).ToArray();
+        var patterns = MappedPatterns();
         Assert.Contains("/gateway/skills", patterns);
         Assert.Contains("/gateway/workflows", patterns);
         Assert.DoesNotContain(patterns, p => p.StartsWith("/teams", StringComparison.Ordinal));
@@ -151,17 +153,41 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         var team = Guid.NewGuid();
         foreach (var (method, path) in new[] { (HttpMethod.Get, $"teams/{team}/skills"), (HttpMethod.Get, $"teams/{team}/workflows"),
                      (HttpMethod.Get, $"teams/{team}/library"), (HttpMethod.Post, $"teams/{team}/skills") })
-        {
-            using var req = new HttpRequestMessage(method, path);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
-            if (method == HttpMethod.Post) req.Content = JsonContent.Create(new { id = "dark-skill", name = "Dark", summary = "s", bodyMarkdown = "# d" });
-            using var resp = await _http.SendAsync(req);
-            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        }
+            await AssertAnsweredAsAPathThatDoesNotExist(method, path, new { id = "dark-skill", name = "Dark", summary = "s", bodyMarkdown = "# d" });
 
         using var own = new HttpRequestMessage(HttpMethod.Get, "gateway/skills");
         own.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
         using var ownResp = await _http.SendAsync(own);
         Assert.Equal(HttpStatusCode.OK, ownResp.StatusCode);
+        Assert.Equal("application/json", ownResp.Content.Headers.ContentType?.MediaType);
+    }
+
+    private string[] MappedPatterns() => _gateway.MappedEndpoints.OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
+        .Select(e => CcDirector.Gateway.Teams.TeamEndpointRules.Normalize(e.RoutePattern.RawText)).ToArray();
+
+    /// <summary>
+    /// The team route is answered exactly as a path that was never mapped is answered, by the same caller with the same
+    /// verb - the same status and the same kind of body - and never as JSON from a handler. That holds whether the
+    /// fallback behind it is a 404 or the Cockpit shell, so the proof does not change with the build or the test order.
+    /// A POST is always the fallback's 404, which no team handler could give for a create.
+    /// </summary>
+    private async Task AssertAnsweredAsAPathThatDoesNotExist(HttpMethod method, string path, object postBody)
+    {
+        using var teamResp = await SendAsync(method, path, postBody);
+        using var controlResp = await SendAsync(method, "no-such-route-" + Guid.NewGuid().ToString("N"), postBody);
+
+        Assert.Equal(controlResp.StatusCode, teamResp.StatusCode);
+        Assert.Equal(controlResp.Content.Headers.ContentType?.MediaType, teamResp.Content.Headers.ContentType?.MediaType);
+        Assert.False(teamResp.StatusCode == HttpStatusCode.OK && teamResp.Content.Headers.ContentType?.MediaType == "application/json",
+            $"{method} /{path} was answered 200 with data, so a handler answered it: the team route is mapped while Teams is dark.");
+        if (method == HttpMethod.Post) Assert.Equal(HttpStatusCode.NotFound, teamResp.StatusCode);
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object postBody)
+    {
+        using var req = new HttpRequestMessage(method, path);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
+        if (method == HttpMethod.Post) req.Content = JsonContent.Create(postBody);
+        return await _http.SendAsync(req);
     }
 }
