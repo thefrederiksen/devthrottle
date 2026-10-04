@@ -398,6 +398,46 @@ public sealed class TeamEndpointGateTests : IDisposable
     }
 
     [Fact]
+    public void Check_AnAllowedRequest_CarriesTheTeamItWasAllowedIn_ARefusedOneCarriesNone()
+    {
+        Assert.Equal(_team, ByRoute("GET", "/teams/{teamId}/skills", Developer, _team).TeamId);
+        Assert.Equal(_team, InTeam("GET", "/gateway/skills", Developer, TeamOwnership.Callers).TeamId);
+        Assert.Null(ByRoute("POST", "/teams/{teamId}/skills", Developer, _team).TeamId);
+        Assert.Null(ByRoute("GET", "/teams/{teamId}/skills", Stranger, _team).TeamId);
+    }
+
+    [Fact]
+    public async Task RunAsync_AllowedInATeam_RecordsThatTeamOnTheRequest()
+    {
+        var ctx = Request("GET", "/teams/{teamId}/skills", _tenants.MintOrLookupBySubject(Developer, null).Value, _team);
+        string? seenByEndpoint = null;
+
+        await _gate.RunAsync(ctx, () => { seenByEndpoint = TeamEndpointGate.AllowedTeam(ctx); return Task.CompletedTask; });
+
+        Assert.Equal(_team, seenByEndpoint);
+    }
+
+    [Fact]
+    public async Task RunAsync_RefusedOrNotATeamRequest_RecordsNoTeam()
+    {
+        var refused = Request("POST", "/teams/{teamId}/skills", _tenants.MintOrLookupBySubject(Developer, null).Value, _team);
+        await _gate.RunAsync(refused, () => throw new InvalidOperationException("the endpoint ran"));
+        Assert.Equal(StatusCodes.Status403Forbidden, refused.Response.StatusCode);
+        Assert.Null(TeamEndpointGate.AllowedTeam(refused));
+
+        var personal = Request("GET", "/gateway/skills", _tenants.MintOrLookupBySubject(Developer, null).Value);
+        string? seen = "not asked";
+        await _gate.RunAsync(personal, () => { seen = TeamEndpointGate.AllowedTeam(personal); return Task.CompletedTask; });
+        Assert.Null(seen);
+    }
+
+    [Fact]
+    public void AllowedTeam_NoContext_Throws()
+    {
+        Assert.Throws<ArgumentNullException>(() => TeamEndpointGate.AllowedTeam(null!));
+    }
+
+    [Fact]
     public async Task RunAsync_NoEndpointAndNoKey_GoesOn()
     {
         var ctx = new DefaultHttpContext();

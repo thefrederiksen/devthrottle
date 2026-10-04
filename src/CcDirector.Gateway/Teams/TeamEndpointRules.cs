@@ -99,6 +99,15 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/teams/{teamId}/invitations", TeamMethods.Read, TeamAction.SeeMembersAndRoles, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         new TeamEndpointRule("/teams/{teamId}/invitations", TeamMethods.Write, TeamAction.InviteOrRemoveDevelopersAndCollaborators, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
 
+        // The team's shared skills and workflows, managed from a person's own account (devthrottle_internal#2304):
+        // the Skills and workflows page (S5) reads and changes them here. Reading them is using them; anything else
+        // changes them. Built-ins stay read-only inside a team as everywhere - the store refuses that, not this table.
+        new TeamEndpointRule("/teams/{teamId}/library", TeamMethods.Read, TeamAction.UseSharedSkillsAndWorkflows, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule("/teams/{teamId}/skills", TeamMethods.Read, TeamAction.UseSharedSkillsAndWorkflows, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        new TeamEndpointRule("/teams/{teamId}/skills", TeamMethods.Write, TeamAction.ChangeSharedSkillsAndWorkflows, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        new TeamEndpointRule("/teams/{teamId}/workflows", TeamMethods.Read, TeamAction.UseSharedSkillsAndWorkflows, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        new TeamEndpointRule("/teams/{teamId}/workflows", TeamMethods.Write, TeamAction.ChangeSharedSkillsAndWorkflows, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+
         // Sessions: a person's own sessions; touching another person's is joining or watching it.
         new TeamEndpointRule("/sessions", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
         new TeamEndpointRule("/interrupted", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),

@@ -38,8 +38,9 @@ public enum TeamOwnership
 }
 
 /// <summary>The gate's verdict on one request. <see cref="Message"/> is the sentence a person reads, set on every
-/// refusal.</summary>
-public sealed record TeamGateVerdict(TeamGateOutcome Outcome, TeamAction? Action, TeamRole? Role, string? Message)
+/// refusal. <see cref="TeamId"/> is the team the request was allowed in, set exactly when it was allowed.</summary>
+public sealed record TeamGateVerdict(TeamGateOutcome Outcome, TeamAction? Action, TeamRole? Role, string? Message,
+    string? TeamId = null)
 {
     public static readonly TeamGateVerdict NotATeamRequest = new(TeamGateOutcome.NotATeamRequest, null, null, null);
 }
@@ -86,6 +87,10 @@ public sealed class TeamEndpointGate
     public const string OwnershipUnknownRefusal =
         "DevThrottle cannot confirm that what this request touches is yours - your own sessions, computers, transcripts " +
         "and prompts - so inside a team it refuses it. Nothing was done.";
+
+    /// <summary>The <see cref="HttpContext.Items"/> key under which <see cref="RunAsync"/> records the team a request
+    /// was ALLOWED in. Read through <see cref="AllowedTeam"/>.</summary>
+    public const string AllowedTeamItemKey = "cc.teams.allowed-team";
 
     private readonly TeamAccess _access;
     private readonly TeamRegistry _teams;
@@ -164,7 +169,7 @@ public sealed class TeamEndpointGate
             return Refuse(where, action, role, OwnOnlyRefusal(role, action));
         if (ownership == TeamOwnership.Unknown)
             return Refuse(where, action, role, OwnershipUnknownRefusal);
-        return Allow(where, action, role);
+        return Allow(where, action, role, teamId);
     }
 
     /// <summary>
@@ -190,7 +195,10 @@ public sealed class TeamEndpointGate
         switch (verdict.Outcome)
         {
             case TeamGateOutcome.NotATeamRequest:
+                await next().ConfigureAwait(false);
+                return;
             case TeamGateOutcome.Allowed:
+                ctx.Items[AllowedTeamItemKey] = verdict.TeamId;
                 await next().ConfigureAwait(false);
                 return;
             case TeamGateOutcome.NoSuchTeam:
@@ -202,6 +210,18 @@ public sealed class TeamEndpointGate
                 await ctx.Response.WriteAsJsonAsync(new { error = verdict.Message, code = RefusalCode }).ConfigureAwait(false);
                 return;
         }
+    }
+
+    /// <summary>
+    /// The team this gate ALLOWED <paramref name="ctx"/> to act in, or null when it allowed nothing - because the
+    /// request is not a team request, was refused, or never met the gate. An endpoint that acts in a team named by
+    /// its route asks this before it enters that team, so if the gate is ever bypassed or miswired the endpoint
+    /// refuses rather than serving the team's rows unchecked (devthrottle_internal#2304).
+    /// </summary>
+    public static string? AllowedTeam(HttpContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        return ctx.Items.TryGetValue(AllowedTeamItemKey, out var value) ? value as string : null;
     }
 
     /// <summary>
@@ -226,10 +246,10 @@ public sealed class TeamEndpointGate
                "This answer covers the whole team, so it is refused.";
     }
 
-    private static TeamGateVerdict Allow(string where, TeamAction action, TeamRole role)
+    private static TeamGateVerdict Allow(string where, TeamAction action, TeamRole role, string teamId)
     {
         FileLog.Write($"[TeamEndpointGate] {where}: ALLOWED action={action} role={role}");
-        return new TeamGateVerdict(TeamGateOutcome.Allowed, action, role, null);
+        return new TeamGateVerdict(TeamGateOutcome.Allowed, action, role, null, teamId);
     }
 
     private static TeamGateVerdict Refuse(string where, TeamAction? action, TeamRole? role, string message)
