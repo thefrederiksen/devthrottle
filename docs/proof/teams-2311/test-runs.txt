@@ -217,3 +217,22 @@ REBASED onto origin/main f2c5c29a9 (after #3526 invitations, #3535, #3528 Direct
     Gateway.Tests, built with the Cockpit, filter HostedTeamsDarkTests|HostedTeamDirectorKeyTests|
       HostedTeamDirectorKeyDarkTests|Invitation: Passed 25, Skipped 1 (AddTeamInvitationsPostgresTests, needs the
       PostgreSQL this short run does not start), 0 failed.
+
+ONE ANSWER TO "WHOSE DIRECTOR IS THIS" (Tech Lead, seam-director-key.md; #3533 not merged, so this is the one public
+method). Commit 3523df018.
+
+24. TeamCallerOwnership.OwnerOf(tenant, directorId) is public: the account subject on the ACTIVE device credential the
+    Director said Hello on, bound to THIS tenant; null otherwise. It reads DeviceRegistry.AccountSubjectOfActiveDevice
+    (replacing AccountSubjectOfDevice, which read any row), which keeps #3533's two refusals: a revoked credential, and
+    one bound to another tenant.
+    Teams unit tests: Passed 602, Skipped 1 (TeamInvitationProofRig).
+    Revert proofs (restore in finally, fresh build):
+      revoked credential still names its person          Failed 2 of 603  AccountSubjectOfActiveDevice_NamesNobody_...,
+                                                                          OwnerOf_ADirectorWhoseKeyIsRevoked_IsNobodys_...
+      credential bound to another tenant still names it  Failed 1 of 603  AccountSubjectOfActiveDevice_NamesNobody_...
+      Restored: Passed 602, no diff.
+    Gateway.UnitTests, two halves: Half A Passed 3339, Skipped 1; Half B Passed 5311, Skipped 8. 8,659, 0 failed.
+    Gateway.Tests built with the Cockpit, filter HostedTeamsDarkTests|HostedTeamDirectorKeyTests|
+      HostedTeamDirectorKeyDarkTests|Invitation|TeamEndpointWalkTests: Passed 42, Skipped 1 (the PostgreSQL migration
+      test), 0 failed.
+    .\scripts\test-local.ps1 (default gate): every suite outcome=Completed; 3,594 passed, 0 failed.

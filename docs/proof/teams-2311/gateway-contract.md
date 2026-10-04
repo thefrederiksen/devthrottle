@@ -208,7 +208,9 @@ no team route.
   tell which one to move. Set the Director up again.` until it is set up again, which revokes the other key.
 - **The team gate knows who is calling.** Inside a team's tenant the caller is the key's person. For a person's
   private things, the gate asks whose they are: the tunnel is the key's own; a Director is the person its Hello key
-  was issued to; a session (any route naming `{sid}`) is the caller's own only when **exactly one** Director in the
+  was issued to, and only while that key is ACTIVE and bound to THIS tenant - a revoked key, or one bound to another
+  tenant, makes the Director nobody's, and it is refused (`TeamCallerOwnership.OwnerOf`, the ONE answer to "whose
+  Director is this"; the team Fleet Map is to ask it too); a session (any route naming `{sid}`) is the caller's own only when **exactly one** Director in the
   team holds that session id in its roster and that Director is the caller's. Two Directors holding one id is nobody's
   own and is refused (review F2); the roster itself does not refuse the duplicate, because a roster that kept the first
   writer would let a Director hide a colleague's session from them. **And when the Gateway holds a stored conversation
