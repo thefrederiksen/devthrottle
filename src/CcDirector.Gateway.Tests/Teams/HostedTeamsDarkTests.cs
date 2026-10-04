@@ -120,14 +120,9 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
             (HttpMethod.Post, "team-invitations/accept", joinerKey, new { token }),
             (HttpMethod.Post, "team-invitations/decline", joinerKey, new { token }),
         };
+        Assert.DoesNotContain(MappedPatterns(), p => p.StartsWith("/teams", StringComparison.Ordinal) || p.StartsWith("/team-invitations", StringComparison.Ordinal));
         foreach (var (method, path, key, body) in routes)
-        {
-            using var req = new HttpRequestMessage(method, path);
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
-            if (body is not null) req.Content = JsonContent.Create(body);
-            using var resp = await _http.SendAsync(req);
-            Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
-        }
+            await AssertAnsweredAsAPathThatDoesNotExist(method, path, body ?? new { }, key);
 
         // Absence proven by what was written: still exactly one invitation, still waiting, still the same link, and
         // nobody joined.
@@ -171,10 +166,10 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
     /// fallback behind it is a 404 or the Cockpit shell, so the proof does not change with the build or the test order.
     /// A POST is always the fallback's 404, which no team handler could give for a create.
     /// </summary>
-    private async Task AssertAnsweredAsAPathThatDoesNotExist(HttpMethod method, string path, object postBody)
+    private async Task AssertAnsweredAsAPathThatDoesNotExist(HttpMethod method, string path, object postBody, string? key = null)
     {
-        using var teamResp = await SendAsync(method, path, postBody);
-        using var controlResp = await SendAsync(method, "no-such-route-" + Guid.NewGuid().ToString("N"), postBody);
+        using var teamResp = await SendAsync(method, path, postBody, key ?? _key);
+        using var controlResp = await SendAsync(method, "no-such-route-" + Guid.NewGuid().ToString("N"), postBody, key ?? _key);
 
         Assert.Equal(controlResp.StatusCode, teamResp.StatusCode);
         Assert.Equal(controlResp.Content.Headers.ContentType?.MediaType, teamResp.Content.Headers.ContentType?.MediaType);
@@ -183,10 +178,10 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         if (method == HttpMethod.Post) Assert.Equal(HttpStatusCode.NotFound, teamResp.StatusCode);
     }
 
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object postBody)
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object postBody, string key)
     {
         using var req = new HttpRequestMessage(method, path);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
         if (method == HttpMethod.Post) req.Content = JsonContent.Create(postBody);
         return await _http.SendAsync(req);
     }
