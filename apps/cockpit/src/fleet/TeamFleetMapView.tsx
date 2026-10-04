@@ -182,8 +182,10 @@ function ByGroup({
             {entries.map(({ session, director }, i) => (
               <li key={`${director.name}|${session.name}|${i}`} className="tmap-session">
                 <span className={`tmap-dot ${STATUS_CLASS[session.status]}`} aria-hidden="true" />
-                <span className="tmap-session-name">{session.name}</span>
-                <span className="tmap-owner">{director.name}</span>
+                <span className="tmap-session-text">
+                  <span className="tmap-session-name">{session.name}</span>
+                  <span className="tmap-session-where">{director.name}</span>
+                </span>
                 <span className="tmap-session-status">{session.status}</span>
               </li>
             ))}
