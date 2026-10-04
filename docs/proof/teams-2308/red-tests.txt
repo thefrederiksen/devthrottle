@@ -1,0 +1,71 @@
+Red-test record - devthrottle_internal#2308, Gateway half
+Each rule was broken on purpose in the committed source (commit 1c2c4462e), the tests that guard it were run, and the file was restored with git checkout (src clean after each restore, shown below).
+Unit runs: dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams. Over-the-wire runs: scripts\test-local.ps1 -Gateway -Filter HostedTeamRequestEndpointsTests|HostedTeamsDarkTests.
+The M3 first attempt did not compile (a mutation error, not a test result); it was re-run with a compiling mutation and that run is the one shown.
+
+MUTATION M1: The role table lets a Developer read and decide requests  (src/CcDirector.Gateway/Teams/TeamPermissions.cs)
+Failed!  - Failed:     9, Passed:   642, Skipped:     1, Total:   652, Duration: 36 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (7):
+    CcDirector.Gateway.Tests.Teams.TeamAccessTests.Decide_EveryCell_TheMembersRoleFromTheDatabaseGetsTheTablesAnswer
+    CcDirector.Gateway.Tests.Teams.TeamEndpointGateTests.Check_EveryCellWithAnEndpointToday_TheServerGivesTheCellsAnswer
+    CcDirector.Gateway.Tests.Teams.TeamPermissionsTests.Grant_EveryCellOfTheRoleTable_IsTheCellIn2098
+    CcDirector.Gateway.Tests.Teams.TeamRequestEndpointsTests.Check_DecidingARequest_OnlyTheOwnerAndManagersPass
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Decide_DeveloperOrCollaborator_IsRefusedAndNothingChanges
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.ListForTeam_DeveloperOrCollaborator_IsRefusedInTheTablesWords
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Verdicts_ForASenderWhoMayNotDecide_AreAllFalse
+restored; src changes after restore: ''
+
+MUTATION M2: Not doing this no longer requires a reason  (src/CcDirector.Gateway/Teams/TeamRequestStates.cs)
+Failed!  - Failed:     5, Passed:   646, Skipped:     1, Total:   652, Duration: 27 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (2):
+    CcDirector.Gateway.Tests.Teams.TeamRequestStatesTests.ReasonRefusal_RequiredForNotDoingThisOnly
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Decide_NotDoingThisWithoutAReason_IsInvalidAndNothingChanges
+restored; src changes after restore: ''
+
+MUTATION M4: Deciding a request looks it up across every team, not only the team named  (src/CcDirector.Gateway/Teams/TeamRequestStore.cs)
+Failed!  - Failed:     1, Passed:   650, Skipped:     1, Total:   652, Duration: 42 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (1):
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Decide_ARequestOfAnotherTeam_ThroughTheCallersOwnTeam_IsNoSuchRequestAndNothingChanges
+restored; src changes after restore: ''
+
+MUTATION M5: A sender's own list shows every request in the team  (src/CcDirector.Gateway/Teams/TeamRequestStore.cs)
+Failed!  - Failed:     1, Passed:   650, Skipped:     1, Total:   652, Duration: 46 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (1):
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.ListMine_ACollaborator_SeesOnlyTheirOwnRequests
+restored; src changes after restore: ''
+
+MUTATION M6: Not doing this and Done are no longer final  (src/CcDirector.Gateway/Teams/TeamRequestStates.cs)
+Failed!  - Failed:     9, Passed:   642, Skipped:     1, Total:   652, Duration: 46 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (3):
+    CcDirector.Gateway.Tests.Teams.TeamRequestStatesTests.MayMove_EveryStateAndDecision_IsTheRule
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Decide_AfterAFinalState_IsConflictAndNothingChanges
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Verdicts_ForTheOwner_FollowTheState
+restored; src changes after restore: ''
+
+MUTATION M3: The request routes serve any credential, not only a person's phone or browser  (src/CcDirector.Gateway/Api/TeamRequestEndpoints.cs)
+Failed!  - Failed:     5, Passed:   646, Skipped:     1, Total:   652, Duration: 40 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (3):
+    CcDirector.Gateway.Tests.Teams.TeamRequestEndpointsTests.RequirePerson_ADirectorsOrGatewaysDeviceKey_IsRefused
+    CcDirector.Gateway.Tests.Teams.TeamRequestEndpointsTests.RequirePerson_ASessionKey_IsRefusedEvenBesideAPersonsDevice
+    CcDirector.Gateway.Tests.Teams.TeamRequestEndpointsTests.RequirePerson_TheSharedMachineTokenOrNothing_IsRefused
+restored; src changes after restore: ''
+
+MUTATION H1: The request routes serve a Director's device key (over the wire)  (src/CcDirector.Gateway/Api/TeamRequestEndpoints.cs)
+MUTATION H3: The request routes are mapped with Teams switched off  (src/CcDirector.Gateway/GatewayHost.cs)
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     2, Passed:     7, Skipped:     0, Total:     9, Duration: 24 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=9      executed=9
+      Failed!  - Failed:     2, Passed:     7, Skipped:     0, Total:     9, Duration: 24 s - CcDirector.Gateway.Tests.dll (net10.0)
+exit=1; tests RED under this mutation (0):
+    RED (trx): CcDirector.Gateway.Tests.Teams.HostedTeamRequestEndpointsTests.ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys
+    RED (trx): CcDirector.Gateway.Tests.Teams.HostedTeamsDarkTests.SwitchUnset_EveryRequestRouteIsAbsent_AndNothingIsSentOrChanged
+restored; src changes after restore: ''
+
+MUTATION H2: The request's words reach the Gateway log  (src/CcDirector.Gateway/Teams/TeamRequestStore.cs)
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 34 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=9      executed=9
+      Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 34 s - CcDirector.Gateway.Tests.dll (net10.0)
+exit=1; tests RED under this mutation (0):
+    RED (trx): CcDirector.Gateway.Tests.Teams.HostedTeamRequestEndpointsTests.ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys
+restored; src changes after restore: ''

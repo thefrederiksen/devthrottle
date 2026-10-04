@@ -1,0 +1,50 @@
+Test runs - devthrottle_internal#2308 (team requests), Gateway half
+Branch teams/2308-requests, commit 1c2c4462e on origin/main f2c5c29a9. MSBUILDDISABLENODEREUSE=1 for every run.
+Run on 2026-10-04 on SOREN_NORTH.
+
+1. Default gate: .\scripts\test-local.ps1
+   All ten default suites outcome=Completed, every test executed, zero failed:
+     CcDirector.Core.UnitTests            total=1221 executed=1221
+     CcDirector.Avalonia.Tests            total=892  executed=892
+     CcDirector.Engine.Tests              total=68   executed=68
+     CcDirector.HostedAgent.Tests         total=88   executed=88
+     CcDirector.Launcher.Tests            total=197  executed=197
+     CcDirector.Terminal.Avalonia.Tests   total=82   executed=82
+     CcDirector.Reclaim.Tests             total=310  executed=310
+     cc-director-setup.Tests              total=25   executed=25
+     cc-director-setup-engine.Tests       total=676  executed=676
+     cc-director-setup-cli.Tests          total=35   executed=35
+   The gate names the two Gateway suites as a coverage gap (parked); they are covered by runs 2 to 4 and the
+   full -Parked run goes to continuous integration on the branch.
+
+2. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams"
+   CcDirector.Gateway.Tests outcome=Completed total=43 executed=43, failed 0.
+   Includes the seven new tests:
+     HostedTeamRequestEndpointsTests.RequestList_IsVisibleToTheOwnerAndManagersOnly_OverTheWire          (issue test 1)
+     HostedTeamRequestEndpointsTests.EveryStateChange_IsShownToTheCollaboratorWhoSentIt_WithWhoAndTheReason (issue test 2)
+     HostedTeamRequestEndpointsTests.ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys (issue test 3)
+     HostedTeamRequestEndpointsTests.ADeveloper_CannotAcceptRejectOrFinishARequest_AndNothingChanges      (issue test 4)
+     HostedTeamRequestEndpointsTests.NotDoingThis_WithoutAReason_IsRefusedAndNothingChanges
+     HostedTeamRequestEndpointsTests.AStateChangeOnAnotherTeamsRequest_IsRefused_AndNothingChanges
+     HostedTeamsDarkTests.SwitchUnset_EveryRequestRouteIsAbsent_AndNothingIsSentOrChanged
+   and the existing TeamEndpointWalkTests (the route-table walk) passing with the new routes mapped.
+   Issue test 3, what the run recorded: the Gateway sent the two Directors 7 commands (set-resolved-role,
+   set-display-state x3, set-resolved-role, screen-grid x2), none carrying either marker and no prompt; the
+   database sweep found the request marker in team_requests only and the reason marker in team_request_changes
+   only; no log line carried either.
+
+3. dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
+   Passed 651, Skipped 1, Failed 0, Total 652. The one skip is the existing screenshot rig
+   TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears (runs only when asked).
+   126 of these tests are the new TeamRequest* tests (store, states, endpoints, migration).
+
+4. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Postgres|FullyQualifiedName~Migration"
+   CcDirector.Gateway.Tests outcome=Completed total=56 executed=52, failed 0, against a throwaway PostgreSQL the run
+   built and destroyed. AddTeamRequestsPostgresTests passed. The 4 not executed are the existing
+   GatewayDatabaseLivePostgresProofTests, which run only against a configured hosted database (CC_GATEWAY_DB_CONNECTION).
+   The migration pins in the unit suite (GatewayHostBootSmokeTests, FleetOutcomeStopIdentityMigrationTests,
+   TurnVerdictAnswerChoiceMigrationTests, FleetManagerLaterStepsMigrationChainTests,
+   FleetManagerEventOutcomeAnswerMigrationTests) passed in a filtered unit run of 724 (721 passed, 3 skipped -
+   PostgreSQL-gated) before the red-test runs.
+
+Red-test record: red-tests.txt in this folder (mutate.py is the script that made each mutation and restored it).
