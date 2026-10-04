@@ -141,3 +141,24 @@ GATEWAY REVIEW ROUND (rulings-2311-gateway-review1.md), rebased onto origin/main
   memory: no long Gateway.Tests runs locally. Stopped, and its throwaway PostgreSQL container removed. The Tech Lead
   runs the full suite in continuous integration on this branch. The Gateway.Tests classes for teams were not changed
   in this round; the code under them was, so they have no run on this head.
+
+ENDED-SESSION RULING (Tech Lead, after the hand-back of 627970c57). Fix commit fedb03941.
+
+16. Revert proofs, as run 11 (restore in finally, fresh build, filter FullyQualifiedName~CcDirector.Gateway.Tests.Teams.):
+  Stored-conversation check skipped (return live)            Failed 2 of 453  AColleaguesEndedSession_..., AMemberPushingIntoAColleaguesStoredConversation_...
+  Check reads the head only (rows Where false)               Failed 1 of 453  AMemberPushingIntoAColleaguesStoredConversation_...
+  Stored read outside the team scope (EnterScope removed)    Failed 4 of 453  the three new tests and TwoMembersDirectors_ClaimingOneSessionId_...
+  Restored: Passed 453 of 453; git diff after restore empty.
+
+17. .\scripts\test-local.ps1  (default gate): every suite outcome=Completed, executed = total, as run 12.
+  RESULT: all projects exited zero. 3,476 passed, 0 failed.
+
+18. dotnet test src/CcDirector.Gateway.UnitTests in the two halves of run 9.
+  Half A: Passed: 3190, Failed: 0, Total: 3190   (the five Wingman tests PASSED in this order - they depend on run
+          order, as the Tech Lead found on 16b10ff75)
+  Half B: Failed: 3, Passed: 5290, Skipped: 8, Total: 5301
+  Together 8,491 = the whole suite.
+  The 3 failures are VerbAnswersWhenStarvedTests (DeliveryStateVerb_..., PromptVerb_..., RecordWrite_...). Rerun alone:
+  2 of 3 failed. The failure is in the test's own set-up - "System.InvalidOperationException : the busy process never
+  kept the processor busy" at BusyProcessor..ctor - before any Gateway code runs: the machine was at 100% processor
+  load from other work (6.3 GB free). The same three passed in run 13 on this branch. Not caused by this change.

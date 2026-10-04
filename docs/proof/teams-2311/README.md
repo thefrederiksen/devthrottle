@@ -25,6 +25,7 @@ joins a team, behaviour is as before - proven by the dark tests below.
 | One key per Director | `DeviceRegistry.RevokeOtherKeysOfDirector`, `ActiveKeysOfDirector` | Where Teams is released, setting a Director up again revokes that person's other keys for the same Director id, so a move by id names exactly one key. |
 | A team key's Hello | `DeviceRegistry.Judge` (`IsTeamKey`), `DirectorHub.Hello` | Gateway review F2: a team key is accepted at Hello only under the Director id its row was enrolled with. Personal keys unchanged. |
 | A shared session id is nobody's | `PushedSessionStore.DirectorsHoldingSession`, `TeamCallerOwnership` | Gateway review F2: a session is the caller's own only when exactly one Director in the tenant holds it and it is the caller's. The roster does not refuse the duplicate. |
+| A stored conversation is its writers' | `SessionTurnStore.DirectorsOfCurrentConversation`, `TeamCallerOwnership` | Tech Lead ruling on the review: in a team, a `{sid}` route is the caller's own only when every Director that wrote the session's stored conversation (head and current-generation rows) is the caller's. Closes the ended-session gap. |
 | A dark start leaves team keys alone | `DeviceRegistry.InitializeAuthority` | Gateway review F4: with Teams off, a key bound to a team is not tombstoned; it resolves revoked while dark and works again when Teams is on. |
 | The "Teams released" signal | `Contracts/HealthDto.Teams`, `GatewayEndpoints` `/healthz` | `teams: true` only on hosted with the switch on; `false` on a dark hosted Gateway; absent before Teams and on self-host. The Director reads it before asking for teams (review round 1, F1). |
 | Comment corrected | `Discovery/DirectorRegistry.cs` | "Several Directors on one machine share one device key" was no longer true. Each Director enrolls its own key now; the one-credential-several-ids tolerance stays because the machine's shared Gateway token registers as one credential (`machine-token`) for every Director using it, and Directors enrolled before per-instance keys may still share one. |
@@ -49,6 +50,7 @@ joins a team, behaviour is as before - proven by the dark tests below.
 | - | Gateway review F2: a Hello under another member's Director id is refused; a personal key is unchanged | PASS at the real hub | `TeamDirectorTunnelTests.ATeamKey_SayingHello*`, `APersonalKey_SayingHelloUnderAnIdItWasNotEnrolledFor_IsAcceptedAsBefore` |
 | - | Gateway review F2: two members' Directors claiming one session id make it nobody's own | PASS at the real hub and real roster | `TeamDirectorTunnelTests.TwoMembersDirectors_ClaimingOneSessionId_...` |
 | - | Gateway review F3: a move refused 409 by a real roster snapshot, then moved with the tunnel cut | PASS, over the Gateway's own wiring (`TeamEnrollment.Over`) | `TeamDirectorTunnelTests.Move_WithASessionInTheRealRoster_...` |
+| - | Ruling on the ended-session gap: M2's session ends, M1's Director is the only holder of its old id, and M1 is refused; appending to M2's conversation does not make it M1's | PASS at the real hub, real roster, real turn store, over a database that reads the boundary's own tenant scope | `TeamDirectorTunnelTests.AColleaguesEndedSession_...`, `AMemberPushingIntoAColleaguesStoredConversation_...`, `AMembersOwnSession_WithItsOwnStoredConversation_...` |
 
 One existing test changed meaning on purpose: `TeamEndpointWalkTests.OverTheWire_AKeyBoundToATeamsTenant_...` pinned
 "a team key never authenticates today". It now pins the new truth: a Developer's team key authenticates and meets the
@@ -72,6 +74,10 @@ green, no diff):
 - The old tunnel cut in the shared leave step off: 3 red.
 - The real roster count made to return nought in `TeamEnrollment.Over`: 3 red.
 - A dark start tombstoning team keys again: 1 red (`Initialize_TeamsNotReleased_LeavesATeamKeyUntouched_...`).
+
+The ended-session ruling (run 16): the stored-conversation check skipped, 2 red; the check reading the head only, 1 red
+(`AMemberPushingIntoAColleaguesStoredConversation_...`); the stored read made outside the team's tenant scope, 4 red.
+Restored: 453 of 453 green, no diff.
 
 ## What still answers "not entitled" for a team tenant (the next step)
 

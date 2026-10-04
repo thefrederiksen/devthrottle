@@ -198,7 +198,14 @@ too, before it asks (D3), and holds session creation while the move runs.
   was issued to; a session (any route naming `{sid}`) is the caller's own only when **exactly one** Director in the
   team holds that session id in its roster and that Director is the caller's. Two Directors holding one id is nobody's
   own and is refused (review F2); the roster itself does not refuse the duplicate, because a roster that kept the first
-  writer would let a Director hide a colleague's session from them. Touching another member's session is joining or
+  writer would let a Director hide a colleague's session from them. **And when the Gateway holds a stored conversation
+  for that session, every Director that wrote it** - the stored head's Director and the Director of every turn row of
+  its current generation - must be the caller's too (Tech Lead ruling on the review). Otherwise the route is refused
+  (403), never guessed. This is what stops a member whose Director lists a colleague's ENDED session id - the only
+  holder now that the colleague's roster has dropped it - from being served the colleague's stored turns, through
+  `/sessions/{sid}/conversation` or any other `{sid}` route, since they all ask this one question. Every writer, not
+  just the head, because a Director that pushes into a session's current conversation becomes the head's Director
+  while the colleague's rows are still served. Personal tenants are unchanged: they never reach this check. Touching another member's session is joining or
   watching it, which no role may (403). A list across the team, an unknown session or Director, or a request not made
   with a device key is refused, never guessed.
 
