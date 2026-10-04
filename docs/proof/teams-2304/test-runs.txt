@@ -1,0 +1,65 @@
+Teams 6 - the team's shared skills and workflows, Gateway part (devthrottle_internal#2304)
+Local runs on SOREN_NORTH, 4 October 2026, branch teams/2304-shared-skills (base origin/main cdaab4f2b).
+MSBUILDDISABLENODEREUSE=1 for every run.
+
+== 1. The new hosted tests and the dark switch ==
+.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~HostedTeamLibraryTests|FullyQualifiedName~HostedTeamsDarkTests"
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed: 0, Passed: 21, Skipped: 0, Total: 21
+  CcDirector.Gateway.Tests  outcome=Completed  total=21  executed=21
+
+== 2. The route walk and the existing skill and workflow routes (refactor unchanged) ==
+.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~TeamEndpointWalkTests|FullyQualifiedName~HostedTeamEndpointsTests|FullyQualifiedName~SkillEndpointsTests|FullyQualifiedName~WorkflowEndpointsTests|FullyQualifiedName~SkillLibraryReachesASessionTests"
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed: 0, Passed: 54, Skipped: 0, Total: 54
+  CcDirector.Gateway.Tests  outcome=Completed  total=54  executed=54
+
+== 3. The brief's area of the Gateway suite ==
+.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams|FullyQualifiedName~Skill|FullyQualifiedName~Workflow"
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed: 0, Passed: 100, Skipped: 0, Total: 100, Duration: 7 m 36 s
+  CcDirector.Gateway.Tests  outcome=Completed  total=100  executed=100
+
+== 4. The Teams unit tests ==
+dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
+  Passed!  - Failed: 0, Passed: 398, Skipped: 0, Total: 398
+
+== 5. The whole Gateway unit suite ==
+dotnet test src\CcDirector.Gateway.UnitTests
+  first run:  Failed!  - Failed: 1, Passed: 8354, Skipped: 8, Total: 8363, Duration: 9 m 29 s
+              (the summary cut off the failing test's name)
+dotnet test src\CcDirector.Gateway.UnitTests --no-build   (same build, run again to name it)
+  second run: Passed!  - Failed: 0, Passed: 8355, Skipped: 8, Total: 8363, Duration: 9 m 49 s
+  The one failure did not recur and is not named. The 8 skips are the PostgreSQL proofs that need the
+  -Parked run's own database.
+
+== 6. The default local gate ==
+.\scripts\test-local.ps1
+  PASS  CcDirector.Avalonia.Tests            862
+  PASS  CcDirector.Engine.Tests               68
+  PASS  CcDirector.HostedAgent.Tests          88
+  PASS  CcDirector.Launcher.Tests            197
+  PASS  CcDirector.Terminal.Avalonia.Tests    82
+  PASS  CcDirector.Reclaim.Tests             310
+  PASS  cc-director-setup.Tests               25
+  PASS  cc-director-setup-engine.Tests       649
+  PASS  cc-director-setup-cli.Tests           34
+  CcDirector.Core.UnitTests  outcome=NO-TRX - STOPPED for exceeding the 120-second budget (not a failure)
+dotnet test src\CcDirector.Core.UnitTests   (run alone)
+  Passed!  - Failed: 0, Passed: 1148, Skipped: 0, Total: 1148, Duration: 1 m 12 s
+  This change touches no Core code.
+
+== 7. Revert checks (each: commit, break one rule, run its tests, restore in finally) ==
+A. TeamPermissions.cs: Developer may change, Collaborator may use the shared skills and workflows
+   .\scripts\test-local.ps1 -Gateway -Filter "...HostedTeamLibraryTests.Issue2304Test2|...HostedTeamLibraryTests.Issue2304Test3"
+   FAIL  CcDirector.Gateway.Tests  Failed!  - Failed: 5, Passed: 0, Skipped: 0, Total: 5
+   outcome=Failed  total=5  executed=5
+B. TeamLibraryEndpoints.cs: the routes no longer enter the team's tenant
+   .\scripts\test-local.ps1 -Gateway -Filter "...Issue2304Test1_ASkill|...Issue2304Test1_AWorkflow"
+   FAIL  CcDirector.Gateway.Tests  Failed!  - Failed: 2, Passed: 0, Skipped: 0, Total: 2
+   outcome=Failed  total=2  executed=2
+C. TeamLibraryEndpoints.cs: TeamToEnter ignores the gate's record
+   dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~TeamLibraryEndpointsTests"
+   CcDirector.Gateway.Tests.Teams.TeamLibraryEndpointsTests.TeamToEnter_TheGateNeverRan_ReturnsNull [FAIL]
+After each: git checkout restored the source; git status clean. Runs 3, 4 and 5 rebuilt from the restored source.
+
+== Not run here ==
+-Parked in full (the Tech Lead runs it). No migration, so the PostgreSQL migration-count pins were not affected.
+No web or Python code changed in this part.
