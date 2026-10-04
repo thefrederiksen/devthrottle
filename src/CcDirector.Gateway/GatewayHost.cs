@@ -4692,18 +4692,16 @@ public sealed class GatewayHost : IAsyncDisposable
             TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry);
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
             TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
+            // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow
+            // routes mounted again under /teams/{teamId}, answering for the team's tenant, plus the Skills and
+            // workflows page's read. Dark with the rest of Teams.
+            TeamLibraryEndpoints.Map(_app, _skills, _workflows, TeamRegistry, TeamAccess, _tenantBoundary, TenantRegistry);
         }
         // The team seat convergence (devthrottle_internal#2301): retries any seat sync that failed. Hosted with Teams
         // released only - TeamSeatConvergence is null everywhere else.
         if (TeamSeatConvergence is { } convergence)
             _teamSeatConvergenceTimer = new Timer(_ => _ = convergence.RunSafeAsync(), null,
                 TimeSpan.FromMinutes(1), Teams.TeamSeatConvergence.Interval);
-
-            // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow
-            // routes mounted again under /teams/{teamId}, answering for the team's tenant, plus the Skills and
-            // workflows page's read. Dark with the rest of Teams.
-            TeamLibraryEndpoints.Map(_app, _skills, _workflows, TeamRegistry, TeamAccess, _tenantBoundary, TenantRegistry);
-        }
 
         // The administrator trial EXTENSION: POST /gateway/admin/trials/extend. The write twin of the read
         // above, and the only way a trial's end date moves. It lives here rather than as a database grant to
