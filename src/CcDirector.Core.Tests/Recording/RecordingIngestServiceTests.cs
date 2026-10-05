@@ -50,7 +50,40 @@ public sealed class RecordingIngestServiceTests : IDisposable
             maxChunkAttempts: maxChunkAttempts,
             maxJobAttempts: maxJobAttempts,
             chunkRetryDelay: TimeSpan.FromMilliseconds(1),
-            workerTick: TimeSpan.FromMilliseconds(50));
+            workerTick: TimeSpan.FromMilliseconds(50),
+            // The worker sleeps longer when idle in production (Money Saver); these tests keep the short tick.
+            idleTick: TimeSpan.FromMilliseconds(50));
+
+    /// <summary>A service with production-like ticks, for the idle-sleep tests. The worker runs only when asked.</summary>
+    private RecordingIngestService NewServiceWithTicks(IRecordingTranscriber transcriber, int maxChunkAttempts = 3,
+        int maxJobAttempts = 5, bool runWorker = false, TimeSpan? workerTick = null)
+        => new(
+            recordingsRoot: Path.Combine(_tmp, "recordings"),
+            transcriberFactory: () => transcriber,
+            vaultFiler: new FakeFiler(),
+            collectionDir: Path.Combine(_tmp, "collection"),
+            runWorker: runWorker,
+            maxChunkAttempts: maxChunkAttempts,
+            maxJobAttempts: maxJobAttempts,
+            chunkRetryDelay: TimeSpan.FromMilliseconds(1),
+            workerTick: workerTick ?? TimeSpan.FromSeconds(30),
+            idleTick: TimeSpan.FromMinutes(10));
+
+    /// <summary>A failed job waiting for its retry, with the retry moved to <paramref name="retryAtUtc"/>.</summary>
+    private async Task FailWithRetryAt(RecordingIngestService svc, string id, DateTime retryAtUtc)
+    {
+        await EnqueueOneChunk(svc, id);
+        await svc.ProcessRecordingAsync(id);
+        RewriteStatusOnDisk(id, svc.GetStatus(id).NextRetryAtUtc!, retryAtUtc.ToString("o"));
+    }
+
+    private static async Task WaitForScansAsync(RecordingIngestService svc, int scans)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (svc.ScansCompleted < scans && DateTime.UtcNow < deadline)
+            await Task.Delay(10);
+        Assert.True(svc.ScansCompleted >= scans, $"the worker did not finish {scans} scan(s) in time");
+    }
 
     private static RecordingRegisterRequest Reg(string id, string codec = "mp3")
         => new(RecordingId: id, Title: "Test Call", DeviceId: "dev-1",
@@ -951,6 +984,183 @@ public sealed class RecordingIngestServiceTests : IDisposable
         RewriteStatusOnDisk("rec1", retryAt!, "2000-01-01T00:00:00.0000000Z");
 
         Assert.Equal(new[] { "rec1" }, svc.FindEligibleRecordings().ToList());
+    }
+
+    // ===== the worker sleeps while idle (Money Saver, 4 October 2026) =====
+    //
+    // An idle worker still listed the recordings folder every 30 seconds - two billed operations on the
+    // hosted share, for ever, for each account that ever used recordings. While a tick finds work the wait
+    // is unchanged; an idle wait lasts until the earliest scheduled retry, at most the idle tick. A completed
+    // recording still wakes the worker at once: CompleteAsync releases the semaphore the wait is on, which
+    // ends the wait however long its limit (unchanged code).
+
+    [Fact]
+    public void NextWait_AfterATickThatFoundWork_IsTheOrdinaryTick()
+    {
+        var svc = NewServiceWithTicks(new FakeTranscriber());
+
+        Assert.Equal(TimeSpan.FromSeconds(30), svc.NextWait(foundWork: true, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public async Task NextWait_IdleWithNothingScheduled_IsTheIdleTick()
+    {
+        var svc = NewServiceWithTicks(new FakeTranscriber());
+        await TranscribeOneChunk(svc, "rec1");
+        Assert.Empty(svc.FindEligibleRecordings().ToList());   // nothing to do, nothing scheduled
+
+        Assert.Equal(TimeSpan.FromMinutes(10), svc.NextWait(foundWork: false, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public async Task NextWait_IdleWithARetryScheduled_EndsAtTheRetry()
+    {
+        var svc = NewServiceWithTicks(new ScriptedTranscriber(failFirst: int.MaxValue), maxChunkAttempts: 1,
+            maxJobAttempts: 3);
+        await EnqueueOneChunk(svc, "rec1");
+        await svc.ProcessRecordingAsync("rec1"); // attempt 1 fails -> retry scheduled 5 minutes ahead
+        var retryAt = DateTime.Parse(svc.GetStatus("rec1").NextRetryAtUtc!, null,
+            System.Globalization.DateTimeStyles.RoundtripKind);
+        Assert.Empty(svc.FindEligibleRecordings().ToList());   // not due yet
+
+        var now = DateTime.UtcNow;
+        var wait = svc.NextWait(foundWork: false, now);
+
+        // The sleep ends just after the retry is due - sooner than the 10-minute idle tick, so the retry is not late.
+        Assert.True(wait < TimeSpan.FromMinutes(10), $"wait {wait} should end at the retry, not the idle tick");
+        Assert.True(now + wait > retryAt, $"wait {wait} must not end before the retry at {retryAt:o}");
+        Assert.True((now + wait - retryAt).TotalSeconds < 2, $"wait {wait} should end just after {retryAt:o}");
+    }
+
+    [Fact]
+    public async Task NextWait_TwoRetriesScheduled_EndsAtTheEarlier()
+    {
+        var svc = NewServiceWithTicks(new ScriptedTranscriber(failFirst: int.MaxValue), maxChunkAttempts: 1,
+            maxJobAttempts: 3);
+        var now = DateTime.UtcNow;
+        await FailWithRetryAt(svc, "rec-late", now.AddMinutes(4));
+        await FailWithRetryAt(svc, "rec-early", now.AddMinutes(2));
+        Assert.Empty(svc.FindEligibleRecordings().ToList());
+
+        var wait = svc.NextWait(foundWork: false, now);
+
+        Assert.InRange(wait, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(2) + TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public async Task NextWait_AfterTheWaitingJobIsNoLongerWaiting_IsTheIdleTickAgain()
+    {
+        var svc = NewServiceWithTicks(new ScriptedTranscriber(failFirst: int.MaxValue), maxChunkAttempts: 1,
+            maxJobAttempts: 3);
+        await FailWithRetryAt(svc, "rec1", DateTime.UtcNow.AddMinutes(2));
+        Assert.Empty(svc.FindEligibleRecordings().ToList());
+        Assert.True(svc.NextWait(foundWork: false, DateTime.UtcNow) < TimeSpan.FromMinutes(3));
+
+        // The retry is no longer pending; the next scan must forget it, or every idle sleep stays short for ever.
+        RewriteStatusOnDisk("rec1", "\"State\": \"error\"", "\"State\": \"transcribed\"");
+        Assert.Empty(svc.FindEligibleRecordings().ToList());
+
+        Assert.Equal(TimeSpan.FromMinutes(10), svc.NextWait(foundWork: false, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void NextWait_AfterAScanThatFoundNoRootFolder_IsTheOrdinaryTick()
+    {
+        // The constructor creates the root; a scan that cannot find it is looking at a share that is not answering.
+        var svc = NewServiceWithTicks(new FakeTranscriber());
+        Directory.Delete(Path.Combine(_tmp, "recordings"), recursive: true);
+        Assert.Empty(svc.FindEligibleRecordings().ToList());
+
+        Assert.Equal(TimeSpan.FromSeconds(30), svc.NextWait(foundWork: false, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public void NextWait_BeforeAnyScanHasFinished_IsTheOrdinaryTick()
+    {
+        // A scan that throws never reaches its end, which leaves the service in this state: it cannot say there is
+        // nothing to do, so it must not sleep long.
+        var svc = NewServiceWithTicks(new FakeTranscriber());
+
+        Assert.Equal(TimeSpan.FromSeconds(30), svc.NextWait(foundWork: false, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public async Task NextWait_AfterAScanThatCouldNotReadAStatusFile_IsTheOrdinaryTick()
+    {
+        var svc = NewServiceWithTicks(new FakeTranscriber());
+        await TranscribeOneChunk(svc, "rec1");
+        var half = Path.Combine(_tmp, "recordings", "rec-half-written");
+        Directory.CreateDirectory(half);
+        File.WriteAllText(Path.Combine(half, "status.json"), "{ \"RecordingId\": \"rec-half");   // a write caught mid-way
+        Assert.Empty(svc.FindEligibleRecordings().ToList());
+
+        Assert.Equal(TimeSpan.FromSeconds(30), svc.NextWait(foundWork: false, DateTime.UtcNow));
+    }
+
+    [Fact]
+    public async Task Worker_Idle_DoesNotScanOnTheOrdinaryTick()
+    {
+        // The loop itself, not NextWait by hand: with a 50 ms ordinary tick an idle worker that ignored the idle
+        // sleep would scan about twenty times in a second.
+        using var svc = NewServiceWithTicks(new FakeTranscriber(), runWorker: true,
+            workerTick: TimeSpan.FromMilliseconds(50));
+        await WaitForScansAsync(svc, 1);
+
+        await Task.Delay(TimeSpan.FromSeconds(1));
+
+        Assert.Equal(1, svc.ScansCompleted);
+    }
+
+    [Fact]
+    public async Task Worker_SleepingIdle_IsWokenAtOnceByACompletedRecording()
+    {
+        // Both ticks are ten minutes, so only the wake from CompleteAsync can get this recording transcribed in time.
+        using var svc = NewServiceWithTicks(new FakeTranscriber(), runWorker: true,
+            workerTick: TimeSpan.FromMinutes(10));
+        await WaitForScansAsync(svc, 1);
+        await Task.Delay(200);   // asleep now
+
+        await EnqueueOneChunk(svc, "rec1");
+
+        // The wake itself, read from the worker's own count: no file read races the worker's status writes here.
+        await WaitForScansAsync(svc, 2);
+        Assert.True(await WaitForStateToleratingHalfWrittenStatusAsync(svc, "rec1", "transcribed", TimeSpan.FromSeconds(15)),
+            "the woken worker must transcribe the recording");
+    }
+
+    /// <summary>
+    /// <see cref="WaitForStateAsync"/> for a test whose worker is RUNNING: the status file is not written atomically, so
+    /// a read can land mid-write while the worker saves it. Such a read is retried, which is what the polling phone does.
+    /// (This race is why <c>Worker_TranscribesQueuedRecording_EndToEnd</c> is skipped.)
+    /// </summary>
+    private static async Task<bool> WaitForStateToleratingHalfWrittenStatusAsync(
+        RecordingIngestService svc, string id, string state, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                if (svc.GetStatus(id).State == state) return true;
+            }
+            catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { }
+            await Task.Delay(25);
+        }
+        return false;
+    }
+
+    [Fact]
+    public async Task NextWait_IdleWithARetryAlmostDue_IsNeverShorterThanTheOrdinaryTick()
+    {
+        var svc = NewServiceWithTicks(new ScriptedTranscriber(failFirst: int.MaxValue), maxChunkAttempts: 1,
+            maxJobAttempts: 3);
+        await EnqueueOneChunk(svc, "rec1");
+        await svc.ProcessRecordingAsync("rec1");
+        var retryAt = svc.GetStatus("rec1").NextRetryAtUtc!;
+        RewriteStatusOnDisk("rec1", retryAt, DateTime.UtcNow.AddSeconds(5).ToString("o"));
+        Assert.Empty(svc.FindEligibleRecordings().ToList());   // due in 5 seconds, not yet
+
+        Assert.Equal(TimeSpan.FromSeconds(30), svc.NextWait(foundWork: false, DateTime.UtcNow));
     }
 
     [Fact]
