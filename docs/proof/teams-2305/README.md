@@ -12,10 +12,12 @@ No test, proof run or manual try called a paid model. Every model in these runs 
 
 - **Who the person is, over the wire.** The third pull request resolves the person behind a team key through the one
   team resolver of devthrottle#3530: a `POST /prompts` into a team's tenant is stamped with the person the calling key
-  was issued to, and a team session's history row with `TeamCallerOwnership.OwnerOf` for its Director. Both are proven
-  at handler and resolver level with the production wiring (`TeamCallerOwnershipTests`), not by a Director pushing to
-  a running hosted Gateway: team keys still meet the access lease, which a test team has no bill for. The proof's
-  stored rows were produced by stamping in the test rig, the way the handler stamps from the key.
+  was issued to, and a team session's history row with `TeamCallerOwnership.OwnerOf` for its Director. The handler
+  and the resolver are proven in `TeamCallerOwnershipTests`; the host's own wiring of both - the recorder the Director
+  hub feeds and the caller lookup `POST /prompts` is built with - in `TeamPersonStampHostTests`, on a real hosted host
+  with Teams released. Neither is a Director pushing to a running hosted Gateway: team keys still meet the access
+  lease, which a test team has no bill for. The proof's stored rows were produced by stamping in the test rig, the way
+  the handler stamps from the key.
 - **The team's own time zone.** A team cannot set a time zone yet: the settings routes are refused inside a team's
   tenant, so the team tenant has none stored and the week is cut in the Gateway machine's own zone. The week
   arithmetic is correct for any zone, across a change of clocks (`MentorWeekTests`); what does not exist is a way to

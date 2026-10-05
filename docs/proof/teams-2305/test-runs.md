@@ -125,7 +125,7 @@ The five `OwnedSessionsAreNotReadTests` of devthrottle#3534 passed in this run's
 On `teams/2305-mentor-person`, stacked on the read route, on main `8b23aaba4` (with devthrottle#3530):
 
 ```
-dotnet test src\CcDirector.Gateway.UnitTests --filter "Mentor|Teams|Prompt"   Failed: 1, Passed: 1190, Total: 1194
+dotnet test src\CcDirector.Gateway.UnitTests --filter "Mentor|Teams|Prompt"   Failed: 1, Passed: 1190, Skipped: 3, Total: 1194
 ```
 
 The one failure, `VerbAnswersWhenStarvedTests.PromptVerb_DirectorStartedBelowNormalOnABusyMachine_...`, failed in its
@@ -139,4 +139,55 @@ Failed TeamCallerOwnershipTests.Whose_OnlyPostOnPromptsItself_IsTheCallersOwn
 Failed TeamCallerOwnershipTests.RunAsync_ReadingPrompts_InATeam_StaysRefused
 ```
 
-(plus the same busy-machine test). Restored: `Passed! - Failed: 0, Passed: 1185, Total: 1188` on Teams|Prompt.
+(plus the same busy-machine test). Restored: `Passed! - Failed: 0, Passed: 1185, Skipped: 3, Total: 1188` on
+Teams|Prompt.
+
+### After the review of the third pull request (review-2305-person.md)
+
+Each mutation below was built (no `--no-build`) and run on
+`TeamCallerOwnershipTests|SessionHistoryPersonTests`, then restored with `git checkout` in a `finally`; the restored
+build passed `Failed: 0, Passed: 27`.
+
+**The method check on `POST /prompts` dropped** (`Whose` answers "the caller's own" for any method on `/prompts`):
+
+```
+Failed TeamCallerOwnershipTests.RunAsync_DeletingPrompts_InATeam_StaysRefused
+Failed TeamCallerOwnershipTests.RunAsync_ReadingPrompts_InATeam_StaysRefused
+Failed TeamCallerOwnershipTests.Whose_OnlyPostOnPromptsItself_IsTheCallersOwn
+```
+
+**The exact match widened to "under `/prompts`", the method check kept:**
+
+```
+Failed TeamCallerOwnershipTests.Whose_OnlyPostOnPromptsItself_IsTheCallersOwn
+```
+
+The export test stays green here, correctly: `GET /prompts/export` is still not a POST, so the gate still refuses it.
+Only the unit test of `Whose` itself, which asks about `POST /prompts/export`, sees the widening.
+
+**Widened and the method check dropped** - the export route becomes "the caller's own":
+
+```
+Failed TeamCallerOwnershipTests.RunAsync_DeletingPrompts_InATeam_StaysRefused
+Failed TeamCallerOwnershipTests.RunAsync_ExportingPrompts_InATeam_StaysRefused
+Failed TeamCallerOwnershipTests.RunAsync_ReadingPrompts_InATeam_StaysRefused
+Failed TeamCallerOwnershipTests.Whose_OnlyPostOnPromptsItself_IsTheCallersOwn
+```
+
+**The person check on the first-prompt line removed** (a team push describes any row its session id names):
+
+```
+Failed SessionHistoryPersonTests.A_push_naming_another_members_session_leaves_that_rows_description_alone
+Failed SessionHistoryPersonTests.A_team_push_onto_a_row_whose_person_is_not_known_yet_leaves_it_alone
+Failed SessionHistoryPersonTests.After_a_refused_push_the_sessions_own_person_still_sets_its_description
+```
+
+**The person asked for on every push** (`tracked.Person = PersonFor(...)` in place of `??=`):
+
+```
+Failed SessionHistoryPersonTests.The_person_is_asked_for_once_per_session_then_never_again
+Failed SessionHistoryPersonTests.A_session_whose_person_is_not_known_is_asked_again_until_it_is
+```
+
+`TeamPersonStampHostTests` (the production wiring, review P2) is in `Gateway.Tests` and was compiled, not run here:
+the Tech Lead's gate session runs the `-Gateway` suites.
