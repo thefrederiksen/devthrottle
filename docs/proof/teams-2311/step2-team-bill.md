@@ -98,7 +98,7 @@ turned round, they are the first tests of the two fixes:
 | S2-F1 | `HostedTeamEnrollmentTests.EnrollOrMove_IntoATeam_UnderADirectorIdAnotherMemberHolds_IsRefused409_ActiveOrRevoked_AndNothingIsWritten` | fails | PASS |
 | S2-F1 | `HostedTeamEnrollmentTests.Enroll_TheSameDirectorSomewhereElse_...` and `Enroll_TwoMembersPresentingTheSameDeviceId_TheSecondIsRefused_...` - changed on purpose: both pinned two people on one Director id in one team, which was the defect | fail | PASS |
 | S2-F2 | `AColleagueListingALiveSessionId_CannotPushItsFirstRows_AndOnceTheyStop_TheOwnersPushIsStoredAndTheSessionIsTheirs` | fails (reproduced by restoring the old roster rule) | PASS |
-| S2-F4 | `HostedTeamBillOverTheWireTests.ASessionKey_WhoseDirectorsOwnerIsNoLongerAMember_Is403TeamMemberRequired_FromTheLease_NotTheRegistrys401` (Gateway.Tests) | - | compiled; continuous integration to run |
+| S2-F4 | `HostedTeamBillOverTheWireTests.ASessionKey_WhoseDirectorsOwnerIsNoLongerAMember_Is403TeamMemberRequired_FromTheLease_NotTheRegistrys401` (Gateway.Tests) | - | PASS (that one test run here, with leave; red with the mapping disabled) |
 
 "Fails on bc0bbedea" was shown by putting the old behaviour back on the new head, not by checking out the old head:
 the refusal answering "not taken" (4 red), and the nothing-stored rule back to "this Director's roster holds it" (1 red).
@@ -111,8 +111,9 @@ check, redone after the rebase (`ReadTeamBill` ignoring livemode): 4 red of 68.
 
 S2-F4: the line to remove is the `if (access == ...HostedAccessDecision.DenyNotAMember)` block in
 `AuthMiddleware` (the 403 `team_member_required` answer); with it gone the request falls through as allowed and the new
-test's 403 assertion fails. It is a Gateway.Tests test, so by instruction it was not run here - that red is for the
-continuous integration run to show.
+request falls through to the team gate. Run with the Tech Lead's leave, that one test alone, filtered: with the block
+disabled it is RED (403 from the team gate with code `team_action_refused`, not `team_member_required`); restored, it
+is GREEN. The code assertion is what tells the lease's refusal from the gate's.
 
 ## Schema
 

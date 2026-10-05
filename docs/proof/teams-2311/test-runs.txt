@@ -268,8 +268,12 @@ Details in step2-team-bill.md.
                                                                       Enroll_TheSameDirectorSomewhereElse_...
       S2-F2  nothing-stored rule back to "this        Failed 1 of 76  AColleagueListingALiveSessionId_... (the reproduction)
              Director's roster holds it"
-      S2-F4  the DenyNotAMember block in AuthMiddleware: Gateway.Tests, NOT run here (by instruction); for CI.
+      S2-F4  the DenyNotAMember block in AuthMiddleware disabled (condition made false), with the Tech Lead's leave,
+             ONE Gateway.Tests test run filtered:
+             HostedTeamBillOverTheWireTests.ASessionKey_WhoseDirectorsOwnerIsNoLongerAMember_...
+             Failed 1 of 1 (Expected "team_member_required", Actual "team_action_refused" - the team gate's 403);
+             restored by trap, fresh build: Passed 1 of 1, no diff.
     Gateway.UnitTests in full, two halves: Half A Passed 3526, Skipped 2; Half B Passed 5318, Skipped 8.
       Together 8,844 passed, 0 failed.
     .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
-    Gateway.Tests: built, NOT run here (by instruction).
+    Gateway.Tests: built; only the one S2-F4 test above was run here.
