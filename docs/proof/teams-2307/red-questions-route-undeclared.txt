@@ -1,0 +1,25 @@
+RED PROOF: questions-route-undeclared
+Rule: The questions routes state the row 'answer questions' for every role; an undeclared route is refused in a team.
+File: src/CcDirector.Gateway/Teams/TeamEndpointRules.cs
+
+Mutation - replaced:
+        new TeamEndpointRule(Api.TeamQuestionEndpoints.GroupPath, TeamMethods.Any, TeamAction.AnswerQuestionsSendRequestsReadReports,
+            TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+with:
+(nothing)
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Rules_EachQuestionsRoute_StatesAnsweringQuestions_ForTheWholeTeam_FromTheRoute(method: "GET", pattern: "/teams/{teamId}/questions") [105 ms]
+   Assert.NotNull() Failure: Value is null
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Rules_EachQuestionsRoute_StatesAnsweringQuestions_ForTheWholeTeam_FromTheRoute(method: "POST", pattern: "/teams/{teamId}/questions/{reportId}/{questionId}/"???) [115 ms]
+   Assert.NotNull() Failure: Value is null
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Gate_TheQuestionsRoutes_AreOpenToEveryRoleFromTheirOwnAccount_AndAStrangerIsToldThereIsNoSuchTeam [417 ms]
+   Assert.Equal() Failure: Values differ
+Expected: Tuple (True, 200)
+Actual:   Tuple (False, 403)
+Failed!  - Failed:     3, Passed:    89, Skipped:     0, Total:    92, Duration: 14 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.

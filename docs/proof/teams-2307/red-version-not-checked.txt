@@ -6,12 +6,17 @@ Mutation - replaced:
         if (version != row.SentVersion)
         {
 with:
-        if (false)
+        if (version != row.SentVersion && version < 0)
         {
 
 Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
 Exit code: 1
 Output (the lines that say what failed):
-D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway\Api\TeamQuestionEndpoints.cs(235,13): error CS0162: Unreachable code detected [D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway\CcDirector.Gateway.csproj]
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_AVersionTheMemberNoLongerHolds_IsRefused_AndNothingIsStored [237 ms]
+   Assert.Equal() Failure: Values differ
+Expected: 409
+Actual:   200
+Failed!  - Failed:     1, Passed:    91, Skipped:     0, Total:    92, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
 Restored from the committed tree afterwards; git diff on the file is empty.

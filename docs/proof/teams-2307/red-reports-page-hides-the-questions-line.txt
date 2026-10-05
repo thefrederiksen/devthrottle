@@ -1,0 +1,18 @@
+RED PROOF: reports-page-hides-the-questions-line
+Rule: A report sent to the reader says, in the Gateway's words, that questions wait on them and links to Questions.
+File: apps/cockpit/src/teams/collaborator/TeamReportViews.tsx
+
+Mutation - replaced:
+              {detail.report.questionsLabel !== null && (
+with:
+              {false && (
+
+Command: npx vitest run src/teams/collaborator/reportsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ Test Files  1 failed (1)
+      Tests  1 failed | 30 passed (31)
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > a report sent to you > Open_QuestionsWaitOnTheReader_TheGatewaysLineLinksToTheQuestionsPage
+
+Restored from the committed tree afterwards; git diff on the file is empty.

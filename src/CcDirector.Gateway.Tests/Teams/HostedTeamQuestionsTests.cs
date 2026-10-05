@@ -266,7 +266,9 @@ public sealed class HostedTeamQuestionsTests : IAsyncLifetime
 
         // The settle pass while it works, then the turn end through the push that carries it.
         await _gateway.DevReportDeliveryForTest.SettleAsync(_aliceHome, sessionId, CancellationToken.None);
-        Assert.Empty(commands);
+        // Held while it works: no prompt yet. (The Gateway sends the Director other verbs about the session meanwhile -
+        // its role and display state - which is why every command, whatever its verb, is checked for the words below.)
+        Assert.DoesNotContain(commands, c => c.StartsWith("prompt ", StringComparison.Ordinal));
         await director.PushDeltaAsync(new SessionDto { SessionId = sessionId, Name = "alice", ActivityState = "WaitingForInput", LastActivityAt = DateTime.UtcNow });
         var deadline = DateTime.UtcNow.AddSeconds(20);
         while (!commands.Any(c => c.StartsWith("prompt ", StringComparison.Ordinal)))

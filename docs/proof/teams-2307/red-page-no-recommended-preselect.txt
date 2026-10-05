@@ -1,0 +1,26 @@
+RED PROOF: page-no-recommended-preselect
+Rule: The recommended option is picked when the card is drawn (CONTRACT.md section 2).
+File: apps/cockpit/src/teams/collaborator/QuestionsPage.tsx
+
+Mutation - replaced:
+  const [chosen, setChosen] = useState(recommended);
+with:
+  const [chosen, setChosen] = useState("");
+
+Command: npx vitest run src/teams/collaborator/questionsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ Test Files  1 failed (1)
+      Tests  4 failed | 6 passed (10)
+??????? Failed Tests 4 ???????
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Card_TheRecommendedOptionIsPicked_UntilThePersonPicksAnother
+AssertionError: expected [ false, false ] to deeply equal [ true, false ]
+- Expected
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Send_WithNoWords_SendsAnEmptyComment
+AssertionError: expected "spy" to be called 1 times, but got 0 times
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Send_Refused_ShowsTheGatewaysSentence_KeepsTheWords_AndReadsAgain
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Card_TheGatewaySaysNoComment_OffersNoBox_AndSaysWhy
+AssertionError: expected true to be false // Object.is equality
+- Expected
+
+Restored from the committed tree afterwards; git diff on the file is empty.

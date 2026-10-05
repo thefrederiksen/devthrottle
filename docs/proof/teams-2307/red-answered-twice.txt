@@ -5,11 +5,16 @@ File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
 Mutation - replaced:
             if (_store.AnswersBy(team, caller, [report.Id]).ContainsKey((report.Id, question.Id)))
 with:
-            if (false)
+            if (_store.AnswersBy(team, caller, [report.Id]).ContainsKey((report.Id, question.Id)) && caller.Length < 0)
 
 Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
 Exit code: 1
 Output (the lines that say what failed):
-D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway\Api\TeamQuestionEndpoints.cs(262,17): error CS0162: Unreachable code detected [D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway\CcDirector.Gateway.csproj]
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_ASecondAnswerFromTheSamePerson_IsRefused_AndNotSentAgain [402 ms]
+   Assert.Equal() Failure: Values differ
+Expected: 409
+Actual:   200
+Failed!  - Failed:     1, Passed:    91, Skipped:     0, Total:    92, Duration: 13 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
 Restored from the committed tree afterwards; git diff on the file is empty.
