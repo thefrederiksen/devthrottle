@@ -90,9 +90,11 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20261003182436_AddTeams", all[index + 11]);
             // The team invitations (devthrottle_internal#2301), after that.
             Assert.Equal("20261003233544_AddTeamInvitations", all[index + 12]);
+            // The Mentor's weekly page (devthrottle_internal#2305), after that.
+            Assert.Equal("20261004214416_AddTeamMentor", all[index + 13]);
             // The message links between sessions (issue #3548), after that.
-            Assert.Equal("20261005031815_AddFleetMessageLinks", all[index + 13]);
-            Assert.Equal(all.Count - 14, index);
+            Assert.Equal("20261005031815_AddFleetMessageLinks", all[index + 14]);
+            Assert.Equal(all.Count - 15, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

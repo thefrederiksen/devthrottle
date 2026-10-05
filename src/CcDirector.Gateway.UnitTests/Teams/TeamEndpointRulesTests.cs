@@ -9,6 +9,7 @@ public sealed class TeamEndpointRulesTests
 {
     [Theory]
     [InlineData("GET", "/teams/{teamId}/members", TeamAction.SeeMembersAndRoles)]
+    [InlineData("GET", "/teams/{teamId}/fleet-map", TeamAction.SeeFleetMap)]
     [InlineData("GET", "/directors", TeamAction.SeeFleetMap)]
     [InlineData("POST", "/directors", TeamAction.RunSessionsOnOwnComputers)]
     [InlineData("GET", "/directors/{id}/handovers", TeamAction.RunSessionsOnOwnComputers)]
@@ -110,6 +111,17 @@ public sealed class TeamEndpointRulesTests
     public void Find_TheLibraryRead_CoversOnlyItself(string method, string pattern)
     {
         Assert.Null(TeamEndpointRules.Find(method, pattern));
+    }
+
+    [Fact]
+    public void Find_TheTeamFleetMap_IsAReadThatTheEndpointNarrowsToTheCaller_AndNothingUnderIt()
+    {
+        var rule = TeamEndpointRules.Find("GET", TeamFleetMap.RoutePattern)!;
+        Assert.Equal(TeamTarget.TeamNarrowedToCaller, rule.Target);
+        Assert.Equal(TeamFrom.RouteTeamId, rule.TeamFrom);
+        Assert.True(rule.Exact);
+        Assert.Null(TeamEndpointRules.Find("POST", TeamFleetMap.RoutePattern));
+        Assert.Null(TeamEndpointRules.Find("GET", TeamFleetMap.RoutePattern + "/{sid}"));
     }
 
     [Fact]

@@ -79,6 +79,37 @@ public sealed class MobileRedirectTests : IAsyncLifetime
         Assert.Equal(expected, MobileRedirect.ShouldRedirectToMobile("GET", path, "text/html", "iPhone Mobile", next));
     }
 
+    // devthrottle_internal#2306: a Collaborator's whole app is three Cockpit pages the mobile app does not have, so while
+    // Teams is released a phone reaches them - and the sign-in round trip from one - instead of the mobile app.
+    [Theory]
+    [InlineData("/questions", null, false)]
+    [InlineData("/requests", null, false)]
+    [InlineData("/reports", null, false)]
+    [InlineData("/Reports", null, false)]
+    [InlineData("/questions/q-1", null, true)]
+    [InlineData("/reports/repositories-weekly", null, true)]
+    [InlineData("/signin", "/questions", false)]
+    [InlineData("/signin", "/reports?from=email", false)]
+    [InlineData("/questionsx", null, true)]
+    [InlineData("/sessions", null, true)]
+    [InlineData("/", null, true)]
+    [InlineData("/signin", "/sessions", true)]
+    public void ShouldRedirect_TeamsReleased_PhoneAtATeamPage_IsNotRedirected_AndEverythingElseStillIs(
+        string path, string? next, bool expected)
+    {
+        Assert.Equal(expected, MobileRedirect.ShouldRedirectToMobile("GET", path, "text/html", "iPhone Mobile", next, teamsReleased: true));
+    }
+
+    [Theory]
+    [InlineData("/questions", null)]
+    [InlineData("/requests", null)]
+    [InlineData("/reports", null)]
+    [InlineData("/signin", "/questions")]
+    public void ShouldRedirect_TeamsDark_PhoneAtATeamPage_StillGoesToTheMobileApp(string path, string? next)
+    {
+        Assert.True(MobileRedirect.ShouldRedirectToMobile("GET", path, "text/html", "iPhone Mobile", next, teamsReleased: false));
+    }
+
     [Fact]
     public void ShouldRedirect_phone_html_navigation_is_redirected()
     {

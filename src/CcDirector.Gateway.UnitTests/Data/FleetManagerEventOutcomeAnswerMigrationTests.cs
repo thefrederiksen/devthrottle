@@ -52,8 +52,11 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
             Assert.Equal("20260928124401_AddFactoryMemoryNotes", all[index + 12]);
             Assert.Equal("20261003182410_AddTeams", all[index + 13]);
             Assert.Equal("20261003233525_AddTeamInvitations", all[index + 14]);
-            Assert.Equal("20261005031703_AddFleetMessageLinks", all[index + 15]);
-            Assert.Equal(index + 16, all.Count);
+            // The Mentor's weekly page (devthrottle_internal#2305), after that.
+            Assert.Equal("20261004214334_AddTeamMentor", all[index + 15]);
+            // The message links between sessions (issue #3548), after that.
+            Assert.Equal("20261005031703_AddFleetMessageLinks", all[index + 16]);
+            Assert.Equal(index + 17, all.Count);
 
             // From an EMPTY database to the schema just before, with a stop stored as step 4 stores it.
             Assert.Empty(context.Database.GetAppliedMigrations());

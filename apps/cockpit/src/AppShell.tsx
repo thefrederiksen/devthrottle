@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useKeepWarm } from "@devthrottle/client-core/net/useKeepWarm";
 import { getSuggestionCount } from "@devthrottle/client-core/dictation/dictionaryClient";
 import { resumePendingDictations } from "@devthrottle/client-core/dictation/backgroundSend";
@@ -8,8 +8,14 @@ import { CockpitStatusPill } from "./network/CockpitStatusPill";
 import { StopSessionProvider } from "./sessions/StopSessionProvider";
 import { useFleetManagerWaitingCount } from "./fleetmanager/useWaitingCount";
 import { useFactorySwitch } from "./factory/useFactorySwitch";
-import { CurrentTeamProvider } from "@devthrottle/client-core/teams/CurrentTeam";
+import { CurrentTeamProvider, useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
+import type { TeamPagesApp, TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 import { TeamSwitcher } from "./teams/TeamSwitcher";
+import { isTeamPageAddress, TeamPagesOnly } from "./teams/collaborator/TeamPagesOnly";
+import { TeamPagesFoot } from "./teams/collaborator/TeamPagesFoot";
+import { TeamChooser } from "./teams/collaborator/TeamChooser";
+import "./teams/collaborator/collaborator.css";
+import { Button, LoadingState } from "./components";
 import { useMentorEntry } from "./mentor/useMentorEntry";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
@@ -55,7 +61,7 @@ import { useMentorEntry } from "./mentor/useMentorEntry";
 interface NavItem {
   to: string;
   label: string;
-  icon: NavIconName;
+  icon?: NavIconName;
   subtree?: string;
   // When set, the item is an EXTERNAL link opened in a new tab rather than an in-app route: it renders
   // a plain anchor to this absolute URL instead of a NavLink, and `to` is ignored. Used for Help, which
@@ -153,19 +159,63 @@ function initialRailCollapsed(): boolean {
   }
 }
 
+// THE TEAM PAGES' ICONS (devthrottle_internal#2306). Which pages a person may open in a team, their names and their
+// addresses are the Gateway's verdict (rule 7); only the drawing is the Cockpit's. A page the Gateway names that has
+// no drawing here is still listed, with its name alone.
+const TEAM_PAGE_ICONS: Readonly<Record<string, NavIconName>> = {
+  questions: "questions",
+  requests: "requests",
+  reports: "reports",
+};
+
+/** The rail of a Cockpit that is only the Gateway's pages: those, in the Gateway's order, and nothing else. */
+function teamPagesNav(app: TeamPagesApp): NavItem[] {
+  return app.pages.map((page) => ({ to: page.path, label: page.label, icon: TEAM_PAGE_ICONS[page.id] }));
+}
+
+/** The team's verdict when it makes the Cockpit only some pages; null when it does not, or there is no team. */
+function pagesOnly(team: TeamSummary | null): TeamPagesApp | null {
+  return team !== null && !team.app.full ? team.app : null;
+}
+
+// THE CURRENT TEAM IS OWNED HERE (devthrottle_internal#2312): the switcher in the rail writes it and the routed pages
+// read it, so it must outlive every route change. The frame inside reads it to draw the rail and the main pane
+// (devthrottle_internal#2306).
 export function AppShell() {
+  return (
+    <CurrentTeamProvider>
+      <ShellFrame />
+    </CurrentTeamProvider>
+  );
+}
+
+function ShellFrame() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const team = useCurrentTeam();
+  // A team whose verdict is "only these pages" - a Collaborator's (devthrottle_internal#2306). Null for the person's own
+  // account, for a person with no team, and for a team where they get the whole app: all of those see today's Cockpit.
+  const teamPages = pagesOnly(team.current);
+  // THE WHOLE APP IS ON SCREEN: not a pages-only team, not waiting to learn which, not the chooser. Only then does the
+  // shell ask the Gateway for what the whole app's rail shows (the five reads below) - a Collaborator's three pages
+  // ask for none of it (devthrottle_internal#2306, review finding F2).
+  const wholeApp = !team.resolving && !team.choosing && teamPages === null;
   // Keep-warm heartbeat (P2): hold the direct LAN path open during active use.
-  useKeepWarm();
+  useKeepWarm(wholeApp);
 
   // Resume any recorded-but-unsent dictation once this enrolled shell mounts, exactly like the mobile
   // GatedLayout does (issue #1006): a clip whose upload was interrupted by a refresh / closed tab /
   // dropped connection is re-driven to its session from the durable on-device queue. Without this, the
   // Cockpit's fire-and-forget Speak Send (SessionComposer / VoiceTab) could persist a clip and then
   // never deliver it after a reload - saved forever, sent never.
+  // Once per shell, the first time the whole app is on screen - not again on every switch back from a pages-only team
+  // (delta review D8).
+  const resumed = useRef(false);
   useEffect(() => {
+    if (!wholeApp || resumed.current) return;
+    resumed.current = true;
     void resumePendingDictations();
-  }, []);
+  }, [wholeApp]);
 
   // The pending dictionary-suggestions count (devthrottle #2075) - the Gateway-owned verdict rendered as a
   // red badge on the Dictionary nav item. Polled here so the whole app shows the attention signal without
@@ -173,6 +223,7 @@ export function AppShell() {
   // promptly (leaving the page re-polls). The client renders the number; it never decides it.
   const [suggestCount, setSuggestCount] = useState(0);
   useEffect(() => {
+    if (!wholeApp) return undefined;
     let cancelled = false;
     const poll = () => void getSuggestionCount().then((n) => {
       if (!cancelled) setSuggestCount(n);
@@ -183,9 +234,9 @@ export function AppShell() {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [location.pathname]);
+  }, [location.pathname, wholeApp]);
 
-  const waitingCount = useFleetManagerWaitingCount(location.pathname);
+  const waitingCount = useFleetManagerWaitingCount(location.pathname, wholeApp);
 
   const [railCollapsed, setRailCollapsed] = useState(initialRailCollapsed);
   const toggleRail = () => {
@@ -200,13 +251,13 @@ export function AppShell() {
     });
   };
 
-  const factorySwitch = useFactorySwitch().state;
+  const factorySwitch = useFactorySwitch(wholeApp).state;
   const railItems =
     factorySwitch === "on"
       ? NAV_MAIN.flatMap((item) => (item.to === "/fleet-map" ? [item, FACTORY_AGENTS_ITEM] : [item]))
       : NAV_MAIN;
 
-  const mainNav = railItems.map((item) =>
+  const fullNav = railItems.map((item) =>
     item.to === "/dictionary"
       ? { ...item, badge: suggestCount }
       : item.to === "/fleet-manager"
@@ -220,46 +271,135 @@ export function AppShell() {
   // unread, by the refresh that the stop itself caused. This provider outlives every route change, so
   // neither the outstanding request nor the Gateway's answer can go with the row.
   //
-  // THE CURRENT TEAM IS OWNED HERE TOO (devthrottle_internal#2312), for the same reason: the switcher in the rail
-  // writes it and the routed pages read it, so it must outlive every route change.
-  return (
-    <CurrentTeamProvider>
-      <StopSessionProvider>
-        <div className={railCollapsed ? "shell shell-rail-collapsed" : "shell"}>
-          <nav className="rail rail-left" aria-label="Primary">
-            <div className="rail-head">
-              {!railCollapsed && <div className="brand">DevThrottle</div>}
-              {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
-                  is the one row still in reach, pointing the way back. */}
-              <button
-                type="button"
-                className="rail-toggle"
-                data-testid="rail-toggle"
-                aria-expanded={!railCollapsed}
-                aria-label={railCollapsed ? "Expand the menu" : "Collapse the menu"}
-                title={railCollapsed ? "Expand the menu" : "Collapse the menu"}
-                onClick={toggleRail}
-              >
-                <Chevron pointing={railCollapsed ? "right" : "left"} />
-              </button>
-            </div>
-            {/* The team switcher sits at the top of the rail on every screen (S11). It renders nothing for a person
-                with no team, so their rail is exactly as it was. */}
-            {!railCollapsed && <TeamSwitcher />}
-            {!railCollapsed && <CockpitStatusPill />}
-            <div className="nav">
-              <MainNavList items={mainNav} pathname={location.pathname} collapsed={railCollapsed} />
-              <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={railCollapsed} />
-            </div>
-            {!railCollapsed && <div className="rail-foot">Cockpit (React)</div>}
-          </nav>
+  //
+  // While this browser remembers a team the Gateway has not confirmed yet (CurrentTeam's `resolving`), the rail and the
+  // page wait: drawing the whole app first would flash pages a Collaborator may not open. It never happens to a browser
+  // that remembers no team, or the own account - so a Gateway with Teams dark, and a person with no team, never wait
+  // (delta review D1).
+  const mainNav = team.resolving || team.choosing ? [] : teamPages !== null ? teamPagesNav(teamPages) : fullNav;
+  // A pages-only rail never collapses (review finding F4): three rows need no room back, and at phone width the bar
+  // hides the collapse control - a remembered collapse would otherwise leave no switcher and no way back.
+  // The chooser (S11) has no rail rows either, so it takes the same short rail: no collapse, and a bar at phone width.
+  const shortRail = teamPages !== null || team.choosing;
+  const collapsed = railCollapsed && !shortRail;
+  const shellClass = ["shell", collapsed ? "shell-rail-collapsed" : "", shortRail ? "shell-team-pages" : ""]
+    .filter((c) => c.length > 0)
+    .join(" ");
 
-          <main className="main-pane" aria-label="Main">
+  // Picking a team opens it where it starts: a pages-only team on its landing page; and leaving one goes back to the
+  // Cockpit's own start, since the page on screen was one only that team had.
+  const onSwitched = (now: TeamSummary | null, before: TeamSummary | null) => {
+    const nowPages = pagesOnly(now);
+    if (nowPages !== null) navigate(nowPages.landing);
+    else if (pagesOnly(before) !== null) navigate("/");
+  };
+
+  // The chooser (S11) opens the picked team where it starts, the same way the switcher does - except that a person who
+  // arrived at one of that team's pages (a mailed link to /reports, say) stays on it (delta review D7).
+  const onChosen = (teamId: string | null) => {
+    const now = team.choose(teamId);
+    const nowPages = pagesOnly(now);
+    if (nowPages === null) navigate("/");
+    else if (!isTeamPageAddress(nowPages, location.pathname)) navigate(nowPages.landing);
+  };
+
+  // The own account was drawn at once (nothing remembered never waits, delta review D1), and then the Gateway's start
+  // put a pages-only team on screen: open that team where it starts, unless the address is already one of its pages.
+  // Keyed to the own account having been on screen, so a typed address in a team that was remembered still shows the
+  // not-available sentence rather than being moved.
+  const ownWasOnScreen = useRef(false);
+  useEffect(() => {
+    if (teamPages !== null && ownWasOnScreen.current && !isTeamPageAddress(teamPages, location.pathname)) {
+      navigate(teamPages.landing, { replace: true });
+    }
+    ownWasOnScreen.current = wholeApp && team.current === null;
+    // Only a change of what is on screen moves the person; a change of address alone never does.
+  }, [teamPages, wholeApp, team.current]);
+
+  // Who is signed in, and Sign out, wherever the person cannot reach the Account page: a pages-only team, the chooser,
+  // and a team that could not be opened (review finding F3, delta review D6).
+  // Not drawn in a collapsed rail (only "could not be opened" can be collapsed); the role is shown only in a pages-only
+  // team, the one place a team is on screen.
+  const signOutFoot = teamPages !== null || team.choosing || (team.resolving && team.status === "error");
+  const pagesTeam = teamPages === null ? null : team.current;
+
+  return (
+    <StopSessionProvider>
+      <div className={shellClass}>
+        <nav className="rail rail-left" aria-label="Primary">
+          <div className="rail-head">
+            {!collapsed && <div className="brand">DevThrottle</div>}
+            {/* The collapse control lives in the rail it collapses, and stays put when it does: collapsed, it
+                is the one row still in reach, pointing the way back. */}
+            {!shortRail && (
+            <button
+              type="button"
+              className="rail-toggle"
+              data-testid="rail-toggle"
+              aria-expanded={!collapsed}
+              aria-label={collapsed ? "Expand the menu" : "Collapse the menu"}
+              title={collapsed ? "Expand the menu" : "Collapse the menu"}
+              onClick={toggleRail}
+            >
+              <Chevron pointing={collapsed ? "right" : "left"} />
+            </button>
+            )}
+          </div>
+          {/* The team switcher sits at the top of the rail on every screen (S11). It renders nothing for a person
+              with no team, so their rail is exactly as it was. */}
+          {/* While the chooser is on screen it IS the choice; a switcher beside it would claim "Your own account". */}
+          {!collapsed && !team.choosing && <TeamSwitcher onSwitched={onSwitched} />}
+          {!collapsed && teamPages === null && <CockpitStatusPill />}
+          <div className="nav">
+            {teamPages !== null ? (
+              <NavList items={mainNav} pathname={location.pathname} collapsed={collapsed} />
+            ) : (
+              <MainNavList items={mainNav} pathname={location.pathname} collapsed={collapsed} />
+            )}
+            {/* A pages-only Cockpit is those pages and nothing else: no account, settings or help rows. */}
+            {wholeApp && (
+              <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={collapsed} />
+            )}
+          </div>
+          {signOutFoot && !collapsed ? (
+            <TeamPagesFoot role={pagesTeam?.role ?? null} />
+          ) : (
+            !collapsed && <div className="rail-foot">Cockpit (React)</div>
+          )}
+        </nav>
+
+        <main className="main-pane" aria-label="Main">
+          {team.resolving && team.status === "error" ? (
+            <TeamUnreadable error={team.error} onOwnAccount={team.openOwnAccountForThisLoad} />
+          ) : team.resolving ? (
+            <LoadingState message="Loading your team..." />
+          ) : team.choosing ? (
+            <TeamChooser teams={team.teams} onOpen={onChosen} />
+          ) : teamPages !== null ? (
+            <TeamPagesOnly app={teamPages} />
+          ) : (
             <Outlet />
-          </main>
-        </div>
-      </StopSessionProvider>
-    </CurrentTeamProvider>
+          )}
+        </main>
+      </div>
+    </StopSessionProvider>
+  );
+}
+
+// The team this browser remembers could not be confirmed because the list of teams could not be read. Which pages the
+// person may open there is unknown, so none is drawn; the read is being asked again by itself, and the person can go
+// to their own account meanwhile rather than wait on a screen with nothing in it.
+function TeamUnreadable({ error, onOwnAccount }: { error: string | null; onOwnAccount: () => void }) {
+  return (
+    <section className="pane" data-testid="team-unreadable">
+      <h1 className="pane-title">Your team could not be opened just now</h1>
+      <p className="pane-note">
+        {error ?? "Your teams could not be read."} DevThrottle is trying again by itself.
+      </p>
+      <div className="team-unreadable-actions">
+        <Button onClick={onOwnAccount}>Open your own account instead</Button>
+      </div>
+    </section>
   );
 }
 
@@ -301,7 +441,7 @@ function NavList({
                 rel="noopener noreferrer"
                 title={collapsed ? item.label : undefined}
               >
-                <NavIcon name={item.icon} />
+                {item.icon !== undefined && <NavIcon name={item.icon} />}
                 <span className="nav-link-label">{item.label}</span>
               </a>
             ) : (
@@ -315,7 +455,7 @@ function NavList({
                    stays in the DOM for the accessible name; the hover text is for the eye. */
                 title={collapsed ? item.label : undefined}
               >
-                <NavIcon name={item.icon} />
+                {item.icon !== undefined && <NavIcon name={item.icon} />}
                 <span className="nav-link-label">{item.label}</span>
                 {item.badge !== undefined && item.badge > 0 && (
                   <span className="nav-badge" title={item.badgeTitle ?? `${item.badge} pending`}>

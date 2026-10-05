@@ -13,7 +13,9 @@ export const FLEET_MANAGER_PATH = "/fleet-manager";
 
 const noSubscribe = () => () => undefined;
 
-export function useFleetManagerWaitingCount(pathname: string): number {
+// `enabled` false asks nothing: a Cockpit that is only a Collaborator's three pages has no Fleet Manager
+// (devthrottle_internal#2306, review finding F2).
+export function useFleetManagerWaitingCount(pathname: string, enabled = true): number {
   const onPage = pathname === FLEET_MANAGER_PATH || pathname.startsWith(`${FLEET_MANAGER_PATH}/`);
   const live = useSyncExternalStore(
     onPage ? fleetManagerPageStore.subscribe : noSubscribe,
@@ -23,7 +25,7 @@ export function useFleetManagerWaitingCount(pathname: string): number {
   const [polled, setPolled] = useState(0);
 
   useEffect(() => {
-    if (onPage) return;
+    if (onPage || !enabled) return;
     const controller = new AbortController();
     const poll = () =>
       void getFleetManagerPage(controller.signal).then(
@@ -37,7 +39,7 @@ export function useFleetManagerWaitingCount(pathname: string): number {
       controller.abort();
       window.clearInterval(id);
     };
-  }, [onPage, pathname]);
+  }, [onPage, pathname, enabled]);
 
   return onPage && live.data !== null ? live.data.waitingCount : polled;
 }

@@ -40,7 +40,7 @@ public sealed class TeamEndpointsTests : IDisposable
     [Fact]
     public async Task ListTeams_AccountInNoTeam_AnswersAnEmptyListWithACount()
     {
-        var (status, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice));
+        var (status, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
 
         Assert.Equal(200, status);
         Assert.Equal(0, body.GetProperty("count").GetInt32());
@@ -54,7 +54,7 @@ public sealed class TeamEndpointsTests : IDisposable
         var pauls = _teams.CreateTeam(Bob, "Paul's project").Team!;
         _teams.AddMember(pauls.TeamId, Alice, TeamRole.Developer);
 
-        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice));
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
 
         var teams = body.GetProperty("teams").EnumerateArray().ToList();
         Assert.Equal(2, body.GetProperty("count").GetInt32());
@@ -66,6 +66,30 @@ public sealed class TeamEndpointsTests : IDisposable
         Assert.Equal("Developer", teams[1].GetProperty("role").GetString());
         Assert.Equal(2, teams[1].GetProperty("memberCount").GetInt32());
         Assert.Equal("2 people", teams[1].GetProperty("people").GetString());
+    }
+
+    [Fact]
+    public async Task ListTeams_ACollaboratorAndADeveloper_EachTeamCarriesThePageVerdictForTheCallersRole()
+    {
+        var collab = _teams.CreateTeam(Bob, "DevThrottle").Team!;
+        _teams.AddMember(collab.TeamId, Alice, TeamRole.Collaborator);
+        var dev = _teams.CreateTeam(Bob, "Paul's project").Team!;
+        _teams.AddMember(dev.TeamId, Alice, TeamRole.Developer);
+
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
+
+        var byId = body.GetProperty("teams").EnumerateArray().ToDictionary(t => t.GetProperty("id").GetString()!, t => t.GetProperty("app"));
+        var asCollaborator = byId[collab.TeamId];
+        Assert.False(asCollaborator.GetProperty("full").GetBoolean());
+        Assert.Equal(new[] { "Questions|/questions", "Requests|/requests", "Reports|/reports" },
+            asCollaborator.GetProperty("pages").EnumerateArray().Select(p => $"{p.GetProperty("label").GetString()}|{p.GetProperty("path").GetString()}"));
+        Assert.Equal("/questions", asCollaborator.GetProperty("landing").GetString());
+        Assert.Equal("This page is not available to Collaborators.", asCollaborator.GetProperty("elsewhere").GetString());
+
+        var asDeveloper = byId[dev.TeamId];
+        Assert.True(asDeveloper.GetProperty("full").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, asDeveloper.GetProperty("landing").ValueKind);
+        Assert.Equal(JsonValueKind.Null, asDeveloper.GetProperty("elsewhere").ValueKind);
     }
 
     [Fact]
@@ -157,6 +181,68 @@ public sealed class TeamEndpointsTests : IDisposable
         // agent create teams or read member lists as the owner. The routes are the owner's own devices' only (F4).
         Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path).Allowed);
         Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path, raised: true).Allowed);
+    }
+
+    private TeamCallerOwnership Ownership(Discovery.DirectorRegistry directors)
+    {
+        var devices = new DeviceRegistry(_db);
+        return new TeamCallerOwnership(directors, new Streaming.PushedSessionStore(), devices, new CcDirector.Gateway.History.SessionTurnStore(_db),
+            new HostedTenantBoundary(new SingleTenantContext(), devices));
+    }
+
+    private TeamFleetMap NewFleetMap(out Discovery.DirectorRegistry directors)
+    {
+        directors = new Discovery.DirectorRegistry(Path.Combine(Path.GetTempPath(), "cc-teamep-" + Guid.NewGuid().ToString("N")));
+        return new TeamFleetMap(_teams, new TeamAccess(_teams), directors, Ownership(directors),
+            new Streaming.PushedSessionStore());
+    }
+
+    [Fact]
+    public async Task ReadFleetMap_AMember_Answers200WithTheAllowListOnly()
+    {
+        _tenants.MintOrLookupBySubject(Alice, "alice@example.com");
+        var team = _teams.CreateTeam(Alice, "DevThrottle").Team!;
+        var map = NewFleetMap(out var directors);
+        using var _ = directors;
+
+        var (status, body) = await RenderAsync(TeamEndpoints.ReadFleetMap(map, Alice, team.TeamId));
+
+        Assert.Equal(200, status);
+        Assert.Equal("DevThrottle", body.GetProperty("teamName").GetString());
+        Assert.Equal("Owner", body.GetProperty("role").GetString());
+        Assert.Equal("everyone", body.GetProperty("scope").GetString());
+        Assert.Equal(new[] { "emptyText", "layouts", "people", "role", "scope", "summary", "teamId", "teamName" },
+            body.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public async Task ReadFleetMap_ACollaborator_Answers403WithTheRoleTablesSentence()
+    {
+        var team = _teams.CreateTeam(Alice, "DevThrottle").Team!;
+        Assert.True(_teams.AddMember(team.TeamId, Bob, TeamRole.Collaborator).IsDone);
+        var map = NewFleetMap(out var directors);
+        using var _ = directors;
+
+        var (status, body) = await RenderAsync(TeamEndpoints.ReadFleetMap(map, Bob, team.TeamId));
+
+        Assert.Equal(403, status);
+        Assert.Equal(TeamEndpointGate.RefusalCode, body.GetProperty("code").GetString());
+        Assert.Contains("Collaborator may not see the team's Fleet Map", body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task ReadFleetMap_ANonMemberOrAnUnknownTeam_Answers404WithOneMessage()
+    {
+        var team = _teams.CreateTeam(Alice, "DevThrottle").Team!;
+        var map = NewFleetMap(out var directors);
+        using var _ = directors;
+
+        foreach (var teamId in new[] { team.TeamId, Guid.NewGuid().ToString(), null })
+        {
+            var (status, body) = await RenderAsync(TeamEndpoints.ReadFleetMap(map, Bob, teamId));
+            Assert.Equal(404, status);
+            Assert.Equal(TeamEndpoints.NoSuchTeamRefusal, body.GetProperty("error").GetString());
+        }
     }
 
     private static async Task<(int Status, JsonElement Body)> RenderAsync(IResult result)

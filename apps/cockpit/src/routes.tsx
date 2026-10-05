@@ -36,6 +36,10 @@ import { AboutView } from "./about/AboutView";
 import { SettingsView } from "./settings/SettingsView";
 import { InviteView } from "./team/InviteView";
 import { AcceptInviteView } from "./team/AcceptInviteView";
+import { TeamPageRoute } from "./teams/collaborator/TeamPageRoute";
+import { QuestionsPage } from "./teams/collaborator/QuestionsPage";
+import { RequestsPage } from "./teams/collaborator/RequestsPage";
+import { ReportsPage } from "./teams/collaborator/ReportsPage";
 import { MentorView } from "./mentor/MentorView";
 import { TeamPageView } from "./team/TeamPageView";
 
@@ -213,6 +217,13 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // navigation entry yet: Teams is dark until the owner releases it, and while it is the Gateway answers this
           // page's reads with "not available".
           { path: "/team/:teamId/invite", element: <InviteView /> },
+          // The team pages (screens S8-S10, devthrottle_internal#2306): a Collaborator's whole app in a team, and open to
+          // anyone else the Gateway's page verdict lists them for. Outside such a team each is the ordinary "Page not
+          // found". The content of each is its own issue - Questions #2307, Requests #2308, Reports #2309 - filled in
+          // the page component alone; neither the route nor the rail changes for it.
+          { path: "/questions", element: <TeamPageRoute pageId="questions"><QuestionsPage /></TeamPageRoute> },
+          { path: "/requests", element: <TeamPageRoute pageId="requests"><RequestsPage /></TeamPageRoute> },
+          { path: "/reports", element: <TeamPageRoute pageId="reports"><ReportsPage /></TeamPageRoute> },
           // The Mentor's weekly page for the team on screen (screens S6 and S7, devthrottle_internal#2305). For a person
           // with no team, or on a Gateway with Teams off, it is the ordinary missing page - they see no change.
           { path: "/mentor", element: <MentorView /> },

@@ -1,0 +1,475 @@
+﻿=== RED PROOF: The Gateway's start moves the person off a team page the link named
+Broke apps\cockpit\src\AppShell.tsx
+  was: if (teamPages !== null && ownWasOnScreen.current && !isTeamPageAddress(teamPages, location.pathname)) {
+  now: if (teamPages !== null && ownWasOnScreen.current) {
+Ran: Push-Location apps\cockpit; npx vitest run src/AppShell.test.tsx src/railCollapse.test.tsx src/teams; Pop-Location
+
+
+ RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2306/apps/cockpit
+
+ ✓ src/teams/TeamSwitcher.test.tsx (6 tests) 180ms
+ ✓ src/railCollapse.test.tsx (5 tests) 451ms
+ ✓ src/AppShell.test.tsx (25 tests) 1468ms
+ ❯ src/teams/collaborator/collaboratorApp.test.tsx (34 tests | 1 failed) 2437ms
+   [x] The Collaborator's app > FirstArrival_AMailedLinkToReports_NeverShowsPageNotFound_AndStaysOnReports 1069ms
+     → Unable to find an element by: [data-testid="team-page-reports"]
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      data-testid="where"
+    >
+      /questions
+    </div>
+    <div
+      class="shell shell-team-pages"
+    >
+      <nav
+        aria-label="Primary"
+        class="rail rail-left"
+      >
+        <div
+          class="rail-head"
+        >
+          <div
+            class="brand"
+          >
+            DevThrottle
+          </div>
+        </div>
+        <label
+          class="team-switcher"
+          data-testid="team-switcher"
+        >
+          <span
+            class="team-switcher-label"
+          >
+            Team
+          </span>
+          <select
+            class="team-switcher-select"
+            title="DevThrottle - Collaborator"
+          >
+            <option
+              value="own-account"
+            >
+              Your own account
+            </option>
+            <option
+              value="team-dt"
+            >
+              DevThrottle - Collaborator
+            </option>
+          </select>
+          <span
+            class="team-switcher-role"
+            data-testid="team-switcher-role"
+          >
+            Collaborator - 5 people
+          </span>
+        </label>
+        <div
+          class="nav"
+        >
+          <ul
+            class="nav-list"
+          >
+            <li>
+              <a
+                aria-current="page"
+                class="nav-link nav-link-active"
+                href="/questions"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nav-icon"
+                  fill="none"
+                  focusable="false"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                  />
+                  <path
+                    d="M9.5 8.5a2.5 2.5 0 0 1 4.8 1c0 1.5-2.3 2-2.3 2"
+                  />
+                  <path
+                    d="M12 14h.01"
+                  />
+                </svg>
+                <span
+                  class="nav-link-label"
+                >
+                  Questions
+                </span>
+              </a>
+            </li>
+            <li>
+              <a
+                class="nav-link"
+                href="/requests"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nav-icon"
+                  fill="none"
+                  focusable="false"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M22 2 11 13"
+                  />
+                  <path
+                    d="M22 2 15 22l-4-9-9-4z"
+                  />
+                </svg>
+                <span
+                  class="nav-link-label"
+                >
+                  Requests
+                </span>
+              </a>
+            </li>
+            <li>
+              <a
+                class="nav-link"
+                href="/reports"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nav-icon"
+                  fill="none"
+                  focusable="false"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                  />
+                  <path
+                    d="M14 2v6h6"
+                  />
+                  <path
+                    d="M8 13h8"
+                  />
+                  <path
+                    d="M8 17h5"
+                  />
+                </svg>
+                <span
+                  class="nav-link-label"
+                >
+                  Reports
+                </span>
+              </a>
+            </li>
+          </ul>
+        </div>
+        <div
+          class="team-pages-foot"
+          data-testid="team-pages-foot"
+        >
+          <div
+            class="team-pages-foot-who"
+            title="mike@example.com"
+          >
+            mike@example.com
+          </div>
+          <div
+            class="team-pages-foot-role"
+          >
+            Collaborator
+          </div>
+          <button
+            class="team-pages-foot-signout"
+            type="button"
+          >
+            Sign out
+          </button>
+        </div>
+      </nav>
+      <main
+        aria-label="Main"
+        class="main-pane"
+      >
+        <section
+          class="pane team-page"
+          data-testid="team-page-questions"
+        >
+          <header
+            class="ui-page-header"
+          >
+            <div
+              class="ui-page-header-text"
+            >
+              <h1
+                class="ui-page-title"
+              >
+                Questions
+              </h1>
+              <p
+                class="ui-page-subtitle"
+              >
+                Questions your team is waiting on you to answer.
+              </p>
+            </div>
+          </header>
+          <div
+            class="ui-empty"
+          >
+            <div
+              class="ui-empty-message"
+            >
+              No questions waiting on you.
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      data-testid="where"
+    >
+      /questions
+    </div>
+    <div
+      class="shell shell-team-pages"
+    >
+      <nav
+        aria-label="Primary"
+        class="rail rail-left"
+      >
+        <div
+          class="rail-head"
+        >
+          <div
+            class="brand"
+          >
+            DevThrottle
+          </div>
+        </div>
+        <label
+          class="team-switcher"
+          data-testid="team-switcher"
+        >
+          <span
+            class="team-switcher-label"
+          >
+            Team
+          </span>
+          <select
+            class="team-switcher-select"
+            title="DevThrottle - Collaborator"
+          >
+            <option
+              value="own-account"
+            >
+              Your own account
+            </option>
+            <option
+              value="team-dt"
+            >
+              DevThrottle - Collaborator
+            </option>
+          </select>
+          <span
+            class="team-switcher-role"
+            data-testid="team-switcher-role"
+          >
+            Collaborator - 5 people
+          </span>
+        </label>
+        <div
+          class="nav"
+        >
+          <ul
+            class="nav-list"
+          >
+            <li>
+              <a
+                aria-current="page"
+                class="nav-link nav-link-active"
+                href="/questions"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nav-icon"
+                  fill="none"
+                  focusable="false"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+                  />
+                  <path
+                    d="M9.5 8.5a2.5 2.5 0 0 1 4.8 1c0 1.5-2.3 2-2.3 2"
+                  />
+                  <path
+                    d="M12 14h.01"
+                  />
+                </svg>
+                <span
+                  class="nav-link-label"
+                >
+                  Questions
+                </span>
+              </a>
+            </li>
+            <li>
+              <a
+                class="nav-link"
+                href="/requests"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nav-icon"
+                  fill="none"
+                  focusable="false"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M22 2 11 13"
+                  />
+                  <path
+                    d="M22 2 15 22l-4-9-9-4z"
+                  />
+                </svg>
+                <span
+                  class="nav-link-label"
+                >
+                  Requests
+                </span>
+              </a>
+            </li>
+            <li>
+              <a
+                class="nav-link"
+                href="/reports"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="nav-icon"
+                  fill="none"
+                  focusable="false"
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+                  />
+                  <path
+                    d="M14 2v6h6"
+                  />
+                  <path
+                    d="M8 13h8"
+                  />
+                  <path
+                    d="M8 17h5"
+                  />
+                </svg>
+                <span
+                  class="nav-link-label"
+                >
+                  Reports
+                </span>
+              </a>
+            </li>
+          </ul>
+        </div>
+        <div
+          class="team-pages-foot"
+          data-testid="team-pages-foot"
+        >
+          <div
+            class="team-pages-foot-who"
+            title="mike@example.com"
+          >
+            mike@example.com
+          </div>
+          <div
+            class="team-pages-foot-role"
+          >
+            Collaborator
+          </div>
+          <button
+            class="team-pages-foot-signout"
+            type="button"
+          >
+            Sign out
+          </button>
+        </div>
+      </nav>
+      <main
+        aria-label="Main"
+        class="main-pane"
+      >
+        <section
+          class="pane team-page"
+          data-testid="team-page-questions"
+        >
+          <header
+            class="ui-page-header"
+          >
+            <div
+              class="ui-page-header-text"
+            >
+              <h1
+                class="ui-page-title"
+              >
+                Questions
+              </h1>
+              <p
+                class="ui-page-subtitle"
+              >
+                Questions your team is waiting on you to answer.
+              </p>
+            </div>
+          </header>
+          <div
+            class="ui-empty"
+          >
+            <div
+              class="ui-empty-message"
+            >
+              No questions waiting on you.
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 69 passed (70)
+   Start at  21:00:30
+   Duration  6.66s (transform 2.07s, setup 113ms, collect 4.77s, tests 4.54s, environment 4.57s, prepare 1.02s)
+

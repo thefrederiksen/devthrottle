@@ -29,7 +29,7 @@ vi.mock("@devthrottle/client-core/teams/CurrentTeam", () => ({ useCurrentTeam: (
 
 import { TeamLibraryView, TeamOrOwn } from "./TeamLibraryView";
 
-const ACME: TeamSummary = { id: "team-acme", name: "Acme", role: "Developer", memberCount: 4, people: "4 people" };
+const ACME: TeamSummary = { id: "team-acme", name: "Acme", role: "Developer", memberCount: 4, people: "4 people", app: { full: true, pages: [], landing: null, elsewhere: null } };
 
 const DEVELOPER_REFUSAL = "In this team you are a Developer, and a Developer may not change the team's shared skills and workflows.";
 
@@ -47,7 +47,17 @@ function library(role: string, canChange: boolean): TeamLibrary {
 }
 
 function state(overrides: Partial<CurrentTeamState>): CurrentTeamState {
-  return { status: "ready", teams: [ACME], current: ACME, resolving: false, error: null, choose: () => {}, ...overrides };
+  return {
+    status: "ready",
+    teams: [ACME],
+    current: ACME,
+    resolving: false,
+    choosing: false,
+    error: null,
+    choose: () => null,
+    openOwnAccountForThisLoad: () => {},
+    ...overrides,
+  };
 }
 
 beforeEach(() => {

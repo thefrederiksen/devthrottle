@@ -31,7 +31,14 @@ vi.mock("@devthrottle/client-core/teams/CurrentTeam", () => ({ useCurrentTeam: (
 
 import { COCKPIT_ROUTES } from "../routes";
 
-const ACME = { id: "team-acme", name: "Acme", role: "Owner", memberCount: 2, people: "2 people" };
+const ACME = {
+  id: "team-acme",
+  name: "Acme",
+  role: "Owner",
+  memberCount: 2,
+  people: "2 people",
+  app: { full: true as const, pages: [], landing: null, elsewhere: null },
+};
 
 function Shell() {
   const location = useLocation();
@@ -45,7 +52,16 @@ function Shell() {
 }
 
 function renderAt(path: string, onTeam: boolean) {
-  team.state = { status: "ready", teams: [ACME], current: onTeam ? ACME : null, resolving: false, error: null, choose: () => {} };
+  team.state = {
+    status: "ready",
+    teams: [ACME],
+    current: onTeam ? ACME : null,
+    resolving: false,
+    choosing: false,
+    error: null,
+    choose: () => null,
+    openOwnAccountForThisLoad: () => {},
+  };
   render(<MemoryRouter initialEntries={[path]}><Shell /></MemoryRouter>);
 }
 

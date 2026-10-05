@@ -19,12 +19,13 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// same routes answer. A REAL hosted <see cref="GatewayHost"/> over REAL HTTP, so the proof is about what is mapped.
 ///
 /// "Not mapped" is proven three ways, none of which depends on how the build was made: the finalised route table
-/// holds nothing under /teams; a request to a team route gets exactly the answer a path that never existed gets (see
-/// <see cref="AssertAnsweredAsAPathThatDoesNotExist"/>); and nothing was written. A fixed 404 is NOT the proof, because
-/// a GET of ANY unmapped path is answered by the Cockpit fallback: 404 when the React Cockpit is not in the test
-/// output, and the 200 Cockpit shell when it is - and whether it is depends on the build (a Release build stages it)
-/// and on test ORDER (CockpitReactAppServingTests deletes that folder when it finishes). Pinned to 404, these tests
-/// passed or failed with the order the runner picked.
+/// holds nothing under /teams; a request to a team route gets the Gateway's not-found answer (see
+/// <see cref="AssertAnsweredAsAPathThatDoesNotExist"/>); and nothing was written. A GET of an unmapped path is NOT a
+/// usable comparison, because the Cockpit fallback answers it 404 when the React Cockpit is not in the test output and
+/// with the 200 Cockpit shell when it is - which depends on the build and on test ORDER (CockpitReactAppServingTests
+/// deletes that folder when it finishes). A dark Gateway answers 404 on a team route either way
+/// (<see cref="CcDirector.Gateway.Teams.TeamsDarkRoutes"/>, devthrottle_internal#2311), so these tests pin 404 and
+/// compare with an unmapped POST, which the fallback always answers with its not-found answer.
 /// </summary>
 [Collection("GatewayHostedMode")]
 public sealed class HostedTeamsDarkTests : IAsyncLifetime
@@ -80,7 +81,8 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         Assert.False(_gateway.TeamsReleased);
         Assert.DoesNotContain(MappedPatterns(), p => p.StartsWith("/teams", StringComparison.Ordinal));
 
-        foreach (var (method, path) in new[] { (HttpMethod.Get, "teams"), (HttpMethod.Post, "teams"), (HttpMethod.Get, $"teams/{Guid.NewGuid()}/members") })
+        foreach (var (method, path) in new[] { (HttpMethod.Get, "teams"), (HttpMethod.Post, "teams"), (HttpMethod.Get, $"teams/{Guid.NewGuid()}/members"),
+                     (HttpMethod.Get, $"teams/{Guid.NewGuid()}/fleet-map") })
             await AssertAnsweredAsAPathThatDoesNotExist(method, path, new { name = "Should not exist" });
         // Absence is proven by what was written, not by the words of the answer (the Gateway's not-found answer
         // echoes the path, which itself says "teams"): the create did not reach the registry.
@@ -181,25 +183,35 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         Assert.Equal("application/json", ownResp.Content.Headers.ContentType?.MediaType);
     }
 
+    [Fact]
+    public void SwitchUnset_TheTeamFleetMapRoute_IsNotOnTheRouteTable()
+    {
+        // devthrottle_internal#2312: the team Fleet Map is a team route, so it is dark with the rest. Read off the route
+        // table itself, so a not-found answer from some other cause cannot pass for "not mapped".
+        var patterns = MappedPatterns();
+        Assert.True(patterns.Length > 300, $"The route table read only {patterns.Length} endpoints - the check would prove nothing.");
+        Assert.DoesNotContain(CcDirector.Gateway.Teams.TeamFleetMap.RoutePattern, patterns);
+        Assert.DoesNotContain(patterns, p => p.StartsWith("/teams", StringComparison.Ordinal));
+    }
+
     private string[] MappedPatterns() => _gateway.MappedEndpoints.OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
         .Select(e => CcDirector.Gateway.Teams.TeamEndpointRules.Normalize(e.RoutePattern.RawText)).ToArray();
 
     /// <summary>
-    /// The team route is answered exactly as a path that was never mapped is answered, by the same caller with the same
-    /// verb - the same status and the same kind of body - and never as JSON from a handler. That holds whether the
-    /// fallback behind it is a 404 or the Cockpit shell, so the proof does not change with the build or the test order.
-    /// A write (any verb but GET) is always the fallback's 404, which no team handler could give for a change.
+    /// The team route is answered with the Gateway's not-found answer - 404, and the same kind of body as a path that
+    /// was never mapped gets when POSTed, which the Cockpit fallback always answers not-found - never with data from a
+    /// handler and never with the Cockpit shell. That holds whether or not the Cockpit is in the test output, so the
+    /// proof does not change with the build or the test order.
     /// </summary>
     private async Task AssertAnsweredAsAPathThatDoesNotExist(HttpMethod method, string path, object postBody, string? key = null)
     {
         using var teamResp = await SendAsync(method, path, postBody, key ?? _key);
-        using var controlResp = await SendAsync(method, "no-such-route-" + Guid.NewGuid().ToString("N"), postBody, key ?? _key);
+        using var controlResp = await SendAsync(HttpMethod.Post, "no-such-route-" + Guid.NewGuid().ToString("N"), postBody, key ?? _key);
 
-        Assert.Equal(controlResp.StatusCode, teamResp.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, controlResp.StatusCode);
+        Assert.True(teamResp.StatusCode == HttpStatusCode.NotFound,
+            $"{method} /{path} was answered {(int)teamResp.StatusCode} {teamResp.Content.Headers.ContentType?.MediaType}: a dark Gateway answers 404 on a team route.");
         Assert.Equal(controlResp.Content.Headers.ContentType?.MediaType, teamResp.Content.Headers.ContentType?.MediaType);
-        Assert.False(teamResp.StatusCode == HttpStatusCode.OK && teamResp.Content.Headers.ContentType?.MediaType == "application/json",
-            $"{method} /{path} was answered 200 with data, so a handler answered it: the team route is mapped while Teams is dark.");
-        if (method != HttpMethod.Get) Assert.Equal(HttpStatusCode.NotFound, teamResp.StatusCode);
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, object postBody, string key)

@@ -1,0 +1,64 @@
+﻿=== RED PROOF: The Gateway's start is stored as a pick
+Broke packages\client-core\src\teams\CurrentTeam.tsx
+  was: { kind: "team", id: start.teamId, picked: false } : { kind: "own", picked: false }
+  now: { kind: "team", id: start.teamId, picked: true } : { kind: "own", picked: true }
+Ran: Push-Location apps\cockpit; npx vitest run src/AppShell.test.tsx src/railCollapse.test.tsx src/teams; Pop-Location; Push-Location packages\client-core; npx vitest run src/teams; Pop-Location
+
+
+ RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2306/apps/cockpit
+
+ ✓ src/teams/TeamSwitcher.test.tsx (6 tests) 290ms
+ ✓ src/railCollapse.test.tsx (5 tests) 516ms
+ ✓ src/AppShell.test.tsx (25 tests) 1563ms
+ ✓ src/teams/collaborator/collaboratorApp.test.tsx (32 tests) 1147ms
+
+ Test Files  4 passed (4)
+      Tests  68 passed (68)
+   Start at  20:27:38
+   Duration  6.67s (transform 2.70s, setup 133ms, collect 6.46s, tests 3.52s, environment 7.39s, prepare 1.15s)
+
+
+ RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2306/packages/client-core
+
+ ✓ src/teams/invitationsClient.test.ts (4 tests) 10ms
+ ✓ src/teams/teamsClient.test.ts (16 tests) 22ms
+ ✓ src/teams/mentorClient.test.ts (33 tests) 27ms
+ ❯ src/teams/CurrentTeam.test.tsx (24 tests | 4 failed) 4730ms
+   [x] CurrentTeam > Start_NothingRemembered_TheGatewaysTeam_IsOnScreenAndRemembered 1114ms
+     → expected 'team-b' to be 'gateway:team-b' // Object.is equality
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div />
+  </body>
+</html>
+   [x] CurrentTeam > NothingRemembered_NoTeams_NeverResolving_AndStoresTheGatewaysAnswerNotAPick 1007ms
+     → expected 'own-account' to be 'gateway:own-account' // Object.is equality
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div />
+  </body>
+</html>
+   [x] CurrentTeam > AStoredGatewayAnswer_IsReplacedByTheNextAnswer 78ms
+     → expected 'team-a' to be 'gateway:team-a' // Object.is equality
+   [x] CurrentTeam > CurrentTeamProvider_RememberedTeamNoLongerListed_ForgetsItAndStartsWhereTheGatewaySays 1091ms
+     → expected 'own-account' to be 'gateway:own-account' // Object.is equality
+
+Ignored nodes: comments, script, style
+<html>
+  <head />
+  <body>
+    <div />
+  </body>
+</html>
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  4 failed | 73 passed (77)
+   Start at  20:27:47
+   Duration  6.54s (transform 445ms, setup 54ms, collect 1.10s, tests 4.79s, environment 895ms, prepare 844ms)
+

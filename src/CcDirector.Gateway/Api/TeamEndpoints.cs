@@ -19,6 +19,9 @@ namespace CcDirector.Gateway.Api;
 /// invitations and what the caller may do to each, decided here.</item>
 /// <item><c>PUT /teams/{teamId}/members/{memberId}/role</c> with <c>{"role": "..."}</c> - change a member's role.</item>
 /// <item><c>DELETE /teams/{teamId}/members/{memberId}</c> - remove a member.</item>
+/// <item><c>GET /teams/{teamId}/fleet-map</c> - the team's Fleet Map by role (devthrottle_internal#2312): every Director
+/// on the team by person for the Owner and a Manager, only their own for a Developer, none for a Collaborator. Names and
+/// status only - see <see cref="TeamFleetMap"/>.</item>
 /// </list>
 ///
 /// WHO IS ASKING comes from the caller's authenticated device key and nothing else: the key's tenant is the
@@ -48,18 +51,24 @@ internal static class TeamEndpoints
     /// <summary>The body of <c>POST /teams</c>.</summary>
     internal sealed record CreateTeamRequest(string? Name);
 
-    /// <summary>Maps the three routes.</summary>
-    public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, HostedTenantBoundary boundary, TenantRegistry tenants)
+    /// <summary>Maps every route listed in the class comment.</summary>
+    public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, HostedTenantBoundary boundary, TenantRegistry tenants,
+        TeamFleetMap fleetMap, Pairing.DeviceRegistry devices)
     {
+        ArgumentNullException.ThrowIfNull(devices);
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(teams);
         ArgumentNullException.ThrowIfNull(boundary);
         ArgumentNullException.ThrowIfNull(tenants);
+        ArgumentNullException.ThrowIfNull(fleetMap);
 
         app.MapGet(Path, (HttpContext ctx) => Guarded("GET /teams", () =>
         {
             var caller = ResolveCaller(ctx, boundary, tenants);
-            return caller.Denial ?? ListTeams(teams, caller.Subject!);
+            if (caller.Denial is not null) return caller.Denial;
+            // ResolveCaller has just shown the request is bound to this person's own tenant.
+            var own = boundary.ResolveRequestTenant(ctx)!.Value;
+            return ListTeams(teams, caller.Subject!, devices.HasADirectorOnRecord(own));
         }));
 
         app.MapPost(Path, async (HttpContext ctx) =>
@@ -139,7 +148,13 @@ internal static class TeamEndpoints
             return caller.Denial ?? RemoveMember(teams, caller.Subject!, teamId, memberId);
         }));
 
-        FileLog.Write($"[TeamEndpoints] mapped GET {Path}, POST {Path}, GET {Path}/{{teamId}}/members, GET {Path}/{{teamId}}/page, PUT {Path}/{{teamId}}/members/{{memberId}}/role, DELETE {Path}/{{teamId}}/members/{{memberId}}");
+        app.MapGet(TeamFleetMap.RoutePattern, (HttpContext ctx, string teamId) => Guarded("GET /teams/{teamId}/fleet-map", () =>
+        {
+            var caller = ResolveCaller(ctx, boundary, tenants);
+            return caller.Denial ?? ReadFleetMap(fleetMap, caller.Subject!, teamId);
+        }));
+
+        FileLog.Write($"[TeamEndpoints] mapped GET {Path}, POST {Path}, GET {Path}/{{teamId}}/members, GET {Path}/{{teamId}}/page, PUT {Path}/{{teamId}}/members/{{memberId}}/role, DELETE {Path}/{{teamId}}/members/{{memberId}}, GET {TeamFleetMap.RoutePattern}");
     }
 
     /// <summary>The body of <c>PUT /teams/{teamId}/members/{memberId}/role</c>.</summary>
@@ -278,15 +293,18 @@ internal static class TeamEndpoints
         return (subject, null);
     }
 
-    /// <summary>The caller's teams, each with the caller's role and the member count.</summary>
-    internal static IResult ListTeams(TeamRegistry teams, string callerSubject)
+    /// <summary>The caller's teams, each with the caller's role and the member count, and where a fresh browser of
+    /// theirs starts (<see cref="TeamStart"/>).</summary>
+    internal static IResult ListTeams(TeamRegistry teams, string callerSubject, bool ownAccountHasADirector)
     {
         var list = teams.ListTeamsFor(callerSubject);
-        FileLog.Write($"[TeamEndpoints] GET /teams: {list.Count} team(s)");
+        var start = TeamStart.For(ownAccountHasADirector, list);
+        FileLog.Write($"[TeamEndpoints] GET /teams: {list.Count} team(s), a fresh browser starts at {TeamStart.Wire(start.Place)}");
         return Results.Json(new
         {
             count = list.Count,
             teams = list.Select(Describe).ToList(),
+            start = new { where = TeamStart.Wire(start.Place), teamId = start.TeamId },
         });
     }
 
@@ -339,7 +357,30 @@ internal static class TeamEndpoints
         return member.Email ?? "An account with no email recorded";
     }
 
-    /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team.</summary>
+    /// <summary>
+    /// The team's Fleet Map for the caller: 200 with the map, 403 with the role table's sentence for a role that has no
+    /// Fleet Map (a Collaborator), 404 for a team that does not exist or that the caller is not a member of.
+    /// </summary>
+    internal static IResult ReadFleetMap(TeamFleetMap fleetMap, string callerSubject, string? teamId)
+    {
+        var result = fleetMap.Read(teamId ?? "", callerSubject);
+        switch (result.Outcome)
+        {
+            case TeamFleetMapOutcome.Found:
+                FileLog.Write("[TeamEndpoints] GET /teams/{teamId}/fleet-map: served");
+                return Results.Json(result.Map);
+            case TeamFleetMapOutcome.Refused:
+                FileLog.Write("[TeamEndpoints] GET /teams/{teamId}/fleet-map: refused for this role");
+                return Results.Json(new { error = result.Refusal, code = TeamEndpointGate.RefusalCode },
+                    statusCode: StatusCodes.Status403Forbidden);
+            default:
+                FileLog.Write("[TeamEndpoints] GET /teams/{teamId}/fleet-map: no such team for this caller");
+                return Results.NotFound(new { error = NoSuchTeamRefusal });
+        }
+    }
+
+    /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team, and <c>app</c> is what
+    /// the caller's Cockpit is in it (<see cref="TeamApp"/>, devthrottle_internal#2306).</summary>
     private static object Describe(TeamSummary team) => new
     {
         id = team.TeamId,
@@ -347,6 +388,16 @@ internal static class TeamEndpoints
         role = TeamRoles.Label(team.Role),
         memberCount = team.MemberCount,
         people = team.MemberCount == 1 ? "1 person" : $"{team.MemberCount} people",
+        app = DescribeApp(TeamApp.For(team.Role)),
+    };
+
+    /// <summary>The page verdict on the wire.</summary>
+    internal static object DescribeApp(TeamAppVerdict app) => new
+    {
+        full = app.FullApp,
+        pages = app.Pages.Select(p => new { id = p.Id, label = p.Label, path = p.Path }).ToList(),
+        landing = app.Landing,
+        elsewhere = app.Elsewhere,
     };
 
     private static IResult Guarded(string route, Func<IResult> handle)

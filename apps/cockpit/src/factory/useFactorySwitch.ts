@@ -31,10 +31,13 @@ export function resetFactorySwitchCache(): void {
   cached = null;
 }
 
-export function useFactorySwitch(): { state: FactorySwitchState; error: unknown } {
+// `enabled` false asks nothing (a Collaborator's three pages have no Factory Agents rail entry; devthrottle_internal
+// #2306, review finding F2).
+export function useFactorySwitch(enabled = true): { state: FactorySwitchState; error: unknown } {
   const [state, setState] = useState<FactorySwitchState>("unknown");
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
+    if (!enabled) return undefined;
     let live = true;
     load().then(
       (s) => {
@@ -47,6 +50,6 @@ export function useFactorySwitch(): { state: FactorySwitchState; error: unknown 
     return () => {
       live = false;
     };
-  }, []);
+  }, [enabled]);
   return { state, error };
 }

@@ -22,7 +22,7 @@ vi.mock("@devthrottle/client-core/fleetmanager/pageClient", () => ({
 }));
 
 vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
-  getMyTeams: vi.fn(async () => ({ kind: "teams", teams: [] })),
+  getMyTeams: vi.fn(async () => ({ kind: "teams", teams: [], start: { where: "own-account" } })),
 }));
 
 import { AppShell } from "./AppShell";

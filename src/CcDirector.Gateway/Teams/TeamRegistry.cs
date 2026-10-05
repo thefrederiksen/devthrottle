@@ -109,7 +109,7 @@ public sealed partial class TeamRegistry
                 Role = TeamRole.Owner,
                 JoinedAtUtc = now,
             });
-            CommitMembershipChange(ctx, teamId, TeamMembershipChange.TeamCreated);
+            CommitMembershipChange(ctx, teamId, TeamMembershipChange.TeamCreated, subject, TeamRole.Owner);
         }
 
         _settled[teamId] = true;
@@ -216,6 +216,28 @@ public sealed partial class TeamRegistry
             return TeamMembersResult.NotFound;
         }
 
+        var members = ReadMembers(ctx, teamId);
+        FileLog.Write($"[TeamRegistry] ListMembers: team {LogTeam(teamId)} has {members.Count} member(s)");
+        return TeamMembersResult.Found(new TeamSummary(team.Id, team.Name, callerRow.Role, members.Count), members);
+    }
+
+    /// <summary>
+    /// A team's members and their roles, for the Gateway's own background work - the Mentor's weekly run
+    /// (devthrottle_internal#2305) - which acts for no caller. Empty for a team that does not exist. Never serve this to
+    /// a person: a person's read is <see cref="ListMembers"/>, which checks they are a member.
+    /// </summary>
+    public IReadOnlyList<TeamMember> MembersOf(string teamId)
+    {
+        if (string.IsNullOrWhiteSpace(teamId))
+            throw new ArgumentException("A team id is required.", nameof(teamId));
+        using var ctx = _db.CreateUnscopedContext();
+        var members = ReadMembers(ctx, teamId);
+        FileLog.Write($"[TeamRegistry] MembersOf: team {LogTeam(teamId)} has {members.Count} member(s)");
+        return members;
+    }
+
+    private static List<TeamMember> ReadMembers(GatewayDbContext ctx, string teamId)
+    {
         var rows = ctx.TeamMembers.AsNoTracking().Where(m => m.TeamId == teamId).ToList();
         var subjects = rows.Select(r => r.AccountSubject).ToList();
         var emails = ctx.Tenants.AsNoTracking()
@@ -224,7 +246,7 @@ public sealed partial class TeamRegistry
             .ToList()
             .ToDictionary(t => t.AccountSubject, t => t.Email, StringComparer.Ordinal);
 
-        var members = rows
+        return rows
             .Select(r => new TeamMember(
                 r.AccountSubject,
                 emails.TryGetValue(r.AccountSubject, out var email) && !string.IsNullOrWhiteSpace(email) ? email : null,
@@ -234,9 +256,6 @@ public sealed partial class TeamRegistry
             .ThenBy(m => m.Email ?? "", StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.JoinedAtUtc)
             .ToList();
-
-        FileLog.Write($"[TeamRegistry] ListMembers: team {LogTeam(teamId)} has {members.Count} member(s)");
-        return TeamMembersResult.Found(new TeamSummary(team.Id, team.Name, callerRow.Role, members.Count), members);
     }
 
     /// <summary>
@@ -268,7 +287,7 @@ public sealed partial class TeamRegistry
                 Role = role,
                 JoinedAtUtc = _utcNow(),
             });
-            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberAdded);
+            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberAdded, subject, role);
         }
 
         FileLog.Write("[TeamRegistry] AddMember: added");
@@ -303,7 +322,7 @@ public sealed partial class TeamRegistry
             }
 
             row.Role = newRole;
-            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.RoleChanged);
+            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.RoleChanged, subject, newRole);
         }
 
         FileLog.Write("[TeamRegistry] ChangeRole: changed");
@@ -329,7 +348,7 @@ public sealed partial class TeamRegistry
                 return Refuse("RemoveMember", TeamRefusals.RemoveOwner);
 
             ctx.TeamMembers.Remove(row);
-            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberRemoved);
+            CommitMembershipChange(ctx, teamId!, TeamMembershipChange.MemberRemoved, subject, null);
         }
 
         FileLog.Write("[TeamRegistry] RemoveMember: removed");
@@ -339,7 +358,7 @@ public sealed partial class TeamRegistry
     /// <summary>
     /// THE ONE PLACE A MEMBERSHIP CHANGE IS COMMITTED. Creating a team, adding a member (directly or by accepting an
     /// invitation), changing a role and removing a member all write through here and nowhere else, so what must
-    /// follow every change attaches here once.
+    /// follow every change attaches here once. Called under the write lock.
     ///
     /// THE SEAT SYNC (devthrottle_internal#2301, seam-team-billing.md section 4): after the save commits, a change that
     /// MOVED THE TEAM'S PAID-SEAT COUNT asks the website to recount the team's paid seats - naming the team, never a
@@ -352,8 +371,18 @@ public sealed partial class TeamRegistry
     /// client's timeout, and the change has already committed, so a member's request never waits on (or fails with)
     /// the website. A refused or unreachable website is logged by the sync and repaired by
     /// <see cref="TeamSeatConvergence"/>, never swallowed here.
+    ///
+    /// THE MEMBERSHIP EVENT (devthrottle_internal#2311): after the save, and after the seat sync is started, it tells
+    /// <see cref="MembershipCommitted"/>, so what must follow a person's membership - cutting their Directors off a team
+    /// they left or can no longer run sessions in - hangs off this one place too. A listener that throws fails the
+    /// write's caller AFTER the change has committed; that is deliberate, because a removed person whose keys could not
+    /// be revoked must be seen, not hidden. The seat sync is started first so a throwing listener can never stop the
+    /// website being told.
     /// </summary>
-    private void CommitMembershipChange(GatewayDbContext ctx, string teamId, TeamMembershipChange change)
+    /// <param name="accountSubject">The person whose membership changed.</param>
+    /// <param name="role">Their role after the change, or null when they are no longer a member.</param>
+    private void CommitMembershipChange(GatewayDbContext ctx, string teamId, TeamMembershipChange change,
+        string accountSubject, TeamRole? role)
     {
         // Read before the save: a query goes to the database, which does not yet hold the pending change.
         var paidBefore = PaidSeatCount(ctx, teamId);
@@ -362,12 +391,20 @@ public sealed partial class TeamRegistry
         FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} change={change} committed, paid seats {paidBefore} -> {paidAfter}");
 
         if (change == TeamMembershipChange.TeamCreated)
-            return;
-        if (paidBefore == paidAfter)
-        {
+            FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - a new team has no bill yet, so the website was not asked to recount");
+        else if (paidBefore == paidAfter)
             FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - the paid-seat count did not change, so the website was not asked to recount");
-            return;
-        }
+        else
+            StartSeatSync(teamId);
+
+        // Raised for every change, whether or not the paid-seat count moved: what must follow a person's membership
+        // is for the listener to decide, not the bill.
+        MembershipCommitted?.Invoke(new TeamMembershipCommitted(teamId, accountSubject, change, role));
+    }
+
+    /// <summary>Start the website's seat recount for one team, not awaited (see <see cref="CommitMembershipChange"/>).</summary>
+    private void StartSeatSync(string teamId)
+    {
         if (_seatSync is null)
         {
             FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - this Gateway has no seat sync (no team bills here), so the website was not told");
@@ -397,6 +434,12 @@ public sealed partial class TeamRegistry
     /// <summary>Completes when every seat sync started so far has finished. For tests and an orderly shutdown; a
     /// request path never waits on it.</summary>
     internal Task SeatSyncsSettled() => Task.WhenAll(_seatSyncsInFlight.Keys.ToArray());
+
+    /// <summary>
+    /// Raised once for every committed membership change, under the write lock, after the save. The Gateway attaches
+    /// <see cref="TeamMemberAccessRevoker"/> here.
+    /// </summary>
+    public event Action<TeamMembershipCommitted>? MembershipCommitted;
 
     /// <summary>The plain-words refusal for a team name, or null when the name is usable.</summary>
     internal static string? NameRefusal(string? name)
@@ -449,6 +492,12 @@ public enum TeamMembershipChange
     /// <summary>A member left or was removed.</summary>
     MemberRemoved,
 }
+
+/// <summary>
+/// One committed membership change: which team, whose membership, what kind of change, and the person's role after it
+/// (null when they are no longer a member). <see cref="AccountSubject"/> is personally identifying: never log it.
+/// </summary>
+public sealed record TeamMembershipCommitted(string TeamId, string AccountSubject, TeamMembershipChange Change, TeamRole? Role);
 
 /// <summary>The refusals a team write can give, in the words a person reads.</summary>
 public static class TeamRefusals

@@ -1,0 +1,18 @@
+﻿=== RED PROOF: The role table lets a Collaborator run sessions
+Broke src\CcDirector.Gateway\Teams\TeamPermissions.cs
+  was: "run sessions on their own computers", Yes, Yes, Yes, No),
+  now: "run sessions on their own computers", Yes, Yes, Yes, Yes),
+Ran: .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Issue2306"
+
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:01:56.51
+FAILED: CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_ACollaboratorInTheTeam_TheDataBehindEveryPageTheyCannotOpen_IsRefused
+   Sessions: GET /sessions (Callers) was Allowed for a Collaborator in the team.
+FAILED: CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_TheTeamListCarriesEachRolesPageVerdict(role: Collaborator, fullApp: False)
+   Assert.Equal() Failure: Values differ
+Expected: False
+Actual:   True

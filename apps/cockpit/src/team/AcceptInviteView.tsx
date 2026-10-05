@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { rememberTeamOnThisBrowser } from "@devthrottle/client-core/teams/CurrentTeam";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   acceptInvitation,
@@ -43,7 +44,11 @@ export function AcceptInviteView() {
     setBusy(true);
     setActionError(null);
     try {
-      setAnswered({ kind: "accepted", invitation: await acceptInvitation(token) });
+      const joined = await acceptInvitation(token);
+      // The person who just joined lands in that team: the next shell opens on it (devthrottle_internal#2306, review
+      // finding F1) - for a Collaborator, on the three pages and nothing else.
+      rememberTeamOnThisBrowser(joined.teamId);
+      setAnswered({ kind: "accepted", invitation: joined });
     } catch (err) {
       setActionError(gatewayErrorMessage(err, "join the team"));
     } finally {

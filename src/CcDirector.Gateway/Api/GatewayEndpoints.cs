@@ -238,6 +238,10 @@ internal static class GatewayEndpoints
         // runs before the listener binds and the database is opened AFTER it, so the value is not known
         // here. Null means "assume ready", which is what every self-host and test caller wants.
         Func<bool>? databaseReady = null,
+        // Whether this Gateway offers Directors set up for a team (devthrottle_internal#2311): hosted, with Teams
+        // released, so the team enrollment routes are mapped. Published on /healthz as "teams" - the ONE signal a
+        // Director reads before it asks for teams. False for every self-host and test caller that passes nothing.
+        bool teamsOffered = false,
         History.KnownRepositoryStore? knownRepositories = null,
         // Per-subsystem readiness for /healthz: the parts of the Gateway that can be down on their own
         // while the process serves normally. A delegate, not a snapshot, for the same reason databaseReady
@@ -741,6 +745,7 @@ internal static class GatewayEndpoints
                     Version = version,
                     Commit = Environment.GetEnvironmentVariable("COCKPIT_COMMIT"),
                     Subsystems = subsystems?.Invoke(),
+                    Teams = teamsOffered,
                     ServerTime = DateTime.UtcNow,
                 }, statusCode: StatusCodes.Status503ServiceUnavailable);
             }
@@ -778,6 +783,7 @@ internal static class GatewayEndpoints
                     Version = version,
                     Commit = commit,
                     Subsystems = subsystems?.Invoke(),
+                    Teams = teamsOffered,
                     ServerTime = DateTime.UtcNow,
                 });
             }
