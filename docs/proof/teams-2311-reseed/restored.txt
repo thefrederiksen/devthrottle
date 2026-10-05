@@ -1,0 +1,1 @@
+Passed!  - Failed:     0, Passed:    13, Skipped:     0, Total:    13, Duration: 65 ms - CcDirector.Avalonia.Tests.dll (net10.0)
