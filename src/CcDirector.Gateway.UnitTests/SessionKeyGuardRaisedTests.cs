@@ -137,4 +137,34 @@ public sealed class SessionKeyGuardRaisedTests
         Assert.Equal(SessionKeyGuard.Check("POST", path, raised: false), SessionKeyGuard.Check("POST", path));
         Assert.False(SessionKeyGuard.Check("POST", path).Allowed);
     }
+    /// <summary>The message link routes (issue #3548): a raised key - the Fleet Manager - passes on its own named grant;
+    /// an ordinary session key is refused, because a session that could set up its own link would have no limit.</summary>
+    [Theory]
+    [InlineData("GET", "/fleet/links")]
+    [InlineData("POST", "/fleet/links")]
+    [InlineData("DELETE", "/fleet/links/0123456789abcdef0123456789abcdef")]
+    [InlineData("POST", "/Fleet/Links/")]
+    public void Check_MessageLinks_RaisedPassesWithItsOwnGrant_UnraisedIsRefused(string method, string path)
+    {
+        var raised = SessionKeyGuard.Check(method, path, raised: true);
+        Assert.True(raised.Allowed, $"{method} {path} must pass for a raised key");
+        Assert.Equal(RaisedGrant.MessageLinks, raised.RaisedGrant);
+
+        var unraised = SessionKeyGuard.Check(method, path, raised: false);
+        Assert.False(unraised.Allowed, $"{method} {path} must be refused to an ordinary session key");
+        Assert.Equal(RaisedGrant.None, unraised.RaisedGrant);
+    }
+
+    /// <summary>Only the three link shapes are widened: a deeper path, or a verb the routes do not serve, stays refused
+    /// even to a raised key.</summary>
+    [Theory]
+    [InlineData("PUT", "/fleet/links")]
+    [InlineData("DELETE", "/fleet/links")]
+    [InlineData("POST", "/fleet/links/0123456789abcdef0123456789abcdef")]
+    [InlineData("POST", "/fleet/links/0123456789abcdef0123456789abcdef/use")]
+    public void Check_MessageLinks_OnlyTheThreeShapesAreWidened(string method, string path)
+    {
+        Assert.False(SessionKeyGuard.Check(method, path, raised: true).Allowed, $"{method} {path} must stay refused");
+    }
 }
+

@@ -362,6 +362,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// key may, in the governance audit trail.</summary>
     internal Fleet.RaisedSessionRecord RaisedSessionRecord { get; }
 
+    /// <summary>The message links the owner has set up between sessions that are not owner and worker (issue #3548).</summary>
+    internal Messaging.FleetMessageLinkStore MessageLinks { get; }
+
+    /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
+    /// governance audit trail.</summary>
+    internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
+
     /// <summary>The Gateway's record of what each utterance upload transcribed (inspection finding I2-03), spent
     /// by the prompt route when a prompt claims to be that utterance. One per process, shared by the utterance
     /// completion route that writes it and the prompt route that spends it. In memory by design.</summary>
@@ -2030,6 +2037,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
         RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
         RaisedSessionRecord = new Fleet.RaisedSessionRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
+        // Issue #3548: the message links, and their record beside raise and lower in the governance audit trail.
+        MessageLinks = new Messaging.FleetMessageLinkStore(_gatewayDb);
+        MessageLinkRecord = new Messaging.FleetMessageLinkRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
         // mistranscription mining (devthrottle #2075). Same store on SQLite (self-host) and Postgres (hosted) -
@@ -3885,6 +3895,9 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(SessionKeys);
         // The hub ends a raised entry when it reaps the session (the Fleet Manager Improvement mission, phase 1).
         builder.Services.AddSingleton(RaisedSessions);
+        // The hub ends a session's message links when it reaps the session, and records it (issue #3548).
+        builder.Services.AddSingleton(MessageLinks);
+        builder.Services.AddSingleton(MessageLinkRecord);
         // launcher-persistent-join: the LauncherHub (constructed per-invocation by SignalR) and
         // SendLauncherCommandAsync share this one connection registry.
         builder.Services.AddSingleton(LauncherConnections);
@@ -4242,6 +4255,8 @@ public sealed class GatewayHost : IAsyncDisposable
             tenantRegistry: TenantRegistry,
             raisedSessions: RaisedSessions,
             raisedRecord: RaisedSessionRecord,
+            // Issue #3548: the record of every message a message link carried.
+            messageLinkRecord: MessageLinkRecord,
             // The Website Business Factory, Screen 6: the "factory agent" chip is read from the activity record, and
             // only for an account the Factory Agents switch is on for - off, no row carries one.
             factoryStarts: (tenant, sessionIds) => FactoryAgentsSwitch.IsOn(tenant)
@@ -4924,6 +4939,21 @@ public sealed class GatewayHost : IAsyncDisposable
             raised: RaisedSessions,
             record: RaisedSessionRecord,
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            nowUtc: () => DateTime.UtcNow);
+
+        // Message links (issue #3548): the owner's own device, or a raised session for links between OTHER sessions.
+        // SessionKeyGuard lets a raised key through on RaisedGrant.MessageLinks alone; an ordinary session key never.
+        FleetMessageLinkEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            links: MessageLinks,
+            record: MessageLinkRecord,
+            findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            notify: (tenant, row, text) => _fleetMessageService.Send(tenant, sender: null,
+                new Messaging.FleetParty(row.SessionId,
+                    string.IsNullOrWhiteSpace(row.ControllerSessionId) ? null : row.ControllerSessionId,
+                    string.IsNullOrWhiteSpace(row.Name) ? null : row.Name,
+                    string.IsNullOrWhiteSpace(row.MachineName) ? null : row.MachineName),
+                text, Messaging.FleetMessageKinds.System, Messaging.FleetMessageExemption.System),
             nowUtc: () => DateTime.UtcNow);
 
         // Hand over (the Fleet Manager mission, step 8): the owner changes who owns a running session. The owner's route:

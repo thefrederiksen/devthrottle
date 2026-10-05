@@ -16,8 +16,10 @@ public sealed record FleetParty(string SessionId, string? ControllerSessionId, s
 /// <summary>The answer to one send, and the status code the route answers it with.</summary>
 /// <param name="WaivedForRaisedSender">True when the message was queued only because its sender is a raised session
 /// (<see cref="FleetMessageVerdict.WaivedForRaisedSender"/>); the route records those.</param>
+/// <param name="Link">The message link that carried the message, when the relationship rule alone would have refused
+/// it (issue #3548); the route records those.</param>
 public readonly record struct FleetSendOutcome(FleetMessageSendResponse Response, FleetMessageOutcome Outcome,
-    bool WaivedForRaisedSender = false)
+    bool WaivedForRaisedSender = false, FleetMessageLinkFacts? Link = null)
 {
     /// <summary>The HTTP status for this outcome. A queued message and a dropped duplicate are both 200 -
     /// neither is a failure. A relationship refusal is 403, a rate refusal 429, a bad text 400.</summary>
@@ -32,6 +34,7 @@ public readonly record struct FleetSendOutcome(FleetMessageSendResponse Response
         FleetMessageOutcome.RefusedAlreadyReplied => StatusCodes.Status409Conflict,
         FleetMessageOutcome.RefusedUnknownMessage => StatusCodes.Status404NotFound,
         FleetMessageOutcome.RefusedNoReplyWanted => StatusCodes.Status409Conflict,
+        FleetMessageOutcome.RefusedLinkAmount => StatusCodes.Status409Conflict,
         _ => StatusCodes.Status400BadRequest,
     };
 }
@@ -110,7 +113,9 @@ public sealed class FleetMessageService
                 LastSentToRecipientUtc: history.LastSentToRecipientUtc,
                 RecipientHasUnreadDuplicate: history.RecipientHasUnreadDuplicate,
                 Exemption: exemption,
-                Kind: kind), _limits);
+                Kind: kind,
+                Link: history.Link,
+                ReplyWanted: replyWithin is not null), _limits);
         });
 
         var response = new FleetMessageSendResponse { RecipientSessionId = recipient.SessionId };
@@ -123,7 +128,11 @@ public sealed class FleetMessageService
                 response.MessageId = written!.MessageId;
                 response.CorrelationId = written.CorrelationId;
                 response.ReplyByUtc = written.ReplyByUtc;
-                FileLog.Write($"[FleetMessageService] Send QUEUED: from={from} to={Short(recipient.SessionId)} kind={kind} exemption={exemption} id={written.MessageId} correlation={written.CorrelationId ?? "(none)"} len={len}");
+                if (verdict.Link is { } link)
+                    response.Note = link.IsOneTime
+                        ? $"Sent over the one-time message link the user set up (link {link.LinkId}); that link is now used up."
+                        : $"Sent over the message link the user set up (link {link.LinkId}).";
+                FileLog.Write($"[FleetMessageService] Send QUEUED: from={from} to={Short(recipient.SessionId)} kind={kind} exemption={exemption} link={verdict.Link?.LinkId ?? "(none)"} id={written.MessageId} correlation={written.CorrelationId ?? "(none)"} len={len}");
                 break;
             case FleetMessageOutcome.DuplicateDropped:
                 response.Status = "duplicate";
@@ -140,7 +149,8 @@ public sealed class FleetMessageService
                 FileLog.Write($"[FleetMessageService] Send REFUSED ({verdict.Outcome}): from={from} to={Short(recipient.SessionId)} kind={kind} len={len}");
                 break;
         }
-        return new FleetSendOutcome(response, verdict.Outcome, verdict.Queued && verdict.WaivedForRaisedSender);
+        return new FleetSendOutcome(response, verdict.Outcome, verdict.Queued && verdict.WaivedForRaisedSender,
+            verdict.Queued ? verdict.Link : null);
     }
 
     /// <summary>

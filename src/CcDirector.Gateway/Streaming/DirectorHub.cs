@@ -71,9 +71,17 @@ public sealed class DirectorHub : Hub
         FleetManagerHomeCapabilityRegistry? fleetManagerHomeCapabilities = null,
         History.DiscoveredRepositoryObserver? discoveredRepositories = null,
         Fleet.RaisedSessionStore? raisedSessions = null,
-        Wingman.VoiceAnswerObserver? voiceAnswers = null)
+        Wingman.VoiceAnswerObserver? voiceAnswers = null,
+        Messaging.FleetMessageLinkStore? messageLinks = null,
+        Messaging.FleetMessageLinkRecord? messageLinkRecord = null)
     {
         _voiceAnswers = voiceAnswers;
+        // A link store with nowhere to record what it ends would end links silently; refused at construction.
+        if (messageLinks is not null && messageLinkRecord is null)
+            throw new ArgumentNullException(nameof(messageLinkRecord),
+                "A message link store needs its record: links that end with a session must be recorded.");
+        _messageLinks = messageLinks;
+        _messageLinkRecord = messageLinkRecord;
         _raisedSessions = raisedSessions;
         _discoveredRepositories = discoveredRepositories;
         _fleetManagerHomeCapabilities = fleetManagerHomeCapabilities;
@@ -118,6 +126,8 @@ public sealed class DirectorHub : Hub
     /// ends with its session, and the reap below is where the Gateway learns a session has ended. Null in tests and
     /// older callers, where no session is ever raised.</summary>
     private readonly Fleet.RaisedSessionStore? _raisedSessions;
+    private readonly Messaging.FleetMessageLinkStore? _messageLinks;
+    private readonly Messaging.FleetMessageLinkRecord? _messageLinkRecord;
 
     private readonly RepoHistoryStore? _repoHistory;
     /// <summary>The one-repository-list mission, phase 2: the THIRD observer on the accepted repository
@@ -603,7 +613,12 @@ public sealed class DirectorHub : Hub
         // A RAISED ENTRY ENDS WITH ITS SESSION. The key above is what made the entry usable, so it is already inert;
         // removing it keeps the list to sessions that exist.
         var lowered = _raisedSessions?.EndWithSession(tenant, sessionId) ?? false;
-        FileLog.Write($"[DirectorHub] RevokeSessionKey: director={directorId}, session={sessionId}, revoked={revoked}, raisedEntryRemoved={lowered}");
+        // ITS MESSAGE LINKS END WITH IT (issue #3548), and each is recorded as ended.
+        var linksEnded = _messageLinks?.EndWithSession(tenant, sessionId, DateTime.UtcNow)
+            ?? (IReadOnlyList<Messaging.FleetMessageLink>)Array.Empty<Messaging.FleetMessageLink>();
+        foreach (var link in linksEnded)
+            _messageLinkRecord!.Stopped(tenant, link, $"gateway: session {sessionId} ended", "a session ended");
+        FileLog.Write($"[DirectorHub] RevokeSessionKey: director={directorId}, session={sessionId}, revoked={revoked}, raisedEntryRemoved={lowered}, linksEnded={linksEnded.Count}");
     }
 
     /// <summary>A full snapshot: replaces the bound Director's session set (pruning anything absent).</summary>
