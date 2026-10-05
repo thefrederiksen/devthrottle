@@ -44,6 +44,12 @@ vi.mock("@devthrottle/client-core/teams/requestsClient", () => ({
     return [];
   }),
 }));
+// The Reports page reads what was sent to this person from the Gateway (devthrottle_internal#2309); here, nothing was.
+vi.mock("@devthrottle/client-core/teams/teamReportsClient", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  getReportsSentToMe: vi.fn(async () => ({ count: 0, reports: [], emptyText: "No reports sent to you yet.", showYourReports: false })),
+  getReportSentToMe: vi.fn(async () => null),
+}));
 
 // The whole app's pages. A page mounted when it must not be shows up as its own text, which the tests look for.
 vi.mock("../../fleetmanager/FleetManagerView", () => ({ FleetManagerView: () => <div>fleet manager page</div> }));
@@ -218,9 +224,20 @@ describe("The Collaborator's app", () => {
       renderAt(path);
 
       const page = await screen.findByTestId(testId);
-      expect(page.textContent).toContain(empty);
+      // The Reports page's empty words are the Gateway's, so they arrive with its answer (devthrottle_internal#2309).
+      await waitFor(() => expect(page.textContent).toContain(empty));
     },
   );
+
+  it("Page_Collaborator_AReportOpenedOnTheReportsPage_StaysATeamPage", async () => {
+    // devthrottle_internal#2309: a report opens in place, named in the query, so the address is still the page's.
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/reports?report=r-1");
+
+    expect(await screen.findByTestId("team-report-missing")).toBeTruthy();
+    expect(screen.queryByText(NOT_AVAILABLE)).toBeNull();
+    expect(screen.getByTestId("where").textContent).toBe("/reports");
+  });
 
   it.each([
     ["/sessions", "sessions page"],
@@ -254,9 +271,39 @@ describe("The Collaborator's app", () => {
 
     await waitFor(() => expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]));
     expect(railLabels()).toContain("Skills");
+    expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]);
     expect(document.querySelector(".nav-list-foot")).not.toBeNull();
     expect(await screen.findByText("fleet manager page")).toBeTruthy();
     expect(screen.queryByTestId("team-page-not-available")).toBeNull();
+  });
+
+  it("WholeAppTeam_Developer_TheRailAlsoListsTheTeamsPages_InTheGatewaysOrder", async () => {
+    rememberTeam(DEVELOPER_TEAM.id);
+    renderAt("/sessions");
+
+    await waitFor(() => expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
+    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    fireEvent.click(screen.getByRole("link", { name: "Reports" }));
+    expect(await screen.findByTestId("team-page-reports")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/reports");
+  });
+
+  it("WholeAppTeam_TheGatewayListsOnlyReports_TheRailAddsOnlyReports", async () => {
+    myTeams.teams = [COLLABORATOR_TEAM, { ...DEVELOPER_TEAM, app: { ...DEVELOPER_TEAM.app, pages: [COLLABORATOR_TEAM.app.pages[2]] } }];
+    rememberTeam(DEVELOPER_TEAM.id);
+    renderAt("/sessions");
+
+    await waitFor(() => expect(railLabels().at(-1)).toBe("Reports"));
+    expect(railLabels()).not.toContain("Questions");
+    expect(railLabels()).not.toContain("Requests");
+  });
+
+  it("OwnAccount_TheRailListsNoTeamPages", async () => {
+    renderAt("/sessions");
+
+    expect(await screen.findByText("sessions page")).toBeTruthy();
+    await screen.findByTestId("team-switcher");
+    for (const label of ["Questions", "Requests", "Reports"]) expect(railLabels()).not.toContain(label);
   });
 
   it("SwitchTeam_FromTheOwnAccountToACollaboratorTeam_OpensItsLandingPage", async () => {
@@ -285,6 +332,7 @@ describe("The Collaborator's app", () => {
 
     expect(await screen.findByText("sessions page")).toBeTruthy();
     expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    for (const label of ["Questions", "Requests", "Reports"]) expect(railLabels()).not.toContain(label);
     expect(document.querySelector(".nav-list-foot")).not.toBeNull();
     expect(screen.queryByTestId("team-switcher")).toBeNull();
     // A team page address waits for the list of teams (round 3 review, R1), then is the ordinary "Page not found".

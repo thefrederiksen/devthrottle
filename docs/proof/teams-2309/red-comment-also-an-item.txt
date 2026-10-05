@@ -1,0 +1,30 @@
+RED PROOF: comment-also-an-item
+Rule: A comment is never handed to DevReportDelivery and never folded into a prompt toward the session.
+File: src/CcDirector.Gateway/DevReports/DevReportPersonComments.cs
+
+Mutation - replaced:
+        ctx.DevReportComments.Add(row);
+        ctx.SaveChanges();
+
+with:
+        ctx.DevReportComments.Add(row);
+        var sid = ctx.DevReports.Where(r => r.Id == reportId).Select(r => r.SessionId).First();
+        ctx.DevReportItems.Add(new DevReportItemEntity { TenantId = team.Value, ReportId = reportId, SessionId = sid,
+            ClientItemId = Guid.NewGuid().ToString("N"), Kind = "note", Text = text, Status = DevReportItemStates.Queued,
+            StatusLabel = "Queued", Sequence = 1000, SenderKind = "owner", SentAtUtc = nowUtc });
+        ctx.SaveChanges();
+
+
+Command: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-local.ps1 -Gateway -Filter FullyQualifiedName~HostedTeamReportsTests
+Exit code: 1
+Output (the lines that say what failed):
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     2, Passed:     8, Skipped:     0, Total:    10, Duration: 1 m 15 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=10     executed=10
+RESULT: FAILED in 1 project(s):
+  CcDirector.Gateway.Tests -> C:\Users\soren\AppData\Local\Temp\cc-test-local-bf928001\CcDirector.Gateway.Tests.log
+      Failed!  - Failed:     2, Passed:     8, Skipped:     0, Total:    10, Duration: 1 m 15 s - CcDirector.Gateway.Tests.dll (net10.0)
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_ACommentNeverReachesTheSession_LiveSessionOnTheTunnel
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire
+
+Restored from the committed tree afterwards; git diff on the file is empty.

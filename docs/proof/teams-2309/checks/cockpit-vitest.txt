@@ -1,0 +1,39 @@
+
+ RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2309/apps/cockpit
+
+  src/teams/TeamSwitcher.test.tsx (6 tests) 312ms
+stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
+ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+  src/teams/TeamLibraryView.test.tsx (20 tests) 1196ms
+  src/teams/collaborator/reportsPage.test.tsx (23 tests) 646ms
+stderr | src/teams/teamRoutes.test.tsx
+Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
+    at module.exports (D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at HTMLCanvasElementImpl.getContext (D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\living\nodes\HTMLCanvasElement-impl.js:42:5)
+    at HTMLCanvasElement.getContext (D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\living\generated\HTMLCanvasElement.js:131:58)
+    at D:\ReposFred\devthrottle-teams-2309\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:127:24
+    at Object.call (D:\ReposFred\devthrottle-teams-2309\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:118:1)
+    at i (D:\ReposFred\devthrottle-teams-2309\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
+    at Object.call (D:\ReposFred\devthrottle-teams-2309\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRendererRowFactory.ts:11:1)
+    at i (D:\ReposFred\devthrottle-teams-2309\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
+    at Object.call (D:\ReposFred\devthrottle-teams-2309\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRenderer.ts:6:1)
+    at i (D:\ReposFred\devthrottle-teams-2309\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32) undefined
+
+stderr | src/teams/collaborator/collaboratorApp.test.tsx > The Collaborator's app > Navigation_Collaborator_HasExactlyTheThreePagesTheGatewayListsAndNothingElse
+ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+  src/teams/collaborator/collaboratorApp.test.tsx (38 tests) 1802ms
+stderr | src/teams/teamRoutes.test.tsx > team routes > Route_/skills_WithATeamOnScreen_OpensTheTeamsPage
+ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+  src/teams/teamRoutes.test.tsx (6 tests) 210ms
+
+ Test Files  5 passed (5)
+      Tests  93 passed (93)
+   Start at  12:18:18
+   Duration  35.40s (transform 11.81s, setup 1.57s, collect 60.22s, tests 4.17s, environment 88.39s, prepare 3.68s)
+

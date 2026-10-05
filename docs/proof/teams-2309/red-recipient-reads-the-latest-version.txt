@@ -1,0 +1,33 @@
+RED PROOF: recipient-reads-the-latest-version
+Rule: A recipient reads the version they were sent; a later one only when the author sends again (review F1).
+File: src/CcDirector.Gateway/Api/TeamReportEndpoints.cs
+
+Mutation - replaced:
+return DevReportEndpoints.ServeVersion(_store, Team(teamId), report, row.SentVersion, ctx);
+with:
+return DevReportEndpoints.ServeVersion(_store, Team(teamId), report, null, ctx);
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2309\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_F1_TheRecipientReadsTheVersionSent_NeverAnEarlierOne_AndALaterOneOnlyWhenSentAgain [342 ms]
+   Assert.Equal() Failure: Values differ
+Expected: Tuple (200, "<p>version one</p>", "1")
+Actual:   Tuple (200, "<p>version two</p>", "2")
+Failed!  - Failed:     1, Passed:    46, Skipped:     0, Total:    47, Duration: 21 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+[xUnit.net 00:00:24.45]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_F1_TheRecipientReadsTheVersionSent_NeverAnEarlierOne_AndALaterOneOnlyWhenSentAgain [FAIL]
+
+Restored from the committed tree afterwards; git diff on the file is empty.

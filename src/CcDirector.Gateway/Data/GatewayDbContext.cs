@@ -321,6 +321,15 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>The agent's replies on a dev report (<c>dev_report_replies</c>).</summary>
     public DbSet<DevReportReplyEntity> DevReportReplies => Set<DevReportReplyEntity>();
 
+    /// <summary>The members of a team a dev report was sent to (<c>dev_report_recipients</c>, devthrottle_internal#2309).
+    /// Written only through <see cref="DevReports.DevReportRecipients"/>.</summary>
+    public DbSet<DevReportRecipientEntity> DevReportRecipients => Set<DevReportRecipientEntity>();
+
+    /// <summary>A person's comments on a dev report sent to them, for the report's author person only
+    /// (<c>dev_report_comments</c>, devthrottle_internal#2309). Written only through
+    /// <see cref="DevReports.DevReportPersonComments"/>; never read by dev report delivery.</summary>
+    public DbSet<DevReportCommentEntity> DevReportComments => Set<DevReportCommentEntity>();
+
     /// <summary>The fleet message inbox (<c>fleet_messages</c>, the Message Load mission): one row per message,
     /// held until the recipient reads it. The row IS the delivery - nothing is typed into the recipient's
     /// terminal. Kept thirty days, matching the activity ledger.</summary>
@@ -858,6 +867,8 @@ public sealed class GatewayDbContext : DbContext
             // Publishing the same key again for the same session is a new version of the same report, never a
             // second report - so the natural key is unique, led by the tenant.
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.Key }).IsUnique();
+            // A team member's own reports (devthrottle_internal#2309): their Reports page reads by author.
+            b.HasIndex(e => new { e.TenantId, e.AuthorSubject });
         });
 
         modelBuilder.Entity<DevReportVersionEntity>(b =>
@@ -885,6 +896,25 @@ public sealed class GatewayDbContext : DbContext
         modelBuilder.Entity<DevReportReplyEntity>(b =>
         {
             b.ToTable("dev_report_replies");
+            b.HasKey(e => e.Id);
+            b.HasIndex(e => new { e.TenantId, e.ReportId, e.AtUtc });
+        });
+
+        // ---- a dev report sent to a team member, and that member's comments (devthrottle_internal#2309) ----------
+
+        modelBuilder.Entity<DevReportRecipientEntity>(b =>
+        {
+            b.ToTable("dev_report_recipients");
+            b.HasKey(e => e.Id);
+            // Sending to the same member again is the same row.
+            b.HasIndex(e => new { e.TenantId, e.ReportId, e.RecipientSubject }).IsUnique();
+            // A recipient's Reports page: what was sent to them, newest first.
+            b.HasIndex(e => new { e.TenantId, e.RecipientSubject, e.SentAtUtc });
+        });
+
+        modelBuilder.Entity<DevReportCommentEntity>(b =>
+        {
+            b.ToTable("dev_report_comments");
             b.HasKey(e => e.Id);
             b.HasIndex(e => new { e.TenantId, e.ReportId, e.AtUtc });
         });
@@ -1697,6 +1727,8 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<DevReportVersionEntity>(modelBuilder);
         ApplyTenantScope<DevReportItemEntity>(modelBuilder);
         ApplyTenantScope<DevReportReplyEntity>(modelBuilder);
+        ApplyTenantScope<DevReportRecipientEntity>(modelBuilder);
+        ApplyTenantScope<DevReportCommentEntity>(modelBuilder);
         ApplyTenantScope<FleetMessageEntity>(modelBuilder);
         ApplyTenantScope<FleetOutcomeEntity>(modelBuilder);
         ApplyTenantScope<FleetPreferenceEntity>(modelBuilder);
@@ -1791,6 +1823,14 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<DevReportEntity>().Property(e => e.Key).UseCollation("C");
             modelBuilder.Entity<DevReportItemEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<DevReportItemEntity>().Property(e => e.ClientItemId).UseCollation("C");
+            // a dev report sent to a team member (devthrottle_internal#2309): the account subjects are matched for exact
+            // equality - who may send, who a report was sent to, who a comment goes to - so byte-ordinal on both
+            // providers, like tenants.account_subject.
+            modelBuilder.Entity<DevReportEntity>().Property(e => e.AuthorSubject).UseCollation("C");
+            modelBuilder.Entity<DevReportRecipientEntity>().Property(e => e.RecipientSubject).UseCollation("C");
+            modelBuilder.Entity<DevReportRecipientEntity>().Property(e => e.SentBySubject).UseCollation("C");
+            modelBuilder.Entity<DevReportCommentEntity>().Property(e => e.FromSubject).UseCollation("C");
+            modelBuilder.Entity<DevReportCommentEntity>().Property(e => e.ToSubject).UseCollation("C");
             // fleet_messages: the minted message id is the key, and the recipient and sender session ids are
             // what the inbox read and the sender's limits select on - all compared byte-ordinally, as above.
             modelBuilder.Entity<FleetMessageEntity>().Property(e => e.MessageId).UseCollation("C");

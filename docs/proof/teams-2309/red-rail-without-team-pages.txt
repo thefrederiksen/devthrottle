@@ -1,0 +1,34 @@
+RED PROOF: rail-without-team-pages
+Rule: In a team where the person gets the whole app, the rail lists the team's pages from the Gateway's verdict.
+File: apps/cockpit/src/AppShell.tsx
+
+Mutation - replaced:
+team.current !== null && team.current.app.full ? teamPagesNav(team.current.app) : []
+with:
+[] as NavItem[]
+
+Command: npx vitest run src/teams/collaborator/collaboratorApp.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ ? src/teams/collaborator/collaboratorApp.test.tsx (38 tests | 3 failed) 4218ms
+   ? The Collaborator's app > SwitchTeam_SameAccountAsADeveloperElsewhere_GetsTheWholeApp 190ms
+   ? The Collaborator's app > WholeAppTeam_Developer_TheRailAlsoListsTheTeamsPages_InTheGatewaysOrder 1048ms
+   ? The Collaborator's app > WholeAppTeam_TheGatewayListsOnlyReports_TheRailAddsOnlyReports 1062ms
+ Test Files  1 failed (1)
+      Tests  3 failed | 35 passed (38)
+stderr | src/teams/collaborator/collaboratorApp.test.tsx > The Collaborator's app > Navigation_Collaborator_HasExactlyTheThreePagesTheGatewayListsAndNothingElse
+??????? Failed Tests 3 ???????
+ FAIL  src/teams/collaborator/collaboratorApp.test.tsx > The Collaborator's app > SwitchTeam_SameAccountAsADeveloperElsewhere_GetsTheWholeApp
+AssertionError: expected [ 'Voice Recorder', ?(2) ] to deeply equal [ 'Questions', 'Requests', 'Reports' ]
+- Expected
+    252|     await waitFor(() => expect(railLabels().slice(0, 3)).toEqual(["Fle?
+ FAIL  src/teams/collaborator/collaboratorApp.test.tsx > The Collaborator's app > WholeAppTeam_Developer_TheRailAlsoListsTheTeamsPages_InTheGatewaysOrder
+AssertionError: expected [ 'Voice Recorder', ?(2) ] to deeply equal [ 'Questions', 'Requests', 'Reports' ]
+- Expected
+    264|     await waitFor(() => expect(railLabels().slice(-3)).toEqual(["Quest?
+ FAIL  src/teams/collaborator/collaboratorApp.test.tsx > The Collaborator's app > WholeAppTeam_TheGatewayListsOnlyReports_TheRailAddsOnlyReports
+AssertionError: expected 'Network' to be 'Reports' // Object.is equality
+Expected: "Reports"
+    276|     await waitFor(() => expect(railLabels().at(-1)).toBe("Reports"));
+
+Restored from the committed tree afterwards; git diff on the file is empty.

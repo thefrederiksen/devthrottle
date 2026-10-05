@@ -1,0 +1,38 @@
+RED PROOF: comments-open-whoever-the-author-is
+Rule: A comment is refused when the author can no longer read comments here (review F6).
+File: src/CcDirector.Gateway/Api/TeamReportEndpoints.cs
+
+Mutation - replaced:
+        && _access.Decide(teamId, report.AuthorSubject, TeamAction.RunSessionsOnOwnComputers).Allowed;
+with:
+        && true;
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2309\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_F6_AnAuthorWhoCanNoLongerReadComments_ClosesTheComments_AndAWrittenOneIsRefusedAndNotKept(what: "made a Collaborator") [10 s]
+   Assert.False() Failure
+Expected: False
+Actual:   True
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_F6_AnAuthorWhoCanNoLongerReadComments_ClosesTheComments_AndAWrittenOneIsRefusedAndNotKept(what: "left the team") [388 ms]
+   Assert.False() Failure
+Expected: False
+Actual:   True
+Failed!  - Failed:     2, Passed:    45, Skipped:     0, Total:    47, Duration: 22 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+[xUnit.net 00:00:13.66]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_F6_AnAuthorWhoCanNoLongerReadComments_ClosesTheComments_AndAWrittenOneIsRefusedAndNotKept(what: "made a Collaborator") [FAIL]
+[xUnit.net 00:00:14.04]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_F6_AnAuthorWhoCanNoLongerReadComments_ClosesTheComments_AndAWrittenOneIsRefusedAndNotKept(what: "left the team") [FAIL]
+
+Restored from the committed tree afterwards; git diff on the file is empty.

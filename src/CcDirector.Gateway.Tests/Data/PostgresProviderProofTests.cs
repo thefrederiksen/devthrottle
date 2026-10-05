@@ -204,8 +204,15 @@ public sealed class PostgresProviderProofTests
             // The dev report natural keys (the dev reports mission). A report is found by (session, report
             // file path) and an owner item by the page-minted id, both unique indexes matched for exact
             // equality, so the two providers have to agree on what counts as the same key.
+            // A report sent to a member of a team, and that member's comments (devthrottle_internal#2309): the
+            // person subjects are matched exactly - who wrote it, who it was sent to, whose comment goes to whom.
+            ("dev_report_comments", "FromSubject"),
+            ("dev_report_comments", "ToSubject"),
             ("dev_report_items", "ClientItemId"),
             ("dev_report_items", "SessionId"),
+            ("dev_report_recipients", "RecipientSubject"),
+            ("dev_report_recipients", "SentBySubject"),
+            ("dev_reports", "AuthorSubject"),
             ("dev_reports", "Key"),
             ("dev_reports", "SessionId"),
             ("device_credentials", "DeviceId"),
@@ -235,6 +242,13 @@ public sealed class PostgresProviderProofTests
             // missed here with the ones above.
             ("fleet_manager_owned_sessions", "FleetManagerSessionId"),
             ("fleet_manager_owned_sessions", "SessionId"),
+            // The message links between sessions (issue #3548): the minted link id, the two session ids a link
+            // is found by, and the amount and status words it is selected on - added with that table and missed here.
+            ("fleet_message_links", "Amount"),
+            ("fleet_message_links", "LinkId"),
+            ("fleet_message_links", "RecipientSessionId"),
+            ("fleet_message_links", "SenderSessionId"),
+            ("fleet_message_links", "Status"),
             // The fleet message inbox (the Message Load mission): the minted message id, and the two session
             // ids the inbox read and the sender's limits select on.
             ("fleet_messages", "MessageId"),

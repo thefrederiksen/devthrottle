@@ -23,6 +23,18 @@ export const gatewayDevReportApi: DevReportApi = {
 
 export interface DevReportViewerProps {
   reportId: string;
+  /**
+   * Where the report's record and bytes come from. The owner's routes when left out. A report sent to a member of a
+   * team is read through the team's own routes (devthrottle_internal#2309) - the same viewer and the same frame host,
+   * with the same trust rules, fed from another address. Read once, when the report opens.
+   */
+  api?: DevReportApi;
+  /**
+   * Whether the page's notes and answers are offered (on when left out). Pass the GATEWAY's answer, never a guess: a
+   * reader who cannot send notes - a team member reading a report sent to them - gets the report's bytes with no notes
+   * script at all, so no control is drawn that could only be refused. Read once, when the report opens.
+   */
+  notes?: boolean;
   /** Where the conversation goes. Given the model; render DevReportConversation in the shell's own frame. */
   renderConversation: (conversation: DevReportConversationModel, snapshot: DevReportSnapshot) => ReactNode;
   /** The Gateway answered 404 for this report: it does not appear. The shell usually goes back to the list. */
@@ -45,6 +57,9 @@ export interface DevReportViewerProps {
 
 const idleSubscribe = () => () => {};
 
+/** The frame's script when notes are off: nothing runs in the frame but the report's own markup. */
+const NO_NOTES_SCRIPT = "";
+
 /** A string the Gateway actually sent, or null. Whitespace is not words. */
 function nonEmpty(value: string | undefined): string | null {
   const trimmed = value?.trim();
@@ -63,7 +78,10 @@ const idleSnapshot: DevReportSnapshot = {
   noteMode: { picking: false, selectionQuote: null },
 };
 
-export function DevReportViewer({ reportId, renderConversation, onNotFound, onBackToSession, leading, trailing }: DevReportViewerProps) {
+export function DevReportViewer({ reportId, api = gatewayDevReportApi, notes = true, renderConversation, onNotFound, onBackToSession, leading, trailing }: DevReportViewerProps) {
+  // The data source is fixed for the life of one open report: a new one is a new report on screen.
+  const apiRef = useRef(api);
+  const notesRef = useRef(notes);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [controller, setController] = useState<DevReportController | null>(null);
 
@@ -72,11 +90,13 @@ export function DevReportViewer({ reportId, renderConversation, onNotFound, onBa
     if (!container) throw new Error("DevReportViewer: the frame container was not rendered");
     const next = new DevReportController({
       reportId,
-      api: gatewayDevReportApi,
+      api: apiRef.current,
       store: new DevReportStateStore(window.localStorage),
       container,
       window,
-      script: DEV_REPORT_NOTES_SCRIPT,
+      // A reader who cannot send notes gets the report's bytes and nothing else: no notes tray, no answer controls -
+      // never a control that can only be refused (devthrottle_internal#2309, review F2).
+      script: notesRef.current ? DEV_REPORT_NOTES_SCRIPT : NO_NOTES_SCRIPT,
       theme: APP_DEV_REPORT_THEME,
       onRefused: (why) => console.warn(`[DevReportViewer] report ${reportId}: refused a frame message - ${why}`),
     });
@@ -103,7 +123,7 @@ export function DevReportViewer({ reportId, renderConversation, onNotFound, onBa
     setExporting(true);
     setExportError(null);
     try {
-      const page = await getDevReportHtml(reportId, exportVersion);
+      const page = await apiRef.current.getHtml(reportId, exportVersion);
       if (!page) {
         setExportError("This report does not appear any more, so there was nothing to save.");
         return;

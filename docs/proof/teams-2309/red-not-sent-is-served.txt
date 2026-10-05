@@ -1,0 +1,50 @@
+RED PROOF: not-sent-is-served
+Rule: A report not sent to the caller is refused on the list, the metadata and the html routes.
+File: src/CcDirector.Gateway/Api/TeamReportEndpoints.cs
+
+Mutation - replaced:
+if (!Guid.TryParse(reportId, out var id) || _recipients.RowFor(team, id, caller) is not { } row
+with:
+if (!Guid.TryParse(reportId, out var id) || (_recipients.RowFor(team, id, caller) ?? new DevReportRecipientEntity { ReportId = id, RecipientSubject = caller, SentVersion = 1 }) is not { } row
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2309\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_F1_TheRecipientReadsTheVersionSent_NeverAnEarlierOne_AndALaterOneOnlyWhenSentAgain [435 ms]
+   Assert.Equal() Failure: Values differ
+Expected: 404
+Actual:   200
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_AReportNotSentToTheCaller_IsNotFound_OnEveryRecipientRoute [147 ms]
+   Assert.Equal() Failure: Values differ
+Expected: 404
+Actual:   200
+Failed!  - Failed:     2, Passed:    45, Skipped:     0, Total:    47, Duration: 22 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+[xUnit.net 00:00:23.68]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_F1_TheRecipientReadsTheVersionSent_NeverAnEarlierOne_AndALaterOneOnlyWhenSentAgain [FAIL]
+[xUnit.net 00:00:25.96]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_AReportNotSentToTheCaller_IsNotFound_OnEveryRecipientRoute [FAIL]
+
+Command: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-local.ps1 -Gateway -Filter FullyQualifiedName~HostedTeamReportsTests
+Exit code: 1
+Output (the lines that say what failed):
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     2, Passed:     9, Skipped:     0, Total:    11, Duration: 56 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=11     executed=11
+RESULT: FAILED in 1 project(s):
+  CcDirector.Gateway.Tests -> C:\Users\soren\AppData\Local\Temp\cc-test-local-7445d7d1\CcDirector.Gateway.Tests.log
+      Failed!  - Failed:     2, Passed:     9, Skipped:     0, Total:    11, Duration: 56 s - CcDirector.Gateway.Tests.dll (net10.0)
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_OverTheWire_AReportNotSentToACollaborator_IsRefused_OnTheListTheMetadataAndTheHtml
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_PrivacyCheck_ADeveloperCannotReadAnotherDevelopersReports
+
+Restored from the committed tree afterwards; git diff on the file is empty.

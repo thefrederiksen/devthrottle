@@ -1158,6 +1158,8 @@ public sealed class GatewayHost : IAsyncDisposable
     // Dev reports (issue #2958): the record of what agents published and the owner answered, and the delivery
     // that holds the owner's items while a session works and drains them at its turn end.
     private readonly DevReports.DevReportStore _devReports;
+    private readonly DevReports.DevReportRecipients _devReportRecipients;
+    private readonly DevReports.DevReportPersonComments _devReportComments;
     private readonly DevReports.DevReportDelivery _devReportDelivery;
     // The lifetime a claimed dev report send runs on: cancelled in StopAsync, never by a request (phase 2 inspection,
     // Medium 1 - a browser that goes away must not strand the owner's items mid-send).
@@ -1179,6 +1181,9 @@ public sealed class GatewayHost : IAsyncDisposable
 
     /// <summary>Test-only: the dev report record, so a hosted test can leave an item in the state a crash leaves it.</summary>
     internal DevReports.DevReportStore DevReportsForTest => _devReports;
+    internal DevReports.DevReportRecipients DevReportRecipientsForTest => _devReportRecipients;
+    internal DevReports.DevReportPersonComments DevReportCommentsForTest => _devReportComments;
+    internal DevReports.DevReportDelivery DevReportDeliveryForTest => _devReportDelivery;
 
     // The turn log: one self-contained record per turn end, on the machines an administrator has switched
     // capture on for. It rides the SAME boundary as the supervisor and the rules engine but is deliberately
@@ -1826,7 +1831,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // who wrote its stored conversation (devthrottle_internal#2311) - and it must be THIS one store, whose cache the
         // hub writes through, never a second instance.
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
-        TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary);
+        // The dev report store is built here, before the team gate, because the gate's ownership answer reads a report's
+        // author (devthrottle_internal#2309): a report a person published in a team is theirs.
+        _devReports = new DevReports.DevReportStore(_gatewayDb);
+        _devReportRecipients = new DevReports.DevReportRecipients(_gatewayDb);
+        _devReportComments = new DevReports.DevReportPersonComments(_gatewayDb);
+        TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary,
+            reportAuthor: (tenant, reportId) => _devReports.Get(tenant, reportId)?.AuthorSubject);
         TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
         TeamRequests = new Teams.TeamRequestStore(_gatewayDb, TeamRegistry);
         // Removing a person from a team, or making them a Collaborator, cuts their Directors off that team: their keys
@@ -2283,7 +2294,6 @@ public sealed class GatewayHost : IAsyncDisposable
                 TeamMentorWriter, _tenantSettingsResolver.TimeZone);
         }
         _factoryMemory = new Factory.Memory.FactoryMemoryStore(_gatewayDb);
-        _devReports = new DevReports.DevReportStore(_gatewayDb);
         _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
             route: (tenant, directorId) =>
             {
@@ -4876,6 +4886,10 @@ public sealed class GatewayHost : IAsyncDisposable
             // runs is a separate switch; the page reads whatever is stored.
             TeamMentorEndpoints.Map(_app, TeamRegistry, TeamAccess, TeamMentorStore, _tenantBoundary, TenantRegistry,
                 _tenantSettingsResolver.TimeZone, mentorRunning: TeamMentorWriter is not null);
+            // A dev report sent to a member of the team, and that member's Reports page (devthrottle_internal#2309).
+            // Dark with the rest of Teams.
+            TeamReportEndpoints.Map(_app, _devReports, _devReportRecipients, _devReportComments, TeamRegistry, TeamAccess,
+                _tenantBoundary, TenantRegistry);
         }
         // The team seat convergence (devthrottle_internal#2301): retries any seat sync that failed. Hosted with Teams
         // released only - TeamSeatConvergence is null everywhere else.
@@ -5269,7 +5283,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // Dev reports (issue #2958): four session routes (publish, list, read, reply - a session key, its own
         // session only) and four owner routes (list, read, the HTML, send). The session routes are on the
         // SessionKeyGuard allow list; the owner routes deliberately are not.
-        Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary, DevReportSessionNaming);
+        Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary, DevReportSessionNaming,
+            new DevReports.DevReportAuthor(TeamRegistry, TeamCallerOwnership));
 
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),

@@ -140,6 +140,20 @@ public static class TeamEndpointRules
         // block for an Owner or Manager, their own for a Developer) is narrowed by the endpoint, asking TeamAccess for
         // "read the Mentor's page about each person" and "read the prompts quoted on it". There is no write.
         new TeamEndpointRule("/teams/{teamId}/mentor", TeamMethods.Read, TeamAction.ReadOwnMentorPage, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // Dev reports sent to a member of the team (devthrottle_internal#2309), from a person's own account.
+        // Reading what was sent to you, opening it and commenting on it is the row "answer questions, send requests and
+        // read reports sent to them" - every role. The endpoint answers ONLY the reports sent to the caller: one not
+        // sent to them is not found, however it is asked for.
+        new TeamEndpointRule(Api.TeamReportEndpoints.SentToMePattern, TeamMethods.Any, TeamAction.AnswerQuestionsSendRequestsReadReports,
+            TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // The person's OWN reports in the team: the list is cut by the endpoint to the reports the caller wrote; one
+        // report - reading it, its comments, sending it to members - is the caller's own only when they wrote it, and
+        // touching another person's is watching their session, which no role may. A Collaborator runs no sessions, so
+        // has no reports of their own.
+        new TeamEndpointRule(Api.TeamReportEndpoints.MinePattern, TeamMethods.Read, Sessions, TeamTarget.TeamNarrowedToCaller,
+            TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule(Api.TeamReportEndpoints.MineReportPattern, TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch,
+            TeamFrom: TeamFrom.RouteTeamId),
 
         // Sessions: a person's own sessions; touching another person's is joining or watching it.
         new TeamEndpointRule("/sessions", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),

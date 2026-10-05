@@ -169,7 +169,7 @@ const TEAM_PAGE_ICONS: Readonly<Record<string, NavIconName>> = {
 };
 
 /** The rail of a Cockpit that is only the Gateway's pages: those, in the Gateway's order, and nothing else. */
-function teamPagesNav(app: TeamPagesApp): NavItem[] {
+function teamPagesNav(app: Pick<TeamPagesApp, "pages">): NavItem[] {
   return app.pages.map((page) => ({ to: page.path, label: page.label, icon: TEAM_PAGE_ICONS[page.id] }));
 }
 
@@ -257,7 +257,12 @@ function ShellFrame() {
       ? NAV_MAIN.flatMap((item) => (item.to === "/fleet-map" ? [item, FACTORY_AGENTS_ITEM] : [item]))
       : NAV_MAIN;
 
-  const fullNav = railItems.map((item) =>
+  // A TEAM WHERE THE PERSON GETS THE WHOLE APP still has the team's own pages (devthrottle_internal#2309, Tech Lead
+  // ruling; #2306 review F12): a Developer reads and sends their team reports at /reports, and reaches it here rather
+  // than by typing the address. Which pages, their names and order are the Gateway's verdict (rule 7); with no team on
+  // screen there are none, so the own account's rail is exactly as it was.
+  const wholeAppTeamPages = team.current !== null && team.current.app.full ? teamPagesNav(team.current.app) : [];
+  const fullNav = [...railItems, ...wholeAppTeamPages].map((item) =>
     item.to === "/dictionary"
       ? { ...item, badge: suggestCount }
       : item.to === "/fleet-manager"

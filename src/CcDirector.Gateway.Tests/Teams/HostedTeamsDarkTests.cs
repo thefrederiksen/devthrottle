@@ -223,6 +223,45 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         Assert.DoesNotContain(patterns, p => p.StartsWith("/teams", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task SwitchUnset_TheTeamReportRoutesAreAbsent_AndNothingIsSentOrCommented_WhileTheOwnersReportRoutesStillAnswer()
+    {
+        // devthrottle_internal#2309. A real report in a real team, written by a real member, so each route has something
+        // to act on: if a route were mapped, the send and the comment would land.
+        var patterns = MappedPatterns();
+        Assert.Contains("/dev-reports/{reportId}", patterns);
+        Assert.DoesNotContain(patterns, p => p.StartsWith("/teams", StringComparison.Ordinal));
+        var team = _gateway.TeamRegistry.CreateTeam(_subject, "Dark reports").Team!.TeamId;
+        var collaborator = "sub-dark-collab-" + Guid.NewGuid().ToString("N");
+        Assert.True(_gateway.TeamRegistry.AddMember(team, collaborator, CcDirector.Gateway.Teams.TeamRole.Collaborator).IsDone);
+        var report = _gateway.DevReportsForTest.Publish(new CcDirector.Core.Tenancy.TenantId(team), Guid.NewGuid().ToString("D"), "k",
+            "<p>dark</p>", "done", "Dark report", DateTime.UtcNow, _subject).Report;
+
+        foreach (var (method, path, body) in new (HttpMethod, string, object)[]
+                 {
+                     (HttpMethod.Get, $"teams/{team}/reports/sent-to-me", new { }),
+                     (HttpMethod.Get, $"teams/{team}/reports/sent-to-me/{report.Id}/html", new { }),
+                     (HttpMethod.Post, $"teams/{team}/reports/sent-to-me/{report.Id}/comments", new { text = "should not exist" }),
+                     (HttpMethod.Get, $"teams/{team}/reports/mine", new { }),
+                     (HttpMethod.Post, $"teams/{team}/reports/mine/{report.Id}/recipients",
+                         new { memberIds = new[] { CcDirector.Gateway.Teams.TeamMemberIds.For(team, collaborator) } }),
+                 })
+            await AssertAnsweredAsAPathThatDoesNotExist(method, path, body);
+
+        // Absence proven by what was written: sent to nobody, and nobody's words stored.
+        using (var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext())
+        {
+            Assert.Empty(ctx.DevReportRecipients.AsNoTracking().Where(r => r.ReportId == report.Id).ToList());
+            Assert.Empty(ctx.DevReportComments.AsNoTracking().Where(c => c.ReportId == report.Id).ToList());
+        }
+
+        // A person with no team sees no change: their own reports route still answers.
+        using var own = new HttpRequestMessage(HttpMethod.Get, "dev-reports");
+        own.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _key);
+        using var ownResp = await _http.SendAsync(own);
+        Assert.Equal(HttpStatusCode.OK, ownResp.StatusCode);
+    }
+
     private string[] MappedPatterns() => _gateway.MappedEndpoints.OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
         .Select(e => CcDirector.Gateway.Teams.TeamEndpointRules.Normalize(e.RoutePattern.RawText)).ToArray();
 

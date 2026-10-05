@@ -1,0 +1,24 @@
+RED PROOF: cockpit-ignores-show-your-reports
+Rule: Whether the page shows the person's own reports is the Gateway's answer, never the page's.
+File: apps/cockpit/src/teams/collaborator/ReportsPage.tsx
+
+Mutation - replaced:
+setOwn(next.showYourReports ? await getMyTeamReports(teamId, signal) : null);
+with:
+setOwn(await getMyTeamReports(teamId, signal));
+
+Command: npx vitest run src/teams/collaborator/reportsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ ? src/teams/collaborator/reportsPage.test.tsx (17 tests | 1 failed) 519ms
+   ? the list > List_TheGatewaySaysNoReportsOfYourOwn_ShowsNoneAndAsksForNone 37ms
+     ? expected <div class="team-reports-own" ?(1)>?(2)</div> to be null
+ Test Files  1 failed (1)
+      Tests  1 failed | 16 passed (17)
+stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > the list > List_TheGatewaySaysNoReportsOfYourOwn_ShowsNoneAndAsksForNone
+AssertionError: expected <div class="team-reports-own" ?(1)>?(2)</div> to be null
+- Expected: 
+
+Restored from the committed tree afterwards; git diff on the file is empty.
