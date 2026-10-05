@@ -174,9 +174,20 @@ internal static class FleetManagerPlacementFold
     private static string AgentNote()
     {
         var names = FleetManagerAgents.All.Select(a => a.DisplayName).ToList();
+        // Issue #3559: the limitation the owner chooses with - which agents get the lessons back after a compaction.
+        var restored = FleetManagerAgents.LessonsRestoredAfterCompaction();
         return $"{string.Join(", ", names.Take(names.Count - 1))} or {names[^1]} - any agent installed on the chosen "
-               + "computer. It uses that agent's own sign-in and default model.";
+               + "computer. It uses that agent's own sign-in and default model. "
+               + $"After it runs out of room and compacts, {Either(restored)} given your lessons again automatically; "
+               + "on any other agent it re-reads them only when it next starts a conversation.";
     }
+
+    private static string Either(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => "no agent is",
+        1 => $"only {names[0]} is",
+        _ => $"only {string.Join(", ", names.Take(names.Count - 1))} and {names[^1]} are",
+    };
 
     private static string DefaultNote(FleetManagerMachineFacts? first, string? agent,
         IReadOnlyList<AgentChoiceDto>? offered, TimeZoneInfo tz, DateTime now)

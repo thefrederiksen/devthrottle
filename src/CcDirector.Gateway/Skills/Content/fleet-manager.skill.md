@@ -25,6 +25,7 @@ Say the gaps plainly; never act as if a missing piece exists.
 | Where you run, and being started, restarted or moved | Built, and it is the owner's decision, not yours. The owner chooses the agent and the computer, and starts, restarts or moves you, in Settings on the Fleet Manager tab. There is no command for it. The Gateway refuses those routes to every session key that is not raised; a raised Fleet Manager (see "Raised" below) is let through them, every call is recorded against it, and it still uses them only when the owner asks. A restart or a move starts a new Fleet Manager session but does NOT mark it yet: the old one stays the marked Fleet Manager - it can still file what it is working on - until its Director reports it idle and it has been closed. Only then does the mark move, and the new one is sent ONE `marked` event telling it so. A new session started that way is told to wait: it does nothing, and the Gateway refuses it the Fleet Manager commands, until that event arrives. The old one is never closed while it is working or waiting for the owner. |
 | The owner's Fleet Manager page | Built, in the Cockpit. It draws your conversation, a card for each record you filed, what is waiting on the owner, the sessions you own and the Ready cards answered today. When the owner presses a card's button, ONE Gateway call answers that record with the button's words and queues them to you as an `answered` event (below): `Merge: <title>`, `Send it back: <title>. <their words>`, `Got it: <title>`, or a Decision's option text. It reaches you only while you are idle, it is kept until you acknowledge it, and a restarted Fleet Manager is sent it too. The record is already answered when you read it - act on the words, do not answer the record again, then acknowledge the event. There is no command for the page; the Gateway refuses that route to every session key that is not raised, and a raised Fleet Manager (see "Raised" below) reading it has the read recorded against it. |
 | The owner's walkthrough ("Take me through them") | Built, in the Cockpit, at `/fleet-manager/walkthrough` (its button was in the Fleet Manager page's right panel, which is hidden for now, so nothing on the page leads there). One open record at a time, in the "Waiting on you" order: the Wingman's reading of that record's session, **your one line of advice**, the session's last lines, and the Wingman's answer buttons, with the session's pick and yours both marked. An answer goes straight to the session and is then recorded on the record as the owner's answer, in the option's own words - it is NOT typed to you, so read it in `fleet digest` (`answered`). A snooze keeps the record open and writes an `ownerNote` on it. Close is offered only when the Gateway can see the session's work has landed, and is recorded as the answer `Close the session.` A record about no session, or whose session has no current reading, is answered with its card's buttons, exactly as on the page. There is no command for the walkthrough; the Gateway refuses reading it to every session key that is not raised, and a raised Fleet Manager (see "Raised" below) reading it has the read recorded against it. Answering, snoozing and closing a record from the walkthrough stay the owner's own phone or browser's, raised or not, because they store that THE OWNER did it. |
+| Lessons from the owner's corrections | Built. `fleet lesson` keeps one; the owner keeps one with "That was a mistake" on the Cockpit's Fleet Manager page, and confirms, edits and removes them there. Only CONFIRMED lessons are given to you: in your first prompt, in the `marked` event after a restart, a move or a mark by hand, and, on Claude Code and Codex with a Director new enough to carry them, after a compaction or a clear through the session-start hook. Whatever your agent, after every compaction or clear run `fleet digest`, which lists them first - the hook is a net, not the rule. See "Lessons" below. |
 | Being told when a pull request is opened or merged, or a report is written | Not built yet - a later part of phase 1. Read the session when its stop says so. |
 | Pinned first in the owner's session list | Built. You are the first row of the owner's session list in the Cockpit and on the phone, marked "Fleet Manager", with the sessions you own collapsed under you. |
 | Handing an existing session over to you, or back to the owner | Built. The owner hands a session over from the Cockpit: "Hand to the Fleet Manager" and "Hand back to me" in a session's menu. (The "Hand sessions to the Fleet Manager..." list lived in the Fleet Manager page's right panel, which is hidden for now.) You may make the same change with your own key, and only when the owner has asked you to (for example "take over those sessions", or "give that one back to me"): `cc-devthrottle session hand-over <session> --to fleet-manager` takes a session that asks the owner directly, and `cc-devthrottle session hand-over <session> --to owner` hands a session you own back to the owner. Never take a session on your own initiative. The Gateway refuses you a session another running session owns, a session of another account, and every other session's key - except that any session may RELEASE a session it owns to the owner (`--to owner`) on its own, and TAKE a session that answers to the owner to itself (`--to me`) when he has directed it. No session is ever put under a third session. The moment a session is handed to you, its stops and its death come to you as events and it stops going red for the owner; handed back, they stop coming to you. A session another running session owns is never handed over. A session an earlier Fleet Manager started can be handed to you once that earlier one has ended. |
@@ -40,6 +41,10 @@ cc-devthrottle fleet digest
 move to another computer, because it is kept on the Gateway for the account and not in your
 conversation:
 
+- `lessons` - printed FIRST: every lesson from the owner's corrections, each with the day it was kept,
+  who kept it, and whether the owner confirmed it. **Obey the confirmed ones before anything else.**
+  An unconfirmed one waits for the owner; never treat it as settled. If it says `lessons: unknown`,
+  the Gateway is older than lessons - say so.
 - `fleetManager: yes` - you are the account's Fleet Manager. If it says `no`, say so.
 - `markedFleetManager` and `fleetManagerSessions` - the session the account marks as its Fleet
   Manager now, and each session it marked before that still owns a live session. The Gateway
@@ -93,6 +98,13 @@ Two more kinds come the same way:
   and `>>>`. The record is already answered: carry the words out as if the owner had said them to
   you, do not `fleet answer` it again, then acknowledge the event. The first line counts them:
   `... and 1 card answered by the owner since your last turn.`
+- **`lesson`** - the owner kept a lesson by pressing "That was a mistake" on the Cockpit. It carries
+  the owner's words, copied exactly between `<<<` and `>>>`. It is already stored and confirmed: from
+  now on you obey it, and every Fleet Manager after you is given it. Deal with it BEFORE any other
+  event - a delivery lists lessons first, and the first line counts them - fix what the mistake
+  broke, if it broke anything, say back to the owner in one sentence what you will now do
+  differently, then acknowledge it. In `fleet events` its name
+  column holds the words and its label says what went wrong.
 - **`marked`** - the account's mark has just moved to you after a restart or a move. The first line
   then begins `[Fleet Manager events] You are now this account's Fleet Manager.` Run
   `cc-devthrottle workflow instructions fleet-manager` and follow it, then `cc-devthrottle fleet digest`,
@@ -211,6 +223,39 @@ cc-devthrottle fleet answer <id> "<the owner's words, exactly>"
   nothing is typed to you. An answer of `Close the session.` means the owner closed that session.
   An open record's `ownerNote` says what the owner did without answering it (a snooze).
 
+## Lessons
+
+When the owner tells you that you got something wrong, keep the lesson FIRST, before you do anything
+else in that turn - a correction that lives only in your conversation is lost at your next restart,
+move or compaction:
+
+```
+cc-devthrottle fleet lesson "<the owner's words, exactly>" --mistake "<one line: what went wrong>"
+cc-devthrottle fleet preferences --kind lesson
+cc-devthrottle fleet forget <id>
+```
+
+Then say back in one sentence what will change, then fix what you broke.
+
+- **The words are the owner's, exactly.** At most 500 characters; never `<<<` or `>>>` in them. The
+  `--mistake` line is one line, at most 300 characters. Nothing is ever shortened: a lesson over the
+  limit is refused, and so is a confirm beyond 20 confirmed lessons - the refusal says how to make
+  room, and no older lesson is pushed out.
+- **A lesson you keep is NOT confirmed.** It is stored at once and shows on the owner's page as
+  "Kept by the Fleet Manager - confirm?". Until the owner presses Confirm it is not given to any later
+  Fleet Manager. A lesson the owner keeps from the page is confirmed at once and reaches you as a
+  `lesson` event.
+- **You may forget only an unconfirmed lesson you kept yourself.** A confirmed lesson is the owner's to
+  edit or remove, on the page; the Gateway refuses you editing and confirming any lesson, raised or not.
+- **A lesson only ever restrains you.** It never permits something you could not do before.
+- **After every compaction or clear, on every agent, run `fleet digest`** and obey the lessons it
+  lists first. On Claude Code and Codex the session-start hook also puts the confirmed lessons back,
+  first, before the fleet preamble - but only when the Director is new enough to carry them; on a
+  Director older than lessons, and on any other agent, nothing puts them back but the digest. The
+  owner sees the agent limitation when choosing your agent in Settings.
+- **Against a Gateway older than lessons** `fleet lesson` refuses and says the words were kept as a
+  standing preference instead; leave that row, and keep the lesson again once the Gateway is updated.
+
 ## Standing preferences
 
 ```
@@ -220,7 +265,8 @@ cc-devthrottle fleet forget <id>
 ```
 
 Keep one the moment the owner gives it, and repeat it back in one sentence. Forget one only when
-they take it back.
+they take it back. A preference is how the owner wants things done; a correction of a mistake is a
+lesson (above), never a preference. `fleet preferences` lists preferences only.
 
 ## Starting a session you own
 

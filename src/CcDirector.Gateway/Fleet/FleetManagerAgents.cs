@@ -1,3 +1,4 @@
+using CcDirector.Core.AgentPlugins;
 using CcDirector.Core.Agents;
 
 namespace CcDirector.Gateway.Fleet;
@@ -26,6 +27,20 @@ internal static class FleetManagerAgents
         (nameof(AgentKind.Copilot), "Copilot"),
         (nameof(AgentKind.Cursor), "Cursor"),
     };
+
+    /// <summary>
+    /// The display names of the agents that are given the Fleet Manager's confirmed lessons again on their own after a
+    /// compaction or a clear (issue #3559): those whose Director wires a session-start hook that prints the preamble
+    /// file it maintains, where the lessons are put first. Read from each agent's own declaration, so the Settings note
+    /// cannot drift from what the agents actually do. On every other agent only the start routine re-reads them.
+    /// </summary>
+    public static IReadOnlyList<string> LessonsRestoredAfterCompaction()
+        => All.Where(a => Enum.TryParse<AgentKind>(a.Value, out var kind)
+                          && AgentPluginRegistry.Contains(kind)
+                          && AgentPluginRegistry.Get(kind).Fleet is
+                              { Strategy: FleetPreambleStrategy.NativeHook, Status: FleetPreambleStatus.Wired })
+            .Select(a => a.DisplayName)
+            .ToList();
 
     /// <summary>The canonical spelling of <paramref name="agent"/> (matched without regard to case), or null
     /// when it is not an agent the Fleet Manager can run on.</summary>
