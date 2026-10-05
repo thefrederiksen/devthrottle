@@ -448,6 +448,130 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Bob, "session-alice"));
     }
 
+    // ---- Seam 2: the person behind a SESSION key, one resolver for both kinds of key (Gateway step 2, item 5) ------
+
+    private const string Mandy = "sub-mandy";
+
+    /// <summary>The team gate exactly as the Gateway wires it: the same ownership answer the hub asks.</summary>
+    private TeamEndpointGate Gate(out TeamCallerOwnership ownership)
+    {
+        ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary);
+        return new TeamEndpointGate(new TeamAccess(_teams), _teams, _tenants, _boundary, ownership);
+    }
+
+    /// <summary>Ask the gate as its middleware does: the caller from the one resolver, and whose the request touches
+    /// answered for that caller.</summary>
+    private static TeamGateVerdict Ask(TeamEndpointGate gate, TeamCallerOwnership ownership, string method, string pattern,
+        string? sid, TenantId tenant, DeviceCredentialIdentity? device, SessionCredentialIdentity? session)
+    {
+        Func<string, string?> routeValue = name => name == "sid" ? sid : null;
+        return gate.Check(method, pattern, routeValue, tenant,
+            () => gate.CallerSubject(tenant, device, session),
+            _ => gate.CallerSubject(tenant, device, session) is { } person
+                ? ownership.Whose(tenant, person, pattern, routeValue)
+                : TeamOwnership.Unknown);
+    }
+
+    /// <summary>A member's Director says Hello on its own team key; the key's identity, as the auth middleware leaves it.</summary>
+    private DeviceCredentialIdentity HelloWithIdentity(string team, string subject, string directorId)
+    {
+        var key = _devices.RegisterForTenant(new TenantId(team), subject,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(team, subject, directorId), "M").DeviceKey;
+        Assert.False(SayHello(key, directorId).Context.Aborted);
+        return _devices.ResolveCredential(key).Identity!;
+    }
+
+    [Fact]
+    public void PersonOf_ASessionKeyInATeam_IsItsDirectorsOwner_ReadLive_AndNobodyOnceTheirKeyIsRevoked()
+    {
+        var alice = Hello(_teamA, Alice, "director-alice");
+        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary);
+        var session = new SessionCredentialIdentity(Guid.NewGuid(), new TenantId(_teamA), "director-alice");
+
+        Assert.Equal(Alice, ownership.PersonOf(new TenantId(_teamA), null, session));
+        Assert.Null(ownership.PersonOf(new TenantId(_teamB), null, session));
+        Assert.Null(ownership.PersonOf(new TenantId(_teamA), null, session with { DirectorId = "director-nobody" }));
+        Assert.Null(ownership.PersonOf(new TenantId(_teamA), null, null));
+
+        Assert.True(_teams.RemoveMember(_teamA, Alice).IsDone);
+        Assert.Null(ownership.PersonOf(new TenantId(_teamA), null, session));
+        Assert.True(alice.Context.Aborted);
+    }
+
+    [Fact]
+    public void ASessionsOwnSkillsFetch_IsAllowedForItsOwner_AndRefusedAsUnidentifiedOnceTheOwnerIsRemoved()
+    {
+        Hello(_teamA, Alice, "director-alice");
+        var gate = Gate(out var ownership);
+        var team = new TenantId(_teamA);
+        var session = new SessionCredentialIdentity(Guid.NewGuid(), team, "director-alice");
+
+        var allowed = Ask(gate, ownership, "GET", "/gateway/skills", null, team, null, session);
+        Assert.Equal(TeamGateOutcome.Allowed, allowed.Outcome);
+
+        Assert.True(_teams.RemoveMember(_teamA, Alice).IsDone);
+        var refused = Ask(gate, ownership, "GET", "/gateway/skills", null, team, null, session);
+        Assert.Equal(TeamGateOutcome.Refused, refused.Outcome);
+        Assert.Equal(TeamEndpointGate.CallerUnknownRefusal, refused.Message);
+    }
+
+    [Fact]
+    public void ASessionKey_IsItsDirectorOwnersOwnSession_ForCallersOwn()
+    {
+        var alice = Hello(_teamA, Alice, "director-alice");
+        var sid = Guid.NewGuid();
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid.ToString() } });
+        var gate = Gate(out var ownership);
+        var team = new TenantId(_teamA);
+
+        var own = Ask(gate, ownership, "GET", "/sessions/{sid}", sid.ToString(), team, null,
+            new SessionCredentialIdentity(sid, team, "director-alice"));
+        Assert.Equal(TeamGateOutcome.Allowed, own.Outcome);
+    }
+
+    [Fact]
+    public void CallerSubject_ASessionKeyInAPersonalTenant_IsThatTenantsPerson_AsBefore()
+    {
+        var personal = _tenants.MintOrLookupBySubject(Alice, null);
+        var gate = Gate(out _);
+
+        Assert.Equal(Alice, gate.CallerSubject(personal, null, new SessionCredentialIdentity(Guid.NewGuid(), personal, "home-1")));
+        Assert.Equal(Alice, gate.CallerSubject(personal, null, null));
+    }
+
+    [Theory]
+    [InlineData("GET", "/sessions/{sid}")]
+    [InlineData("GET", "/sessions/{sid}/history")]
+    [InlineData("POST", "/sessions/{sid}/prompt")]
+    public void AManagersTeamKey_AgainstAnotherPersonsSession_IsRefusedAsSomeoneElses_NotAsUnknown_ForADeviceKeyAndASessionKey(
+        string method, string pattern)
+    {
+        // #2312's Test 3 at the gate (reviews/review-2312-pr2.md F2): open, read and type into a colleague's session.
+        // The refusal must be the role table's "not your own" answer - a regression to "caller unknown" fails here.
+        Assert.True(_teams.AddMember(_teamA, Mandy, TeamRole.Manager).IsDone);
+        var bob = Hello(_teamA, Bob, "director-bob");
+        var bobsSession = Guid.NewGuid().ToString();
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = bobsSession } });
+        var mandy = HelloWithIdentity(_teamA, Mandy, "director-mandy");
+        var gate = Gate(out var ownership);
+        var team = new TenantId(_teamA);
+        var notYourOwn = new TeamAccess(_teams).Decide(_teamA, Mandy, TeamAction.JoinOrWatchSomeoneElsesSession).Refusal;
+        Assert.False(string.IsNullOrEmpty(notYourOwn));
+
+        var byDevice = Ask(gate, ownership, method, pattern, bobsSession, team, mandy, null);
+        var bySession = Ask(gate, ownership, method, pattern, bobsSession, team, null,
+            new SessionCredentialIdentity(Guid.NewGuid(), team, "director-mandy"));
+
+        foreach (var verdict in new[] { byDevice, bySession })
+        {
+            Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
+            Assert.Equal(TeamAction.JoinOrWatchSomeoneElsesSession, verdict.Action);
+            Assert.Equal(notYourOwn, verdict.Message);
+            Assert.NotEqual(TeamEndpointGate.CallerUnknownRefusal, verdict.Message);
+            Assert.NotEqual(TeamEndpointGate.OwnershipUnknownRefusal, verdict.Message);
+        }
+    }
+
     // ---- Review F1: setting a Director up again somewhere else is a move, with the move's rules -------------------
 
     [Fact]
