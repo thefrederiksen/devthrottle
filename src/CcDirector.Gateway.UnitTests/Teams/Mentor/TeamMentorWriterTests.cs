@@ -164,7 +164,7 @@ public sealed class TeamMentorWriterTests : IDisposable
     }
 
     [Fact]
-    public async Task WriteWeekAsync_AnAnswerCarryingModelText_IsRefused_AndNeitherTheRowNorTheLogHoldsThatText()
+    public async Task WriteWeekAsync_AnAnswerCarryingModelText_IsRefused_AndTheStoredReasonHoldsNoneOfThatText()
     {
         _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
         _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1), "a prompt");

@@ -29,6 +29,17 @@ public sealed class MentorBriefTests
     }
 
     [Fact]
+    public void Instruction_TellsTheModelBothRulesItsAnswerIsRefusedFor_AndItsOwnProseHasNoQuotationMark()
+    {
+        // Review H2: the model is told what loses the whole block, in plain words.
+        Assert.Contains("Never put a double quotation mark anywhere in the text of a field", MentorBrief.Instruction);
+        Assert.Contains("Say what a prompt asked in your own words. Never repeat several of its words in a row", MentorBrief.Instruction);
+        // The guidance before the field list sets the example, so it carries no double quotation mark itself.
+        var guidance = MentorBrief.Instruction[..MentorBrief.Instruction.IndexOf("Fields:", StringComparison.Ordinal)];
+        Assert.DoesNotContain("\"", guidance);
+    }
+
+    [Fact]
     public void Build_LabelsEachPromptOldestFirst_AndSpeaksOfThePersonAsThey()
     {
         var request = Request();
@@ -36,7 +47,7 @@ public sealed class MentorBriefTests
         Assert.Equal(new[] { "P1", "P2", "P3" }, request.PromptsByLabel.Keys.OrderBy(k => k));
         Assert.Equal("prompt number 1", request.PromptsByLabel["P1"].Text);
         Assert.Contains("[P3]", request.Text);
-        Assert.Contains("as \"they\"", request.Text);
+        Assert.Contains("as they:", request.Text);
     }
 
     [Fact]
@@ -141,6 +152,10 @@ public sealed class MentorBriefTests
         // Any double quotation mark, straight or curly, even around words of their own.
         { Answer(wentBadly: "They asked for \"the fix\" four times."), "wentBadlyAndWhy contained a quotation mark" },
         { Answer(workedOn: "The \u201Csignup\u201D page."), "workedOn contained a quotation mark" },
+        // Words glued by hyphens, slashes or underscores are still words (review H4).
+        { Answer(wentBadly: "They typed fix-the-signup-thing-so-it-doesnt-break-on-mobile four times."), "wentBadlyAndWhy repeated" },
+        { Answer(wentBadly: "They typed fix/the/signup/thing/so/it/doesnt/break/on/mobile four times."), "wentBadlyAndWhy repeated" },
+        { Answer(wentBadly: "They typed fix_the_signup_thing_so_it_doesnt_break_on_mobile four times."), "wentBadlyAndWhy repeated" },
     };
 
     [Theory]

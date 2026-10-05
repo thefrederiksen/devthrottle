@@ -220,8 +220,10 @@ public static class MentorBrief
 
     private static readonly char[] DoubleQuotationMarks = { '"', '\u201C', '\u201D', '\u201E', '\u201F', '\uFF02' };
 
-    /// <summary>Every run of <see cref="MaxEchoedWords"/> consecutive words in <paramref name="text"/>, lower-cased,
-    /// with punctuation dropped. Words are split on white space.</summary>
+    /// <summary>Every run of <see cref="MaxEchoedWords"/> consecutive words in <paramref name="text"/>, lower-cased.
+    /// A word is a run of letters and digits; an apostrophe inside it is dropped (so "doesn't" and "doesnt" are one
+    /// word), and every other character - a space, a hyphen, a slash, an underscore, any punctuation - ends it, so words
+    /// glued together by a hyphen are still seen (review H4).</summary>
     private static IEnumerable<string> WordRuns(string? text)
     {
         var words = new List<string>();
@@ -232,12 +234,15 @@ public static class MentorBrief
             {
                 current.Append(char.ToLowerInvariant(c));
             }
-            else if ((char.IsWhiteSpace(c) || char.IsSeparator(c)) && current.Length > 0)
+            else if (c is '\'' or '\u2019')
+            {
+                // An apostrophe stays inside its word and is dropped from it.
+            }
+            else if (current.Length > 0)
             {
                 words.Add(current.ToString());
                 current.Clear();
             }
-            // Any other character - punctuation, a symbol - is dropped, so "doesn't" and "doesnt" are the same word.
         }
         if (current.Length > 0)
             words.Add(current.ToString());

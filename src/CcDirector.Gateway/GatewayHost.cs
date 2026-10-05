@@ -2209,6 +2209,16 @@ public sealed class GatewayHost : IAsyncDisposable
         TeamMentorStore = new Teams.Mentor.TeamMentorStore(_gatewayDb);
         if (Teams.Mentor.TeamMentorSwitch.IsOn(TeamsReleased))
         {
+            // Switched on with no key for its model, the Mentor could never write a week, and the only sign would be a
+            // type name in the sweep's log every fifteen minutes (review H3). So the Gateway refuses to start instead.
+            var mentorKeyName = Core.Configuration.TranscriptionEndpointResolver
+                .ResolveWingman(Core.Configuration.TranscriptionModeConfig.Get()).KeyName;
+            if (string.IsNullOrWhiteSpace(_keyVault.Get(mentorKeyName)))
+            {
+                FileLog.Write($"[GatewayHost] team Mentor switched on with NO key '{mentorKeyName}' - refusing to start");
+                throw new InvalidOperationException(
+                    $"[GatewayHost] {Teams.Mentor.TeamMentorSwitch.EnvVar}=1 switches the team Mentor on, but the Gateway's key vault holds no '{mentorKeyName}' for its model. Add that key to the Gateway's key vault, or unset {Teams.Mentor.TeamMentorSwitch.EnvVar}.");
+            }
             TeamMentorWriter = new Teams.Mentor.TeamMentorWriter(
                 TeamRegistry, TeamMentorStore, _sessionHistory, _promptLog,
                 (tenant, ct) =>
