@@ -16,11 +16,11 @@ Run on 2026-10-04 in the worktree `devthrottle-teams-2306`, branch `teams/2306-c
 
 | Check | Result | File |
 |---|---|---|
-| `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams\|FullyQualifiedName~MobileRedirect"` | 100 of 100 executed, all passed, outcome Completed | `gateway-tests-teams-and-mobile-redirect.log` |
-| `dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"` | 557 passed, 0 failed, 2 skipped (the two proof rigs, which only run on their own) | `gateway-unittests-teams.txt` |
+| `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams\|FullyQualifiedName~MobileRedirect"` | 133 of 133 executed, all passed, outcome Completed (after merging main with the Team page, the Team Library and team-bound Director keys) | `gateway-tests-teams-and-mobile-redirect.log` |
+| `dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"` | 784 passed, 0 failed, 3 skipped (the proof rigs, which only run on their own) | `gateway-unittests-teams.txt` |
 | `.\scripts\test-local.ps1` (the default gate) | 9 of 10 suites outcome Completed, 0 failures; Core.UnitTests was stopped at the 120-second ceiling on a loaded machine (the script says this is not a failure). Run on its own with `dotnet test`: 1221 passed, 0 failed. This change does not touch Core. | (summary only) |
-| Cockpit web tests (`apps/cockpit`, `npx vitest run`) | 71 files, 674 tests passed | `cockpit-vitest.txt` |
-| client-core web tests (`packages/client-core`, `npx vitest run`) | 143 files, 1713 tests passed | `client-core-vitest.txt` |
+| Cockpit web tests (`apps/cockpit`, `npx vitest run`) | 74 files, 708 tests passed | `cockpit-vitest.txt` |
+| client-core web tests (`packages/client-core`, `npx vitest run`) | 145 files, 1732 tests passed | `client-core-vitest.txt` |
 | mobile web tests (`apps/mobile`, `npx vitest run`) | 23 files, 125 tests passed | `mobile-vitest.txt` |
 | `tsc --noEmit` for cockpit, mobile, client-core | clean | `tsc.txt` |
 
