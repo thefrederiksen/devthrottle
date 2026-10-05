@@ -11,6 +11,7 @@ using CcDirector.Gateway.Util;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Patterns;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 using Xunit;
 
@@ -231,5 +232,179 @@ public sealed class TeamCallerOwnershipTests : IDisposable
         var personal = _tenants.MintOrLookupBySubject(Carol, null);
         Assert.Equal(Carol, _gate.CallerSubject(personal, null));
         Assert.Null(_gate.CallerSubject(null, _aliceKey));
+    }
+
+    // ---- The Mentor's prompt stamp and session person (devthrottle_internal#2305) ----------------------------------
+
+    [Fact]
+    public async Task RunAsync_PushingPrompts_IsTheCallersOwn_AndReachesTheEndpoint()
+    {
+        Assert.True((await Run(Request("POST", "/prompts", _aliceKey))).Reached);
+    }
+
+    [Fact]
+    public async Task RunAsync_PushingPrompts_OnACollaboratorsKey_IsRefused()
+    {
+        // "The caller's own" settles whose data it is, not who may act: a Collaborator still may not push prompts.
+        var carolKey = DirectorWithSession(Carol, "director-carol", "session-carol");
+
+        var result = await Run(Request("POST", "/prompts", carolKey));
+
+        Assert.False(result.Reached);
+        Assert.Equal(StatusCodes.Status403Forbidden, result.Status);
+    }
+
+    // Each of these reads or deletes the WHOLE team's prompt log, with no filter on the person, so none of them may ever
+    // become "the caller's own" (devthrottle_internal#2305, part 3 ruling).
+
+    [Fact]
+    public async Task RunAsync_ReadingPrompts_InATeam_StaysRefused()
+    {
+        var result = await Run(Request("GET", "/prompts", _aliceKey));
+
+        Assert.False(result.Reached);
+        Assert.Equal(StatusCodes.Status403Forbidden, result.Status);
+    }
+
+    [Fact]
+    public async Task RunAsync_ExportingPrompts_InATeam_StaysRefused()
+    {
+        var result = await Run(Request("GET", "/prompts/export", _aliceKey));
+
+        Assert.False(result.Reached);
+        Assert.Equal(StatusCodes.Status403Forbidden, result.Status);
+    }
+
+    [Fact]
+    public async Task RunAsync_DeletingPrompts_InATeam_StaysRefused()
+    {
+        var result = await Run(Request("DELETE", "/prompts", _aliceKey));
+
+        Assert.False(result.Reached);
+        Assert.Equal(StatusCodes.Status403Forbidden, result.Status);
+    }
+
+    [Fact]
+    public void Whose_OnlyPostOnPromptsItself_IsTheCallersOwn()
+    {
+        Assert.Equal(TeamOwnership.Callers, _ownership.Whose(_tenant, Alice, "/prompts", _ => null, "POST"));
+        Assert.Equal(TeamOwnership.Unknown, _ownership.Whose(_tenant, Alice, "/prompts", _ => null, "GET"));
+        Assert.Equal(TeamOwnership.Unknown, _ownership.Whose(_tenant, Alice, "/prompts", _ => null, "DELETE"));
+        Assert.Equal(TeamOwnership.Unknown, _ownership.Whose(_tenant, Alice, "/prompts", _ => null));
+        Assert.Equal(TeamOwnership.Unknown, _ownership.Whose(_tenant, Alice, "/prompts/export", _ => null, "POST"));
+    }
+
+    [Fact]
+    public void OwnerOf_IsThePersonBehindItsKey_AndNobodyForADirectorItCannotShow()
+    {
+        // The one lookup the session history stamps a team session's person with (devthrottle_internal#2305).
+        Assert.Equal(Alice, _ownership.OwnerOf(_tenant, "director-alice"));
+        Assert.Equal(Bob, _ownership.OwnerOf(_tenant, "director-bob"));
+        Assert.Null(_ownership.OwnerOf(_tenant, "director-nobody-registered"));
+        Assert.Null(_ownership.OwnerOf(new TenantId(Guid.NewGuid().ToString()), "director-alice"));
+        Assert.Null(_ownership.OwnerOf(_tenant, " "));
+    }
+
+    [Fact]
+    public async Task Ingest_APushIntoTheTeam_IsStampedWithTheKeysPerson_WhateverTheClientWrote()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "stamp-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var log = new CcDirector.Gateway.Prompts.GatewayPromptLog(dir);
+            var at = new DateTime(2026, 9, 29, 9, 0, 0, DateTimeKind.Utc);
+            // Alice's key pushes a record that claims to be Bob's, with an id of its own choosing.
+            var forged = new PromptRecord
+            {
+                TsUtc = at, SessionId = "session-alice", Role = "user", TimestampFromAgent = true,
+                CharCount = 5, WordCount = 1, Text = "hello", PersonSubject = Bob, PromptId = "chosen-by-the-client",
+            };
+            var ctx = Request("POST", "/prompts", _aliceKey);
+
+            // The production wiring, exactly: the gate's own answer to "who is asking".
+            var result = CcDirector.Gateway.Prompts.PromptEndpoints.Ingest(ctx, _tenant,
+                new PromptIngestRequest { Records = new[] { forged } }, log, _teams.IsTeam,
+                (c, t) => _gate.CallerSubject(t, AuthMiddleware.AuthenticatedDevice(c)), history: null, tenantBoundary: null);
+            await result.ExecuteAsync(WithServices(ctx));
+
+            Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
+            var stored = Assert.Single(log.Read(_tenant, at, at));
+            Assert.Equal(Alice, stored.PersonSubject);
+            Assert.NotEqual("chosen-by-the-client", stored.PromptId);
+            Assert.False(string.IsNullOrWhiteSpace(stored.PromptId));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (DirectoryNotFoundException) { }
+        }
+    }
+
+    [Fact]
+    public async Task Ingest_APushIntoTheTeamThatNamesNoPerson_IsRefused_AndNothingIsStored()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "stamp-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var log = new CcDirector.Gateway.Prompts.GatewayPromptLog(dir);
+            var at = new DateTime(2026, 9, 29, 9, 0, 0, DateTimeKind.Utc);
+            var record = new PromptRecord
+            {
+                TsUtc = at, SessionId = "s", Role = "user", TimestampFromAgent = true, CharCount = 1, WordCount = 1, Text = "x",
+            };
+            // A key bound to another tenant: it is not this team's caller.
+            var ctx = Request("POST", "/prompts", _aliceKey with { TenantId = Guid.NewGuid().ToString() });
+
+            var result = CcDirector.Gateway.Prompts.PromptEndpoints.Ingest(ctx, _tenant,
+                new PromptIngestRequest { Records = new[] { record } }, log, _teams.IsTeam,
+                (c, t) => _gate.CallerSubject(t, AuthMiddleware.AuthenticatedDevice(c)), history: null, tenantBoundary: null);
+            await result.ExecuteAsync(WithServices(ctx));
+
+            Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+            Assert.Empty(log.Read(_tenant, at, at));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (DirectoryNotFoundException) { }
+        }
+    }
+
+    [Fact]
+    public async Task Ingest_APersonalTenant_StoresTheRecordsAsBefore_WithNoPersonAndNoId()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "stamp-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var log = new CcDirector.Gateway.Prompts.GatewayPromptLog(dir);
+            var personal = _tenants.MintOrLookupBySubject(Carol, "carol@example.com");
+            var at = new DateTime(2026, 9, 29, 9, 0, 0, DateTimeKind.Utc);
+            var record = new PromptRecord
+            {
+                TsUtc = at, SessionId = "s", Role = "user", TimestampFromAgent = true, CharCount = 1, WordCount = 1, Text = "x",
+                PersonSubject = Bob, PromptId = "client",
+            };
+            var ctx = Request("POST", "/prompts", null);
+
+            var result = CcDirector.Gateway.Prompts.PromptEndpoints.Ingest(ctx, personal,
+                new PromptIngestRequest { Records = new[] { record } }, log, _teams.IsTeam,
+                (c, t) => _gate.CallerSubject(t, AuthMiddleware.AuthenticatedDevice(c)), history: null, tenantBoundary: null);
+            await result.ExecuteAsync(WithServices(ctx));
+
+            Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
+            var stored = Assert.Single(log.Read(personal, at, at));
+            Assert.Null(stored.PersonSubject);
+            Assert.Null(stored.PromptId);
+            Assert.DoesNotContain("\"person\"", File.ReadAllText(log.FileFor(personal, at)));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch (DirectoryNotFoundException) { }
+        }
+    }
+
+    private static DefaultHttpContext WithServices(DefaultHttpContext ctx)
+    {
+        ctx.RequestServices = new ServiceCollection()
+            .AddLogging().AddOptions().BuildServiceProvider();
+        return ctx;
     }
 }

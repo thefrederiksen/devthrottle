@@ -290,16 +290,27 @@ public sealed class SessionHistoryStore
     }
 
     /// <summary>Set the first-prompt description source, once. Later prompts never overwrite it.</summary>
-    public void SetFirstPrompt(string sessionId, string line)
+    /// <param name="personSubject">The person the prompt was stamped with, in a team's tenant; null in a personal one.
+    /// When given, the line is set only on a row that is that person's own: the session id is the client's, so a push
+    /// naming another member's session (or a row whose person is not known yet) leaves that row alone
+    /// (devthrottle_internal#2305, review P1).</param>
+    /// <returns>False only when the row was left alone because it is not that person's; true otherwise.</returns>
+    public bool SetFirstPrompt(string sessionId, string line, string? personSubject = null)
     {
-        if (string.IsNullOrWhiteSpace(line)) return;
+        if (string.IsNullOrWhiteSpace(line)) return true;
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
             var entity = ctx.SessionHistory.FirstOrDefault(e => e.SessionId == sessionId);
-            if (entity is null || !string.IsNullOrEmpty(entity.FirstPromptLine)) return;
+            if (entity is null || !string.IsNullOrEmpty(entity.FirstPromptLine)) return true;
+            if (personSubject is not null && !string.Equals(entity.PersonSubject, personSubject, StringComparison.Ordinal))
+            {
+                FileLog.Write($"[SessionHistoryStore] SetFirstPrompt: session={sessionId} - not the pushing person's row, left alone");
+                return false;
+            }
             entity.FirstPromptLine = line;
             ctx.SaveChanges();
+            return true;
         }
     }
 

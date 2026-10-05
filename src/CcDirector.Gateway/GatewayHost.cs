@@ -660,6 +660,27 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The Gateway database, for the doorbell's end-to-end proof, which reads the ring and stuck columns.</summary>
     internal Data.GatewayDatabase GatewayDatabaseForTests => _gatewayDb;
 
+    /// <summary>The one session-history recorder the Director hub feeds, for the host-level stamp test.</summary>
+    internal History.SessionHistoryRecorder SessionHistoryRecorderForTests => _sessionHistoryRecorder;
+
+    /// <summary>The tenant boundary, for a host-level test that must act inside a tenant's scope.</summary>
+    internal Tenancy.HostedTenantBoundary TenantBoundaryForTests => _tenantBoundary;
+
+    /// <summary>
+    /// The person a team session's history row is stamped with (devthrottle_internal#2305): in a team's tenant, the
+    /// person behind the Director's key through the one team resolver; in a personal tenant, nobody. The recorder asks it
+    /// only until it has an answer for a session.
+    /// </summary>
+    internal string? TeamSessionPersonOf(TenantId tenant, string directorId) =>
+        TeamRegistry.IsTeam(tenant) ? TeamCallerOwnership.OwnerOf(tenant, directorId) : null;
+
+    /// <summary>
+    /// The person a prompt pushed into a team's tenant is stamped with (devthrottle_internal#2305): the person the
+    /// calling key was issued to - the gate's own answer to "who is asking", never a second one.
+    /// </summary>
+    internal string? TeamPromptCaller(HttpContext ctx, TenantId tenant) =>
+        TeamGate.CallerSubject(tenant, Util.AuthMiddleware.AuthenticatedDevice(ctx));
+
     /// <summary>The mobile Speak marks, for the doorbell's dictation-lock wiring test.</summary>
     internal Transcription.TranscribingSessions TranscribingSessionsForTests => _transcribingSessions;
 
@@ -746,7 +767,8 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>
     /// Whose what a team request touches, and the one answer to "whose Director is this" in a team
     /// (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>, devthrottle_internal#2311). One instance: the team gate asks it,
-    /// and so does the team Fleet Map (devthrottle_internal#2312), so the question has one copy.
+    /// and so does the team Fleet Map (devthrottle_internal#2312), and the prompt stamp and the session history's person
+    /// read it too (devthrottle_internal#2305), so the question has one copy.
     /// </summary>
     public Teams.TeamCallerOwnership TeamCallerOwnership { get; }
 
@@ -2330,7 +2352,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 return d is null ? History.DirectorFacts.Unknown
                                  : new History.DirectorFacts(d.MachineName, d.Version);
             },
-            _knownRepositories);
+            _knownRepositories,
+            personOf: TeamSessionPersonOf);
         // The one-repository-list mission, phase 2. The machine name comes from the Director REGISTRATION -
         // the same Registry.Get the read side's GET /directors/{id}/known-repositories resolves its machine
         // from - so the end that writes the rows and the end that reads them agree on one string. Writing
@@ -5308,7 +5331,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // wanting history reads GET /prompts. It lives here, not on a Director, because the Gateway is
         // what the whole fleet reports to - so the history is already present rather than scattered
         // across machines - and because the Gateway is what moves to the server.
-        Prompts.PromptEndpoints.Map(_app, _promptLog, _tenantBoundary, _sessionHistoryRecorder, isTeam: TeamRegistry.IsTeam);
+        // devthrottle_internal#2305: a prompt pushed into a team's tenant is stamped with the person the calling key was
+        // issued to - the gate's own answer to "who is asking", never a second one.
+        Prompts.PromptEndpoints.Map(_app, _promptLog, _tenantBoundary, _sessionHistoryRecorder, isTeam: TeamRegistry.IsTeam,
+            teamCaller: TeamPromptCaller);
 
         // Work history (issue #2194): the range report, the flat session records, and the seal verb.
         History.HistoryEndpoints.Map(_app, _sessionHistory, _tenantBoundary);

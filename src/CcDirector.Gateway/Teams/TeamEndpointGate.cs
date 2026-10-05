@@ -197,7 +197,7 @@ public sealed class TeamEndpointGate
             routeValue,
             requestTenant,
             () => CallerSubject(requestTenant, device),
-            _ => Whose(requestTenant, device, pattern, routeValue));
+            _ => Whose(ctx.Request.Method, requestTenant, device, pattern, routeValue));
 
         switch (verdict.Outcome)
         {
@@ -250,12 +250,12 @@ public sealed class TeamEndpointGate
 
     /// <summary>Whose a request touches, asked only for a <see cref="TeamTarget.CallersOwn"/> rule in a team. Unknown
     /// without a device key that names a person, or without an ownership answerer.</summary>
-    private TeamOwnership Whose(TenantId? requestTenant, Pairing.DeviceCredentialIdentity? device, string? pattern,
+    private TeamOwnership Whose(string method, TenantId? requestTenant, Pairing.DeviceCredentialIdentity? device, string? pattern,
         Func<string, string?> routeValue)
     {
         if (_ownership is null || requestTenant is not { } tenant || CallerSubject(tenant, device) is not { } subject)
             return TeamOwnership.Unknown;
-        return _ownership.Whose(tenant, subject, pattern, routeValue);
+        return _ownership.Whose(tenant, subject, pattern, routeValue, method);
     }
 
     /// <summary>What a role whose cell is "only their own" is told on an endpoint that answers for the whole team.</summary>

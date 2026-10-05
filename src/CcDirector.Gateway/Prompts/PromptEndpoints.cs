@@ -51,40 +51,7 @@ public static class PromptEndpoints
                 return Results.Json(new { error = "no tenant is bound to this request" },
                     statusCode: StatusCodes.Status403Forbidden);
 
-            if (request?.Records is null || request.Records.Count == 0)
-                return Results.BadRequest(new { error = "records is required and must not be empty" });
-
-            // devthrottle_internal#2305: in a team's tenant every record says whose it is, from the calling key through
-            // the team caller resolver - never from the client. A team request that names no person is refused, never
-            // guessed. A personal tenant is stamped with nothing, exactly as before.
-            IReadOnlyList<PromptRecord> records;
-            if (isTeam is not null && isTeam(tenant.Value))
-            {
-                var person = teamCaller?.Invoke(ctx, tenant.Value);
-                if (string.IsNullOrWhiteSpace(person))
-                {
-                    FileLog.Write($"[PromptEndpoints] POST /prompts: tenant={tenant.Value.ToLogString()} is a team and the caller names no person - REFUSED");
-                    return Results.Json(new { error = TeamCallerUnknownRefusal }, statusCode: StatusCodes.Status403Forbidden);
-                }
-                records = PromptStamp.ForTeam(request.Records, person);
-            }
-            else
-            {
-                records = PromptStamp.ForPersonal(request.Records);
-            }
-
-            var written = store.Append(tenant.Value, records);
-            // Issue #2194: each session's FIRST user prompt is a work-history description source
-            // (#1862 priority two). Fed inside the request tenant's ambient scope because the
-            // recorder writes the tenant-scoped history table; memoized, so this is one store call
-            // per session ever, and the recorder never throws into the ingest path.
-            if (history is not null)
-            {
-                using (EnterScope(tenant.Value, tenantBoundary))
-                    history.ObservePrompts(tenant.Value, records);
-            }
-            FileLog.Write($"[PromptEndpoints] POST /prompts: tenant={tenant.Value.ToLogString()}, received {request.Records.Count}, wrote {written}");
-            return Results.Ok(new PromptIngestResponse { Written = written });
+            return Ingest(ctx, tenant.Value, request, store, isTeam, teamCaller, history, tenantBoundary);
         });
 
         app.MapGet("/prompts", (HttpContext ctx, string? from, string? to) =>
@@ -135,6 +102,52 @@ public static class PromptEndpoints
             FileLog.Write($"[PromptEndpoints] DELETE /prompts: tenant={tenant.Value.ToLogString()}, deleted {deletedFiles} daily files");
             return Results.Ok(new { deletedFiles });
         });
+    }
+
+    /// <summary>
+    /// The write behind <c>POST /prompts</c>, once the request's tenant is known. In a TEAM's tenant every record is
+    /// stamped with the person <paramref name="teamCaller"/> names from the calling key, and refused when it names nobody
+    /// (devthrottle_internal#2305); in a personal tenant both Gateway-owned fields are cleared and the records are stored
+    /// exactly as before. Internal so the stamp is tested without a host.
+    /// </summary>
+    internal static IResult Ingest(HttpContext ctx, TenantId tenant, PromptIngestRequest? request, GatewayPromptLog store,
+        Func<TenantId, bool>? isTeam, Func<HttpContext, TenantId, string?>? teamCaller,
+        History.SessionHistoryRecorder? history, Tenancy.HostedTenantBoundary? tenantBoundary)
+    {
+        if (request?.Records is null || request.Records.Count == 0)
+            return Results.BadRequest(new { error = "records is required and must not be empty" });
+
+        // devthrottle_internal#2305: in a team's tenant every record says whose it is, from the calling key through
+        // the team caller resolver - never from the client. A team request that names no person is refused, never
+        // guessed. A personal tenant is stamped with nothing, exactly as before.
+        IReadOnlyList<PromptRecord> records;
+        if (isTeam is not null && isTeam(tenant))
+        {
+            var person = teamCaller?.Invoke(ctx, tenant);
+            if (string.IsNullOrWhiteSpace(person))
+            {
+                FileLog.Write($"[PromptEndpoints] POST /prompts: tenant={tenant.ToLogString()} is a team and the caller names no person - REFUSED");
+                return Results.Json(new { error = TeamCallerUnknownRefusal }, statusCode: StatusCodes.Status403Forbidden);
+            }
+            records = PromptStamp.ForTeam(request.Records, person);
+        }
+        else
+        {
+            records = PromptStamp.ForPersonal(request.Records);
+        }
+
+        var written = store.Append(tenant, records);
+        // Issue #2194: each session's FIRST user prompt is a work-history description source
+        // (#1862 priority two). Fed inside the request tenant's ambient scope because the
+        // recorder writes the tenant-scoped history table; memoized, so this is one store call
+        // per session ever, and the recorder never throws into the ingest path.
+        if (history is not null)
+        {
+            using (EnterScope(tenant, tenantBoundary))
+                history.ObservePrompts(tenant, records);
+        }
+        FileLog.Write($"[PromptEndpoints] POST /prompts: tenant={tenant.ToLogString()}, received {request.Records.Count}, wrote {written}");
+        return Results.Ok(new PromptIngestResponse { Written = written });
     }
 
     /// <summary>
