@@ -198,6 +198,51 @@ public sealed class TeamCallerOwnership
         return mine ? TeamOwnership.Callers : TeamOwnership.SomeoneElses;
     }
 
+    /// <summary>
+    /// THE ONE ANSWER TO "WHO IS ASKING" inside a team's tenant (devthrottle_internal#2311, seam-director-key.md, seams 1
+    /// and 2), for a device key and a session key alike. A DEVICE key bound to this tenant: the person it was issued to.
+    /// A SESSION key of this tenant: its Director's owner, <see cref="OwnerOf"/> - read live, so a session whose
+    /// Director's key is revoked has no person. Anything else - no key, a key of another tenant, the machine token -
+    /// is null, and every caller refuses it. The team gate and the access lease both ask this; nothing else may
+    /// resolve a team caller. Personally identifying: the answer is never logged.
+    /// </summary>
+    public string? PersonOf(TenantId tenant, DeviceCredentialIdentity? device, SessionCredentialIdentity? session)
+    {
+        if (device is not null)
+            return string.Equals(device.TenantId, tenant.Value, StringComparison.Ordinal) ? device.AccountSubject : null;
+        if (session is not null)
+        {
+            if (session.Tenant != tenant)
+                return null;
+            var person = OwnerOf(tenant, session.DirectorId);
+            if (person is null)
+                FileLog.Write($"[TeamCallerOwnership] PersonOf: a session key of director={session.DirectorId} in tenant {tenant.ToLogString()} - its Director is nobody's, so the request names no person");
+            return person;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Whose a session is inside a team's tenant: the person who owns the ONE Director that holds it, when every
+    /// Director that wrote its stored conversation is theirs too (the same answer <see cref="Whose"/> gives). Null when
+    /// no Director or several hold it, or a writer is not the holder's owner's. Personally identifying: never logged.
+    /// </summary>
+    public string? PersonOfSession(TenantId tenant, string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+            return null;
+        var holders = _sessions.DirectorsHoldingSession(tenant, sessionId);
+        if (holders.Count != 1)
+        {
+            FileLog.Write($"[TeamCallerOwnership] PersonOfSession: session {sessionId} is held by {holders.Count} Directors in tenant {tenant.ToLogString()} - nobody's");
+            return null;
+        }
+        var owner = OwnerOf(tenant, holders[0]);
+        if (owner is null)
+            return null;
+        return OwnerOfStoredConversation(tenant, sessionId, holders[0], owner) == TeamOwnership.Callers ? owner : null;
+    }
+
     private TeamOwnership OwnerOfDirector(TenantId tenant, string directorId, string callerSubject, string what)
     {
         var owner = OwnerOf(tenant, directorId);

@@ -71,7 +71,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
-            narrationPlan: _ => NarrationPlan.Allowed);
+            narrationPlan: (_, _) => NarrationPlan.Allowed);
 
         var answer = await env.AskRecoveryProbeAsync(
             Tenant, TurnVerdictService.HostRecoveryProbePrompt,
@@ -113,7 +113,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
-            narrationPlan: _ => NarrationPlan.Allowed);
+            narrationPlan: (_, _) => NarrationPlan.Allowed);
         var service = new TurnVerdictService(env);
 
         var held = await service.StartTurnEnd(Signal("child-1"));

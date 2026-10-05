@@ -446,8 +446,15 @@ public sealed class DeviceRegistry : IDisposable
     /// often this runs. Idempotent - a second run matches nothing.
     /// </summary>
     /// <returns>The number of credentials reinstated.</returns>
-    public int ReinstateRevokedBefore(string reason, DateTime revokedBeforeUtc, Func<TenantId, bool> mayHoldHostedKeys)
+    /// <param name="isTeam">Whether a tenant is a team's (devthrottle_internal#2311). Null: no tenant is.</param>
+    /// <param name="teamMemberMayHoldKeys">For a team's tenant, asked once per PERSON the revoked keys were issued to,
+    /// because inside a team the answer is the person's, not the tenant's. Required when <paramref name="isTeam"/> is
+    /// given.</param>
+    public int ReinstateRevokedBefore(string reason, DateTime revokedBeforeUtc, Func<TenantId, bool> mayHoldHostedKeys,
+        Func<TenantId, bool>? isTeam = null, Func<TenantId, string, bool>? teamMemberMayHoldKeys = null)
     {
+        if (isTeam is not null && teamMemberMayHoldKeys is null)
+            throw new ArgumentNullException(nameof(teamMemberMayHoldKeys), "A team's tenant needs the per-person rule.");
         if (string.IsNullOrWhiteSpace(reason))
             throw new ArgumentException("reason is required", nameof(reason));
         ArgumentNullException.ThrowIfNull(mayHoldHostedKeys);
@@ -467,6 +474,11 @@ public sealed class DeviceRegistry : IDisposable
         foreach (var id in tenantIds)
         {
             var tenant = new TenantId(id);
+            if (tenant.IsValid && isTeam is not null && isTeam(tenant))
+            {
+                reinstated += ReinstateTeamMembersRevokedBefore(ctx, tenant, trimmed, revokedBeforeUtc, teamMemberMayHoldKeys!);
+                continue;
+            }
             if (!tenant.IsValid || !mayHoldHostedKeys(tenant))
             {
                 tenantsSkipped++;
@@ -486,6 +498,39 @@ public sealed class DeviceRegistry : IDisposable
 
         FileLog.Write($"[DeviceRegistry] ReinstateRevokedBefore: reason={trimmed}, tenants={tenantIds.Count}, " +
                       $"reinstated={reinstated}, tenantsSkipped={tenantsSkipped}");
+        return reinstated;
+    }
+
+    /// <summary>The team half of <see cref="ReinstateRevokedBefore"/>: one person at a time, each asked the team's rule.
+    /// A key that names no person is never reinstated in a team.</summary>
+    private static int ReinstateTeamMembersRevokedBefore(GatewayDbContext ctx, TenantId tenant, string reason,
+        DateTime revokedBeforeUtc, Func<TenantId, string, bool> teamMemberMayHoldKeys)
+    {
+        var id = tenant.Value;
+        var people = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.TenantId == id && d.Status == StatusRevoked && d.RevokedReason == reason
+                        && d.RevokedAtUtc != null && d.RevokedAtUtc < revokedBeforeUtc && d.AccountSubject != null)
+            .Select(d => d.AccountSubject!)
+            .Distinct()
+            .ToList();
+
+        var reinstated = 0;
+        foreach (var person in people)
+        {
+            if (string.IsNullOrWhiteSpace(person) || !teamMemberMayHoldKeys(tenant, person))
+                continue;
+            using var transaction = ctx.Database.BeginTransaction();
+            reinstated += ctx.DeviceCredentials
+                .Where(d => d.TenantId == id && d.AccountSubject == person && d.Status == StatusRevoked
+                            && d.RevokedReason == reason && d.RevokedAtUtc != null && d.RevokedAtUtc < revokedBeforeUtc)
+                .ExecuteUpdate(setters => setters
+                    .SetProperty(d => d.Status, StatusActive)
+                    .SetProperty(d => d.RevokedAtUtc, (DateTime?)null)
+                    .SetProperty(d => d.RevokedReason, (string?)null));
+            transaction.Commit();
+        }
+        FileLog.Write($"[DeviceRegistry] ReinstateRevokedBefore: team {tenant.ToLogString()} people={people.Count}, reinstated={reinstated}");
         return reinstated;
     }
 

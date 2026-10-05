@@ -63,9 +63,10 @@ public sealed record TeamGateVerdict(TeamGateOutcome Outcome, TeamAction? Action
 ///
 /// HOW THE CALLER IS KNOWN. From a personal account's own device or session key: through the personal tenant it is
 /// bound to and that tenant's account subject - the same way the team routes of #2300 find it. Inside a TEAM's tenant,
-/// from the device key the request was made with: each Director's key is bound to one team FOR ONE PERSON
-/// (devthrottle_internal#2311), so the person is the key's account subject. A request in a team's tenant that was
-/// not made with a device key - a session key, the machine token - names no person, and is refused as unidentified.
+/// from the key the request was made with, through <see cref="TeamCallerOwnership.PersonOf"/>: each Director's key is
+/// bound to one team FOR ONE PERSON (devthrottle_internal#2311), so a device key's person is its account subject, and a
+/// session key's person is its Director's owner, read live. A request in a team's tenant that names no person that way -
+/// the machine token, a session whose Director's key is revoked - is refused as unidentified.
 ///
 /// WHOSE IT IS. For something private to one person, <see cref="TeamCallerOwnership"/> answers from the key and the
 /// route: a Director's tunnel is the key's own, a Director is its key's person's, and a Director's sessions are its
@@ -189,6 +190,7 @@ public sealed class TeamEndpointGate
         var endpoint = ctx.GetEndpoint() as RouteEndpoint;
         var requestTenant = _boundary.ResolveRequestTenant(ctx);
         var device = Util.AuthMiddleware.AuthenticatedDevice(ctx);
+        var session = Util.AuthMiddleware.CallingSession(ctx);
         var pattern = endpoint?.RoutePattern.RawText is { } raw ? TeamEndpointRules.Normalize(raw) : null;
         Func<string, string?> routeValue = name => ctx.Request.RouteValues.TryGetValue(name, out var value) ? value?.ToString() : null;
         var verdict = Check(
@@ -196,8 +198,8 @@ public sealed class TeamEndpointGate
             pattern,
             routeValue,
             requestTenant,
-            () => CallerSubject(requestTenant, device),
-            rule => Whose(ctx.Request.Method, rule, requestTenant, device, pattern, routeValue));
+            () => CallerSubject(requestTenant, device, session),
+            rule => Whose(ctx.Request.Method, rule, requestTenant, device, session, pattern, routeValue));
 
         switch (verdict.Outcome)
         {
@@ -232,33 +234,32 @@ public sealed class TeamEndpointGate
     }
 
     /// <summary>
-    /// The person asking. In a PERSONAL tenant: that tenant's account subject, as before. In a TEAM's tenant: the person
-    /// the request's device key was issued to - a team's tenant is not one person's, but each Director's key is bound to
-    /// the team for one person (devthrottle_internal#2311). A team request not made with a device key answers null, and
-    /// is refused as unidentified rather than guessed.
+    /// The person asking. In a PERSONAL tenant: that tenant's account subject, as before. In a TEAM's tenant: the one
+    /// resolver, <see cref="TeamCallerOwnership.PersonOf"/> - the person a device key was issued to, or a session key's
+    /// Director's owner (devthrottle_internal#2311, seams 1 and 2). A team request it names nobody for answers null,
+    /// and is refused as unidentified rather than guessed; so does every team request where no resolver is wired.
     /// </summary>
-    internal string? CallerSubject(TenantId? requestTenant, Pairing.DeviceCredentialIdentity? device)
+    internal string? CallerSubject(TenantId? requestTenant, Pairing.DeviceCredentialIdentity? device,
+        Pairing.SessionCredentialIdentity? session = null)
     {
         if (requestTenant is not { } tenant)
             return null;
         if (!_teams.IsTeam(tenant))
             return _tenants.SubjectForTenant(tenant);
-        return device is not null && string.Equals(device.TenantId, tenant.Value, StringComparison.Ordinal)
-            ? device.AccountSubject
-            : null;
+        return _ownership?.PersonOf(tenant, device, session);
     }
 
     /// <summary>Whose a request touches, asked only for a <see cref="TeamTarget.CallersOwn"/> rule in a team. Unknown
-    /// without a device key that names a person, or without an ownership answerer.
+    /// without a key that names a person, or without an ownership answerer.
     ///
     /// WHERE IT IS ANSWERED. A request with a key bound to a team's tenant touches that tenant. A
     /// <c>/teams/{teamId}/...</c> route is called from the person's OWN account, so what it touches is in the team the
     /// route names - a report the caller published in the team (devthrottle_internal#2309) - and it is answered there,
     /// for the person behind the caller's own account. A route naming a tenant that is not a team is Unknown.</summary>
     private TeamOwnership Whose(string method, TeamEndpointRule rule, TenantId? requestTenant, Pairing.DeviceCredentialIdentity? device,
-        string? pattern, Func<string, string?> routeValue)
+        Pairing.SessionCredentialIdentity? session, string? pattern, Func<string, string?> routeValue)
     {
-        if (_ownership is null || CallerSubject(requestTenant, device) is not { } subject)
+        if (_ownership is null || CallerSubject(requestTenant, device, session) is not { } subject)
             return TeamOwnership.Unknown;
 
         TenantId? scope = requestTenant;

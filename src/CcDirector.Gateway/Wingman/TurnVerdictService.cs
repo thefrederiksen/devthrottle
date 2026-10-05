@@ -44,7 +44,9 @@ public interface ITurnVerdictEnvironment
     string? CustomSpokenRules();
 
     /// <summary>Whether this account's plan includes the Wingman's narration (see <see cref="NarrationPlanRule"/>).</summary>
-    NarrationPlan PlanForNarration(TenantId tenant);
+    /// <summary>Whether the narration of session <paramref name="sid"/>'s stop is on its owner's plan. In a team's
+    /// tenant that is the session's owner's answer there, not the tenant's (devthrottle_internal#2311).</summary>
+    NarrationPlan PlanForNarration(TenantId tenant, string sid);
 
     /// <summary>The model id the judge runs on for this account, recorded on every verdict including a failed one.</summary>
     string JudgeModel(TenantId tenant);
@@ -1679,7 +1681,7 @@ public sealed class TurnVerdictService : IDisposable
 
         // THE PLAN FIRST (owner ruling, 2026-09-17): an account whose plan does not include the Wingman gets the Pro
         // sentence as its narration, with no model call; a plan that could not be read gets nothing, and no call.
-        switch (_env.PlanForNarration(tenant))
+        switch (_env.PlanForNarration(tenant, sid))
         {
             case NarrationPlan.NeedsPro:
                 FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId}: the account's plan does not include the Wingman - the Pro sentence stands in, no model call");

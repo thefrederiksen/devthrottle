@@ -31,12 +31,14 @@ public sealed class EntitlementLeaseMonitor
     /// timer; a per-tenant failure is logged (no PII) and does not stop the rest of the cycle.</summary>
     public async Task SweepOnceAsync(CancellationToken ct = default)
     {
-        foreach (var tenant in _leases.TenantsWithLiveLease())
+        // One lease at a time: a personal tenant's, and in a team each person's (devthrottle_internal#2311), since a
+        // team's answer is per person.
+        foreach (var lease in _leases.LiveLeases())
         {
             ct.ThrowIfCancellationRequested();
             try
             {
-                await _leases.RefreshAsync(tenant, ct).ConfigureAwait(false);
+                await _leases.RefreshAsync(lease, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

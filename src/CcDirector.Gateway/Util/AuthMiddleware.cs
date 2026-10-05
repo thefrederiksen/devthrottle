@@ -324,7 +324,18 @@ internal static class AuthMiddleware
                     && tenant != CcDirector.Core.Tenancy.TenantId.Local
                     && tenant != CcDirector.Core.Tenancy.TenantId.System)
                 {
-                    var access = await cfg.Leases.AuthorizeAsync(tenant);
+                    var access = await cfg.Leases.AuthorizeAsync(tenant,
+                        () => cfg.TeamPerson?.Invoke(tenant, AuthenticatedDevice(ctx), CallingSession(ctx)));
+                    if (access == CcDirector.Gateway.Tenancy.HostedAccessDecision.DenyNotAMember)
+                    {
+                        // In a team's tenant, the request names nobody who is a member (devthrottle_internal#2311). A
+                        // refusal of the person, not of the team's bill: 403, and nothing was revoked.
+                        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        ctx.Response.ContentType = "application/json; charset=utf-8";
+                        await ctx.Response.WriteAsync(
+                            "{\"error\":\"" + JsonEscape(TeamMemberRefusal) + "\",\"code\":\"team_member_required\"}");
+                        return;
+                    }
                     if (access == CcDirector.Gateway.Tenancy.HostedAccessDecision.DenyNotEntitled)
                     {
                         ctx.Response.StatusCode = StatusCodes.Status402PaymentRequired;
@@ -728,6 +739,10 @@ internal static class AuthMiddleware
             ? value as DeviceCredentialIdentity
             : null;
 
+    /// <summary>What a request in a team's tenant is told when it names nobody who is a member of the team.</summary>
+    public const string TeamMemberRefusal =
+        "This key is for a team you are not a member of. Ask the team's Owner to invite you, or set this Director up again for your own account.";
+
     public static SessionCredentialIdentity? CallingSession(HttpContext? ctx)
         => ctx?.Items.TryGetValue(AuthenticatedSessionItemKey, out var value) == true
             ? value as SessionCredentialIdentity
@@ -801,6 +816,10 @@ internal static class AuthMiddleware
         /// <summary>The boundary that resolves the authenticated device key to its tenant, for the lease
         /// check. Null on self-host.</summary>
         public CcDirector.Gateway.Tenancy.HostedTenantBoundary? Boundary { get; init; }
+
+        /// <summary>Who a request in a team's tenant is from, for the lease: <see cref="Teams.TeamCallerOwnership.PersonOf"/>
+        /// (devthrottle_internal#2311). Null where nothing is wired, which names nobody in a team.</summary>
+        public Func<CcDirector.Core.Tenancy.TenantId, DeviceCredentialIdentity?, SessionCredentialIdentity?, string?>? TeamPerson { get; init; }
 
         /// <summary>
         /// Remove-the-network-port phase 1b: the per-session key registry, so an agent running inside a
