@@ -221,6 +221,47 @@ public sealed class AuthMiddlewareTests
         Assert.NotEqual(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
     }
 
+    // devthrottle_internal#2311: the two Teams companions of the hosted enroll route pass the gate the same way - a
+    // Director being set up has no device key, and the move proves its person with the account token. Each carries an
+    // account bearer that is neither the gateway token nor a device key, exactly as the Director sends it.
+    [Theory]
+    [InlineData("GET", "/devices/enroll-hosted/teams")]
+    [InlineData("POST", "/devices/enroll-hosted/move")]
+    public async Task The_team_enrollment_routes_are_public_and_reach_the_handler_with_an_account_bearer(string method, string path)
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = path;
+        ctx.Request.Method = method;
+        ctx.Request.Headers["Authorization"] = "Bearer some.account.jwt-not-a-gateway-token-or-device-key";
+
+        var passedThrough = false;
+        await AuthMiddleware.Run(
+            ctx,
+            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            () => { passedThrough = true; return Task.CompletedTask; });
+
+        Assert.True(passedThrough, $"{method} {path} must reach its handler; it validates the account token itself");
+        Assert.NotEqual(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
+    }
+
+    // The exemption is exact-match: a path beside them is NOT opened by it.
+    [Fact]
+    public async Task A_path_under_the_hosted_enroll_route_that_is_not_one_of_the_two_still_needs_a_credential()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = "/devices/enroll-hosted/anything-else";
+        ctx.Request.Method = "GET";
+
+        var passedThrough = false;
+        await AuthMiddleware.Run(
+            ctx,
+            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            () => { passedThrough = true; return Task.CompletedTask; });
+
+        Assert.False(passedThrough);
+        Assert.Equal(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
+    }
+
     // Phase D (/m -> /mobile re-base): the mobile app shell and its enroll seam are public on BOTH the
     // canonical /mobile mount and the legacy /m mount, so a credential-less phone reaches the shell (to
     // render Sign in) and the enrollment endpoint (which carries its own account-scoped authorization),

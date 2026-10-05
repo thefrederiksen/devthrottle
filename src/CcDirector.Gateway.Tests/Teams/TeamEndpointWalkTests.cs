@@ -300,18 +300,20 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task OverTheWire_AKeyBoundToATeamsTenant_IsNotAcceptedToday_SoNoRequestYetRunsInsideATeam()
+    public async Task OverTheWire_AKeyBoundToATeamsTenant_AuthenticatesForADeveloper_ButNotForACollaborator()
     {
-        // The binding devthrottle_internal#2311 will make for a Director set up for a team. Today's hosted device
-        // registry refuses a key whose account does not own the tenant it is bound to, so such a key never
-        // authenticates - and if #2311 lets it, the gate is what it meets next (TeamEndpointGateTests shows what the
-        // gate does with it).
-        var key = _gateway.Devices.Register("dev-walk-team-bound", "M-team").DeviceKey;
+        // The binding devthrottle_internal#2311 makes for a Director set up for a team. The hosted device registry now
+        // accepts it while its person may run sessions in the team, so a Developer's team key authenticates and meets
+        // the request-path access lease next - which refuses it (402) until the lease reads the team's bill, the step
+        // after #3521. A Collaborator's team key never authenticates (401). TeamCallerOwnershipTests shows what the
+        // gate does with an authenticated one.
+        var developerKey = _gateway.Devices.Register("dev-walk-team-bound", "M-team").DeviceKey;
         _gateway.Devices.SetAccountBinding("dev-walk-team-bound", _developer, _team);
+        var collaboratorKey = _gateway.Devices.Register("dev-walk-team-collab", "M-team").DeviceKey;
+        _gateway.Devices.SetAccountBinding("dev-walk-team-collab", _collaborator, _team);
 
-        var (status, _) = await Get("gateway/skills", key);
-
-        Assert.Equal(HttpStatusCode.Unauthorized, status);
+        Assert.Equal(HttpStatusCode.PaymentRequired, (await Get("gateway/skills", developerKey)).Status);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Get("gateway/skills", collaboratorKey)).Status);
     }
 
     // ---- The Collaborator's app (devthrottle_internal#2306) ---------------------------------------------------------
@@ -390,8 +392,9 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
     public async Task Issue2306_OverTheWire_AKeyBoundToTheTeam_GetsNoDataBehindAnyPageACollaboratorCannotOpen()
     {
         // A key bound to the team's tenant, held by its Collaborator: what a request from inside the team would carry.
-        // Today the hosted device registry does not accept it at all (see the test above it), so every read is
-        // refused before it reaches the gate; the gate's own answer for each read is the test before this one.
+        // Since devthrottle_internal#2311 the hosted device registry accepts a team key only while its person may run
+        // sessions in the team, which a Collaborator may not (see the test above it), so every read is refused before it
+        // reaches the gate; the gate's own answer for each read is the test before this one.
         var key = _gateway.Devices.Register("dev-walk-collab-team-bound", "M-collab").DeviceKey;
         _gateway.Devices.SetAccountBinding("dev-walk-collab-team-bound", _collaborator, _team);
 

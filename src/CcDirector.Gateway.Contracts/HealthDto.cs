@@ -65,6 +65,17 @@ public sealed class HealthDto
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyDictionary<string, string>? Subsystems { get; set; }
 
+    /// <summary>
+    /// Whether this Gateway offers Directors set up for a team (devthrottle_internal#2311): true only on the hosted
+    /// Gateway with Teams released (<c>CC_GATEWAY_TEAMS=1</c>), where <c>GET /devices/enroll-hosted/teams</c> and
+    /// <c>POST /devices/enroll-hosted/move</c> are mapped. THE ONE SIGNAL a Director reads before it asks for teams:
+    /// false, or absent (a Gateway from before teams, which never sends it, and a Director's own /healthz), means
+    /// set up for the person's own account exactly as before. A process fact, the same for every tenant, so it is
+    /// safe on this public endpoint. Not a subsystem: the deploy asserts every subsystem is "available".
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? Teams { get; set; }
+
     public DateTime ServerTime { get; set; } = DateTime.UtcNow;
 
     /// <summary>Director's GUID. Empty when returned by the Gateway aggregator.</summary>

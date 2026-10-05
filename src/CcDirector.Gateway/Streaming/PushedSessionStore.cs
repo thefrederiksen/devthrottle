@@ -540,6 +540,29 @@ public sealed class PushedSessionStore
     }
 
     /// <summary>
+    /// EVERY Director in <paramref name="tenant"/> whose last-known roster holds <paramref name="sessionId"/>, freshness
+    /// ignored. The roster accepts any session id from any Director, so in a team's tenant two members' Directors can
+    /// list the same id; <see cref="TryGetLastKnownSession"/> answers with the first it finds, which is no answer to
+    /// "whose is it". This is the question for that (devthrottle_internal#2311, review F2): normally one, and anything
+    /// else is not a session anyone can be said to own.
+    /// </summary>
+    public IReadOnlyList<string> DirectorsHoldingSession(TenantId tenant, string sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return Array.Empty<string>();
+        var holders = new List<string>();
+        foreach (var kvp in DirectorsFor(tenant))
+        {
+            var entry = kvp.Value;
+            lock (entry.Gate)
+            {
+                if (entry.Sessions.ContainsKey(sessionId))
+                    holders.Add(kvp.Key);
+            }
+        }
+        return holders;
+    }
+
+    /// <summary>
     /// Drop everything this store holds for one Director in one tenant (epic #1159 step A).
     ///
     /// Entries deliberately survive a disconnect - that is what lets the roster keep serving a machine whose
