@@ -1,0 +1,6 @@
+  Failed CcDirector.Core.Tests.GitHubActionsSessionKeyTests.CreateGitHubActionsSession_KeyMintThrows_TheKeyIsRevokedAndTheSessionIsNotListed [153 ms]
+  Passed CcDirector.Core.Tests.GitHubActionsSessionKeyTests.CreateGitHubActionsSession_NoGateway_MintsNoKey [16 ms]
+  Failed CcDirector.Core.Tests.GitHubActionsSessionKeyTests.CreateGitHubActionsSession_WithAGateway_MintsTheKeyBeforeTheSessionIsListed [55 ms]
+  Failed CcDirector.Core.Tests.GitHubActionsSessionKeyTests.CreateGitHubActionsSession_KeySourceAtTheRosterAdd_HasNotYetSeenTheSessionInTheRoster [12 ms]
+Total tests: 4
+     Failed: 3

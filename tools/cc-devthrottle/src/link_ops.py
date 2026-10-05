@@ -12,6 +12,9 @@ A link names exactly two sessions and how much talking it allows:
 
 `add` resolves both sessions the way every session verb does (number, id prefix, or exact name). The Gateway
 tells the sending session, in its inbox, what it may now send.
+
+A session that needs a link ASKS for one with `request`; the owner - or a raised session - lists the requests
+with `requests` and answers one with `answer`. A request allows nothing by itself.
 """
 
 from __future__ import annotations
@@ -29,6 +32,8 @@ from . import session_ops
 console = Console()
 
 PATH = "fleet/links"
+
+REQUESTS_PATH = "fleet/link-requests"
 
 AMOUNTS = ("once", "once-with-reply", "ongoing")
 
@@ -115,3 +120,75 @@ def remove(link_id: str, json_output: bool) -> None:
         return
     console.print("link:")
     _print_link(payload)
+
+
+def _print_request(req: Dict[str, Any], indent: str = "  ") -> None:
+    console.print(f"{indent}id: {req.get('requestId', '')}")
+    console.print(f"{indent}from: {req.get('requesterSessionId', '')}")
+    console.print(f"{indent}to: {req.get('targetSessionId', '')}")
+    console.print(f"{indent}reason: {req.get('reason', '')}")
+    console.print(f"{indent}status: {req.get('status', '')}")
+    if req.get("amount"):
+        console.print(f"{indent}amount: {req.get('amount')}")
+    if req.get("linkId"):
+        console.print(f"{indent}link: {req.get('linkId')}")
+
+
+def request(target: str, reason: str, json_output: bool) -> None:
+    """Ask the owner for a message link from THIS session to TARGET."""
+    if not (reason or "").strip():
+        _fail("say why you need to talk to that session, in one sentence the user can decide on.")
+    target_id = gateway.field(_resolve(target, "cc-devthrottle message request"), "sessionId", "SessionId")
+    try:
+        payload = gateway.post_json(REQUESTS_PATH, {"targetSessionId": target_id, "reason": reason}) or {}
+    except gateway.GatewayError as err:
+        _fail(str(err))
+    if json_output:
+        print(json.dumps(payload))
+        return
+    console.print("request:")
+    _print_request(payload.get("request") or {})
+    console.print(f"note: {payload.get('note', '')}")
+
+
+def list_requests(json_output: bool) -> None:
+    """Print every waiting request, and every request answered in the last 7 days."""
+    try:
+        payload = gateway.get_json(REQUESTS_PATH) or {}
+    except gateway.GatewayError as err:
+        _fail(str(err))
+    if json_output:
+        print(json.dumps(payload))
+        return
+    reqs: List[Dict[str, Any]] = payload.get("requests") or []
+    days = payload.get("answeredWithinDays", 7)
+    console.print(f"requests[{len(reqs)}] (waiting, and answered in the last {days} days):")
+    if not reqs:
+        console.print("  count: 0")
+    for req in reqs:
+        console.print("  -")
+        _print_request(req, indent="    ")
+    console.print("help[1]:")
+    console.print("  cc-devthrottle message link answer <id> --amount once|once-with-reply|ongoing  (or --decline)")
+
+
+def answer(request_id: str, amount: str, decline: bool, json_output: bool) -> None:
+    """Allow a request with an amount, or decline it."""
+    amount = (amount or "").strip().lower()
+    if decline == bool(amount):
+        _fail("answer with --amount to allow it, or with --decline to say no - one of the two.")
+    if amount and amount not in AMOUNTS:
+        _fail(f"amount must be one of {', '.join(AMOUNTS)}; '{amount}' was given.")
+    body: Dict[str, Any] = {"decline": True} if decline else {"amount": amount}
+    try:
+        payload = gateway.post_json(f"{REQUESTS_PATH}/{gateway.path_segment(request_id)}/answer", body) or {}
+    except gateway.GatewayError as err:
+        _fail(str(err))
+    if json_output:
+        print(json.dumps(payload))
+        return
+    console.print("request:")
+    _print_request(payload.get("request") or {})
+    if payload.get("link"):
+        console.print("link set up:")
+        _print_link(payload["link"])

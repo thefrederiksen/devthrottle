@@ -144,6 +144,8 @@ public sealed class SessionKeyGuardRaisedTests
     [InlineData("POST", "/fleet/links")]
     [InlineData("DELETE", "/fleet/links/0123456789abcdef0123456789abcdef")]
     [InlineData("POST", "/Fleet/Links/")]
+    [InlineData("GET", "/fleet/link-requests")]
+    [InlineData("POST", "/fleet/link-requests/0123456789abcdef0123456789abcdef/answer")]
     public void Check_MessageLinks_RaisedPassesWithItsOwnGrant_UnraisedIsRefused(string method, string path)
     {
         var raised = SessionKeyGuard.Check(method, path, raised: true);
@@ -162,9 +164,22 @@ public sealed class SessionKeyGuardRaisedTests
     [InlineData("DELETE", "/fleet/links")]
     [InlineData("POST", "/fleet/links/0123456789abcdef0123456789abcdef")]
     [InlineData("POST", "/fleet/links/0123456789abcdef0123456789abcdef/use")]
+    [InlineData("DELETE", "/fleet/link-requests/0123456789abcdef0123456789abcdef")]
+    [InlineData("POST", "/fleet/link-requests/0123456789abcdef0123456789abcdef")]
+    [InlineData("GET", "/fleet/link-requests/0123456789abcdef0123456789abcdef/answer")]
+    [InlineData("POST", "/fleet/link-requests/0123456789abcdef0123456789abcdef/answer/again")]
     public void Check_MessageLinks_OnlyTheThreeShapesAreWidened(string method, string path)
     {
         Assert.False(SessionKeyGuard.Check(method, path, raised: true).Allowed, $"{method} {path} must stay refused");
     }
-}
 
+    /// <summary>ASKING for a link is an ordinary session's (issue #3548): the request allows nothing by itself, and the
+    /// route files it under the calling session alone. It is the plain allow list, not a raised grant.</summary>
+    [Fact]
+    public void Check_AskingForALink_IsOpenToAnOrdinarySessionKey()
+    {
+        var verdict = SessionKeyGuard.Check("POST", "/fleet/link-requests", raised: false);
+        Assert.True(verdict.Allowed);
+        Assert.Equal(RaisedGrant.None, verdict.RaisedGrant);
+    }
+}

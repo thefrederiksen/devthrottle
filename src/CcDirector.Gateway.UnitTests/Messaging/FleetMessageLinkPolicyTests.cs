@@ -40,6 +40,8 @@ public sealed class FleetMessageLinkPolicyTests
 
         Assert.Equal(FleetMessageOutcome.RefusedNotRelated, verdict.Outcome);
         Assert.Contains("message link", verdict.Reason);
+        // It says how to ASK, with the exact command and the recipient's full id, so the session can act on it.
+        Assert.Contains($"cc-devthrottle message request {Coordinator} \"why you need to talk\"", verdict.Reason);
         Assert.Null(verdict.Link);
     }
 

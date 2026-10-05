@@ -370,6 +370,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The message links the owner has set up between sessions that are not owner and worker (issue #3548).</summary>
     internal Messaging.FleetMessageLinkStore MessageLinks { get; }
 
+    /// <summary>Sessions' requests for a message link, waiting for or answered by the owner (issue #3548).</summary>
+    internal Messaging.FleetMessageLinkRequestStore MessageLinkRequests { get; }
+
     /// <summary>The record of every message link set up and stopped, and every message a link carried, in the
     /// governance audit trail.</summary>
     internal Messaging.FleetMessageLinkRecord MessageLinkRecord { get; }
@@ -2076,6 +2079,7 @@ public sealed class GatewayHost : IAsyncDisposable
         RaisedSessionRecord = new Fleet.RaisedSessionRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
         // Issue #3548: the message links, and their record beside raise and lower in the governance audit trail.
         MessageLinks = new Messaging.FleetMessageLinkStore(_gatewayDb);
+        MessageLinkRequests = new Messaging.FleetMessageLinkRequestStore(_gatewayDb);
         MessageLinkRecord = new Messaging.FleetMessageLinkRecord(_governanceAudit, tenant => _tenantBoundary.EnterScope(tenant));
         // Per-tenant dictation transcript store (issue #509): every transcribed turn's raw and cleaned text
         // lands in the caller tenant's partition of the dictation_transcripts table, write-only, for later
@@ -4995,17 +4999,30 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // Message links (issue #3548): the owner's own device, or a raised session for links between OTHER sessions.
         // SessionKeyGuard lets a raised key through on RaisedGrant.MessageLinks alone; an ordinary session key never.
+        // One way to tell a session about its link or its request: a system message in its inbox.
+        Action<TenantId, SessionDto, string> notifyOfLink = (tenant, row, text) => _fleetMessageService.Send(tenant, sender: null,
+            new Messaging.FleetParty(row.SessionId,
+                string.IsNullOrWhiteSpace(row.ControllerSessionId) ? null : row.ControllerSessionId,
+                string.IsNullOrWhiteSpace(row.Name) ? null : row.Name,
+                string.IsNullOrWhiteSpace(row.MachineName) ? null : row.MachineName),
+            text, Messaging.FleetMessageKinds.System, Messaging.FleetMessageExemption.System);
         FleetMessageLinkEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             links: MessageLinks,
             record: MessageLinkRecord,
             findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
-            notify: (tenant, row, text) => _fleetMessageService.Send(tenant, sender: null,
-                new Messaging.FleetParty(row.SessionId,
-                    string.IsNullOrWhiteSpace(row.ControllerSessionId) ? null : row.ControllerSessionId,
-                    string.IsNullOrWhiteSpace(row.Name) ? null : row.Name,
-                    string.IsNullOrWhiteSpace(row.MachineName) ? null : row.MachineName),
-                text, Messaging.FleetMessageKinds.System, Messaging.FleetMessageExemption.System),
+            notify: notifyOfLink,
+            nowUtc: () => DateTime.UtcNow);
+
+        // Requests for a message link (issue #3548): a session asks, the owner - or a raised session - answers. Asking is
+        // in SessionKeyGuard's ordinary allow list; the list and the answer are on RaisedGrant.MessageLinks.
+        FleetMessageLinkRequestEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            requests: MessageLinkRequests,
+            links: MessageLinks,
+            record: MessageLinkRecord,
+            findSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+            notify: notifyOfLink,
             nowUtc: () => DateTime.UtcNow);
 
         // Hand over (the Fleet Manager mission, step 8): the owner changes who owns a running session. The owner's route:

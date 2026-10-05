@@ -255,6 +255,14 @@ public sealed class FleetMessageLinkStore
         }
     }
 
+    /// <summary>The live link that may carry a message from <paramref name="senderSessionId"/> to
+    /// <paramref name="recipientSessionId"/> now, or null - <see cref="FindLiveIn"/> in a context of its own.</summary>
+    public FleetMessageLinkFacts? FindLive(TenantId tenant, string senderSessionId, string recipientSessionId)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return FindLiveIn(ctx, senderSessionId, recipientSessionId);
+    }
+
     /// <summary>
     /// The live link that may carry a message from <paramref name="senderSessionId"/> to
     /// <paramref name="recipientSessionId"/>, read inside the caller's context: a link set up in that direction, or an

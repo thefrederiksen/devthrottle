@@ -506,6 +506,11 @@ public static class SessionKeyGuard
             // who may answer, and to whom it goes, is the Gateway's ruling, and the answer is queued, never typed.
             if (Join(s) == "fleet/reply") return true;
 
+            // ASKING the owner for a message link (issue #3548). A request allows nothing by itself: the route files it
+            // under the calling session and no other, and only the owner's answer - a separate route, not here - sets
+            // up a link. Listing and answering requests are the owner's and a raised session's (IsMessageLinkRoute).
+            if (Join(s) == "fleet/link-requests") return true;
+
             // Create a mission - the unit of work sessions attach to.
             if (Join(s) == "missions") return true;
 
@@ -749,14 +754,26 @@ public static class SessionKeyGuard
 
     /// <summary>
     /// The message link routes (issue #3548): <c>GET</c> and <c>POST /fleet/links</c>, and
-    /// <c>DELETE /fleet/links/{id}</c>. The owner's own device reaches them, and a RAISED session does on this grant -
-    /// an ordinary session key never does, because a session that could set up its own link would have no limit at all.
+    /// <c>DELETE /fleet/links/{id}</c>, and the owner's side of a request for one: <c>GET /fleet/link-requests</c> and
+    /// <c>POST /fleet/link-requests/{id}/answer</c>. The owner's own device reaches them, and a RAISED session does on
+    /// this grant - an ordinary session key never does, because a session that could set up or allow its own link would
+    /// have no limit at all.
     /// </summary>
     private static bool IsMessageLinkRoute(string verb, string[] s)
     {
-        if (s.Length < 2 || s[0] != "fleet" || s[1] != "links") return false;
-        if (s.Length == 2) return verb is "GET" or "HEAD" or "POST";
-        return s.Length == 3 && verb == "DELETE";
+        if (s.Length < 2 || s[0] != "fleet") return false;
+        if (s[1] == "links")
+        {
+            if (s.Length == 2) return verb is "GET" or "HEAD" or "POST";
+            return s.Length == 3 && verb == "DELETE";
+        }
+        // The owner's side of a request for a link: the list, and the answer. Asking is in the ordinary allow list.
+        if (s[1] == "link-requests")
+        {
+            if (s.Length == 2) return verb is "GET" or "HEAD";
+            return s.Length == 4 && s[3] == "answer" && verb == "POST";
+        }
+        return false;
     }
 
     /// <summary>
