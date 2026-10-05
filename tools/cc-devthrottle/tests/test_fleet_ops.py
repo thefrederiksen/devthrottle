@@ -568,7 +568,8 @@ def test_lesson_against_a_gateway_without_lessons_fails_and_says_what_it_kept_in
     kept = gw.preferences[0]["id"]
     assert "older than lessons" in result.output
     assert f"standing preference instead ({kept})" in result.output
-    assert f"cc-devthrottle fleet forget {kept}" in result.output
+    assert "leave that row" in result.output
+    assert "fleet forget" not in result.output and "fleet prefer" not in result.output
     assert "confirmed:" not in result.output
 
 

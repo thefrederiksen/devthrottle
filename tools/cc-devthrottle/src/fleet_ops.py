@@ -517,8 +517,10 @@ def add_lesson(text: str, mistake: Optional[str], json_output: bool) -> None:
     if p.get("kind") != "lesson":
         # A Gateway older than lessons dropped the kind and kept the words as a standing preference - the list the
         # workflow treats as permissions. Said plainly, with the way to undo it; never reported as a lesson.
-        _fail(f"{GATEWAY_WITHOUT_LESSONS}. It kept these words as a standing preference instead ({p.get('id')}); "
-              f"remove it with `cc-devthrottle fleet forget {p.get('id')}`")
+        # One instruction, not two: the row it kept IS the stand-in, so the correction is not kept twice or lost.
+        _fail("this Gateway is older than lessons (issue #3559) and keeps none yet. It kept these words as a standing "
+              f"preference instead ({p.get('id')}); leave that row - it is where the correction is kept until the "
+              "Gateway is updated - and keep the lesson again once it is")
     if json_output:
         _print_json(p)
         return
