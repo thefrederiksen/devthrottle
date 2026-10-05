@@ -1,0 +1,15 @@
+﻿=== RED PROOF: GET /teams ignores the caller's own Director
+Broke src\CcDirector.Gateway\Api\TeamEndpoints.cs
+  was: devices.HasADirectorOnRecord(own)
+  now: false
+Ran: .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams"
+
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:01:14.19
+
+The test that went red (from the run's result file):
+  CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_TheStart_FollowsTheCallersOwnDirector
