@@ -737,6 +737,13 @@ public sealed class GatewayHost : IAsyncDisposable
     public Teams.TeamAccess TeamAccess { get; }
 
     /// <summary>
+    /// Whose what a team request touches, and the one answer to "whose Director is this" in a team
+    /// (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>, devthrottle_internal#2311). One instance: the team gate asks it,
+    /// and so does the team Fleet Map (devthrottle_internal#2312), so the question has one copy.
+    /// </summary>
+    public Teams.TeamCallerOwnership TeamCallerOwnership { get; }
+
+    /// <summary>
     /// The check every endpoint that acts in a team passes through (devthrottle_internal#2302). Present on every host;
     /// installed in the request pipeline only on the hosted Gateway, the only one that has teams.
     /// </summary>
@@ -883,6 +890,21 @@ public sealed class GatewayHost : IAsyncDisposable
     private int _suggestionSweepInFlight;
     private static readonly TimeSpan SuggestionSweepInterval = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan SuggestionSweepStartupDelay = TimeSpan.FromMinutes(2);
+
+    // The Mentor's weekly run (devthrottle_internal#2305). Null unless BOTH CC_GATEWAY_TEAMS=1 and
+    // CC_GATEWAY_TEAM_MENTOR=1 - switching on a Mentor that writes about people is the owner's decision.
+    private Teams.Mentor.TeamMentorWeeklySweep? _teamMentorSweep;
+    private System.Threading.Timer? _teamMentorTimer;
+    private int _teamMentorSweepInFlight;
+    private static readonly TimeSpan TeamMentorSweepInterval = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan TeamMentorSweepStartupDelay = TimeSpan.FromMinutes(3);
+
+    /// <summary>The Mentor's stored blocks (devthrottle_internal#2305). Always present, so the page can be read
+    /// whether or not the writer runs on this Gateway.</summary>
+    public Teams.Mentor.TeamMentorStore TeamMentorStore { get; }
+
+    /// <summary>The Mentor's weekly writer, or null when it is switched off on this Gateway.</summary>
+    public Teams.Mentor.TeamMentorWriter? TeamMentorWriter { get; }
 
     // Work history (issue #2194): the durable per-session record, its recorder on the push seam, the
     // Gateway summariser, and the background sweep that concludes "interrupted" from silence, generates
@@ -1766,8 +1788,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // who wrote its stored conversation (devthrottle_internal#2311) - and it must be THIS one store, whose cache the
         // hub writes through, never a second instance.
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
-        TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary,
-            new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary));
+        TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary);
+        TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
         // Removing a person from a team, or making them a Collaborator, cuts their Directors off that team: their keys
         // there are revoked and their open tunnels there cut (devthrottle_internal#2311). Attached only where Teams is
         // released, at the one place a membership change is committed.
@@ -2186,6 +2208,37 @@ public sealed class GatewayHost : IAsyncDisposable
         // through, resolved at call time (the dictionary-screening precedent) - summarisation is a
         // background digest, and the fast leg is the cheap one. The per-pass caps live in the sweep.
         _sessionHistory = new History.SessionHistoryStore(_gatewayDb);
+
+        // The Mentor's weekly page (devthrottle_internal#2305). The store is always there; the writer and its sweep
+        // exist only when both switches are on. The model is the team tenant's FAST Wingman model over the same hosted
+        // inference path the dictionary suggestion uses, resolved at call time, with its reasoning off and its output
+        // capped - a short weekly block needs neither.
+        TeamMentorStore = new Teams.Mentor.TeamMentorStore(_gatewayDb);
+        if (Teams.Mentor.TeamMentorSwitch.IsOn(TeamsReleased))
+        {
+            TeamMentorWriter = new Teams.Mentor.TeamMentorWriter(
+                TeamRegistry, TeamMentorStore, _sessionHistory, _promptLog,
+                (tenant, ct) =>
+                {
+                    var mode = Core.Configuration.TranscriptionModeConfig.Get();
+                    var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
+                    // No key is a setup fault, not a week to give up on: it throws before any member is visited, so
+                    // nothing is recorded and the week is tried again once the key is there.
+                    var key = _keyVault.Get(ep.KeyName);
+                    if (string.IsNullOrWhiteSpace(key))
+                        throw new InvalidOperationException(
+                            $"[TeamMentor] The Mentor is switched on but the Gateway holds no key '{ep.KeyName}' for the hosted model. Add it to the Gateway's key vault, or switch {Teams.Mentor.TeamMentorSwitch.EnvVar} off.");
+                    var model = _tenantSettingsResolver.WingmanModel(tenant, mode, Core.Configuration.WingmanModelRole.Fast);
+                    CcDirector.AgentBrain.IAgentBrain brain = new Wingman.HostedInferenceBrain(
+                        ep.BaseUrl, key, model, log: FileLog.Write, callTimeout: TimeSpan.FromMinutes(2),
+                        thinkingOff: true, maxTokens: Teams.Mentor.MentorBrief.MaxOutputTokens,
+                        tag: HostedAi.GatewayAiCallTags.For(tenant, Core.HostedAi.AiFeature.TeamMentor));
+                    return Task.FromResult((brain, model.Value));
+                });
+            _teamMentorSweep = new Teams.Mentor.TeamMentorWeeklySweep(
+                enabled: true, _tenantBoundary, TenantRegistry, _tenantContext, TeamRegistry, TeamMentorStore,
+                TeamMentorWriter, _tenantSettingsResolver.TimeZone);
+        }
         _factoryMemory = new Factory.Memory.FactoryMemoryStore(_gatewayDb);
         _devReports = new DevReports.DevReportStore(_gatewayDb);
         _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
@@ -2573,6 +2626,29 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Windows). Never clobbers an existing vault value.
     /// Key name matches <see cref="Core.Configuration.HostedAiKeyResolver.KeyName"/>.
     /// </summary>
+    /// <summary>
+    /// Switched on with no key for its model, the Mentor could never write a week, and the only sign would be a type
+    /// name in the sweep's log every fifteen minutes (review H3). So the Gateway refuses to start instead - checked
+    /// after <see cref="SeedKeyVaultFromEnvironment"/>, so a key that arrives from the environment counts (review J3).
+    /// Nothing to check when the Mentor is off.
+    /// </summary>
+    private void EnsureTeamMentorKey()
+    {
+        if (TeamMentorWriter is null)
+            return;
+        var keyName = Core.Configuration.TranscriptionEndpointResolver
+            .ResolveWingman(Core.Configuration.TranscriptionModeConfig.Get()).KeyName;
+        if (!string.IsNullOrWhiteSpace(_keyVault.Get(keyName)))
+            return;
+
+        FileLog.Write($"[GatewayHost] team Mentor switched on with NO key '{keyName}' - refusing to start");
+        var whereItComesFrom = GatewayHostedMode.IsHosted
+            ? $"On the hosted Gateway nothing fills it: place '{keyName}' in the hosted Gateway's key vault before setting the switch."
+            : $"On this Gateway it comes from signing in to DevThrottle, or from the '{keyName}' environment variable, which is copied into the vault at start.";
+        throw new InvalidOperationException(
+            $"[GatewayHost] {Teams.Mentor.TeamMentorSwitch.EnvVar}=1 switches the team Mentor on, but the Gateway's key vault holds no '{keyName}' for its model. {whereItComesFrom} Or unset {Teams.Mentor.TeamMentorSwitch.EnvVar}.");
+    }
+
     private void SeedKeyVaultFromEnvironment()
     {
         // HOSTED-GATED. The global key vault is denied in whole on hosted (VaultEndpoints), and a deny on the
@@ -3314,6 +3390,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // Seed the central vault from a DevThrottle account-key environment value once when present.
         // The vault is the live source of truth thereafter and SetIfAbsent never clobbers it.
         SeedKeyVaultFromEnvironment();
+
+        // The team Mentor's key, checked once the environment's copy has landed and before the Gateway serves.
+        EnsureTeamMentorKey();
 
         // Issue #881: an install that was already signed in before this shipped won't fire the
         // post-sign-in hook again, so ensure the hosted transcription key here too - detached and
@@ -4726,12 +4805,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // what a missing answer means. Inherits the host-wide token middleware like the other /account routes.
         AccountTrialEndpoint.Map(_app, TrialRegistry, tenantBoundary: _tenantBoundary, tenants: TenantRegistry);
 
-        // Teams (devthrottle_internal#2300): GET /teams, POST /teams, GET /teams/{teamId}/members. The caller is the
-        // account behind their own device key; a self-hosted Gateway answers that it has no teams. DARK until the owner
-        // releases Teams: mapped only when CC_GATEWAY_TEAMS=1, so a deploy of main exposes no team route.
+        // Teams (devthrottle_internal#2300, #2312): GET /teams, POST /teams, GET /teams/{teamId}/members and
+        // GET /teams/{teamId}/fleet-map. The caller is the account behind their own device key; a self-hosted Gateway
+        // answers that it has no teams. DARK until the owner releases Teams: mapped only when CC_GATEWAY_TEAMS=1, so a
+        // deploy of main exposes no team route.
         if (TeamsReleased)
         {
-            TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, Devices);
+            TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry,
+                new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, TeamCallerOwnership, PushedSessions), Devices);
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
             TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
             // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow
@@ -5192,7 +5273,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // wanting history reads GET /prompts. It lives here, not on a Director, because the Gateway is
         // what the whole fleet reports to - so the history is already present rather than scattered
         // across machines - and because the Gateway is what moves to the server.
-        Prompts.PromptEndpoints.Map(_app, _promptLog, _tenantBoundary, _sessionHistoryRecorder);
+        Prompts.PromptEndpoints.Map(_app, _promptLog, _tenantBoundary, _sessionHistoryRecorder, isTeam: TeamRegistry.IsTeam);
 
         // Work history (issue #2194): the range report, the flat session records, and the seal verb.
         History.HistoryEndpoints.Map(_app, _sessionHistory, _tenantBoundary);
@@ -5338,6 +5419,14 @@ public sealed class GatewayHost : IAsyncDisposable
         _suggestionSweepTimer = new System.Threading.Timer(_ => SweepSuggestions(), null,
             SuggestionSweepStartupDelay, SuggestionSweepInterval);
         FileLog.Write($"[GatewayHost] dictionary-suggestion sweep started: tick every {SuggestionSweepInterval.TotalMinutes:0}m, daily per tenant at local 00:05");
+
+        // The Mentor's weekly run (devthrottle_internal#2305), only when it is switched on.
+        if (_teamMentorSweep is not null)
+        {
+            _teamMentorTimer = new System.Threading.Timer(_ => SweepTeamMentor(), null,
+                TeamMentorSweepStartupDelay, TeamMentorSweepInterval);
+            FileLog.Write($"[GatewayHost] team Mentor sweep started: tick every {TeamMentorSweepInterval.TotalMinutes:0}m, each team's week once it has closed in the team's time zone");
+        }
 
         // Work history (issue #2194): conclude "interrupted" from silence, generate owed summaries and
         // roll-ups (capped per pass), prune retention. A short tick so an interrupted ruling lands within
@@ -5900,6 +5989,30 @@ public sealed class GatewayHost : IAsyncDisposable
     /// a scan failure never crashes the timer thread). One sweep at a time; a skipped tick simply checks on
     /// the next one, which a daily schedule is indifferent to.
     /// </summary>
+    private void SweepTeamMentor()
+    {
+        if (Interlocked.CompareExchange(ref _teamMentorSweepInFlight, 1, 0) != 0)
+            return;
+        _ = RunTeamMentorSweepAsync();
+    }
+
+    private async Task RunTeamMentorSweepAsync()
+    {
+        try
+        {
+            if (_teamMentorSweep is not null)
+                await _teamMentorSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] team Mentor sweep FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _teamMentorSweepInFlight, 0);
+        }
+    }
+
     private void SweepSuggestions()
     {
         if (Interlocked.CompareExchange(ref _suggestionSweepInFlight, 1, 0) != 0)
@@ -6241,6 +6354,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _fleetDoorbellTimer = null;
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }
         _promptRetentionTimer = null;
+        try { _teamMentorTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] team Mentor timer dispose error: {ex.Message}"); }
         try { _suggestionSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictionary-suggestion timer dispose error: {ex.Message}"); }
         try { _sessionHistoryTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session history timer dispose error: {ex.Message}"); }
         _sessionHistoryTimer = null;

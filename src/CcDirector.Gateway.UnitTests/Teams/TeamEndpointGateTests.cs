@@ -95,9 +95,11 @@ public sealed class TeamEndpointGateTests : IDisposable
 
         var verdict = Call(row, role);
 
-        // A "no" cell is refused by the server. An "only their own" cell is refused on an endpoint that answers for the
-        // whole team (the Fleet Map list, until devthrottle_internal#2312 can cut it to the caller's own Directors).
-        var expected = RoleTableSpec.Cell(action, role) == TeamGrant.Yes ? TeamGateOutcome.Allowed : TeamGateOutcome.Refused;
+        // A "no" cell is refused by the server. An "only their own" cell goes on only to an endpoint that cuts its own
+        // answer to the caller's part (the team Fleet Map, devthrottle_internal#2312); on any other it is refused.
+        var cell = RoleTableSpec.Cell(action, role);
+        var narrows = TeamEndpointRules.Find(row.Method!, row.Pattern!)!.Target == TeamTarget.TeamNarrowedToCaller;
+        var expected = cell == TeamGrant.Yes || (cell == TeamGrant.Own && narrows) ? TeamGateOutcome.Allowed : TeamGateOutcome.Refused;
         Assert.Equal(expected, verdict.Outcome);
         Assert.Equal(action, verdict.Action);
         Assert.Equal(role, verdict.Role);
@@ -292,6 +294,68 @@ public sealed class TeamEndpointGateTests : IDisposable
         Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
         Assert.Equal(TeamEndpointGate.OwnOnlyRefusal(TeamRole.Developer, TeamAction.SeeFleetMap), verdict.Message);
         Assert.Contains("only for their own", verdict.Message);
+    }
+
+    // ---- The team Fleet Map (devthrottle_internal#2312) ------------------------------------------------------------
+
+    [Theory]
+    [InlineData(TeamRole.Owner)]
+    [InlineData(TeamRole.Manager)]
+    [InlineData(TeamRole.Developer)]
+    public void Check_TheTeamFleetMap_EveryRoleWithAFleetMap_GoesOn_TheDeveloperBecauseTheEndpointCutsItToTheirOwn(TeamRole role)
+    {
+        var verdict = ByRoute("GET", TeamFleetMap.RoutePattern, SubjectFor(role), _team);
+        Assert.Equal(TeamGateOutcome.Allowed, verdict.Outcome);
+        Assert.Equal(TeamAction.SeeFleetMap, verdict.Action);
+    }
+
+    [Fact]
+    public void Issue2312Test4_Check_TheTeamFleetMap_ACollaborator_IsRefused()
+    {
+        var verdict = ByRoute("GET", TeamFleetMap.RoutePattern, Collaborator, _team);
+        Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
+        Assert.Equal("In this team you are a Collaborator, and a Collaborator may not see the team's Fleet Map.", verdict.Message);
+    }
+
+    [Fact]
+    public void Check_TheTeamFleetMap_SomeoneWhoIsNotAMember_IsToldThereIsNoSuchTeam()
+    {
+        Assert.Equal(TeamGateOutcome.NoSuchTeam, ByRoute("GET", TeamFleetMap.RoutePattern, Stranger, _team).Outcome);
+        Assert.Equal(TeamGateOutcome.NoSuchTeam, ByRoute("GET", TeamFleetMap.RoutePattern, Owner, Guid.NewGuid().ToString()).Outcome);
+    }
+
+    [Fact]
+    public void Check_TheTeamFleetMap_AnyWrite_IsRefusedAsUndeclared()
+    {
+        foreach (var method in new[] { "POST", "PUT", "DELETE" })
+        {
+            var verdict = ByRoute(method, TeamFleetMap.RoutePattern, Owner, _team);
+            Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
+            Assert.Equal(TeamEndpointGate.UndeclaredRefusal, verdict.Message);
+        }
+    }
+
+    /// <summary>
+    /// Test 3 of devthrottle_internal#2312: the map shows a teammate's session by name and status, and NOTHING about it
+    /// opens. A Manager - who sees every Director on the team - asking to open, read or type into another person's
+    /// session, in the team's tenant, is refused by the server on every route that would do it.
+    /// </summary>
+    [Fact]
+    public void Issue2312Test3_Check_AManager_OpeningReadingOrTypingIntoAnotherPersonsSession_IsRefused()
+    {
+        var open = new[] { ("GET", "/sessions/{sid}/stream"), ("GET", "/sessions/{sid}/buffer"), ("GET", "/sessions/{sid}/summary"),
+            ("GET", "/sessions/{sid}/recap"), ("GET", "/sessions/{sid}/wingman"), ("GET", "/sessions/{sid}/git") };
+        var read = new[] { ("GET", "/history/sessions/{sessionId}"), ("GET", "/history/sessions"), ("GET", "/prompts") };
+        var type = new[] { ("POST", "/sessions/{sid}/prompt"), ("POST", "/sessions/{sid}/message"), ("POST", "/sessions/{sid}/escape"),
+            ("POST", "/sessions/{sid}/interrupt"), ("POST", "/sessions/{sid}/upload-image"), ("POST", "/sessions/{sid}/stop") };
+
+        foreach (var (method, pattern) in open.Concat(read).Concat(type))
+        {
+            var verdict = InTeam(method, pattern, Manager, TeamOwnership.SomeoneElses);
+            Assert.True(verdict.Outcome == TeamGateOutcome.Refused,
+                $"{method} {pattern}: a Manager reached another person's session ({verdict.Outcome}).");
+            Assert.Contains(verdict.Action, new TeamAction?[] { TeamAction.JoinOrWatchSomeoneElsesSession, TeamAction.ReadAnotherPersonsPrompts });
+        }
     }
 
     [Fact]

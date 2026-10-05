@@ -106,6 +106,12 @@ public sealed class SessionHistoryStore
             // out of its factory because of which build happened to report it last.
             if (string.IsNullOrEmpty(entity.Factory) && !string.IsNullOrWhiteSpace(session.Factory))
                 entity.Factory = session.Factory;
+            // The person a team session belongs to (devthrottle_internal#2305), on the same write-once terms: a
+            // Director is bound to one person in a team, so the first person the resolver names is the session's
+            // person for good, and an unknown answer (the Director gone before the push was observed) never blanks
+            // it. The Mentor reads "which sessions did this person run this week" from this column alone.
+            if (string.IsNullOrEmpty(entity.PersonSubject) && !string.IsNullOrWhiteSpace(facts.PersonSubject))
+                entity.PersonSubject = facts.PersonSubject;
             // CreatedAt is the Director-measured start and is stable; keep the first non-default value.
             if (entity.StartedAtUtc == default && session.CreatedAt != default)
                 entity.StartedAtUtc = Utc(session.CreatedAt);
@@ -315,6 +321,27 @@ public sealed class SessionHistoryStore
                 .ToList()
                 .Select(SessionHistoryFold.ToDto)
                 .ToList();
+        }
+    }
+
+    /// <summary>
+    /// The people who ran sessions in a team between <paramref name="fromUtc"/> and <paramref name="toUtc"/> (exclusive):
+    /// the distinct <see cref="SessionHistoryEntity.PersonSubject"/> of every session whose observed life overlaps that
+    /// window. A session with no person stamped is nobody's and is left out. The team is passed explicitly, not taken
+    /// from the ambient scope, because the Mentor's weekly run (devthrottle_internal#2305) asks it for a team it names.
+    /// </summary>
+    public IReadOnlySet<string> PersonsWithSessions(Core.Tenancy.TenantId team, DateTime fromUtc, DateTime toUtc)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(team);
+            var people = ctx.SessionHistory.AsNoTracking()
+                .Where(e => e.LastSeenUtc >= fromUtc && e.StartedAtUtc < toUtc && e.PersonSubject != null)
+                .Select(e => e.PersonSubject!)
+                .Distinct()
+                .ToList();
+            FileLog.Write($"[SessionHistoryStore] PersonsWithSessions: {people.Count} person(s) ran sessions in the window");
+            return people.ToHashSet(StringComparer.Ordinal);
         }
     }
 

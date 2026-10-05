@@ -1,0 +1,147 @@
+Pull request 2 - the Fleet Map by role (devthrottle_internal#2312)
+Code head 722dac119, rebased onto origin/main 24cf04bfa (pull request 1, #3527, squash-merged). Run 2026-10-04 on SOREN_NORTH.
+This head adds the Tech Lead's ruling of 4 October: a session on one of the CALLER'S OWN Directors also carries its
+repository and mission, so a Developer gets By director, By repository and By mission (mockup D4); everyone else's
+entries stay name and status, with the two fields absent from the wire.
+
+== Gateway unit suite (dotnet test src\CcDirector.Gateway.UnitTests), this head ==
+Passed!  - Failed:     0, Passed:  8458, Skipped:     8, Total:  8466, Duration: 10 m 14 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+== Default gate (.\scripts\test-local.ps1), this head ==
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=1161   executed=1161
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
+(The COVERAGE GAP line names the parked Gateway suites: the unit suite is above, the hosted Teams suite below.)
+
+== Web, this head ==
+cockpit: 69 files, 612 tests passed. mobile: 23 files, 125 tests passed. client-core: 142 files, 1674 tests passed
+(devReportNotes passed this time; it is the intermittent one the pull request 1 review recorded).
+npm run typecheck: clean. eslint on the changed folders (apps/cockpit/src/fleet, apps/cockpit/src/teams,
+packages/client-core/src/teams): clean. The root `npm run lint` reports 3 errors, all in files this pull request does
+not touch (apps/cockpit/src/push/sw.test.ts, apps/mobile/src/pages/Recorder.tsx, apps/mobile/src/pages/VoiceMode.tsx:
+"Definition for rule ... was not found").
+
+== Hosted Gateway Teams suite (.\scripts\test-local.ps1 -Gateway -Filter FullyQualifiedName~Teams) ==
+NOT RUN ON THIS HEAD. The run started (test host up at 13:11 after queueing on the machine-wide Gateway lock) and was stopped by the session harness when the machine ran critically low on memory; it produced no verdict, and I did not restart it on a memory-starved machine. Before the rebase (head 5d9ccbfb8, without the repository and mission change): outcome=Completed total=32 executed=32, 0 failed. The two over-the-wire tests this head changes (OverTheWire_TheFleetMap_OwnerAndManager_SeeEveryDirectorOnTheTeam, OverTheWire_TheFleetMap_ADeveloper_SeesOnlyTheirOwnDirectorsOnThisTeam) have therefore NOT been run; they compile (the Gateway.Tests project built in the run).
+
+== Red proof: each rule broken on purpose, the tests run, then restored ==
+Repository and mission per entry (this head; CcDirector.Gateway.UnitTests, filter TeamFleetMap):
+5. Every entry carries repository and mission (SessionEntry ignores whose it is):
+   Failed: Read_OwnerAndManager_OnlyTheirOwnEntriesCarryRepositoryAndMission (Owner and Manager),
+   SessionEntry_SomeoneElses_CarriesNameAndStatusOnly, Read_Manager_NeverSeesAnotherPersonsRepositoryOrMission (4 failed | 55 passed).
+6. No entry carries them:
+   Failed: Read_OwnerAndManager_OnlyTheirOwnEntriesCarryRepositoryAndMission (Owner and Manager),
+   SessionEntry_TheCallersOwn_CarriesRepositoryAndMission, Read_Developer_TheirOwnSessionsCarryRepositoryAndMission,
+   Read_Manager_NeverSeesAnotherPersonsRepositoryOrMission (5 failed | 54 passed).
+7. A Developer offered By director only:
+   Failed: Read_TheGatewayDecidesTheLayoutsAndTheSentence (1 failed | 58 passed).
+Web, this head:
+8. The reader drops a session's repository -> GetTeamFleetMap_TheirOwnSessions_KeepRepositoryAndMission FAILED (1 failed | 14 passed).
+9. The reader accepts By repository when a session has none -> GetTeamFleetMap_ByRepositoryOfferedButASessionHasNoRepository_Throws
+   FAILED (1 failed | 14 passed).
+10. The view lays By repository out by Director -> TeamFleetMapView_D4Developer_ByRepository_OneLanePerRepositoryWithEachSessionsDirector
+   and TeamFleetMapView_D4Developer_NothingOpensInAnyLayout FAILED (2 failed | 11 passed).
+
+Earlier, on the pull request's first head (still guarding the same code):
+Gateway (CcDirector.Gateway.UnitTests):
+1. Server-side cut removed (a Developer gets everyone) + a SessionId added to TeamFleetMapSession:
+   Failed: Issue2312Test1_Read_Developer_GetsOnlyTheirOwnDirectorsAndSessionsOnThatTeam, Read_ADeveloperWithNoDirectors_GetsAnEmptyMap,
+   Read_ADirectorWithNoSessions_IsStillListed, TeamFleetMapDto_FieldSet_IsTheAllowList, TeamFleetMapDto_OnTheWire_CarriesExactlyTheAllowedKeys
+   (5 failed | 37 passed).
+2. Credential tenant check dropped + the route declared as a plain Team target:
+   Failed: Read_ACredentialBoundToAnotherTenant_IsOnNobodysMap, Find_TheTeamFleetMap_IsAReadThatTheEndpointNarrowsToTheCaller_AndNothingUnderIt,
+   Check_TheTeamFleetMap_EveryRoleWithAFleetMap_GoesOn_TheDeveloperBecauseTheEndpointCutsItToTheirOwn(Developer) (3 failed | 413 passed).
+Web:
+3. A teammate's session made a link -> TeamFleetMapView_NothingOnATeammatesSession_Opens FAILED (1 failed | 8 passed).
+4. Extra wire fields passed through -> GetTeamFleetMap_ExtraFieldsOnASession_AreDropped FAILED (1 failed | 9 passed).
+All restored; the source diff was empty afterwards, each time.
+
+== Screenshots ==
+Retaken on this head from a fresh `npm run build --workspace @devthrottle/cockpit`. Read through the browser in the same run:
+switcher lists "Your own account", "DevThrottle - Manager", "Paul's project - Developer", "Marketing - Collaborator";
+D5 lanes: priya | rob | soren; links or buttons inside lanes: 0.
+D4 lanes: Rob - desk | Rob - laptop; By repository: paul/storefront | paul/storefront-api; By mission: Spring launch | Standalone;
+links or buttons inside D4 lanes: 0. Collaborator: the Gateway's refusal.
+Found by reading these shots and fixed before the final run: in By repository and By mission the session name was cut
+short beside its Director's name; the Director now sits on its own line under the session.
+
+== Review fixes (review of #3533, F1 and F3), code head d532a582f ==
+Short local runs only, as the Tech Lead asked; continuous integration runs the full Gateway suites on this head.
+dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams:
+Passed!  - Failed:     0, Passed:   469, Skipped:     0, Total:   469 - CcDirector.Gateway.UnitTests.dll (net10.0)
+Red proof (filter TeamFleetMap), each restored afterwards, tree clean:
+11. F1 reverted (every member owns Directors, whatever the role): Read_APersonChangedToCollaborator_IsNoLongerOnTheMap
+    (Owner and Manager) and Read_ACollaboratorWithADirectorOnTheTeam_IsOnNobodysMap FAILED (3 failed | 69 passed).
+12. F3 reverted (an unknown state reaches the fold, which throws):
+    Read_ASessionInAStateTheFoldDoesNotKnow_IsLeftOff_AndTheRestOfTheMapStands FAILED (1 failed | 71 passed).
+The answered review is copied beside this file as review-2312-pr2.md.
+
+== Rebased onto main after #3526 and #3532; the shared "whose Director" answer, code head 8ba28bebf ==
+Rebased onto origin/main d32b175d5. Conflicts resolved by keeping both sides: GatewayHost.cs (the Fleet Map beside the
+invitation and team library routes), TeamEndpointRules.cs (the Fleet Map rule beside theirs), TeamEndpoints.cs
+(ReadFleetMap beside MemberName), HostedTeamsDarkTests.cs (the fleet-map path now goes through #3532's
+AssertAnsweredAsAPathThatDoesNotExist, and the route-table test uses its MappedPatterns helper).
+New: TeamDirectorOwnership.PersonOfDirector(tenant, directorId) is the one public answer; TeamFleetMap calls it per Director.
+dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams:
+Passed!  - Failed:     0, Passed:   660, Skipped:     1, Total:   661 - CcDirector.Gateway.UnitTests.dll (net10.0)
+(the skip is TeamInvitationProofRig, a proof rig that runs only with its environment variable set)
+dotnet test src\CcDirector.Gateway.Tests --filter "FullyQualifiedName~HostedTeamsDarkTests|FullyQualifiedName~ContextLessRouteCensusTests|FullyQualifiedName~Teams":
+Passed!  - Failed:     0, Passed:    65, Skipped:     1, Total:    66, Duration: 5 m 1 s - CcDirector.Gateway.Tests.dll (net10.0)
+(the skip is a real-Postgres proof that runs only with a connection string set)
+Red proof (whole Teams unit filter), committed first, each mutation restored in a finally, tree clean, restore run rebuilt:
+13. The revoked check dropped from PersonOfDirector: PersonOfDirector_ARevokedCredential_IsNobody and
+    Read_ARevokedCredential_IsOnNobodysMap FAILED (2 failed | 658 passed).
+14. The tenant check dropped from PersonOfDirector: PersonOfDirector_ACredentialBoundToAnotherTenant_IsNobody and
+    Read_ACredentialBoundToAnotherTenant_IsOnNobodysMap FAILED (2 failed | 658 passed).
+Restored: 660 passed, 0 failed.
+
+== Delta review of #3533 (review-2312-delta.md, answered beside this file); rebased onto main e51e3d78f, code head edcf8247e ==
+F1: rebased onto origin/main e51e3d78f (the Team page, #3529). One conflict, TeamEndpoints.cs: both blocks kept, and one
+log line names all seven team routes. F2: DeviceRegistry.IsActiveCredential is the one rule for an active credential row,
+asked by ResolveCredential and PersonOfDirector. F3: a blank Director id answers null. F4: declined, reason in the review.
+dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams:
+Passed!  - Failed:     0, Passed:   725, Skipped:     2, Total:   727 - CcDirector.Gateway.UnitTests.dll (net10.0)
+(the skips are TeamInvitationProofRig and TeamPageProofRig, proof rigs that run only with their environment variable set)
+dotnet test src\CcDirector.Gateway.Tests --filter "FullyQualifiedName~HostedTeamsDarkTests|FullyQualifiedName~ContextLessRouteCensusTests|FullyQualifiedName~TeamEndpointWalkTests|FullyQualifiedName~Teams":
+Passed!  - Failed:     0, Passed:    70, Skipped:     1, Total:    71, Duration: 5 m 9 s - CcDirector.Gateway.Tests.dll (net10.0)
+(the skip is a real-Postgres proof that runs only with a connection string set)
+Red proof (whole Teams unit filter), committed first, each mutation restored in a finally, tree clean, restore run rebuilt:
+15. IsActiveCredential asks only the revocation time, not the status:
+    IsActiveCredential_TheStatusAndTheRevocationTimeBothDecide("revoked", no time) and ("", no time) and
+    PersonOfDirector_AStatusThatIsNotActive_IsNobody_EvenWithNoRevocationTime FAILED (3 failed | 722 passed).
+16. A blank Director id throws again: PersonOfDirector_NoDirectorId_IsNobody("") and ("   ") FAILED (2 failed | 723 passed).
+    (A first try at this mutation left the return unreachable and did not compile; it was redone as a throw in place of
+    the return.)
+Restored: 725 passed, 0 failed.
+
+== Rebased onto #3530 (main 3fa6f7ca0); the map asks TeamCallerOwnership.OwnerOf, code head c52da2749 ==
+TeamDirectorOwnership, PersonOfDirector, the second RegisteringCredentialOf and IsActiveCredential are deleted;
+DeviceRegistry.cs and DirectorRegistry.cs are main's text. Picked: drop IsActiveCredential (zero diff against main).
+dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams:
+Passed!  - Failed:     0, Passed:   816, Skipped:     2, Total:   818 - CcDirector.Gateway.UnitTests.dll (net10.0)
+Red proof (whole Teams unit filter), committed first, each mutation restored in a finally, tree clean:
+17. Revoked check dropped from AccountSubjectOfActiveDevice (what OwnerOf reads): 5 failed | 811 passed, including the
+    map's Read_ARevokedCredential_IsOnNobodysMap, OwnerOf_ACredentialRevokedByTime_..., OwnerOf_ACredentialRevokedByStatus_...
+18. Tenant check dropped: 3 failed | 813 passed, including the map's Read_ACredentialBoundToAnotherTenant_IsOnNobodysMap
+    and OwnerOf_ACredentialBoundToAnotherTenant_IsNobody.
+Then rebased onto main 8b23aaba4 (#3537, the seat convergence; it touches none of these files; no conflict).
+Restore run on the rebased head, rebuilt: Teams unit filter Passed!  - Failed: 0, Passed: 816, Skipped: 2, Total: 818.
+dotnet test src\CcDirector.Gateway.Tests --filter "FullyQualifiedName~HostedTeamsDarkTests|FullyQualifiedName~ContextLessRouteCensusTests|FullyQualifiedName~TeamEndpointWalkTests|FullyQualifiedName~Teams":
+Passed!  - Failed:     0, Passed:    76, Skipped:     1, Total:    77, Duration: 8 m 12 s - CcDirector.Gateway.Tests.dll (net10.0)
+(the skip is a real-Postgres proof that runs only with a connection string set)
+The old answer is gone from the source - an empty search, beside one that does hit, so the empty one is not a broken search:
+$ git grep -n "PersonOfDirector\|TeamDirectorOwnership" -- src
+(no output, exit code 1)
+$ git grep -n "OwnerOf(" -- src/CcDirector.Gateway/Teams/TeamFleetMap.cs
+src/CcDirector.Gateway/Teams/TeamFleetMap.cs:105:            if (_ownership.OwnerOf(tenant, director.DirectorId) is not { } subject || !labels.ContainsKey(subject))
+Tests #3530 already has and this pull request does not repeat: TeamDirectorKeyTests.AccountSubjectOfActiveDevice_NamesNobody_ForARevokedKey_OrAKeyBoundToAnotherTenant
+and the RegisteringCredentialOf assertions in TeamDirectorKeyTests (this pull request's own RegisteringCredentialOf test is removed).
