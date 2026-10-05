@@ -944,6 +944,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(16)")
                         .UseCollation("C");
 
+                    b.Property<string>("LessonId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("text");
 

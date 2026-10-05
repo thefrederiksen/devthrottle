@@ -1048,6 +1048,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.VerdictId).HasMaxLength(64);
             b.Property(e => e.DirectorId).HasMaxLength(256);
             b.Property(e => e.OutcomeId).HasMaxLength(64);
+            b.Property(e => e.LessonId).HasMaxLength(64);
             // "The account's unacknowledged events, oldest first" is the read every delivery and every digest makes.
             b.HasIndex(e => new { e.TenantId, e.AcknowledgedAtUtc, e.CreatedAtUtc });
             b.HasIndex(e => new { e.TenantId, e.SessionId });

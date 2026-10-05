@@ -111,8 +111,8 @@ public sealed class GatewayHostBootSmokeTests
     private const string TeamRequestsSqliteMigration = "20261005124413_AddTeamRequests";
 
     // The Fleet Manager's lessons (issue #3559), after the team requests.
-    private const string LessonsPostgresMigration = "20261005155950_AddFleetManagerLessons";
-    private const string LessonsSqliteMigration = "20261005155915_AddFleetManagerLessons";
+    private const string LessonsPostgresMigration = "20261005163632_AddFleetManagerLessons";
+    private const string LessonsSqliteMigration = "20261005163612_AddFleetManagerLessons";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>

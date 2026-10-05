@@ -18,8 +18,10 @@ namespace CcDirector.Gateway.Fleet;
 /// caller that passed the wrong list fails loudly instead of quietly injecting an unconfirmed lesson.
 ///
 /// THE WORDS ARE COPIED AS STORED, between markers of their own, exactly as the owner's answer is in an
-/// <c>answered</c> event - so a line break inside a lesson cannot be mistaken for the framing. Nothing is shortened:
-/// the store caps the count and the length instead (at most 20 of 500 characters).
+/// <c>answered</c> event - so a line break inside a lesson cannot be mistaken for the framing (and the store refuses a
+/// lesson that contains a marker). Nothing is shortened: the store caps the count and the length instead (at most 20
+/// of 500 characters), and the block carries the owner's words only - the one line about the mistake stays in the
+/// digest, the lesson event and the owner's list - so it stays within about 10,000 characters plus its framing.
 /// </summary>
 public static class FleetManagerLessons
 {
@@ -58,8 +60,6 @@ public static class FleetManagerLessons
               .Append(l.CreatedAtUtc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture))
               .Append(" (the owner's words, exact, between the markers):\n");
             sb.Append(Open).Append(l.Text).Append(Close).Append('\n');
-            if (!string.IsNullOrEmpty(l.Mistake))
-                sb.Append("what went wrong: ").Append(l.Mistake).Append('\n');
         }
         return sb.ToString();
     }

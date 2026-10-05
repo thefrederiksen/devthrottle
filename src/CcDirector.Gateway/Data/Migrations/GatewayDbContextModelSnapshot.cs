@@ -925,6 +925,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("LessonId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("TEXT");
 

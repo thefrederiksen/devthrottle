@@ -97,7 +97,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // The team requests (devthrottle_internal#2308), after that.
             Assert.Equal("20261005124444_AddTeamRequests", all[index + 15]);
             // The Fleet Manager's lessons (issue #3559), after that.
-            Assert.Equal("20261005155950_AddFleetManagerLessons", all[index + 16]);
+            Assert.Equal("20261005163632_AddFleetManagerLessons", all[index + 16]);
             Assert.Equal(all.Count - 17, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
@@ -116,7 +116,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // table was the last of them until the factory activity record and then the factory triggers followed it,
             // and then the name a trigger's pending start used, and then the factory memory notes (issue 3436), and then
             // the teams (devthrottle_internal#2300) and the team invitations (devthrottle_internal#2301).
-            Assert.Equal("20261005155950_AddFleetManagerLessons", ctx.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20261005163632_AddFleetManagerLessons", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 

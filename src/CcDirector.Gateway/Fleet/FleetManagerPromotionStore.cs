@@ -93,6 +93,10 @@ public sealed class FleetManagerPromotionStore
             using var ctx = _db.CreateContext(tenant);
             using var tx = ctx.Database.BeginTransaction();
 
+            // Marking the session already marked moves nothing, so it is told nothing: it is already working as the
+            // Fleet Manager and was given the lessons when it started or was marked.
+            var alreadyMarked = string.Equals(ValueIn(ctx, TenantSettingKeys.FleetManagerSessionId), sid,
+                StringComparison.OrdinalIgnoreCase);
             var waiting = WaitingIn(ctx);
             var wasWaiting = waiting.Any(w => string.Equals(w, sid, StringComparison.OrdinalIgnoreCase));
             var isSuccessor = string.Equals(ValueIn(ctx, TenantSettingKeys.FleetManagerSuccessorSessionId), sid,
@@ -107,7 +111,7 @@ public sealed class FleetManagerPromotionStore
             ctx.SaveChanges();
 
             FleetManagerMarkHistory.UpsertIn(ctx, sid, now);
-            var told = FleetManagerEventStore.AddMarkedIn(ctx, sid, now);
+            var told = alreadyMarked ? null : FleetManagerEventStore.AddMarkedIn(ctx, sid, now);
             ctx.SaveChanges();
             tx.Commit();
 

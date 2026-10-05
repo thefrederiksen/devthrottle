@@ -160,6 +160,25 @@ public sealed class FleetManagerPromotionStoreTests : IDisposable
     }
 
     [Fact]
+    public void MarkByOwner_ASessionMarkedAgainAfterItAcknowledged_IsToldAgain_AndTheMarkedOneIsToldNothing()
+    {
+        // Review of part 1, finding 3: the event carries the lessons kept since, so a session marked again later must be
+        // told again. Marking the session already marked moves nothing and tells it nothing.
+        const string A = "60000000-0000-4000-8000-00000000000a";
+        const string B = "60000000-0000-4000-8000-00000000000b";
+
+        Assert.True(_store.MarkByOwner(Tenant, A, Now));
+        Assert.False(_store.MarkByOwner(Tenant, A, Now.AddMinutes(1)));
+        var told = Assert.Single(_events.Unacknowledged(Tenant));
+        _events.Acknowledge(Tenant, new[] { Guid.Parse(told.Id) }, all: false, A, Now.AddMinutes(2));
+        Assert.True(_store.MarkByOwner(Tenant, B, Now.AddMinutes(3)));
+        Assert.True(_store.MarkByOwner(Tenant, A, Now.AddMinutes(4)));
+
+        var open = _events.Unacknowledged(Tenant).Where(e => e.Kind == FleetManagerEventStore.KindMarked).ToList();
+        Assert.Equal(new[] { B, A }, open.Select(e => e.SessionId).ToArray());
+    }
+
+    [Fact]
     public void WaitingSuccessors_AreBounded_ToTheMostRecent()
     {
         var ids = Enumerable.Range(1, FleetManagerPlacementService.MaxWaitingSuccessors + 5)

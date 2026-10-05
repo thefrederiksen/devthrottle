@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace CcDirector.Gateway.Migrations.Postgres.Migrations
+namespace CcDirector.Gateway.Data.Migrations
 {
     /// <inheritdoc />
     public partial class AddFleetManagerLessons : Migration
@@ -13,26 +13,30 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
         {
             migrationBuilder.AddColumn<DateTime>(
                 name: "ConfirmedByOwnerAtUtc",
-                schema: "gateway",
                 table: "fleet_preferences",
-                type: "timestamp with time zone",
+                type: "TEXT",
                 nullable: true);
 
             migrationBuilder.AddColumn<string>(
                 name: "Kind",
-                schema: "gateway",
                 table: "fleet_preferences",
-                type: "character varying(16)",
+                type: "TEXT",
                 maxLength: 16,
                 nullable: false,
                 defaultValue: "preference");
 
             migrationBuilder.AddColumn<string>(
                 name: "Mistake",
-                schema: "gateway",
                 table: "fleet_preferences",
-                type: "character varying(300)",
+                type: "TEXT",
                 maxLength: 300,
+                nullable: true);
+
+            migrationBuilder.AddColumn<string>(
+                name: "LessonId",
+                table: "fleet_manager_events",
+                type: "TEXT",
+                maxLength: 64,
                 nullable: true);
         }
 
@@ -41,18 +45,19 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
         {
             migrationBuilder.DropColumn(
                 name: "ConfirmedByOwnerAtUtc",
-                schema: "gateway",
                 table: "fleet_preferences");
 
             migrationBuilder.DropColumn(
                 name: "Kind",
-                schema: "gateway",
                 table: "fleet_preferences");
 
             migrationBuilder.DropColumn(
                 name: "Mistake",
-                schema: "gateway",
                 table: "fleet_preferences");
+
+            migrationBuilder.DropColumn(
+                name: "LessonId",
+                table: "fleet_manager_events");
         }
     }
 }

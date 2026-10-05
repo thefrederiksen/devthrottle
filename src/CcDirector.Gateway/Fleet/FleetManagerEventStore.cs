@@ -397,9 +397,12 @@ public sealed class FleetManagerEventStore
     {
         if (string.IsNullOrWhiteSpace(fleetManagerSessionId)) throw new ArgumentException("the Fleet Manager session is required");
         var sid = fleetManagerSessionId.Trim();
-        if (ctx.FleetManagerEvents.Any(e => e.Kind == KindMarked && e.SessionId == sid))
+        // Only an UNACKNOWLEDGED marked event counts as "already told" (issue #3559): a session marked again later -
+        // marked by hand, then another, then it again - is told again, because the event carries the lessons kept
+        // since. One still open is delivered with the lessons as they are then, so it is not stored twice.
+        if (ctx.FleetManagerEvents.Any(e => e.Kind == KindMarked && e.SessionId == sid && e.AcknowledgedAtUtc == null))
         {
-            FileLog.Write($"[FleetManagerEventStore] marked event: sid={sid} - already told, not stored again");
+            FileLog.Write($"[FleetManagerEventStore] marked event: sid={sid} - already told and not yet acknowledged, not stored again");
             return null;
         }
         var entity = new FleetManagerEventEntity
@@ -488,6 +491,7 @@ public sealed class FleetManagerEventStore
             AddressedTo = addressedTo?.Trim() ?? "",
             Words = lesson.Text,
             Detail = lesson.Mistake,
+            LessonId = lesson.Id,
             CreatedAtUtc = Utc(nowUtc),
         };
     }
@@ -867,5 +871,6 @@ public sealed class FleetManagerEventStore
         OutcomeId = e.OutcomeId,
         OutcomeTitle = e.OutcomeTitle,
         Words = e.Words,
+        LessonId = e.LessonId,
     };
 }

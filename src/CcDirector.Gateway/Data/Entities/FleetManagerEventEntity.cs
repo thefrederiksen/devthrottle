@@ -71,6 +71,10 @@ public sealed class FleetManagerEventEntity : GatewayMintedKeyEntity
     /// other kind.</summary>
     public string? Words { get; set; }
 
+    /// <summary>On a <c>lesson</c> event: the lesson it tells of (issue #3559), so removing the lesson withdraws the
+    /// event and editing it changes the words the event still has to deliver. Null on every other kind.</summary>
+    public string? LessonId { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     public DateTime? DeliveredAtUtc { get; set; }

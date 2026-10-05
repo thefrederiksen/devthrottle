@@ -266,6 +266,14 @@ public sealed class FleetPreferenceStore
                 {
                     CheckLessonText(text);
                     row.Mistake = CheckMistake(mistake);
+                    // A lesson event not yet acknowledged delivers the words as they are now, never the old ones.
+                    var lessonId = id.ToString();
+                    foreach (var evt in ctx.FleetManagerEvents.Where(e => e.Kind == FleetManagerEventStore.KindLesson
+                                 && e.LessonId == lessonId && e.AcknowledgedAtUtc == null))
+                    {
+                        evt.Words = text!;
+                        evt.Detail = row.Mistake;
+                    }
                 }
                 else
                 {
@@ -301,8 +309,21 @@ public sealed class FleetPreferenceStore
                 return false;
             }
             ctx.FleetPreferences.Remove(row);
+            // A removed lesson is never delivered as one to obey: its event, if not yet acknowledged, is withdrawn in the
+            // same save. Acknowledged rather than deleted, so a Fleet Manager acknowledging it by id is not refused.
+            var withdrawn = 0;
+            if (row.Kind == KindLesson)
+            {
+                var lessonId = id.ToString();
+                foreach (var evt in ctx.FleetManagerEvents.Where(e => e.Kind == FleetManagerEventStore.KindLesson
+                             && e.LessonId == lessonId && e.AcknowledgedAtUtc == null))
+                {
+                    evt.AcknowledgedAtUtc = DateTime.UtcNow;
+                    withdrawn++;
+                }
+            }
             ctx.SaveChanges();
-            FileLog.Write($"[FleetPreferenceStore] Delete: id={id}, kind={row.Kind}, result=removed");
+            FileLog.Write($"[FleetPreferenceStore] Delete: id={id}, kind={row.Kind}, result=removed, eventsWithdrawn={withdrawn}");
             return true;
         }
     }
@@ -344,6 +365,12 @@ public sealed class FleetPreferenceStore
     {
         if (string.IsNullOrWhiteSpace(text))
             throw new ArgumentException("text is required: the owner's correction, in their own words");
+        // The words are given to every Fleet Manager between these markers; words that contain one could close the
+        // owner's words early and write framing of their own, so they are refused rather than escaped or changed.
+        if (text.Contains(FleetManagerLessons.Open, StringComparison.Ordinal)
+            || text.Contains(FleetManagerLessons.Close, StringComparison.Ordinal))
+            throw new ArgumentException($"a lesson may not contain {FleetManagerLessons.Open} or {FleetManagerLessons.Close}: "
+                + "those mark where the owner's words begin and end when the lesson is given to a Fleet Manager. Nothing was kept");
         if (text.Length > MaxLessonLength)
             throw new ArgumentException($"the lesson is {text.Length} characters and the most a lesson may be is "
                 + $"{MaxLessonLength}; nothing was kept and nothing is ever shortened. Say it in fewer words, or {MakeRoomHint}");
@@ -355,6 +382,9 @@ public sealed class FleetPreferenceStore
         if (string.IsNullOrEmpty(mistake)) return null;
         if (string.IsNullOrWhiteSpace(mistake))
             throw new ArgumentException("mistake is blank; leave it out, or say in one line what went wrong");
+        // One line: it is written outside the markers, so a line break could forge a lesson of its own.
+        if (mistake.Contains('\n') || mistake.Contains('\r'))
+            throw new ArgumentException("mistake must be one line, with no line break; nothing was kept");
         if (mistake.Length > MaxMistakeLength)
             throw new ArgumentException($"mistake is {mistake.Length} characters; the most accepted is {MaxMistakeLength}, one line");
         return mistake;
