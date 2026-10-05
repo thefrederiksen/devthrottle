@@ -16,6 +16,7 @@ JSON string, which is ASCII by construction.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import urllib.parse
@@ -38,6 +39,24 @@ EVENT_KINDS_WHEN_PRESENT = ("answered", "marked", "lesson")
 
 # The two kinds of row the owner's standing list holds (issue #3559).
 PREFERENCE_KINDS = ("preference", "lesson")
+
+# A Gateway older than issue #3559 keeps no lessons: it ignores `kind` on the list and on a new row, and answers rows
+# with no `kind` at all. The tool is released before that Gateway is updated, so it must say so, never guess.
+GATEWAY_WITHOUT_LESSONS = ("this Gateway is older than lessons (issue #3559) and keeps none yet; until it is updated, "
+                           "keep the owner's correction with `cc-devthrottle fleet prefer`")
+
+
+def _this_session() -> str:
+    """This session's id, lower case, or "" when the tool runs outside a session (the owner at a terminal)."""
+    return (os.environ.get("CC_SESSION_ID") or "").strip().lower()
+
+
+def _of_kind(rows: List[Dict[str, Any]], kind: str) -> List[Dict[str, Any]]:
+    """The rows the Gateway answered for one kind. A row with no kind comes from a Gateway older than lessons, which
+    answers every preference whatever kind was asked for; asked for lessons, that is a refusal, not a list."""
+    if kind == "lesson" and any("kind" not in r for r in rows):
+        _fail(GATEWAY_WITHOUT_LESSONS)
+    return [r for r in rows if r.get("kind", "preference") == kind]
 
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _PLAIN = re.compile(r"^[A-Za-z0-9 _./:@+()'?!;=<>#%&*~^|\[\]{}$-]*$")
@@ -163,7 +182,9 @@ def _preference_id(given: str) -> str:
     rows: List[Dict[str, Any]] = []
     for kind in PREFERENCE_KINDS:
         listed = _call(gateway.get_json, f"{PREFIX}/preferences?{urllib.parse.urlencode({'kind': kind})}")
-        rows.extend(listed.get("preferences", []))
+        listed_rows = listed.get("preferences", [])
+        # A Gateway older than lessons answers the preferences for both kinds: they are counted once, as preferences.
+        rows.extend(r for r in listed_rows if r.get("kind", "preference") == kind)
     return _resolve_id(given, rows, "preference or lesson",
                        "cc-devthrottle fleet preferences --kind preference, or --kind lesson")
 
@@ -462,16 +483,19 @@ def list_preferences(kind: str, json_output: bool) -> None:
     if kind not in PREFERENCE_KINDS:
         _fail(f"--kind must be one of: {', '.join(PREFERENCE_KINDS)}", code=2)
     answer = _call(gateway.get_json, f"{PREFIX}/preferences?{urllib.parse.urlencode({'kind': kind})}")
+    rows = _of_kind(answer.get("preferences", []), kind)
     if json_output:
-        _print_json(answer)
+        _print_json(dict(answer, count=len(rows), preferences=rows))
         return
-    rows = answer.get("preferences", [])
     _out(f"count: {len(rows)}")
-    if rows:
-        if kind == "lesson":
-            _print_lessons(rows)
-        else:
-            _print_preferences(rows)
+    if rows and kind == "lesson":
+        _print_lessons(rows)
+        # A Fleet Manager may forget only an unconfirmed lesson it kept itself; a confirmed one is the owner's to remove.
+        mine = [l for l in rows if not l.get("confirmedByOwnerAtUtc") and (l.get("createdBy") or "").lower() == _this_session()]
+        _help([f"cc-devthrottle fleet forget {mine[0].get('id')}"] if mine else
+              ["a confirmed lesson is removed or edited only by the owner, on the Cockpit's Fleet Manager page"])
+    elif rows:
+        _print_preferences(rows)
         _help([f"cc-devthrottle fleet forget {rows[0].get('id')}"])
     elif kind == "lesson":
         _help(['cc-devthrottle fleet lesson "<the owner\'s correction, verbatim>"'])
@@ -490,6 +514,11 @@ def add_lesson(text: str, mistake: Optional[str], json_output: bool) -> None:
     if mistake is not None:
         body["mistake"] = mistake
     p = _call(gateway.post_json, f"{PREFIX}/preferences", body)
+    if p.get("kind") != "lesson":
+        # A Gateway older than lessons dropped the kind and kept the words as a standing preference - the list the
+        # workflow treats as permissions. Said plainly, with the way to undo it; never reported as a lesson.
+        _fail(f"{GATEWAY_WITHOUT_LESSONS}. It kept these words as a standing preference instead ({p.get('id')}); "
+              f"remove it with `cc-devthrottle fleet forget {p.get('id')}`")
     if json_output:
         _print_json(p)
         return
@@ -526,6 +555,9 @@ def _event_verdict(e: Dict[str, Any]) -> List[Any]:
         return ["owner answered", e.get("words")]
     if e.get("kind") == "marked":
         return ["now yours", e.get("detail")]
+    if e.get("kind") == "lesson":
+        # The owner kept a lesson: the words stand in the name column, and what went wrong is the label.
+        return ["lesson kept", e.get("detail")]
     if e.get("readingPending"):
         return ["waiting", e.get("readingNote")]
     if e.get("verdictWithheld"):
@@ -689,12 +721,15 @@ def digest(session: Optional[str], json_output: bool) -> None:
         return
 
     # The lessons come FIRST (issue #3559): they say how to handle everything below them.
-    lessons = d.get("lessons", [])
-    confirmed = sum(1 for l in lessons if l.get("confirmedByOwnerAtUtc"))
-    _out(f"lessons: {len(lessons)} ({confirmed} confirmed - obey them before anything else; "
-         f"{len(lessons) - confirmed} waiting for the owner)")
-    if lessons:
-        _print_lessons(lessons)
+    if "lessons" not in d:
+        _out(f"lessons: unknown - {GATEWAY_WITHOUT_LESSONS}")
+    else:
+        lessons = d["lessons"]
+        confirmed = sum(1 for l in lessons if l.get("confirmedByOwnerAtUtc"))
+        _out(f"lessons: {len(lessons)} ({confirmed} confirmed - obey them before anything else; "
+             f"{len(lessons) - confirmed} waiting for the owner)")
+        if lessons:
+            _print_lessons(lessons)
 
     _out(f"session: {d.get('sessionId')}")
     _out(f"fleetManager: {'yes' if d.get('isFleetManager') else 'no'}")
