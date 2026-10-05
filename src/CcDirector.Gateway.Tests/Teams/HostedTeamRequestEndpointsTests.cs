@@ -83,6 +83,10 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _collaborator.Subject, TeamRole.Collaborator).IsDone);
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _otherCollaborator.Subject, TeamRole.Collaborator).IsDone);
         _otherTeam = _gateway.TeamRegistry.CreateTeam(_otherTeamOwner.Subject, "Elsewhere").Team!.TeamId;
+        // The team pays: a team Director's access is read from the team's bill (devthrottle_internal#2311 step 2), so
+        // without one a team key would be refused as unknown before any request route is reached.
+        HostedTeamBill.CreateTable(_gateway);
+        HostedTeamBill.Start(_gateway, _team, seats: 5);
     }
 
     public async Task DisposeAsync()
@@ -460,18 +464,18 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
     /// the Manager's Directors set up for the team, and a session key under each, in the team's tenant. Every request
     /// route refuses every one of them, the refusal carries no request text, and nothing changes in the store.
     ///
-    /// WHAT REFUSES THEM TODAY, measured, not assumed - and in neither case is it the request routes' own check:
+    /// WHAT REFUSES THEM, measured, not assumed, with the team paying (a live team bill, set up above):
     /// <list type="bullet">
     /// <item>A team SESSION key is refused first by the session-key guard (403 session_key_out_of_scope): a session key
     /// may not call a team route at all, in any tenant.</item>
-    /// <item>A team DIRECTOR key authenticates, and then the request-path access lease refuses it (402
-    /// hosted_subscription_required), because it reads a personal account's bill and a team's tenant is no one
-    /// person's (#3530's own tests say the same). When the lease learns the team's bill, this goes red on the status,
-    /// and the answer it must then show is the routes' own 403 person_only - which the personal-account test above
-    /// already proves for Director keys.</item>
+    /// <item>A team DIRECTOR key authenticates, the request-path access lease reads the TEAM's bill
+    /// (devthrottle_internal#2311 step 2, #3552) and lets it through, and the request routes then refuse it themselves:
+    /// 403 person_only, the same answer the personal-account test above proves for Director keys. Before step 2 the
+    /// lease read a personal account's bill and refused it first (402 hosted_subscription_required); without a team bill
+    /// it is now refused as unknown (503 entitlement_unknown) - neither is the routes' own check, so the bill is set
+    /// up.</item>
     /// </list>
-    /// A team Director also cannot open the tunnel over the wire for the same reason, so the "live session receives
-    /// nothing" half of test 3 cannot run on a team Director yet; it runs above on the personal ones.
+    /// The "live session receives nothing" half of test 3 runs above on the personal Directors.
     /// </summary>
     [Fact]
     public async Task ARequestsRoutes_RefuseTeamBoundDirectorAndSessionKeys_AndNothingChanges()
@@ -488,7 +492,7 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
             var sessionKey = GatewaySessionKey.Mint();
             Assert.True(_gateway.SessionKeys.Register(new TenantId(_team), teamDeviceId, Guid.NewGuid().ToString("D"),
                 GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
-            keys.Add(($"{person.Email} team Director key", directorKey, HttpStatusCode.PaymentRequired, "hosted_subscription_required"));
+            keys.Add(($"{person.Email} team Director key", directorKey, HttpStatusCode.Forbidden, "person_only"));
             keys.Add(($"{person.Email} team session key", sessionKey, HttpStatusCode.Forbidden, "session_key_out_of_scope"));
         }
 
