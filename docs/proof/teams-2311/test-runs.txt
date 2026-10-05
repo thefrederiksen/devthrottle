@@ -373,3 +373,16 @@ Details in step2-team-bill.md.
     Gateway.UnitTests in full, two halves: Half A Passed 3964, Skipped 5; Half B Passed 5338, Skipped 8. 0 failed.
     .\scripts	est-local.ps1: green before the last rebase (3,601). On 3c5c8970a-based head: all passed except
       Core.UnitTests OVER BUDGET (stopped at 120 s, loaded machine); alone: Passed 1228 of 1228 in 1 m 14 s.
+
+32. CI 37365016132 on 790d21d5b: Gateway.Tests HostedTeamRequestEndpointsTests.ARequestsRoutes_RefuseTeamBoundDirectorAndSessionKeys_AndNothingChanges
+    (from #3556) expected 402 hosted_subscription_required for a team Director key and got 503 entitlement_unknown: the
+    test pinned step 1's temporary 402; with #3552 the lease reads the team's bill, and the test made none. Fix commit
+    (test only): the class gives the team a live bill (HostedTeamBill.CreateTable + Start), the team Director key expects
+    the routes' own 403 person_only, the session key stays 403 session_key_out_of_scope, the summary says so, and the
+    "nothing changes" assertions are kept. No other Gateway.Tests test asserts hosted_subscription_required (or a 402)
+    for a team key; the other 402 assertions are personal accounts or the transcription service.
+    Gateway.Tests, that class filtered: Passed 8 of 8.
+      expecting the old 402 hosted_subscription_required     Failed 1 of 8  Expected (PaymentRequired, "hosted_subscription_required"),
+                                                             Actual (Forbidden, "person_only"). Restored, diff empty.
+      clean rebuild after: Passed 8 of 8.
+    Rebased onto origin/main 060cdc0bf (#3568, a test-only change to the PostgreSQL proof), no conflict.
