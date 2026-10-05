@@ -103,3 +103,22 @@ Red proof (whole Teams unit filter), committed first, each mutation restored in 
 14. The tenant check dropped from PersonOfDirector: PersonOfDirector_ACredentialBoundToAnotherTenant_IsNobody and
     Read_ACredentialBoundToAnotherTenant_IsOnNobodysMap FAILED (2 failed | 658 passed).
 Restored: 660 passed, 0 failed.
+
+== Delta review of #3533 (review-2312-delta.md, answered beside this file); rebased onto main e51e3d78f, code head edcf8247e ==
+F1: rebased onto origin/main e51e3d78f (the Team page, #3529). One conflict, TeamEndpoints.cs: both blocks kept, and one
+log line names all seven team routes. F2: DeviceRegistry.IsActiveCredential is the one rule for an active credential row,
+asked by ResolveCredential and PersonOfDirector. F3: a blank Director id answers null. F4: declined, reason in the review.
+dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams:
+Passed!  - Failed:     0, Passed:   725, Skipped:     2, Total:   727 - CcDirector.Gateway.UnitTests.dll (net10.0)
+(the skips are TeamInvitationProofRig and TeamPageProofRig, proof rigs that run only with their environment variable set)
+dotnet test src\CcDirector.Gateway.Tests --filter "FullyQualifiedName~HostedTeamsDarkTests|FullyQualifiedName~ContextLessRouteCensusTests|FullyQualifiedName~TeamEndpointWalkTests|FullyQualifiedName~Teams":
+Passed!  - Failed:     0, Passed:    70, Skipped:     1, Total:    71, Duration: 5 m 9 s - CcDirector.Gateway.Tests.dll (net10.0)
+(the skip is a real-Postgres proof that runs only with a connection string set)
+Red proof (whole Teams unit filter), committed first, each mutation restored in a finally, tree clean, restore run rebuilt:
+15. IsActiveCredential asks only the revocation time, not the status:
+    IsActiveCredential_TheStatusAndTheRevocationTimeBothDecide("revoked", no time) and ("", no time) and
+    PersonOfDirector_AStatusThatIsNotActive_IsNobody_EvenWithNoRevocationTime FAILED (3 failed | 722 passed).
+16. A blank Director id throws again: PersonOfDirector_NoDirectorId_IsNobody("") and ("   ") FAILED (2 failed | 723 passed).
+    (A first try at this mutation left the return unreachable and did not compile; it was redone as a throw in place of
+    the return.)
+Restored: 725 passed, 0 failed.
