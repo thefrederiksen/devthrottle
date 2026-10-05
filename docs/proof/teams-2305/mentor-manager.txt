@@ -1,0 +1,52 @@
+--- rail ---
+DevThrottle
+TEAM
+Your own account
+Teams test - Manager
+Manager - 3 people
+Fleet Manager
+Sessions
+Fleet Map
+History
+Directors
+Schedule
+Workflows
+Skills
+Mentor
+Dictionary
+Voice Recorder
+Transcription
+Network
+Account
+Phone
+Your Throttle
+Settings
+About
+Help
+Cockpit (React)
+
+--- page ---
+Mentor - week of 28 September
+
+Each person reads their own block, word for word.
+
+Previous week
+Week of 28 September to 4 October
+Next week
+rob@example.com
+Developer
+a hard week
+WORKED ON
+
+The new signup page and two bug fixes in the installer.
+
+WHERE IT WENT BADLY, AND WHY
+
+On Tuesday they restarted the same task four times. Their first instruction didn't say which file to change, so the agent guessed differently each time.
+
+fix the signup thing so it doesnt break on mobile
+ONE THING TO TRY NEXT WEEK
+
+Name the file and the result you expect in the first line, before asking for the change.
+
+The Mentor is an AI. It wrote these blocks from the week's sessions. The quoted prompts are the only words here that a person typed, and they are copied exactly.

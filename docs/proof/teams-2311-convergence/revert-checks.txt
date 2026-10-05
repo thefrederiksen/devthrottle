@@ -1,0 +1,51 @@
+== R1 the marked team is no longer skipped  (src/CcDirector.Gateway/Tenancy/TeamSeatSync.cs)
+   mutation: if (false && verdict == SeatSyncVerdict.CallSync
+   Failed!  - Failed:     8, Passed:    17, Skipped:     0, Total:    25, Duration: 13 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   RED: ConvergeAsync_MarkedTeamWithAnUnchangedBill_AnswersSubscriptionEndedWithoutCalling
+   RED: RunOnceAsync_EndedTeamsBillRowChanges_CallsSyncExactlyOnceMore(changed:
+   RED: RunOnceAsync_OneTeamEndedOneHealthy_TheHealthyTeamConvergesAsBefore
+   RED: RunOnceAsync_WebsiteSaysSubscriptionEnded_MarksTheTeamLogsOnceAndStopsCalling
+== R2 the ended refusal is ignored (never true)  (src/CcDirector.Core/Account/TeamSeatSyncClient.cs)
+   mutation: false && !Synced         && StatusCode == 409
+   Failed!  - Failed:     9, Passed:    16, Skipped:     0, Total:    25, Duration: 8 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   RED: ConvergeAsync_MarkedTeamWithAnUnchangedBill_AnswersSubscriptionEndedWithoutCalling
+   RED: RunOnceAsync_EndedTeamsBillRowChanges_CallsSyncExactlyOnceMore(changed:
+   RED: RunOnceAsync_OneTeamEndedOneHealthy_TheHealthyTeamConvergesAsBefore
+   RED: RunOnceAsync_WebsiteSaysSubscriptionEnded_MarksTheTeamLogsOnceAndStopsCalling
+   RED: SubscriptionEnded_EachResult_IsTrueOnlyForTheWebsites409NoActiveSubscription(synced:
+== R3 any 409 counts as ended (code ignored)  (src/CcDirector.Core/Account/TeamSeatSyncClient.cs)
+   mutation: ;
+   Failed!  - Failed:     5, Passed:    20, Skipped:     0, Total:    25, Duration: 8 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   RED: RunOnceAsync_OtherFailure_IsRetriedEveryPassAndNeverMarksTheTeam(status:
+   RED: SubscriptionEnded_EachResult_IsTrueOnlyForTheWebsites409NoActiveSubscription(synced:
+== R4 every failed call marks the team  (src/CcDirector.Gateway/Tenancy/TeamSeatSync.cs)
+   mutation: if (!result.Synced)
+   Failed!  - Failed:     6, Passed:    19, Skipped:     0, Total:    25, Duration: 8 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   RED: RunOnceAsync_OtherFailure_IsRetriedEveryPassAndNeverMarksTheTeam(status:
+   RED: RunOnceAsync_WebsiteUnreachable_IsRetriedEveryPassAndNeverMarksTheTeam
+== R5 updated_at left out of the fingerprint  (src/CcDirector.Gateway/Tenancy/EntitlementRegistry.cs)
+   mutation: "");
+   Failed!  - Failed:     2, Passed:    23, Skipped:     0, Total:    25, Duration: 6 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   RED: RunOnceAsync_EndedTeamsBillRowChanges_CallsSyncExactlyOnceMore(changed:
+   RED: TeamBillFingerprint_EachFieldThatDescribesTheBill_ChangesTheFingerprint
+== R6 the mark is not cleared when the team comes into step  (src/CcDirector.Gateway/Tenancy/TeamSeatSync.cs)
+   mutation: if (verdict != SeatSyncVerdict.Unknown)                 { }
+   Failed!  - Failed:     1, Passed:    24, Skipped:     0, Total:    25, Duration: 7 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   RED: ConvergeAsync_MarkedTeamComesIntoStep_ClearsTheMarkSoALaterDifferenceIsCalled
+== R7 the skipped pass logs the stop again  (src/CcDirector.Gateway/Tenancy/TeamSeatSync.cs)
+   mutation: { FileLog.Write("STOPPED - the website says the team has no running bill (again)"); return (SeatSyncVerdict.SubscriptionEnded, null); }
+   Failed!  - Failed:     1, Passed:    24, Skipped:     0, Total:    25, Duration: 6 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   RED: RunOnceAsync_WebsiteSaysSubscriptionEnded_MarksTheTeamLogsOnceAndStopsCalling
+== R8 the reader carries no fingerprint  (src/CcDirector.Gateway/Tenancy/EntitlementRegistry.cs)
+   mutation: Fingerprint: null);
+   Failed!  - Failed:    10, Passed:    15, Skipped:     0, Total:    25, Duration: 6 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   RED: ConvergeAsync_MarkedTeamComesIntoStep_ClearsTheMarkSoALaterDifferenceIsCalled
+   RED: ConvergeAsync_MarkedTeamWithAnUnchangedBill_AnswersSubscriptionEndedWithoutCalling
+   RED: ReadTeamBilledSeats_TeamWithABill_CarriesTheRowsFingerprint
+   RED: RunOnceAsync_EndedTeamsBillRowChanges_CallsSyncExactlyOnceMore(changed:
+   RED: RunOnceAsync_OneTeamEndedOneHealthy_TheHealthyTeamConvergesAsBefore
+   RED: RunOnceAsync_WebsiteSaysSubscriptionEnded_MarksTheTeamLogsOnceAndStopsCalling
+restored; git diff:  M src/CcDirector.Core/Account/TeamSeatSyncClient.cs
+ M src/CcDirector.Gateway/Tenancy/TeamSeatSync.cs
+?? docs/proof/teams-2311-convergence/
+

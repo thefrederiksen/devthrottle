@@ -116,6 +116,14 @@ public sealed class ContextLessRouteCensusTests
     /// an omission: the first takes no path parameter, and the second takes the HttpContext it needs to
     /// mint a promotion grant, so neither is context-less.
     ///
+    /// THE SKILL AND WORKFLOW AUTHORING VERBS (devthrottle_internal#2304). POST .../{id}/clone, .../enable and
+    /// .../disable on /gateway/skills and /gateway/workflows are NOT in this census any more, and that is not an
+    /// omission: each now takes the HttpContext, to read the author the Gateway stamped on the request
+    /// (ServerStampedAuthor - inside a team, the member the Gateway identified, never what the client named), so none
+    /// is context-less. Nothing about how they are confined changed: the stores still read the tenant from the ambient
+    /// scope the device-key middleware entered (and, under /teams/{teamId}, the team scope TeamLibraryEndpoints
+    /// enters after TeamAccess.Decide), exactly as POST .../{id}/publish - still context-less, still listed - does.
+    ///
     /// Hosted deny (the legacy same-machine discovery plane - not a tenant surface at all; refused on
     /// hosted, gated on the process-level hosted flag and proven by
     /// <see cref="NullBoundaryHostedGateFailClosedTests"/>):
@@ -149,13 +157,7 @@ public sealed class ContextLessRouteCensusTests
         "GET /gateway/workspaces/{id}",
         "GET /lists/{name}",
         "POST /directors/{id}/doorbell",
-        "POST /gateway/skills/{id}/clone",
-        "POST /gateway/skills/{id}/disable",
-        "POST /gateway/skills/{id}/enable",
         "POST /gateway/skills/{id}/publish",
-        "POST /gateway/workflows/{id}/clone",
-        "POST /gateway/workflows/{id}/disable",
-        "POST /gateway/workflows/{id}/enable",
         "POST /gateway/workflows/{id}/publish",
     };
 

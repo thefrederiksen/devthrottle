@@ -50,6 +50,7 @@ vi.mock("@devthrottle/client-core/teams/invitationsClient", () => ({
 // The shell frame cannot run in jsdom and is not the subject; the invite form routes into it as its outlet.
 vi.mock("../AppShell", () => ({ AppShell: () => <Outlet /> }));
 
+import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
 import { COCKPIT_ROUTES } from "../routes";
 
 function invitation(overrides: Partial<TeamInvitation> = {}): TeamInvitation {
@@ -143,6 +144,8 @@ describe("the accept page (S3)", () => {
 
     expect(await screen.findByText("You joined the DevThrottle team")).toBeTruthy();
     expect(client.acceptInvitation).toHaveBeenCalledWith(TOKEN);
+    // devthrottle_internal#2306, review finding F1: the next shell opens on the team just joined.
+    expect(window.localStorage.getItem(currentTeamStorageKey())).toBe(TEAM);
   });
 
   it("shows the Gateway's reason, and no buttons, for an invitation that can no longer be used", async () => {

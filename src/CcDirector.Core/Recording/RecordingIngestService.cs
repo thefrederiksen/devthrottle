@@ -82,6 +82,25 @@ public sealed class RecordingIngestService : IDisposable
     private readonly int _maxJobAttempts;
     private readonly TimeSpan _chunkRetryDelay;
     private readonly TimeSpan _workerTick;
+
+    // IDLE SLEEP (Money Saver, 4 October 2026). Even with nothing to do, every tick listed the recordings
+    // folder on the hosted Gateway's billed share - two billed operations every 30 seconds for each account
+    // that has ever used recordings, for ever. Work only appears three ways, and each is covered: a recording
+    // completing here (CompleteAsync wakes the worker at once, as before), a failed job's retry time (the
+    // worker scheduled it, so it sleeps exactly until then), and a recording completed by the OTHER container
+    // during a deploy, which nothing here can see - so an idle wait is capped at _idleTick. While a tick found
+    // work, the next wait is the ordinary _workerTick, unchanged. So is the wait after a scan that did not
+    // finish cleanly - one that threw, or skipped a status file it could not read (a write caught half done) -
+    // because such a scan cannot say there is nothing to do.
+    //
+    // _earliestRetryUtc and _lastScanClean are written by FindEligibleRecordings and read by NextWait, and the
+    // only production caller of both is the single worker loop, so they need no lock. A second caller of either
+    // must add one.
+    private readonly TimeSpan _idleTick;
+    private DateTime? _earliestRetryUtc;
+    private bool _lastScanClean;
+    private int _lastUnreadable;
+    private int _scansCompleted;
     private readonly CancellationTokenSource _workerCts = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
     private readonly Task? _workerTask;
@@ -123,7 +142,9 @@ public sealed class RecordingIngestService : IDisposable
     /// <param name="maxChunkAttempts">How many times one segment is retried before the whole job fails.</param>
     /// <param name="maxJobAttempts">How many times a failed job is re-queued before it is left in error.</param>
     /// <param name="chunkRetryDelay">Base delay between segment retries (doubles each attempt). Tests pass a tiny value.</param>
-    /// <param name="workerTick">How often the worker re-scans the queue for due retries.</param>
+    /// <param name="workerTick">How often the worker re-scans the queue while it has work.</param>
+    /// <param name="idleTick">The longest the worker sleeps when a scan found nothing to do and no retry is
+    /// scheduled sooner. Null means ten minutes.</param>
     public RecordingIngestService(
         string recordingsRoot,
         Func<IRecordingTranscriber> transcriberFactory,
@@ -133,7 +154,8 @@ public sealed class RecordingIngestService : IDisposable
         int maxChunkAttempts = 3,
         int maxJobAttempts = 5,
         TimeSpan? chunkRetryDelay = null,
-        TimeSpan? workerTick = null)
+        TimeSpan? workerTick = null,
+        TimeSpan? idleTick = null)
     {
         _root = recordingsRoot;
         _transcriberFactory = transcriberFactory;
@@ -143,6 +165,7 @@ public sealed class RecordingIngestService : IDisposable
         _maxJobAttempts = Math.Max(1, maxJobAttempts);
         _chunkRetryDelay = chunkRetryDelay ?? TimeSpan.FromSeconds(2);
         _workerTick = workerTick ?? TimeSpan.FromSeconds(30);
+        _idleTick = idleTick ?? DefaultIdleTick;
         Directory.CreateDirectory(_root);
 
         if (runWorker)
@@ -611,14 +634,16 @@ public sealed class RecordingIngestService : IDisposable
     /// </summary>
     private async Task WorkerLoopAsync(CancellationToken ct)
     {
-        FileLog.Write($"[RecordingIngestService] worker started: maxChunkAttempts={_maxChunkAttempts}, maxJobAttempts={_maxJobAttempts}, tick={_workerTick}");
+        FileLog.Write($"[RecordingIngestService] worker started: maxChunkAttempts={_maxChunkAttempts}, maxJobAttempts={_maxJobAttempts}, tick={_workerTick}, idleTick={_idleTick}");
         while (!ct.IsCancellationRequested)
         {
+            var foundWork = false;
             try
             {
                 foreach (var id in FindEligibleRecordings())
                 {
                     if (ct.IsCancellationRequested) break;
+                    foundWork = true;
                     await ProcessRecordingAsync(id, ct);
                 }
             }
@@ -632,10 +657,36 @@ public sealed class RecordingIngestService : IDisposable
                 FileLog.Write($"[RecordingIngestService] worker tick error: {ex.Message}");
             }
 
-            try { await _wake.WaitAsync(_workerTick, ct); }
+            try { await _wake.WaitAsync(NextWait(foundWork, DateTime.UtcNow), ct); }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }
         }
         FileLog.Write("[RecordingIngestService] worker stopped");
+    }
+
+    /// <summary>The longest idle sleep when no retry is scheduled sooner (see the idle-sleep remarks).</summary>
+    public static readonly TimeSpan DefaultIdleTick = TimeSpan.FromMinutes(10);
+
+    /// <summary>How long after a retry's time the idle sleep ends. A wait is cut to whole milliseconds, so ending
+    /// exactly on time could wake a fraction early, find the retry not yet due, and add a whole ordinary tick.</summary>
+    private static readonly TimeSpan RetryWakeMargin = TimeSpan.FromSeconds(1);
+
+    /// <summary>Scans that ran to the end, clean or not. Tests read it to watch the worker loop.</summary>
+    internal int ScansCompleted => Volatile.Read(ref _scansCompleted);
+
+    /// <summary>
+    /// How long the worker sleeps before its next scan, unless a completed recording wakes it first. A tick that
+    /// found work keeps the ordinary tick, so a busy queue behaves exactly as before, and so does a tick whose scan
+    /// did not finish cleanly. An idle tick sleeps until just after the earliest scheduled retry the last scan
+    /// saw, never longer than the idle tick and never less than the ordinary one.
+    /// </summary>
+    internal TimeSpan NextWait(bool foundWork, DateTime nowUtc)
+    {
+        if (foundWork || !_lastScanClean)
+            return _workerTick;
+        var wait = _idleTick;
+        if (_earliestRetryUtc is { } retry && retry + RetryWakeMargin - nowUtc < wait)
+            wait = retry + RetryWakeMargin - nowUtc;
+        return wait < _workerTick ? _workerTick : wait;
     }
 
     /// <summary>
@@ -647,7 +698,18 @@ public sealed class RecordingIngestService : IDisposable
     /// </summary>
     internal IEnumerable<string> FindEligibleRecordings()
     {
-        if (!Directory.Exists(_root)) yield break;
+        // Not clean until the scan reaches its end having read every status file, so a scan that throws leaves
+        // the worker on its ordinary tick.
+        _lastScanClean = false;
+        _earliestRetryUtc = null;
+        if (!Directory.Exists(_root))
+        {
+            // The constructor creates the root, so a missing one is not an idle state: on a network share it is
+            // what a brief outage looks like. Not clean, so the worker looks again on its ordinary tick.
+            Interlocked.Increment(ref _scansCompleted);
+            yield break;
+        }
+        var unreadable = 0;
         var now = DateTime.UtcNow;
         if (now - _settledSinceUtc >= SettledForgetAfter)
         {
@@ -668,7 +730,12 @@ public sealed class RecordingIngestService : IDisposable
                 if (!File.Exists(path)) continue;
                 s = JsonSerializer.Deserialize<StatusModel>(File.ReadAllText(path), JsonOpts);
             }
-            catch { continue; }
+            catch
+            {
+                // Possibly caught mid-write; read again on the ordinary tick rather than sleep past it.
+                unreadable++;
+                continue;
+            }
             if (s is null || string.IsNullOrEmpty(s.RecordingId)) continue;
 
             var eligible = s.State switch
@@ -685,10 +752,27 @@ public sealed class RecordingIngestService : IDisposable
             else if (s.State != StateError || s.Attempts >= _maxJobAttempts)
                 // Not eligible, and no clock can make it eligible: only a status write can.
                 _settledAtWrite[key] = writesSeen;
+            else if (RetryAt(s.NextAttemptAtUtc) is { } retryAt
+                     && (_earliestRetryUtc is null || retryAt < _earliestRetryUtc))
+                // A failed job waiting for its retry time: the idle sleep must end by then.
+                _earliestRetryUtc = retryAt;
         }
+        _lastScanClean = unreadable == 0;
+        if (unreadable != _lastUnreadable)
+            // Logged on a change only: a file that stays unreadable keeps this account on the ordinary tick, and
+            // this line is how that lost saving is found without a line every 30 seconds.
+            FileLog.Write($"[RecordingIngestService] scan could not read {unreadable} status file(s); idle sleep {(unreadable == 0 ? "resumed" : "held at the ordinary tick")}");
+        _lastUnreadable = unreadable;
+        Interlocked.Increment(ref _scansCompleted);
         foreach (var c in candidates.OrderBy(c => c.started, StringComparer.Ordinal))
             yield return c.id;
     }
+
+    // Parsed exactly as DueNow parses it, so "due" and "when it is due" can never disagree.
+    private static DateTime? RetryAt(string? nextAttemptAtUtc)
+        => DateTime.TryParse(nextAttemptAtUtc, null, System.Globalization.DateTimeStyles.RoundtripKind, out var at)
+            ? at
+            : null;
 
     private static bool DueNow(string? nextAttemptAtUtc, DateTime now)
     {

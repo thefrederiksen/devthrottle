@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http;
 using CcDirector.Core.Account;
 using CcDirector.Core.Utilities;
@@ -18,6 +19,13 @@ public enum SeatSyncVerdict
 
     /// <summary>The team row could not be read. Nothing is decided; the next pass retries.</summary>
     Unknown,
+
+    /// <summary>
+    /// The counts differ, but the website refused the last sync because the team has no running bill (its
+    /// subscription has ended), and the team's bill row has not changed since. No call is made until it does
+    /// (devthrottle_internal#2311).
+    /// </summary>
+    SubscriptionEnded,
 }
 
 /// <summary>
@@ -36,6 +44,11 @@ public sealed class TeamSeatSync
     private readonly EntitlementRegistry _entitlements;
     private readonly TeamSeatSyncClient _client;
     private readonly Func<string?> _serviceToken;
+
+    // Teams whose last convergence call the website refused because the subscription has ENDED, each with the
+    // fingerprint of its bill row at that moment. Held in memory on purpose (no schema change): after a restart it
+    // costs one refused call and one log line per such team, which is bounded.
+    private readonly ConcurrentDictionary<string, string> _endedSubscriptionMarks = new(StringComparer.Ordinal);
 
     /// <param name="entitlements">The one entitlement reader, used here only for the team row's seat count.</param>
     /// <param name="client">The website seat-sync client.</param>
@@ -92,18 +105,50 @@ public sealed class TeamSeatSync
     /// The convergence check for one team: compare <paramref name="gatewayPaidMembers"/> (the Gateway's own count
     /// of the team's Owner, Manager and Developer members - see <see cref="TeamSeatRoles"/>) with the seats on the
     /// team's bill, and call sync when they differ. Returns the verdict and, when a call was made, its result.
+    ///
+    /// A NEVER-ENDING RETRY IS STOPPED HERE, and only one: when the website refuses because the team has no running
+    /// bill (<see cref="TeamSeatSyncResult.SubscriptionEnded"/>), the team is marked with its bill row's fingerprint,
+    /// logged once, and later checks answer <see cref="SeatSyncVerdict.SubscriptionEnded"/> without calling - until
+    /// the row changes (status, seats, period end, subscription, or when it was written), when sync is called once
+    /// more. Every other failure is retried on the next check exactly as before, and never marks the team.
     /// </summary>
     /// <param name="teamId">The team id, which is the tenant id.</param>
     /// <param name="gatewayPaidMembers">The Gateway's paid-member count for this team.</param>
     public async Task<(SeatSyncVerdict Verdict, TeamSeatSyncResult? Call)> ConvergeAsync(
         string teamId, int gatewayPaidMembers, CancellationToken ct = default)
     {
-        var verdict = Decide(_entitlements.ReadTeamBilledSeats(teamId), gatewayPaidMembers);
+        var key = teamId.Trim();
+        var bill = _entitlements.ReadTeamBilledSeats(teamId);
+        var verdict = Decide(bill, gatewayPaidMembers);
+
+        // A marked team whose bill has not changed: nothing to call, and nothing to log - the stop was logged once.
+        if (verdict == SeatSyncVerdict.CallSync
+            && _endedSubscriptionMarks.TryGetValue(key, out var markedFingerprint)
+            && string.Equals(markedFingerprint, bill.Fingerprint, StringComparison.Ordinal))
+            return (SeatSyncVerdict.SubscriptionEnded, null);
+
         FileLog.Write($"[TeamSeatSync] ConvergeAsync: team={TeamLog(teamId)} verdict={verdict}");
         if (verdict != SeatSyncVerdict.CallSync)
+        {
+            // In step, no bill, or unreadable: any earlier stop no longer describes this team. An unreadable row
+            // decides nothing, so it leaves the mark alone.
+            if (verdict != SeatSyncVerdict.Unknown)
+                _endedSubscriptionMarks.TryRemove(key, out _);
             return (verdict, null);
+        }
 
         var result = await CallSyncAsync(teamId, ct).ConfigureAwait(false);
+        if (result.SubscriptionEnded)
+        {
+            var fingerprint = bill.Fingerprint
+                ?? throw new InvalidOperationException("The team's bill was read without a fingerprint, so a stopped seat sync could never be resumed.");
+            _endedSubscriptionMarks[key] = fingerprint;
+            FileLog.Write($"[TeamSeatSync] ConvergeAsync: team={TeamLog(teamId)} STOPPED - the website says the team has no running bill (its subscription has ended), so the seat sync is not called again until the team's bill changes; the Gateway counts {gatewayPaidMembers} paid member(s) against {(bill.Seats?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "no")} billed seat(s)");
+        }
+        else
+        {
+            _endedSubscriptionMarks.TryRemove(key, out _);
+        }
         return (verdict, result);
     }
 

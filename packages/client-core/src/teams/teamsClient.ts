@@ -11,7 +11,7 @@
 //   - a self-hosted Gateway, which holds one account and answers 404 with a sentence saying so.
 // Both are reported as `not-offered`, and the switcher then shows nothing - a person on such a Gateway sees no
 // change anywhere. Anything else that is not a JSON team list is a real failure and is thrown.
-import { authHeaders, gatewayFetch, GatewayError } from "../api/client";
+import { authHeaders, gatewayFetch, GatewayError, POLL_TIMEOUT_MS } from "../api/client";
 
 /** One team as the signed-in person sees it. `role` is THEIR role in that team, exactly as the Gateway labels it -
  *  shown verbatim, never compared: the Gateway owns the list of roles (review finding F5). */
@@ -22,16 +22,52 @@ export interface TeamSummary {
   memberCount: number;
   /** The Gateway's own wording of the member count: "1 person", "5 people". */
   people: string;
+  /** What this person's Cockpit is in this team - the Gateway's verdict from the role table (devthrottle_internal#2306).
+   *  The Cockpit renders it; it never works the page list out from `role`. */
+  app: TeamApp;
 }
+
+/** One page a role may open in a team, as the Gateway names it. */
+export interface TeamAppPage {
+  id: string;
+  label: string;
+  path: string;
+}
+
+/** The Gateway's page verdict for one person in one team: the whole Cockpit, or only some pages. */
+export type TeamApp = FullTeamApp | TeamPagesApp;
+
+/** The whole Cockpit. `pages` are the team pages this person may also open. */
+export interface FullTeamApp {
+  full: true;
+  pages: TeamAppPage[];
+  landing: null;
+  elsewhere: null;
+}
+
+/** Only `pages`, and nothing else: the Cockpit opens on `landing`, and every other address shows `elsewhere`. */
+export interface TeamPagesApp {
+  full: false;
+  pages: TeamAppPage[];
+  landing: string;
+  elsewhere: string;
+}
+
+/** Where a browser that has never chosen starts - the Gateway's verdict (devthrottle_internal#2306): the person's own
+ *  account, one team, or the team chooser (screen S11). */
+export type TeamStart = { where: "own-account" } | { where: "team"; teamId: string } | { where: "choose" };
 
 /** What GET /teams answered. */
 export type MyTeamsAnswer =
-  | { kind: "teams"; teams: TeamSummary[] }
+  | { kind: "teams"; teams: TeamSummary[]; start: TeamStart }
   | { kind: "not-offered"; reason: string };
 
 /** Why a dark Gateway offers no teams, in the words the store keeps. */
 export const TEAMS_NOT_RELEASED_REASON =
   "This Gateway has not turned Teams on, so there are no teams to choose from.";
+
+/** How long the list of teams may take before it is treated as failed, in milliseconds - the poll reads' limit. */
+export const TEAMS_READ_TIMEOUT_MS = POLL_TIMEOUT_MS;
 
 function contentType(res: Response): string {
   return (res.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
@@ -42,10 +78,13 @@ function contentType(res: Response): string {
  * (Teams dark, or a self-hosted Gateway). Throws a GatewayError for every other failure.
  */
 export async function getMyTeams(signal?: AbortSignal): Promise<MyTeamsAnswer> {
-  const res = await gatewayFetch("/teams", {
-    headers: { ...authHeaders(), Accept: "application/json" },
-    signal,
-  });
+  // A time limit (delta review D1): a shell that remembers a team waits on this read, so a read that hangs must end
+  // as an error - which the shell shows, with the own account as the way out - rather than leave the page blank.
+  const res = await gatewayFetch(
+    "/teams",
+    { headers: { ...authHeaders(), Accept: "application/json" }, signal },
+    { timeoutMs: TEAMS_READ_TIMEOUT_MS },
+  );
 
   if (res.status === 404) {
     // The self-hosted Gateway's answer, with its own sentence. A 404 with no sentence is the same answer: there
@@ -68,7 +107,8 @@ export async function getMyTeams(signal?: AbortSignal): Promise<MyTeamsAnswer> {
   if (!Array.isArray(body.teams)) {
     throw new GatewayError(502, "The Gateway's list of your teams had no teams in it, not even an empty list.");
   }
-  return { kind: "teams", teams: body.teams.map(readTeam) };
+  const teams = body.teams.map(readTeam);
+  return { kind: "teams", teams, start: readStart((body as { start?: unknown }).start, teams) };
 }
 
 function readTeam(raw: unknown): TeamSummary {
@@ -83,5 +123,38 @@ function readTeam(raw: unknown): TeamSummary {
   ) {
     throw new GatewayError(502, "The Gateway sent a team the Cockpit cannot read: it is missing its id, name, role or size.");
   }
-  return { id: t.id, name: t.name, role: t.role, memberCount: t.memberCount, people: t.people };
+  return { id: t.id, name: t.name, role: t.role, memberCount: t.memberCount, people: t.people, app: readApp(t.app) };
+}
+
+const UNREADABLE_START = "The Gateway's list of your teams did not say where to start, so the Cockpit cannot open it.";
+
+function readStart(raw: unknown, teams: TeamSummary[]): TeamStart {
+  const s = (raw ?? {}) as { where?: unknown; teamId?: unknown };
+  if (s.where === "own-account") return { where: "own-account" };
+  if (s.where === "choose") return { where: "choose" };
+  if (s.where === "team" && typeof s.teamId === "string" && teams.some((t) => t.id === s.teamId)) {
+    return { where: "team", teamId: s.teamId };
+  }
+  throw new GatewayError(502, UNREADABLE_START);
+}
+
+const UNREADABLE_APP =
+  "The Gateway sent a team without the pages its member may open, so the Cockpit cannot tell what to show in it.";
+
+function readApp(raw: unknown): TeamApp {
+  const a = (raw ?? {}) as Partial<Record<keyof TeamApp, unknown>>;
+  if (typeof a.full !== "boolean" || !Array.isArray(a.pages)) throw new GatewayError(502, UNREADABLE_APP);
+  const pages = a.pages.map((p: unknown) => {
+    const page = (p ?? {}) as Partial<Record<keyof TeamAppPage, unknown>>;
+    if (typeof page.id !== "string" || typeof page.label !== "string" || typeof page.path !== "string") {
+      throw new GatewayError(502, UNREADABLE_APP);
+    }
+    return { id: page.id, label: page.label, path: page.path };
+  });
+  if (a.full) return { full: true, pages, landing: null, elsewhere: null };
+  // A limited app must say where it opens and what every other address says; without both it cannot be drawn.
+  if (pages.length === 0 || typeof a.landing !== "string" || typeof a.elsewhere !== "string") {
+    throw new GatewayError(502, UNREADABLE_APP);
+  }
+  return { full: false, pages, landing: a.landing, elsewhere: a.elsewhere };
 }

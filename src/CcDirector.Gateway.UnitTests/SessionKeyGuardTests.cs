@@ -543,6 +543,8 @@ public sealed class SessionKeyGuardTests
     // the route that does.
     [InlineData("GET", "/devices")]
     [InlineData("POST", "/devices/enroll-hosted")]
+    [InlineData("GET", "/devices/enroll-hosted/teams")]
+    [InlineData("POST", "/devices/enroll-hosted/move")]
     [InlineData("POST", "/mobile/enroll")]
     [InlineData("POST", "/m/enroll")]
     [InlineData("GET", "/account/devices")]

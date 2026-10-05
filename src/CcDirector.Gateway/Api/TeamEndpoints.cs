@@ -15,6 +15,10 @@ namespace CcDirector.Gateway.Api;
 /// <item><c>GET /teams</c> - the caller's teams. An account in no team gets an empty list.</item>
 /// <item><c>POST /teams</c> with <c>{"name": "..."}</c> - create a team; the caller becomes its Owner.</item>
 /// <item><c>GET /teams/{teamId}/members</c> - the members, only for a member of that team.</item>
+/// <item><c>GET /teams/{teamId}/page</c> - the Team page (screen S1, devthrottle_internal#2303): members, seats, waiting
+/// invitations and what the caller may do to each, decided here.</item>
+/// <item><c>PUT /teams/{teamId}/members/{memberId}/role</c> with <c>{"role": "..."}</c> - change a member's role.</item>
+/// <item><c>DELETE /teams/{teamId}/members/{memberId}</c> - remove a member.</item>
 /// </list>
 ///
 /// WHO IS ASKING comes from the caller's authenticated device key and nothing else: the key's tenant is the
@@ -45,8 +49,10 @@ internal static class TeamEndpoints
     internal sealed record CreateTeamRequest(string? Name);
 
     /// <summary>Maps the three routes.</summary>
-    public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, HostedTenantBoundary boundary, TenantRegistry tenants)
+    public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, HostedTenantBoundary boundary, TenantRegistry tenants,
+        Pairing.DeviceRegistry devices)
     {
+        ArgumentNullException.ThrowIfNull(devices);
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(teams);
         ArgumentNullException.ThrowIfNull(boundary);
@@ -55,7 +61,10 @@ internal static class TeamEndpoints
         app.MapGet(Path, (HttpContext ctx) => Guarded("GET /teams", () =>
         {
             var caller = ResolveCaller(ctx, boundary, tenants);
-            return caller.Denial ?? ListTeams(teams, caller.Subject!);
+            if (caller.Denial is not null) return caller.Denial;
+            // ResolveCaller has just shown the request is bound to this person's own tenant.
+            var own = boundary.ResolveRequestTenant(ctx)!.Value;
+            return ListTeams(teams, caller.Subject!, devices.HasADirectorOnRecord(own));
         }));
 
         app.MapPost(Path, async (HttpContext ctx) =>
@@ -94,7 +103,147 @@ internal static class TeamEndpoints
             return caller.Denial ?? ListMembers(teams, caller.Subject!, teamId);
         }));
 
-        FileLog.Write($"[TeamEndpoints] mapped GET {Path}, POST {Path}, GET {Path}/{{teamId}}/members");
+        // The Team page (screen S1, devthrottle_internal#2303): the page's model, change a member's role, remove a member.
+        app.MapGet(Path + "/{teamId}/page", (HttpContext ctx, string teamId) => Guarded("GET /teams/{teamId}/page", () =>
+        {
+            var caller = ResolveCaller(ctx, boundary, tenants);
+            return caller.Denial ?? TeamPage(teams, caller.Subject!, teamId);
+        }));
+
+        app.MapPut(Path + "/{teamId}/members/{memberId}/role", async (HttpContext ctx, string teamId, string memberId) =>
+        {
+            try
+            {
+                var caller = ResolveCaller(ctx, boundary, tenants);
+                if (caller.Denial is not null) return caller.Denial;
+
+                ChangeRoleRequest? body;
+                try
+                {
+                    body = await ctx.Request.ReadFromJsonAsync<ChangeRoleRequest>(ctx.RequestAborted).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or BadHttpRequestException)
+                {
+                    FileLog.Write($"[TeamEndpoints] PUT /teams/{{teamId}}/members/{{memberId}}/role: rejected, the request body is not readable JSON ({ex.GetType().Name})");
+                    return Results.BadRequest(new { error = "The request body is not readable JSON. Send {\"role\": \"Developer\"}." });
+                }
+
+                return ChangeRole(teams, caller.Subject!, teamId, memberId, body);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[TeamEndpoints] PUT /teams/{{teamId}}/members/{{memberId}}/role FAILED ({ex.GetType().Name}): {ex.Message}");
+                return Results.Json(new { error = "The role could not be changed just now because of a fault in DevThrottle. Try again shortly." },
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+
+        app.MapDelete(Path + "/{teamId}/members/{memberId}", (HttpContext ctx, string teamId, string memberId) => Guarded("DELETE /teams/{teamId}/members/{memberId}", () =>
+        {
+            var caller = ResolveCaller(ctx, boundary, tenants);
+            return caller.Denial ?? RemoveMember(teams, caller.Subject!, teamId, memberId);
+        }));
+
+        FileLog.Write($"[TeamEndpoints] mapped GET {Path}, POST {Path}, GET {Path}/{{teamId}}/members, GET {Path}/{{teamId}}/page, PUT {Path}/{{teamId}}/members/{{memberId}}/role, DELETE {Path}/{{teamId}}/members/{{memberId}}");
+    }
+
+    /// <summary>The body of <c>PUT /teams/{teamId}/members/{memberId}/role</c>.</summary>
+    internal sealed record ChangeRoleRequest(string? Role);
+
+    /// <summary>The Team page's model for the caller: 200, 404 for anyone not in the team, 403 with the role table's
+    /// sentence for a role that has no Team page.</summary>
+    internal static IResult TeamPage(TeamRegistry teams, string callerSubject, string? teamId)
+    {
+        var result = teams.DescribeTeamPage(teamId ?? "", callerSubject);
+        switch (result.Outcome)
+        {
+            case TeamPageOutcome.NotFound:
+                FileLog.Write("[TeamEndpoints] GET /teams/{teamId}/page: no such team for this caller");
+                return Results.NotFound(new { error = NoSuchTeamRefusal });
+            case TeamPageOutcome.Forbidden:
+                FileLog.Write("[TeamEndpoints] GET /teams/{teamId}/page: refused for this role");
+                return Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var page = result.Page!;
+        FileLog.Write($"[TeamEndpoints] GET /teams/{{teamId}}/page: {page.Members.Count} member(s), {page.Invitations.Count} invitation(s)");
+        return Results.Json(new
+        {
+            teamId = page.TeamId,
+            teamName = page.TeamName,
+            yourRole = page.YourRole,
+            summary = page.Summary,
+            canInvite = page.CanInvite,
+            members = page.Members.Select(m => new
+            {
+                memberId = m.MemberId,
+                name = m.Name,
+                email = m.Email,
+                role = m.Role,
+                seat = m.Seat,
+                isYou = m.IsYou,
+                joinedAtUtc = m.JoinedAtUtc,
+                canChangeRole = m.CanChangeRole,
+                roleChoices = m.RoleChoices,
+                canRemove = m.CanRemove,
+                removeWarning = m.RemoveWarning,
+            }).ToList(),
+            invitations = page.Invitations.Select(i => new
+            {
+                id = i.Id,
+                email = i.Email,
+                role = i.Role,
+                state = i.State,
+                seat = i.Seat,
+                invitedBy = i.InvitedBy,
+                sentAtUtc = i.SentAtUtc,
+                expiresAtUtc = i.ExpiresAtUtc,
+                canResend = i.CanResend,
+                canCancel = i.CanCancel,
+            }).ToList(),
+        });
+    }
+
+    /// <summary>Change a member's role. 200, or the refusal with its status.</summary>
+    internal static IResult ChangeRole(TeamRegistry teams, string callerSubject, string? teamId, string? memberId, ChangeRoleRequest? body)
+    {
+        if (!TryParseRole(body?.Role, out var role))
+            return Results.BadRequest(new { error = "Choose the new role: Manager, Developer or Collaborator." });
+        return AnswerChange(teams.ChangeMemberRole(teamId ?? "", callerSubject, memberId ?? "", role), "change role");
+    }
+
+    /// <summary>Remove a member. 200, or the refusal with its status.</summary>
+    internal static IResult RemoveMember(TeamRegistry teams, string callerSubject, string? teamId, string? memberId) =>
+        AnswerChange(teams.RemoveTeamMember(teamId ?? "", callerSubject, memberId ?? ""), "remove member");
+
+    /// <summary>One change as HTTP: 200, 404, 403 (the caller's role) or 409 (the team's own rules).</summary>
+    internal static IResult AnswerChange(TeamMemberChangeResult result, string action)
+    {
+        FileLog.Write($"[TeamEndpoints] {action}: outcome={result.Outcome}");
+        return result.Outcome switch
+        {
+            TeamMemberChangeOutcome.Done => Results.Json(new { done = true }),
+            TeamMemberChangeOutcome.NotFound => Results.NotFound(new { error = result.Refusal }),
+            TeamMemberChangeOutcome.Forbidden => Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status403Forbidden),
+            TeamMemberChangeOutcome.Refused => Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException($"Unknown member change outcome {result.Outcome}."),
+        };
+    }
+
+    private static bool TryParseRole(string? value, out TeamRole role)
+    {
+        role = default;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+        foreach (var candidate in Enum.GetValues<TeamRole>())
+        {
+            if (string.Equals(TeamRoles.Label(candidate), value.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                role = candidate;
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -134,15 +283,18 @@ internal static class TeamEndpoints
         return (subject, null);
     }
 
-    /// <summary>The caller's teams, each with the caller's role and the member count.</summary>
-    internal static IResult ListTeams(TeamRegistry teams, string callerSubject)
+    /// <summary>The caller's teams, each with the caller's role and the member count, and where a fresh browser of
+    /// theirs starts (<see cref="TeamStart"/>).</summary>
+    internal static IResult ListTeams(TeamRegistry teams, string callerSubject, bool ownAccountHasADirector)
     {
         var list = teams.ListTeamsFor(callerSubject);
-        FileLog.Write($"[TeamEndpoints] GET /teams: {list.Count} team(s)");
+        var start = TeamStart.For(ownAccountHasADirector, list);
+        FileLog.Write($"[TeamEndpoints] GET /teams: {list.Count} team(s), a fresh browser starts at {TeamStart.Wire(start.Place)}");
         return Results.Json(new
         {
             count = list.Count,
             teams = list.Select(Describe).ToList(),
+            start = new { where = TeamStart.Wire(start.Place), teamId = start.TeamId },
         });
     }
 
@@ -177,7 +329,7 @@ internal static class TeamEndpoints
             count = result.Members.Count,
             members = result.Members.Select(m => new
             {
-                name = m.Email ?? "An account with no email recorded",
+                name = MemberName(m),
                 email = m.Email,
                 role = TeamRoles.Label(m.Role),
                 isYou = string.Equals(m.AccountSubject, callerSubject.Trim(), StringComparison.Ordinal),
@@ -186,7 +338,17 @@ internal static class TeamEndpoints
         });
     }
 
-    /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team.</summary>
+    /// <summary>A member's name as every team screen shows it - the member list here and "changed by" on the Skills and
+    /// workflows page (devthrottle_internal#2304). One rule, so the two never disagree. The Gateway holds no display name
+    /// for a person today, so it is the email they signed up with.</summary>
+    internal static string MemberName(TeamMember member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return member.Email ?? "An account with no email recorded";
+    }
+
+    /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team, and <c>app</c> is what
+    /// the caller's Cockpit is in it (<see cref="TeamApp"/>, devthrottle_internal#2306).</summary>
     private static object Describe(TeamSummary team) => new
     {
         id = team.TeamId,
@@ -194,6 +356,16 @@ internal static class TeamEndpoints
         role = TeamRoles.Label(team.Role),
         memberCount = team.MemberCount,
         people = team.MemberCount == 1 ? "1 person" : $"{team.MemberCount} people",
+        app = DescribeApp(TeamApp.For(team.Role)),
+    };
+
+    /// <summary>The page verdict on the wire.</summary>
+    internal static object DescribeApp(TeamAppVerdict app) => new
+    {
+        full = app.FullApp,
+        pages = app.Pages.Select(p => new { id = p.Id, label = p.Label, path = p.Path }).ToList(),
+        landing = app.Landing,
+        elsewhere = app.Elsewhere,
     };
 
     private static IResult Guarded(string route, Func<IResult> handle)

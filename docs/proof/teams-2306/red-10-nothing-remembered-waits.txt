@@ -1,0 +1,539 @@
+﻿=== RED PROOF: A browser with nothing remembered waits for the team list
+Broke packages\client-core\src\teams\CurrentTeam.tsx
+  was: const resolving = choice.kind === "team" && (loaded.status === "loading" || loaded.status === "error");
+  now: const resolving = (choice.kind === "team" && (loaded.status === "loading" || loaded.status === "error")) || (choice.kind === "none" && loaded.status === "loading");
+Ran: Push-Location apps\cockpit; npx vitest run src/AppShell.test.tsx src/railCollapse.test.tsx src/teams; Pop-Location; Push-Location packages\client-core; npx vitest run src/teams; Pop-Location
+
+
+ RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2306/apps/cockpit
+
+ ✓ src/teams/TeamSwitcher.test.tsx (6 tests) 192ms
+ ❯ src/railCollapse.test.tsx (5 tests | 2 failed) 341ms
+   [x] the Cockpit rail collapse > keeps every destination, and every destination's name, when it collapses 125ms
+     → Unable to find an accessible element with the role "link"
+
+Here are the accessible roles:
+
+  navigation:
+
+  Name "Primary":
+  <nav
+    aria-label="Primary"
+    class="rail rail-left"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "Collapse the menu":
+  <button
+    aria-expanded="true"
+    aria-label="Collapse the menu"
+    class="rail-toggle"
+    data-testid="rail-toggle"
+    title="Collapse the menu"
+    type="button"
+  />
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  <ul
+    class="nav-list"
+  />
+
+  --------------------------------------------------
+  main:
+
+  Name "Main":
+  <main
+    aria-label="Main"
+    class="main-pane"
+  />
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  <div
+    class="ui-loading"
+    role="status"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="shell"
+    >
+      <nav
+        aria-label="Primary"
+        class="rail rail-left"
+      >
+        <div
+          class="rail-head"
+        >
+          <div
+            class="brand"
+          >
+            DevThrottle
+          </div>
+          <button
+            aria-expanded="true"
+            aria-label="Collapse the menu"
+            class="rail-toggle"
+            data-testid="rail-toggle"
+            title="Collapse the menu"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="nav-icon"
+              fill="none"
+              focusable="false"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M15 6l-6 6 6 6"
+              />
+            </svg>
+          </button>
+        </div>
+        <div
+          data-testid="status-pill"
+        />
+        <div
+          class="nav"
+        >
+          <ul
+            class="nav-list"
+          />
+        </div>
+        <div
+          class="rail-foot"
+        >
+          Cockpit (React)
+        </div>
+      </nav>
+      <main
+        aria-label="Main"
+        class="main-pane"
+      >
+        <div
+          class="ui-loading"
+          role="status"
+        >
+          Loading your team...
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+   [x] the Cockpit rail collapse > still shows the attention count when collapsed 76ms
+     → Unable to find an accessible element with the role "link" and name `/Fleet Manager/`
+
+Here are the accessible roles:
+
+  navigation:
+
+  Name "Primary":
+  <nav
+    aria-label="Primary"
+    class="rail rail-left"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "Expand the menu":
+  <button
+    aria-expanded="false"
+    aria-label="Expand the menu"
+    class="rail-toggle"
+    data-testid="rail-toggle"
+    title="Expand the menu"
+    type="button"
+  />
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  <ul
+    class="nav-list"
+  />
+
+  --------------------------------------------------
+  main:
+
+  Name "Main":
+  <main
+    aria-label="Main"
+    class="main-pane"
+  />
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  <div
+    class="ui-loading"
+    role="status"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="shell shell-rail-collapsed"
+    >
+      <nav
+        aria-label="Primary"
+        class="rail rail-left"
+      >
+        <div
+          class="rail-head"
+        >
+          <button
+            aria-expanded="false"
+            aria-label="Expand the menu"
+            class="rail-toggle"
+            data-testid="rail-toggle"
+            title="Expand the menu"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="nav-icon"
+              fill="none"
+              focusable="false"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M9 6l6 6-6 6"
+              />
+            </svg>
+          </button>
+        </div>
+        <div
+          class="nav"
+        >
+          <ul
+            class="nav-list"
+          />
+        </div>
+      </nav>
+      <main
+        aria-label="Main"
+        class="main-pane"
+      >
+        <div
+          class="ui-loading"
+          role="status"
+        >
+          Loading your team...
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+ ❯ src/AppShell.test.tsx (25 tests | 7 failed) 1174ms
+   [x] Cockpit left rail > opens with the Fleet Manager, then Sessions, then Fleet Map 67ms
+     → expected [] to deeply equal [ 'Fleet Manager', 'Sessions', …(1) ]
+   [x] Cockpit left rail > badges the Fleet Manager with the Gateway's count of what is waiting 123ms
+     → Unable to find an accessible element with the role "link" and name `/Fleet Manager/`
+
+Here are the accessible roles:
+
+  navigation:
+
+  Name "Primary":
+  <nav
+    aria-label="Primary"
+    class="rail rail-left"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "Collapse the menu":
+  <button
+    aria-expanded="true"
+    aria-label="Collapse the menu"
+    class="rail-toggle"
+    data-testid="rail-toggle"
+    title="Collapse the menu"
+    type="button"
+  />
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  <ul
+    class="nav-list"
+  />
+
+  --------------------------------------------------
+  main:
+
+  Name "Main":
+  <main
+    aria-label="Main"
+    class="main-pane"
+  />
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  <div
+    class="ui-loading"
+    role="status"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="shell"
+    >
+      <nav
+        aria-label="Primary"
+        class="rail rail-left"
+      >
+        <div
+          class="rail-head"
+        >
+          <div
+            class="brand"
+          >
+            DevThrottle
+          </div>
+          <button
+            aria-expanded="true"
+            aria-label="Collapse the menu"
+            class="rail-toggle"
+            data-testid="rail-toggle"
+            title="Collapse the menu"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="nav-icon"
+              fill="none"
+              focusable="false"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M15 6l-6 6 6 6"
+              />
+            </svg>
+          </button>
+        </div>
+        <div
+          class="nav"
+        >
+          <ul
+            class="nav-list"
+          />
+        </div>
+        <div
+          class="rail-foot"
+        >
+          Cockpit (React)
+        </div>
+      </nav>
+      <main
+        aria-label="Main"
+        class="main-pane"
+      >
+        <div
+          class="ui-loading"
+          role="status"
+        >
+          Loading your team...
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+   [x] Cockpit left rail > shows no badge when nothing is waiting 30ms
+     → Unable to find an accessible element with the role "link" and name `/Fleet Manager/`
+
+Here are the accessible roles:
+
+  navigation:
+
+  Name "Primary":
+  <nav
+    aria-label="Primary"
+    class="rail rail-left"
+  />
+
+  --------------------------------------------------
+  button:
+
+  Name "Collapse the menu":
+  <button
+    aria-expanded="true"
+    aria-label="Collapse the menu"
+    class="rail-toggle"
+    data-testid="rail-toggle"
+    title="Collapse the menu"
+    type="button"
+  />
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  <ul
+    class="nav-list"
+  />
+
+  --------------------------------------------------
+  main:
+
+  Name "Main":
+  <main
+    aria-label="Main"
+    class="main-pane"
+  />
+
+  --------------------------------------------------
+  status:
+
+  Name "":
+  <div
+    class="ui-loading"
+    role="status"
+  />
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+<body>
+  <div>
+    <div
+      class="shell"
+    >
+      <nav
+        aria-label="Primary"
+        class="rail rail-left"
+      >
+        <div
+          class="rail-head"
+        >
+          <div
+            class="brand"
+          >
+            DevThrottle
+          </div>
+          <button
+            aria-expanded="true"
+            aria-label="Collapse the menu"
+            class="rail-toggle"
+            data-testid="rail-toggle"
+            title="Collapse the menu"
+            type="button"
+          >
+            <svg
+              aria-hidden="true"
+              class="nav-icon"
+              fill="none"
+              focusable="false"
+              stroke="currentColor"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              viewBox="0 0 24 24"
+            >
+              <path
+                d="M15 6l-6 6 6 6"
+              />
+            </svg>
+          </button>
+        </div>
+        <div
+          class="nav"
+        >
+          <ul
+            class="nav-list"
+          />
+        </div>
+        <div
+          class="rail-foot"
+        >
+          Cockpit (React)
+        </div>
+      </nav>
+      <main
+        aria-label="Main"
+        class="main-pane"
+      >
+        <div
+          class="ui-loading"
+          role="status"
+        >
+          Loading your team...
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+   [x] Cockpit left rail > has no Assistant entry anywhere in the rail 7ms
+     → expected 0 to be greater than 10
+   [x] Cockpit left rail > leaves the rest of the rail where it was 9ms
+     → expected [] to deeply equal [ 'Fleet Manager', 'Sessions', …(10) ]
+   [x] Cockpit left rail > draws today's Cockpit at once with nothing remembered (Teams dark), before the teams answer 9ms
+     → expected [] to deeply equal [ 'Fleet Manager', 'Sessions', …(1) ]
+   [x] Cockpit left rail > draws today's Cockpit at once with nothing remembered (no team), before the teams answer 7ms
+     → expected [] to deeply equal [ 'Fleet Manager', 'Sessions', …(1) ]
+ ❯ src/teams/collaborator/collaboratorApp.test.tsx (32 tests | 1 failed) 1014ms
+   [x] The Collaborator's app > FirstArrival_NothingRemembered_DrawsTheOwnAccountAtOnce_ThenTheGatewaysTeam 14ms
+     → expected <div class="ui-loading" …(1)></div> to be null
+
+ Test Files  3 failed | 1 passed (4)
+      Tests  10 failed | 58 passed (68)
+   Start at  20:27:26
+   Duration  5.76s (transform 2.41s, setup 206ms, collect 5.39s, tests 2.72s, environment 5.10s, prepare 723ms)
+
+
+ RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2306/packages/client-core
+
+ ✓ src/teams/invitationsClient.test.ts (4 tests) 8ms
+ ✓ src/teams/teamsClient.test.ts (16 tests) 17ms
+ ✓ src/teams/mentorClient.test.ts (33 tests) 22ms
+ ❯ src/teams/CurrentTeam.test.tsx (24 tests | 3 failed) 1536ms
+   [x] CurrentTeam > Resolving_NothingRemembered_IsNeverTrue_AndAFailedReadStaysOnTheOwnAccount 6ms
+     → expected true to be false // Object.is equality
+   [x] CurrentTeam > NothingRemembered_TeamsDark_NeverResolving_NeverChoosing_OwnAccount 2ms
+     → expected true to be false // Object.is equality
+   [x] CurrentTeam > NothingRemembered_NoTeams_NeverResolving_AndStoresTheGatewaysAnswerNotAPick 1ms
+     → expected true to be false // Object.is equality
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  3 failed | 74 passed (77)
+   Start at  20:27:33
+   Duration  3.23s (transform 368ms, setup 64ms, collect 745ms, tests 1.58s, environment 825ms, prepare 880ms)
+

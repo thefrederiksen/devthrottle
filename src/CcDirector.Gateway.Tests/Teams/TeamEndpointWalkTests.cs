@@ -300,17 +300,276 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task OverTheWire_AKeyBoundToATeamsTenant_IsNotAcceptedToday_SoNoRequestYetRunsInsideATeam()
+    public async Task OverTheWire_AKeyBoundToATeamsTenant_AuthenticatesForADeveloper_ButNotForACollaborator()
     {
-        // The binding devthrottle_internal#2311 will make for a Director set up for a team. Today's hosted device
-        // registry refuses a key whose account does not own the tenant it is bound to, so such a key never
-        // authenticates - and if #2311 lets it, the gate is what it meets next (TeamEndpointGateTests shows what the
-        // gate does with it).
-        var key = _gateway.Devices.Register("dev-walk-team-bound", "M-team").DeviceKey;
+        // The binding devthrottle_internal#2311 makes for a Director set up for a team. The hosted device registry now
+        // accepts it while its person may run sessions in the team, so a Developer's team key authenticates and meets
+        // the request-path access lease next - which refuses it (402) until the lease reads the team's bill, the step
+        // after #3521. A Collaborator's team key never authenticates (401). TeamCallerOwnershipTests shows what the
+        // gate does with an authenticated one.
+        var developerKey = _gateway.Devices.Register("dev-walk-team-bound", "M-team").DeviceKey;
         _gateway.Devices.SetAccountBinding("dev-walk-team-bound", _developer, _team);
+        var collaboratorKey = _gateway.Devices.Register("dev-walk-team-collab", "M-team").DeviceKey;
+        _gateway.Devices.SetAccountBinding("dev-walk-team-collab", _collaborator, _team);
 
-        var (status, _) = await Get("gateway/skills", key);
+        Assert.Equal(HttpStatusCode.PaymentRequired, (await Get("gateway/skills", developerKey)).Status);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await Get("gateway/skills", collaboratorKey)).Status);
+    }
 
-        Assert.Equal(HttpStatusCode.Unauthorized, status);
+    // ---- The Collaborator's app (devthrottle_internal#2306) ---------------------------------------------------------
+
+    /// <summary>
+    /// Every Cockpit page a Collaborator cannot open, and the Gateway reads that page makes when it loads - read from
+    /// the page's client in packages/client-core. Each must be a real endpoint on the hosted route table, so a renamed
+    /// endpoint turns this red instead of leaving the proof about an address nothing serves.
+    /// </summary>
+    public static readonly (string Page, string[] Reads)[] PagesACollaboratorCannotOpen =
+    {
+        ("Fleet Manager", new[] { "/gateway/fleet-manager" }),
+        ("Sessions", new[] { "/sessions" }),
+        ("A session", new[] { "/sessions/{sid}/buffer", "/sessions/{sid}/turn-verdicts" }),
+        ("Fleet Map", new[] { "/sessions", "/directors" }),
+        ("History", new[] { "/history/report" }),
+        ("Directors", new[] { "/directors" }),
+        ("Schedule", new[] { "/cron/jobs" }),
+        ("Workflows", new[] { "/gateway/workflows" }),
+        ("Skills", new[] { "/gateway/skills" }),
+        ("Dictionary", new[] { "/ingest/dictionary" }),
+        ("Voice Recorder", new[] { "/ingest/recordings" }),
+        ("Transcription", new[] { "/voice-quality/summary" }),
+        ("Your Throttle", new[] { "/stats/data" }),
+        ("Settings", new[] { "/gateway/settings", "/gateway/mentor-report" }),
+        ("Account", new[] { "/account/status", "/account/devices" }),
+        ("About", new[] { "/gateway/about" }),
+    };
+
+    [Fact]
+    public void Issue2306_ACollaboratorInTheTeam_TheDataBehindEveryPageTheyCannotOpen_IsRefused()
+    {
+        var asked = 0;
+        foreach (var (page, reads) in PagesACollaboratorCannotOpen)
+        {
+            foreach (var pattern in reads)
+            {
+                Assert.True(_routes.Contains(("GET", pattern)), $"{page}: GET {pattern} is not an endpoint on the hosted route table.");
+                foreach (var whose in new[] { TeamOwnership.Callers, TeamOwnership.SomeoneElses })
+                {
+                    var verdict = Ask("GET", pattern, _collaborator, whose);
+                    _output.WriteLine($"{page}: GET {pattern} ({whose}) -> {verdict.Outcome}: {verdict.Message}");
+                    Assert.True(verdict.Outcome == TeamGateOutcome.Refused,
+                        $"{page}: GET {pattern} ({whose}) was {verdict.Outcome} for a Collaborator in the team.");
+                    asked++;
+                }
+            }
+        }
+        _output.WriteLine($"{asked} Collaborator reads behind {PagesACollaboratorCannotOpen.Length} pages, every one refused.");
+    }
+
+    /// <summary>
+    /// The whole statement, which cannot go stale (review finding F8): EVERY endpoint on the hosted route table outside the
+    /// team's own /teams/{teamId}/ routes is refused for a Collaborator acting inside the team, whether what it touches is
+    /// theirs or someone else's. The hand list above stays as a readable per-page record; this is what covers a page or a
+    /// read nobody wrote down.
+    /// </summary>
+    [Fact]
+    public void Issue2306_ACollaboratorInTheTeam_EveryEndpointOutsideTheTeamRoutes_IsRefused()
+    {
+        var outside = _routes.Where(r => !r.Pattern.StartsWith("/teams/{teamId}/", StringComparison.Ordinal)).ToArray();
+        Assert.True(outside.Length > 300, $"Only {outside.Length} endpoint-methods outside the team routes - the walk would prove nothing.");
+        foreach (var (method, pattern) in outside)
+        {
+            foreach (var whose in new[] { TeamOwnership.Callers, TeamOwnership.SomeoneElses })
+            {
+                var verdict = Ask(method, pattern, _collaborator, whose);
+                Assert.True(verdict.Outcome == TeamGateOutcome.Refused,
+                    $"{method} {pattern} ({whose}) was {verdict.Outcome} for a Collaborator inside the team.");
+            }
+        }
+        _output.WriteLine($"{outside.Length} endpoint-methods outside /teams/{{teamId}}/, each refused for a Collaborator inside the team, theirs and someone else's.");
+    }
+
+    [Fact]
+    public async Task Issue2306_OverTheWire_AKeyBoundToTheTeam_GetsNoDataBehindAnyPageACollaboratorCannotOpen()
+    {
+        // A key bound to the team's tenant, held by its Collaborator: what a request from inside the team would carry.
+        // Since devthrottle_internal#2311 the hosted device registry accepts a team key only while its person may run
+        // sessions in the team, which a Collaborator may not (see the test above it), so every read is refused before it
+        // reaches the gate; the gate's own answer for each read is the test before this one.
+        var key = _gateway.Devices.Register("dev-walk-collab-team-bound", "M-collab").DeviceKey;
+        _gateway.Devices.SetAccountBinding("dev-walk-collab-team-bound", _collaborator, _team);
+
+        foreach (var pattern in PagesACollaboratorCannotOpen.SelectMany(p => p.Reads).Distinct())
+        {
+            var path = pattern.Replace("{sid}", "00000000-0000-0000-0000-000000000001", StringComparison.Ordinal).TrimStart('/');
+            var (status, _) = await Get(path, key);
+            _output.WriteLine($"GET /{path} with a team-bound Collaborator key -> {(int)status}");
+            Assert.Equal(HttpStatusCode.Unauthorized, status);
+        }
+    }
+
+    [Theory]
+    [InlineData(TeamRole.Owner, true)]
+    [InlineData(TeamRole.Manager, true)]
+    [InlineData(TeamRole.Developer, true)]
+    [InlineData(TeamRole.Collaborator, false)]
+    public async Task Issue2306_OverTheWire_TheTeamListCarriesEachRolesPageVerdict(TeamRole role, bool fullApp)
+    {
+        var key = Enroll("dev-walk-app-" + role, SubjectFor(role));
+
+        var (status, body) = await Get("teams", key);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var team = body.GetProperty("teams").EnumerateArray().Single(t => t.GetProperty("id").GetString() == _team);
+        var app = team.GetProperty("app");
+        Assert.Equal(fullApp, app.GetProperty("full").GetBoolean());
+        Assert.Equal(new[] { "/questions", "/requests", "/reports" },
+            app.GetProperty("pages").EnumerateArray().Select(p => p.GetProperty("path").GetString()));
+        if (fullApp)
+        {
+            Assert.Equal(JsonValueKind.Null, app.GetProperty("elsewhere").ValueKind);
+        }
+        else
+        {
+            Assert.Equal("/questions", app.GetProperty("landing").GetString());
+            Assert.Equal("This page is not available to Collaborators.", app.GetProperty("elsewhere").GetString());
+        }
+    }
+
+    /// <summary>
+    /// Delta review D3: the line that feeds the start rule on GET /teams - the Director question asked of the CALLER's
+    /// own account - over real HTTP. The Collaborator has one team; signed in only from a browser they start in it, and
+    /// the moment a computer of theirs enrolls they start on their own account.
+    /// </summary>
+    [Fact]
+    public async Task Issue2306_OverTheWire_TheStart_FollowsTheCallersOwnDirector()
+    {
+        var own = _gateway.TenantRegistry.LookupBySubject(_collaborator)!.Value;
+        var browserKey = _gateway.Devices.RegisterForTenant(own, _collaborator, "dev-walk-start-browser", "BROWSER",
+            platform: "browser", deviceType: "browser").DeviceKey;
+
+        var (status, body) = await Get("teams", browserKey);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("team", body.GetProperty("start").GetProperty("where").GetString());
+        Assert.Equal(_team, body.GetProperty("start").GetProperty("teamId").GetString());
+
+        _gateway.Devices.RegisterForTenant(own, _collaborator, "dev-walk-start-desk", "DESK", platform: "windows",
+            deviceType: "workstation");
+
+        (status, body) = await Get("teams", browserKey);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("own-account", body.GetProperty("start").GetProperty("where").GetString());
+    }
+
+    [Theory]
+    [InlineData("questions")]
+    [InlineData("requests")]
+    [InlineData("reports")]
+    public async Task Issue2306_OverTheWire_EachTeamPageAddress_IsServedTheCockpit(string page)
+    {
+        var key = Enroll("dev-walk-page-" + page, _collaborator);
+        using var req = new HttpRequestMessage(HttpMethod.Get, page);
+        req.Headers.Accept.ParseAdd("text/html");
+        req.Headers.Add("Cookie", $"cc-gateway-token={key}");
+
+        using var resp = await _http.SendAsync(req);
+        var text = await resp.Content.ReadAsStringAsync();
+
+        // The Cockpit answered: the page when it is built into this host, or its own "not built" answer in a test host
+        // that has none - never a Gateway endpoint's JSON under the same address.
+        _output.WriteLine($"GET /{page} (text/html) -> {(int)resp.StatusCode}");
+        Assert.True(resp.StatusCode == HttpStatusCode.OK
+                ? text.Contains("<html", StringComparison.OrdinalIgnoreCase)
+                : resp.StatusCode == HttpStatusCode.NotFound && text.Contains("React Cockpit not built", StringComparison.Ordinal),
+            $"/{page} was answered by something other than the Cockpit: {(int)resp.StatusCode} {text}");
+    }
+
+    /// <summary>
+    /// The team's own routes - the team in the address, the person's own key - DO run inside a team today, so for them
+    /// the Collaborator's refusal is proven over real HTTP: every /teams/{teamId}/... endpoint whose action the role
+    /// table does not give a Collaborator is sent through the real pipeline with a Collaborator's own key, and the
+    /// gate's 403 must come back. Today that is the invitation writes behind the invite page (/team/{teamId}/invite),
+    /// which the Cockpit shows a Collaborator as "not available".
+    /// </summary>
+    [Fact]
+    public async Task Issue2306_OverTheWire_ACollaborator_EveryTeamRouteTheTableRefusesThem_Is403()
+    {
+        var key = Enroll("dev-walk-collab-routes", _collaborator);
+        var refusedForCollaborator = _routes
+            .Where(r => r.Pattern.StartsWith("/teams/{teamId}/", StringComparison.Ordinal))
+            .Where(r => TeamEndpointRules.Find(r.Method, r.Pattern) is not { } rule
+                        || TeamPermissions.Grant(TeamRole.Collaborator, rule.Action) == TeamGrant.No)
+            .ToArray();
+        Assert.NotEmpty(refusedForCollaborator);
+
+        foreach (var (method, pattern) in refusedForCollaborator)
+        {
+            // The team's id, then a sample for every other placeholder, so each route is matched and reaches the gate:
+            // a number where the route takes only one ({version:int}), a fresh id anywhere else.
+            var path = System.Text.RegularExpressions.Regex.Replace(
+                    pattern.Replace("{teamId}", _team, StringComparison.Ordinal),
+                    @"\{\**(\w+)(:int)?\}",
+                    m => m.Groups[2].Success ? "1" : Guid.NewGuid().ToString("N"))
+                .TrimStart('/');
+            using var req = new HttpRequestMessage(new HttpMethod(method), path);
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
+            if (method != "GET")
+                req.Content = new StringContent("{\"email\":\"someone@example.org\",\"role\":\"Collaborator\"}", System.Text.Encoding.UTF8, "application/json");
+            using var resp = await _http.SendAsync(req);
+            var text = await resp.Content.ReadAsStringAsync();
+            _output.WriteLine($"{method} {pattern} as the team's Collaborator -> {(int)resp.StatusCode} {text}");
+
+            Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+            // The refusal must be the role table's, through the gate - not only an endpoint's own later check.
+            var body = JsonDocument.Parse(text).RootElement;
+            Assert.True(body.TryGetProperty("code", out var code) && code.GetString() == TeamEndpointGate.RefusalCode,
+                $"{method} {pattern} was refused, but not by the team gate: {text}");
+        }
+    }
+
+    private const string PhoneUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1";
+
+    private async Task<(HttpStatusCode Status, string? Location, string Body)> PhoneGet(string path, string? deviceKey)
+    {
+        using var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = _http.BaseAddress };
+        using var req = new HttpRequestMessage(HttpMethod.Get, path);
+        req.Headers.Accept.ParseAdd("text/html");
+        req.Headers.TryAddWithoutValidation("User-Agent", PhoneUserAgent);
+        if (deviceKey is not null)
+            req.Headers.Add("Cookie", $"cc-gateway-token={deviceKey}");
+        using var resp = await client.SendAsync(req);
+        return (resp.StatusCode, resp.Headers.Location?.OriginalString, await resp.Content.ReadAsStringAsync());
+    }
+
+    private static void AssertTheCockpitAnswered((HttpStatusCode Status, string? Location, string Body) answer, string what)
+    {
+        Assert.True(answer.Status == HttpStatusCode.OK
+                ? answer.Body.Contains("<html", StringComparison.OrdinalIgnoreCase)
+                : answer.Status == HttpStatusCode.NotFound && answer.Body.Contains("React Cockpit not built", StringComparison.Ordinal),
+            $"a phone at {what} was not given the Cockpit: {(int)answer.Status} {answer.Location} {answer.Body}");
+    }
+
+    /// <summary>
+    /// A Collaborator's app is three Cockpit pages the mobile app does not have, so a PHONE reaches them, signed in and
+    /// through sign-in, instead of being sent to /mobile/ - while every other phone navigation still goes there.
+    /// </summary>
+    [Theory]
+    [InlineData("questions")]
+    [InlineData("requests")]
+    [InlineData("reports")]
+    public async Task Issue2306_OverTheWire_APhoneAtATeamPage_GetsTheCockpit_NotTheMobileApp(string page)
+    {
+        var key = Enroll("dev-walk-phone-" + page, _collaborator);
+
+        AssertTheCockpitAnswered(await PhoneGet(page, key), "/" + page + " signed in");
+
+        var signedOut = await PhoneGet(page, deviceKey: null);
+        Assert.Equal(HttpStatusCode.Redirect, signedOut.Status);
+        Assert.Equal($"/signin?next={Uri.EscapeDataString("/" + page)}", signedOut.Location);
+        AssertTheCockpitAnswered(await PhoneGet(signedOut.Location!.TrimStart('/'), deviceKey: null), signedOut.Location!);
+
+        var elsewhere = await PhoneGet("sessions", key);
+        Assert.Equal(HttpStatusCode.Redirect, elsewhere.Status);
+        Assert.Equal("/mobile/", elsewhere.Location);
     }
 }

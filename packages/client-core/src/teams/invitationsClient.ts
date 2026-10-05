@@ -65,7 +65,8 @@ export interface InvitationSent {
 
 // `what` names the action in the reader's words; the Gateway's own sentence ("Only the Owner can invite a Manager.")
 // wins over it whenever the Gateway sent one (GatewayError.from keeps it as the error's serverReason).
-async function call<T>(method: "GET" | "POST", path: string, what: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+// Shared by the Team page client (teamPageClient.ts), so every team call reads a refusal and a dark Gateway one way.
+export async function call<T>(method: "GET" | "POST" | "PUT" | "DELETE", path: string, what: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, {
     method,
     headers: {

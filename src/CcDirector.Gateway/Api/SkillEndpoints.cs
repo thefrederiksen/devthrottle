@@ -44,9 +44,21 @@ namespace CcDirector.Gateway.Api;
 /// </summary>
 internal static class SkillEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, SkillStore store)
+    /// <summary>Where the routes live for the caller's own account.</summary>
+    public const string DefaultRoot = "/gateway/skills";
+
+    /// <summary>
+    /// Maps the routes under <paramref name="root"/>. The store answers for the AMBIENT tenant, so the same routes
+    /// serve a team's library when mounted under <c>/teams/{teamId}/skills</c> with the team's tenant entered
+    /// (<see cref="TeamLibraryEndpoints"/>, devthrottle_internal#2304) - one set of handlers, never a copy.
+    /// </summary>
+    public static void Map(IEndpointRouteBuilder app, SkillStore store, string root = DefaultRoot)
     {
-        app.MapGet("/gateway/skills", (HttpContext ctx) =>
+        ArgumentNullException.ThrowIfNull(app);
+        ArgumentNullException.ThrowIfNull(store);
+        ArgumentException.ThrowIfNullOrWhiteSpace(root);
+
+        app.MapGet(root, (HttpContext ctx) =>
         {
             var skills = store.ListPublished();
             FileLog.Write($"[SkillEndpoints] list skills: count={skills.Count}");
@@ -55,7 +67,7 @@ internal static class SkillEndpoints
             return ConditionalJson.Serve(ctx, new { skills });
         });
 
-        app.MapGet("/gateway/skills/{id}", (string id) =>
+        app.MapGet(root + "/{id}", (string id) =>
         {
             var skill = store.GetPublished(id);
             if (skill is null)
@@ -71,7 +83,7 @@ internal static class SkillEndpoints
         // The agent read path: raw markdown, no JSON envelope, so `cc-devthrottle skill get <id>` can
         // print it verbatim into an agent's context. This is the ONLY route that serves a body, and it
         // is reached once per skill actually used - never as part of discovery.
-        app.MapGet("/gateway/skills/{id}/body", (string id, int? version) => Guard(() =>
+        app.MapGet(root + "/{id}/body", (string id, int? version) => Guard(() =>
         {
             var body = store.GetBody(id, version);
             return body is null ? NotFound(id) : Results.Text(body, "text/markdown");
@@ -82,7 +94,7 @@ internal static class SkillEndpoints
         // fail to match it. Binary files are served as bytes with an octet-stream content type - a
         // skill can carry an image, an archive or a compiled program, and serving those as text would
         // corrupt them on the way out.
-        app.MapGet("/gateway/skills/{id}/files/{**filePath}", (string id, string filePath, int? version) =>
+        app.MapGet(root + "/{id}/files/{**filePath}", (string id, string filePath, int? version) =>
             Guard(() =>
             {
                 var file = store.GetFile(id, filePath, version);
@@ -96,11 +108,12 @@ internal static class SkillEndpoints
         // Any agent may author and publish. Authorship is recorded on every version and a bad publish
         // is fixed by publishing again - which reaches the whole fleet just as fast as the mistake did.
 
-        app.MapPost("/gateway/skills", async (HttpContext ctx) =>
+        app.MapPost(root, async (HttpContext ctx) =>
         {
             var content = await ReadBody(ctx);
             if (content is null)
                 return Results.BadRequest(new { error = "a skill body is required" });
+            content.AuthoredBy = ServerStampedAuthor.Resolve(ctx, content.AuthoredBy);
             return Guard(() =>
             {
                 var created = store.CreateDraft(content);
@@ -109,11 +122,12 @@ internal static class SkillEndpoints
             });
         });
 
-        app.MapPut("/gateway/skills/{id}/draft", async (string id, HttpContext ctx) =>
+        app.MapPut(root + "/{id}/draft", async (string id, HttpContext ctx) =>
         {
             var content = await ReadBody(ctx);
             if (content is null)
                 return Results.BadRequest(new { error = "a skill body is required" });
+            content.AuthoredBy = ServerStampedAuthor.Resolve(ctx, content.AuthoredBy);
             var ifMatch = ReadIfMatch(ctx);
             return Guard(() =>
             {
@@ -125,7 +139,7 @@ internal static class SkillEndpoints
             });
         });
 
-        app.MapPost("/gateway/skills/{id}/publish", (string id) => Guard(() =>
+        app.MapPost(root + "/{id}/publish", (string id) => Guard(() =>
         {
             var published = store.Publish(id);
             if (published is null)
@@ -136,16 +150,16 @@ internal static class SkillEndpoints
 
         // Clone: the sanctioned customization path for the read-only built-ins. ?newId names the clone;
         // ?by records who cloned.
-        app.MapPost("/gateway/skills/{id}/clone", (string id, string? newId, string? by) => Guard(() =>
+        app.MapPost(root + "/{id}/clone", (string id, string? newId, string? by, HttpContext ctx) => Guard(() =>
         {
-            var clone = store.Clone(id, newId ?? "", by ?? "");
+            var clone = store.Clone(id, newId ?? "", ServerStampedAuthor.Resolve(ctx, by) ?? "");
             if (clone is null)
                 return NotFound(id);
             FileLog.Write($"[SkillEndpoints] clone: '{id}' -> '{clone.Id}' v{clone.Version}");
             return Results.Json(clone, statusCode: StatusCodes.Status201Created);
         }));
 
-        app.MapDelete("/gateway/skills/{id}", (string id) => Guard(() =>
+        app.MapDelete(root + "/{id}", (string id) => Guard(() =>
         {
             if (!store.Archive(id))
                 return NotFound(id);
@@ -153,13 +167,13 @@ internal static class SkillEndpoints
             return Results.Json(new { id, archived = true });
         }));
 
-        app.MapGet("/gateway/skills/{id}/versions", (string id) =>
+        app.MapGet(root + "/{id}/versions", (string id) =>
         {
             var versions = store.ListVersions(id);
             return versions is null ? NotFound(id) : Results.Json(new { versions });
         });
 
-        app.MapGet("/gateway/skills/{id}/versions/{version:int}", (string id, int version) =>
+        app.MapGet(root + "/{id}/versions/{version:int}", (string id, int version) =>
         {
             var detail = store.GetVersionDetail(id, version);
             return detail is null ? NotFound(id) : Results.Json(detail);
@@ -167,13 +181,13 @@ internal static class SkillEndpoints
 
         // The owner's switch. Off = left out of every briefing and the default fetch refused; nothing
         // deleted, instant both ways fleet-wide. Both verbs REQUIRE ?by=<who>.
-        app.MapPost("/gateway/skills/{id}/enable", (string id, string? by) => Guard(() =>
-            store.SetEnabled(id, true, by ?? "")
+        app.MapPost(root + "/{id}/enable", (string id, string? by, HttpContext ctx) => Guard(() =>
+            store.SetEnabled(id, true, ServerStampedAuthor.Resolve(ctx, by) ?? "")
                 ? Results.Json(new { id, enabled = true })
                 : NotFound(id)));
 
-        app.MapPost("/gateway/skills/{id}/disable", (string id, string? by) => Guard(() =>
-            store.SetEnabled(id, false, by ?? "")
+        app.MapPost(root + "/{id}/disable", (string id, string? by, HttpContext ctx) => Guard(() =>
+            store.SetEnabled(id, false, ServerStampedAuthor.Resolve(ctx, by) ?? "")
                 ? Results.Json(new { id, enabled = false })
                 : NotFound(id)));
     }

@@ -1,0 +1,121 @@
+Teams 6 - the team's shared skills and workflows, Gateway part (devthrottle_internal#2304)
+Local runs on SOREN_NORTH, 4 October 2026, branch teams/2304-shared-skills (base origin/main cdaab4f2b).
+MSBUILDDISABLENODEREUSE=1 for every run.
+
+== 1. The new hosted tests and the dark switch ==
+.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~HostedTeamLibraryTests|FullyQualifiedName~HostedTeamsDarkTests"
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed: 0, Passed: 21, Skipped: 0, Total: 21
+  CcDirector.Gateway.Tests  outcome=Completed  total=21  executed=21
+
+== 2. The route walk and the existing skill and workflow routes (refactor unchanged) ==
+.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~TeamEndpointWalkTests|FullyQualifiedName~HostedTeamEndpointsTests|FullyQualifiedName~SkillEndpointsTests|FullyQualifiedName~WorkflowEndpointsTests|FullyQualifiedName~SkillLibraryReachesASessionTests"
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed: 0, Passed: 54, Skipped: 0, Total: 54
+  CcDirector.Gateway.Tests  outcome=Completed  total=54  executed=54
+
+== 3. The brief's area of the Gateway suite ==
+.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams|FullyQualifiedName~Skill|FullyQualifiedName~Workflow"
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed: 0, Passed: 100, Skipped: 0, Total: 100, Duration: 7 m 36 s
+  CcDirector.Gateway.Tests  outcome=Completed  total=100  executed=100
+
+== 4. The Teams unit tests ==
+dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
+  Passed!  - Failed: 0, Passed: 398, Skipped: 0, Total: 398
+
+== 5. The whole Gateway unit suite ==
+dotnet test src\CcDirector.Gateway.UnitTests
+  first run:  Failed!  - Failed: 1, Passed: 8354, Skipped: 8, Total: 8363, Duration: 9 m 29 s
+              (the summary cut off the failing test's name)
+dotnet test src\CcDirector.Gateway.UnitTests --no-build   (same build, run again to name it)
+  second run: Passed!  - Failed: 0, Passed: 8355, Skipped: 8, Total: 8363, Duration: 9 m 49 s
+  The one failure did not recur and is not named. The 8 skips are the PostgreSQL proofs that need the
+  -Parked run's own database.
+  third run (review of #3532: rebased on origin/main d3c225be2, review fixes, head bf4fd8127),
+  with a result file:
+dotnet test src\CcDirector.Gateway.UnitTests --logger trx
+  Failed!  - Failed: 1, Passed: 8371, Skipped: 8, Total: 8380, Duration: 7 m 34 s
+  The failure, named: CcDirector.Gateway.Tests.Factory.Memory.FactoryMembershipThroughTheCallersTests.
+    A_GRANDCHILD_IS_BORN_INTO_THE_FACTORY_THROUGH_TWO_REAL_HOPS
+    SQLite Error 19: 'UNIQUE constraint failed: device_import_markers.SourcePath'
+dotnet test src\CcDirector.Gateway.UnitTests --no-build --filter "FullyQualifiedName~FactoryMembershipThroughTheCallersTests"  (x3)
+  Passed! 19/19, 19/19, 19/19
+  No file in that area is changed by this branch. Likely a shared default device-file path between tests running
+  in parallel (the test builds new DeviceRegistry() with no path) - a reading, not observed.
+
+== 6. The default local gate ==
+.\scripts\test-local.ps1
+  PASS  CcDirector.Avalonia.Tests            862
+  PASS  CcDirector.Engine.Tests               68
+  PASS  CcDirector.HostedAgent.Tests          88
+  PASS  CcDirector.Launcher.Tests            197
+  PASS  CcDirector.Terminal.Avalonia.Tests    82
+  PASS  CcDirector.Reclaim.Tests             310
+  PASS  cc-director-setup.Tests               25
+  PASS  cc-director-setup-engine.Tests       649
+  PASS  cc-director-setup-cli.Tests           34
+  CcDirector.Core.UnitTests  outcome=NO-TRX - STOPPED for exceeding the 120-second budget (not a failure)
+dotnet test src\CcDirector.Core.UnitTests   (run alone)
+  Passed!  - Failed: 0, Passed: 1148, Skipped: 0, Total: 1148, Duration: 1 m 12 s
+  This change touches no Core code.
+
+== 7. Revert checks (each: commit, break one rule, run its tests, restore in finally) ==
+A. TeamPermissions.cs: Developer may change, Collaborator may use the shared skills and workflows
+   .\scripts\test-local.ps1 -Gateway -Filter "...HostedTeamLibraryTests.Issue2304Test2|...HostedTeamLibraryTests.Issue2304Test3"
+   FAIL  CcDirector.Gateway.Tests  Failed!  - Failed: 5, Passed: 0, Skipped: 0, Total: 5
+   outcome=Failed  total=5  executed=5
+B. TeamLibraryEndpoints.cs: the routes no longer enter the team's tenant
+   .\scripts\test-local.ps1 -Gateway -Filter "...Issue2304Test1_ASkill|...Issue2304Test1_AWorkflow"
+   FAIL  CcDirector.Gateway.Tests  Failed!  - Failed: 2, Passed: 0, Skipped: 0, Total: 2
+   outcome=Failed  total=2  executed=2
+C. TeamLibraryEndpoints.cs: TeamToEnter ignores the gate's record
+   dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~TeamLibraryEndpointsTests"
+   CcDirector.Gateway.Tests.Teams.TeamLibraryEndpointsTests.TeamToEnter_TheGateNeverRan_ReturnsNull [FAIL]
+After each: git checkout restored the source; git status clean. Runs 3, 4 and 5 rebuilt from the restored source.
+
+== 8. After the review of #3532 (head bf4fd8127, rebased on origin/main d3c225be2) ==
+dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
+  Passed!  - Failed: 0, Passed: 415, Skipped: 0, Total: 415
+.\scripts	est-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams|FullyQualifiedName~Skill|FullyQualifiedName~Workflow"
+  attempt 1: waited 10+ minutes on the machine-wide lock held by another seat's gate run (teams-2303-gate),
+             then aborted with executed=0 (exit 5). No verdict.
+  attempt 2: started, then STOPPED by the session host because the machine was critically low on memory.
+             No verdict.
+  => The Gateway suite has NO VERDICT on this head. The new hosted tests (ChangedBy_..., the renamed session-side
+     test) have not been run. Section 3's 100/100 is for the earlier head 577dbf919.
+Whole Gateway unit suite: see section 5, third run.
+
+== 9. CI run 37224142118 red on 4 Gateway tests, fixed (rebased on origin/main f2c5c29a9) ==
+Root cause, census (2 tests): clone, enable and disable now take the HttpContext to read the server-stamped author,
+so they left the context-less set. The census now says so, with the verdict, and lists 6 fewer rows.
+Root cause, dark switch (2 tests): the dark tests pinned 404 on GET of an unmapped team path. Any unmapped GET is
+answered by the Cockpit fallback: 404 without wwwroot/c in the test output, the 200 shell with it. CI builds the
+Cockpit into it; CockpitReactAppServingTests deletes that folder when it finishes. On main's last CI it ran first, so
+the dark test saw 404; on this run it ran last, so the dark tests saw the shell. Now each team route must be answered
+exactly as a never-mapped control path is (same status, same kind of body, never 200 JSON), the route table must hold
+nothing under /teams or /team-invitations, and nothing may be written. Main's invitations dark test got the same proof.
+The rebase left TeamLibraryEndpoints.Map and a closing brace after the Teams switch's block, beside main's new
+seat-convergence statement. That is a SYNTAX ERROR, not a silent leak: the first build after the rebase stopped with
+CS1519 in GatewayHost.cs, so commits 805e90110 to 333a8e9f2 do not compile and no Gateway with the library outside
+the switch could have been built from them. Corrected in d9f8850ad (whose message says "map ... inside the Teams
+switch again", which reads as if it had been mapped outside; it had not compiled). The pull request is squashed on
+merge, so those commits do not reach main. Correction made after the delta review, finding F1.
+
+dotnet test src/CcDirector.Gateway.Tests --filter "...HostedTeamsDarkTests|...ContextLessRouteCensusTests|...CcDirector.Gateway.Tests.Teams"
+  Passed! Failed 0, Passed 59, Total 59 (no Cockpit in the test output)
+  Dark tests with a Cockpit index.html in the test output (the CI condition): Passed 3 of 3. This is the ONLY run
+  of the page-present branch: the local gate builds Debug, where wwwroot/c never exists, and in CI it depends on
+  test order. A green CI run does not show that branch ran (delta review, finding F2).
+dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
+  Passed! Failed 0, Passed 576, Skipped 1 (main's opt-in invitation proof rig), Total 577
+Red checks (the second and third are a leak MADE BY HAND to see the new assertions fail - the call moved to just
+before AdminTrialEndpoint.Map, outside the switch, in a file that compiles - not the state the rebase produced):
+  - The test file CI ran (c3b6de244), Cockpit page present: both dark tests FAILED (reproduces CI)
+  - Hand-made leak, page present: all 3 dark tests FAILED
+  - Same hand-made leak, no page: all 3 dark tests FAILED
+  Only the failing test NAMES were kept from those runs, not the assertion text, so the record does not show which
+  assertion failed. By reading, the first to fail is the route-table assertion (a /teams/{teamId}/... pattern is in
+  the table), which runs before any request.
+  Source restored and rebuilt before the green run above.
+
+== Not run here ==
+-Parked in full (the Tech Lead runs it). No migration, so the PostgreSQL migration-count pins were not affected.
+No web or Python code changed in this part.

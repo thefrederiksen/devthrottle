@@ -23,6 +23,7 @@ export type NavIconName =
   | "schedule"
   | "workflows"
   | "skills"
+  | "mentor"
   | "dictionary"
   | "voice-recorder"
   | "transcription"
@@ -33,7 +34,10 @@ export type NavIconName =
   | "settings"
   | "injected-text"
   | "about"
-  | "help";
+  | "help"
+  | "questions"
+  | "requests"
+  | "reports";
 
 // The shapes, keyed by name. Each value is the icon's paint - the <svg> wrapper (grid, stroke, size)
 // is applied once below, so no glyph can drift off the shared geometry.
@@ -195,6 +199,15 @@ const PAINT: Record<NavIconName, JSX.Element> = {
       <path d="M12 8h.01" />
     </>
   ),
+  // A lightbulb: the Mentor's weekly page, whose every block ends on one thing to try (devthrottle_internal#2305).
+  // The only rounded-top shape with a base in the set, so it does not read as any of the circles.
+  mentor: (
+    <>
+      <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14" />
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
+    </>
+  ),
   // A question mark: help / documentation. A curl rather than the "i" stroke keeps it distinct in
   // silhouette from the About info mark that sits beside it in the bottom list.
   help: (
@@ -202,6 +215,31 @@ const PAINT: Record<NavIconName, JSX.Element> = {
       <circle cx="12" cy="12" r="10" />
       <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
       <path d="M12 17h.01" />
+    </>
+  ),
+  // A speech bubble holding a question mark: a question waiting on this person (devthrottle_internal#2306). The
+  // bubble's tail keeps it apart from the round Help mark.
+  questions: (
+    <>
+      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <path d="M9.5 8.5a2.5 2.5 0 0 1 4.8 1c0 1.5-2.3 2-2.3 2" />
+      <path d="M12 14h.01" />
+    </>
+  ),
+  // A paper plane: something this person sends to the team.
+  requests: (
+    <>
+      <path d="M22 2 11 13" />
+      <path d="M22 2 15 22l-4-9-9-4z" />
+    </>
+  ),
+  // A page with a folded corner and lines: a report somebody sent to this person.
+  reports: (
+    <>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+      <path d="M8 13h8" />
+      <path d="M8 17h5" />
     </>
   ),
 };

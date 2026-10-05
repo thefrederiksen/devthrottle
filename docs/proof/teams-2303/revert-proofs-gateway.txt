@@ -1,0 +1,70 @@
+Revert proofs, Gateway unit suite, filter FullyQualifiedName~Teams. Each rule is broken in the source, the
+suite is BUILT and run (never --no-build), and the source is restored in a finally block.
+
+=== M1 the bill: call sync even when the paid-seat count did not move
+    file: src\CcDirector.Gateway\Teams\TeamRegistry.cs
+    - if (paidBefore == paidAfter)
+    + if (false && paidBefore == paidAfter)
+    exit code: 1
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.ChangeMemberRole_PaidToPaid_LeavesTheBillAlone(member: "sub-manager", newRole: Developer) [293 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.ChangeMemberRole_PaidToPaid_LeavesTheBillAlone(member: "sub-developer", newRole: Manager) [248 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.RemoveTeamMember_APaidMember_AsksTheWebsiteToRecount_AFreeOneDoesNot [312 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamInvitationTests.SeatSync_AcceptRemoveAndRoleChange_CallSyncOnceWithTheTeamId_OnlyWhenThePaidSeatCountMoves [116 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamInvitationTests.SeatSync_AcceptingACollaboratorInvitation_DoesNotCallSync [212 ms]
+    Failed!  - Failed:     5, Passed:   582, Skipped:     1, Total:   588, Duration: 52 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+=== M2 remove: allow any member, skipping the role table's cell for removing that role
+    file: src\CcDirector.Gateway\Teams\TeamRegistry.TeamPage.cs
+    - if (decision.Allowed)
+    + if (decision.Allowed || decision.IsMember)
+    exit code: 1
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.DescribeTeamPage_Manager_RoleIsPlainText_AndRemovesOnlyDevelopersAndCollaborators [293 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.DescribeTeamPage_Developer_TheListAndNothingToClick [238 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.RemoveTeamMember_DeveloperOrCollaborator_IsRefusedEveryRemoval(caller: "sub-developer") [306 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.RemoveTeamMember_DeveloperOrCollaborator_IsRefusedEveryRemoval(caller: "sub-collaborator") [158 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.RemoveMember_Route_OwnerRemovingThemselvesIs409_ManagerRemovingAManagerIs403 [568 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.RemoveTeamMember_ManagerRemovingAManagerOrTheOwner_IsRefused [554 ms]
+    Failed!  - Failed:     6, Passed:   581, Skipped:     1, Total:   588, Duration: 1 m 15 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+=== M3 the role table: give a Collaborator the Team page
+    file: src\CcDirector.Gateway\Teams\TeamPermissions.cs
+    - "open the Team page", Yes, Yes, Yes, No)
+    + "open the Team page", Yes, Yes, Yes, Yes)
+    exit code: 1
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.TeamPage_Route_CollaboratorIs403_StrangerIs404 [477 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPermissionsTests.Grant_EveryCellOfTheRoleTable_IsTheCellIn2098(action: SeeTeamPage, role: Collaborator) [< 1 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamEndpointGateTests.Check_EveryCellWithAnEndpointToday_TheServerGivesTheCellsAnswer(action: SeeTeamPage, role: Collaborator) [360 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.DescribeTeamPage_Collaborator_HasNoTeamPage_InTheRoleTablesWords [310 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamAccessTests.Decide_EveryCell_TheMembersRoleFromTheDatabaseGetsTheTablesAnswer(action: SeeTeamPage, role: Collaborator) [225 ms]
+    Failed!  - Failed:     5, Passed:   582, Skipped:     1, Total:   588, Duration: 57 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+=== M4 change role: refuse only a non-member, skipping the cell for MakeManagersAndChangeRoles
+    file: src\CcDirector.Gateway\Teams\TeamRegistry.TeamPage.cs
+    - if (!decision.Allowed)
+            return MemberChangeRefused("ChangeMemberRole"
+    + if (!decision.IsMember)
+            return MemberChangeRefused("ChangeMemberRole"
+    exit code: 1
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.RefusedChanges_NeverAskTheWebsite [312 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.ChangeMemberRole_DeveloperOrCollaborator_IsRefused(caller: "sub-collaborator") [587 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.ChangeMemberRole_DeveloperOrCollaborator_IsRefused(caller: "sub-developer") [252 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.ChangeMemberRole_Manager_IsRefusedInTheRoleTablesWords_AndNothingChanges [409 ms]
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.ChangeRole_Route_BadRoleIs400_ManagerIs403_OwnerIs200AndTheServerHoldsIt [135 ms]
+    Failed!  - Failed:     5, Passed:   582, Skipped:     1, Total:   588, Duration: 1 m 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Review F1 (an expired invitation), added after the review. Same method, filter FullyQualifiedName~TeamPageTests.
+
+=== F1.1 put back the reviewed behaviour
+    - CanCancel: i.State == TeamInvitationStates.Sent && TeamInvitationRules.MayInvite(callerRole, i.Role)))
+    + CanCancel: TeamInvitationRules.MayInvite(callerRole, i.Role)))  (the fix)
+    mutated back to the first line; exit code: 1
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.DescribeTeamPage_AnExpiredInvitation_IsListedWithResendAndCancel_AndIsNotCountedAsWaiting [124 ms]
+    Failed!  - Failed:     1, Passed:    45, Skipped:     0, Total:    46, Duration: 20 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+=== F1.2 put back the reviewed behaviour
+    - Summary(paid, free, mayInvite ? invitations.Count : null)
+    + Summary(paid, free, mayInvite ? waiting : null)  (the fix)
+    mutated back to the first line; exit code: 1
+    Failed CcDirector.Gateway.Tests.Teams.TeamPageTests.DescribeTeamPage_AnExpiredInvitation_IsListedWithResendAndCancel_AndIsNotCountedAsWaiting [294 ms]
+    Failed!  - Failed:     1, Passed:    45, Skipped:     0, Total:    46, Duration: 36 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+

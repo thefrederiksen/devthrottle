@@ -10,8 +10,11 @@ import { keepWarmPing } from "../api/client";
 
 export const KEEP_WARM_MS = 25000;
 
-export function useKeepWarm(): void {
+// `enabled` false sends nothing: a Cockpit that is only a Collaborator's three pages has no Director path to keep warm
+// (devthrottle_internal#2306, review finding F2).
+export function useKeepWarm(enabled = true): void {
   useEffect(() => {
+    if (!enabled) return undefined;
     if (typeof document === "undefined") {
       // Non-DOM env (SSR/tests): a plain interval with no visibility gating.
       const timer = setInterval(() => void keepWarmPing(), KEEP_WARM_MS);
@@ -39,5 +42,5 @@ export function useKeepWarm(): void {
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [enabled]);
 }

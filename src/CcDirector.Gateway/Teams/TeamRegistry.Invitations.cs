@@ -272,7 +272,7 @@ public sealed partial class TeamRegistry
                 Role = row.Role,
                 JoinedAtUtc = now,
             });
-            CommitMembershipChange(ctx, team.Id, TeamMembershipChange.MemberAdded);
+            CommitMembershipChange(ctx, team.Id, TeamMembershipChange.MemberAdded, caller, row.Role);
 
             FileLog.Write($"[TeamRegistry] AcceptInvitation: invitation {row.Id} accepted - joined team {LogTeam(team.Id)} as {row.Role}");
             return TeamInvitationResult.Done(Describe(ctx, team, row, now) with { SignedInAs = DisplayFor(ctx, caller, role: null) });
