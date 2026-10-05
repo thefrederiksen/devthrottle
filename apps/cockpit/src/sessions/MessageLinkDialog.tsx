@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { GatewayError, type SessionDto } from "@devthrottle/client-core/api/client";
+import type { SessionDto } from "@devthrottle/client-core/api/client";
 import { useSharedRoster } from "@devthrottle/client-core/fleet/rosterStore";
 import {
   listMessageLinks,
@@ -17,19 +17,13 @@ const SURFACE = "cockpit-message-link";
 // "Let this session talk to..." (issue #3548). A session may message only its own owner and the sessions it
 // started; the owner can let it talk to any other session as well - once, once with a reply, or as much as the
 // two need. The owner sets up the link and the sessions decide what to send: nothing here approves a message.
-// Every sentence after a click is the Gateway's - the link's summary, or the reason it was refused.
+// What a link allows and whether it is still live are the Gateway's words (its summary); which two sessions it
+// joins is drawn here, from the roster, because the summary does not name them. A refusal reaches the owner in
+// the Gateway's words through describeAndReport, which puts the server's reason first.
 
 export interface MessageLinkDialogProps {
   session: SessionDto;
   onClose: () => void;
-}
-
-/** What the owner reads after a failure. A refusal is shown in the Gateway's own words - why THIS link cannot be set
- *  up - never the generic sentence for its status code, which for a 409 would say "reload and try again" about a
- *  pair that will be refused again. A lost request or a server fault has no such sentence and is reported. */
-function failureText(action: string, err: unknown): string {
-  if (err instanceof GatewayError && err.serverReason) return err.serverReason;
-  return describeAndReport(SURFACE, action, err);
 }
 
 /** The name the owner knows a session by, falling back to the start of its id. */
@@ -39,11 +33,20 @@ export function sessionLabel(s: Pick<SessionDto, "sessionId" | "name">): string 
   return name.length > 0 ? `${name} (${id})` : id;
 }
 
-/** The sessions this one could be linked to: every other session the roster knows, by name. */
+/** The sessions this one could be linked to: every other session the roster lists (it lists running ones). */
 export function linkCandidates(sessions: SessionDto[] | null, sessionId: string): SessionDto[] {
   return (sessions ?? [])
     .filter((s) => (s.sessionId ?? "").length > 0 && s.sessionId !== sessionId)
     .sort((a, b) => sessionLabel(a).localeCompare(sessionLabel(b)));
+}
+
+/** One line for a link: which sessions it joins, in which direction, then the Gateway's summary. An ongoing link
+ *  carries both ways, so it is "A and B"; a one-time link goes from its sender, so it is "A to B". */
+export function linkLine(link: MessageLink, nameOf: (id: string) => string): string {
+  const a = nameOf(link.senderSessionId);
+  const b = nameOf(link.recipientSessionId);
+  const who = link.amount === "ongoing" ? `${a} and ${b}` : `${a} to ${b}`;
+  return `${who}: ${link.summary}`;
 }
 
 export function MessageLinkDialog({ session, onClose }: MessageLinkDialogProps) {
@@ -53,23 +56,13 @@ export function MessageLinkDialog({ session, onClose }: MessageLinkDialogProps) 
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState<MessageLinkAmount>("once-with-reply");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // What the last click did, and why it failed - kept apart from the list's own load failure, so a reload that
+  // fails after a set up that worked can never make the owner read the set up as failed and do it again.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [links, setLinks] = useState<MessageLink[] | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const dismiss = useDismissOnBackdrop(onClose);
-
-  const loadLinks = useCallback(async () => {
-    try {
-      const list = await listMessageLinks();
-      setLinks(list.links.filter((l) => l.status === "live" && (l.senderSessionId === sid || l.recipientSessionId === sid)));
-    } catch (err) {
-      setError(failureText("load the message links", err));
-    }
-  }, [sid]);
-
-  useEffect(() => {
-    void loadLinks();
-  }, [loadLinks]);
 
   const nameOf = useCallback(
     (id: string) => {
@@ -79,36 +72,52 @@ export function MessageLinkDialog({ session, onClose }: MessageLinkDialogProps) 
     [sessions],
   );
 
+  const loadLinks = useCallback(async () => {
+    try {
+      const list = await listMessageLinks();
+      setLinks(list.links.filter((l) => l.status === "live" && (l.senderSessionId === sid || l.recipientSessionId === sid)));
+      setListError(null);
+    } catch (err) {
+      setListError(describeAndReport(SURFACE, "load the message links", err));
+    }
+  }, [sid]);
+
+  useEffect(() => {
+    void loadLinks();
+  }, [loadLinks]);
+
   const doSetUp = async () => {
     if (recipient.length === 0) return;
     setBusy(true);
-    setError(null);
+    setActionError(null);
     setDone(null);
     try {
       const result = await setUpMessageLink(sid, recipient, amount);
-      setDone(result.link.summary);
+      setDone(`Set up. ${linkLine(result.link, nameOf)}`);
       setRecipient("");
-      await loadLinks();
     } catch (err) {
-      setError(failureText("set up the message link", err));
+      setActionError(describeAndReport(SURFACE, "set up the message link", err));
     } finally {
       setBusy(false);
     }
+    await loadLinks();
   };
 
   const doRemove = async (link: MessageLink) => {
     setBusy(true);
-    setError(null);
+    setActionError(null);
     setDone(null);
     try {
-      await removeMessageLink(link.linkId);
-      setDone("Link removed.");
-      await loadLinks();
+      // The Gateway answers with the link as it now stands: "Removed." when this click removed it, or "Used."
+      // when a message used it up a moment before. Its summary says which.
+      const after = await removeMessageLink(link.linkId);
+      setDone(linkLine(after, nameOf));
     } catch (err) {
-      setError(failureText("remove the message link", err));
+      setActionError(describeAndReport(SURFACE, "remove the message link", err));
     } finally {
       setBusy(false);
     }
+    await loadLinks();
   };
 
   return (
@@ -155,8 +164,8 @@ export function MessageLinkDialog({ session, onClose }: MessageLinkDialogProps) 
           ))}
         </fieldset>
 
-        {error !== null && <div className="session-dialog-error">{error}</div>}
-        {done !== null && error === null && (
+        {actionError !== null && <div className="session-dialog-error">{actionError}</div>}
+        {done !== null && (
           <div className="session-dialog-text" role="status">
             {done}
           </div>
@@ -164,14 +173,13 @@ export function MessageLinkDialog({ session, onClose }: MessageLinkDialogProps) 
 
         <div className="message-link-current">
           <div className="session-menu-head">This session's links</div>
-          {links === null && <div className="session-dialog-text">Loading...</div>}
+          {listError !== null && <div className="session-dialog-error">{listError}</div>}
+          {links === null && listError === null && <div className="session-dialog-text">Loading...</div>}
           {links !== null && links.length === 0 && <div className="session-dialog-text">None.</div>}
           {links !== null &&
             links.map((l) => (
               <div key={l.linkId} className="message-link-row">
-                <span>
-                  {l.summary || `${nameOf(l.senderSessionId)} to ${nameOf(l.recipientSessionId)}`}
-                </span>
+                <span>{linkLine(l, nameOf)}</span>
                 <button type="button" className="session-dialog-btn" onClick={() => void doRemove(l)} disabled={busy}>
                   Remove
                 </button>
