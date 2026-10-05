@@ -71,7 +71,9 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const markedRead = useRef(false);
+  // The version this page marked read - not merely that it marked one - so a version sent while the report is open
+  // is marked when it is shown (delta review D5).
+  const markedVersion = useRef<number | null>(null);
 
   const refresh = useCallback(
     async (signal: AbortSignal) => {
@@ -92,13 +94,19 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
   );
   useVisiblePolling(refresh, TEAM_REPORTS_POLL_MS);
 
-  // Opening it is reading it - once per open, and only once the Gateway has said it was sent to this person.
+  // Opening a version is reading it - once per version, and only once the Gateway has said it was sent to this person.
+  // The request names the version shown; the Gateway marks it only when it is the one held, and otherwise says why,
+  // and the page reads again, which brings the version now held and marks that one.
   useEffect(() => {
-    if (detail === null || markedRead.current) return;
-    markedRead.current = true;
-    if (!detail.report.read) {
-      markReportRead(teamId, reportId).catch((err: unknown) => setError(gatewayErrorMessage(err, "mark the report read")));
-    }
+    if (detail === null || detail.report.read || markedVersion.current === detail.report.version) return;
+    const version = detail.report.version;
+    markedVersion.current = version;
+    markReportRead(teamId, reportId, version).catch((err: unknown) => {
+      setError(gatewayErrorMessage(err, "mark the report read"));
+      void getReportSentToMe(teamId, reportId).then((next) => {
+        if (next !== null) setDetail(next);
+      });
+    });
   }, [detail, teamId, reportId]);
 
   const send = useCallback(async () => {
@@ -128,56 +136,54 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
       <DevReportViewer
         reportId={reportId}
         api={api}
-        notes={detail.notesOpen}
+        notes={detail.notesOpen === true}
         onNotFound={() => setMissing(true)}
         leading={<BackButton onBack={onBack} />}
         renderConversation={() => (
           <aside className="reports-conversation team-report-side" aria-label="Comments" data-testid="team-report-comments">
             <h2 className="reports-conversation-title">Comments</h2>
-            {(
-              <div className="team-report-side-body">
-                <p className="team-report-from">
-                  From {detail.report.from}
-                </p>
-                <p className="team-report-note" data-testid="team-report-comments-note">
-                  {detail.commentsNote}
-                </p>
-                {error && <ErrorBanner message={error} />}
-                <ul className="team-report-comments">
-                  {detail.comments.map((c) => (
-                    <li key={c.id} className="team-report-comment" data-testid="team-report-comment">
-                      <time dateTime={c.atUtc}>{dateAndTime(c.atUtc)}</time>
-                      <p>{c.text}</p>
-                    </li>
-                  ))}
-                </ul>
-                {detail.canComment && (
-                  <>
-                    <label className="team-report-label" htmlFor="team-report-comment-box">
-                      Your comment
-                    </label>
-                    <textarea
-                      id="team-report-comment-box"
-                      className="team-report-textarea"
-                      data-testid="team-report-comment-box"
-                      rows={4}
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                    />
-                  </>
-                )}
-                {sendError && (
-                  <div className="dev-report-error" role="alert" data-testid="team-report-comment-error">
-                    {sendError}
-                  </div>
-                )}
-                {detail.canComment && (
-                  <Button variant="primary" data-testid="team-report-comment-send" disabled={sending || draft.trim().length === 0} onClick={() => void send()}>
-                    {sending ? "Sending..." : "Send comment"}
-                  </Button>
-                )}
-              </div>
-            )}
+            <div className="team-report-side-body">
+              <p className="team-report-from">
+                From {detail.report.from}
+              </p>
+              <p className="team-report-note" data-testid="team-report-comments-note">
+                {detail.commentsNote}
+              </p>
+              {error && <ErrorBanner message={error} />}
+              <ul className="team-report-comments">
+                {detail.comments.map((c) => (
+                  <li key={c.id} className="team-report-comment" data-testid="team-report-comment">
+                    <time dateTime={c.atUtc}>{dateAndTime(c.atUtc)}</time>
+                    <p>{c.text}</p>
+                  </li>
+                ))}
+              </ul>
+              {detail.canComment && (
+                <>
+                  <label className="team-report-label" htmlFor="team-report-comment-box">
+                    Your comment
+                  </label>
+                  <textarea
+                    id="team-report-comment-box"
+                    className="team-report-textarea"
+                    data-testid="team-report-comment-box"
+                    rows={4}
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                  />
+                </>
+              )}
+              {sendError && (
+                <div className="dev-report-error" role="alert" data-testid="team-report-comment-error">
+                  {sendError}
+                </div>
+              )}
+              {detail.canComment && (
+                <Button variant="primary" data-testid="team-report-comment-send" disabled={sending || draft.trim().length === 0} onClick={() => void send()}>
+                  {sending ? "Sending..." : "Send comment"}
+                </Button>
+              )}
+            </div>
           </aside>
         )}
       />
@@ -216,18 +222,26 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
   const toggle = (memberId: string) =>
     setChosen((now) => (now.includes(memberId) ? now.filter((m) => m !== memberId) : [...now, memberId]));
 
+  // The send names the version this page is showing, so what is sent is what the author read (delta review D2). When
+  // the Gateway refuses it - the session published a newer one meanwhile - its sentence is shown and the page reads
+  // again, which brings the newer version to read before sending.
+  const shownVersion = detail?.report.version ?? null;
   const send = useCallback(async () => {
+    if (shownVersion === null) return;
     setSending(true);
     setSendError(null);
     try {
-      setDetail(await sendMyTeamReport(teamId, reportId, chosen));
+      setDetail(await sendMyTeamReport(teamId, reportId, chosen, shownVersion));
       setChosen([]);
     } catch (err) {
       setSendError(gatewayErrorMessage(err, "send the report"));
+      void getMyTeamReport(teamId, reportId).then((next) => {
+        if (next !== null) setDetail(next);
+      });
     } finally {
       setSending(false);
     }
-  }, [teamId, reportId, chosen]);
+  }, [teamId, reportId, chosen, shownVersion]);
 
   if (missing) return <Missing onBack={onBack} />;
   if (detail === null) return <ReportLoading error={error} onBack={onBack} />;
@@ -237,74 +251,72 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
       <DevReportViewer
         reportId={reportId}
         api={api}
-        notes={detail.notesOpen}
+        notes={detail.notesOpen === true}
         onNotFound={() => setMissing(true)}
         leading={<BackButton onBack={onBack} />}
         renderConversation={() => (
           <aside className="reports-conversation team-report-side" aria-label="Sharing and comments" data-testid="team-report-sharing">
-            {(
-              <div className="team-report-side-body">
-                {error && <ErrorBanner message={error} />}
-                <h2 className="team-report-side-heading">Comments from people</h2>
-                {detail.comments.length === 0 && (
-                  <p className="team-report-note" data-testid="team-report-no-comments">
-                    {detail.commentsEmptyText}
-                  </p>
-                )}
-                <ul className="team-report-comments">
-                  {detail.comments.map((c) => (
-                    <li key={c.id} className="team-report-comment" data-testid="team-report-comment-from-person">
-                      <span className="team-report-comment-who">{c.from}</span> <time dateTime={c.atUtc}>{dateAndTime(c.atUtc)}</time>
-                      <p>{c.text}</p>
-                    </li>
-                  ))}
-                </ul>
+            <div className="team-report-side-body">
+              {error && <ErrorBanner message={error} />}
+              <h2 className="team-report-side-heading">Comments from people</h2>
+              {detail.comments.length === 0 && (
+                <p className="team-report-note" data-testid="team-report-no-comments">
+                  {detail.commentsEmptyText}
+                </p>
+              )}
+              <ul className="team-report-comments">
+                {detail.comments.map((c) => (
+                  <li key={c.id} className="team-report-comment" data-testid="team-report-comment-from-person">
+                    <span className="team-report-comment-who">{c.from}</span> <time dateTime={c.atUtc}>{dateAndTime(c.atUtc)}</time>
+                    <p>{c.text}</p>
+                  </li>
+                ))}
+              </ul>
 
-                <h2 className="team-report-side-heading">Sent to</h2>
-                {detail.recipients.length === 0 && <p className="team-report-note">{detail.recipientsEmptyText}</p>}
-                <ul className="team-report-recipients">
-                  {detail.recipients.map((r) => (
-                    <li key={r.memberId} data-testid="team-report-recipient">
-                      <span>{r.name}</span> <span className="team-report-recipient-read">{r.readLabel}</span>
-                      {r.versionLabel !== null && (
-                        <span className="team-report-recipient-version" data-testid="team-report-recipient-version">
-                          {" "}
-                          {r.versionLabel}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-
-                {detail.choices.length > 0 && (
-                  <fieldset className="team-report-send" data-testid="team-report-send">
-                    <legend className="team-report-side-heading">Send to</legend>
-                    <p className="team-report-note">{detail.sendNote}</p>
-                    {detail.choices.map((c) => (
-                      <label key={c.memberId} className="team-report-choice">
-                        <input
-                          type="checkbox"
-                          data-testid="team-report-choice"
-                          value={c.memberId}
-                          checked={chosen.includes(c.memberId)}
-                          onChange={() => toggle(c.memberId)}
-                        />{" "}
-                        {c.name} <span className="team-report-choice-role">{c.role}</span>
-                        {c.heldLabel !== null && <span className="team-report-choice-held"> {c.heldLabel}</span>}
-                      </label>
-                    ))}
-                    {sendError && (
-                      <div className="dev-report-error" role="alert" data-testid="team-report-send-error">
-                        {sendError}
-                      </div>
+              <h2 className="team-report-side-heading">Sent to</h2>
+              {detail.recipients.length === 0 && <p className="team-report-note">{detail.recipientsEmptyText}</p>}
+              <ul className="team-report-recipients">
+                {detail.recipients.map((r) => (
+                  <li key={r.memberId} data-testid="team-report-recipient">
+                    <span>{r.name}</span> <span className="team-report-recipient-read">{r.readLabel}</span>
+                    {r.versionLabel !== null && (
+                      <span className="team-report-recipient-version" data-testid="team-report-recipient-version">
+                        {" "}
+                        {r.versionLabel}
+                      </span>
                     )}
-                    <Button variant="primary" data-testid="team-report-send-button" disabled={sending || chosen.length === 0} onClick={() => void send()}>
-                      {sending ? "Sending..." : "Send report"}
-                    </Button>
-                  </fieldset>
-                )}
-              </div>
-            )}
+                  </li>
+                ))}
+              </ul>
+
+              {detail.choices.length > 0 && (
+                <fieldset className="team-report-send" data-testid="team-report-send">
+                  <legend className="team-report-side-heading">Send to</legend>
+                  <p className="team-report-note">{detail.sendNote}</p>
+                  {detail.choices.map((c) => (
+                    <label key={c.memberId} className="team-report-choice">
+                      <input
+                        type="checkbox"
+                        data-testid="team-report-choice"
+                        value={c.memberId}
+                        checked={chosen.includes(c.memberId)}
+                        onChange={() => toggle(c.memberId)}
+                      />{" "}
+                      {c.name} <span className="team-report-choice-role">{c.role}</span>
+                      {c.heldLabel !== null && <span className="team-report-choice-held"> {c.heldLabel}</span>}
+                    </label>
+                  ))}
+                  {sendError && (
+                    <div className="dev-report-error" role="alert" data-testid="team-report-send-error">
+                      {sendError}
+                    </div>
+                  )}
+                  <Button variant="primary" data-testid="team-report-send-button" disabled={sending || chosen.length === 0} onClick={() => void send()}>
+                    {sending ? "Sending..." : "Send report"}
+                  </Button>
+                </fieldset>
+              )}
+            </div>
           </aside>
         )}
       />

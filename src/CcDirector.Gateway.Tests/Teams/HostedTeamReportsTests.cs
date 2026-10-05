@@ -136,7 +136,7 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
     private async Task SendTo(Guid report, params string[] subjects)
     {
         var (status, _) = await Call(HttpMethod.Post, $"teams/{_team}/reports/mine/{report}/recipients", _aliceKey,
-            new { memberIds = subjects.Select(MemberId).ToArray() });
+            new { memberIds = subjects.Select(MemberId).ToArray(), version = 1 });
         Assert.Equal(HttpStatusCode.OK, status);
     }
 
@@ -158,7 +158,7 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
         var (_, before) = await Call(HttpMethod.Get, $"teams/{_team}/reports/mine/{report}", _aliceKey);
         var mikeChoice = Json(before).GetProperty("choices").EnumerateArray()
             .Single(c => c.GetProperty("name").GetString() == "mike@example.com").GetProperty("memberId").GetString()!;
-        var (sent, _) = await Call(HttpMethod.Post, $"teams/{_team}/reports/mine/{report}/recipients", _aliceKey, new { memberIds = new[] { mikeChoice } });
+        var (sent, _) = await Call(HttpMethod.Post, $"teams/{_team}/reports/mine/{report}/recipients", _aliceKey, new { memberIds = new[] { mikeChoice }, version = 1 });
         Assert.Equal(HttpStatusCode.OK, sent);
 
         Assert.Equal(new[] { report.ToString("D") }, await SentToMe(_mikeKey));
@@ -169,6 +169,48 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
         Assert.Equal("alice@example.com", row.GetProperty("from").GetString());
         Assert.Equal("New", row.GetProperty("readLabel").GetString());
         Assert.False(Json(mike).GetProperty("showYourReports").GetBoolean());
+    }
+
+    /// <summary>
+    /// THE VERSION RULE ON THE ROUTE (delta review D3), not only on the class behind it: a version published after the
+    /// send is not what the recipient's html route serves, and asking for it by number is refused with the Gateway's
+    /// sentence. And the author's page, still showing version 1, cannot send the newer one it has not shown (D2).
+    /// </summary>
+    [Fact]
+    public async Task Issue2309_D3_OverTheWire_AVersionPublishedAfterTheSend_IsNotServedToTheRecipient_AndASendOfTheOlderOneIsRefused()
+    {
+        var sessionId = Guid.NewGuid().ToString("D");
+        var key = $@"C:\work\{Guid.NewGuid():N}.html";
+        var report = _gateway.DevReportsForTest.Publish(new TenantId(_team), sessionId, key, Html("First version"), "waiting-on-you",
+            "First version", DateTime.UtcNow, _alice).Report.Id;
+        await SendTo(report, _mike);
+        var second = _gateway.DevReportsForTest.Publish(new TenantId(_team), sessionId, key, Html("Second version"), "done",
+            "Second version", DateTime.UtcNow, _alice).Report;
+        Assert.Equal(2, second.Version);
+
+        // No query: the version Mike was sent, its bytes and its header.
+        using (var req = new HttpRequestMessage(HttpMethod.Get, $"teams/{_team}/reports/sent-to-me/{report}/html"))
+        {
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _mikeKey);
+            using var resp = await _http.SendAsync(req);
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.Equal("1", resp.Headers.GetValues("X-Dev-Report-Version").Single());
+            Assert.Equal(Html("First version"), await resp.Content.ReadAsStringAsync());
+        }
+        // Asked for by number: refused with the Gateway's own sentence, and none of the newer bytes.
+        var (status, text) = await Call(HttpMethod.Get, $"teams/{_team}/reports/sent-to-me/{report}/html?version=2", _mikeKey);
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.Equal(CcDirector.Gateway.Api.TeamReportEndpoints.VersionNotSentToYou, Json(text).GetProperty("error").GetString());
+        Assert.DoesNotContain("Second version", text);
+
+        // Alice's page still shows version 1: sending that is refused, because it is no longer the newest, and Mike
+        // still holds version 1.
+        var (refused, why) = await Call(HttpMethod.Post, $"teams/{_team}/reports/mine/{report}/recipients", _aliceKey,
+            new { memberIds = new[] { MemberId(_nina) }, version = 1 });
+        Assert.Equal(HttpStatusCode.Conflict, refused);
+        Assert.Equal("version_not_newest", Json(why).GetProperty("code").GetString());
+        Assert.Equal(CcDirector.Gateway.Api.TeamReportEndpoints.NotTheNewestVersion, Json(why).GetProperty("error").GetString());
+        Assert.DoesNotContain(report.ToString("D"), await SentToMe(_ninaKey));
     }
 
     [Fact]
@@ -200,7 +242,7 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
                      (HttpMethod.Post, $"teams/{_team}/reports/sent-to-me/{report}/read"),
                  })
         {
-            var (status, text) = await Call(method, path, _ninaKey, method == HttpMethod.Post ? new { } : null);
+            var (status, text) = await Call(method, path, _ninaKey, method == HttpMethod.Post ? new { version = 1 } : null);
             Assert.Equal(HttpStatusCode.NotFound, status);
             Assert.DoesNotContain("Signup page rewrite", text);
         }
@@ -247,6 +289,11 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
         Assert.Empty(_gateway.DevReportsForTest.SessionsWithOpenItems(team));
 
         // ABSENT from every read a session key can make. The team's session is registered with its own key, in the team.
+        // TODAY EVERY READ BELOW IS STOPPED BY THE ACCESS LEASE (402), before any route runs, so "not 200" holds for a
+        // reason that is not this rule (delta review D6). When the lease reads the team's bill, the two session routes
+        // will answer 200 and the NotEqual(OK) goes red. Do NOT loosen it then: replace it, for those two, with the
+        // personal-tenant test's assertion - 200, the marker absent, and a positive control (the owner's note) present -
+        // as Issue2309_ACommentNeverReachesTheSession_LiveSessionOnTheTunnel does below.
         var sessionKey = GatewaySessionKey.Mint();
         Assert.True(_gateway.SessionKeys.Register(team, "director-alice-team", sessionId, GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
         foreach (var (method, path) in new[]
@@ -340,7 +387,7 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
         Assert.True(_gateway.TeamRegistry.AddMember(other, _stranger, TeamRole.Collaborator).IsDone);
 
         var (status, text) = await Call(HttpMethod.Post, $"teams/{_team}/reports/mine/{report}/recipients", _aliceKey,
-            new { memberIds = new[] { MemberId(_mike), TeamMemberIds.For(other, _stranger) } });
+            new { memberIds = new[] { MemberId(_mike), TeamMemberIds.For(other, _stranger) }, version = 1 });
 
         Assert.Equal(HttpStatusCode.BadRequest, status);
         Assert.Equal("not_a_member", Json(text).GetProperty("code").GetString());
@@ -353,7 +400,7 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
         var report = TeamReport();
 
         var (status, text) = await Call(HttpMethod.Post, $"teams/{_team}/reports/mine/{report}/recipients", _bobKey,
-            new { memberIds = new[] { MemberId(_mike) } });
+            new { memberIds = new[] { MemberId(_mike) }, version = 1 });
 
         Assert.Equal(HttpStatusCode.Forbidden, status);
         Assert.Equal(TeamEndpointGate.RefusalCode, Json(text).GetProperty("code").GetString());
@@ -473,7 +520,7 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
         Assert.Equal(9, routes.Count);
         foreach (var (method, path, pattern) in routes)
         {
-            var (status, text) = await Call(method, path, sessionKey, method == HttpMethod.Post ? new { text = "agent", memberIds = new[] { MemberId(_nina) } } : null);
+            var (status, text) = await Call(method, path, sessionKey, method == HttpMethod.Post ? new { text = "agent", memberIds = new[] { MemberId(_nina) }, version = 1 } : null);
             _out.WriteLine($"session key {method} {pattern}: {(int)status}");
             Assert.Equal(HttpStatusCode.Forbidden, status);
             Assert.DoesNotContain("Signup page rewrite", text);

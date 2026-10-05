@@ -91,6 +91,20 @@ internal static class TeamReportEndpoints
         "That version of this report was not sent to you. You read the version its author sent you.";
 
     /// <summary>
+    /// A send whose version is not the report's newest: the author was reading one version while the session published
+    /// another, and what is sent must be what they read (delta review D2). Nothing is sent.
+    /// </summary>
+    internal const string NotTheNewestVersion =
+        "This report has a newer version than the one on your screen, so nothing was sent. Read the newer version, then send it.";
+
+    /// <summary>
+    /// A read for a version the person no longer holds: the author sent them a newer one while the page showed the older.
+    /// Nothing is marked, because the newer one has not been seen (delta review D5).
+    /// </summary>
+    internal const string ReadVersionNotHeld =
+        "A newer version of this report was sent to you while this page showed the older one, so it was not marked read.";
+
+    /// <summary>
     /// Said instead of where comments go, when the report's author can no longer read comments on it in this team - they
     /// left it, or their role no longer opens their own reports. A comment is then refused rather than kept for nobody.
     /// </summary>
@@ -148,8 +162,13 @@ internal static class TeamReportEndpoints
             reports.SentToMeDetail(teamId, Caller(ctx), reportId));
         group.MapGet("/sent-to-me/{reportId}/html", (HttpContext ctx, string teamId, string reportId) =>
             reports.SentToMeHtml(teamId, Caller(ctx), reportId, ctx));
-        group.MapPost("/sent-to-me/{reportId}/read", (HttpContext ctx, string teamId, string reportId) =>
-            reports.MarkRead(teamId, Caller(ctx), reportId));
+        group.MapPost("/sent-to-me/{reportId}/read", async (HttpContext ctx, string teamId, string reportId) =>
+        {
+            var (body, bad) = await ReadObject(ctx).ConfigureAwait(false);
+            if (bad is not null) return bad;
+            var (version, badVersion) = Version(body!.Value);
+            return badVersion ?? reports.MarkRead(teamId, Caller(ctx), reportId, version);
+        });
         group.MapPost("/sent-to-me/{reportId}/comments", async (HttpContext ctx, string teamId, string reportId) =>
         {
             var (text, bad) = await ReadString(ctx, "text").ConfigureAwait(false);
@@ -167,8 +186,12 @@ internal static class TeamReportEndpoints
                 : NotFound(NoSuchOwnReport));
         group.MapPost("/mine/{reportId}/recipients", async (HttpContext ctx, string teamId, string reportId) =>
         {
-            var (memberIds, bad) = await ReadStringArray(ctx, "memberIds").ConfigureAwait(false);
-            return bad ?? reports.Send(teamId, Caller(ctx), reportId, memberIds!);
+            var (body, bad) = await ReadObject(ctx).ConfigureAwait(false);
+            if (bad is not null) return bad;
+            var (memberIds, badIds) = StringArray(body!.Value, "memberIds");
+            if (badIds is not null) return badIds;
+            var (version, badVersion) = Version(body.Value);
+            return badVersion ?? reports.Send(teamId, Caller(ctx), reportId, memberIds!, version);
         });
 
         FileLog.Write($"[TeamReportEndpoints] mapped {SentToMePattern} (list, one, html, read, comments) and {MinePattern} (list, one, html, recipients)");
@@ -202,21 +225,37 @@ internal static class TeamReportEndpoints
         }
     }
 
-    private static async Task<(IReadOnlyList<string>? Value, IResult? Bad)> ReadStringArray(HttpContext ctx, string name)
+    /// <summary>The request body as a JSON object.</summary>
+    private static async Task<(JsonElement? Value, IResult? Bad)> ReadObject(HttpContext ctx)
     {
         try
         {
             using var doc = await JsonDocument.ParseAsync(ctx.Request.Body, cancellationToken: ctx.RequestAborted).ConfigureAwait(false);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object
-                || !doc.RootElement.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array
-                || v.EnumerateArray().Any(e => e.ValueKind != JsonValueKind.String))
-                return (null, BadRequest("bad_request_body", $"The body must be an object with a \"{name}\" array of strings."));
-            return (v.EnumerateArray().Select(e => e.GetString()!).ToList(), null);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                return (null, BadRequest("bad_request_body", "The body must be a JavaScript Object Notation object."));
+            return (doc.RootElement.Clone(), null);
         }
         catch (JsonException ex)
         {
             return (null, BadRequest("bad_request_body", $"The body could not be read as JavaScript Object Notation: {ex.Message}"));
         }
+    }
+
+    private static (IReadOnlyList<string>? Value, IResult? Bad) StringArray(JsonElement body, string name)
+    {
+        if (!body.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array
+            || v.EnumerateArray().Any(e => e.ValueKind != JsonValueKind.String))
+            return (null, BadRequest("bad_request_body", $"The body must have a \"{name}\" array of strings."));
+        return (v.EnumerateArray().Select(e => e.GetString()!).ToList(), null);
+    }
+
+    /// <summary>The report version the page was showing - required, because what is sent or marked read is that one.</summary>
+    private static (int Value, IResult? Bad) Version(JsonElement body)
+    {
+        if (!body.TryGetProperty("version", out var v) || v.ValueKind != JsonValueKind.Number
+            || !v.TryGetInt32(out var version) || version < 1)
+            return (0, BadRequest("bad_request_body", "The body must have a \"version\": the version of the report the page was showing."));
+        return (version, null);
     }
 }
 
@@ -332,13 +371,21 @@ internal sealed class TeamReports
         !string.IsNullOrWhiteSpace(report.AuthorSubject)
         && _access.Decide(teamId, report.AuthorSubject, TeamAction.RunSessionsOnOwnComputers).Allowed;
 
-    /// <summary>The caller opened a report sent to them.</summary>
-    public IResult MarkRead(string teamId, string caller, string reportId)
+    /// <summary>
+    /// The caller opened <paramref name="version"/> of a report sent to them. Marked read only when that is the version
+    /// they hold (delta review D5); otherwise 409 with the Gateway's sentence, and the page reads again.
+    /// </summary>
+    public IResult MarkRead(string teamId, string caller, string reportId, int version)
     {
         if (SentToMeReport(teamId, caller, reportId) is not { } report)
             return TeamReportEndpoints.NotFound(TeamReportEndpoints.NotSentToYou);
-        _recipients.MarkRead(Team(teamId), report.Id, caller, _utcNow());
-        return Results.Json(new { read = true, readLabel = TeamReportEndpoints.ReadLabel });
+        return _recipients.MarkRead(Team(teamId), report.Id, caller, version, _utcNow()) switch
+        {
+            DevReportReadMark.Read => Results.Json(new { read = true, readLabel = TeamReportEndpoints.ReadLabel }),
+            DevReportReadMark.VersionNotHeld => Results.Json(
+                new { error = TeamReportEndpoints.ReadVersionNotHeld, code = "version_not_held" }, statusCode: StatusCodes.Status409Conflict),
+            _ => TeamReportEndpoints.NotFound(TeamReportEndpoints.NotSentToYou),
+        };
     }
 
     /// <summary>A comment on a report sent to the caller, stored for the report's author person.</summary>
@@ -417,18 +464,29 @@ internal sealed class TeamReports
     }
 
     /// <summary>
-    /// Send the CURRENT version of one of the caller's reports to members of the team, named by their Team page ids. A
-    /// member who holds an earlier version is moved to this one (Tech Lead ruling F1). All or nothing: every id must be a
-    /// member of THIS team whose role may read reports sent to them, and not the caller; otherwise nothing is recorded and
-    /// the answer says which and why.
+    /// Send <paramref name="version"/> of one of the caller's reports - the version their page was showing - to members
+    /// of the team, named by their Team page ids. A member who holds an earlier version is moved to this one (Tech Lead
+    /// ruling F1). The version must be the report's newest: when the session published another while the author was
+    /// reading, nothing is sent and the answer is 409 with the Gateway's sentence, so a person is never sent a version
+    /// its author did not see (delta review D2). All or nothing: every id must be a member of THIS team whose role may
+    /// read reports sent to them, and not the caller; otherwise nothing is recorded and the answer says which and why.
     /// </summary>
-    public IResult Send(string teamId, string caller, string reportId, IReadOnlyList<string> memberIds)
+    public IResult Send(string teamId, string caller, string reportId, IReadOnlyList<string> memberIds, int version)
     {
         ArgumentNullException.ThrowIfNull(memberIds);
         if (OwnReport(teamId, caller, reportId) is not { } report)
             return TeamReportEndpoints.NotFound(TeamReportEndpoints.NoSuchOwnReport);
         if (memberIds.Count == 0)
             return TeamReportEndpoints.BadRequest("no_recipients", "Choose at least one person to send the report to.");
+        if (version != report.Version)
+        {
+            FileLog.Write($"[TeamReports] Send: team {Team(teamId).ToLogString()} report={report.Id} - page showed version {version}, newest is {report.Version}, REFUSED");
+            return Results.Json(new
+            {
+                error = TeamReportEndpoints.NotTheNewestVersion,
+                code = "version_not_newest",
+            }, statusCode: StatusCodes.Status409Conflict);
+        }
 
         var members = Members(teamId, caller);
         var subjects = new List<string>();
@@ -456,7 +514,7 @@ internal sealed class TeamReports
             subjects.Add(member.AccountSubject);
         }
 
-        _recipients.Send(Team(teamId), report.Id, caller, subjects, report.Version, _utcNow());
+        _recipients.Send(Team(teamId), report.Id, caller, subjects, version, _utcNow());
         return Results.Json(Describe(teamId, caller, report));
     }
 

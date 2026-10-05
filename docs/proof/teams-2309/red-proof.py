@@ -147,6 +147,27 @@ MUTATIONS = {
         "new": "        var subject = tenants.SubjectForTenant(tenant) ?? \"someone\";\n        if (string.IsNullOrWhiteSpace(subject))",
         "runs": [hosted("FullyQualifiedName~Issue2309_F4_")],
     },
+    "send-ignores-the-version-shown": {
+        "rule": "A send carries the version the page showed; when it is no longer the newest, nothing is sent (delta review D2).",
+        "file": TRP,
+        "old": "        if (version != report.Version)\n",
+        "new": "        if (version < 0)\n",
+        "runs": [UNIT],
+    },
+    "html-route-serves-the-newest": {
+        "rule": "The recipient's html ROUTE serves the version sent, not only the class behind it (delta review D3).",
+        "file": TRP,
+        "old": "            reports.SentToMeHtml(teamId, Caller(ctx), reportId, ctx));",
+        "new": "            reports.SentToMeReport(teamId, Caller(ctx), reportId) is { } r ? DevReportEndpoints.ServeHtml(store, new TenantId(teamId), r, ctx) : NotFound(NotSentToYou));",
+        "runs": [hosted("FullyQualifiedName~Issue2309_D3_")],
+    },
+    "read-marks-any-version": {
+        "rule": "A read names the version shown, and only the version held is marked (delta review D5).",
+        "file": "src/CcDirector.Gateway/DevReports/DevReportRecipients.cs",
+        "old": "r.RecipientSubject == recipientSubject && r.SentVersion == version && r.ReadAtUtc == null)",
+        "new": "r.RecipientSubject == recipientSubject && r.ReadAtUtc == null)",
+        "runs": [UNIT],
+    },
     "rail-without-team-pages": {
         "rule": "In a team where the person gets the whole app, the rail lists the team's pages from the Gateway's verdict.",
         "file": "apps/cockpit/src/AppShell.tsx",

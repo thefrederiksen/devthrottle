@@ -61,14 +61,15 @@ describe("the recipient's routes", () => {
     await expect(getReportSentToMe("t1", "r1")).rejects.toThrow();
   });
 
-  it("MarkReportRead_PostsToTheReadRoute", async () => {
+  it("MarkReportRead_PostsTheVersionShownToTheReadRoute", async () => {
     const fetchMock = vi.fn().mockResolvedValue(respond({ read: true, readLabel: "Read" }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await markReportRead("t1", "r1");
+    await markReportRead("t1", "r1", 3);
 
     expect(fetchMock.mock.calls[0][0]).toBe("/teams/t1/reports/sent-to-me/r1/read");
     expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ version: 3 });
   });
 
   it("CommentOnReport_PostsTheWordsExactly_AndReturnsTheStoredComment", async () => {
@@ -105,13 +106,13 @@ describe("the author's routes", () => {
     expect(await getMyTeamReport("t1", "r1")).toBeNull();
   });
 
-  it("SendMyTeamReport_PostsTheMemberIds_AndReturnsTheNewDetail", async () => {
+  it("SendMyTeamReport_PostsTheMemberIdsAndTheVersionShown_AndReturnsTheNewDetail", async () => {
     const fetchMock = vi.fn().mockResolvedValue(respond(OWN_DETAIL));
     vi.stubGlobal("fetch", fetchMock);
 
-    expect(await sendMyTeamReport("t1", "r1", ["m-mike", "m-nina"])).toEqual(OWN_DETAIL);
+    expect(await sendMyTeamReport("t1", "r1", ["m-mike", "m-nina"], 2)).toEqual(OWN_DETAIL);
     expect(fetchMock.mock.calls[0][0]).toBe("/teams/t1/reports/mine/r1/recipients");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ memberIds: ["m-mike", "m-nina"] });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ memberIds: ["m-mike", "m-nina"], version: 2 });
   });
 });
 

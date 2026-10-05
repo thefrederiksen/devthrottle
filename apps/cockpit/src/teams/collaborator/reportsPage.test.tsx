@@ -71,7 +71,9 @@ vi.mock("@devthrottle/client-core/devreports/controller", () => ({
 import { GatewayError } from "@devthrottle/client-core/api/client";
 import {
   commentOnReport,
+  getMyTeamReport,
   getMyTeamReports,
+  getReportSentToMe,
   markReportRead,
   sendMyTeamReport,
 } from "@devthrottle/client-core/teams/teamReportsClient";
@@ -218,8 +220,22 @@ describe("a report sent to you", () => {
 
     expect((await screen.findByTestId("team-report-comments-note")).textContent).toBe(RECEIVED_DETAIL.commentsNote);
     await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(markReportRead).mock.calls[0].slice(0, 2)).toEqual(["team-dt", "r-new"]);
+    // The read names the version the page showed - the version this person was sent.
+    expect(vi.mocked(markReportRead).mock.calls[0].slice(0, 3)).toEqual(["team-dt", "r-new", 1]);
     expect(screen.getByTestId("team-report-comments").textContent).toContain("Earlier words of mine");
+  });
+
+  it("Open_AVersionSentWhileOpen_IsMarkedWhenShown_AfterTheGatewayRefusedTheOlderOne", async () => {
+    // The page read version 1; by the time its read lands, the author has sent version 2. The Gateway refuses the read
+    // with its own sentence; the page shows it, reads again, and marks version 2 - the one it now shows.
+    vi.mocked(getReportSentToMe).mockResolvedValueOnce(RECEIVED_DETAIL);
+    client.receivedDetail = { ...RECEIVED_DETAIL, report: { ...RECEIVED.reports[0], version: 2 } };
+    vi.mocked(markReportRead).mockRejectedValueOnce(new GatewayError(409, "moved", { reason: "Odd newer one sent 7" }));
+    renderAt("/reports?report=r-new");
+
+    await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(markReportRead).mock.calls.map((c) => c[2])).toEqual([1, 2]);
+    expect(screen.getByTestId("team-report-comments").textContent).toContain("Odd newer one sent 7");
   });
 
   it("Open_AReportAlreadyRead_IsNotMarkedAgain", async () => {
@@ -369,7 +385,29 @@ describe("one of your own reports", () => {
       fireEvent.click(button);
     });
 
-    expect(vi.mocked(sendMyTeamReport).mock.calls[0].slice(0, 3)).toEqual(["team-dt", "y1", ["m-bob"]]);
+    // The send names the version the page is showing, so what is sent is what the author read.
+    expect(vi.mocked(sendMyTeamReport).mock.calls[0].slice(0, 4)).toEqual(["team-dt", "y1", ["m-bob"], 3]);
+  });
+
+  it("Send_RefusedBecauseANewerVersionArrived_ShowsTheGatewaysSentence_ReadsAgain_AndTheNextSendIsTheNewerOne", async () => {
+    renderAt("/reports?yours=y1");
+    fireEvent.click((await screen.findAllByTestId("team-report-choice"))[1]);
+    client.sendError = new GatewayError(409, "newer", { reason: "Odd newer version 6" });
+    client.ownDetail = { ...OWN_DETAIL, report: { ...OWN_DETAIL.report, version: 4 } };
+    const readsBefore = vi.mocked(getMyTeamReport).mock.calls.length;
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("team-report-send-button"));
+    });
+
+    expect(screen.getByTestId("team-report-send-error").textContent).toContain("Odd newer version 6");
+    await waitFor(() => expect(vi.mocked(getMyTeamReport).mock.calls.length).toBeGreaterThan(readsBefore));
+    client.sendError = null;
+    // The choice is kept after a refusal, so the same person is sent the newer version.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("team-report-send-button"));
+    });
+    expect(vi.mocked(sendMyTeamReport).mock.calls.map((c) => c[3])).toEqual([3, 4]);
   });
 
   it("Send_Refused_ShowsTheGatewaysSentence", async () => {

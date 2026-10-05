@@ -89,7 +89,7 @@ public sealed class TeamReportsProofRig
             gateway.DevReportsForTest.Publish(teamTenant, Guid.NewGuid().ToString("D"), @"C:\work\billing-notes.html",
                 ReportHtml.Replace("Signup page rewrite", "Billing page notes"), "done", "Billing page notes", now.AddDays(-2), "sub-rig-tech");
             gateway.DevReportRecipientsForTest.Send(teamTenant, report, "sub-rig-tech", new[] { "sub-rig-docs" }, 1, now.AddHours(-2));
-            gateway.DevReportRecipientsForTest.MarkRead(teamTenant, report, "sub-rig-docs", now.AddHours(-1));
+            gateway.DevReportRecipientsForTest.MarkRead(teamTenant, report, "sub-rig-docs", 1, now.AddHours(-1));
             gateway.DevReportCommentsForTest.Add(teamTenant, report, "sub-rig-docs", "sub-rig-tech",
                 "Looks good. Can we keep the old page for a week for anyone who has it bookmarked?", now.AddMinutes(-30));
 

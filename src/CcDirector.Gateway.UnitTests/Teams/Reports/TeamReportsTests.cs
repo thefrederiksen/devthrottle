@@ -177,9 +177,9 @@ public sealed class TeamReportsTests : IDisposable
         var report = Publish(Alice);
         _recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 1, Now);
 
-        Assert.True(_recipients.MarkRead(_tenant, report.Guid, Mike, Now.AddMinutes(1)));
-        Assert.True(_recipients.MarkRead(_tenant, report.Guid, Mike, Now.AddMinutes(2)));
-        Assert.False(_recipients.MarkRead(_tenant, report.Guid, Nina, Now.AddMinutes(3)));
+        Assert.Equal(DevReportReadMark.Read, _recipients.MarkRead(_tenant, report.Guid, Mike, 1, Now.AddMinutes(1)));
+        Assert.Equal(DevReportReadMark.Read, _recipients.MarkRead(_tenant, report.Guid, Mike, 1, Now.AddMinutes(2)));
+        Assert.Equal(DevReportReadMark.NotSent, _recipients.MarkRead(_tenant, report.Guid, Nina, 1, Now.AddMinutes(3)));
 
         Assert.Equal(Now.AddMinutes(1), _recipients.RecipientsOf(_tenant, report.Guid).Single().ReadAtUtc);
     }
@@ -208,7 +208,7 @@ public sealed class TeamReportsTests : IDisposable
         Assert.Empty(_recipients.SentTo(other, Mike));
         Assert.False(_recipients.IsSentTo(other, report.Guid, Mike));
         Assert.Empty(_recipients.RecipientsOf(other, report.Guid));
-        Assert.False(_recipients.MarkRead(other, report.Guid, Mike, Now));
+        Assert.Equal(DevReportReadMark.NotSent, _recipients.MarkRead(other, report.Guid, Mike, 1, Now));
     }
 
     // ---- DevReportPersonComments: "words go to a person" ---------------------------------------------------------
@@ -260,7 +260,7 @@ public sealed class TeamReportsTests : IDisposable
     public async Task Issue2309_AReportSentToMike_AppearsForMike_AndForNoOtherCollaborator()
     {
         var report = Publish(Alice);
-        var (sentStatus, _) = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }));
+        var (sentStatus, _) = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
         Assert.Equal(200, sentStatus);
 
         var (_, mike) = await Answer(_reports.SentToMe(_team, Mike));
@@ -290,13 +290,13 @@ public sealed class TeamReportsTests : IDisposable
     {
         var toMike = Publish(Alice);
         var toNobody = Publish(Alice);
-        await Answer(_reports.Send(_team, Alice, toMike.Id, new[] { MemberId(Mike) }));
+        await Answer(_reports.Send(_team, Alice, toMike.Id, new[] { MemberId(Mike) }, 1));
 
         foreach (var id in new[] { toMike.Id, toNobody.Id, Guid.NewGuid().ToString("D"), "not-a-guid" })
         {
             Assert.Equal(404, (await Answer(_reports.SentToMeDetail(_team, Nina, id))).Status);
             Assert.Null(_reports.SentToMeReport(_team, Nina, id));
-            Assert.Equal(404, (await Answer(_reports.MarkRead(_team, Nina, id))).Status);
+            Assert.Equal(404, (await Answer(_reports.MarkRead(_team, Nina, id, 1))).Status);
             Assert.Equal(404, (await Answer(_reports.Comment(_team, Nina, id, "let me in"))).Status);
         }
         Assert.Empty(_comments.To(_tenant, toMike.Guid, Alice));
@@ -309,9 +309,9 @@ public sealed class TeamReportsTests : IDisposable
     public async Task MarkRead_TurnsNewIntoRead_ForThatRecipientOnly()
     {
         var report = Publish(Alice);
-        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike), MemberId(Nina) }));
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike), MemberId(Nina) }, 1));
 
-        var (status, body) = await Answer(_reports.MarkRead(_team, Mike, report.Id));
+        var (status, body) = await Answer(_reports.MarkRead(_team, Mike, report.Id, 1));
 
         Assert.Equal(200, status);
         Assert.Equal("Read", body.GetProperty("readLabel").GetString());
@@ -326,7 +326,7 @@ public sealed class TeamReportsTests : IDisposable
     public async Task Issue2309_ACollaboratorsComment_GoesToTheAuthor_AndNeverIntoTheAgentsConversation()
     {
         var report = Publish(Alice);
-        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }));
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
         const string marker = "MARKER-2309-comment-goes-to-a-person";
 
         var (status, body) = await Answer(_reports.Comment(_team, Mike, report.Id, marker));
@@ -353,7 +353,7 @@ public sealed class TeamReportsTests : IDisposable
     public async Task Comment_EmptyOrTooLong_IsRefusedAndNothingIsStored()
     {
         var report = Publish(Alice);
-        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }));
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
 
         var empty = await Answer(_reports.Comment(_team, Mike, report.Id, "  \n "));
         var tooLong = await Answer(_reports.Comment(_team, Mike, report.Id, new string('x', DevReportPersonComments.MaxLength + 1)));
@@ -374,7 +374,7 @@ public sealed class TeamReportsTests : IDisposable
 
         foreach (var outsider in new[] { TeamMemberIds.For(_team, Stranger), TeamMemberIds.For(otherTeam, Stranger), "made-up" })
         {
-            var (status, body) = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike), outsider }));
+            var (status, body) = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike), outsider }, 1));
             Assert.Equal(400, status);
             Assert.Equal("not_a_member", body.GetProperty("code").GetString());
         }
@@ -386,8 +386,8 @@ public sealed class TeamReportsTests : IDisposable
     {
         var report = Publish(Alice);
 
-        var self = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Alice) }));
-        var nobody = await Answer(_reports.Send(_team, Alice, report.Id, Array.Empty<string>()));
+        var self = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Alice) }, 1));
+        var nobody = await Answer(_reports.Send(_team, Alice, report.Id, Array.Empty<string>(), 1));
 
         Assert.Equal("not_to_yourself", self.Body.GetProperty("code").GetString());
         Assert.Equal("no_recipients", nobody.Body.GetProperty("code").GetString());
@@ -399,7 +399,7 @@ public sealed class TeamReportsTests : IDisposable
     {
         var alices = Publish(Alice);
 
-        var (status, _) = await Answer(_reports.Send(_team, Bob, alices.Id, new[] { MemberId(Mike) }));
+        var (status, _) = await Answer(_reports.Send(_team, Bob, alices.Id, new[] { MemberId(Mike) }, 1));
 
         Assert.Equal(404, status);
         Assert.Empty(_recipients.RecipientsOf(_tenant, alices.Guid));
@@ -413,7 +413,7 @@ public sealed class TeamReportsTests : IDisposable
         var sent = Publish(Alice, "Sent");
         Publish(Alice, "Kept");
         var bobs = Publish(Bob, "Bob's");
-        await Answer(_reports.Send(_team, Alice, sent.Id, new[] { MemberId(Mike), MemberId(Nina) }));
+        await Answer(_reports.Send(_team, Alice, sent.Id, new[] { MemberId(Mike), MemberId(Nina) }, 1));
         await Answer(_reports.Comment(_team, Mike, sent.Id, "nice"));
 
         var (_, alice) = await Answer(_reports.Mine(_team, Alice));
@@ -434,7 +434,7 @@ public sealed class TeamReportsTests : IDisposable
     public async Task MineDetail_OffersEveryMemberWhoMayReadIt_ButNotYouNorThoseAlreadySentTo()
     {
         var report = Publish(Alice);
-        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }));
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
 
         var (_, detail) = await Answer(_reports.MineDetail(_team, Alice, report.Id));
 
@@ -450,7 +450,7 @@ public sealed class TeamReportsTests : IDisposable
     public async Task AMemberWhoLeft_IsNamedAsAFormerMember()
     {
         var report = Publish(Alice);
-        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }));
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
         await Answer(_reports.Comment(_team, Mike, report.Id, "bye"));
         Assert.True(_teams.RemoveMember(_team, Mike).IsDone);
 
@@ -672,7 +672,7 @@ public sealed class TeamReportsTests : IDisposable
     {
         var report = Publish(Alice);
         _recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 2, Now);
-        _recipients.MarkRead(_tenant, report.Guid, Mike, Now.AddMinutes(1));
+        _recipients.MarkRead(_tenant, report.Guid, Mike, 2, Now.AddMinutes(1));
 
         _recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 1, Now.AddMinutes(2));
         var held = _recipients.RowFor(_tenant, report.Guid, Mike)!;
@@ -692,7 +692,7 @@ public sealed class TeamReportsTests : IDisposable
     public async Task Issue2309_F1_TheRecipientReadsTheVersionSent_NeverAnEarlierOne_AndALaterOneOnlyWhenSentAgain()
     {
         var report = TwoVersionReport(Alice);
-        Assert.Equal(200, (await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }))).Status);
+        Assert.Equal(200, (await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1))).Status);
         report.PublishVersion2();
 
         // A later version is published: Mike still holds version 1 - its bytes, its title - and cannot ask for version 2.
@@ -708,7 +708,7 @@ public sealed class TeamReportsTests : IDisposable
         var (_, mine) = await Answer(_reports.MineDetail(_team, Alice, report.Id));
         Assert.Equal("Has version 1 of 2", mine.GetProperty("recipients")[0].GetProperty("versionLabel").GetString());
         Assert.Contains(mine.GetProperty("choices").EnumerateArray(), c => c.GetProperty("memberId").GetString() == MemberId(Mike));
-        Assert.Equal(200, (await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }))).Status);
+        Assert.Equal(200, (await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 2))).Status);
 
         Assert.Equal((200, "<p>version two</p>", "2"), await Html(Mike, report.Id));
         // Never an earlier one, once they hold a later one.
@@ -721,10 +721,59 @@ public sealed class TeamReportsTests : IDisposable
     }
 
     [Fact]
+    public async Task Issue2309_D2_ASendOfAVersionThatIsNoLongerTheNewest_IsRefusedWithTheGatewaysSentence_AndSendsNothing()
+    {
+        var report = TwoVersionReport(Alice);
+        Assert.Equal(200, (await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1))).Status);
+        // The session publishes version 2 while Alice's page still shows version 1.
+        report.PublishVersion2();
+
+        var (status, body) = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike), MemberId(Nina) }, 1));
+        Assert.Equal(409, status);
+        Assert.Equal("version_not_newest", body.GetProperty("code").GetString());
+        Assert.Equal(TeamReportEndpoints.NotTheNewestVersion, body.GetProperty("error").GetString());
+        // Nothing was sent: Mike still holds version 1, Nina holds nothing.
+        Assert.Equal(1, _recipients.RowFor(_tenant, report.Guid, Mike)!.SentVersion);
+        Assert.Null(_recipients.RowFor(_tenant, report.Guid, Nina));
+
+        // The version her page now shows is sent, and it is exactly that version.
+        Assert.Equal(200, (await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike), MemberId(Nina) }, 2))).Status);
+        Assert.Equal(2, _recipients.RowFor(_tenant, report.Guid, Mike)!.SentVersion);
+        Assert.Equal(2, _recipients.RowFor(_tenant, report.Guid, Nina)!.SentVersion);
+    }
+
+    [Fact]
+    public async Task Issue2309_D5_AReadNamesTheVersion_AndOnlyTheVersionHeldIsMarked_SoAVersionSentWhileOpenIsReadWhenSeen()
+    {
+        var report = TwoVersionReport(Alice);
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
+        Assert.Equal(200, (await Answer(_reports.MarkRead(_team, Mike, report.Id, 1))).Status);
+        Assert.NotNull(_recipients.RowFor(_tenant, report.Guid, Mike)!.ReadAtUtc);
+
+        // Alice sends version 2 while Mike has the report open on version 1: he holds version 2, unread.
+        report.PublishVersion2();
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 2));
+        Assert.Null(_recipients.RowFor(_tenant, report.Guid, Mike)!.ReadAtUtc);
+
+        // A read posted for version 1 lands after the move: refused, nothing marked - version 2 has not been seen.
+        var (status, body) = await Answer(_reports.MarkRead(_team, Mike, report.Id, 1));
+        Assert.Equal(409, status);
+        Assert.Equal("version_not_held", body.GetProperty("code").GetString());
+        Assert.Equal(TeamReportEndpoints.ReadVersionNotHeld, body.GetProperty("error").GetString());
+        Assert.Null(_recipients.RowFor(_tenant, report.Guid, Mike)!.ReadAtUtc);
+
+        // The page shows version 2 and marks it: now it is read.
+        Assert.Equal(200, (await Answer(_reports.MarkRead(_team, Mike, report.Id, 2))).Status);
+        Assert.NotNull(_recipients.RowFor(_tenant, report.Guid, Mike)!.ReadAtUtc);
+        var (_, list) = await Answer(_reports.SentToMe(_team, Mike));
+        Assert.True(list.GetProperty("reports")[0].GetProperty("read").GetBoolean());
+    }
+
+    [Fact]
     public async Task Issue2309_F2_BothReadersAreToldByTheGateway_ThatTheReportsNotesAreOff()
     {
         var report = Publish(Alice);
-        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }));
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
 
         Assert.False((await Answer(_reports.SentToMeDetail(_team, Mike, report.Id))).Body.GetProperty("notesOpen").GetBoolean());
         Assert.False((await Answer(_reports.MineDetail(_team, Alice, report.Id))).Body.GetProperty("notesOpen").GetBoolean());
@@ -736,7 +785,7 @@ public sealed class TeamReportsTests : IDisposable
     public async Task Issue2309_F6_AnAuthorWhoCanNoLongerReadComments_ClosesTheComments_AndAWrittenOneIsRefusedAndNotKept(string what)
     {
         var report = Publish(Alice);
-        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }));
+        await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
         var (_, open) = await Answer(_reports.SentToMeDetail(_team, Mike, report.Id));
         Assert.True(open.GetProperty("canComment").GetBoolean());
 

@@ -30,8 +30,10 @@ internal sealed class DevReportRecipients
     /// <paramref name="recipientSubjects"/> (Tech Lead ruling F1: a send covers the VERSION SENT). A member not sent it
     /// before gets a row holding that version. A member holding an EARLIER version is moved to this one: sent again now,
     /// and unread again, because what they hold changed. A member already holding this version or a later one is left
-    /// exactly as they are - a send never moves anyone backwards - so a send can be repeated safely. Returns every
-    /// recipient of the report afterwards, oldest send first.
+    /// exactly as they are - a send never moves anyone backwards - so a send can be repeated safely. The move is one
+    /// conditional update on the row (<c>where SentVersion &lt; version</c>), as every state change in
+    /// <see cref="DevReportStore"/> is, so two sends across a publish cannot move a person back whichever lands last
+    /// (delta review D7). Returns every recipient of the report afterwards, oldest send first.
     /// </summary>
     public IReadOnlyList<DevReportRecipientEntity> Send(TenantId team, Guid reportId, string senderSubject,
         IReadOnlyCollection<string> recipientSubjects, int version, DateTime nowUtc)
@@ -46,22 +48,23 @@ internal sealed class DevReportRecipients
             throw new ArgumentOutOfRangeException(nameof(version), version, "A report version starts at 1.");
 
         using var ctx = _db.CreateContext(team);
-        var existing = ctx.DevReportRecipients
+        var existing = ctx.DevReportRecipients.AsNoTracking()
             .Where(r => r.ReportId == reportId)
-            .ToList()
-            .ToDictionary(r => r.RecipientSubject, StringComparer.Ordinal);
+            .Select(r => r.RecipientSubject)
+            .ToHashSet(StringComparer.Ordinal);
         var added = 0;
         var moved = 0;
         foreach (var subject in recipientSubjects.Distinct(StringComparer.Ordinal))
         {
-            if (existing.TryGetValue(subject, out var row))
+            if (existing.Contains(subject))
             {
-                if (row.SentVersion >= version) continue;
-                row.SentVersion = version;
-                row.SentBySubject = senderSubject;
-                row.SentAtUtc = nowUtc;
-                row.ReadAtUtc = null;
-                moved++;
+                moved += ctx.DevReportRecipients
+                    .Where(r => r.ReportId == reportId && r.RecipientSubject == subject && r.SentVersion < version)
+                    .ExecuteUpdate(set => set
+                        .SetProperty(r => r.SentVersion, version)
+                        .SetProperty(r => r.SentBySubject, senderSubject)
+                        .SetProperty(r => r.SentAtUtc, nowUtc)
+                        .SetProperty(r => r.ReadAtUtc, (DateTime?)null));
                 continue;
             }
             ctx.DevReportRecipients.Add(new DevReportRecipientEntity
@@ -159,23 +162,43 @@ internal sealed class DevReportRecipients
     }
 
     /// <summary>
-    /// Mark the report read by <paramref name="recipientSubject"/>, the first time only - a later open leaves the first
-    /// time alone. False when the report was not sent to them.
+    /// Mark <paramref name="version"/> of the report read by <paramref name="recipientSubject"/> - only when that is the
+    /// version they hold, and the first time only (delta review D5). The page names the version it showed, so a read
+    /// posted for version 1 that lands after the row moved to version 2 marks nothing: version 2 has not been seen. One
+    /// conditional update, so a send moving the row at the same moment cannot be overwritten.
     /// </summary>
-    public bool MarkRead(TenantId team, Guid reportId, string recipientSubject, DateTime nowUtc)
+    public DevReportReadMark MarkRead(TenantId team, Guid reportId, string recipientSubject, int version, DateTime nowUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(recipientSubject);
         using var ctx = _db.CreateContext(team);
-        var row = ctx.DevReportRecipients.FirstOrDefault(r => r.ReportId == reportId && r.RecipientSubject == recipientSubject);
-        if (row is null) return false;
-        if (row.ReadAtUtc is null)
+        var marked = ctx.DevReportRecipients
+            .Where(r => r.ReportId == reportId && r.RecipientSubject == recipientSubject && r.SentVersion == version && r.ReadAtUtc == null)
+            .ExecuteUpdate(set => set.SetProperty(r => r.ReadAtUtc, (DateTime?)nowUtc));
+        if (marked == 1)
         {
-            row.ReadAtUtc = nowUtc;
-            ctx.SaveChanges();
-            FileLog.Write($"[DevReportRecipients] MarkRead: tenant={team.ToLogString()} report={reportId} - read for the first time");
+            FileLog.Write($"[DevReportRecipients] MarkRead: tenant={team.ToLogString()} report={reportId} version={version} - read for the first time");
+            return DevReportReadMark.Read;
         }
-        return true;
+        var row = ctx.DevReportRecipients.AsNoTracking().FirstOrDefault(r => r.ReportId == reportId && r.RecipientSubject == recipientSubject);
+        if (row is null) return DevReportReadMark.NotSent;
+        if (row.SentVersion != version)
+        {
+            FileLog.Write($"[DevReportRecipients] MarkRead: tenant={team.ToLogString()} report={reportId} version={version} - they hold version {row.SentVersion}, NOT marked");
+            return DevReportReadMark.VersionNotHeld;
+        }
+        return DevReportReadMark.Read;
     }
+}
+
+/// <summary>What marking a report read did.</summary>
+internal enum DevReportReadMark
+{
+    /// <summary>The version named is the one held, and it is now read (or already was).</summary>
+    Read,
+    /// <summary>The report was not sent to this person.</summary>
+    NotSent,
+    /// <summary>The person holds a different version from the one named, so nothing was marked.</summary>
+    VersionNotHeld,
 }
 
 /// <summary>One report sent to a member, as their Reports page lists it: their row, and the title and status of the version

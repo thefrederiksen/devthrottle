@@ -167,9 +167,10 @@ export function getReportSentToMe(teamId: string, reportId: string, signal?: Abo
   return readOrNull<ReceivedReportDetail>(sentToMe(teamId, reportId), "load the report", signal);
 }
 
-/** POST /teams/{teamId}/reports/sent-to-me/{id}/read - this person opened it. */
-export async function markReportRead(teamId: string, reportId: string, signal?: AbortSignal): Promise<void> {
-  await call<{ read: boolean }>("POST", `${sentToMe(teamId, reportId)}/read`, "mark the report read", {}, signal);
+/** POST /teams/{teamId}/reports/sent-to-me/{id}/read - this person opened the version named. The Gateway marks it
+ *  only when it is the version they hold, and answers 409 with its own sentence otherwise. */
+export async function markReportRead(teamId: string, reportId: string, version: number, signal?: AbortSignal): Promise<void> {
+  await call<{ read: boolean }>("POST", `${sentToMe(teamId, reportId)}/read`, "mark the report read", { version }, signal);
 }
 
 /** POST /teams/{teamId}/reports/sent-to-me/{id}/comments - a comment, for the report's author person. */
@@ -190,9 +191,17 @@ export function getMyTeamReport(teamId: string, reportId: string, signal?: Abort
   return readOrNull<OwnReportDetail>(mine(teamId, reportId), "load the report", signal);
 }
 
-/** POST /teams/{teamId}/reports/mine/{id}/recipients - send it to members, by their Team page ids. */
-export function sendMyTeamReport(teamId: string, reportId: string, memberIds: string[], signal?: AbortSignal): Promise<OwnReportDetail> {
-  return call<OwnReportDetail>("POST", `${mine(teamId, reportId)}/recipients`, "send the report", { memberIds }, signal);
+/** POST /teams/{teamId}/reports/mine/{id}/recipients - send the version the page was showing to members, by their Team
+ *  page ids. The Gateway sends exactly that version, or answers 409 with its own sentence when it is no longer the
+ *  newest. */
+export function sendMyTeamReport(
+  teamId: string,
+  reportId: string,
+  memberIds: string[],
+  version: number,
+  signal?: AbortSignal,
+): Promise<OwnReportDetail> {
+  return call<OwnReportDetail>("POST", `${mine(teamId, reportId)}/recipients`, "send the report", { memberIds, version }, signal);
 }
 
 // ---------------------------------------------------------------- the viewer
