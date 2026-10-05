@@ -347,6 +347,9 @@ public sealed class GatewayDbContext : DbContext
     /// (issue #3548).</summary>
     public DbSet<FleetMessageLinkEntity> FleetMessageLinks => Set<FleetMessageLinkEntity>();
 
+    /// <summary>Sessions' requests for a message link, waiting for or answered by the owner (issue #3548).</summary>
+    public DbSet<FleetMessageLinkRequestEntity> FleetMessageLinkRequests => Set<FleetMessageLinkRequestEntity>();
+
     /// <summary>The factory triggers (the Website Business Factory mission, product track): a model-free check a
     /// Director runs on an interval, which has the Gateway start a session only when the check counts work.</summary>
     public DbSet<TriggerEntity> Triggers => Set<TriggerEntity>();
@@ -1034,6 +1037,26 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.RecipientSessionId, e.Status });
         });
 
+        modelBuilder.Entity<FleetMessageLinkRequestEntity>(b =>
+        {
+            b.ToTable("fleet_message_link_requests");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.RequestId).HasMaxLength(32);
+            b.Property(e => e.RequesterSessionId).HasMaxLength(64);
+            b.Property(e => e.TargetSessionId).HasMaxLength(64);
+            b.Property(e => e.Reason).HasMaxLength(500);
+            b.Property(e => e.Status).HasMaxLength(16);
+            b.Property(e => e.AnsweredBy).HasMaxLength(256);
+            b.Property(e => e.Amount).HasMaxLength(32);
+            b.Property(e => e.LinkId).HasMaxLength(32);
+            // A request is addressed by its id.
+            b.HasIndex(e => new { e.TenantId, e.RequestId }).IsUnique();
+            // "Is this session already asking for this pair" and "how many is it asking for" lead with the requester; the
+            // owner's list reads the waiting ones.
+            b.HasIndex(e => new { e.TenantId, e.RequesterSessionId, e.Status });
+            b.HasIndex(e => new { e.TenantId, e.Status });
+        });
+
         modelBuilder.Entity<FleetManagerEventEntity>(b =>
         {
             b.ToTable("fleet_manager_events");
@@ -1680,6 +1703,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FleetManagerMarkEntity>(modelBuilder);
         ApplyTenantScope<RaisedSessionEntity>(modelBuilder);
         ApplyTenantScope<FleetMessageLinkEntity>(modelBuilder);
+        ApplyTenantScope<FleetMessageLinkRequestEntity>(modelBuilder);
         ApplyTenantScope<TriggerEntity>(modelBuilder);
         ApplyTenantScope<TriggerRunEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
@@ -1789,6 +1813,11 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<FleetMessageLinkEntity>().Property(e => e.RecipientSessionId).UseCollation("C");
             modelBuilder.Entity<FleetMessageLinkEntity>().Property(e => e.Amount).UseCollation("C");
             modelBuilder.Entity<FleetMessageLinkEntity>().Property(e => e.Status).UseCollation("C");
+            // fleet_message_link_requests: the same, for a request's ids and its closed status word.
+            modelBuilder.Entity<FleetMessageLinkRequestEntity>().Property(e => e.RequestId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageLinkRequestEntity>().Property(e => e.RequesterSessionId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageLinkRequestEntity>().Property(e => e.TargetSessionId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageLinkRequestEntity>().Property(e => e.Status).UseCollation("C");
             // triggers: the name is the key a caller looks a trigger up by, and the machine is compared to a
             // Director's registered machine name; trigger_runs: the outcome is a closed word.
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Name).UseCollation("C");

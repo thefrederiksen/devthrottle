@@ -8,6 +8,7 @@ import { needsYouBadgeCount } from "@devthrottle/client-core/sessions/ordering";
 import { reconcileBadge } from "@devthrottle/client-core/push/register";
 import { SessionRoster, type RosterView } from "./SessionRoster";
 import { NewSessionDialog } from "./NewSessionDialog";
+import { LinkRequestCards } from "./LinkRequestCards";
 
 // The Sessions experience (issue #972): the core driving loop - see every session, select one,
 // answer it. This layout route renders the roster on the left and routes the selected session's detail
@@ -125,6 +126,7 @@ export function SessionsView() {
         onNewSession={() => setShowNew(true)}
       />
       <div className="sessions-detail">
+        <LinkRequestCards sessions={sessions} />
         <Outlet context={context} />
       </div>
       {showNew && <NewSessionDialog onClose={() => setShowNew(false)} onCreated={onCreated} />}

@@ -229,8 +229,16 @@ ways. When one is set up for you, a notice from the Gateway lands in your inbox 
 may now send and the command to send it. Then use plain `message send` (add `--reply-wanted` only if
 the link allows a reply). A message over a link is not held to the six an hour; a one-message link is
 used up by the one message, and the next is refused. A link ends when it is used, removed, or either
-session ends. You cannot set one up yourself, so if you need to talk to a session you are not related
-to, say so in your report and the owner decides.
+session ends. You cannot set one up yourself. If you need to talk to a session you are not related to,
+ASK for one, with one sentence the owner can decide on:
+
+```
+cc-devthrottle message request <session> "why you need to talk"
+```
+
+The owner sees your reason and allows it (choosing how much) or says no; either way the answer lands
+in your inbox. Do not wait for it - carry on with your work - and do not ask twice: asking again for
+the same session changes nothing. You may have three requests waiting at most.
 
 **A message never interrupts.** Nothing is typed into the receiving session while it works. The
 Gateway stores the message, and `message send` answers "queued" - never "delivered". When the

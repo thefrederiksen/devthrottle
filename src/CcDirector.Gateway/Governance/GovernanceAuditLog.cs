@@ -59,6 +59,8 @@ public sealed class GovernanceAuditLog
         GovernanceAuditEventType.MessageLinkSetUp,
         GovernanceAuditEventType.MessageLinkStopped,
         GovernanceAuditEventType.MessageOverLink,
+        GovernanceAuditEventType.MessageLinkRequested,
+        GovernanceAuditEventType.MessageLinkRequestAnswered,
     };
 
     public GovernanceAuditLog(GatewayDatabase db)
