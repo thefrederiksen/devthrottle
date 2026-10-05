@@ -60,7 +60,10 @@ internal static class FleetMessageLinkEndpoints
         ArgumentNullException.ThrowIfNull(notify);
         ArgumentNullException.ThrowIfNull(nowUtc);
 
-        app.MapPost(Route, async (HttpContext ctx) => await CreateAsync(ctx, resolveTenant, links, record, findSession, notify, nowUtc));
+        // The return type is stated on purpose. An async lambda whose only parameter is HttpContext also fits
+        // RequestDelegate, the compiler prefers that overload, and the IResult is then thrown away: every set-up
+        // answered an empty 200 OK. Task<IResult> does not fit RequestDelegate, so the result is written.
+        app.MapPost(Route, async Task<IResult> (HttpContext ctx) => await CreateAsync(ctx, resolveTenant, links, record, findSession, notify, nowUtc));
         app.MapGet(Route, (HttpContext ctx) => List(ctx, resolveTenant, links, nowUtc));
         app.MapDelete(OneRoute, (HttpContext ctx, string id) => Remove(ctx, id, resolveTenant, links, record, findSession, notify, nowUtc));
         FileLog.Write($"[FleetMessageLinkEndpoints] mapped POST/GET {Route} and DELETE {OneRoute}");
