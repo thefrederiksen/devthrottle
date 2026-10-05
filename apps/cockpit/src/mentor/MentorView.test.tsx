@@ -50,7 +50,6 @@ const team = (role: string): TeamSummary => ({ id: TEAM_ID, name: "Teams test", 
 const ROB_QUOTE = "fix the signup thing so it doesnt break on mobile";
 
 const ROB_BLOCK: MentorBlock = {
-  personSubject: "a1b2...",
   personEmail: "rob@example.com",
   role: "Developer",
   tone: "hard",
@@ -62,6 +61,7 @@ const ROB_BLOCK: MentorBlock = {
   quotes: [{ promptId: "p_3f9a...", at: "2026-09-29T09:14:03Z", text: ROB_QUOTE }],
   oneThingToTry: "Name the file and the result you expect in the first line, before asking for the change.",
   writtenAtUtc: "2026-10-05T00:20:11Z",
+  isYou: false,
 };
 
 const READERS = [
@@ -80,6 +80,7 @@ function week(overrides: Partial<MentorPage>): MentorAnswer {
       timeZone: "Europe/Copenhagen",
       scope: "everyone",
       written: true,
+      writingNote: null,
       blocks: [ROB_BLOCK],
       readers: READERS,
       ...overrides,
@@ -219,12 +220,38 @@ describe("MentorView", () => {
     stage("default", week({ written: true, blocks: [] }));
     renderAs(onTeam());
 
-    await waitFor(() =>
-      expect(
-        screen.getByText("The Mentor wrote nothing for this week. It writes only about someone who ran sessions that week."),
-      ).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("No block was written for anyone this week.")).toBeTruthy());
     expect(blocks()).toHaveLength(0);
+  });
+
+  it("MentorView_WrittenWeekWithNoBlockForYou_SaysSo_AndNeverWhy", async () => {
+    // The Gateway does not say why there is no block (no sessions, no prompts, or an answer it refused), so the page
+    // does not claim one (review G7).
+    stage("default", week({ scope: "own", written: true, blocks: [] }));
+    renderAs(onTeam());
+
+    await waitFor(() => expect(screen.getByText("No block was written for you this week.")).toBeTruthy());
+    expect(blocks()).toHaveLength(0);
+    expect(screen.getByTestId("mentor-page").textContent ?? "").not.toMatch(/ran sessions|no sessions/i);
+  });
+
+  it("MentorView_AWeekStillBeingWritten_ShowsTheBlocksSoFar_UnderTheGatewaysLine", async () => {
+    // Review H1: written false WITH blocks - the Mentor saved some blocks and is waiting on its model for someone else.
+    const line = "The Mentor is still writing this week. More blocks may follow.";
+    stage("default", week({ written: false, writingNote: line }));
+    renderAs(onTeam());
+
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    expect(screen.getByTestId("mentor-writing-note").textContent).toBe(line);
+    expect(screen.queryByText("The Mentor has not written this week yet.")).toBeNull();
+  });
+
+  it("MentorView_AWrittenWeek_ShowsNoStillWritingLine", async () => {
+    stage("default", week({}));
+    renderAs(onTeam());
+
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    expect(screen.queryByTestId("mentor-writing-note")).toBeNull();
   });
 
   it("MentorView_UnwrittenWeek_SaysSoAndRendersNoBlock", async () => {
@@ -236,8 +263,8 @@ describe("MentorView", () => {
   });
 
   it("MentorView_HasNoLeaderboardOrRanking_AndKeepsTheGatewaysOrder", async () => {
-    const zed: MentorBlock = { ...ROB_BLOCK, personSubject: "sub-zed", personEmail: "zed@example.com", tone: "good", toneLabel: "a good week" };
-    const amy: MentorBlock = { ...ROB_BLOCK, personSubject: "sub-amy", personEmail: "amy@example.com", tone: "hard", toneLabel: "a hard week" };
+    const zed: MentorBlock = { ...ROB_BLOCK, personEmail: "zed@example.com", tone: "good", toneLabel: "a good week" };
+    const amy: MentorBlock = { ...ROB_BLOCK, personEmail: "amy@example.com", tone: "hard", toneLabel: "a hard week" };
     stage("default", week({ blocks: [zed, amy] }));
     renderAs(onTeam());
 

@@ -175,24 +175,32 @@ export function readersSentence(readers: MentorReader[]): string {
 }
 
 function MentorWeek({ page }: { page: MentorPage }) {
-  if (!page.written) {
+  if (!page.written && page.blocks.length === 0) {
     return <EmptyState message="The Mentor has not written this week yet." />;
   }
   if (page.blocks.length === 0) {
     return (
       <EmptyState
         message={
-          page.scope === "own"
-            ? "The Mentor wrote nothing about you for this week. It writes only about someone who ran sessions that week."
-            : "The Mentor wrote nothing for this week. It writes only about someone who ran sessions that week."
+          // The Gateway does not say WHY no block was written (no sessions, no prompts, or an answer it did not accept),
+          // so the page does not either.
+          page.scope === "own" ? "No block was written for you this week." : "No block was written for anyone this week."
         }
       />
     );
   }
   return (
     <div className="mentor-blocks">
-      {page.blocks.map((block) => (
-        <MentorBlockCard key={block.personSubject} block={block} />
+      {/* A week still being written: the blocks so far, under the Gateway's own line saying so. */}
+      {page.writingNote !== null && (
+        <p className="mentor-writing-note" data-testid="mentor-writing-note">
+          {page.writingNote}
+        </p>
+      )}
+      {page.blocks.map((block, index) => (
+        // The Gateway's order is fixed for a week and a block has no identifier of its own on the page, so its place
+        // in that order keys it.
+        <MentorBlockCard key={index} block={block} />
       ))}
     </div>
   );

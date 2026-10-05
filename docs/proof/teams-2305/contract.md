@@ -29,7 +29,8 @@ GET /teams/{teamId}/mentor?week=YYYY-Www
 | `week` not a valid ISO week | 400, `{ "error": "..." }` |
 
 The block a Developer reads about themselves and the block their Manager reads about them are the SAME stored row,
-serialized by the same code: byte for byte the same JSON object.
+serialized by the same code: byte for byte the same JSON object, except `isYou`, the one field that says whether the
+block is about the person reading it.
 
 ## The answer (200)
 
@@ -42,13 +43,13 @@ serialized by the same code: byte for byte the same JSON object.
   "timeZone": "UTC",
   "scope": "everyone",
   "written": true,
+  "writingNote": null,
   "readers": [
     { "email": "olivia@example.com", "role": "Owner" },
     { "email": "priya@example.com", "role": "Manager" }
   ],
   "blocks": [
     {
-      "personSubject": "a1b2...",
       "personEmail": "rob@example.com",
       "role": "Developer",
       "tone": "hard",
@@ -60,7 +61,8 @@ serialized by the same code: byte for byte the same JSON object.
         { "promptId": "p_3f9a...", "at": "2026-09-29T09:14:03Z", "text": "fix the signup thing so it doesnt break on mobile" }
       ],
       "oneThingToTry": "Name the file and the result you expect in the first line, before asking for the change.",
-      "writtenAtUtc": "2026-10-05T00:20:11Z"
+      "writtenAtUtc": "2026-10-05T00:20:11Z",
+      "isYou": false
     }
   ]
 }
@@ -70,16 +72,31 @@ Field rules - every one of them decided on the Gateway; a client renders, it doe
 
 - `scope` - `"everyone"` for an Owner or Manager, `"own"` for a Developer. The heading a client shows is its own
   layout choice; who is in `blocks` is already decided.
-- `written` - whether the Mentor run for this team and week has happened. `false` with empty `blocks` means "not
-  written yet"; `true` with empty `blocks` means "written, and nobody (or not you) ran sessions that week".
+- `written` - whether the Mentor run for this team and week has finished. `false` with empty `blocks` means "not
+  written yet". `false` WITH blocks means "still being written": the Mentor has stored some blocks and is still
+  waiting on its model for someone else (it tries again until the following week closes). The blocks so far are
+  served, and `writingNote` carries the line to show above them. It is served only on an Owner's or Manager's page,
+  and only while this Gateway can still finish the week (the Mentor is switched on and the week is the last closed
+  one or the one before). A week left unfinished that nothing will finish is served as finished: `written: true`
+  with its blocks. A person's own page never shows the state: their block, once written, is final; `true` with empty `blocks` means "no block was written for you this week" (or, on an Owner's or
+  Manager's page, for anyone). It does NOT say why: no sessions, no prompts, an answer the Gateway refused or a model
+  that could not be reached all look the same here, so a page must not say which. No per-person reason is shown.
+- `writingNote` - the Gateway's line for a week still being written ("The Mentor is still writing this week. More
+  blocks may follow."), shown above the blocks as given. Text exactly when `written` is false, `blocks` is not empty
+  and `scope` is `everyone`; `null` in every other case. A client refuses an answer where the two disagree.
 - `readers` - who reads every block of this team: the Owner, then the Managers, each by email and role, ordered by
   the Gateway (role, then email). The same list for every caller - it is what S7's "your Manager reads this same
   page" shows. A member with no email on record is listed with `email: null`.
-- `blocks` - one per person who ran sessions that week and had prompts. A person with no sessions, or sessions but
-  no prompts, has NO block - never an empty or invented one. Ordered by `personEmail`.
+- `blocks` - one per person whose block was written that week: they ran sessions, typed or spoke prompts, and the
+  model's answer was accepted. Anyone else has NO block - never an empty or invented one. A Collaborator never has
+  one. Ordered by `personEmail`. Only people who are members
+  of the team NOW: the block of someone who has since left is not served.
 - `personEmail` - who the block is about, as the Team page shows people; head the block with it. The block's own
   words never name anyone: they speak of the person as "they" (owner ruling via the Tech Lead, 4 Oct 2026 - a name
   derived from an email would be a guess). `null` when the person has no email on record.
+- `isYou` - `true` on the block about the person reading the page, `false` on every other. It is the only way a page
+  tells the reader's own block apart; the person's account identifier is not given out (it is not on the members
+  route either).
 - `role` - the person's role in the team NOW, as the Team page names it.
 - `tone` - one of `good`, `mixed`, `hard`. `toneLabel` is the words to show: `a good week`, `a mixed week`,
   `a hard week`.

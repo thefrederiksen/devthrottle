@@ -16,13 +16,13 @@ const CONTRACT_EXAMPLE = {
   timeZone: "Europe/Copenhagen",
   scope: "everyone",
   written: true,
+  writingNote: null,
   readers: [
     { email: "olivia@example.com", role: "Owner" },
     { email: "priya@example.com", role: "Manager" },
   ],
   blocks: [
     {
-      personSubject: "a1b2...",
       personEmail: "rob@example.com",
       role: "Developer",
       tone: "hard",
@@ -36,6 +36,7 @@ const CONTRACT_EXAMPLE = {
       ],
       oneThingToTry: "Name the file and the result you expect in the first line, before asking for the change.",
       writtenAtUtc: "2026-10-05T00:20:11Z",
+      isYou: false,
     },
   ],
 };
@@ -160,6 +161,22 @@ describe("getMentorPage", () => {
     await expect(getMentorPage("6f0c")).rejects.toMatchObject({ name: "GatewayError", status: 502 });
   });
 
+  it("getMentorPage_AWeekStillBeingWritten_IsAPage_WithItsBlocksAndTheGatewaysLine", async () => {
+    // Review H1: written false WITH blocks is the contract's "still being written", not a broken answer.
+    const b = example();
+    b.written = false;
+    b.writingNote = "The Mentor is still writing this week. More blocks may follow.";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(b)));
+
+    const answer = await getMentorPage("6f0c");
+
+    expect(answer.kind).toBe("page");
+    if (answer.kind !== "page") return;
+    expect(answer.page.written).toBe(false);
+    expect(answer.page.blocks).toHaveLength(1);
+    expect(answer.page.writingNote).toBe("The Mentor is still writing this week. More blocks may follow.");
+  });
+
   // Every way an answer can break the contract is thrown as unreadable (review F3 and F4).
   const broken: Array<[string, (b: Body) => void]> = [
     ["a block missing its text", (b) => delete b.blocks[0].workedOn],
@@ -177,15 +194,47 @@ describe("getMentorPage", () => {
     ["an unknown tone", (b) => (b.blocks[0].tone = "terrible")],
     ["a week start that is not a date", (b) => (b.weekStart = "next Monday")],
     ["a week end that is not a real date", (b) => (b.weekEnd = "2026-02-30")],
-    ["blocks in a week not written", (b) => (b.written = false)],
+    ["a writing note that is not text", (b) => (b.writingNote = 7)],
+    ["a finished week under the still-writing line", (b) => (b.writingNote = "The Mentor is still writing this week.")],
+    ["an unfinished week with blocks and no still-writing line", (b) => (b.written = false)],
+    [
+      "an empty still-writing line",
+      (b) => {
+        b.written = false;
+        b.writingNote = "";
+      },
+    ],
+    [
+      "the still-writing line on a person's own page",
+      (b) => {
+        b.scope = "own";
+        b.written = false;
+        b.blocks[0].isYou = true;
+        b.writingNote = "The Mentor is still writing this week.";
+      },
+    ],
     ["an unknown scope", (b) => (b.scope = "team")],
     [
       "two blocks on a person's own page",
       (b) => {
         b.scope = "own";
-        b.blocks = [b.blocks[0], { ...b.blocks[0], personSubject: "other" }];
+        b.blocks = [b.blocks[0], { ...b.blocks[0], personEmail: "other@example.com" }];
       },
     ],
+    [
+      "a block about someone else on a person's own page",
+      (b) => {
+        b.scope = "own";
+        b.blocks[0].isYou = false;
+      },
+    ],
+    [
+      "two blocks marked as the reader's own",
+      (b) => {
+        b.blocks = [{ ...b.blocks[0], isYou: true }, { ...b.blocks[0], personEmail: "other@example.com", isYou: true }];
+      },
+    ],
+    ["a block that does not say whether it is the reader's own", (b) => delete b.blocks[0].isYou],
     ["a reader with no role", (b) => delete b.readers[0].role],
     ["a person email that is an empty string", (b) => (b.blocks[0].personEmail = "")],
     ["a reader email that is an empty string", (b) => (b.readers[0].email = "")],

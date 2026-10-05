@@ -16,7 +16,7 @@
 //   - anything else (a week the Gateway calls invalid, a fault, a body that is not the contract) is thrown.
 //
 // AN ANSWER THAT BREAKS THE CONTRACT IS THROWN, NEVER DRAWN AS A GUESS (review of devthrottle#3538, F3 and F4): an
-// unknown tone, a date that is not a date, quotes the contract does not allow, blocks in an unwritten week, more than
+// unknown tone, a date that is not a date, quotes the contract does not allow, more than
 // one block on a person's own page, or nobody listed as reading the page. Each would otherwise reach the screen as
 // something plausible - above all "nobody else reads this", composed from an absence.
 import { authHeaders, gatewayFetch, GatewayError } from "../api/client";
@@ -33,7 +33,6 @@ export interface MentorQuote {
 
 /** One person's block for one week. Every field is the Gateway's; a page lays them out and changes none. */
 export interface MentorBlock {
-  personSubject: string;
   /** How the block is headed - the way the Team page shows people. null when the person has no email on record. */
   personEmail: string | null;
   /** The person's role in the team now, as the Team page names it. */
@@ -49,6 +48,8 @@ export interface MentorBlock {
   quotes: MentorQuote[];
   oneThingToTry: string;
   writtenAtUtc: string;
+  /** Whether this block is about the person reading the page. The person's account identifier is not given out. */
+  isYou: boolean;
 }
 
 /** Someone else who reads the caller's page: the team's Owner and Managers, as the Gateway lists them. */
@@ -69,8 +70,12 @@ export interface MentorPage {
   timeZone: string;
   /** "everyone" for an Owner or Manager, "own" for a Developer. Who is in `blocks` is already decided. */
   scope: "everyone" | "own";
-  /** Whether the Mentor's run for this team and week has happened. */
+  /** Whether the Mentor's run for this team and week has happened. Written with no block for someone does not say
+   *  why - the Gateway does not tell, so a page must not guess. */
   written: boolean;
+  /** The Gateway's line for a week still being written - `written` false WITH blocks: the blocks so far are shown
+   *  under it. null otherwise. Shown as given. */
+  writingNote: string | null;
   blocks: MentorBlock[];
   /** Who else reads the caller's page, in the Gateway's order. */
   readers: MentorReader[];
@@ -165,6 +170,7 @@ function readPage(raw: unknown): MentorPage {
     !isText(p.timeZone) ||
     !isText(p.scope) ||
     typeof p.written !== "boolean" ||
+    !isTextOrNull(p.writingNote) ||
     !Array.isArray(p.blocks) ||
     !Array.isArray(p.readers)
   ) {
@@ -181,11 +187,22 @@ function readPage(raw: unknown): MentorPage {
       `${UNREADABLE}: week ${p.week} is not the Monday ${p.weekStart} to the Sunday ${p.weekEnd}.`,
     );
   }
-  if (!p.written && p.blocks.length > 0) {
-    throw new GatewayError(502, `${UNREADABLE}: it has blocks for a week the Mentor has not written.`);
-  }
   if (p.scope === "own" && p.blocks.length > 1) {
     throw new GatewayError(502, `${UNREADABLE}: a person's own page holds more than one block.`);
+  }
+  const blocks = p.blocks.map(readBlock);
+  if (p.scope === "own" && blocks.some((b) => !b.isYou)) {
+    throw new GatewayError(502, `${UNREADABLE}: a person's own page holds a block about someone else.`);
+  }
+  if (blocks.filter((b) => b.isYou).length > 1) {
+    throw new GatewayError(502, `${UNREADABLE}: more than one block is marked as the reader's own.`);
+  }
+  // The line and the week are worked out together on the Gateway: the line is there exactly when an Owner's or
+  // Manager's week is still being written. A finished week under "still writing", an unfinished week drawn as finished,
+  // or an empty line, would each be drawn as something plausible and false (review J8).
+  const stillBeingWritten = !p.written && p.blocks.length > 0 && p.scope === "everyone";
+  if (stillBeingWritten !== (p.writingNote !== null) || p.writingNote === "") {
+    throw new GatewayError(502, `${UNREADABLE}: its "still writing" line does not match the week it is on.`);
   }
   if (p.readers.length === 0) {
     throw new GatewayError(502, `${UNREADABLE}: nobody is listed as reading the page, yet every team has an Owner.`);
@@ -198,7 +215,8 @@ function readPage(raw: unknown): MentorPage {
     timeZone: p.timeZone,
     scope: p.scope,
     written: p.written,
-    blocks: p.blocks.map(readBlock),
+    writingNote: p.writingNote,
+    blocks,
     readers: p.readers.map(readReader),
   };
 }
@@ -206,7 +224,6 @@ function readPage(raw: unknown): MentorPage {
 function readBlock(raw: unknown): MentorBlock {
   const b = (raw ?? {}) as Record<string, unknown>;
   if (
-    !isText(b.personSubject) ||
     !isEmailOrNull(b.personEmail) ||
     !isLabel(b.role) ||
     !(isText(b.tone) && TONES.includes(b.tone)) ||
@@ -216,7 +233,8 @@ function readBlock(raw: unknown): MentorBlock {
     !isTextOrNull(b.wentBadlyAndWhy) ||
     !Array.isArray(b.quotes) ||
     !isText(b.oneThingToTry) ||
-    !isText(b.writtenAtUtc)
+    !isText(b.writtenAtUtc) ||
+    typeof b.isYou !== "boolean"
   ) {
     throw new GatewayError(502, `${UNREADABLE}: a block is missing one of its parts.`);
   }
@@ -232,7 +250,6 @@ function readBlock(raw: unknown): MentorBlock {
     );
   }
   return {
-    personSubject: b.personSubject,
     personEmail: b.personEmail,
     role: b.role,
     tone: b.tone,
@@ -243,6 +260,7 @@ function readBlock(raw: unknown): MentorBlock {
     quotes: b.quotes.map(readQuote),
     oneThingToTry: b.oneThingToTry,
     writtenAtUtc: b.writtenAtUtc,
+    isYou: b.isYou,
   };
 }
 
