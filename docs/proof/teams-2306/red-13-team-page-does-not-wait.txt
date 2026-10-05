@@ -1,0 +1,21 @@
+﻿=== RED PROOF: A team page does not wait for the list of teams
+Broke apps\cockpit\src\teams\collaborator\TeamPageRoute.tsx
+  was: if (resolving || status === "loading") return
+  now: if (resolving) return
+Ran: Push-Location apps\cockpit; npx vitest run src/AppShell.test.tsx src/railCollapse.test.tsx src/teams; Pop-Location
+
+
+ RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2306/apps/cockpit
+
+ ✓ src/teams/TeamSwitcher.test.tsx (6 tests) 238ms
+ ✓ src/railCollapse.test.tsx (5 tests) 385ms
+ ✓ src/AppShell.test.tsx (25 tests) 1401ms
+ ❯ src/teams/collaborator/collaboratorApp.test.tsx (34 tests | 1 failed) 1368ms
+   [x] The Collaborator's app > FirstArrival_AMailedLinkToReports_NeverShowsPageNotFound_AndStaysOnReports 33ms
+     → expected <h1 class="pane-title"></h1> to be null
+
+ Test Files  1 failed | 3 passed (4)
+      Tests  1 failed | 69 passed (70)
+   Start at  21:00:19
+   Duration  5.77s (transform 2.81s, setup 100ms, collect 6.45s, tests 3.39s, environment 4.16s, prepare 1.04s)
+
