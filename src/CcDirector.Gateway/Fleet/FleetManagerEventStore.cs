@@ -397,12 +397,14 @@ public sealed class FleetManagerEventStore
     {
         if (string.IsNullOrWhiteSpace(fleetManagerSessionId)) throw new ArgumentException("the Fleet Manager session is required");
         var sid = fleetManagerSessionId.Trim();
-        // Only an UNACKNOWLEDGED marked event counts as "already told" (issue #3559): a session marked again later -
+        // Only a marked event NOT YET DELIVERED counts as "already told" (issue #3559): a session marked again later -
         // marked by hand, then another, then it again - is told again, because the event carries the lessons kept
-        // since. One still open is delivered with the lessons as they are then, so it is not stored twice.
-        if (ctx.FleetManagerEvents.Any(e => e.Kind == KindMarked && e.SessionId == sid && e.AcknowledgedAtUtc == null))
+        // since. One still waiting is delivered with the lessons as they are then, so it is not stored twice; one
+        // already delivered (acknowledged or not) is never delivered to that session again, so a new one is stored.
+        if (ctx.FleetManagerEvents.Any(e => e.Kind == KindMarked && e.SessionId == sid
+                                            && e.AcknowledgedAtUtc == null && e.DeliveredAtUtc == null))
         {
-            FileLog.Write($"[FleetManagerEventStore] marked event: sid={sid} - already told and not yet acknowledged, not stored again");
+            FileLog.Write($"[FleetManagerEventStore] marked event: sid={sid} - one is already waiting to be delivered, not stored again");
             return null;
         }
         var entity = new FleetManagerEventEntity

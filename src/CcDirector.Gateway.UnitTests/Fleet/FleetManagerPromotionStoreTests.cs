@@ -179,6 +179,25 @@ public sealed class FleetManagerPromotionStoreTests : IDisposable
     }
 
     [Fact]
+    public void MarkByOwner_ASessionWhoseEarlierEventWasDeliveredButNeverAcknowledged_IsToldAgain()
+    {
+        // Review of parts 1 and 2, finding 1: a delivered event is never delivered to that session again, so it must not
+        // count as "already told" - the new marked event carries the lessons kept since.
+        const string A = "60000000-0000-4000-8000-00000000000a";
+        const string B = "60000000-0000-4000-8000-00000000000b";
+
+        Assert.True(_store.MarkByOwner(Tenant, A, Now));
+        var first = Assert.Single(_events.Owed(Tenant, A, FleetManagerEventStore.MaxDeliveryBatch).Events);
+        _events.MarkDelivered(Tenant, new[] { Guid.Parse(first.Id) }, A, Now.AddMinutes(1));
+        Assert.True(_store.MarkByOwner(Tenant, B, Now.AddMinutes(2)));
+        Assert.True(_store.MarkByOwner(Tenant, A, Now.AddMinutes(3)));
+
+        var owedToA = _events.Owed(Tenant, A, FleetManagerEventStore.MaxDeliveryBatch).Events
+            .Where(e => e.Kind == FleetManagerEventStore.KindMarked && e.SessionId == A).ToList();
+        Assert.NotEqual(first.Id, Assert.Single(owedToA).Id);
+    }
+
+    [Fact]
     public void WaitingSuccessors_AreBounded_ToTheMostRecent()
     {
         var ids = Enumerable.Range(1, FleetManagerPlacementService.MaxWaitingSuccessors + 5)
