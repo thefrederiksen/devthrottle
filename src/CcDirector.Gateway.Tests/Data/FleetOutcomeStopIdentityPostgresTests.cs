@@ -94,7 +94,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20261004214416_AddTeamMentor", all[index + 13]);
             // The team requests (devthrottle_internal#2308), after that.
             Assert.Equal("20261005115930_AddTeamRequests", all[index + 14]);
-            Assert.Equal(all.Count - 14, index);
+            Assert.Equal(all.Count - 15, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
