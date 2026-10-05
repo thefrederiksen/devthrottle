@@ -501,6 +501,42 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         return _devices.ResolveCredential(key).Identity!;
     }
 
+    [Theory]
+    [InlineData("GET", "/sessions/{sid}/history")]
+    [InlineData("GET", "/sessions/{sid}/wingman-stops")]
+    [InlineData("GET", "/sessions/{sid}/turn-verdict")]
+    [InlineData("GET", "/sessions/{sid}/turn-verdicts")]
+    [InlineData("GET", "/sessions/{sid}/wingman/voice/audio")]
+    [InlineData("GET", "/sessions/{sid}/recap")]
+    [InlineData("POST", "/sessions/{sid}/recap")]
+    [InlineData("GET", "/sessions/{sid}/summary")]
+    [InlineData("GET", "/sessions/{sid}/wingman")]
+    [InlineData("GET", "/sessions/{sid}/wingman-now")]
+    [InlineData("GET", "/sessions/{sid}/wingman-debug")]
+    [InlineData("GET", "/sessions/{sid}/wingman/voice")]
+    [InlineData("GET", "/sessions/{sid}/wingman/waiting-screen")]
+    public void EveryStoredContentRoute_OfAColleaguesEndedSession_IsRefused_ToTheMemberWhoseDirectorNowHoldsItsId(
+        string method, string pattern)
+    {
+        // Gateway review round 2, R2-F1, the walk: every {sid} route that serves Gateway-stored content asks the one
+        // ownership answer, and none of them serves a colleague's ended session to the member whose Director took its id.
+        var bob = Hello(_teamA, Bob, "director-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2));
+        bob.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+        var aliceKey = _devices.RegisterForTenant(new TenantId(_teamA), Alice,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA, Alice, "director-alice"), "M").DeviceKey;
+        var alice = SayHello(aliceKey, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        var gate = Gate(out var ownership);
+
+        var verdict = Ask(gate, ownership, method, pattern, "session-bob", new TenantId(_teamA),
+            _devices.ResolveCredential(aliceKey).Identity, null);
+
+        Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
+        Assert.NotEqual(TeamEndpointGate.CallerUnknownRefusal, verdict.Message);
+    }
+
     [Fact]
     public void PersonOf_ASessionKeyInATeam_IsItsDirectorsOwner_ReadLive_AndNobodyOnceTheirKeyIsRevoked()
     {
