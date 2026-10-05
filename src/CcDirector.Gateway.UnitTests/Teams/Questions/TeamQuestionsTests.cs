@@ -229,6 +229,7 @@ public sealed class TeamQuestionsTests : IDisposable
             Assert.DoesNotContain(marker, i.Comment);
             Assert.DoesNotContain(marker, i.Text);
         });
+        Assert.All(_store.Replies(_tenant, report), r => Assert.DoesNotContain(marker, r.Text));
         // They ARE with the person who asked: the comment row to Alice, and her own report's page.
         var comment = Assert.Single(_comments.To(_tenant, report, Alice));
         Assert.Contains(marker, comment.Text);
