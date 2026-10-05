@@ -1,40 +1,25 @@
 ﻿  Determining projects to restore...
   All projects are up-to-date for restore.
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
   CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
   CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
-  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
   CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
   CcDirector.Core -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
   CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
   CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2306\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
   CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
-  [TypecheckWorkspaces] strict test-inclusive typecheck across every workspace (Debug)
   CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
-  
-  > @devthrottle/client-core@0.1.0 typecheck
-  > tsc --noEmit
-  
-  
-  > @devthrottle/cc-assistant@0.1.0 typecheck
-  > tsc --noEmit
-  
-  
-  > @devthrottle/cockpit@0.1.0 typecheck
-  > tsc --noEmit
-  
-  
-  > @devthrottle/mobile@0.1.0 typecheck
-  > tsc --noEmit
-  
   CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
   CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
   CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
   CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
 Test run for D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
 A total of 1 test files matched the specified pattern.
-[xUnit.net 00:00:15.38]     CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [SKIP]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [1 ms]
-[xUnit.net 00:00:15.84]     CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [SKIP]
+[xUnit.net 00:00:03.15]     CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [SKIP]
+[xUnit.net 00:00:03.15]     CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [1 ms]
   Skipped CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:00:13.67]     CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [1 ms]
 
-Passed!  - Failed:     0, Passed:   557, Skipped:     2, Total:   559, Duration: 33 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+Passed!  - Failed:     0, Passed:   662, Skipped:     3, Total:   665, Duration: 29 s - CcDirector.Gateway.UnitTests.dll (net10.0)

@@ -25,13 +25,11 @@ public static class RoleTableSpec
             "devthrottle_internal#2305 builds the Mentor page; today's endpoint is the Mentor report's on/off setting"),
         new(TeamAction.AnswerQuestionsSendRequestsReadReports, "YYYY", null, null, TeamOwnership.Unknown,
             "devthrottle_internal#2306-#2309 (the Collaborator's pages) add these endpoints"),
-        new(TeamAction.InviteOrRemoveDevelopersAndCollaborators, "YYNN", null, null, TeamOwnership.Unknown,
-            "devthrottle_internal#2301 (invite) and #2303 (remove) add these endpoints"),
+        new(TeamAction.InviteOrRemoveDevelopersAndCollaborators, "YYNN", "DELETE", "/teams/{teamId}/members/{memberId}", TeamOwnership.Unknown, null),
         new(TeamAction.ReadMentorPageAboutEachPerson, "YYNN", "GET", "/gateway/mentor-report", TeamOwnership.SomeoneElses,
             "devthrottle_internal#2305 builds the Mentor page; today's endpoint is the Mentor report's on/off setting"),
         new(TeamAction.ChangeSharedSkillsAndWorkflows, "YYNN", "POST", "/gateway/skills", TeamOwnership.Unknown, null),
-        new(TeamAction.MakeManagersAndChangeRoles, "YNNN", null, null, TeamOwnership.Unknown,
-            "devthrottle_internal#2303 (change role) and #2301 (invite a Manager) add these endpoints"),
+        new(TeamAction.MakeManagersAndChangeRoles, "YNNN", "PUT", "/teams/{teamId}/members/{memberId}/role", TeamOwnership.Unknown, null),
         new(TeamAction.BillingRenameOrDeleteTeam, "YNNN", null, null, TeamOwnership.Unknown,
             "devthrottle_internal#2299 adds billing; no first-version issue adds rename or delete"),
         new(TeamAction.JoinOrWatchSomeoneElsesSession, "NNNN", "GET", "/sessions/{sid}/buffer", TeamOwnership.SomeoneElses, null),
@@ -40,6 +38,8 @@ public static class RoleTableSpec
         new(TeamAction.ReadPromptsQuotedOnMentorPage, "YYNN", null, null, TeamOwnership.Unknown,
             "devthrottle_internal#2305 builds the Mentor page that quotes them"),
         new(TeamAction.ChangeAnotherPersonsMentorSettings, "NNNN", "PUT", "/gateway/mentor-report", TeamOwnership.SomeoneElses, null),
+        // devthrottle_internal#2303: "Collaborator: no Team page."
+        new(TeamAction.SeeTeamPage, "YYYN", "GET", "/teams/{teamId}/page", TeamOwnership.Unknown, null),
     };
 
     public static readonly TeamRole[] Columns = { TeamRole.Owner, TeamRole.Manager, TeamRole.Developer, TeamRole.Collaborator };

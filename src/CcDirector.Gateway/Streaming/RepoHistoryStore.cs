@@ -51,6 +51,19 @@ public sealed record RepoWeekTrend
 /// moving it to real tables later changes persistence, not shape. One row per (tenant, day,
 /// machine, repo); re-observing the same day upserts (last write wins), so the daily write is
 /// idempotent however often Directors push.
+///
+/// SAVED ON A CLOCK, NOT ON EVERY CHANGE (Money Saver, 4 October 2026). One file holds every account's
+/// history, and on the hosted Gateway it sits on a billed network share: it was rewritten whole - 1.6 MB -
+/// about 2,100 times a day, once per changed push, so each new account made every other account's write
+/// bigger. An observation now only marks the rows unsaved; the host calls <see cref="SaveIfChanged"/> on a
+/// timer and once more at shutdown. Readers are unaffected, because they read the in-memory rows. What a
+/// crash or a hard kill between saves can lose is up to one interval of changes. Usually they come back,
+/// because the next push from each Director carries its full current view again - but not for a Director
+/// that went offline after its last push that day, nor for a day that ended (in Coordinated Universal Time)
+/// inside the lost interval, since the next push is stamped with the new day. During a deploy the two
+/// containers each rewrite the whole file from their own memory, so the last write wins; that race existed
+/// before this change, the interval only widens it, and normal traffic heals it. This is trend data for a
+/// weekly chart, so that loss is accepted in exchange for not rewriting the file on every push.
 /// </summary>
 public sealed class RepoHistoryStore
 {
@@ -179,18 +192,32 @@ public sealed class RepoHistoryStore
                 FileLog.Write($"[RepoHistoryStore] pruned {expired.Count} row(s) older than {RetentionDays} days");
             }
 
-            // Persist when there is a logical change OR a previous save failed and is still pending
-            // (inspection): change detection compares in-memory rows, so a suppressed write failure
-            // would otherwise stay non-durable until some unrelated value changed. Retry until a save
-            // actually succeeds.
-            if (changed || _saveFailedPending)
-                _saveFailedPending = !Save();
+            // Only mark it: the host's clock writes it (see the type remarks).
+            if (changed)
+                _unsaved = true;
         }
     }
 
-    /// <summary>True when the last <see cref="Save"/> failed and the in-memory state is not yet on
-    /// disk. Set under <see cref="_gate"/>; forces the next observation to retry the write.</summary>
-    private bool _saveFailedPending;
+    /// <summary>True when the in-memory rows hold a change that is not yet on disk - because nothing has
+    /// saved since it was observed, or because the last save failed. Set under <see cref="_gate"/>.</summary>
+    private bool _unsaved;
+
+    /// <summary>
+    /// Writes the rows when they hold an unsaved change; does nothing otherwise. Called by the host on a
+    /// timer and once at shutdown. A failed write leaves the change marked, so the next call retries it
+    /// (inspection: a suppressed failure must not stay non-durable until some unrelated value changes).
+    /// Returns true when nothing is left unsaved.
+    /// </summary>
+    public bool SaveIfChanged()
+    {
+        lock (_gate)
+        {
+            if (!_unsaved)
+                return true;
+            _unsaved = !Save();
+            return !_unsaved;
+        }
+    }
 
     /// <summary>Weekly trends for the last <paramref name="weeks"/> weeks (oldest first).</summary>
     public IReadOnlyList<RepoWeekTrend> WeeklyTrends(TenantId tenant, int weeks = 8, DateOnly? today = null)
@@ -343,7 +370,7 @@ public sealed class RepoHistoryStore
     }
 
     /// <summary>Persists the current rows atomically. Returns false if the write failed (the caller
-    /// keeps the state pending and retries on the next observation).</summary>
+    /// keeps the state pending and retries on the next clock tick).</summary>
     private bool Save()
     {
         try

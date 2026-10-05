@@ -58,6 +58,12 @@ public enum TeamAction
     /// person and nothing more, so no role may; kept apart so a permission to read never grants a change (review
     /// finding F3).</summary>
     ChangeAnotherPersonsMentorSettings,
+
+    /// <summary>Open the Team page (screen S1): the member list with roles and seats, and what the caller may do to
+    /// each member. devthrottle_internal#2303: the Owner, Managers and Developers have the page; a Collaborator does
+    /// not - their app is the Collaborator's own (#2306), though they may still read the member list
+    /// (<see cref="SeeMembersAndRoles"/>).</summary>
+    SeeTeamPage,
 }
 
 /// <summary>One cell of the role table.</summary>
@@ -125,6 +131,8 @@ public static class TeamPermissions
         new TeamPermissionRow(TeamAction.ReadAnotherPersonsPrompts, "read another person's prompts", No, No, No, No),
         new TeamPermissionRow(TeamAction.ReadPromptsQuotedOnMentorPage, "read the prompts the Mentor quotes on its page about a person", Yes, Yes, No, No),
         new TeamPermissionRow(TeamAction.ChangeAnotherPersonsMentorSettings, "change the Mentor's settings for another person", No, No, No, No),
+        // devthrottle_internal#2303: "Collaborator: no Team page."
+        new TeamPermissionRow(TeamAction.SeeTeamPage, "open the Team page", Yes, Yes, Yes, No),
     };
 
     private static readonly IReadOnlyDictionary<TeamAction, TeamPermissionRow> ByAction = BuildIndex();

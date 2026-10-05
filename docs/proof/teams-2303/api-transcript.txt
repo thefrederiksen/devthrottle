@@ -1,0 +1,137 @@
+The Team page over real HTTP on a hosted Gateway with Teams released (HostedTeamPageEndpointsTests.Transcript_TheTeamPage).
+Member ids are shown as {name}; the route carries the opaque hash.
+GET /teams/{teamId}/page as soren@acme.example (Owner) -> 200 OK
+{
+  "teamId": "a3c79a23-25b3-4e11-962f-ac284fd43ba3",
+  "teamName": "Acme",
+  "yourRole": "Owner",
+  "summary": "4 paid seats, 1 Collaborator (free), 0 invitations waiting",
+  "canInvite": true,
+  "members": [
+    {
+      "memberId": "de2bd0d9c0c107432e556b147aaa92de",
+      "name": "soren@acme.example",
+      "email": "soren@acme.example",
+      "role": "Owner",
+      "seat": "Paid",
+      "isYou": true,
+      "joinedAtUtc": "2026-10-04T14:36:32.7288114Z",
+      "canChangeRole": false,
+      "roleChoices": [],
+      "canRemove": false,
+      "removeWarning": null
+    },
+    {
+      "memberId": "36558dd93483b7ee068f0f11d8e1f110",
+      "name": "pat@acme.example",
+      "email": "pat@acme.example",
+      "role": "Manager",
+      "seat": "Paid",
+      "isYou": false,
+      "joinedAtUtc": "2026-10-04T14:36:32.7728126Z",
+      "canChangeRole": true,
+      "roleChoices": [
+        "Manager",
+        "Developer",
+        "Collaborator"
+      ],
+      "canRemove": true,
+      "removeWarning": "pat@acme.example will leave the team at once, and their paid seat comes off the team\u0027s bill. To bring them back, invite them again."
+    },
+    {
+      "memberId": "bbc0e958f9ee6f9f0e5ff1d611cc0d32",
+      "name": "priya@acme.example",
+      "email": "priya@acme.example",
+      "role": "Manager",
+      "seat": "Paid",
+      "isYou": false,
+      "joinedAtUtc": "2026-10-04T14:36:32.7580605Z",
+      "canChangeRole": true,
+      "roleChoices": [
+        "Manager",
+        "Developer",
+        "Collaborator"
+      ],
+      "canRemove": true,
+      "removeWarning": "priya@acme.example will leave the team at once, and their paid seat comes off the team\u0027s bill. To bring them back, invite them again."
+    },
+    {
+      "memberId": "8972579da872dde6e08a82d72be676ba",
+      "name": "rob@acme.example",
+      "email": "rob@acme.example",
+      "role": "Developer",
+      "seat": "Paid",
+      "isYou": false,
+      "joinedAtUtc": "2026-10-04T14:36:32.7867174Z",
+      "canChangeRole": true,
+      "roleChoices": [
+        "Manager",
+        "Developer",
+        "Collaborator"
+      ],
+      "canRemove": true,
+      "removeWarning": "rob@acme.example will leave the team at once, and their paid seat comes off the team\u0027s bill. To bring them back, invite them again."
+    },
+    {
+      "memberId": "fa07cb98e257e5bb8e66e64065d9e207",
+      "name": "mike@client.example",
+      "email": "mike@client.example",
+      "role": "Collaborator",
+      "seat": "Free",
+      "isYou": false,
+      "joinedAtUtc": "2026-10-04T14:36:32.8000444Z",
+      "canChangeRole": true,
+      "roleChoices": [
+        "Manager",
+        "Developer",
+        "Collaborator"
+      ],
+      "canRemove": true,
+      "removeWarning": "mike@client.example will leave the team at once. Collaborators are free, so the bill does not change. To bring them back, invite them again."
+    }
+  ],
+  "invitations": []
+}
+
+GET /teams/{teamId}/page as mike@client.example (Collaborator) -> 403 Forbidden
+{
+  "error": "In this team you are a Collaborator, and a Collaborator may not open the Team page.",
+  "code": "team_action_refused"
+}
+
+PUT /teams/{teamId}/members/{rob}/role {"role":"Collaborator"} as priya@acme.example (Manager) -> 403 Forbidden
+{
+  "error": "In this team you are a Manager, and a Manager may not make someone a Manager or change roles.",
+  "code": "team_action_refused"
+}
+
+PUT /teams/{teamId}/members/{rob}/role {"role":"Collaborator"} as soren@acme.example (Owner) -> 200 OK
+{
+  "done": true
+}
+
+DELETE /teams/{teamId}/members/{pat} as priya@acme.example (Manager) -> 403 Forbidden
+{
+  "error": "Only the Owner can remove a Manager."
+}
+
+DELETE /teams/{teamId}/members/{soren} as soren@acme.example (Owner) -> 409 Conflict
+{
+  "error": "You are the team\u0027s Owner, and the Owner cannot leave the team: a team always has exactly one Owner."
+}
+
+DELETE /teams/{teamId}/members/{rob} as rob@acme.example (Developer) -> 403 Forbidden
+{
+  "error": "In this team you are a Collaborator, and a Collaborator may not invite or remove Developers and Collaborators.",
+  "code": "team_action_refused"
+}
+
+DELETE /teams/{teamId}/members/{rob} as priya@acme.example (Manager) -> 200 OK
+{
+  "done": true
+}
+
+GET /teams/{teamId}/page as rob@acme.example (removed) -> 404 NotFound
+{
+  "error": "There is no team with that id that you are a member of."
+}

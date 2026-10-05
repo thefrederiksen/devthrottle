@@ -163,8 +163,11 @@ public sealed class GatewayService : IDisposable
         FileLog.Write("[GatewayService] shutdown requested via /shutdown (self-update)");
         // Issue #880: /shutdown must ALWAYS end this process - the self-update swap waits (bounded) for
         // the exe to unlock, and a graceful stop wedged behind a stuck host or a frozen host thread would
-        // strand it on the old build. The watchdog hard-exits after the grace period; every store the
-        // Gateway owns is written through on mutation, so a hard exit at shutdown time loses nothing.
+        // strand it on the old build. The watchdog hard-exits after the grace period. Every store the
+        // Gateway owns is written through on mutation except the repository history, which is saved on a
+        // five-minute clock (Money Saver). A graceful stop saves it first thing, before the slow drains, so
+        // this hard exit normally loses nothing; at worst it loses unsaved trend rows - daily maxima for a
+        // chart, never sessions, keys or settings.
         var watchdog = new Thread(() =>
         {
             Thread.Sleep(ShutdownWatchdogGrace);

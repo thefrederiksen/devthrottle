@@ -323,23 +323,40 @@ public sealed class TeamInvitationTests : IDisposable
     // ---- The seat sync (seam section 4) --------------------------------------------------------------------------
 
     [Fact]
-    public async Task SeatSync_AcceptRemoveAndRoleChange_EachCallSyncOnceWithTheTeamId()
+    public async Task SeatSync_AcceptRemoveAndRoleChange_CallSyncOnceWithTheTeamId_OnlyWhenThePaidSeatCountMoves()
     {
         _tenants.MintOrLookupBySubject(Newcomer, "n@x.example");
         var token = TokenOf(Invite(Owner, "n@x.example", TeamRole.Developer));
         Assert.Empty(_website.Calls);
 
-        _teams.AcceptInvitation(token, Newcomer);
+        _teams.AcceptInvitation(token, Newcomer);       // a paid seat added
         await _teams.SeatSyncsSettled();
         AssertOneSyncFor(_team);
 
-        _teams.ChangeRole(_team, Newcomer, TeamRole.Collaborator);
+        _teams.ChangeRole(_team, Newcomer, TeamRole.Manager);   // paid to paid: the count does not move
+        await _teams.SeatSyncsSettled();
+        Assert.Empty(_website.Calls);
+
+        _teams.ChangeRole(_team, Newcomer, TeamRole.Collaborator);   // paid to free
         await _teams.SeatSyncsSettled();
         AssertOneSyncFor(_team);
 
-        _teams.RemoveMember(_team, Newcomer);
+        _teams.RemoveMember(_team, Newcomer);           // a free member leaves: the count does not move (#2303)
         await _teams.SeatSyncsSettled();
-        AssertOneSyncFor(_team);
+        Assert.Empty(_website.Calls);
+    }
+
+    [Fact]
+    public async Task SeatSync_AcceptingACollaboratorInvitation_DoesNotCallSync()
+    {
+        _tenants.MintOrLookupBySubject(Newcomer, "n@x.example");
+        var token = TokenOf(Invite(Owner, "n@x.example", TeamRole.Collaborator));
+
+        Assert.Equal(TeamInvitationOutcome.Done, _teams.AcceptInvitation(token, Newcomer).Outcome);
+        await _teams.SeatSyncsSettled();
+
+        Assert.Equal(TeamRole.Collaborator, _teams.RoleOf(_team, Newcomer));
+        Assert.Empty(_website.Calls);
     }
 
     [Fact]

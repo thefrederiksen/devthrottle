@@ -2,7 +2,7 @@ namespace CcDirector.Gateway.Teams;
 
 /// <summary>One page of the Cockpit that is ruled by a cell of the role table: its id, the name the navigation shows,
 /// its address, and the action that opens it.</summary>
-public sealed record TeamPage(string Id, string Label, string Path, TeamAction Action);
+public sealed record TeamAppPage(string Id, string Label, string Path, TeamAction Action);
 
 /// <summary>
 /// WHAT ONE PERSON'S COCKPIT IS IN ONE TEAM (devthrottle_internal#2306), as the Gateway's verdict - the Cockpit renders it
@@ -14,7 +14,7 @@ public sealed record TeamPage(string Id, string Label, string Path, TeamAction A
 /// <param name="Landing">Where the Cockpit opens, when <paramref name="FullApp"/> is false; null otherwise.</param>
 /// <param name="Elsewhere">The sentence shown at any other address, when <paramref name="FullApp"/> is false; null
 /// otherwise.</param>
-public sealed record TeamAppVerdict(bool FullApp, IReadOnlyList<TeamPage> Pages, string? Landing, string? Elsewhere);
+public sealed record TeamAppVerdict(bool FullApp, IReadOnlyList<TeamAppPage> Pages, string? Landing, string? Elsewhere);
 
 /// <summary>
 /// THE PAGES A PERSON MAY OPEN IN A TEAM, READ FROM THE ROLE TABLE (devthrottle_internal#2306). A page is listed when the
@@ -27,11 +27,11 @@ public sealed record TeamAppVerdict(bool FullApp, IReadOnlyList<TeamPage> Pages,
 public static class TeamApp
 {
     /// <summary>The role-ruled pages, in navigation order.</summary>
-    public static readonly IReadOnlyList<TeamPage> Pages = new[]
+    public static readonly IReadOnlyList<TeamAppPage> Pages = new[]
     {
-        new TeamPage("questions", "Questions", "/questions", TeamAction.AnswerQuestionsSendRequestsReadReports),
-        new TeamPage("requests", "Requests", "/requests", TeamAction.AnswerQuestionsSendRequestsReadReports),
-        new TeamPage("reports", "Reports", "/reports", TeamAction.AnswerQuestionsSendRequestsReadReports),
+        new TeamAppPage("questions", "Questions", "/questions", TeamAction.AnswerQuestionsSendRequestsReadReports),
+        new TeamAppPage("requests", "Requests", "/requests", TeamAction.AnswerQuestionsSendRequestsReadReports),
+        new TeamAppPage("reports", "Reports", "/reports", TeamAction.AnswerQuestionsSendRequestsReadReports),
     };
 
     /// <summary>The row that gives the whole Cockpit: sessions, computers and everything around them.</summary>
