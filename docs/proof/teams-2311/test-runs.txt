@@ -236,3 +236,19 @@ method). Commit 3523df018.
       HostedTeamDirectorKeyDarkTests|Invitation|TeamEndpointWalkTests: Passed 42, Skipped 1 (the PostgreSQL migration
       test), 0 failed.
     .\scripts\test-local.ps1 (default gate): every suite outcome=Completed; 3,594 passed, 0 failed.
+
+GATEWAY STEP 2 - A TEAM'S BILL ON THE REQUEST PATH (branch teams/2311-gateway-team-bill, cut from origin/main 3fa6f7ca0).
+Details in step2-team-bill.md.
+
+25. On head bbf5798c4.
+    Revert proofs (each on a build that succeeded, then restored and green):
+      item 7  TeamTurnPushRefusalFor answers no refusal             Failed 4 of 22
+      item 1  the lease's team branch never taken                   Failed 8 of 15
+      seam 2  PersonOf ignores a session key                        Failed 6 of 29
+      D8      ReadTeamBill ignores livemode                         Failed 3 of 50 (two are #3521's test-mode cases)
+      R3-F4   no tenant check in AccountSubjectOfActiveDevice       Failed 2
+      R3-F1/2 the dark filter as it was before round 3              Failed 7
+    Gateway.UnitTests in full, two halves: Half A Passed 3497, Skipped 2; Half B Passed 5318, Skipped 8.
+      Together 8,815 passed, 0 failed.
+    .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; 3,601 tests.
+    Gateway.Tests: compiled, NOT run here (by instruction); continuous integration is their result.
