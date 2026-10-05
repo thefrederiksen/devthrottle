@@ -168,6 +168,20 @@ MUTATIONS = {
         "new": "r.RecipientSubject == recipientSubject && r.ReadAtUtc == null)",
         "runs": [UNIT],
     },
+    "page-marks-once-per-open": {
+        "rule": "The page remembers the version it marked, so a version sent while the report is open is marked when shown (delta review D5).",
+        "file": "apps/cockpit/src/teams/collaborator/TeamReportViews.tsx",
+        "old": "markedVersion.current === detail.report.version) return;",
+        "new": "markedVersion.current !== null) return;",
+        "runs": [vitest("apps/cockpit", "src/teams/collaborator/reportsPage.test.tsx")],
+    },
+    "page-sends-a-fixed-version": {
+        "rule": "The page's send names the version it is showing (delta review D2).",
+        "file": "apps/cockpit/src/teams/collaborator/TeamReportViews.tsx",
+        "old": "sendMyTeamReport(teamId, reportId, chosen, shownVersion)",
+        "new": "sendMyTeamReport(teamId, reportId, chosen, 1)",
+        "runs": [vitest("apps/cockpit", "src/teams/collaborator/reportsPage.test.tsx")],
+    },
     "rail-without-team-pages": {
         "rule": "In a team where the person gets the whole app, the rail lists the team's pages from the Gateway's verdict.",
         "file": "apps/cockpit/src/AppShell.tsx",

@@ -1,0 +1,28 @@
+RED PROOF: page-sends-a-fixed-version
+Rule: The page's send names the version it is showing (delta review D2).
+File: apps/cockpit/src/teams/collaborator/TeamReportViews.tsx
+
+Mutation - replaced:
+sendMyTeamReport(teamId, reportId, chosen, shownVersion)
+with:
+sendMyTeamReport(teamId, reportId, chosen, 1)
+
+Command: npx vitest run src/teams/collaborator/reportsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ ? src/teams/collaborator/reportsPage.test.tsx (25 tests | 2 failed) 891ms
+   ? one of your own reports > Send_SendsExactlyTheChosenMembers 39ms
+   ? one of your own reports > Send_RefusedBecauseANewerVersionArrived_ShowsTheGatewaysSentence_ReadsAgain_AndTheNextSendIsTheNewerOne 51ms
+ Test Files  1 failed (1)
+      Tests  2 failed | 23 passed (25)
+stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
+??????? Failed Tests 2 ???????
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > one of your own reports > Send_SendsExactlyTheChosenMembers
+AssertionError: expected [ 'team-dt', 'y1', [ 'm-bob' ], 1 ] to deeply equal [ 'team-dt', 'y1', [ 'm-bob' ], 3 ]
+- Expected
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > one of your own reports > Send_RefusedBecauseANewerVersionArrived_ShowsTheGatewaysSentence_ReadsAgain_AndTheNextSendIsTheNewerOne
+AssertionError: expected [ 1, 1 ] to deeply equal [ 3, 4 ]
+- Expected
+    410|     expect(vi.mocked(sendMyTeamReport).mock.calls.map((c) => c[3])).to?
+
+Restored from the committed tree afterwards; git diff on the file is empty.

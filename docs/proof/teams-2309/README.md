@@ -1,6 +1,6 @@
 # Proof: a dev report sent to a member of the team, and comments that go to its author (devthrottle_internal#2309)
 
-Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-reports`. The branch is one change commit and one proof commit on `origin/main` at 3c8808ec6. That includes the team requests (#3556, devthrottle_internal#2308) and a session's request for a message link (#3560). Each of those added a migration, so this change's migration was regenerated after them, on that model. The review's answers (`review-2309.md`, F1 to F13) are built in.
+Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-reports`, on `origin/main` at 16d267109 (the v2.15.0 release). Main includes the team requests (#3556, devthrottle_internal#2308) and a session's request for a message link (#3560); each added a migration, so this change's migration was regenerated after them, on that model. The first review's answers (`review-2309.md`, F1 to F13) and the delta review's (`review-2309-delta.md`, D1 to D10) are built in.
 
 ## What was built
 
@@ -10,16 +10,18 @@ Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-r
   - `DevReportAuthor.PublishAs` is the only way the route then writes, under that author.
   - A personal account records no author, and the author never changes on a later version.
 - **Sending (piece 1 for #2307: `DevReportRecipients`).**
-  - `POST /teams/{teamId}/reports/mine/{reportId}/recipients` with `{memberIds}`, from the Cockpit, account token only.
+  - `POST /teams/{teamId}/reports/mine/{reportId}/recipients` with `{memberIds, version}`, from the Cockpit, account token only.
+  - **The send carries the version the page was showing (delta review D2).** The Gateway sends exactly that version. When the session has published a newer one meanwhile, nothing is sent: the answer is 409 `version_not_newest` with the Gateway's sentence, and the page shows it and reads again, so the author reads the newer version before sending it. A person is never sent a version its author did not see.
   - All or nothing. These each refuse the whole send, and nothing is stored: someone who is not a member of this team, the author themselves, an empty list, or a member whose role may not read reports.
   - **A send covers the version sent (review F1).** The recipient row records `SentVersion`, and that version is the only one the recipient reads.
-  - A later version reaches them only when the author sends again. Sending again moves their row forward and marks it unread. An earlier version never reaches them, and never moves a row back.
+  - A later version reaches them only when the author sends again. Sending again moves their row forward and marks it unread. An earlier version never reaches them, and never moves a row back: the move is one conditional update (`where SentVersion < version`), so two sends across a publish cannot move a person back whichever lands last (delta review D7).
   - The author's page shows which version each person holds ("Has version 1 of 2"). A member who holds an older version is offered again, with what sending does for them.
   - The members offered are the ones `TeamAccess.Decide` lets read reports (review F12).
 - **Reading (screen S10).**
   - `GET /teams/{teamId}/reports/sent-to-me` lists only the reports sent to the caller: newest first, from whom, when, and "New" or "Read".
   - `GET .../sent-to-me/{id}` and `.../sent-to-me/{id}/html` answer only for a report sent to the caller. Any other id is 404, however it is asked for.
-  - The html route serves the version the caller was sent. A `?version=` naming any other version is 404 with the Gateway's sentence. Opening a report marks it read.
+  - The html route serves the version the caller was sent. A `?version=` naming any other version is 404 with the Gateway's sentence. This is watched over the wire, not only on the class behind the route (delta review D3).
+  - **Opening a version marks that version read (delta review D5).** The read request names the version the page showed, and the Gateway marks the row only when that is the version held. A read for an older version, landing after the author sent a newer one, is 409 `version_not_held` and marks nothing. The page remembers the version it marked, not merely that it marked one, so a version sent while the report is open is marked once it is shown.
   - The page opens it in the SAME shared viewer (`DevReportViewer`: the same frame host and trust rules, CONTRACT sections 4 and 5), fed from the team route. There is no second viewer.
 - **No notes or answers for a team reader (review F2).**
   - Both detail answers carry `notesOpen: false`, a flag the Gateway sends.
@@ -76,7 +78,11 @@ So a session key, or a key bound to the team's tenant, cannot reach these routes
    - `PublishAs_TheResolvedAuthor_IsTheOneRecorded_AndAPersonalAccountRecordsNone` proves that the resolver's answer is what gets written. It does NOT prove the route over the wire.
    - **The test to write when the lease reads the team's bill:** `Issue2309_TeamSession_PublishesOverTheWire_RecordsTheDirectorsPersonAsAuthor_AndAnUnnamedSessionIs403`, in `HostedTeamReportsTests`.
    - Until then, the tests seed team reports through the store with the author recorded, exactly as the publish route records it. The live-session comment proof runs on a personal tenant, where a session is real.
-2. **The author has no way to reply to a comment (review F2).** A comment reaches the author and is shown on their report, but nothing lets the author answer the person who wrote it. That is a second gap, left for a later piece of work.
+2. **A team report's author cannot send notes or answers to the session that wrote it (review F2, delta review D4).**
+   - On the author's own report the Gateway also sends `notesOpen: false`, and the owner's `/dev-reports/{id}/send` is refused inside a team's tenant. So there is no screen from which a Developer answers their own agent's questions on a team report.
+   - A team report that asks its author a question therefore draws the question as plain text with no way to answer, under a status bar that reads "waiting-on-you", while the session that published it waits for an answer no screen can give.
+   - It does not bite today, because no team session can publish (gap 1). **It must be closed - or the status word changed for the author - before team sessions publish.** Whoever lifts the lease needs to know this.
+3. **The author has no way to reply to a comment.** A comment reaches the author and is shown on their report, but nothing lets the author answer the person who wrote it. A separate gap from gap 2, left for a later piece of work.
 
 ## The checks (counts)
 
@@ -108,8 +114,9 @@ The other hosted Teams tests (123) were queued twice behind a release gate in an
 `red-proof.py <name>` makes each break in one file, runs the tests that guard it, and restores the file from the commit in a `finally` block, then checks it with `git diff --quiet`.
 
 - The first eleven records below were taken before the review fixes.
-- The resolver record was retaken on the rebased commit, because the rebase merged main into the file that break mutates.
-- Every one of the 15 mutation targets still matches exactly once on the rebased code.
+- The resolver record was retaken after the first rebase, because that rebase merged main into the file that break mutates.
+- The six delta review records (D2, D3, D5) were taken on the delta review's code.
+- Every one of the 20 mutation targets matches exactly once on the head.
 
 | Break | Tests that went red | File |
 |---|---|---|
@@ -118,6 +125,11 @@ The other hosted Teams tests (123) were queued twice behind a release gate in an
 | Comments stay open whoever the author now is (F6) | unit `Issue2309_F6_...`, both cases ("left the team", "made a Collaborator") | `red-comments-open-whoever-the-author-is.txt` |
 | The viewer ignores the Gateway's notes flag (F2) | 2 Cockpit tests, including `Open_TheGatewaySaysNotesAreOff_TheViewerGetsNoNotesScript_...` | `red-viewer-ignores-the-notes-flag.txt` |
 | A team-bound key is admitted as a person (F4) | hosted `Issue2309_F4_...` (the admission named the team instead of refusing) | `red-team-key-admitted-as-a-person.txt` |
+| The Gateway sends whatever version is current, not the one the page showed (D2) | unit `Issue2309_D2_ASendOfAVersionThatIsNoLongerTheNewest_IsRefusedWithTheGatewaysSentence_AndSendsNothing` | `red-send-ignores-the-version-shown.txt` |
+| The page's send names a fixed version, not the one shown (D2) | 2 Cockpit tests: `Send_SendsExactlyTheChosenMembers` and `Send_RefusedBecauseANewerVersionArrived_...` | `red-page-sends-a-fixed-version.txt` |
+| The html ROUTE is put back to the owner's `ServeHtml`, serving the newest version (D3, the review's own mutation) | HTML_ROUTE_RED | `red-html-route-serves-the-newest.txt` |
+| A read marks the row whatever version it names (D5) | unit `Issue2309_D5_AReadNamesTheVersion_AndOnlyTheVersionHeldIsMarked_...` | `red-read-marks-any-version.txt` |
+| The page marks once per open, not once per version (D5) | Cockpit `Open_AVersionSentWhileOpen_IsMarkedWhenShown_AfterTheGatewayRefusedTheOlderOne` | `red-page-marks-once-per-open.txt` |
 | A comment is also written as a reply in the agent's conversation | hosted `Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire` and `Issue2309_ACommentNeverReachesTheSession_LiveSessionOnTheTunnel` | `red-comment-also-a-reply.txt` |
 | A comment is also queued as an item toward the session | the same two hosted tests | `red-comment-also-an-item.txt` |
 | The resolver answers "the caller's own" for every report | unit `Whose_...` and `Gate_FromTheirOwnAccount_...`; hosted `..._SendingAReportYouDidNotWrite_IsRefusedByTheGate` and the privacy check. Retaken after the rebase. | `red-report-owner-always-the-caller.txt` |
