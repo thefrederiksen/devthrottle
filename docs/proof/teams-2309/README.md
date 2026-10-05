@@ -97,7 +97,13 @@ So a session key, or a key bound to the team's tenant, cannot reach these routes
 - the screenshots, retaken. The driver now asserts the report's own inputs, not the absence of buttons: it fails when the frame holds no controls, when any control is enabled, or when a radio button it clicks becomes chosen.
 - Two screenshot runs failed before the third passed: one hit the known empty-frame wait, and in one the rig exited before it was ready, which looked like port 7913 still held by the run before. Recorded as seen, not explained.
 
-**Still not run: every hosted Gateway test, and the D3 red record.** The same release gate still held the machine-wide Gateway test lock at 20:10 UTC, as it had since 17:31 UTC. The Tech Lead's gate covers the hosted tests. The default gate was not rerun on this head; the last one is described below.
+**After merging main for AddFleetManagerLessons (#3561), these ran on the merged head:**
+
+- The migration was regenerated after AddFleetManagerLessons: SQLite `20261005234625`, PostgreSQL `20261005234644`. Both bodies are byte-for-byte the ones they replace; only the timestamps moved. The migration order tests now name both, and three of their counts went up by one.
+- the Gateway unit tests (Teams, DevReport, Migration, BootSmoke): 1,400 passed, 0 failed, 7 skipped
+- `.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Postgres|FullyQualifiedName~Migration|FullyQualifiedName~HostedTeamReports"` (a throwaway PostgreSQL): 66 passed, 0 failed, 4 skipped, outcome Completed. All 12 hosted team report tests passed, D3 among them, and so did `AddDevReportSharing_AppliesOnPostgres_...`. The four skipped are the live hosted-database proofs (`..._OnConfiguredPostgres`), which need a configured server.
+- The D3 red record was taken: the lock was free by then.
+- The default gate was not rerun on this head; the last one is described below.
 
 **On the delta review's head (on 3c5c8970a), these ran:**
 
@@ -139,7 +145,7 @@ The table below is from the two earlier heads, fcf1c50de and 215639cbd, before t
 
 - The first eleven records below were taken before the review fixes.
 - The resolver record was retaken after the first rebase, because that rebase merged main into the file that break mutates.
-- The six delta review records (D2, D3, D5) were taken on the delta review's code.
+- The delta review's D2 and D5 records were taken on the delta review's code; its D3 record was taken on the head merged after AddFleetManagerLessons, once the Gateway test lock was free.
 - The round-3 records (R1, R2, R3) and the retaken F2 and D5 records were taken on the round-3 code.
 - **D5's record went GREEN at first on the round-3 code.** Its only guard was the test where the older read is refused, and after R3 a refused read leaves nothing marked, so "marks once per open" and "marks once per version" behaved alike there. A test with the older read accepted was added, and the record retaken red.
 - Every one of the 23 mutation targets matches exactly once on the head.
@@ -153,7 +159,7 @@ The table below is from the two earlier heads, fcf1c50de and 215639cbd, before t
 | A team-bound key is admitted as a person (F4) | hosted `Issue2309_F4_...` (the admission named the team instead of refusing) | `red-team-key-admitted-as-a-person.txt` |
 | The Gateway sends whatever version is current, not the one the page showed (D2) | unit `Issue2309_D2_ASendOfAVersionThatIsNoLongerTheNewest_IsRefusedWithTheGatewaysSentence_AndSendsNothing` | `red-send-ignores-the-version-shown.txt` |
 | The page's send names a fixed version, not the one shown (D2) | 2 Cockpit tests: `Send_SendsExactlyTheChosenMembers` and `Send_RefusedBecauseANewerVersionArrived_...` | `red-page-sends-a-fixed-version.txt` |
-| The html ROUTE is put back to the owner's `ServeHtml`, serving the newest version (D3, the review's own mutation) | NOT YET TAKEN - see the note under the checks | `red-html-route-serves-the-newest.txt` |
+| The html ROUTE is put back to the owner's `ServeHtml`, serving the newest version (D3, the review's own mutation) | hosted `Issue2309_D3_OverTheWire_...`: the route served version 2 where version 1 was sent | `red-html-route-serves-the-newest.txt` |
 | A read marks the row whatever version it names (D5) | unit `Issue2309_D5_AReadNamesTheVersion_AndOnlyTheVersionHeldIsMarked_...` | `red-read-marks-any-version.txt` |
 | The page marks once per open, not once per version (D5) | Cockpit `Open_AVersionSentWhileOpen_AfterTheOlderOneWasMarked_IsMarkedToo` | `red-page-marks-once-per-open.txt` |
 | With answers off, the viewer leaves the report's own controls live (R1) | client-core `FollowsTheGatewaysTwoFlags_AndNothingElse`; 2 Cockpit tests, `Open_TheGatewaySaysNotesAndAnswersAreOff_...` and `Own_ShowsWhichVersionEachPersonHolds_...` | `red-answers-left-live.txt` |
