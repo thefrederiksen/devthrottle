@@ -102,9 +102,9 @@ public sealed class GatewayHostBootSmokeTests
     // Team invitations by email (devthrottle_internal#2301).
     private const string TeamInvitationsPostgresMigration = "20261003233544_AddTeamInvitations";
     private const string TeamInvitationsSqliteMigration = "20261003233525_AddTeamInvitations";
-    // Message links between sessions (issue #3548).
-    private const string MessageLinksPostgresMigration = "20261005031815_AddFleetMessageLinks";
-    private const string MessageLinksSqliteMigration = "20261005031703_AddFleetMessageLinks";
+    // Message links between sessions, and the requests for one (issue #3548) - the newest.
+    private const string MessageLinksPostgresMigration = "20261005150833_AddFleetMessageLinkRequests";
+    private const string MessageLinksSqliteMigration = "20261005150709_AddFleetMessageLinkRequests";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>

@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { listMessageLinks, removeMessageLink, setUpMessageLink } from "./messageLinksClient";
+import {
+  answerMessageLinkRequest,
+  listMessageLinkRequests,
+  listMessageLinks,
+  removeMessageLink,
+  setUpMessageLink,
+} from "./messageLinksClient";
 import { GatewayError } from "../api/client";
 
 // The message links client (issue #3548) at the fetch level: the routes, the methods and the body field names
@@ -76,5 +82,31 @@ describe("messageLinksClient", () => {
     expect((err as GatewayError).serverReason).toBe(
       "One of these sessions started the other, so they may already message each other. No link was set up.",
     );
+  });
+});
+
+describe("messageLinksClient requests", () => {
+  it("lists requests with GET /fleet/link-requests", async () => {
+    const fetchMock = stubFetch(jsonResponse(200, { requests: [{ requestId: "r1", status: "pending" }], answeredWithinDays: 7 }));
+    const requests = await listMessageLinkRequests();
+    const { url, init } = call(fetchMock);
+    expect(url).toBe("/fleet/link-requests");
+    expect(init.method ?? "GET").toBe("GET");
+    expect(requests[0].requestId).toBe("r1");
+  });
+
+  it("allows with POST /fleet/link-requests/{id}/answer and the amount", async () => {
+    const fetchMock = stubFetch(jsonResponse(200, { request: { requestId: "r/1", status: "allowed" }, link: { linkId: "l1" } }));
+    await answerMessageLinkRequest("r/1", { amount: "ongoing" });
+    const { url, init } = call(fetchMock);
+    expect(url).toBe("/fleet/link-requests/r%2F1/answer");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ amount: "ongoing" });
+  });
+
+  it("declines with { decline: true }", async () => {
+    const fetchMock = stubFetch(jsonResponse(200, { request: { requestId: "r1", status: "declined" } }));
+    await answerMessageLinkRequest("r1", { decline: true });
+    expect(JSON.parse(String(call(fetchMock).init.body))).toEqual({ decline: true });
   });
 });

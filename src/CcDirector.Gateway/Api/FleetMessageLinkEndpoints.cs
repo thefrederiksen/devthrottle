@@ -44,7 +44,7 @@ internal static class FleetMessageLinkEndpoints
         "Only the owner, on their own signed-in phone or browser, or a session the owner has raised, can set up or "
         + "remove a message link. A session never sets up a link for itself.";
 
-    private static readonly JsonSerializerOptions BodyJsonOptions = new() { PropertyNameCaseInsensitive = true };
+    internal static readonly JsonSerializerOptions BodyJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
     /// <param name="findSession">The last row any Director of this account reported for one session, live or not; null
     /// when the account has no such session.</param>
@@ -103,40 +103,10 @@ internal static class FleetMessageLinkEndpoints
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_session_id", $"'{body.RecipientSessionId}' is not a session id");
             var senderId = s.ToString("D");
             var recipientId = r.ToString("D");
-            if (senderId == recipientId)
-                return Refuse(StatusCodes.Status400BadRequest, "same_session", "A link joins two different sessions.");
+            if (CheckPair(tenant, caller, senderId, recipientId, findSession, out var sender, out var recipient) is { } refusal)
+                return refusal;
 
-            if (caller.SessionId is { } own && (own == senderId || own == recipientId))
-                return Refuse(StatusCodes.Status403Forbidden, "own_link",
-                    "A raised session never sets up a link it is part of. It may already message any session of the account.");
-
-            var sender = findSession(tenant, senderId);
-            var recipient = findSession(tenant, recipientId);
-            foreach (var (id, row) in new[] { (senderId, sender), (recipientId, recipient) })
-            {
-                if (row is null)
-                    return Refuse(StatusCodes.Status404NotFound, "session_not_found",
-                        $"No session {id} is known in this account, so no link was set up.");
-                if (FleetManagerSessions.IsGone(row))
-                    return Refuse(StatusCodes.Status409Conflict, "session_ended",
-                        $"Session {id} has ended, so no link was set up. A link ends with either of its sessions.");
-            }
-            // A session and its own worker may already message each other, so a link between them would never be used,
-            // would read "Live" for ever, and would come alive unseen if ownership later changed. Refused, in words.
-            if (FleetManagerSessions.SameId(sender!.ControllerSessionId, recipientId)
-                || FleetManagerSessions.SameId(recipient!.ControllerSessionId, senderId))
-                return Refuse(StatusCodes.Status409Conflict, "already_related",
-                    "One of these sessions started the other, so they may already message each other. No link was set up.");
-
-            var setUp = links.SetUp(tenant, senderId, recipientId, amount, caller.Actor, nowUtc());
-            foreach (var old in setUp.Replaced)
-                record.Stopped(tenant, old, caller.Actor, $"replaced by link {setUp.Link.LinkId}");
-            record.SetUp(tenant, setUp.Link, caller.Actor);
-
-            notify(tenant, sender!, SenderNotice(setUp.Link, recipient!));
-            if (amount == FleetMessageLinkAmounts.Ongoing)
-                notify(tenant, recipient!, RecipientNotice(setUp.Link, sender!));
-
+            var setUp = Apply(tenant, caller, senderId, recipientId, amount, sender, recipient, links, record, notify, nowUtc());
             FileLog.Write($"[FleetMessageLinkEndpoints] POST link: link={setUp.Link.LinkId}, from={senderId}, to={recipientId}, amount={amount}, by={caller.Actor}");
             return Results.Json(new FleetMessageLinkCreateResponse
             {
@@ -149,6 +119,65 @@ internal static class FleetMessageLinkEndpoints
             FileLog.Write($"[FleetMessageLinkEndpoints] POST link FAILED: {ex.Message}");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Whether a link from <paramref name="senderId"/> to <paramref name="recipientId"/> may be set up for this caller:
+    /// two different sessions, neither the raised caller itself, both known and running, and not owner and worker. The
+    /// refusal in words, or null with both roster rows. Shared by a link set up directly and by an answered request, so
+    /// both are held to the same rule.
+    /// </summary>
+    internal static IResult? CheckPair(TenantId tenant, LinkCaller caller, string senderId, string recipientId,
+        Func<TenantId, string, SessionDto?> findSession, out SessionDto sender, out SessionDto recipient)
+    {
+        sender = null!;
+        recipient = null!;
+        if (senderId == recipientId)
+            return Refuse(StatusCodes.Status400BadRequest, "same_session", "A link joins two different sessions.");
+
+        if (caller.SessionId is { } own && (own == senderId || own == recipientId))
+            return Refuse(StatusCodes.Status403Forbidden, "own_link",
+                "A raised session never sets up a link it is part of. It may already message any session of the account.");
+
+        var rows = new SessionDto?[2];
+        var ids = new[] { senderId, recipientId };
+        for (var i = 0; i < 2; i++)
+        {
+            var row = findSession(tenant, ids[i]);
+            if (row is null)
+                return Refuse(StatusCodes.Status404NotFound, "session_not_found",
+                    $"No session {ids[i]} is known in this account, so no link was set up.");
+            if (FleetManagerSessions.IsGone(row))
+                return Refuse(StatusCodes.Status409Conflict, "session_ended",
+                    $"Session {ids[i]} has ended, so no link was set up. A link ends with either of its sessions.");
+            rows[i] = row;
+        }
+        // A session and its own worker may already message each other, so a link between them would never be used,
+        // would read "Live" for ever, and would come alive unseen if ownership later changed. Refused, in words.
+        if (FleetManagerSessions.SameId(rows[0]!.ControllerSessionId, recipientId)
+            || FleetManagerSessions.SameId(rows[1]!.ControllerSessionId, senderId))
+            return Refuse(StatusCodes.Status409Conflict, "already_related",
+                "One of these sessions started the other, so they may already message each other. No link was set up.");
+        sender = rows[0]!;
+        recipient = rows[1]!;
+        return null;
+    }
+
+    /// <summary>Set up a link that <see cref="CheckPair"/> passed: store it, record it and anything it replaced, and tell
+    /// the sender - and, on an ongoing link, the recipient.</summary>
+    internal static FleetMessageLinkSetUp Apply(TenantId tenant, LinkCaller caller, string senderId, string recipientId,
+        string amount, SessionDto sender, SessionDto recipient, FleetMessageLinkStore links, FleetMessageLinkRecord record,
+        Action<TenantId, SessionDto, string> notify, DateTime nowUtc)
+    {
+        var setUp = links.SetUp(tenant, senderId, recipientId, amount, caller.Actor, nowUtc);
+        foreach (var old in setUp.Replaced)
+            record.Stopped(tenant, old, caller.Actor, $"replaced by link {setUp.Link.LinkId}");
+        record.SetUp(tenant, setUp.Link, caller.Actor);
+
+        notify(tenant, sender, SenderNotice(setUp.Link, recipient));
+        if (amount == FleetMessageLinkAmounts.Ongoing)
+            notify(tenant, recipient, RecipientNotice(setUp.Link, sender));
+        return setUp;
     }
 
     internal static IResult List(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, FleetMessageLinkStore links,
@@ -270,7 +299,7 @@ internal static class FleetMessageLinkEndpoints
            + "much as you need, until the link is removed or either session ends. Send with: "
            + $"cc-devthrottle message send {link.SenderSessionId} \"...\"";
 
-    private static string Describe(string sessionId, SessionDto row)
+    internal static string Describe(string sessionId, SessionDto row)
         => string.IsNullOrWhiteSpace(row.Name) ? $"session {sessionId}" : $"session {sessionId} (\"{row.Name}\")";
 
     /// <summary>The one sentence a client shows for a link, folded here so no client decides what a status means.</summary>
@@ -307,6 +336,6 @@ internal static class FleetMessageLinkEndpoints
         EndedAtUtc = link.EndedAtUtc,
     };
 
-    private static IResult Refuse(int status, string code, string sentence)
+    internal static IResult Refuse(int status, string code, string sentence)
         => Results.Json(new { code, error = sentence }, statusCode: status);
 }

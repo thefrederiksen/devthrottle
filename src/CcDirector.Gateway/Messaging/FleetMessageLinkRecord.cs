@@ -45,6 +45,18 @@ public sealed class FleetMessageLinkRecord
             $"sent message {messageId} to session {recipientSessionId} over message link {link.LinkId} ({link.Amount})"
             + (link.IsOneTime ? ", which used the link up" : ""));
 
+    /// <summary>A session asked for a link. The session is the actor: it asked, nobody allowed anything yet.</summary>
+    public void Requested(TenantId tenant, FleetMessageLinkRequest request)
+        => Append(tenant, request.RequesterSessionId, GovernanceAuditEventType.MessageLinkRequested,
+            $"session {request.RequesterSessionId}",
+            $"asked for message link request {request.RequestId} to session {request.TargetSessionId}: {request.Reason}");
+
+    /// <summary>A request was answered or ended. <paramref name="answer"/> says how, in words.</summary>
+    public void RequestAnswered(TenantId tenant, FleetMessageLinkRequest request, string actor, string answer)
+        => Append(tenant, request.RequesterSessionId, GovernanceAuditEventType.MessageLinkRequestAnswered, actor,
+            $"message link request {request.RequestId} from session {request.RequesterSessionId} to session "
+            + $"{request.TargetSessionId}: {answer}");
+
     private void Append(TenantId tenant, string sessionId, string eventType, string actor, string detail)
     {
         FileLog.Write($"[FleetMessageLinkRecord] {eventType}: tenant={tenant.ToLogString()}, session={sessionId}, actor={actor}");

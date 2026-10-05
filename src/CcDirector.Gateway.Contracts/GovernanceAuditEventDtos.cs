@@ -100,6 +100,13 @@ public static class GovernanceAuditEventType
     /// one-time link up. The text is never recorded.</summary>
     public const string MessageOverLink = "message-over-link";
 
+    /// <summary>A session asked the owner for a message link to a session it may not message (issue #3548).</summary>
+    public const string MessageLinkRequested = "message-link-requested";
+
+    /// <summary>The owner - or a raised session for him - answered a request for a message link: allowed, with the link
+    /// it set up, or declined. A request that ended with a session is recorded here too.</summary>
+    public const string MessageLinkRequestAnswered = "message-link-request-answered";
+
     private static readonly string[] Intervention =
         { Needed, HumanRescued, HumanRedirected, HumanCancelled, Resolved, Stopped, HandedOver };
 
@@ -107,6 +114,7 @@ public static class GovernanceAuditEventType
     {
         PermissionRequested, PermissionGranted, PermissionDenied, ModeObserved, ElevatedRunStarted, ElevatedRunEnded,
         SessionRaised, SessionLowered, RaisedAction, MessageLinkSetUp, MessageLinkStopped, MessageOverLink,
+        MessageLinkRequested, MessageLinkRequestAnswered,
     };
 
     /// <summary>The legal event types for a category, or empty for an unknown category.</summary>

@@ -289,6 +289,15 @@ What a raised Fleet Manager may do that no other session may:
   cc-devthrottle message link remove <link-id>
   ```
 
+  A session that needs a link can ASK for one (`message request`). Those requests wait for the owner in
+  the Cockpit; you can see and answer them too:
+
+  ```
+  cc-devthrottle message link requests
+  cc-devthrottle message link answer <request-id> --amount once|once-with-reply|ongoing
+  cc-devthrottle message link answer <request-id> --decline
+  ```
+
   Never a link you are part of - you can already message any session. Prefer the smallest amount that
   does the job; an ongoing link is for two sessions that genuinely have to work together.
 

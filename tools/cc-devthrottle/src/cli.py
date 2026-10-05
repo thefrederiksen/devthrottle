@@ -2904,6 +2904,21 @@ def message_reply(
     send_reply(reply_id, text)
 
 
+@message_app.command("request")
+def message_request(
+    target: str = typer.Argument(..., help="The session you need to talk to: its number, an id prefix, or its name."),
+    reason: str = typer.Argument(..., help="Why, in one sentence the user can decide on."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Ask the user for a message link to a session you may not message.
+
+    Use it when a send was refused because the other session neither started you nor was started by
+    you. Nothing is allowed until the user answers; the answer arrives in your inbox. Do not wait for
+    it, and do not ask twice: asking again for the same session changes nothing.
+    """
+    link_ops.request(target, reason, json_output)
+
+
 @link_app.command("add")
 def message_link_add(
     sender: str = typer.Argument(..., help="The session that may send: its number, an id prefix, or its exact name."),
@@ -2942,6 +2957,29 @@ def message_link_remove(
     The owner's own phone or browser, or a session the owner has raised (the Fleet Manager), only.
     """
     link_ops.remove(link_id, json_output)
+
+
+@link_app.command("requests")
+def message_link_requests(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """List requests for a link: those waiting, and those answered in the last 7 days."""
+    link_ops.list_requests(json_output)
+
+
+@link_app.command("answer")
+def message_link_answer(
+    request_id: str = typer.Argument(..., metavar="ID", help="The request id, from 'message link requests'."),
+    amount: str = typer.Option("", "--amount", help="Allow it: once, once-with-reply, or ongoing."),
+    decline: bool = typer.Option(False, "--decline", help="Say no."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Allow a request for a link (with --amount) or decline it (--decline).
+
+    The owner's own phone or browser, or a session the owner has raised (the Fleet Manager), only.
+    Allowing sets up the link and tells the asking session; declining tells it no.
+    """
+    link_ops.answer(request_id, amount, decline, json_output)
 
 
 @message_app.command("inbox")
