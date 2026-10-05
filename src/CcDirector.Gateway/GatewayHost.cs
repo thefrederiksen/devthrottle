@@ -767,7 +767,8 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>
     /// Whose what a team request touches, and the one answer to "whose Director is this" in a team
     /// (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>, devthrottle_internal#2311). One instance: the team gate asks it,
-    /// and so does the team Fleet Map (devthrottle_internal#2312), so the question has one copy.
+    /// and so does the team Fleet Map (devthrottle_internal#2312), and the prompt stamp and the session history's person
+    /// read it too (devthrottle_internal#2305), so the question has one copy.
     /// </summary>
     public Teams.TeamCallerOwnership TeamCallerOwnership { get; }
 
@@ -776,10 +777,6 @@ public sealed class GatewayHost : IAsyncDisposable
     /// installed in the request pipeline only on the hosted Gateway, the only one that has teams.
     /// </summary>
     public Teams.TeamEndpointGate TeamGate { get; }
-
-    /// <summary>Whose a team request touches, and the person behind a team Director (devthrottle_internal#2311). The ONE
-    /// resolver: the gate, the prompt stamp and the session history's person all read it (devthrottle_internal#2305).</summary>
-    public Teams.TeamCallerOwnership TeamCallerOwnership { get; }
 
     /// <summary>
     /// The retry net for the team seat sync (devthrottle_internal#2301): null except on a hosted Gateway with Teams
