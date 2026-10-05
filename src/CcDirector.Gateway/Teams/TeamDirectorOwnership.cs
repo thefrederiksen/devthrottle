@@ -2,6 +2,7 @@ using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Discovery;
+using CcDirector.Gateway.Pairing;
 using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.Teams;
@@ -18,13 +19,18 @@ namespace CcDirector.Gateway.Teams;
 /// <see cref="DirectorRegistry.RegisteringCredentialOf"/>. Only a per-device key (<c>device:&lt;device id&gt;</c>)
 /// names a person; a Director registered with no credential, or on any other kind, has no person here.</item>
 /// <item>That device's <c>device_credentials</c> row, which names the person who enrolled it in
-/// <c>account_subject</c>. The row must be ACTIVE (not revoked) and BOUND TO THIS TEAM's tenant. A revoked
-/// credential, or one bound to another tenant, has no person here - so a key taken away from someone, or a key that
-/// belongs to some other account, never makes a Director "theirs" on this team.</item>
+/// <c>account_subject</c>. The row must be ACTIVE by the Gateway's one rule for a credential row,
+/// <see cref="DeviceRegistry.IsActiveCredential"/> (status active and no revocation time - the same rule
+/// <see cref="DeviceRegistry.ResolveCredential"/> applies to a presented key), and BOUND TO THIS TEAM's tenant. A
+/// revoked credential, or one bound to another tenant, has no person here - so a key taken away from someone, or a
+/// key that belongs to some other account, never makes a Director "theirs" on this team.</item>
 /// </list>
 ///
-/// It answers WHO, not WHETHER THEY MAY: a person whose role no longer lets them run sessions (a Collaborator) is
-/// still the person named here. Each caller asks the role table for that itself, as the Fleet Map does.
+/// It answers WHO, not WHETHER THEY MAY. A person whose role no longer lets them run sessions (a Collaborator) is still
+/// the person named here, and so is a person whose key is refused by some LIVE rule that writes nothing to the row.
+/// Every caller therefore asks the role table itself, as the Fleet Map does, and a gate resolves the caller's own key
+/// through <see cref="DeviceRegistry.ResolveCredential"/> as it does today. A blank Director id answers null like every
+/// other case where the person cannot be said, so a caller refuses it rather than faulting.
 ///
 /// The account subject is personally identifying and is never logged; a team id is logged only hashed.
 /// </summary>
@@ -45,13 +51,16 @@ public sealed class TeamDirectorOwnership
 
     /// <summary>
     /// The account subject of the person <paramref name="directorId"/> belongs to in <paramref name="tenant"/> (a
-    /// team's tenant), or null when it cannot be said: the Director is not registered there, said Hello on no device
-    /// key, or its device credential is missing, REVOKED, BOUND TO ANOTHER TENANT, or names no person.
+    /// team's tenant), or null when it cannot be said: no Director id, the Director is not registered there, said Hello
+    /// on no device key, or its device credential is missing, REVOKED, BOUND TO ANOTHER TENANT, or names no person.
     /// </summary>
     public string? PersonOfDirector(TenantId tenant, string directorId)
     {
         if (string.IsNullOrWhiteSpace(directorId))
-            throw new ArgumentException("A Director id is required.", nameof(directorId));
+        {
+            FileLog.Write($"[TeamDirectorOwnership] PersonOfDirector: team {tenant.ToLogString()} - no Director id, no person");
+            return null;
+        }
 
         var credential = _directors.RegisteringCredentialOf(tenant, directorId);
         if (credential is null || !credential.StartsWith(CredentialPrefix, StringComparison.Ordinal))
@@ -63,10 +72,11 @@ public sealed class TeamDirectorOwnership
         var teamId = tenant.Value;
 
         using var ctx = _db.CreateUnscopedContext();
-        var subject = ctx.DeviceCredentials.AsNoTracking()
-            .Where(c => c.DeviceId == deviceId && c.TenantId == teamId && c.RevokedAtUtc == null && c.AccountSubject != null)
-            .Select(c => c.AccountSubject)
-            .FirstOrDefault();
+        // The device id is the table's key: at most one row. The row rule is asked in memory, of the whole row, so it is
+        // the same method the key check uses and not a second copy written as a query.
+        var row = ctx.DeviceCredentials.AsNoTracking()
+            .FirstOrDefault(c => c.DeviceId == deviceId && c.TenantId == teamId);
+        var subject = row is not null && DeviceRegistry.IsActiveCredential(row) ? row.AccountSubject : null;
 
         var found = !string.IsNullOrWhiteSpace(subject);
         FileLog.Write($"[TeamDirectorOwnership] PersonOfDirector: team {tenant.ToLogString()} person={(found ? "found" : "none")}");

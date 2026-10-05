@@ -4,6 +4,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Discovery;
+using CcDirector.Gateway.Pairing;
 using CcDirector.Gateway.Streaming;
 using CcDirector.Gateway.Teams;
 using CcDirector.Gateway.Tenancy;
@@ -108,7 +109,7 @@ public sealed class TeamFleetMapTests : IDisposable
         RegisterDirector(teamId, directorId, name, machine, "device:" + deviceId, sessions);
     }
 
-    private void SeedCredential(string deviceId, string? subject, string tenantId, DateTime? revokedAtUtc = null)
+    private void SeedCredential(string deviceId, string? subject, string tenantId, DateTime? revokedAtUtc = null, string? status = null)
     {
         using var ctx = _db.CreateUnscopedContext();
         ctx.DeviceCredentials.Add(new DeviceCredentialEntity
@@ -119,7 +120,7 @@ public sealed class TeamFleetMapTests : IDisposable
             KeyPrefix = "dt_",
             KeyLast4 = "abcd",
             IssuedAtUtc = DateTime.UtcNow,
-            Status = revokedAtUtc is null ? "active" : "revoked",
+            Status = status ?? (revokedAtUtc is null ? "active" : "revoked"),
             Platform = "windows",
             DeviceType = "workstation",
             AccountSubject = subject,
@@ -575,12 +576,38 @@ public sealed class TeamFleetMapTests : IDisposable
         Assert.DoesNotContain("Collaborator box", DirectorNames(MapFor(Owner)));
     }
 
+    [Fact]
+    public void PersonOfDirector_AStatusThatIsNotActive_IsNobody_EvenWithNoRevocationTime()
+    {
+        // "Active" is the Gateway's one rule for a credential row (DeviceRegistry.IsActiveCredential), the one the key
+        // check uses: the status counts as well as the revocation time (delta review of #3533, F2).
+        SeedCredential("device-status-revoked", Developer2, _team, revokedAtUtc: null, status: DeviceRegistry.StatusRevoked);
+        RegisterDirector(_team, "dir-status-revoked", "Status revoked", "STATUS-PC", "device:device-status-revoked");
+
+        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-status-revoked"));
+        Assert.DoesNotContain("Status revoked", DirectorNames(MapFor(Owner)));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public void PersonOfDirector_NoDirectorId_Throws(string directorId)
+    public void PersonOfDirector_NoDirectorId_IsNobody(string directorId)
     {
-        Assert.Throws<ArgumentException>(() => _ownership.PersonOfDirector(new TenantId(_team), directorId));
+        // Like every other case where the person cannot be said: null, so a caller refuses rather than faulting (F3).
+        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), directorId));
+    }
+
+    [Theory]
+    [InlineData("active", false, true)]
+    [InlineData("active", true, false)]
+    [InlineData("revoked", false, false)]
+    [InlineData("revoked", true, false)]
+    [InlineData("", false, false)]
+    public void IsActiveCredential_TheStatusAndTheRevocationTimeBothDecide(string status, bool revoked, bool expected)
+    {
+        var row = new DeviceCredentialEntity { DeviceId = "d", Status = status, RevokedAtUtc = revoked ? DateTime.UtcNow : null };
+
+        Assert.Equal(expected, DeviceRegistry.IsActiveCredential(row));
     }
 }
 
