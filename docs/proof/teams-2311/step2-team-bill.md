@@ -205,7 +205,47 @@ checked for an empty diff:
 What holds the key row up now: in a team, only a Director whose roster alone lists the id, and that wrote nothing of
 another person's, may write it. The Director half - sending keys before the roster on a reseed
 (`GatewayStreamClient.ReseedAsync`, roster at line 724, keys from line 742, `RegisterSessionKey` at 787) - is a
-follow-up outside this pull request; with the Gateway refusing, it narrows a delay, not a harm.
+follow-up outside this pull request. Corrected in round 4 (S2-F13): it does not merely narrow a delay. After a Gateway
+restart the roster is empty until each Director sends it again, and a session that has no key row at that moment can be
+keyed by a colleague's Director first; the Director half, keys before the roster, is what closes that harm. Teams must
+not be released without it.
+
+## #3552 review round 4
+
+Rulings: `rulings-2311-step2-review4.md`. Fix commit 6263e2080, rebased onto origin/main a82762c44 (#3554, #3549,
+#3542); one conflict, the hub's constructor, where #3549 added two parameters beside this branch's `teamOwnership`.
+
+| Finding | Test | On 80d46ca40 | On the new head |
+|---|---|---|---|
+| S2-F11 | `TeamDirectorTunnelTests.AColleaguesDirector_RevokingAnotherPersonsSessionKey_EndsNothing_AndTheOwnersOwnRevokeStillWorks` (the reviewer's first round-4 reproduction, turned round) | fails | PASS |
+| S2-F11 | `InAPersonalTenant_AnotherDirectorOfTheSamePerson_StillEndsTheSessionsKey_AsBefore` - personal tenant unchanged | PASS | PASS |
+| S2-F12 | `WhileAColleagueListsASessionId_ItsOwnDirectorStillRefreshesTheSessionsKey_SoTheKeyDoesNotRunOut` (second reproduction) | fails | PASS |
+| S2-F12 | `WhileAColleagueListsASessionId_TheExpirySweepFindsTheOwnersRefreshedKey_AndLeavesItWorking` (third reproduction) | fails | PASS |
+| S2-F13 | `Gap_AfterAGatewayRestart_ASessionStillWithoutAKeyRow_CanBeKeyedByAColleagueFirst_UntilTheDirectorSendsKeysFirst` (fourth reproduction, kept passing on purpose: it pins the gap the Director half closes) | PASS | PASS |
+| Question 1 | `AColleaguesSessionsFoldedState_IsSentOnlyToItsOwnDirector_NotToADirectorThatListsItsId` | does not build (the filter is the fix) | PASS |
+| Question 2 | `ATurnEnd_ReportedForAColleaguesSession_ByADirectorThatListsItsId_IsNotTaken_ThroughEitherFeed` | does not build (the filter is the fix) | PASS |
+
+"On 80d46ca40" for the first four rows was run literally: that head's `src/CcDirector.Gateway` checked out over the new
+head, the two question tests (which need the new constructor parameters) compiled out, a build that succeeded, and the
+four tests run: 3 failed, the personal-tenant one passed. Restored by a trap, diff empty.
+
+Revert lines - each old behaviour put back on the new head, one at a time, on a build that succeeded, with the Teams,
+display-state and turn-end namespaces run (1,054 tests, 4 skipped), restored by a trap and checked for an empty diff:
+
+- S2-F11, the revoke not checking whose the key row is (`DirectorHub.cs:740` gated off): Failed 1 of 1,054, the revoke test.
+- S2-F12, the roster half asked even with a key row (`DirectorHub.cs:507` always true): Failed 2 of 1,054, the two refresh tests.
+- Question 2, the watcher taking any Director's report (`TurnEndWatcher.cs:168` gated off): Failed 1 of 1,054, the turn-end test.
+- Question 2, the watcher taking any Director's removal (`TurnEndWatcher.cs:233` gated off): Failed 1 of 1,054, the turn-end test.
+- Question 1, the sweep sending to any Director that lists the id (`FleetDisplayStateObserver.cs:173` gated off): Failed 1 of 1,054, the folded-state test.
+- Question 1, the one-session push doing the same (`FleetDisplayStateObserver.cs:253` gated off): Failed 1 of 1,054, the folded-state test.
+
+S2-F14 has no new test, as ruled; the round 3 tests of `AnotherPersonHasActiveKeyForDirector` pass unchanged.
+
+Both questions were harms in a team and are fixed here. The one rule for "is this session this Director's own" is now
+`TeamCallerOwnership.ClaimOf` (stored writers, then the key row, then the sole roster holder); the hub's turn-push
+check, the turn-end watcher and the display push all ask it. The host's `IsTeamSessionOfDirector`, which puts the
+team-and-released check in front of it, is covered only by Gateway.Tests, not run here; the unit tests wire
+`TeamCallerOwnership.AcceptsReport` directly.
 
 ## Schema
 

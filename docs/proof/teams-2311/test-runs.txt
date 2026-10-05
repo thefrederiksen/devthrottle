@@ -325,3 +325,28 @@ Details in step2-team-bill.md.
         "OVER BUDGET": Core.UnitTests ran 1 m 51 s on a loaded machine (this change does not touch Core). Rerun:
         RESULT: all projects exited zero; every suite outcome=Completed (Core.UnitTests 1 m 20 s); 3,601 tests.
       Gateway.Tests: built, not run (by instruction).
+
+29. #3552 review round 4 (reviews/review-2311-step2.md "Round 4", rulings-2311-step2-review4.md). Fix commit 6263e2080
+    (8579d0912 before the rebase).
+    Reproductions on 80d46ca40 (that head's src/CcDirector.Gateway over the new head, the two question tests compiled
+    out, build succeeded): Failed 3, Passed 1 of 4 - the S2-F11 revoke test and the two S2-F12 refresh tests fail; the
+    personal-tenant test passes. Restored by trap, empty diff.
+    Revert proofs (one at a time; build checked; Teams, FleetDisplayState and TurnEndWatcher tests, 1,054 tests, 4
+    skipped; restored by trap, empty diff). Baseline: Passed 1050, Skipped 4.
+      S2-F11  revoke not checking whose the key row is       Failed 1 of 1054  AColleaguesDirector_RevokingAnotherPersonsSessionKey_...
+      S2-F12  roster half asked even with a key row          Failed 2 of 1054  WhileAColleagueListsASessionId_... (both)
+      Q2      watcher takes any Director's report (168)      Failed 1 of 1054  ATurnEnd_ReportedForAColleaguesSession_...
+      Q2      watcher takes any Director's removal (233)     Failed 1 of 1054  ATurnEnd_ReportedForAColleaguesSession_...
+      Q1      sweep sends to any lister (173)                Failed 1 of 1054  AColleaguesSessionsFoldedState_...
+      Q1      one-session push sends to any lister (253)     Failed 1 of 1054  AColleaguesSessionsFoldedState_...
+    (The revert proofs ran before the rebase; the code they mutate is unchanged by it.)
+    Rebased onto origin/main a82762c44 (#3554, #3549, #3542). One conflict: DirectorHub's constructor, #3549's two
+    message link parameters beside teamOwnership; both kept. Gateway.UnitTests and Gateway.Tests both build.
+    On the rebased head:
+      Gateway.UnitTests in full, two halves: Half A Passed 3817, Skipped 4; Half B Failed 2, Passed 5329, Skipped 8.
+        The two failures: VerbAnswersWhenStarvedTests.DeliveryStateVerb_DirectorStartedBelowNormalOnABusyMachine_... and
+        .PromptVerb_DirectorStartedBelowNormalOnABusyMachine_..., both at their 30 s limit, in a test class that loads the
+        machine on purpose; this change does not touch the verbs. Rerun alone: Passed 3 of 3.
+        Together 9,146 passed on the first run, plus the 2 on the rerun.
+      .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
+      Gateway.Tests: built, not run (by instruction).
