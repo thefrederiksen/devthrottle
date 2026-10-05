@@ -117,7 +117,7 @@ is GREEN. The code assertion is what tells the lease's refusal from the gate's.
 
 ## #3552 review round 2
 
-Rulings: `rulings-2311-step2-review2.md`. Fix commit cdd16f02e.
+Rulings: `rulings-2311-step2-review2.md`. Fix commit bc1828f1c.
 
 | Finding | Test | On 533a76cf1 | On the new head |
 |---|---|---|---|

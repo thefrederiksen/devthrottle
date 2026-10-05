@@ -278,8 +278,8 @@ Details in step2-team-bill.md.
     .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
     Gateway.Tests: built; only the one S2-F4 test above was run here.
 
-27. #3552 review round 2 (reviews/review-2311-step2.md "Round 2", rulings-2311-step2-review2.md). Fix commit cdd16f02e,
-    on origin/main 8b23aaba4.
+27. #3552 review round 2 (reviews/review-2311-step2.md "Round 2", rulings-2311-step2-review2.md). Fix commit bc1828f1c,
+    on origin/main 8b23aaba4 (renamed bc1828f1c by the rebase below).
     New tests, TeamDirectorTunnelTests: 5 passed (ADeviceIdWithABarBeforeAColleaguesDirectorId_..., AColleaguesDirectorIdInAnotherLetterCase_...,
     Hello_UnderAnIdAnotherPersonHoldsAnActiveKeyFor_..., AColleagueWhoListsALiveSessionIdUntilItEnds_..., ASessionWithNothingStored_...).
     Revert proofs (one at a time; build checked before the test run; whole CcDirector.Gateway.Tests.Teams namespace, 796 tests,
@@ -299,3 +299,11 @@ Details in step2-team-bill.md.
     .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
       Its COVERAGE GAP names Gateway.Tests and Gateway.UnitTests: the second is the full run above; the first was not run
       here beyond the one S2-F7 test (by instruction; continuous integration is its result).
+    Rebased onto origin/main b65e15fc5 (#3533 the Fleet Map, #3541 the Mentor). One comment-only conflict in GatewayHost.cs;
+    after it the host defined TeamCallerOwnership twice (the Fleet Map added its own) - merged into one in commit 74002fe71,
+    which also hands the session key registry to the two test fixtures #3533 added (TeamEndpointsTests, TeamFleetMapTests).
+    Gateway.Tests builds. On the rebased head:
+      Gateway.UnitTests in full, two halves: Half A Passed 3727, Skipped 3; Half B Passed 5323, Skipped 8.
+        Together 9,050 passed, 0 failed.
+      .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
+      The revert proofs and the S2-F7 run above were made before the rebase; the code they mutate is unchanged by it.
