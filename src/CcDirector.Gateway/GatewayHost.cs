@@ -660,6 +660,27 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The Gateway database, for the doorbell's end-to-end proof, which reads the ring and stuck columns.</summary>
     internal Data.GatewayDatabase GatewayDatabaseForTests => _gatewayDb;
 
+    /// <summary>The one session-history recorder the Director hub feeds, for the host-level stamp test.</summary>
+    internal History.SessionHistoryRecorder SessionHistoryRecorderForTests => _sessionHistoryRecorder;
+
+    /// <summary>The tenant boundary, for a host-level test that must act inside a tenant's scope.</summary>
+    internal Tenancy.HostedTenantBoundary TenantBoundaryForTests => _tenantBoundary;
+
+    /// <summary>
+    /// The person a team session's history row is stamped with (devthrottle_internal#2305): in a team's tenant, the
+    /// person behind the Director's key through the one team resolver; in a personal tenant, nobody. The recorder asks it
+    /// only until it has an answer for a session.
+    /// </summary>
+    internal string? TeamSessionPersonOf(TenantId tenant, string directorId) =>
+        TeamRegistry.IsTeam(tenant) ? TeamCallerOwnership.OwnerOf(tenant, directorId) : null;
+
+    /// <summary>
+    /// The person a prompt pushed into a team's tenant is stamped with (devthrottle_internal#2305): the person the
+    /// calling key was issued to - the gate's own answer to "who is asking", never a second one.
+    /// </summary>
+    internal string? TeamPromptCaller(HttpContext ctx, TenantId tenant) =>
+        TeamGate.CallerSubject(tenant, Util.AuthMiddleware.AuthenticatedDevice(ctx));
+
     /// <summary>The mobile Speak marks, for the doorbell's dictation-lock wiring test.</summary>
     internal Transcription.TranscribingSessions TranscribingSessionsForTests => _transcribingSessions;
 
@@ -2331,13 +2352,11 @@ public sealed class GatewayHost : IAsyncDisposable
             (tenant, directorId) =>
             {
                 var d = Registry.Get(tenant, directorId);
-                // In a team's tenant the session's person is the person behind the Director's key, through the one team
-                // resolver (devthrottle_internal#2305); a personal tenant stamps no person.
-                var person = TeamRegistry.IsTeam(tenant) ? TeamCallerOwnership.OwnerOf(tenant, directorId) : null;
-                return d is null ? new History.DirectorFacts(null, null, person)
-                                 : new History.DirectorFacts(d.MachineName, d.Version, person);
+                return d is null ? History.DirectorFacts.Unknown
+                                 : new History.DirectorFacts(d.MachineName, d.Version);
             },
-            _knownRepositories);
+            _knownRepositories,
+            personOf: TeamSessionPersonOf);
         // The one-repository-list mission, phase 2. The machine name comes from the Director REGISTRATION -
         // the same Registry.Get the read side's GET /directors/{id}/known-repositories resolves its machine
         // from - so the end that writes the rows and the end that reads them agree on one string. Writing
@@ -5318,7 +5337,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // devthrottle_internal#2305: a prompt pushed into a team's tenant is stamped with the person the calling key was
         // issued to - the gate's own answer to "who is asking", never a second one.
         Prompts.PromptEndpoints.Map(_app, _promptLog, _tenantBoundary, _sessionHistoryRecorder, isTeam: TeamRegistry.IsTeam,
-            teamCaller: (ctx, tenant) => TeamGate.CallerSubject(tenant, Util.AuthMiddleware.AuthenticatedDevice(ctx)));
+            teamCaller: TeamPromptCaller);
 
         // Work history (issue #2194): the range report, the flat session records, and the seal verb.
         History.HistoryEndpoints.Map(_app, _sessionHistory, _tenantBoundary);

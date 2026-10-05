@@ -242,6 +242,18 @@ public sealed class TeamCallerOwnershipTests : IDisposable
         Assert.True((await Run(Request("POST", "/prompts", _aliceKey))).Reached);
     }
 
+    [Fact]
+    public async Task RunAsync_PushingPrompts_OnACollaboratorsKey_IsRefused()
+    {
+        // "The caller's own" settles whose data it is, not who may act: a Collaborator still may not push prompts.
+        var carolKey = DirectorWithSession(Carol, "director-carol", "session-carol");
+
+        var result = await Run(Request("POST", "/prompts", carolKey));
+
+        Assert.False(result.Reached);
+        Assert.Equal(StatusCodes.Status403Forbidden, result.Status);
+    }
+
     // Each of these reads or deletes the WHOLE team's prompt log, with no filter on the person, so none of them may ever
     // become "the caller's own" (devthrottle_internal#2305, part 3 ruling).
 
