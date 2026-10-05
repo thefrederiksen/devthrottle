@@ -133,4 +133,15 @@ Red proof (whole Teams unit filter), committed first, each mutation restored in 
     map's Read_ARevokedCredential_IsOnNobodysMap, OwnerOf_ACredentialRevokedByTime_..., OwnerOf_ACredentialRevokedByStatus_...
 18. Tenant check dropped: 3 failed | 813 passed, including the map's Read_ACredentialBoundToAnotherTenant_IsOnNobodysMap
     and OwnerOf_ACredentialBoundToAnotherTenant_IsNobody.
-NOT YET RUN on this head: the restore run, the hosted Gateway.Tests filter, the grep evidence, continuous integration.
+Then rebased onto main 8b23aaba4 (#3537, the seat convergence; it touches none of these files; no conflict).
+Restore run on the rebased head, rebuilt: Teams unit filter Passed!  - Failed: 0, Passed: 816, Skipped: 2, Total: 818.
+dotnet test src\CcDirector.Gateway.Tests --filter "FullyQualifiedName~HostedTeamsDarkTests|FullyQualifiedName~ContextLessRouteCensusTests|FullyQualifiedName~TeamEndpointWalkTests|FullyQualifiedName~Teams":
+Passed!  - Failed:     0, Passed:    76, Skipped:     1, Total:    77, Duration: 8 m 12 s - CcDirector.Gateway.Tests.dll (net10.0)
+(the skip is a real-Postgres proof that runs only with a connection string set)
+The old answer is gone from the source - an empty search, beside one that does hit, so the empty one is not a broken search:
+$ git grep -n "PersonOfDirector\|TeamDirectorOwnership" -- src
+(no output, exit code 1)
+$ git grep -n "OwnerOf(" -- src/CcDirector.Gateway/Teams/TeamFleetMap.cs
+src/CcDirector.Gateway/Teams/TeamFleetMap.cs:105:            if (_ownership.OwnerOf(tenant, director.DirectorId) is not { } subject || !labels.ContainsKey(subject))
+Tests #3530 already has and this pull request does not repeat: TeamDirectorKeyTests.AccountSubjectOfActiveDevice_NamesNobody_ForARevokedKey_OrAKeyBoundToAnotherTenant
+and the RegisteringCredentialOf assertions in TeamDirectorKeyTests (this pull request's own RegisteringCredentialOf test is removed).
