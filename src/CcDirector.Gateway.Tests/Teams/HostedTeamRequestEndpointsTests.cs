@@ -388,11 +388,16 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
     /// the Manager's Directors set up for the team, and a session key under each, in the team's tenant. Every request
     /// route refuses every one of them, the refusal carries no request text, and nothing changes in the store.
     ///
-    /// WHAT REFUSES THEM TODAY. A team key authenticates, and then the request-path access lease refuses it with 402,
-    /// because it reads a personal account's bill and a team's tenant is no one person's (#3530's own tests say the
-    /// same). So the request routes' own person-only check is not what answers here: the lease is in front of it. When
-    /// the lease learns the team's bill, this test goes red on the status, and the answer it must then show is the
-    /// routes' own 403 person_only - which the personal-account test above already proves for Director and session keys.
+    /// WHAT REFUSES THEM TODAY, measured, not assumed - and in neither case is it the request routes' own check:
+    /// <list type="bullet">
+    /// <item>A team SESSION key is refused first by the session-key guard (403 session_key_out_of_scope): a session key
+    /// may not call a team route at all, in any tenant.</item>
+    /// <item>A team DIRECTOR key authenticates, and then the request-path access lease refuses it (402
+    /// hosted_subscription_required), because it reads a personal account's bill and a team's tenant is no one
+    /// person's (#3530's own tests say the same). When the lease learns the team's bill, this goes red on the status,
+    /// and the answer it must then show is the routes' own 403 person_only - which the personal-account test above
+    /// already proves for Director keys.</item>
+    /// </list>
     /// A team Director also cannot open the tunnel over the wire for the same reason, so the "live session receives
     /// nothing" half of test 3 cannot run on a team Director yet; it runs above on the personal ones.
     /// </summary>
@@ -402,7 +407,7 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
         var marker = "TEAM-KEY-MARKER-" + Guid.NewGuid().ToString("N");
         var id = await SendRequest(_collaborator, $"Please change the report header {marker}");
 
-        var keys = new List<(string What, string Key)>();
+        var keys = new List<(string What, string Key, HttpStatusCode Status, string Code)>();
         foreach (var person in new[] { _owner, _manager })
         {
             var directorId = $"director-team-{person.Email.Split('@')[0]}-{_run}";
@@ -411,11 +416,11 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
             var sessionKey = GatewaySessionKey.Mint();
             Assert.True(_gateway.SessionKeys.Register(new TenantId(_team), teamDeviceId, Guid.NewGuid().ToString("D"),
                 GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
-            keys.Add(($"{person.Email} team Director key", directorKey));
-            keys.Add(($"{person.Email} team session key", sessionKey));
+            keys.Add(($"{person.Email} team Director key", directorKey, HttpStatusCode.PaymentRequired, "hosted_subscription_required"));
+            keys.Add(($"{person.Email} team session key", sessionKey, HttpStatusCode.Forbidden, "session_key_out_of_scope"));
         }
 
-        foreach (var (what, key) in keys)
+        foreach (var (what, key, expectedStatus, expectedCode) in keys)
         {
             foreach (var (method, path, body) in new (HttpMethod, string, object?)[]
                      {
@@ -429,7 +434,7 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
             {
                 var (status, refusal) = await Call(method, path, key, body);
                 _output.WriteLine($"{what}: {method} /{path} -> {(int)status} {refusal}");
-                Assert.Equal(HttpStatusCode.PaymentRequired, status);
+                Assert.Equal((expectedStatus, expectedCode), (status, refusal.GetProperty("code").GetString()));
                 Assert.DoesNotContain(marker, refusal.ToString(), StringComparison.Ordinal);
             }
         }
