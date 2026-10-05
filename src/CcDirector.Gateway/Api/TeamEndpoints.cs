@@ -60,7 +60,7 @@ internal static class TeamEndpoints
             if (caller.Denial is not null) return caller.Denial;
             // ResolveCaller has just shown the request is bound to this person's own tenant.
             var own = boundary.ResolveRequestTenant(ctx)!.Value;
-            return ListTeams(teams, caller.Subject!, devices.HasEverEnrolledADirector(own));
+            return ListTeams(teams, caller.Subject!, devices.HasADirectorOnRecord(own));
         }));
 
         app.MapPost(Path, async (HttpContext ctx) =>

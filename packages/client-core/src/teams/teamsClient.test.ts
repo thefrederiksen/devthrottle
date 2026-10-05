@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getMyTeams, TEAMS_NOT_RELEASED_REASON } from "./teamsClient";
+import { getMyTeams, TEAMS_NOT_RELEASED_REASON, TEAMS_READ_TIMEOUT_MS } from "./teamsClient";
 
 // GET /teams (devthrottle_internal#2300) as the team switcher reads it (#2312). Three Gateways answer it three ways,
 // and only one of them has teams: a released hosted Gateway answers JSON; a Gateway with Teams dark maps no route,
@@ -174,5 +174,27 @@ describe("getMyTeams", () => {
       vi.fn().mockResolvedValue(respond(`{"teams":${ONE_TEAM},"start":{"where":"team","teamId":"elsewhere"}}`, "application/json")),
     );
     await expect(getMyTeams()).rejects.toThrow(/did not say where to start/);
+  });
+
+  // Delta review D1: a shell that remembers a team waits on this read, so a read that hangs ends as an error.
+  it("GetMyTeams_AReadThatHangs_FailsAtTheTimeLimit", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: unknown, init?: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+            }),
+        ),
+      );
+      const read = getMyTeams();
+      const failed = expect(read).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(TEAMS_READ_TIMEOUT_MS);
+      await failed;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -38,9 +38,12 @@ const myTeams = vi.hoisted(() => ({
     | { kind: "teams"; teams: TeamSummary[]; start: { where: "own-account" } }
     | { kind: "not-offered"; reason: string }
     | Error,
+  // While set, the read has not answered yet: the test releases it.
+  held: null as Promise<void> | null,
 }));
 vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
   getMyTeams: vi.fn(async () => {
+    if (myTeams.held !== null) await myTeams.held;
     if (myTeams.answer instanceof Error) throw myTeams.answer;
     return myTeams.answer;
   }),
@@ -85,7 +88,7 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual
   }),
 }));
 
-import { screen, waitFor, within, fireEvent } from "@testing-library/react";
+import { act, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import { GatewayError } from "@devthrottle/client-core/api/client";
 import { getMyTeams } from "@devthrottle/client-core/teams/teamsClient";
 import { getMentorPage } from "@devthrottle/client-core/teams/mentorClient";
@@ -107,6 +110,7 @@ describe("Cockpit left rail", () => {
     factory.enabled = false;
     resetFactorySwitchCache();
     myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
+    myTeams.held = null;
     vi.clearAllMocks();
     mentorRead.answers.clear();
     mentorRead.calls = [];
@@ -114,9 +118,6 @@ describe("Cockpit left rail", () => {
     rhythm.delayMs = 3_600_000;
     rhythm.asked = [];
     window.localStorage.clear();
-    // A browser that has already started once (devthrottle_internal#2306): it remembers the own account, so the rail is
-    // drawn at once. A browser that has never chosen waits for the Gateway's start - see collaboratorApp.test.tsx.
-    window.localStorage.setItem(currentTeamStorageKey(), "own-account");
   });
 
   it("opens with the Fleet Manager, then Sessions, then Fleet Map", () => {
@@ -235,6 +236,33 @@ describe("Cockpit left rail", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId("team-switcher")).toBeNull();
     expect(screen.queryByTestId("team-switcher-error")).toBeNull();
+  });
+
+  // Delta review D1: the state production is in - Teams dark, or no team, and nothing remembered in this browser - draws
+  // today's Cockpit AT ONCE, before the list of teams answers, and never says "Loading your team".
+  it.each([
+    ["Teams dark", { kind: "not-offered", reason: "dark" }],
+    ["no team", { kind: "teams", teams: [], start: { where: "own-account" } }],
+  ] as Array<[string, typeof myTeams.answer]>)("draws today's Cockpit at once with nothing remembered (%s), before the teams answer", async (_name, answer) => {
+    myTeams.answer = answer;
+    let release: () => void = () => {};
+    myTeams.held = new Promise<void>((r) => (release = r));
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    // Not answered yet, and the whole rail is already there.
+    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    expect(document.querySelector(".nav-list-foot")).not.toBeNull();
+    expect(screen.queryByText("Loading your team...")).toBeNull();
+
+    await act(async () => release());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    expect(screen.queryByText("Loading your team...")).toBeNull();
+    expect(screen.queryByTestId("team-switcher")).toBeNull();
   });
 
   it("shows no team switcher on a Gateway that has not turned Teams on", async () => {

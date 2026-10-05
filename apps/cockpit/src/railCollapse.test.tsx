@@ -26,7 +26,6 @@ vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
 }));
 
 import { AppShell } from "./AppShell";
-import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
 
 function mount() {
   return render(
@@ -44,9 +43,6 @@ describe("the Cockpit rail collapse", () => {
   beforeEach(() => {
     cleanup();
     window.localStorage.clear();
-    // A browser that has already started once (devthrottle_internal#2306): it remembers the own account, so the rail is
-    // drawn at once. A browser that has never chosen waits for the Gateway's start - see collaboratorApp.test.tsx.
-    window.localStorage.setItem(currentTeamStorageKey(), "own-account");
     page.waitingCount = 0;
   });
 

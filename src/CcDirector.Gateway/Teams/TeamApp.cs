@@ -73,13 +73,13 @@ public sealed record TeamStartVerdict(TeamStartPlace Place, string? TeamId);
 
 /// <summary>
 /// WHERE A FRESH BROWSER STARTS (devthrottle_internal#2306, review finding F1, Tech Lead ruling): the person's own account
-/// if they have ever registered a Director there - it is where their work is; otherwise their only team, when they
-/// have exactly one; otherwise the chooser. A person in no team starts on their own account, as before Teams. Once the
-/// person picks, the browser remembers it and this verdict is not asked again.
+/// if they have a Director on record there - it is where their work is; otherwise their only team, when they
+/// have exactly one; otherwise the chooser. A person in no team starts on their own account, as before Teams. Every
+/// load reads it again until the person picks, so a later answer replaces an earlier one; a pick outranks it.
 /// </summary>
 public static class TeamStart
 {
-    /// <summary>The verdict for a person whose own account has (or has not) ever had a Director, in these teams.</summary>
+    /// <summary>The verdict for a person whose own account has (or has not) a Director on record, in these teams.</summary>
     public static TeamStartVerdict For(bool ownAccountHasADirector, IReadOnlyList<TeamSummary> teams)
     {
         ArgumentNullException.ThrowIfNull(teams);

@@ -11,7 +11,7 @@
 //   - a self-hosted Gateway, which holds one account and answers 404 with a sentence saying so.
 // Both are reported as `not-offered`, and the switcher then shows nothing - a person on such a Gateway sees no
 // change anywhere. Anything else that is not a JSON team list is a real failure and is thrown.
-import { authHeaders, gatewayFetch, GatewayError } from "../api/client";
+import { authHeaders, gatewayFetch, GatewayError, POLL_TIMEOUT_MS } from "../api/client";
 
 /** One team as the signed-in person sees it. `role` is THEIR role in that team, exactly as the Gateway labels it -
  *  shown verbatim, never compared: the Gateway owns the list of roles (review finding F5). */
@@ -66,6 +66,9 @@ export type MyTeamsAnswer =
 export const TEAMS_NOT_RELEASED_REASON =
   "This Gateway has not turned Teams on, so there are no teams to choose from.";
 
+/** How long the list of teams may take before it is treated as failed, in milliseconds - the poll reads' limit. */
+export const TEAMS_READ_TIMEOUT_MS = POLL_TIMEOUT_MS;
+
 function contentType(res: Response): string {
   return (res.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
 }
@@ -75,10 +78,13 @@ function contentType(res: Response): string {
  * (Teams dark, or a self-hosted Gateway). Throws a GatewayError for every other failure.
  */
 export async function getMyTeams(signal?: AbortSignal): Promise<MyTeamsAnswer> {
-  const res = await gatewayFetch("/teams", {
-    headers: { ...authHeaders(), Accept: "application/json" },
-    signal,
-  });
+  // A time limit (delta review D1): a shell that remembers a team waits on this read, so a read that hangs must end
+  // as an error - which the shell shows, with the own account as the way out - rather than leave the page blank.
+  const res = await gatewayFetch(
+    "/teams",
+    { headers: { ...authHeaders(), Accept: "application/json" }, signal },
+    { timeoutMs: TEAMS_READ_TIMEOUT_MS },
+  );
 
   if (res.status === 404) {
     // The self-hosted Gateway's answer, with its own sentence. A 404 with no sentence is the same answer: there

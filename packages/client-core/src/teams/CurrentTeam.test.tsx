@@ -134,9 +134,10 @@ describe("CurrentTeam", () => {
 
   // Review finding F1: a browser with nothing remembered waits for the Gateway's start verdict, so a Collaborator's first
   // arrival never flashes the whole app - but a failed read does not hold it: it starts on the own account, as before.
-  it("Resolving_NothingRemembered_WaitsForTheFirstAnswerOnly_AndAFailedReadStartsOnTheOwnAccount", async () => {
+  // Delta review D1: a browser with nothing remembered never waits - not for the first answer, not on a failed read.
+  it("Resolving_NothingRemembered_IsNeverTrue_AndAFailedReadStaysOnTheOwnAccount", async () => {
     mount(() => Promise.reject(new Error("boom")));
-    expect(seen!.resolving).toBe(true);
+    expect(seen!.resolving).toBe(false);
     await waitFor(() => expect(seen!.status).toBe("error"));
     expect(seen!.resolving).toBe(false);
     expect(seen!.current).toBeNull();
@@ -172,7 +173,47 @@ describe("CurrentTeam", () => {
     mount(() => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: [TEAM_A, TEAM_B], start: { where: "team", teamId: "team-b" } }));
     await waitFor(() => expect(seen!.current?.id).toBe("team-b"));
     expect(seen!.resolving).toBe(false);
-    await waitFor(() => expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("team-b"));
+    await waitFor(() => expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("gateway:team-b"));
+  });
+
+  // Delta review D1: a dark Gateway, and a person with no team, never wait - and nothing is stored that would make a
+  // later load wait either.
+  it("NothingRemembered_TeamsDark_NeverResolving_NeverChoosing_OwnAccount", async () => {
+    let answer: (a: MyTeamsAnswer) => void = () => {};
+    mount(() => new Promise<MyTeamsAnswer>((resolve) => (answer = resolve)));
+    expect(seen!.resolving).toBe(false);
+    expect(seen!.current).toBeNull();
+    act(() => answer({ kind: "not-offered", reason: "dark" }));
+    await waitFor(() => expect(seen!.status).toBe("not-offered"));
+    expect(seen!.resolving).toBe(false);
+    expect(seen!.choosing).toBe(false);
+    expect(seen!.current).toBeNull();
+  });
+
+  it("NothingRemembered_NoTeams_NeverResolving_AndStoresTheGatewaysAnswerNotAPick", async () => {
+    mount(teams([]));
+    expect(seen!.resolving).toBe(false);
+    await waitFor(() => expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("gateway:own-account"));
+    expect(seen!.current).toBeNull();
+    expect(seen!.resolving).toBe(false);
+  });
+
+  // Delta review D2: the Gateway's stored answer is replaced by its next answer; only a pick outranks it.
+  it("AStoredGatewayAnswer_IsReplacedByTheNextAnswer", async () => {
+    window.localStorage.setItem("devthrottle.currentTeam.account-a", "gateway:own-account");
+    mount(() => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: [TEAM_A], start: { where: "team", teamId: "team-a" } }));
+    // The own account the Gateway answered last time draws at once.
+    expect(seen!.resolving).toBe(false);
+    await waitFor(() => expect(seen!.current?.id).toBe("team-a"));
+    expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("gateway:team-a");
+  });
+
+  it("AStoredGatewayTeam_WaitsForTheListLikeAPickedTeam", async () => {
+    window.localStorage.setItem("devthrottle.currentTeam.account-a", "gateway:team-a");
+    mount(() => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: [TEAM_A], start: { where: "team", teamId: "team-a" } }));
+    expect(seen!.resolving).toBe(true);
+    await waitFor(() => expect(seen!.current?.id).toBe("team-a"));
+    expect(seen!.resolving).toBe(false);
   });
 
   it("Start_NothingRemembered_TheChooser_WaitsForThePersonAndRemembersNothing", async () => {
@@ -187,7 +228,7 @@ describe("CurrentTeam", () => {
     expect(seen!.current?.id).toBe("team-a");
   });
 
-  it("Start_ARememberedChoice_OutranksTheGatewaysStart", async () => {
+  it("Start_ARememberedPick_OutranksTheGatewaysStart", async () => {
     window.localStorage.setItem("devthrottle.currentTeam.account-a", "own-account");
     mount(() => Promise.resolve<MyTeamsAnswer>({ kind: "teams", teams: [TEAM_A], start: { where: "team", teamId: "team-a" } }));
     await waitFor(() => expect(seen!.status).toBe("ready"));
@@ -219,7 +260,7 @@ describe("CurrentTeam", () => {
     mount(teams([TEAM_A]));
     await waitFor(() => expect(seen!.status).toBe("ready"));
     expect(seen!.current).toBeNull();
-    await waitFor(() => expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("own-account"));
+    await waitFor(() => expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("gateway:own-account"));
   });
 
   it("CurrentTeamStorageKey_IsPerAccount_SoAnotherAccountDoesNotInheritTheChoice", async () => {

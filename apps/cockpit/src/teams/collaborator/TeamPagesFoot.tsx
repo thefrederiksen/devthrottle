@@ -7,8 +7,9 @@ import "./collaborator.css";
 // THE FOOT OF A PAGES-ONLY RAIL (screens S8-S10, devthrottle_internal#2306, review finding F3): who is signed in, their
 // role in the team on screen - the Gateway's label, verbatim - and Sign out. A Collaborator's app has no Account page,
 // and on a shared computer a person must be able to see who is signed in and leave. Sign out is the shared one
-// (client-core accountActions): it clears the Gateway's cookie first and signs nothing out if that fails.
-export function TeamPagesFoot({ role }: { role: string }) {
+// (client-core accountActions): it clears the Gateway's cookie first and signs nothing out if that fails. The chooser
+// and a team that could not be opened show it too, with no role, since no team is on screen (delta review D6).
+export function TeamPagesFoot({ role }: { role: string | null }) {
   const account = activeAccount();
   const [confirming, setConfirming] = useState(false);
   const who = account === null ? "" : account.email ?? account.label;
@@ -24,7 +25,7 @@ export function TeamPagesFoot({ role }: { role: string }) {
       <div className="team-pages-foot-who" title={who}>
         {who}
       </div>
-      <div className="team-pages-foot-role">{role}</div>
+      {role !== null && <div className="team-pages-foot-role">{role}</div>}
       <button type="button" className="team-pages-foot-signout" onClick={() => setConfirming(true)}>
         Sign out
       </button>

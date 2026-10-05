@@ -432,6 +432,31 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// Delta review D3: the line that feeds the start rule on GET /teams - the Director question asked of the CALLER's
+    /// own account - over real HTTP. The Collaborator has one team; signed in only from a browser they start in it, and
+    /// the moment a computer of theirs enrolls they start on their own account.
+    /// </summary>
+    [Fact]
+    public async Task Issue2306_OverTheWire_TheStart_FollowsTheCallersOwnDirector()
+    {
+        var own = _gateway.TenantRegistry.LookupBySubject(_collaborator)!.Value;
+        var browserKey = _gateway.Devices.RegisterForTenant(own, _collaborator, "dev-walk-start-browser", "BROWSER",
+            platform: "browser", deviceType: "browser").DeviceKey;
+
+        var (status, body) = await Get("teams", browserKey);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("team", body.GetProperty("start").GetProperty("where").GetString());
+        Assert.Equal(_team, body.GetProperty("start").GetProperty("teamId").GetString());
+
+        _gateway.Devices.RegisterForTenant(own, _collaborator, "dev-walk-start-desk", "DESK", platform: "windows",
+            deviceType: "workstation");
+
+        (status, body) = await Get("teams", browserKey);
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("own-account", body.GetProperty("start").GetProperty("where").GetString());
+    }
+
     [Theory]
     [InlineData("questions")]
     [InlineData("requests")]

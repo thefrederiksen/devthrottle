@@ -25,10 +25,19 @@
 // picked.
 //
 // A BROWSER THAT HAS NEVER CHOSEN STARTS WHERE THE GATEWAY SAYS (devthrottle_internal#2306, review finding F1). GET /teams
-// carries `start`: the person's own account, one team, or the chooser (S11). Until it answers, a browser with no
-// remembered choice is `resolving` too - so a Collaborator's first arrival never flashes the whole app - and the answer
-// is then remembered like a pick, so later loads do not wait. A failed read with nothing remembered starts on the own
-// account, as before. "Your own account" picked on purpose is remembered as such, apart from "never chose".
+// carries `start`: the person's own account, one team, or the chooser (S11).
+//
+// NOTHING REMEMBERED NEVER WAITS (delta review D1). A browser that remembers no team draws the own account at once,
+// exactly as before Teams, and takes the Gateway's start when it answers. That is what keeps a Gateway with Teams dark,
+// and a person with no team, unchanged: their Cockpit never waits on GET /teams and never says "Loading your team".
+// The cost falls on one person only - a Collaborator's first load in a browser that has never chosen shows their own
+// account for the length of one read before their pages; accepting an invitation in this browser avoids even that.
+//
+// THE GATEWAY'S ANSWER IS STORED AS AN ANSWER, NOT AS A PICK (delta review D2). A pick (the switcher, the chooser, the
+// accept page) outranks the Gateway and is kept. The Gateway's start is stored apart, prefixed "gateway:", and EVERY
+// later answer replaces it - so a person who had no team when this browser first opened, and was invited later,
+// starts in their team on the next load here. A stored answer that names a team waits for the list like a picked
+// team does (`resolving`); a stored own-account answer draws at once.
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { gatewayErrorMessage } from "../api/client";
 import { activeAccount } from "../auth/accountStore";
@@ -78,19 +87,25 @@ export function currentTeamStorageKey(): string {
   return account ? `${STORAGE_PREFIX}.${account.id}` : STORAGE_PREFIX;
 }
 
-/** What a browser remembers: nothing (it has never chosen), the person's own account, or one team. */
-type Choice = { kind: "none" } | { kind: "own" } | { kind: "team"; id: string };
+/** What a browser remembers: nothing (it has never chosen), the person's own account, or one team - each either
+ *  `picked` by the person, or the Gateway's start answer, which the next answer replaces. */
+type Choice = { kind: "none" } | { kind: "own"; picked: boolean } | { kind: "team"; id: string; picked: boolean };
 
 const NOTHING: Choice = { kind: "none" };
 
-/** The stored value for "the own account, picked". A team id is a GUID, so it can never be this. */
+/** The stored value for "the own account". A team id is a GUID, so it can never be this. */
 const OWN_ACCOUNT = "own-account";
+
+/** The prefix of a stored Gateway answer, apart from a pick. */
+const GATEWAY_ANSWER = "gateway:";
 
 function readRemembered(): Choice {
   try {
     const value = window.localStorage.getItem(currentTeamStorageKey());
     if (value === null) return NOTHING;
-    return value === OWN_ACCOUNT ? { kind: "own" } : { kind: "team", id: value };
+    const picked = !value.startsWith(GATEWAY_ANSWER);
+    const what = picked ? value : value.slice(GATEWAY_ANSWER.length);
+    return what === OWN_ACCOUNT ? { kind: "own", picked } : { kind: "team", id: what, picked };
   } catch {
     // Storage turned off: the choice is not remembered across loads, which costs a click, not correctness.
     return NOTHING;
@@ -99,11 +114,21 @@ function readRemembered(): Choice {
 
 function remember(choice: Choice): void {
   try {
-    if (choice.kind === "none") window.localStorage.removeItem(currentTeamStorageKey());
-    else window.localStorage.setItem(currentTeamStorageKey(), choice.kind === "own" ? OWN_ACCOUNT : choice.id);
+    if (choice.kind === "none") {
+      window.localStorage.removeItem(currentTeamStorageKey());
+      return;
+    }
+    const what = choice.kind === "own" ? OWN_ACCOUNT : choice.id;
+    window.localStorage.setItem(currentTeamStorageKey(), choice.picked ? what : `${GATEWAY_ANSWER}${what}`);
   } catch {
     // As above: a browser with storage off still switches, it just forgets on the next load.
   }
+}
+
+function sameChoice(a: Choice, b: Choice): boolean {
+  if (a.kind === "none" || b.kind === "none") return a.kind === b.kind;
+  if (a.kind !== b.kind || a.picked !== b.picked) return false;
+  return a.kind === "own" || (b.kind === "team" && a.id === b.id);
 }
 
 /**
@@ -111,13 +136,18 @@ function remember(choice: Choice): void {
  * outside the shell: the person who just joined a team lands in it (devthrottle_internal#2306, review finding F1).
  */
 export function rememberTeamOnThisBrowser(teamId: string): void {
-  remember({ kind: "team", id: teamId });
+  remember({ kind: "team", id: teamId, picked: true });
 }
 
-/** The Gateway's start verdict as a choice; the chooser is no choice yet. */
+/** The Gateway's start verdict as a choice it made, not the person; the chooser is no choice yet. */
 function fromStart(start: TeamStart | null): Choice {
   if (start === null || start.where === "choose") return NOTHING;
-  return start.where === "team" ? { kind: "team", id: start.teamId } : { kind: "own" };
+  return start.where === "team" ? { kind: "team", id: start.teamId, picked: false } : { kind: "own", picked: false };
+}
+
+/** Whether the person chose this, rather than the Gateway or nobody. */
+function isPick(choice: Choice): boolean {
+  return choice.kind !== "none" && choice.picked;
 }
 
 interface Loaded {
@@ -170,37 +200,39 @@ export function CurrentTeamProvider({
     };
   }, [load]);
 
-  // A remembered team the Gateway no longer lists for this person (they left it, or it is another account's) is
-  // forgotten, so the browser starts where the Gateway says again. And a browser that has never chosen takes the
-  // Gateway's start - remembered, so the next load does not wait for it. The chooser is not remembered: it waits for
-  // the person.
+  // A picked team the Gateway no longer lists for this person (they left it, or it is another account's) is forgotten,
+  // so the browser starts where the Gateway says again. Anything the person did not pick takes the Gateway's latest
+  // start, stored as the Gateway's answer so the next answer replaces it (delta review D2). The chooser is stored as
+  // nothing: it waits for the person.
   useEffect(() => {
     if (loaded.status !== "ready") return;
-    if (choice.kind === "team" && !loaded.teams.some((t) => t.id === choice.id)) {
-      remember(NOTHING);
-      setChoice(NOTHING);
+    if (isPick(choice)) {
+      if (choice.kind === "team" && !loaded.teams.some((t) => t.id === choice.id)) {
+        remember(NOTHING);
+        setChoice(NOTHING);
+      }
       return;
     }
-    if (choice.kind === "none") {
-      const started = fromStart(loaded.start);
-      if (started.kind !== "none") {
-        remember(started);
-        setChoice(started);
-      }
+    const started = fromStart(loaded.start);
+    if (!sameChoice(started, choice)) {
+      remember(started);
+      setChoice(started);
     }
   }, [loaded, choice]);
 
   const choose = useCallback(
     (teamId: string | null): TeamSummary | null => {
       if (teamId === null) {
-        remember({ kind: "own" });
-        setChoice({ kind: "own" });
+        const own: Choice = { kind: "own", picked: true };
+        remember(own);
+        setChoice(own);
         return null;
       }
       const team = loaded.teams.find((t) => t.id === teamId);
       if (team === undefined) throw new Error("That team is not one of yours, so it cannot be put on screen.");
-      remember({ kind: "team", id: teamId });
-      setChoice({ kind: "team", id: teamId });
+      const picked: Choice = { kind: "team", id: teamId, picked: true };
+      remember(picked);
+      setChoice(picked);
       return team;
     },
     [loaded.teams],
@@ -208,12 +240,12 @@ export function CurrentTeamProvider({
 
   const value = useMemo<CurrentTeamState>(() => {
     const ready = loaded.status === "ready";
-    const effective = choice.kind === "none" && ready ? fromStart(loaded.start) : choice;
+    const effective = !isPick(choice) && ready ? fromStart(loaded.start) : choice;
     const current = ready && effective.kind === "team" ? loaded.teams.find((t) => t.id === effective.id) ?? null : null;
-    const resolving =
-      (choice.kind === "team" && (loaded.status === "loading" || loaded.status === "error")) ||
-      (choice.kind === "none" && loaded.status === "loading");
-    const choosing = ready && choice.kind === "none" && loaded.start?.where === "choose";
+    // Only a remembered TEAM waits for the list (picked, or the Gateway's last answer). Nothing remembered, or the own
+    // account, never waits (delta review D1).
+    const resolving = choice.kind === "team" && (loaded.status === "loading" || loaded.status === "error");
+    const choosing = ready && !isPick(choice) && loaded.start?.where === "choose";
     return { status: loaded.status, teams: loaded.teams, current, resolving, choosing, error: loaded.error, choose };
   }, [loaded, choice, choose]);
 

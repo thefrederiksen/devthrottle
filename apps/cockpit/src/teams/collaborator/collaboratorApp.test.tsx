@@ -209,6 +209,8 @@ describe("The Collaborator's app", () => {
     ["/account", "account page"],
     ["/team/team-dt/invite", "Invite someone"],
     ["/no-such-page", "Page not found"],
+    // Exact page addresses only, as the Gateway's phone front door reads them (delta review D8).
+    ["/questions/q-1", "No questions waiting on you."],
   ])("TypedAddress_Collaborator_%s_ShowsOnlyTheNotAvailablePage", async (path, pageText) => {
     rememberTeam(COLLABORATOR_TEAM.id);
     renderAt(path);
@@ -371,5 +373,56 @@ describe("The Collaborator's app", () => {
     expect(screen.getByTestId("team-switcher")).toBeTruthy();
     expect(document.querySelector(".shell-rail-collapsed")).toBeNull();
     expect(screen.queryByTestId("rail-toggle")).toBeNull();
+  });
+
+  // ---- Delta review D1, D6, D7 ------------------------------------------------------------------------------------
+
+  it("FirstArrival_NothingRemembered_DrawsTheOwnAccountAtOnce_ThenTheGatewaysTeam", async () => {
+    myTeams.teams = [COLLABORATOR_TEAM];
+    myTeams.start = { where: "team", teamId: COLLABORATOR_TEAM.id };
+    renderAt("/sessions");
+
+    // No wait: the own account is on screen before the list of teams answers.
+    expect(screen.queryByText("Loading your team...")).toBeNull();
+    expect(railLabels()[0]).toBe("Fleet Manager");
+
+    // Then the Gateway's start opens the team where it starts.
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/questions"));
+    expect(await screen.findByTestId("team-page-questions")).toBeTruthy();
+  });
+
+  it("Chooser_ArrivedAtOneOfTheTeamsPages_StaysOnIt", async () => {
+    myTeams.start = { where: "choose" };
+    renderAt("/reports");
+
+    await screen.findByTestId("team-chooser");
+    fireEvent.click(screen.getByRole("button", { name: "Open DevThrottle" }));
+
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    expect(screen.getByTestId("where").textContent).toBe("/reports");
+    expect(await screen.findByTestId("team-page-reports")).toBeTruthy();
+  });
+
+  it("Chooser_ShowsWhoIsSignedIn_AndSignOut", async () => {
+    myTeams.start = { where: "choose" };
+    renderAt("/");
+
+    await screen.findByTestId("team-chooser");
+    const foot = screen.getByTestId("team-pages-foot");
+    expect(foot.textContent).toContain("mike@example.com");
+    expect(within(foot).getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(screen.queryByText("Cockpit (React)")).toBeNull();
+  });
+
+  it("TeamCouldNotBeOpened_ShowsWhoIsSignedIn_AndSignOut", async () => {
+    myTeams.failure = new Error("Gateway restarting");
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/questions");
+
+    await screen.findByTestId("team-unreadable");
+    const foot = screen.getByTestId("team-pages-foot");
+    expect(foot.textContent).toContain("mike@example.com");
+    expect(within(foot).getByRole("button", { name: "Sign out" })).toBeTruthy();
   });
 });

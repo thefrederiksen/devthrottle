@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useKeepWarm } from "@devthrottle/client-core/net/useKeepWarm";
 import { getSuggestionCount } from "@devthrottle/client-core/dictation/dictionaryClient";
@@ -11,7 +11,7 @@ import { useFactorySwitch } from "./factory/useFactorySwitch";
 import { CurrentTeamProvider, useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import type { TeamPagesApp, TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 import { TeamSwitcher } from "./teams/TeamSwitcher";
-import { TeamPagesOnly } from "./teams/collaborator/TeamPagesOnly";
+import { isTeamPageAddress, TeamPagesOnly } from "./teams/collaborator/TeamPagesOnly";
 import { TeamPagesFoot } from "./teams/collaborator/TeamPagesFoot";
 import { TeamChooser } from "./teams/collaborator/TeamChooser";
 import "./teams/collaborator/collaborator.css";
@@ -208,8 +208,12 @@ function ShellFrame() {
   // dropped connection is re-driven to its session from the durable on-device queue. Without this, the
   // Cockpit's fire-and-forget Speak Send (SessionComposer / VoiceTab) could persist a clip and then
   // never deliver it after a reload - saved forever, sent never.
+  // Once per shell, the first time the whole app is on screen - not again on every switch back from a pages-only team
+  // (delta review D8).
+  const resumed = useRef(false);
   useEffect(() => {
-    if (!wholeApp) return;
+    if (!wholeApp || resumed.current) return;
+    resumed.current = true;
     void resumePendingDictations();
   }, [wholeApp]);
 
@@ -269,8 +273,9 @@ function ShellFrame() {
   //
   //
   // While this browser remembers a team the Gateway has not confirmed yet (CurrentTeam's `resolving`), the rail and the
-  // page wait: drawing the whole app first would flash pages a Collaborator may not open. It never happens to a person
-  // who has never picked a team.
+  // page wait: drawing the whole app first would flash pages a Collaborator may not open. It never happens to a browser
+  // that remembers no team, or the own account - so a Gateway with Teams dark, and a person with no team, never wait
+  // (delta review D1).
   const mainNav = team.resolving || team.choosing ? [] : teamPages !== null ? teamPagesNav(teamPages) : fullNav;
   // A pages-only rail never collapses (review finding F4): three rows need no room back, and at phone width the bar
   // hides the collapse control - a remembered collapse would otherwise leave no switcher and no way back.
@@ -289,12 +294,31 @@ function ShellFrame() {
     else if (pagesOnly(before) !== null) navigate("/");
   };
 
-  // The chooser (S11) opens the picked team where it starts, the same way the switcher does.
+  // The chooser (S11) opens the picked team where it starts, the same way the switcher does - except that a person who
+  // arrived at one of that team's pages (a mailed link to /reports, say) stays on it (delta review D7).
   const onChosen = (teamId: string | null) => {
     const now = team.choose(teamId);
     const nowPages = pagesOnly(now);
-    navigate(nowPages !== null ? nowPages.landing : "/");
+    if (nowPages === null) navigate("/");
+    else if (!isTeamPageAddress(nowPages, location.pathname)) navigate(nowPages.landing);
   };
+
+  // The own account was drawn at once (nothing remembered never waits, delta review D1), and then the Gateway's start
+  // put a pages-only team on screen: open that team where it starts, unless the address is already one of its pages.
+  // Keyed to the own account having been on screen, so a typed address in a team that was remembered still shows the
+  // not-available sentence rather than being moved.
+  const ownWasOnScreen = useRef(false);
+  useEffect(() => {
+    if (teamPages !== null && ownWasOnScreen.current && !isTeamPageAddress(teamPages, location.pathname)) {
+      navigate(teamPages.landing, { replace: true });
+    }
+    ownWasOnScreen.current = wholeApp && team.current === null;
+    // Only a change of what is on screen moves the person; a change of address alone never does.
+  }, [teamPages, wholeApp, team.current]);
+
+  // Who is signed in, and Sign out, wherever the person cannot reach the Account page: a pages-only team, the chooser,
+  // and a team that could not be opened (review finding F3, delta review D6).
+  const signOutFoot = teamPages !== null || team.choosing || (team.resolving && team.status === "error");
 
   return (
     <StopSessionProvider>
@@ -334,8 +358,8 @@ function ShellFrame() {
               <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={collapsed} />
             )}
           </div>
-          {teamPages !== null && team.current !== null ? (
-            <TeamPagesFoot role={team.current.role} />
+          {signOutFoot ? (
+            <TeamPagesFoot role={teamPages !== null ? team.current?.role ?? null : null} />
           ) : (
             !collapsed && <div className="rail-foot">Cockpit (React)</div>
           )}

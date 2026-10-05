@@ -12,8 +12,8 @@ using Xunit;
 namespace CcDirector.Gateway.Tests.Teams;
 
 /// <summary>
-/// Where a fresh browser starts (devthrottle_internal#2306, review finding F1): the own account if the person has ever
-/// registered a Director there, else their only team, else the chooser - a verdict on GET /teams, and the device-registry
+/// Where a fresh browser starts (devthrottle_internal#2306, review finding F1): the own account if the person has a
+/// Director on record there, else their only team, else the chooser - a verdict on GET /teams, and the device-registry
 /// question it rests on.
 /// </summary>
 public sealed class TeamStartTests : IDisposable
@@ -75,24 +75,24 @@ public sealed class TeamStartTests : IDisposable
     }
 
     [Fact]
-    public void HasEverEnrolledADirector_OnlyAPhoneAndABrowser_IsFalse()
+    public void HasADirectorOnRecord_OnlyAPhoneAndABrowser_IsFalse()
     {
         var tenant = _tenants.MintOrLookupBySubject(Alice, "alice@example.com");
         _devices.RegisterForTenant(tenant, Alice, "phone-1", "PHONE", platform: "ios", deviceType: "phone");
         _devices.RegisterForTenant(tenant, Alice, "browser-1", "BROWSER", platform: "browser", deviceType: "browser");
 
-        Assert.False(_devices.HasEverEnrolledADirector(tenant));
+        Assert.False(_devices.HasADirectorOnRecord(tenant));
     }
 
     [Fact]
-    public void HasEverEnrolledADirector_AWorkstation_IsTrue_AndOnlyForItsOwnTenant()
+    public void HasADirectorOnRecord_AWorkstation_IsTrue_AndOnlyForItsOwnTenant()
     {
         var alice = _tenants.MintOrLookupBySubject(Alice, "alice@example.com");
         var bob = _tenants.MintOrLookupBySubject(Bob, "bob@example.com");
         _devices.RegisterForTenant(alice, Alice, "director-1", "DESK", platform: "windows", deviceType: "workstation");
 
-        Assert.True(_devices.HasEverEnrolledADirector(alice));
-        Assert.False(_devices.HasEverEnrolledADirector(bob));
+        Assert.True(_devices.HasADirectorOnRecord(alice));
+        Assert.False(_devices.HasADirectorOnRecord(bob));
     }
 
     [Fact]

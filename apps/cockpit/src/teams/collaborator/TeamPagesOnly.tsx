@@ -6,7 +6,8 @@ import "./collaborator.css";
 // they are one. The Gateway's verdict says which pages this person may open, where they land, and what every other
 // address says; this component only applies it:
 //
-//   - an address of one of the pages, or anything under it, renders the routed page;
+//   - the exact address of one of the pages, in any case, renders the routed page. Exact, as the Gateway's phone
+//     front door (MobileRedirect) reads a team page address, so the two never disagree (delta review D8);
 //   - the bare root opens on the landing page;
 //   - ANY other address, typed or bookmarked, shows the Gateway's one plain sentence, and nothing else - so no page
 //     the person may not open is ever mounted, and none of its data is asked for. The server refuses that data
@@ -14,8 +15,13 @@ import "./collaborator.css";
 export function TeamPagesOnly({ app }: { app: TeamPagesApp }) {
   const { pathname } = useLocation();
   if (pathname === "/") return <Navigate to={app.landing} replace />;
-  if (app.pages.some((p) => pathname === p.path || pathname.startsWith(`${p.path}/`))) return <Outlet />;
+  if (isTeamPageAddress(app, pathname)) return <Outlet />;
   return <TeamPageNotAvailable sentence={app.elsewhere} />;
+}
+
+/** Whether an address is exactly one of the team's pages (any case; the router has already set the query apart). */
+export function isTeamPageAddress(app: TeamPagesApp, pathname: string): boolean {
+  return app.pages.some((p) => pathname.toLowerCase() === p.path.toLowerCase());
 }
 
 /** The one plain page at every address a role does not open. The sentence is the Gateway's. */
