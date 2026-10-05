@@ -23,8 +23,10 @@ public static class RoleTableSpec
         new(TeamAction.UseSharedSkillsAndWorkflows, "YYYN", "GET", "/gateway/skills", TeamOwnership.Unknown, null),
         new(TeamAction.ReadOwnMentorPage, "YYYN", "GET", "/gateway/mentor-report", TeamOwnership.Callers,
             "devthrottle_internal#2305 builds the Mentor page; today's endpoint is the Mentor report's on/off setting"),
-        new(TeamAction.AnswerQuestionsSendRequestsReadReports, "YYYY", null, null, TeamOwnership.Unknown,
-            "devthrottle_internal#2306-#2309 (the Collaborator's pages) add these endpoints"),
+        // Sending a request is POST /teams/{teamId}/requests (devthrottle_internal#2308); answering questions and reading
+        // reports sent to them are #2307 and #2309.
+        new(TeamAction.AnswerQuestionsSendRequestsReadReports, "YYYY", "POST", "/teams/{teamId}/requests", TeamOwnership.Unknown,
+            "devthrottle_internal#2307 and #2309 add the answering and reading endpoints"),
         new(TeamAction.InviteOrRemoveDevelopersAndCollaborators, "YYNN", "DELETE", "/teams/{teamId}/members/{memberId}", TeamOwnership.Unknown, null),
         new(TeamAction.ReadMentorPageAboutEachPerson, "YYNN", "GET", "/gateway/mentor-report", TeamOwnership.SomeoneElses,
             "devthrottle_internal#2305 builds the Mentor page; today's endpoint is the Mentor report's on/off setting"),
@@ -38,6 +40,10 @@ public static class RoleTableSpec
         new(TeamAction.ReadPromptsQuotedOnMentorPage, "YYNN", null, null, TeamOwnership.Unknown,
             "devthrottle_internal#2305 builds the Mentor page that quotes them"),
         new(TeamAction.ChangeAnotherPersonsMentorSettings, "NNNN", "PUT", "/gateway/mentor-report", TeamOwnership.SomeoneElses, null),
+        // Source: devthrottle_internal#2308, which adds who DECIDES a request beside #2098's "send requests" row - "They
+        // [the Owner and Managers] Accept it, mark it Not doing this (with a reason), or mark it Done." Reading the
+        // team's whole list goes with deciding; a sender reads their own through the sending row.
+        new(TeamAction.ReadAndDecideTeamRequests, "YYNN", "GET", "/teams/{teamId}/requests", TeamOwnership.Unknown, null),
         // devthrottle_internal#2303: "Collaborator: no Team page."
         new(TeamAction.SeeTeamPage, "YYYN", "GET", "/teams/{teamId}/page", TeamOwnership.Unknown, null),
     };

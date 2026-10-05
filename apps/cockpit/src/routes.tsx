@@ -42,6 +42,7 @@ import { RequestsPage } from "./teams/collaborator/RequestsPage";
 import { ReportsPage } from "./teams/collaborator/ReportsPage";
 import { MentorView } from "./mentor/MentorView";
 import { TeamPageView } from "./team/TeamPageView";
+import { TeamRequestsRoute } from "./team/RequestsView";
 
 // THE COCKPIT'S ROUTE TABLE, IN ONE PLACE THE TESTS CAN MOUNT (dev reports mission, phase 3b).
 //
@@ -231,6 +232,11 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // comes from the address until the Cockpit's team switcher (#2312) lands; no navigation entry yet, for the same
           // reason as the invite form.
           { path: "/team/:teamId/members", element: <TeamPageView /> },
+          // The team's Requests list, for its Owner and Managers (screen S9, devthrottle_internal#2308): accept a request,
+          // mark it Not doing this with a reason, or mark it Done. The team comes from the address, as on the Team page;
+          // the Gateway answers anyone else with its refusal, which the page shows. No navigation entry yet, for the
+          // same reason as the Team page.
+          { path: "/team/:teamId/requests", element: <TeamRequestsRoute /> },
           // Injected text is a tab of Settings now, not a page of its own (issue #550). The old route
           // redirects into that tab - the same way /mic-test and /transcription-test redirect into the
           // Transcription tab on the phone - so existing bookmarks land on what they asked for.

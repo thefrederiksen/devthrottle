@@ -399,6 +399,14 @@ public sealed class GatewayDbContext : DbContext
     /// <see cref="TeamMembers"/>: opened by the person invited from their own tenant, before they are in the team's.</summary>
     public DbSet<TeamInvitationEntity> TeamInvitations => Set<TeamInvitationEntity>();
 
+    /// <summary>Requests a person on a team sent to its Owner and Managers (<c>team_requests</c>,
+    /// devthrottle_internal#2308). Tenant-scoped to the TEAM's tenant.</summary>
+    public DbSet<TeamRequestEntity> TeamRequests => Set<TeamRequestEntity>();
+
+    /// <summary>Each request's trail - sent, and every change of state (<c>team_request_changes</c>,
+    /// devthrottle_internal#2308). Tenant-scoped to the TEAM's tenant.</summary>
+    public DbSet<TeamRequestChangeEntity> TeamRequestChanges => Set<TeamRequestChangeEntity>();
+
     /// <summary>The Mentor's weekly blocks, one per (team, ISO week, person) (<c>team_mentor_blocks</c>,
     /// devthrottle_internal#2305). Tenant-scoped: a team is a tenant.</summary>
     public DbSet<TeamMentorBlockEntity> TeamMentorBlocks => Set<TeamMentorBlockEntity>();
@@ -1500,6 +1508,40 @@ public sealed class GatewayDbContext : DbContext
             b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        // Requests to a team's Owner and Managers (devthrottle_internal#2308). Tenant-scoped to the team (the tenant
+        // column and filter are applied with the other scoped entities below).
+        modelBuilder.Entity<TeamRequestEntity>(b =>
+        {
+            b.ToTable("team_requests");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasColumnName("id");
+            b.Property(e => e.SenderSubject).HasColumnName("sender_subject").IsRequired().HasMaxLength(128);
+            b.Property(e => e.Text).HasColumnName("text").IsRequired().HasMaxLength(CcDirector.Gateway.Teams.TeamRequestStates.MaxTextLength);
+            b.Property(e => e.State).HasColumnName("state").IsRequired().HasMaxLength(20);
+            b.Property(e => e.SentAtUtc).HasColumnName("sent_at_utc").IsRequired();
+            b.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            // The sender's own list: their requests in this team, newest first.
+            b.HasIndex(e => new { e.TenantId, e.SenderSubject, e.SentAtUtc });
+            // The Owner and Managers' list: the team's requests, newest first.
+            b.HasIndex(e => new { e.TenantId, e.SentAtUtc });
+        });
+
+        modelBuilder.Entity<TeamRequestChangeEntity>(b =>
+        {
+            b.ToTable("team_request_changes");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasColumnName("id");
+            b.Property(e => e.RequestId).HasColumnName("request_id").IsRequired();
+            b.Property(e => e.State).HasColumnName("state").IsRequired().HasMaxLength(20);
+            b.Property(e => e.BySubject).HasColumnName("by_subject").IsRequired().HasMaxLength(128);
+            b.Property(e => e.AtUtc).HasColumnName("at_utc").IsRequired();
+            b.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(CcDirector.Gateway.Teams.TeamRequestStates.MaxReasonLength);
+            // A request's trail, in order.
+            b.HasIndex(e => new { e.TenantId, e.RequestId, e.AtUtc });
+            // A step cannot outlive its request.
+            b.HasOne<TeamRequestEntity>().WithMany().HasForeignKey(e => e.RequestId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<AccountTrialEntity>(b =>
         {
             b.ToTable("account_trials");
@@ -1666,6 +1708,8 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<TriggerRunEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerOwnedSessionEntity>(modelBuilder);
+        ApplyTenantScope<TeamRequestEntity>(modelBuilder);
+        ApplyTenantScope<TeamRequestChangeEntity>(modelBuilder);
         ApplyTenantScope<TeamMentorBlockEntity>(modelBuilder);
         ApplyTenantScope<TeamMentorOutcomeEntity>(modelBuilder);
         ApplyTenantScope<TeamMentorRunEntity>(modelBuilder);

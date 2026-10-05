@@ -38,22 +38,23 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
             var index = all.IndexOf(SqliteUnderTest);
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
-            Assert.Equal("20261005150709_AddFleetMessageLinkRequests", all[^1]); // the migrations that sort after it
-            Assert.Equal("20261005031703_AddFleetMessageLinks", all[^2]);
-            Assert.Equal("20261004214334_AddTeamMentor", all[^3]);
-            Assert.Equal("20261003233525_AddTeamInvitations", all[^4]);
-            Assert.Equal("20261003182410_AddTeams", all[^5]);
-            Assert.Equal("20260928124401_AddFactoryMemoryNotes", all[^6]);
-            Assert.Equal("20260928123819_AddSessionAndScheduleFactory", all[^7]);
-            Assert.Equal("20260927212143_AddFleetMessageUnreachableNotice", all[^8]);
-            Assert.Equal("20260921203243_AddTriggerStartName", all[^9]);
-            Assert.Equal("20260921131049_IndexFactoryActivityReads", all[^10]);
-            Assert.Equal("20260921105211_AddFactoryTriggers", all[^11]);
-            Assert.Equal("20260921081600_AddFactoryActivity", all[^12]);
-            Assert.Equal("20260920052924_AddRaisedSessions", all[^13]);
-            Assert.Equal("20260920021757_AddDiscoveredRepositories", all[^14]);
-            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[^15]);
-            Assert.Equal(SqliteUnderTest, all[^16]);
+            Assert.Equal("20261005160401_AddFleetMessageLinkRequests", all[^1]); // the migrations that sort after it
+            Assert.Equal("20261005124413_AddTeamRequests", all[^2]);
+            Assert.Equal("20261005031703_AddFleetMessageLinks", all[^3]);
+            Assert.Equal("20261004214334_AddTeamMentor", all[^4]);
+            Assert.Equal("20261003233525_AddTeamInvitations", all[^5]);
+            Assert.Equal("20261003182410_AddTeams", all[^6]);
+            Assert.Equal("20260928124401_AddFactoryMemoryNotes", all[^7]);
+            Assert.Equal("20260928123819_AddSessionAndScheduleFactory", all[^8]);
+            Assert.Equal("20260927212143_AddFleetMessageUnreachableNotice", all[^9]);
+            Assert.Equal("20260921203243_AddTriggerStartName", all[^10]);
+            Assert.Equal("20260921131049_IndexFactoryActivityReads", all[^11]);
+            Assert.Equal("20260921105211_AddFactoryTriggers", all[^12]);
+            Assert.Equal("20260921081600_AddFactoryActivity", all[^13]);
+            Assert.Equal("20260920052924_AddRaisedSessions", all[^14]);
+            Assert.Equal("20260920021757_AddDiscoveredRepositories", all[^15]);
+            Assert.Equal("20260918171353_AddWingmanNarrationCallTrace", all[^16]);
+            Assert.Equal(SqliteUnderTest, all[^17]);
 
             // From an EMPTY database to the schema just before, with an open record filed as it was filed then.
             Assert.Empty(context.Database.GetAppliedMigrations());
@@ -68,7 +69,7 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
 
             migrator.Migrate();
 
-            Assert.Equal("20261005150709_AddFleetMessageLinkRequests", context.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20261005160401_AddFleetMessageLinkRequests", context.Database.GetAppliedMigrations().Last());
             Assert.Empty(context.Database.GetPendingMigrations());
             Assert.False(context.Database.HasPendingModelChanges());
             var columns = ColumnNames(connection);
@@ -95,8 +96,8 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
     /// one: that is what says a later migration did not quietly drop them.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20261005150709_AddFleetMessageLinkRequests")]
-    [InlineData("postgres", "20261005150833_AddFleetMessageLinkRequests")]
+    [InlineData("sqlite", "20261005160401_AddFleetMessageLinkRequests")]
+    [InlineData("postgres", "20261005160425_AddFleetMessageLinkRequests")]
     public void TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);

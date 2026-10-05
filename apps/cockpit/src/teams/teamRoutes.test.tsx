@@ -26,6 +26,15 @@ vi.mock("@devthrottle/client-core/teams/teamLibraryClient", () => ({
   newAddProgress: () => ({ createdId: null, createdVersion: null }),
 }));
 
+// The Requests list's one read (devthrottle_internal#2308), recorded so a test can show which team the address opened.
+const teamRequests = vi.hoisted(() => ({ read: [] as string[] }));
+vi.mock("@devthrottle/client-core/teams/requestsClient", () => ({
+  listTeamRequests: vi.fn(async (teamId: string) => {
+    teamRequests.read.push(teamId);
+    return [];
+  }),
+}));
+
 const team = vi.hoisted(() => ({ state: null as unknown as CurrentTeamState }));
 vi.mock("@devthrottle/client-core/teams/CurrentTeam", () => ({ useCurrentTeam: () => team.state }));
 
@@ -85,5 +94,14 @@ describe("team routes", () => {
     expect(await screen.findByRole("heading", { name: "Skills and workflows" })).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/workflows");
     expect(screen.queryByText("own workflow detail")).toBeNull();
+  });
+
+  it("Route_TeamRequests_OpensTheOwnerAndManagersListForTheTeamInTheAddress", async () => {
+    teamRequests.read = [];
+    renderAt("/team/team-other/requests", true);
+
+    expect(await screen.findByText("Nobody on the team has sent a request yet.")).toBeTruthy();
+    // The address names the team, not the switcher: the team on screen is Acme, the list read is the other one.
+    expect(teamRequests.read).toEqual(["team-other"]);
   });
 });

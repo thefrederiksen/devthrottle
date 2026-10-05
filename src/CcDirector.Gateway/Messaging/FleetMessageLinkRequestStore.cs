@@ -41,7 +41,11 @@ public sealed record FleetMessageLinkRequest(
 /// same session, and nothing changed.</param>
 /// <param name="Refused">True when the session already has <see cref="FleetMessageLinkRequestStore.MaxPendingPerSession"/>
 /// requests waiting, so nothing was asked; <see cref="Request"/> is then null.</param>
-public sealed record FleetMessageLinkAsk(FleetMessageLinkRequest? Request, bool Created, bool Refused);
+/// <param name="RecentlyDeclined">True when the owner said no to this same pair less than
+/// <see cref="FleetMessageLinkRequestStore.DeclinedCooldown"/> ago, so nothing was asked; <see cref="Request"/> is then
+/// null.</param>
+public sealed record FleetMessageLinkAsk(FleetMessageLinkRequest? Request, bool Created, bool Refused,
+    bool RecentlyDeclined = false);
 
 /// <summary>
 /// THE REQUESTS FOR A MESSAGE LINK, per account, over the <c>fleet_message_link_requests</c> table (issue #3548). A
@@ -63,8 +67,13 @@ public sealed class FleetMessageLinkRequestStore
     /// <summary>How many requests one session may have waiting at once.</summary>
     public const int MaxPendingPerSession = 3;
 
-    /// <summary>The longest reason kept, in characters; a longer one is cut.</summary>
-    public const int MaxReasonLength = 500;
+    /// <summary>The longest reason kept, in characters; a longer one is cut. Short enough that the governance record,
+    /// which carries the reason after the two ids, keeps it whole.</summary>
+    public const int MaxReasonLength = 380;
+
+    /// <summary>After the owner says no, how long the same session may not ask for the same session again - so a
+    /// session that ignores the answer cannot put the same card back in front of the owner straight away.</summary>
+    public static readonly TimeSpan DeclinedCooldown = TimeSpan.FromHours(1);
 
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
@@ -103,6 +112,14 @@ public sealed class FleetMessageLinkRequestStore
                 {
                     FileLog.Write($"[FleetMessageLinkRequestStore] Ask: already waiting, request={same.RequestId}");
                     return new FleetMessageLinkAsk(ToRecord(same), Created: false, Refused: false);
+                }
+                var noSince = Utc(nowUtc) - DeclinedCooldown;
+                if (ctx.FleetMessageLinkRequests.AsNoTracking().Any(r => r.RequesterSessionId == from
+                        && r.TargetSessionId == to && r.Status == FleetMessageLinkRequestStatuses.Declined
+                        && r.AnsweredAtUtc != null && r.AnsweredAtUtc >= noSince))
+                {
+                    FileLog.Write("[FleetMessageLinkRequestStore] Ask: REFUSED, the owner said no to this pair within the hour");
+                    return new FleetMessageLinkAsk(null, Created: false, Refused: false, RecentlyDeclined: true);
                 }
                 if (waiting.Count >= MaxPendingPerSession)
                 {
@@ -195,6 +212,29 @@ public sealed class FleetMessageLinkRequestStore
         {
             FileLog.Write($"[FleetMessageLinkRequestStore] TryAnswer FAILED: {ex.Message}");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Put an allowed request back to waiting, because setting up its link failed after the answer claimed it. Changes
+    /// the request only while it is allowed and has no link, so a request whose link exists is never reopened. True when
+    /// this call reopened it.
+    /// </summary>
+    public bool Reopen(TenantId tenant, string requestId)
+    {
+        var id = RequestKey(requestId) ?? throw new ArgumentException($"'{requestId}' is not a request id.", nameof(requestId));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var changed = ctx.FleetMessageLinkRequests
+                .Where(r => r.RequestId == id && r.Status == FleetMessageLinkRequestStatuses.Allowed && r.LinkId == null)
+                .ExecuteUpdate(u => u
+                    .SetProperty(r => r.Status, FleetMessageLinkRequestStatuses.Pending)
+                    .SetProperty(r => r.AnsweredBy, (string?)null)
+                    .SetProperty(r => r.AnsweredAtUtc, (DateTime?)null)
+                    .SetProperty(r => r.Amount, (string?)null)) == 1;
+            FileLog.Write($"[FleetMessageLinkRequestStore] Reopen: request={id}, reopened={changed}");
+            return changed;
         }
     }
 

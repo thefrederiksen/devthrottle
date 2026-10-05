@@ -141,4 +141,40 @@ public sealed class FleetMessageLinkRequestStoreTests : IDisposable
         var request = store.Ask(TenantA, Investigator, Coordinator, new string('x', 900), T0).Request!;
         Assert.Equal(FleetMessageLinkRequestStore.MaxReasonLength, request.Reason.Length);
     }
+
+    [Fact]
+    public void After_a_no_the_same_pair_is_refused_for_an_hour_and_then_may_ask_again()
+    {
+        var store = Open();
+        var request = store.Ask(TenantA, Investigator, Coordinator, "why", T0).Request!;
+        store.TryAnswer(TenantA, request.RequestId, FleetMessageLinkRequestStatuses.Declined, Owner, T0);
+
+        var soon = store.Ask(TenantA, Investigator, Coordinator, "why again", T0.AddMinutes(59));
+        Assert.True(soon.RecentlyDeclined);
+        Assert.Null(soon.Request);
+
+        // Only that pair: the same session may still ask for another.
+        Assert.True(store.Ask(TenantA, Investigator, Session(7), "why", T0.AddMinutes(1)).Created);
+
+        Assert.True(store.Ask(TenantA, Investigator, Coordinator, "why again", T0.AddMinutes(61)).Created);
+    }
+
+    [Fact]
+    public void Reopen_puts_an_allowed_request_with_no_link_back_to_waiting_and_never_one_with_a_link()
+    {
+        var store = Open();
+        var request = store.Ask(TenantA, Investigator, Coordinator, "why", T0).Request!;
+        store.TryAnswer(TenantA, request.RequestId, FleetMessageLinkRequestStatuses.Allowed, Owner, T0, FleetMessageLinkAmounts.Once);
+
+        Assert.True(store.Reopen(TenantA, request.RequestId));
+        var reopened = store.Find(TenantA, request.RequestId)!;
+        Assert.Equal(FleetMessageLinkRequestStatuses.Pending, reopened.Status);
+        Assert.Null(reopened.AnsweredBy);
+        Assert.Null(reopened.Amount);
+
+        store.TryAnswer(TenantA, request.RequestId, FleetMessageLinkRequestStatuses.Allowed, Owner, T0, FleetMessageLinkAmounts.Once);
+        store.NoteLink(TenantA, request.RequestId, "0123456789abcdef0123456789abcdef");
+        Assert.False(store.Reopen(TenantA, request.RequestId));
+        Assert.Equal(FleetMessageLinkRequestStatuses.Allowed, store.Find(TenantA, request.RequestId)!.Status);
+    }
 }

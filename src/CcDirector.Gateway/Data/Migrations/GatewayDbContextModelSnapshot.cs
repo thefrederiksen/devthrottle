@@ -2765,6 +2765,101 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("team_mentor_runs", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamRequestChangeEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("at_utc");
+
+                    b.Property<string>("BySubject")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("by_subject");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("request_id");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequestId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "RequestId", "AtUtc");
+
+                    b.ToTable("team_request_changes", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamRequestEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("SenderSubject")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sender_subject");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("sent_at_utc");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("state");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("text");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "SentAtUtc");
+
+                    b.HasIndex("TenantId", "SenderSubject", "SentAtUtc");
+
+                    b.ToTable("team_requests", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TenantEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -3816,6 +3911,15 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
                         .WithMany()
                         .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamRequestChangeEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamRequestEntity", null)
+                        .WithMany()
+                        .HasForeignKey("RequestId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -1,0 +1,119 @@
+Red-test record - devthrottle_internal#2308, Gateway half
+Each rule was broken on purpose in the committed source (commit 1c2c4462e), the tests that guard it were run, and the file was restored with git checkout (src clean after each restore, shown below).
+Unit runs: dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams. Over-the-wire runs: scripts\test-local.ps1 -Gateway -Filter HostedTeamRequestEndpointsTests|HostedTeamsDarkTests.
+The M3 first attempt did not compile (a mutation error, not a test result); it was re-run with a compiling mutation and that run is the one shown.
+
+MUTATION M1: The role table lets a Developer read and decide requests  (src/CcDirector.Gateway/Teams/TeamPermissions.cs)
+Failed!  - Failed:     9, Passed:   642, Skipped:     1, Total:   652, Duration: 36 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (7):
+    CcDirector.Gateway.Tests.Teams.TeamAccessTests.Decide_EveryCell_TheMembersRoleFromTheDatabaseGetsTheTablesAnswer
+    CcDirector.Gateway.Tests.Teams.TeamEndpointGateTests.Check_EveryCellWithAnEndpointToday_TheServerGivesTheCellsAnswer
+    CcDirector.Gateway.Tests.Teams.TeamPermissionsTests.Grant_EveryCellOfTheRoleTable_IsTheCellIn2098
+    CcDirector.Gateway.Tests.Teams.TeamRequestEndpointsTests.Check_DecidingARequest_OnlyTheOwnerAndManagersPass
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Decide_DeveloperOrCollaborator_IsRefusedAndNothingChanges
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.ListForTeam_DeveloperOrCollaborator_IsRefusedInTheTablesWords
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Verdicts_ForASenderWhoMayNotDecide_AreAllFalse
+restored; src changes after restore: ''
+
+MUTATION M2: Not doing this no longer requires a reason  (src/CcDirector.Gateway/Teams/TeamRequestStates.cs)
+Failed!  - Failed:     5, Passed:   646, Skipped:     1, Total:   652, Duration: 27 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (2):
+    CcDirector.Gateway.Tests.Teams.TeamRequestStatesTests.ReasonRefusal_RequiredForNotDoingThisOnly
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Decide_NotDoingThisWithoutAReason_IsInvalidAndNothingChanges
+restored; src changes after restore: ''
+
+MUTATION M4: Deciding a request looks it up across every team, not only the team named  (src/CcDirector.Gateway/Teams/TeamRequestStore.cs)
+Failed!  - Failed:     1, Passed:   650, Skipped:     1, Total:   652, Duration: 42 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (1):
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Decide_ARequestOfAnotherTeam_ThroughTheCallersOwnTeam_IsNoSuchRequestAndNothingChanges
+restored; src changes after restore: ''
+
+MUTATION M5: A sender's own list shows every request in the team  (src/CcDirector.Gateway/Teams/TeamRequestStore.cs)
+Failed!  - Failed:     1, Passed:   650, Skipped:     1, Total:   652, Duration: 46 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (1):
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.ListMine_ACollaborator_SeesOnlyTheirOwnRequests
+restored; src changes after restore: ''
+
+MUTATION M6: Not doing this and Done are no longer final  (src/CcDirector.Gateway/Teams/TeamRequestStates.cs)
+Failed!  - Failed:     9, Passed:   642, Skipped:     1, Total:   652, Duration: 46 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (3):
+    CcDirector.Gateway.Tests.Teams.TeamRequestStatesTests.MayMove_EveryStateAndDecision_IsTheRule
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Decide_AfterAFinalState_IsConflictAndNothingChanges
+    CcDirector.Gateway.Tests.Teams.TeamRequestStoreTests.Verdicts_ForTheOwner_FollowTheState
+restored; src changes after restore: ''
+
+MUTATION M3: The request routes serve any credential, not only a person's phone or browser  (src/CcDirector.Gateway/Api/TeamRequestEndpoints.cs)
+Failed!  - Failed:     5, Passed:   646, Skipped:     1, Total:   652, Duration: 40 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+exit=1; tests RED under this mutation (3):
+    CcDirector.Gateway.Tests.Teams.TeamRequestEndpointsTests.RequirePerson_ADirectorsOrGatewaysDeviceKey_IsRefused
+    CcDirector.Gateway.Tests.Teams.TeamRequestEndpointsTests.RequirePerson_ASessionKey_IsRefusedEvenBesideAPersonsDevice
+    CcDirector.Gateway.Tests.Teams.TeamRequestEndpointsTests.RequirePerson_TheSharedMachineTokenOrNothing_IsRefused
+restored; src changes after restore: ''
+
+MUTATION H1: The request routes serve a Director's device key (over the wire)  (src/CcDirector.Gateway/Api/TeamRequestEndpoints.cs)
+MUTATION H3: The request routes are mapped with Teams switched off  (src/CcDirector.Gateway/GatewayHost.cs)
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     2, Passed:     7, Skipped:     0, Total:     9, Duration: 24 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=9      executed=9
+      Failed!  - Failed:     2, Passed:     7, Skipped:     0, Total:     9, Duration: 24 s - CcDirector.Gateway.Tests.dll (net10.0)
+exit=1; tests RED under this mutation (0):
+    RED (trx): CcDirector.Gateway.Tests.Teams.HostedTeamRequestEndpointsTests.ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys
+    RED (trx): CcDirector.Gateway.Tests.Teams.HostedTeamsDarkTests.SwitchUnset_EveryRequestRouteIsAbsent_AndNothingIsSentOrChanged
+restored; src changes after restore: ''
+
+MUTATION H2: The request's words reach the Gateway log  (src/CcDirector.Gateway/Teams/TeamRequestStore.cs)
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 34 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=9      executed=9
+      Failed!  - Failed:     1, Passed:     8, Skipped:     0, Total:     9, Duration: 34 s - CcDirector.Gateway.Tests.dll (net10.0)
+exit=1; tests RED under this mutation (0):
+    RED (trx): CcDirector.Gateway.Tests.Teams.HostedTeamRequestEndpointsTests.ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys
+restored; src changes after restore: ''
+
+--- After merging main (5 October 2026): the team-key variant of issue test 3 ---
+
+MUTATION T1: A session key may call every team route  (src/CcDirector.Gateway/Util/SessionKeyGuard.cs)
+  python docs/proof/teams-2308/mutate.py hosted T1
+  CcDirector.Gateway.Tests outcome=Failed total=13 executed=13 - Failed 1, Passed 12
+    RED (trx): CcDirector.Gateway.Tests.Teams.HostedTeamRequestEndpointsTests.ARequestsRoutes_RefuseTeamBoundDirectorAndSessionKeys_AndNothingChanges
+  restored; src changes after restore: ''
+  What it shows: the variant pins WHICH refusal answers a team session key (403 session_key_out_of_scope from the
+  session-key guard), so opening the guard turns it red. Issue test 3 on the personal keys stays green under the
+  same mutation, because the request routes' own person-only check (403 person_only) still refuses a session key
+  that gets past the guard - the second wall holds when the first is removed.
+  Not a red: H1 (the routes serve a Director's device key) does NOT turn the team-key variant red, because the
+  access lease answers a team Director key with 402 before the request routes see it. That is the gap named in the
+  pull request: until the lease reads the team's bill, the routes' own check is unexercised for team Director keys
+  (it is exercised for personal Director keys by issue test 3, which H1 turns red - see above).
+
+--- After the review of #3556 (5 October 2026) ---
+
+MUTATION L1: A request's words are filed into every session's fleet inbox  (src/CcDirector.Gateway/Teams/TeamRequestStore.cs)
+  python docs/proof/teams-2308/mutate.py hosted L1
+  CcDirector.Gateway.Tests outcome=Failed total=14 executed=14 - Failed 1, Passed 13
+    RED (trx): HostedTeamRequestEndpointsTests.ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys
+    on the inbox assertion (line 406): Assert.DoesNotContain() Failure: Sub-string found ... "REQUEST-MARKER-480c9b..."
+  restored; src changes after restore: ''
+  What it shows (review F1): the "what a session receives" half of issue test 3 fails when a request's words are
+  sent toward a session - here into the session's own fleet inbox, read with the session's own key. The command
+  check now has its positive control in the same test: each session's own person types one ordinary prompt, and
+  each control prompt must arrive in the recorder carrying its text, and must be the only prompts - so an idle
+  recorder or a tunnel that never delivered goes red rather than passing the absence checks.
+
+MUTATION T1 (again, with review F2's assertion): A session key may call every team route
+  CcDirector.Gateway.Tests outcome=Failed total=14 executed=14 - Failed 2, Passed 12
+    RED (trx): ARequestsRoutes_RefuseTeamBoundDirectorAndSessionKeys_AndNothingChanges
+      Expected: (Forbidden, "session_key_out_of_scope")  Actual: (PaymentRequired, "hosted_subscription_required")
+    RED (trx): ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys
+      Expected: (Forbidden, "session_key_out_of_scope")  Actual: (Forbidden, "person_only")
+  restored; src changes after restore: ''
+  What it shows (review F2): the status stays 403 under this mutation - the routes' own person-only check refuses
+  the session key instead - so the earlier status-only assertion stayed green; the code assertion goes red.
+
+MUTATION F4R: The free plan no longer carries the hosted Gateway  (src/CcDirector.Gateway/Tenancy/EntitlementScopes.cs)
+  CcDirector.Gateway.Tests outcome=Failed total=14 executed=14 - Failed 1, Passed 13
+    RED (trx): ACollaboratorWithNoEntitlementOfTheirOwn_SendsAndReadsTheirRequests_OverTheWire
+      Expected: Created  Actual: PaymentRequired
+  restored; src changes after restore: ''
+  What it shows (review F4): a Collaborator with no entitlement row and no trial reads as the free plan, and the
+  request routes serve them only because free carries the hosted Gateway - the test goes red the moment it does not.

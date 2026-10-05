@@ -52,7 +52,7 @@ public static class FleetMessageLinkRequestEndpoints
         // RequestDelegate, which would throw the IResult away and answer an empty 200 (found in #3549).
         app.MapPost(Route, async Task<IResult> (HttpContext ctx) =>
             await AskAsync(ctx, resolveTenant, requests, links, record, findSession, nowUtc));
-        app.MapGet(Route, (HttpContext ctx) => List(ctx, resolveTenant, requests, record, findSession, nowUtc));
+        app.MapGet(Route, (HttpContext ctx) => List(ctx, resolveTenant, requests, record, findSession, notify, nowUtc));
         app.MapPost(AnswerRoute, async Task<IResult> (HttpContext ctx, string id) =>
             await AnswerAsync(ctx, id, resolveTenant, requests, links, record, findSession, notify, nowUtc));
         FileLog.Write($"[FleetMessageLinkRequestEndpoints] mapped POST/GET {Route} and POST {AnswerRoute}");
@@ -112,6 +112,10 @@ public static class FleetMessageLinkRequestEndpoints
                 return Refuse(StatusCodes.Status429TooManyRequests, "too_many_requests",
                     $"You already have {FleetMessageLinkRequestStore.MaxPendingPerSession} requests waiting for the user. "
                     + "Nothing was asked. Wait for an answer, and put what you needed in your report.");
+            if (asked.RecentlyDeclined)
+                return Refuse(StatusCodes.Status429TooManyRequests, "recently_declined",
+                    "The user said no to this less than an hour ago. Nothing was asked. Do not ask again; put what you "
+                    + "needed in your report instead.");
             var request = asked.Request!;
             if (asked.Created) record.Requested(tenant, request);
 
@@ -135,7 +139,7 @@ public static class FleetMessageLinkRequestEndpoints
 
     internal static IResult List(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
         FleetMessageLinkRequestStore requests, FleetMessageLinkRecord record, Func<TenantId, string, SessionDto?> findSession,
-        Func<DateTime> nowUtc)
+        Action<TenantId, SessionDto, string> notify, Func<DateTime> nowUtc)
     {
         FileLog.Write("[FleetMessageLinkRequestEndpoints] GET requests");
         try
@@ -145,18 +149,11 @@ public static class FleetMessageLinkRequestEndpoints
             var caller = FleetMessageLinkEndpoints.Caller(ctx, "list the requests for a message link", out var refused);
             if (caller is null) return refused!;
 
-            // A request whose session has ended can never be answered; it ends here, recorded, rather than waiting on
-            // the owner's list for ever.
+            // A request whose session has ended can never be answered; it ends here, recorded and told, rather than
+            // waiting on the owner's list for ever.
             var now = nowUtc();
             foreach (var waiting in requests.List(tenant, now).Where(r => r.Status == FleetMessageLinkRequestStatuses.Pending))
-            {
-                var gone = new[] { waiting.RequesterSessionId, waiting.TargetSessionId }
-                    .FirstOrDefault(id => findSession(tenant, id) is not { } row || FleetManagerSessions.IsGone(row));
-                if (gone is null) continue;
-                var by = $"gateway: session {gone} ended";
-                if (requests.TryAnswer(tenant, waiting.RequestId, FleetMessageLinkRequestStatuses.Ended, by, now))
-                    record.RequestAnswered(tenant, waiting, by, "ended, because a session ended before it was answered");
-            }
+                EndIfASessionEnded(tenant, waiting, requests, record, findSession, notify, now);
 
             var rows = requests.List(tenant, now - TimeSpan.FromDays(AnsweredWithinDays));
             return Results.Json(new FleetMessageLinkRequestListResponse
@@ -238,21 +235,27 @@ public static class FleetMessageLinkRequestEndpoints
             if (FleetMessageLinkEndpoints.CheckPair(tenant, caller, request.RequesterSessionId, request.TargetSessionId,
                     findSession, out var sender, out var recipient) is { } refusal)
             {
-                if (findSession(tenant, request.RequesterSessionId) is not { } r1 || FleetManagerSessions.IsGone(r1)
-                    || findSession(tenant, request.TargetSessionId) is not { } r2 || FleetManagerSessions.IsGone(r2))
-                {
-                    var by = "gateway: a session ended";
-                    if (requests.TryAnswer(tenant, request.RequestId, FleetMessageLinkRequestStatuses.Ended, by, now))
-                        record.RequestAnswered(tenant, request, by, "ended, because a session ended before it was answered");
-                }
+                EndIfASessionEnded(tenant, request, requests, record, findSession, notify, now);
                 return refusal;
             }
 
             // The request is claimed BEFORE the link is set up, so of two answers at the same moment only one sets one up.
             if (!requests.TryAnswer(tenant, request.RequestId, FleetMessageLinkRequestStatuses.Allowed, caller.Actor, now, amount))
                 return AlreadyAnswered(requests.Find(tenant, request.RequestId)!);
-            var setUp = FleetMessageLinkEndpoints.Apply(tenant, caller, request.RequesterSessionId, request.TargetSessionId,
-                amount, sender, recipient, links, record, notify, now);
+            FleetMessageLinkSetUp setUp;
+            try
+            {
+                setUp = FleetMessageLinkEndpoints.Apply(tenant, caller, request.RequesterSessionId, request.TargetSessionId,
+                    amount, sender, recipient, links, record, notify, now);
+            }
+            catch (Exception ex)
+            {
+                // The claim must not outlive a link that was never made: the request goes back to waiting, so the
+                // owner can answer it again, rather than reading "allowed" with nothing behind it.
+                FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST answer: setting up the link FAILED, reopening request {request.RequestId}: {ex.Message}");
+                requests.Reopen(tenant, request.RequestId);
+                throw;
+            }
             requests.NoteLink(tenant, request.RequestId, setUp.Link.LinkId);
             record.RequestAnswered(tenant, request, caller.Actor, $"allowed, {amount}, as message link {setUp.Link.LinkId}");
 
@@ -268,6 +271,38 @@ public static class FleetMessageLinkRequestEndpoints
             FileLog.Write($"[FleetMessageLinkRequestEndpoints] POST answer FAILED: {ex.Message}");
             throw;
         }
+    }
+
+    /// <summary>
+    /// End a waiting request when one of its two sessions has ENDED - its last known row says it crashed or exited - and
+    /// tell the asking session, if it still runs. A session the Gateway does not know right now is NOT ended: after a
+    /// Gateway restart no Director has pushed its sessions yet, and a request must wait through that, not die of it.
+    /// True when this call ended the request.
+    /// </summary>
+    internal static bool EndIfASessionEnded(TenantId tenant, FleetMessageLinkRequest request,
+        FleetMessageLinkRequestStore requests, FleetMessageLinkRecord record, Func<TenantId, string, SessionDto?> findSession,
+        Action<TenantId, SessionDto, string> notify, DateTime nowUtc)
+    {
+        var requester = findSession(tenant, request.RequesterSessionId);
+        var target = findSession(tenant, request.TargetSessionId);
+        var ended = requester is not null && FleetManagerSessions.IsGone(requester) ? request.RequesterSessionId
+            : target is not null && FleetManagerSessions.IsGone(target) ? request.TargetSessionId
+            : null;
+        if (ended is null) return false;
+
+        var by = $"gateway: session {ended} ended";
+        if (!requests.TryAnswer(tenant, request.RequestId, FleetMessageLinkRequestStatuses.Ended, by, nowUtc)) return false;
+        record.RequestAnswered(tenant, request, by, "ended, because a session ended before it was answered");
+        if (requester is not null && !FleetManagerSessions.IsGone(requester))
+        {
+            var who = target is null ? $"session {request.TargetSessionId}"
+                : FleetMessageLinkEndpoints.Describe(request.TargetSessionId, target);
+            notify(tenant, requester,
+                $"Your request to talk to {who} has ended, because that session ended before the user answered. "
+                + "Nothing was set up.");
+        }
+        FileLog.Write($"[FleetMessageLinkRequestEndpoints] request {request.RequestId} ended: session {ended} ended");
+        return true;
     }
 
     private static IResult AlreadyAnswered(FleetMessageLinkRequest request)

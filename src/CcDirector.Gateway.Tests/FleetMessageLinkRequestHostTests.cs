@@ -336,4 +336,60 @@ public sealed class FleetMessageLinkRequestHostTests : IAsyncLifetime
         // A session of another account cannot be asked for: it is not in this account.
         Assert.Equal(HttpStatusCode.NotFound, (await Ask(_investigator, _sessionInB)).Status);
     }
+
+    // ---- a request through a restart, and a session that ends -------------------------------------------------
+
+    private void PushRoster(params SessionDto[] sessions) => Push(_tenantA, DirectorId, sessions);
+
+    private SessionDto Row(string id, string name, string state = "WaitingForInput")
+    {
+        var row = Session(id, name, DateTime.UtcNow.AddHours(-1));
+        row.ActivityState = state;
+        return row;
+    }
+
+    [Fact]
+    public async Task A_request_waits_while_a_session_is_not_known_as_after_a_Gateway_restart()
+    {
+        var requestId = RequestIdOf((await Ask(_investigator, _coordinatorId)).Body);
+
+        // The Director's roster no longer carries the coordinator - as right after a restart, before every Director has
+        // pushed. Not known is not ended.
+        PushRoster(Row(_investigatorId, "BDO Argentina bug"), Row(_fleetManagerId, "Fleet Manager"));
+        var waiting = Assert.Single(await Requests(_ownerA));
+        Assert.Equal(requestId, waiting.GetProperty("requestId").GetString());
+        Assert.Equal("pending", waiting.GetProperty("status").GetString());
+        Assert.Empty(await Inbox(_investigator));
+    }
+
+    [Fact]
+    public async Task A_request_ends_when_the_other_session_has_ended_and_the_asker_is_told()
+    {
+        var requestId = RequestIdOf((await Ask(_investigator, _coordinatorId)).Body);
+
+        PushRoster(Row(_investigatorId, "BDO Argentina bug"), Row(_coordinatorId, "Cube Coordinator", "Exited"),
+            Row(_fleetManagerId, "Fleet Manager"));
+        var ended = Assert.Single(await Requests(_ownerA));
+        Assert.Equal("ended", ended.GetProperty("status").GetString());
+
+        var notice = Assert.Single(await Inbox(_investigator));
+        Assert.Contains("has ended, because that session ended before the user answered", notice.GetProperty("text").GetString());
+        var answered = Assert.Single(await Records(GovernanceAuditEventType.MessageLinkRequestAnswered, _investigatorId));
+        Assert.Contains("ended, because a session ended", answered.GetProperty("detail").GetString());
+
+        // And it cannot be answered any more.
+        Assert.Equal("already_answered", CodeOf((await Answer(_ownerA, requestId, new { amount = "once" })).Body));
+    }
+
+    [Fact]
+    public async Task After_a_no_the_same_request_is_refused_for_an_hour()
+    {
+        var requestId = RequestIdOf((await Ask(_investigator, _coordinatorId)).Body);
+        Assert.Equal(HttpStatusCode.OK, (await Answer(_ownerA, requestId, new { decline = true })).Status);
+
+        var again = await Ask(_investigator, _coordinatorId);
+        Assert.Equal(HttpStatusCode.TooManyRequests, again.Status);
+        Assert.Equal("recently_declined", CodeOf(again.Body));
+        Assert.DoesNotContain(await Requests(_ownerA), r => r.GetProperty("status").GetString() == "pending");
+    }
 }

@@ -94,9 +94,11 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20261004214416_AddTeamMentor", all[index + 13]);
             // The message links between sessions (issue #3548), after that.
             Assert.Equal("20261005031815_AddFleetMessageLinks", all[index + 14]);
+            // The team requests (devthrottle_internal#2308), after that.
+            Assert.Equal("20261005124444_AddTeamRequests", all[index + 15]);
             // The requests for a message link (issue #3548), after that.
-            Assert.Equal("20261005150833_AddFleetMessageLinkRequests", all[index + 15]);
-            Assert.Equal(all.Count - 16, index);
+            Assert.Equal("20261005160425_AddFleetMessageLinkRequests", all[index + 16]);
+            Assert.Equal(all.Count - 17, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -114,7 +116,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // table was the last of them until the factory activity record and then the factory triggers followed it,
             // and then the name a trigger's pending start used, and then the factory memory notes (issue 3436), and then
             // the teams (devthrottle_internal#2300) and the team invitations (devthrottle_internal#2301).
-            Assert.Equal("20261005150833_AddFleetMessageLinkRequests", ctx.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20261005160425_AddFleetMessageLinkRequests", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 

@@ -45,6 +45,9 @@ public sealed class SessionHistoryRecorder
         public DateTime LastWrittenUtc;
         public SessionDto? LastDto;
         public string DirectorId = "";
+        /// <summary>The session's person, once known. Write-once on the row, so once it is known here it is never asked
+        /// for again: a steady push costs no lookup (devthrottle_internal#2305, review P3).</summary>
+        public string? Person;
     }
 
     // Keyed tenant|sessionId: the hub serves every tenant through one recorder instance.
@@ -65,13 +68,19 @@ public sealed class SessionHistoryRecorder
     /// </summary>
     private readonly Func<TenantId, string, DirectorFacts>? _directorFacts;
 
+    /// <summary>The person a Director belongs to in a team's tenant, null otherwise (devthrottle_internal#2305). Asked
+    /// only while a tracked session has no person yet: production's answer is a database read.</summary>
+    private readonly Func<TenantId, string, string?>? _personOf;
+
     public SessionHistoryRecorder(SessionHistoryStore store,
         Func<TenantId, string, DirectorFacts>? directorFacts = null,
-        KnownRepositoryStore? knownRepositories = null)
+        KnownRepositoryStore? knownRepositories = null,
+        Func<TenantId, string, string?>? personOf = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _directorFacts = directorFacts;
         _knownRepositories = knownRepositories;
+        _personOf = personOf;
     }
 
     /// <summary>The Director's machine and version, or Unknown. Never throws and never lets a
@@ -84,6 +93,19 @@ public sealed class SessionHistoryRecorder
         {
             FileLog.Write($"[SessionHistoryRecorder] director facts lookup FAILED (swallowed): {ex.Message}");
             return DirectorFacts.Unknown;
+        }
+    }
+
+    /// <summary>The Director's person in this tenant, or null. Never throws and never fails a push, like
+    /// <see cref="FactsFor"/>.</summary>
+    private string? PersonFor(TenantId tenant, string directorId)
+    {
+        if (_personOf is null) return null;
+        try { return _personOf(tenant, directorId); }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionHistoryRecorder] person lookup FAILED (swallowed): {ex.Message}");
+            return null;
         }
     }
 
@@ -203,8 +225,10 @@ public sealed class SessionHistoryRecorder
                 if (_firstPromptHandled.ContainsKey(memoKey)) continue;
                 var first = group.OrderBy(r => r.TsUtc).First();
                 var line = SessionHistoryFold.FirstPromptLine(first.Text);
-                if (line is not null)
-                    _store.SetFirstPrompt(group.Key, line);
+                // In a team's tenant the Gateway stamped the record with the person from the key; only a row that is
+                // theirs takes the line. A row left alone is not marked handled, so its own person's push still sets it.
+                if (line is not null && !_store.SetFirstPrompt(group.Key, line, first.PersonSubject))
+                    continue;
                 _firstPromptHandled[memoKey] = 1;
             }
         }
@@ -217,9 +241,10 @@ public sealed class SessionHistoryRecorder
     private void ObserveCore(TenantId tenant, string directorId, SessionDto session, DateTime nowUtc)
     {
         var key = Key(tenant, session.SessionId);
-        var facts = FactsFor(tenant, directorId);
-        var signature = MaterialSignature(session, facts);
         var tracked = _tracked.GetOrAdd(key, static _ => new TrackedSession());
+        var person = tracked.Person ??= PersonFor(tenant, directorId);
+        var facts = FactsFor(tenant, directorId) with { PersonSubject = person };
+        var signature = MaterialSignature(session, facts);
 
         bool writeDue;
         lock (tracked)

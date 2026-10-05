@@ -50,6 +50,8 @@ public sealed class FleetMessageLinkRecord
         => Append(tenant, request.RequesterSessionId, GovernanceAuditEventType.MessageLinkRequested,
             $"session {request.RequesterSessionId}",
             $"asked for message link request {request.RequestId} to session {request.TargetSessionId}: {request.Reason}");
+    // The fixed part above is 113 characters, so a reason of FleetMessageLinkRequestStore.MaxReasonLength (380) fits the
+    // record's 500 whole.
 
     /// <summary>A request was answered or ended. <paramref name="answer"/> says how, in words.</summary>
     public void RequestAnswered(TenantId tenant, FleetMessageLinkRequest request, string actor, string answer)

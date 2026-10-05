@@ -95,9 +95,11 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20261004214416_AddTeamMentor", all[index + 14]);
             // The message links between sessions (issue #3548), after that.
             Assert.Equal("20261005031815_AddFleetMessageLinks", all[index + 15]);
+            // The team requests (devthrottle_internal#2308), after that.
+            Assert.Equal("20261005124444_AddTeamRequests", all[index + 16]);
             // The requests for a message link (issue #3548), after that.
-            Assert.Equal("20261005150833_AddFleetMessageLinkRequests", all[index + 16]);
-            Assert.Equal(index + 17, all.Count);
+            Assert.Equal("20261005160425_AddFleetMessageLinkRequests", all[index + 17]);
+            Assert.Equal(index + 18, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
