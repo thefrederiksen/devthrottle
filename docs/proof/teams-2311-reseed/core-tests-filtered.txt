@@ -1,0 +1,1 @@
+Passed!  - Failed:     0, Passed:    15, Skipped:     0, Total:    15, Duration: 835 ms - CcDirector.Core.Tests.dll (net10.0)

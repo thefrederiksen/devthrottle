@@ -4,25 +4,25 @@ Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:18.01
+Time Elapsed 00:01:45.24
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:05.31
+Time Elapsed 00:00:18.74
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:03.89
+Time Elapsed 00:00:12.22
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:03.91
+Time Elapsed 00:00:10.71
   started CcDirector.Core.UnitTests
   started CcDirector.Avalonia.Tests
   started CcDirector.Engine.Tests
@@ -37,25 +37,25 @@ Time Elapsed 00:00:03.91
 Waiting. No parked suite is in this run, so nothing here queues for the machine-wide lock.
 
   PASS  CcDirector.Core.UnitTests  Passed!  - Failed:     0, Passed:  1228, Skipped:     0, Total:  1228, Duration: 1 
-m 24 s - CcDirector.Core.UnitTests.dll (net10.0)
+m 36 s - CcDirector.Core.UnitTests.dll (net10.0)
   PASS  CcDirector.Avalonia.Tests  Passed!  - Failed:     0, Passed:   905, Skipped:     0, Total:   905, Duration: 2 
-m 17 s - CcDirector.Avalonia.Tests.dll (net10.0)
-  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    68, Skipped:     0, Total:    68, Duration: 6 s 
+m 13 s - CcDirector.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    68, Skipped:     0, Total:    68, Duration: 9 s 
 - CcDirector.Engine.Tests.dll (net10.0)
   PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    88, Skipped:     0, Total:    88, Duration: 
-1 m 35 s - CcDirector.HostedAgent.Tests.dll (net10.0)
-  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   197, Skipped:     0, Total:   197, Duration: 15 
+1 m 38 s - CcDirector.HostedAgent.Tests.dll (net10.0)
+  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   197, Skipped:     0, Total:   197, Duration: 23 
 s - CcDirector.Launcher.Tests.dll (net10.0)
   PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:    82, Skipped:     0, Total:    82, 
-Duration: 17 s - CcDirector.Terminal.Avalonia.Tests.dll (net10.0)
-  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   310, Skipped:     0, Total:   310, Duration: 7 s 
-- CcDirector.Reclaim.Tests.dll (net10.0)
-  PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: 2 s 
+Duration: 23 s - CcDirector.Terminal.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   310, Skipped:     0, Total:   310, Duration: 10 
+s - CcDirector.Reclaim.Tests.dll (net10.0)
+  PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: 4 s 
 - CcDirectorSetup.Tests.dll (net10.0)
   PASS  cc-director-setup-engine.Tests  Passed!  - Failed:     0, Passed:   676, Skipped:     0, Total:   676, 
-Duration: 11 s - CcDirector.Setup.Engine.Tests.dll (net10.0)
+Duration: 12 s - CcDirector.Setup.Engine.Tests.dll (net10.0)
   PASS  cc-director-setup-cli.Tests  Passed!  - Failed:     0, Passed:    35, Skipped:     0, Total:    35, Duration: 
-1 s - CcDirector.Setup.Cli.Tests.dll (net10.0)
+2 s - CcDirector.Setup.Cli.Tests.dll (net10.0)
 
 TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
   CcDirector.Core.UnitTests                outcome=Completed    total=1228   executed=1228
@@ -69,10 +69,11 @@ TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
   cc-director-setup-engine.Tests           outcome=Completed    total=676    executed=676
   cc-director-setup-cli.Tests              outcome=Completed    total=35     executed=35
 
-TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-9d11e506
+TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-85c1b871
 
 
 COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
+  CcDirector.Core.Tests
   CcDirector.Gateway.Tests
   CcDirector.Gateway.UnitTests
 
