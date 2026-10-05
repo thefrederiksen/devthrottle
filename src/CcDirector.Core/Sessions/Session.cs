@@ -417,6 +417,25 @@ public sealed class Session : IDisposable
     public bool GatewayResolvedHasLiveSupervisor { get; private set; }
 
     /// <summary>
+    /// The confirmed lessons the Gateway gave this session because it is the account's Fleet Manager (issue #3559), as
+    /// one finished block, or null. Put verbatim in front of the session-start preamble, so a compaction or a clear
+    /// does not lose them. Delivered only by the <c>set-fleet-manager-lessons</c> verb; the Director never writes or
+    /// filters it. Not persisted: the Gateway stamps it again when this Director reconnects.
+    /// </summary>
+    public string? FleetManagerLessons { get; private set; }
+
+    /// <summary>Store the Gateway's lessons block for this session (issue #3559). Null or empty clears it. Rewrites the
+    /// preamble only on a real change.</summary>
+    public void SetFleetManagerLessons(string? lessons)
+    {
+        var normalized = string.IsNullOrEmpty(lessons) ? null : lessons;
+        if (string.Equals(FleetManagerLessons, normalized, StringComparison.Ordinal)) return;
+        FileLog.Write($"[Session] SetFleetManagerLessons: session={Id}, length={normalized?.Length ?? 0}");
+        FleetManagerLessons = normalized;
+        RaisePreambleInputsChanged("fleet manager lessons");
+    }
+
+    /// <summary>
     /// Store the role the Gateway resolved for this session (defect 5). A null/blank value clears the stamp
     /// back to "no answer". This ONLY stores - it does not validate, adjust, or derive: the Gateway is the
     /// authority and this is the cache.

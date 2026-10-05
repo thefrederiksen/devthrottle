@@ -12,7 +12,8 @@ public sealed class FleetManagerEventDto
 
     /// <summary><c>stop</c> (the session reached a turn end), <c>died</c> (it exited or crashed), <c>marked</c> (the
     /// account's mark has moved to the Fleet Manager session this is addressed to) or <c>answered</c> (the owner
-    /// answered a card; <see cref="OutcomeId"/> and <see cref="Words"/> say which and what).</summary>
+    /// answered a card; <see cref="OutcomeId"/> and <see cref="Words"/> say which and what) or <c>lesson</c> (the owner
+    /// kept a lesson; <see cref="LessonId"/> and <see cref="Words"/> say which and what).</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>The session the event is about.</summary>
@@ -57,8 +58,13 @@ public sealed class FleetManagerEventDto
     /// <summary>On an <c>answered</c> event: that record's title. Null otherwise.</summary>
     public string? OutcomeTitle { get; set; }
 
-    /// <summary>On an <c>answered</c> event: the owner's words, exactly as given. Null otherwise.</summary>
+    /// <summary>On an <c>answered</c> event: the owner's words, exactly as given. On a <c>lesson</c> event: the lesson's
+    /// words as they stand now. Null otherwise.</summary>
     public string? Words { get; set; }
+
+    /// <summary>On a <c>lesson</c> event: the lesson it tells of (issue #3559). Null otherwise.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? LessonId { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
 

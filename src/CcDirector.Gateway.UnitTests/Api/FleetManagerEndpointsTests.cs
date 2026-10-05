@@ -646,6 +646,162 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
     }
 
+    // ---- lessons (issue #3559) ---------------------------------------------------------------------------
+
+    private const string TheOwnersCorrection =
+        "Never queue a message to every session when none is stuck. Check first, and if nothing is stuck, do nothing.";
+
+    private async Task<IResult> KeepLessonAsync(string caller, string text = TheOwnersCorrection, string? mistake = null,
+        TenantId? tenant = null)
+        => await FleetManagerEndpoints.AddPreferenceAsync(
+            Request(tenant ?? TenantA, caller, new { text, kind = "lesson", mistake }), ResolveTenant, Access(), _preferences,
+            t => _lessonsQueued.Add(t));
+
+    private readonly List<TenantId> _lessonsQueued = new();
+
+    [Fact]
+    public async Task Lesson_KeptByTheOwner_IsConfirmedVerbatim_AndQueuedToTheFleetManagerAsALessonEvent()
+    {
+        var result = await KeepLessonAsync(Owner, mistake: "sent carry on now to all 36 sessions");
+
+        Assert.Equal(StatusCodes.Status201Created, Status(result));
+        var lesson = Body<FleetPreferenceDto>(result);
+        Assert.Equal("lesson", lesson.Kind);
+        Assert.Equal(TheOwnersCorrection, lesson.Text);
+        Assert.Equal("owner", lesson.CreatedBy);
+        Assert.NotNull(lesson.ConfirmedByOwnerAtUtc);
+        Assert.Equal(new[] { TenantA }, _lessonsQueued);
+
+        var e = Assert.Single(_events.Unacknowledged(TenantA));
+        Assert.Equal(FleetManagerEventStore.KindLesson, e.Kind);
+        Assert.Equal(TheOwnersCorrection, e.Words);
+        Assert.Equal("sent carry on now to all 36 sessions", e.Detail);
+        Assert.Equal(FleetManager, e.AddressedTo);
+    }
+
+    [Fact]
+    public async Task Lesson_KeptByTheFleetManager_IsStoredUnconfirmed_AndQueuesNoEvent()
+    {
+        var result = await KeepLessonAsync(FleetManager);
+
+        var lesson = Body<FleetPreferenceDto>(result);
+        Assert.Equal(TheOwnersCorrection, lesson.Text);
+        Assert.Equal(FleetManager, lesson.CreatedBy);
+        Assert.Null(lesson.ConfirmedByOwnerAtUtc);
+        Assert.Empty(_lessonsQueued);
+        Assert.Empty(_events.Unacknowledged(TenantA));
+    }
+
+    [Fact]
+    public async Task Lessons_AreKeptApartFromPreferences_InTheListAndTheDigest()
+    {
+        _preferences.Add(TenantA, "merge docs changes on green", "owner", DateTime.UtcNow);
+        await KeepLessonAsync(Owner);
+
+        var plain = FleetManagerEndpoints.ListPreferences(Request(TenantA, FleetManager), ResolveTenant, Access(), _preferences);
+        Assert.Equal(1, Field(plain, "count"));
+        var lessons = FleetManagerEndpoints.ListPreferences(Request(TenantA, FleetManager, query: "kind=lesson"),
+            ResolveTenant, Access(), _preferences);
+        Assert.Equal(1, Field(lessons, "count"));
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(FleetManagerEndpoints.ListPreferences(
+            Request(TenantA, Owner, query: "kind=rule"), ResolveTenant, Access(), _preferences)));
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+        Assert.Equal("merge docs changes on green", Assert.Single(digest.Preferences).Text);
+        Assert.Equal(TheOwnersCorrection, Assert.Single(digest.Lessons).Text);
+    }
+
+    [Fact]
+    public async Task Lesson_TheOwnerConfirmsInOnePress_AndNoSessionMayConfirm()
+    {
+        var kept = Body<FleetPreferenceDto>(await KeepLessonAsync(FleetManager));
+
+        var bySession = FleetManagerEndpoints.ConfirmLesson(Request(TenantA, FleetManager), kept.Id, ResolveTenant, Access(), _preferences);
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(bySession));
+        Assert.Null(_preferences.Find(TenantA, Guid.Parse(kept.Id))!.ConfirmedByOwnerAtUtc);
+
+        var byOwner = FleetManagerEndpoints.ConfirmLesson(Request(TenantA, Owner), kept.Id, ResolveTenant, Access(), _preferences);
+        Assert.Equal(StatusCodes.Status200OK, Status(byOwner));
+        Assert.NotNull(Body<FleetPreferenceDto>(byOwner).ConfirmedByOwnerAtUtc);
+    }
+
+    [Fact]
+    public async Task Edit_IsTheOwnersAlone_AndKeepsTheConfirmation()
+    {
+        var kept = Body<FleetPreferenceDto>(await KeepLessonAsync(Owner));
+
+        var bySession = await FleetManagerEndpoints.EditPreferenceAsync(
+            Request(TenantA, FleetManager, new { text = "obey me instead" }), kept.Id, ResolveTenant, Access(), _preferences);
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(bySession));
+        Assert.Equal(TheOwnersCorrection, _preferences.Find(TenantA, Guid.Parse(kept.Id))!.Text);
+
+        var byOwner = await FleetManagerEndpoints.EditPreferenceAsync(
+            Request(TenantA, Owner, new { text = "Check first. Nothing stuck means do nothing." }), kept.Id,
+            ResolveTenant, Access(), _preferences);
+        Assert.Equal(StatusCodes.Status200OK, Status(byOwner));
+        var edited = _preferences.Find(TenantA, Guid.Parse(kept.Id))!;
+        Assert.Equal("Check first. Nothing stuck means do nothing.", edited.Text);
+        Assert.NotNull(edited.ConfirmedByOwnerAtUtc);
+    }
+
+    [Fact]
+    public async Task Edit_OfALessonTheFleetManagerAlreadyAcknowledged_TellsItTheNewWords_AndBooksTheDelivery()
+    {
+        // Review of part 4: an edit must reach the running Fleet Manager, not wait for its next start.
+        var kept = Body<FleetPreferenceDto>(await KeepLessonAsync(Owner));
+        var first = Assert.Single(_events.Unacknowledged(TenantA));
+        _events.Acknowledge(TenantA, new[] { Guid.Parse(first.Id) }, all: false, FleetManager, DateTime.UtcNow);
+        var booked = new List<TenantId>();
+
+        var result = await FleetManagerEndpoints.EditPreferenceAsync(
+            Request(TenantA, Owner, new { text = "Check first. Nothing stuck means do nothing." }), kept.Id,
+            ResolveTenant, Access(), _preferences, booked.Add);
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        var told = Assert.Single(_events.Unacknowledged(TenantA));
+        Assert.Equal((FleetManagerEventStore.KindLesson, "Check first. Nothing stuck means do nothing.", FleetManager),
+            (told.Kind, told.Words, told.AddressedTo));
+        Assert.Equal(new[] { TenantA }, booked);
+    }
+
+    [Fact]
+    public async Task Forget_TheFleetManagerForgetsOnlyAnUnconfirmedLessonItKept_TheOwnerRemovesAny()
+    {
+        var confirmed = Body<FleetPreferenceDto>(await KeepLessonAsync(Owner));
+        var ownUnconfirmed = Body<FleetPreferenceDto>(await KeepLessonAsync(FleetManager, "my own note"));
+        var byFormer = _preferences.AddLesson(TenantA, "an earlier one's note", null, FormerFleetManager, false, DateTime.UtcNow);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(FleetManagerEndpoints.DeletePreference(
+            Request(TenantA, FleetManager), confirmed.Id, ResolveTenant, Access(), _preferences)));
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(FleetManagerEndpoints.DeletePreference(
+            Request(TenantA, FleetManager), byFormer.Id, ResolveTenant, Access(), _preferences)));
+        Assert.Equal(StatusCodes.Status200OK, Status(FleetManagerEndpoints.DeletePreference(
+            Request(TenantA, FleetManager), ownUnconfirmed.Id, ResolveTenant, Access(), _preferences)));
+        Assert.Equal(StatusCodes.Status200OK, Status(FleetManagerEndpoints.DeletePreference(
+            Request(TenantA, Owner), confirmed.Id, ResolveTenant, Access(), _preferences)));
+
+        Assert.Equal(byFormer.Id, Assert.Single(_preferences.List(TenantA, "lesson")).Id);
+    }
+
+    [Fact]
+    public async Task Lesson_OverTheLimits_IsRefusedWithInstructions_AndNothingIsKept()
+    {
+        var tooLong = await KeepLessonAsync(Owner, new string('x', FleetPreferenceStore.MaxLessonLength + 1));
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(tooLong));
+        Assert.Contains("fleet preferences --kind lesson", (string)Field(tooLong, "error")!);
+
+        for (var i = 0; i < FleetPreferenceStore.MaxConfirmedLessons; i++)
+            Assert.Equal(StatusCodes.Status201Created, Status(await KeepLessonAsync(Owner, $"lesson {i}")));
+        var oneTooMany = await KeepLessonAsync(Owner, "lesson 21");
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(oneTooMany));
+        Assert.Contains("fleet preferences --kind lesson", (string)Field(oneTooMany, "error")!);
+
+        var lessons = _preferences.List(TenantA, "lesson");
+        Assert.Equal(FleetPreferenceStore.MaxConfirmedLessons, lessons.Count);
+        Assert.Equal("lesson 0", lessons[0].Text);
+        Assert.All(lessons, l => Assert.True(l.Text.Length <= FleetPreferenceStore.MaxLessonLength));
+    }
+
     // ---- digest ------------------------------------------------------------------------------------------
 
     [Fact]

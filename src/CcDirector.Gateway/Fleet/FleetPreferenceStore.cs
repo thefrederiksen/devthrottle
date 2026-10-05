@@ -15,12 +15,49 @@ namespace CcDirector.Gateway.Fleet;
 /// refused rather than stored, because a preference nobody can read is one the Fleet Manager would act on
 /// without knowing what it says.
 ///
+/// LESSONS (issue #3559). The same table holds a second kind of row: a LESSON, the owner's correction of a mistake
+/// the Fleet Manager made. It has the same shape - the owner's words, a date, who kept it - plus one optional line
+/// saying what went wrong (<see cref="MaxMistakeLength"/>) and whether the owner kept or confirmed it. Lessons and
+/// preferences are kept apart everywhere they are read: <see cref="List(TenantId)"/> still answers preferences only.
+///
+/// ONLY A CONFIRMED LESSON IS OBEYED. A lesson the owner keeps on their own device is confirmed when it is stored. A
+/// lesson the Fleet Manager keeps with its session key waits for the owner's one-press confirmation, because any
+/// session key can mark itself the Fleet Manager, and an unconfirmed lesson given to every later Fleet Manager as
+/// "obey these" would be an instruction channel any session could write to.
+///
+/// CAPPED, NEVER CUT. A lesson is at most <see cref="MaxLessonLength"/> characters and an account holds at most
+/// <see cref="MaxConfirmedLessons"/> confirmed ones, because the confirmed lessons are typed into a terminal at every
+/// start. A lesson beyond either limit is REFUSED with instructions: it is never shortened, and it never pushes out
+/// an older lesson.
+///
 /// Tenant-partitioned by construction, like <see cref="FleetOutcomeStore"/>.
 /// </summary>
 public sealed class FleetPreferenceStore
 {
     /// <summary>The longest preference accepted.</summary>
     public const int MaxTextLength = 2000;
+
+    /// <summary>A standing preference: how the owner wants things done.</summary>
+    public const string KindPreference = "preference";
+
+    /// <summary>A lesson: the owner's correction of a mistake, so no later Fleet Manager makes it again.</summary>
+    public const string KindLesson = "lesson";
+
+    public static readonly IReadOnlyList<string> Kinds = new[] { KindPreference, KindLesson };
+
+    /// <summary>The longest lesson accepted. The confirmed lessons are typed into a terminal, so they are capped.</summary>
+    public const int MaxLessonLength = 500;
+
+    /// <summary>The longest one-line description of the mistake a lesson may carry.</summary>
+    public const int MaxMistakeLength = 300;
+
+    /// <summary>The most confirmed lessons one account holds.</summary>
+    public const int MaxConfirmedLessons = 20;
+
+    /// <summary>Where a refusal sends the reader to make room.</summary>
+    public const string MakeRoomHint =
+        "list them with `cc-devthrottle fleet preferences --kind lesson`, or on the Cockpit's Fleet Manager page, and "
+        + "remove or edit one there first";
 
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
@@ -38,18 +75,16 @@ public sealed class FleetPreferenceStore
         FileLog.Write($"[FleetPreferenceStore] Add: tenant={tenant}, createdBy={createdBy}, length={text?.Length ?? 0}");
         try
         {
-            if (string.IsNullOrWhiteSpace(text))
-                throw new ArgumentException("text is required: the owner's preference, in their own words");
-            if (text.Length > MaxTextLength)
-                throw new ArgumentException($"text is {text.Length} characters; the most accepted is {MaxTextLength}");
+            CheckPreferenceText(text);
             if (string.IsNullOrWhiteSpace(createdBy))
                 throw new ArgumentException($"createdBy is required: a session id or '{FleetOutcomeStore.OwnerCaller}'");
 
             var entity = new FleetPreferenceEntity
             {
-                Text = text,
-                CreatedAtUtc = nowUtc.Kind == DateTimeKind.Utc ? nowUtc : nowUtc.ToUniversalTime(),
+                Text = text!,
+                CreatedAtUtc = Utc(nowUtc),
                 CreatedBy = createdBy,
+                Kind = KindPreference,
             };
             lock (_gate)
             {
@@ -69,19 +104,233 @@ public sealed class FleetPreferenceStore
         }
     }
 
-    /// <summary>Every preference this account holds, oldest first - the order the owner gave them.</summary>
-    public IReadOnlyList<FleetPreferenceDto> List(TenantId tenant)
+    /// <summary>
+    /// Keep one lesson and return it as stored. A lesson kept by the owner is confirmed now; one kept by the Fleet
+    /// Manager waits for the owner's confirmation. When <paramref name="lessonEvent"/> is given, the event it builds
+    /// is saved IN THE SAME SAVE as the lesson, so a kept lesson is never without its event.
+    /// </summary>
+    /// <param name="createdBy">The calling session id, or <see cref="FleetOutcomeStore.OwnerCaller"/>.</param>
+    /// <param name="confirmed">True when the owner kept it on their own device.</param>
+    /// <exception cref="ArgumentException">The text is blank or too long, the mistake is too long, or the account
+    /// already holds <see cref="MaxConfirmedLessons"/> confirmed lessons.</exception>
+    public FleetPreferenceDto AddLesson(TenantId tenant, string? text, string? mistake, string createdBy, bool confirmed,
+        DateTime nowUtc, Func<FleetPreferenceDto, FleetManagerEventEntity>? lessonEvent = null)
     {
-        FileLog.Write($"[FleetPreferenceStore] List: tenant={tenant}");
+        FileLog.Write($"[FleetPreferenceStore] AddLesson: tenant={tenant}, createdBy={createdBy}, confirmed={confirmed}, "
+                      + $"length={text?.Length ?? 0}, mistakeLength={mistake?.Length ?? 0}");
+        try
+        {
+            CheckLessonText(text);
+            var line = CheckMistake(mistake);
+            if (string.IsNullOrWhiteSpace(createdBy))
+                throw new ArgumentException($"createdBy is required: a session id or '{FleetOutcomeStore.OwnerCaller}'");
+
+            var now = Utc(nowUtc);
+            var entity = new FleetPreferenceEntity
+            {
+                Text = text!,
+                CreatedAtUtc = now,
+                CreatedBy = createdBy,
+                Kind = KindLesson,
+                Mistake = line,
+                ConfirmedByOwnerAtUtc = confirmed ? now : null,
+            };
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                if (confirmed) CheckRoomForOneMoreConfirmed(ctx);
+                entity.TenantId = ctx.ActiveTenant!;
+                ctx.FleetPreferences.Add(entity);
+                if (lessonEvent is not null)
+                {
+                    var evt = lessonEvent(ToDto(entity));
+                    evt.TenantId = ctx.ActiveTenant!;
+                    ctx.FleetManagerEvents.Add(evt);
+                }
+                ctx.SaveChanges();
+            }
+
+            FileLog.Write($"[FleetPreferenceStore] AddLesson: stored id={entity.Id}, confirmed={confirmed}, "
+                          + $"event={lessonEvent is not null}");
+            return ToDto(entity);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetPreferenceStore] AddLesson FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>Every standing preference this account holds, oldest first - the order the owner gave them. Lessons
+    /// are never among them (<see cref="List(TenantId, string)"/>).</summary>
+    public IReadOnlyList<FleetPreferenceDto> List(TenantId tenant) => List(tenant, KindPreference);
+
+    /// <summary>Every row of one kind this account holds, oldest first.</summary>
+    /// <exception cref="ArgumentException">The kind is not <c>preference</c> or <c>lesson</c>.</exception>
+    public IReadOnlyList<FleetPreferenceDto> List(TenantId tenant, string kind)
+    {
+        CheckKind(kind);
+        FileLog.Write($"[FleetPreferenceStore] List: tenant={tenant}, kind={kind}");
+        using var ctx = _db.CreateContext(tenant);
+        var rows = ctx.FleetPreferences.AsNoTracking()
+            .Where(p => p.Kind == kind)
+            .OrderBy(p => p.CreatedAtUtc).ThenBy(p => p.Id)
+            .ToList();
+        FileLog.Write($"[FleetPreferenceStore] List: kind={kind}, returned={rows.Count}");
+        return rows.Select(ToDto).ToList();
+    }
+
+    /// <summary>Every lesson and every standing preference of this account, each oldest first, in ONE query - the
+    /// owner's list on the Fleet Manager page (issue #3559, part 4), which is polled.</summary>
+    public (IReadOnlyList<FleetPreferenceDto> Lessons, IReadOnlyList<FleetPreferenceDto> Preferences) ListBoth(TenantId tenant)
+    {
         using var ctx = _db.CreateContext(tenant);
         var rows = ctx.FleetPreferences.AsNoTracking()
             .OrderBy(p => p.CreatedAtUtc).ThenBy(p => p.Id)
             .ToList();
-        FileLog.Write($"[FleetPreferenceStore] List: returned={rows.Count}");
+        var lessons = rows.Where(p => p.Kind == KindLesson).Select(ToDto).ToList();
+        var preferences = rows.Where(p => p.Kind == KindPreference).Select(ToDto).ToList();
+        FileLog.Write($"[FleetPreferenceStore] ListBoth: tenant={tenant}, lessons={lessons.Count}, preferences={preferences.Count}");
+        return (lessons, preferences);
+    }
+
+    /// <summary>The lessons the owner kept or confirmed, oldest first - the only ones given to a Fleet Manager as
+    /// lessons it must obey.</summary>
+    public IReadOnlyList<FleetPreferenceDto> ConfirmedLessons(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var rows = ctx.FleetPreferences.AsNoTracking()
+            .Where(p => p.Kind == KindLesson && p.ConfirmedByOwnerAtUtc != null)
+            .OrderBy(p => p.CreatedAtUtc).ThenBy(p => p.Id)
+            .ToList();
+        FileLog.Write($"[FleetPreferenceStore] ConfirmedLessons: tenant={tenant}, returned={rows.Count}");
         return rows.Select(ToDto).ToList();
     }
 
-    /// <summary>Remove one preference. False when this account holds none with that id.</summary>
+    /// <summary>One row of this account by its id, or null.</summary>
+    public FleetPreferenceDto? Find(TenantId tenant, Guid id)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var row = ctx.FleetPreferences.AsNoTracking().FirstOrDefault(p => p.Id == id);
+        return row is null ? null : ToDto(row);
+    }
+
+    /// <summary>The owner confirms a lesson the Fleet Manager kept. Confirming one already confirmed changes
+    /// nothing.</summary>
+    /// <exception cref="ArgumentException">The row is a preference, or the account already holds
+    /// <see cref="MaxConfirmedLessons"/> confirmed lessons.</exception>
+    /// <returns>The lesson as stored, or null when this account holds no row with that id.</returns>
+    public FleetPreferenceDto? Confirm(TenantId tenant, Guid id, DateTime nowUtc)
+    {
+        FileLog.Write($"[FleetPreferenceStore] Confirm: tenant={tenant}, id={id}");
+        try
+        {
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                var row = ctx.FleetPreferences.FirstOrDefault(p => p.Id == id);
+                if (row is null)
+                {
+                    FileLog.Write($"[FleetPreferenceStore] Confirm: id={id}, result=not found");
+                    return null;
+                }
+                if (row.Kind != KindLesson)
+                    throw new ArgumentException($"{id} is a standing preference, not a lesson; only a lesson is confirmed");
+                if (row.ConfirmedByOwnerAtUtc is not null)
+                {
+                    FileLog.Write($"[FleetPreferenceStore] Confirm: id={id}, result=already confirmed");
+                    return ToDto(row);
+                }
+                CheckRoomForOneMoreConfirmed(ctx);
+                row.ConfirmedByOwnerAtUtc = Utc(nowUtc);
+                ctx.SaveChanges();
+                FileLog.Write($"[FleetPreferenceStore] Confirm: id={id}, result=confirmed");
+                return ToDto(row);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetPreferenceStore] Confirm FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The owner rewrites one row in their own words. A lesson keeps its confirmation, and its line about the mistake
+    /// is replaced by <paramref name="mistake"/>: null keeps it as it is (the Cockpit's edit rewrites the words only), and
+    /// an empty string clears it. A preference takes no mistake.
+    /// </summary>
+    /// <exception cref="ArgumentException">The text is blank or too long for its kind, or a preference was given a
+    /// mistake.</exception>
+    /// <param name="lessonEvent">For a CONFIRMED lesson whose earlier event the Fleet Manager has already acknowledged:
+    /// the event telling it the new words, saved in the same save. Without it a running Fleet Manager would go on
+    /// obeying the old words until it next started. Null queues nothing.</param>
+    /// <returns>The row as stored, or null when this account holds no row with that id.</returns>
+    public FleetPreferenceDto? Update(TenantId tenant, Guid id, string? text, string? mistake,
+        Func<FleetPreferenceDto, FleetManagerEventEntity>? lessonEvent = null)
+    {
+        FileLog.Write($"[FleetPreferenceStore] Update: tenant={tenant}, id={id}, length={text?.Length ?? 0}");
+        try
+        {
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                var row = ctx.FleetPreferences.FirstOrDefault(p => p.Id == id);
+                if (row is null)
+                {
+                    FileLog.Write($"[FleetPreferenceStore] Update: id={id}, result=not found");
+                    return null;
+                }
+                if (row.Kind == KindLesson)
+                {
+                    CheckLessonText(text);
+                    var newMistake = mistake is null ? row.Mistake : CheckMistake(mistake);
+                    var changed = !string.Equals(row.Text, text, StringComparison.Ordinal)
+                                  || !string.Equals(row.Mistake, newMistake, StringComparison.Ordinal);
+                    row.Mistake = newMistake;
+                    // Every lesson event not yet acknowledged carries the words as they are now, so no later Fleet
+                    // Manager it is still owed to is ever sent the withdrawn ones.
+                    var lessonId = id.ToString();
+                    var open = ctx.FleetManagerEvents.Where(e => e.Kind == FleetManagerEventStore.KindLesson
+                                 && e.LessonId == lessonId && e.AcknowledgedAtUtc == null).ToList();
+                    foreach (var evt in open)
+                    {
+                        evt.Words = text!;
+                        evt.Detail = row.Mistake;
+                    }
+                    // A delivered event is never sent again (FleetManagerEventStore.Owed), even before it is acknowledged.
+                    // So when none is still waiting to be sent, the Fleet Manager has the old words and is told the new
+                    // ones - but only when there are new ones; a save that changed nothing tells it nothing.
+                    var undelivered = open.Count(e => e.DeliveredAtUtc == null);
+                    if (undelivered == 0 && changed && row.ConfirmedByOwnerAtUtc is not null && lessonEvent is not null)
+                    {
+                        row.Text = text!;
+                        var evt = lessonEvent(ToDto(row));
+                        evt.TenantId = ctx.ActiveTenant!;
+                        ctx.FleetManagerEvents.Add(evt);
+                    }
+                }
+                else
+                {
+                    CheckPreferenceText(text);
+                    if (mistake is not null)
+                        throw new ArgumentException("a standing preference has no mistake; only a lesson says what went wrong");
+                }
+                row.Text = text!;
+                ctx.SaveChanges();
+                FileLog.Write($"[FleetPreferenceStore] Update: id={id}, kind={row.Kind}, result=updated");
+                return ToDto(row);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetPreferenceStore] Update FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>Remove one row, preference or lesson. False when this account holds none with that id. Who may remove
+    /// which row is the route's ruling (<see cref="MayForget"/>), made before this is called.</summary>
     public bool Delete(TenantId tenant, Guid id)
     {
         FileLog.Write($"[FleetPreferenceStore] Delete: tenant={tenant}, id={id}");
@@ -95,11 +344,96 @@ public sealed class FleetPreferenceStore
                 return false;
             }
             ctx.FleetPreferences.Remove(row);
+            // A removed lesson is never delivered as one to obey: its event, if not yet acknowledged, is withdrawn in the
+            // same save. Acknowledged rather than deleted, so a Fleet Manager acknowledging it by id is not refused.
+            var withdrawn = 0;
+            if (row.Kind == KindLesson)
+            {
+                var lessonId = id.ToString();
+                foreach (var evt in ctx.FleetManagerEvents.Where(e => e.Kind == FleetManagerEventStore.KindLesson
+                             && e.LessonId == lessonId && e.AcknowledgedAtUtc == null))
+                {
+                    evt.AcknowledgedAtUtc = DateTime.UtcNow;
+                    withdrawn++;
+                }
+            }
             ctx.SaveChanges();
-            FileLog.Write($"[FleetPreferenceStore] Delete: id={id}, result=removed");
+            FileLog.Write($"[FleetPreferenceStore] Delete: id={id}, kind={row.Kind}, result=removed, eventsWithdrawn={withdrawn}");
             return true;
         }
     }
+
+    /// <summary>
+    /// Whether a Fleet Manager session may forget <paramref name="row"/>: any standing preference, and only an
+    /// UNCONFIRMED lesson it kept itself. A confirmed lesson is removed only from the owner's own device. Null when
+    /// it may; otherwise the sentence that says why not.
+    /// </summary>
+    public static string? MayForget(FleetPreferenceDto row, string fleetManagerSessionId)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        if (row.Kind != KindLesson) return null;
+        if (row.ConfirmedByOwnerAtUtc is not null)
+            return $"lesson {row.Id} is confirmed by the owner, and only the owner removes a confirmed lesson, on the "
+                   + "Cockpit's Fleet Manager page";
+        if (!string.Equals(row.CreatedBy, fleetManagerSessionId, StringComparison.OrdinalIgnoreCase))
+            return $"lesson {row.Id} was kept by {row.CreatedBy}, not by this session; a Fleet Manager forgets only an "
+                   + "unconfirmed lesson it kept itself, and the owner removes the rest on the Cockpit's Fleet Manager page";
+        return null;
+    }
+
+    /// <exception cref="ArgumentException">The kind is not one of <see cref="Kinds"/>.</exception>
+    public static void CheckKind(string? kind)
+    {
+        if (kind is null || !Kinds.Contains(kind))
+            throw new ArgumentException($"kind '{kind}' is not one of: {string.Join(", ", Kinds)}");
+    }
+
+    private static void CheckPreferenceText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("text is required: the owner's preference, in their own words");
+        if (text.Length > MaxTextLength)
+            throw new ArgumentException($"text is {text.Length} characters; the most accepted is {MaxTextLength}");
+    }
+
+    private static void CheckLessonText(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            throw new ArgumentException("text is required: the owner's correction, in their own words");
+        // The words are given to every Fleet Manager between these markers; words that contain one could close the
+        // owner's words early and write framing of their own, so they are refused rather than escaped or changed.
+        if (text.Contains(FleetManagerLessons.Open, StringComparison.Ordinal)
+            || text.Contains(FleetManagerLessons.Close, StringComparison.Ordinal))
+            throw new ArgumentException($"a lesson may not contain {FleetManagerLessons.Open} or {FleetManagerLessons.Close}: "
+                + "those mark where the owner's words begin and end when the lesson is given to a Fleet Manager. Nothing was kept");
+        if (text.Length > MaxLessonLength)
+            throw new ArgumentException($"the lesson is {text.Length} characters and the most a lesson may be is "
+                + $"{MaxLessonLength}; nothing was kept and nothing is ever shortened. Say it in fewer words, or {MakeRoomHint}");
+    }
+
+    /// <summary>The line about the mistake as it is stored: null when none was given.</summary>
+    private static string? CheckMistake(string? mistake)
+    {
+        if (string.IsNullOrEmpty(mistake)) return null;
+        if (string.IsNullOrWhiteSpace(mistake))
+            throw new ArgumentException("mistake is blank; leave it out, or say in one line what went wrong");
+        // One line: it is written outside the markers, so a line break could forge a lesson of its own.
+        if (mistake.Contains('\n') || mistake.Contains('\r'))
+            throw new ArgumentException("mistake must be one line, with no line break; nothing was kept");
+        if (mistake.Length > MaxMistakeLength)
+            throw new ArgumentException($"mistake is {mistake.Length} characters; the most accepted is {MaxMistakeLength}, one line");
+        return mistake;
+    }
+
+    private static void CheckRoomForOneMoreConfirmed(GatewayDbContext ctx)
+    {
+        var confirmed = ctx.FleetPreferences.Count(p => p.Kind == KindLesson && p.ConfirmedByOwnerAtUtc != null);
+        if (confirmed >= MaxConfirmedLessons)
+            throw new ArgumentException($"this account already holds {confirmed} confirmed lessons and the most it may hold "
+                + $"is {MaxConfirmedLessons}; nothing was kept and no older lesson was pushed out. To make room, {MakeRoomHint}");
+    }
+
+    private static DateTime Utc(DateTime t) => t.Kind == DateTimeKind.Utc ? t : t.ToUniversalTime();
 
     private static FleetPreferenceDto ToDto(FleetPreferenceEntity e) => new()
     {
@@ -107,5 +441,8 @@ public sealed class FleetPreferenceStore
         Text = e.Text,
         CreatedAtUtc = e.CreatedAtUtc,
         CreatedBy = e.CreatedBy,
+        Kind = e.Kind,
+        Mistake = e.Mistake,
+        ConfirmedByOwnerAtUtc = e.ConfirmedByOwnerAtUtc,
     };
 }

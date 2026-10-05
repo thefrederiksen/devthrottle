@@ -169,14 +169,22 @@ public sealed class FleetOutcomeDto
     public DateTime? OwnerNoteAtUtc { get; set; }
 }
 
-/// <summary>The body of <c>POST /gateway/fleet-manager/preferences</c>.</summary>
+/// <summary>The body of <c>POST /gateway/fleet-manager/preferences</c>, and of <c>PUT .../preferences/{id}</c>.</summary>
 public sealed class FleetPreferenceRequest
 {
     /// <summary>The owner's words, stored exactly as given.</summary>
     public string? Text { get; set; }
+
+    /// <summary>On a POST: <c>preference</c> (the default when left out) or <c>lesson</c> (issue #3559). A PUT never
+    /// changes a row's kind and refuses one that names a different kind.</summary>
+    public string? Kind { get; set; }
+
+    /// <summary>On a lesson: one line saying what went wrong, or null. On an edit (<c>PUT</c>), null keeps the line as
+    /// it is and an empty string clears it.</summary>
+    public string? Mistake { get; set; }
 }
 
-/// <summary>One standing preference.</summary>
+/// <summary>One standing preference, or one lesson (issue #3559).</summary>
 public sealed class FleetPreferenceDto
 {
     public string Id { get; set; } = "";
@@ -188,6 +196,19 @@ public sealed class FleetPreferenceDto
 
     /// <summary>The session id that kept it, or <c>owner</c>.</summary>
     public string CreatedBy { get; set; } = "";
+
+    /// <summary><c>preference</c> or <c>lesson</c>.</summary>
+    public string Kind { get; set; } = "preference";
+
+    /// <summary>On a lesson: one line saying what went wrong, or null. Never on a preference, and left out of the JSON
+    /// when null, so a preference reads exactly as it did before lessons existed.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Mistake { get; set; }
+
+    /// <summary>On a lesson: when the owner kept or confirmed it, or null while it waits for the owner. Only a confirmed
+    /// lesson is given to a Fleet Manager as one to obey. Never on a preference.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? ConfirmedByOwnerAtUtc { get; set; }
 }
 
 /// <summary>One session a Fleet Manager of this account owns - the current one or an earlier one - as the digest
@@ -267,7 +288,12 @@ public sealed class FleetDigestDto
     /// each with its <see cref="FleetOwnedSessionDto.OwnerSessionId"/>.</summary>
     public List<FleetOwnedSessionDto> OwnedSessions { get; set; } = new();
 
-    /// <summary>The account's standing preferences, oldest first.</summary>
+    /// <summary>The lessons the owner taught this account's Fleet Managers, oldest first, confirmed or not (issue #3559).
+    /// Only a confirmed one is a lesson to obey; an unconfirmed one waits for the owner. Never among
+    /// <see cref="Preferences"/>.</summary>
+    public List<FleetPreferenceDto> Lessons { get; set; } = new();
+
+    /// <summary>The account's standing preferences, oldest first. Never a lesson.</summary>
     public List<FleetPreferenceDto> Preferences { get; set; } = new();
 
     public FleetOutcomeCounts OutcomeCounts { get; set; } = new();

@@ -246,14 +246,14 @@ public sealed class PostgresProviderProofTests
             // missed here with the ones above.
             ("fleet_manager_owned_sessions", "FleetManagerSessionId"),
             ("fleet_manager_owned_sessions", "SessionId"),
-            // A session's request to the owner for a message link (issue #3548, #3560): the minted request id, the
-            // two session ids, and the status word it is selected on - added with that table and missed here.
+            // The owner's requests for a message link and the links themselves (issue #3548): the minted ids,
+            // the two session ids a link or a request is found by, and the closed words for its amount and
+            // its status. A pair Postgres considered linked and SQLite did not would be a message one provider
+            // delivers and the other refuses. Missed when the tables were added; the v2.15.0 release gate caught it.
             ("fleet_message_link_requests", "RequestId"),
             ("fleet_message_link_requests", "RequesterSessionId"),
             ("fleet_message_link_requests", "Status"),
             ("fleet_message_link_requests", "TargetSessionId"),
-            // The message links between sessions (issue #3548): the minted link id, the two session ids a link
-            // is found by, and the amount and status words it is selected on - added with that table and missed here.
             ("fleet_message_links", "Amount"),
             ("fleet_message_links", "LinkId"),
             ("fleet_message_links", "RecipientSessionId"),

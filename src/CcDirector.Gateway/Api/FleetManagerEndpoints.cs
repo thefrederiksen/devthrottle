@@ -60,6 +60,8 @@ internal enum FleetManagerAction
     ReadPreferences,
     AddPreference,
     DeletePreference,
+    EditPreference,
+    ConfirmLesson,
     ReadDigest,
     ListEvents,
     AcknowledgeEvents,
@@ -76,9 +78,13 @@ internal enum FleetManagerAction
 ///   POST   /gateway/fleet-manager/outcomes/{id}/answer     close it with the owner's words -> 200 | 409; the owner's
 ///                                                          answer is also queued to the Fleet Manager as an event
 ///   PUT    /gateway/fleet-manager/outcomes/{id}/advice     the Fleet Manager's one line of advice and its pick   (step 7)
-///   GET    /gateway/fleet-manager/preferences
-///   POST   /gateway/fleet-manager/preferences              -> 201
-///   DELETE /gateway/fleet-manager/preferences/{id}
+///   GET    /gateway/fleet-manager/preferences              ?kind=preference (the default) | lesson
+///   POST   /gateway/fleet-manager/preferences              { text, kind?, mistake? } -> 201; a lesson the owner keeps is
+///                                                          confirmed and queued to the Fleet Manager as a lesson event
+///   PUT    /gateway/fleet-manager/preferences/{id}         { text, mistake? } - the OWNER's only       (issue #3559)
+///   POST   /gateway/fleet-manager/preferences/{id}/confirm the owner confirms a lesson - the OWNER's only
+///   DELETE /gateway/fleet-manager/preferences/{id}         a Fleet Manager forgets a preference, or an unconfirmed
+///                                                          lesson it kept itself; the owner removes any row
 ///   GET    /gateway/fleet-manager/digest?session=&lt;id&gt;
 ///   GET    /gateway/fleet-manager/events                   ?status=unacknowledged|all &amp;count= &amp;cursor=   (step 4)
 ///   POST   /gateway/fleet-manager/events/ack               { ids: [...] } or { all: true }
@@ -130,7 +136,8 @@ internal static class FleetManagerEndpoints
         FleetDigestSources digest,
         FleetManagerAccess access,
         FleetManagerEventStore events,
-        Action<TenantId>? answerQueued = null)
+        Action<TenantId>? answerQueued = null,
+        Action<TenantId>? lessonsChanged = null)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(outcomes);
@@ -153,9 +160,14 @@ internal static class FleetManagerEndpoints
 
         app.MapGet(Prefix + "/preferences", (HttpContext ctx) => ListPreferences(ctx, resolveTenant, access, preferences));
         app.MapPost(Prefix + "/preferences",
-            (Func<HttpContext, Task<IResult>>)(ctx => AddPreferenceAsync(ctx, resolveTenant, access, preferences)));
+            (Func<HttpContext, Task<IResult>>)(ctx => AddPreferenceAsync(ctx, resolveTenant, access, preferences, answerQueued,
+                lessonsChanged)));
         app.MapDelete(Prefix + "/preferences/{id}", (HttpContext ctx, string id)
-            => DeletePreference(ctx, id, resolveTenant, access, preferences));
+            => DeletePreference(ctx, id, resolveTenant, access, preferences, lessonsChanged));
+        app.MapPut(Prefix + "/preferences/{id}", (HttpContext ctx, string id)
+            => EditPreferenceAsync(ctx, id, resolveTenant, access, preferences, answerQueued, lessonsChanged));
+        app.MapPost(Prefix + "/preferences/{id}/confirm", (HttpContext ctx, string id)
+            => ConfirmLesson(ctx, id, resolveTenant, access, preferences, lessonsChanged));
 
         app.MapGet(Prefix + "/digest", (HttpContext ctx)
             => Digest(ctx, resolveTenant, access, outcomes, preferences, digest, events));
@@ -165,7 +177,7 @@ internal static class FleetManagerEndpoints
         app.MapPost(Prefix + "/events/ack",
             (Func<HttpContext, Task<IResult>>)(ctx => AcknowledgeEventsAsync(ctx, resolveTenant, access, events)));
 
-        FileLog.Write($"[FleetManagerEndpoints] mapped {Prefix}/outcomes, /preferences, /digest and /events");
+        FileLog.Write($"[FleetManagerEndpoints] mapped {Prefix}/outcomes, /preferences (and lessons), /digest and /events");
     }
 
     // ---- outcomes ----------------------------------------------------------------------------------------
@@ -422,8 +434,16 @@ internal static class FleetManagerEndpoints
             if (resolveTenant(ctx) is not { } tenant) return NoTenant();
             var (_, refused) = Authorise(ctx, tenant, access, FleetManagerAction.ReadPreferences);
             if (refused is not null) return refused;
-            var rows = store.List(tenant);
+            // Lessons are kept apart from preferences (issue #3559): with no kind, the answer is the preferences
+            // exactly as before lessons existed.
+            var kind = ctx.Request.Query.TryGetValue("kind", out var k) ? k.ToString() : FleetPreferenceStore.KindPreference;
+            var rows = store.List(tenant, kind);
             return Results.Json(new { count = rows.Count, preferences = rows });
+        }
+        catch (ArgumentException ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] ListPreferences refused: {ex.Message}");
+            return BadRequest(ex.Message);
         }
         catch (Exception ex)
         {
@@ -432,8 +452,16 @@ internal static class FleetManagerEndpoints
         }
     }
 
+    /// <summary>
+    /// Keep a standing preference, or a LESSON (issue #3559). A lesson the OWNER keeps on their own device - the
+    /// Cockpit's "That was a mistake" - is confirmed at once and queued to the Fleet Manager as a <c>lesson</c> event in
+    /// the same save, so it learns of it at its next idle moment without having to remember anything. A lesson the Fleet
+    /// Manager keeps with its own key is stored at once but NOT confirmed, and no event is queued: it already knows.
+    /// </summary>
+    /// <param name="lessonQueued">Called after an owner's lesson is saved, so its event's delivery is booked at once.</param>
     internal static async Task<IResult> AddPreferenceAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        FleetManagerAccess access, FleetPreferenceStore store)
+        FleetManagerAccess access, FleetPreferenceStore store, Action<TenantId>? lessonQueued = null,
+        Action<TenantId>? lessonsChanged = null)
     {
         FileLog.Write("[FleetManagerEndpoints] AddPreference");
         try
@@ -443,8 +471,28 @@ internal static class FleetManagerEndpoints
             if (refused is not null) return refused;
             var (body, error) = await ReadBodyAsync<FleetPreferenceRequest>(ctx);
             if (error is not null) return error;
-            var pref = store.Add(tenant, body!.Text, caller!.Id, DateTime.UtcNow);
-            return Results.Json(pref, statusCode: StatusCodes.Status201Created);
+
+            var kind = body!.Kind ?? FleetPreferenceStore.KindPreference;
+            FleetPreferenceStore.CheckKind(kind);
+            if (kind == FleetPreferenceStore.KindPreference)
+            {
+                if (body.Mistake is not null)
+                    return BadRequest("a standing preference has no mistake; only a lesson says what went wrong (kind: lesson)");
+                var pref = store.Add(tenant, body.Text, caller!.Id, DateTime.UtcNow);
+                return Results.Json(pref, statusCode: StatusCodes.Status201Created);
+            }
+
+            var byOwner = caller!.Role == FleetOutcomeStore.RoleOwner;
+            var now = DateTime.UtcNow;
+            var lesson = store.AddLesson(tenant, body.Text, body.Mistake, caller.Id, confirmed: byOwner, now,
+                byOwner ? kept => FleetManagerEventStore.LessonEvent(kept, access.MarkedSessionId(tenant), now) : null);
+            if (byOwner)
+            {
+                lessonQueued?.Invoke(tenant);
+                lessonsChanged?.Invoke(tenant);
+            }
+            FileLog.Write($"[FleetManagerEndpoints] AddPreference: lesson {lesson.Id} kept by {caller.Id}, confirmed={byOwner}");
+            return Results.Json(lesson, statusCode: StatusCodes.Status201Created);
         }
         catch (ArgumentException ex)
         {
@@ -459,19 +507,30 @@ internal static class FleetManagerEndpoints
     }
 
     internal static IResult DeletePreference(HttpContext ctx, string id, Func<HttpContext, TenantId?> resolveTenant,
-        FleetManagerAccess access, FleetPreferenceStore store)
+        FleetManagerAccess access, FleetPreferenceStore store, Action<TenantId>? lessonsChanged = null)
     {
         FileLog.Write($"[FleetManagerEndpoints] DeletePreference: id={id}");
         try
         {
             if (resolveTenant(ctx) is not { } tenant) return NoTenant();
-            var (_, refused) = Authorise(ctx, tenant, access, FleetManagerAction.DeletePreference);
+            var (caller, refused) = Authorise(ctx, tenant, access, FleetManagerAction.DeletePreference);
             if (refused is not null) return refused;
             if (!Guid.TryParse(id, out var guid)) return BadId(id);
-            return store.Delete(tenant, guid)
-                ? Results.Json(new { deleted = true, id = guid.ToString() })
-                : Results.Json(new { error = $"no preference {id} in this account; list them with GET {Prefix}/preferences" },
+
+            // A Fleet Manager forgets a preference, or an unconfirmed lesson it kept itself - never a confirmed lesson,
+            // and never one another session kept (issue #3559). The owner removes any row.
+            if (caller!.Role == FleetOutcomeStore.RoleFleetManager && store.Find(tenant, guid) is { } row
+                && FleetPreferenceStore.MayForget(row, caller.Id) is { } why)
+            {
+                FileLog.Write($"[FleetManagerEndpoints] DeletePreference REFUSED for {caller.Id}: {why}");
+                return Refuse(why);
+            }
+            var before = store.Find(tenant, guid);
+            if (!store.Delete(tenant, guid))
+                return Results.Json(new { error = $"no preference {id} in this account; list them with GET {Prefix}/preferences" },
                     statusCode: StatusCodes.Status404NotFound);
+            if (before?.Kind == FleetPreferenceStore.KindLesson) lessonsChanged?.Invoke(tenant);
+            return Results.Json(new { deleted = true, id = guid.ToString() });
         }
         catch (Exception ex)
         {
@@ -479,6 +538,92 @@ internal static class FleetManagerEndpoints
             throw;
         }
     }
+
+    /// <summary>
+    /// The owner rewrites one preference or lesson in their own words (issue #3559). The OWNER's only: refused to every
+    /// session key, the Fleet Manager's included, because a Fleet Manager that could edit a confirmed lesson could write
+    /// its own instructions. A lesson keeps its confirmation.
+    /// </summary>
+    /// <param name="lessonQueued">Called after an edit queued a fresh <c>lesson</c> event, so its delivery is booked.</param>
+    internal static async Task<IResult> EditPreferenceAsync(HttpContext ctx, string id, Func<HttpContext, TenantId?> resolveTenant,
+        FleetManagerAccess access, FleetPreferenceStore store, Action<TenantId>? lessonQueued = null,
+        Action<TenantId>? lessonsChanged = null)
+    {
+        FileLog.Write($"[FleetManagerEndpoints] EditPreference: id={id}");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant) return NoTenant();
+            var (_, refused) = Authorise(ctx, tenant, access, FleetManagerAction.EditPreference);
+            if (refused is not null) return refused;
+            if (!Guid.TryParse(id, out var guid)) return BadId(id);
+            var (body, error) = await ReadBodyAsync<FleetPreferenceRequest>(ctx);
+            if (error is not null) return error;
+
+            var row = store.Find(tenant, guid);
+            if (row is null) return PreferenceNotFound(id);
+            if (body!.Kind is not null && body.Kind != row.Kind)
+                return BadRequest($"{id} is a {row.Kind}; an edit never changes a row's kind. Remove it and keep a new "
+                                  + $"{body.Kind} instead");
+            // A confirmed lesson the Fleet Manager already acknowledged is told again, with the new words.
+            var now = DateTime.UtcNow;
+            var queued = false;
+            var updated = store.Update(tenant, guid, body.Text, body.Mistake, edited =>
+            {
+                queued = true;
+                return FleetManagerEventStore.LessonEvent(edited, access.MarkedSessionId(tenant), now);
+            });
+            if (queued) lessonQueued?.Invoke(tenant);
+            FileLog.Write($"[FleetManagerEndpoints] EditPreference: id={id}, updated={updated is not null}, lessonEventQueued={queued}");
+            if (updated is null) return PreferenceNotFound(id);
+            // The compaction path (part 2): the marked Fleet Manager's Director is stamped with the new block.
+            if (updated.Kind == FleetPreferenceStore.KindLesson) lessonsChanged?.Invoke(tenant);
+            return Results.Json(updated);
+        }
+        catch (ArgumentException ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] EditPreference refused: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] EditPreference FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>The owner confirms a lesson the Fleet Manager kept, in one press (issue #3559). The OWNER's only:
+    /// a lesson confirmed by a session would be a lesson no person ever agreed to.</summary>
+    internal static IResult ConfirmLesson(HttpContext ctx, string id, Func<HttpContext, TenantId?> resolveTenant,
+        FleetManagerAccess access, FleetPreferenceStore store, Action<TenantId>? lessonsChanged = null)
+    {
+        FileLog.Write($"[FleetManagerEndpoints] ConfirmLesson: id={id}");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant) return NoTenant();
+            var (_, refused) = Authorise(ctx, tenant, access, FleetManagerAction.ConfirmLesson);
+            if (refused is not null) return refused;
+            if (!Guid.TryParse(id, out var guid)) return BadId(id);
+            var confirmed = store.Confirm(tenant, guid, DateTime.UtcNow);
+            if (confirmed is null) return PreferenceNotFound(id);
+            lessonsChanged?.Invoke(tenant);
+            return Results.Json(confirmed);
+        }
+        catch (ArgumentException ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] ConfirmLesson refused: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] ConfirmLesson FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    private static IResult PreferenceNotFound(string id)
+        => Results.Json(new { error = $"no preference or lesson {id} in this account; list them with GET {Prefix}/preferences"
+                                      + "?kind=preference or ?kind=lesson" },
+            statusCode: StatusCodes.Status404NotFound);
 
     // ---- events ------------------------------------------------------------------------------------------
 
@@ -701,6 +846,8 @@ internal static class FleetManagerEndpoints
                 GeneratedAtUtc = DateTime.UtcNow,
                 Outcomes = open,
                 OwnedSessions = owned,
+                // Kept apart (issue #3559): lessons never appear among the preferences.
+                Lessons = preferences.List(tenant, FleetPreferenceStore.KindLesson).ToList(),
                 Preferences = preferences.List(tenant).ToList(),
                 OutcomeCounts = counts,
                 OwnedSessionCounts = new FleetOwnedSessionCounts
@@ -727,7 +874,8 @@ internal static class FleetManagerEndpoints
 
             FileLog.Write($"[FleetManagerEndpoints] Digest: session={sid}, caller={caller.Role}, "
                           + $"isFleetManager={answer.IsFleetManager}, open={open.Count}, openCounted={counts.Total}, "
-                          + $"managers={managers.Count}, owned={owned.Count}, preferences={answer.Preferences.Count}, "
+                          + $"managers={managers.Count}, owned={owned.Count}, lessons={answer.Lessons.Count}, "
+                          + $"preferences={answer.Preferences.Count}, "
                           + $"events={answer.Events.Count}, eventsTotal={answer.EventsTotal}, eventsHasMore={answer.EventsHasMore}, "
                           + $"recentlyAnswered={answer.RecentlyAnswered.Count}");
             return Results.Json(answer);
@@ -759,6 +907,12 @@ internal static class FleetManagerEndpoints
         if (AuthMiddleware.CallingSession(ctx) is { } session)
         {
             var sid = session.SessionId.ToString();
+            // THE OWNER'S ALONE (issue #3559), refused to every session key - the marked Fleet Manager's and a raised
+            // one's included. A session that could edit or confirm a lesson would be writing the instructions every
+            // later Fleet Manager is told to obey.
+            if (action is FleetManagerAction.EditPreference or FleetManagerAction.ConfirmLesson)
+                return Deny(action, sid, $"only the owner, on their own signed-in phone or browser, may {what}; no session "
+                    + "may, the Fleet Manager included. The owner does it on the Cockpit's Fleet Manager page");
             var marked = access.MarkedSessionId(tenant);
             if (string.IsNullOrEmpty(marked))
                 return Deny(action, sid, $"only this account's Fleet Manager session may {what}, and this account has "
@@ -821,8 +975,10 @@ internal static class FleetManagerEndpoints
         FleetManagerAction.AnswerRecord => "answer a record",
         FleetManagerAction.SetAdvice => "write a record's advice",
         FleetManagerAction.ReadPreferences => "read the standing preferences",
-        FleetManagerAction.AddPreference => "add a standing preference",
-        FleetManagerAction.DeletePreference => "forget a standing preference",
+        FleetManagerAction.AddPreference => "keep a standing preference or a lesson",
+        FleetManagerAction.DeletePreference => "forget a standing preference or a lesson",
+        FleetManagerAction.EditPreference => "edit a standing preference or a lesson",
+        FleetManagerAction.ConfirmLesson => "confirm a lesson",
         FleetManagerAction.ReadDigest => "read the digest",
         FleetManagerAction.ListEvents => "list the events",
         FleetManagerAction.AcknowledgeEvents => "acknowledge events",

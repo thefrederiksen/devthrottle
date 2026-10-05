@@ -685,10 +685,15 @@ public static class SessionKeyGuard
                 // /gateway/fleet-manager/outcomes/{id}/advice - the Fleet Manager's one line of advice (step 7).
                 return s.Length == 5 && s[4] == "advice" && verb == "PUT";
             case "preferences":
-                // /gateway/fleet-manager/preferences - list, or keep one.
+                // /gateway/fleet-manager/preferences - list, or keep one (a preference, or a lesson - issue #3559).
                 if (s.Length == 3) return read || verb == "POST";
-                // /gateway/fleet-manager/preferences/{id} - forget one.
-                return s.Length == 4 && verb == "DELETE";
+                // /gateway/fleet-manager/preferences/{id} - forget one. EDITING it (PUT) is the OWNER's alone and is
+                // refused to every session key, a raised one's included: a session that could rewrite a confirmed
+                // lesson would be writing the instructions every later Fleet Manager obeys.
+                if (s.Length == 4) return verb == "DELETE";
+                // /gateway/fleet-manager/preferences/{id}/confirm - the owner confirms a lesson. The OWNER's alone, for
+                // the same reason: named here so the refusal is a decision rather than an omission.
+                return false;
             case "digest":
                 return s.Length == 3 && read;
             case "events":
@@ -709,6 +714,9 @@ public static class SessionKeyGuard
             // THE OWNER'S WALKTHROUGH (step 7): the same readings as the page, and the owner's own answers, snoozes and
             // closes recorded as the owner's.
             case "walkthrough":
+            // THE OWNER'S LIST OF LESSONS AND PREFERENCES (issue #3559, part 4), with the owner's buttons. A session -
+            // raised or not - reads the same rows from /preferences?kind=lesson and its digest.
+            case "standing":
                 return false;
             // HAND OVER (step 8). The owner's choice - the Fleet Manager's too, with its own key, when the owner has
             // asked it. Any session may also RELEASE a session it owns to the owner (issue #3086) and TAKE a session

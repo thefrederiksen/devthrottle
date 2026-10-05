@@ -100,7 +100,9 @@ public static class SessionPreambleFile
             FileLog.Write(
                 $"[SessionPreambleFile] the user's injected text is unavailable for {session.Id}, so NOTHING " +
                 $"is injected (the DevThrottle text is deliberately not substituted): {ex.Message}");
-            return "";
+            // Except the owner's lessons (issue #3559): they are not our text, and a file error must not cost a
+            // Fleet Manager the corrections it was given.
+            return string.IsNullOrEmpty(session.FleetManagerLessons) ? "" : Envelope(session.FleetManagerLessons);
         }
 
         // Workflows mission (phase 5b): a seated session's preamble carries its seat paragraph, built
@@ -118,18 +120,26 @@ public static class SessionPreambleFile
         if (!string.IsNullOrEmpty(memory))
             text = string.IsNullOrEmpty(text) ? memory : text + "\n\n" + memory;
 
+        // Issue #3559: the marked Fleet Manager's confirmed lessons, FIRST, exactly as the Gateway wrote them. This is
+        // the path a compaction or a clear takes, which is when a Fleet Manager would otherwise lose them. Put in even
+        // when the user's own text renders to nothing: an empty preamble turns OUR prose off, not the owner's lessons.
+        if (!string.IsNullOrEmpty(session.FleetManagerLessons))
+            text = string.IsNullOrEmpty(text) ? session.FleetManagerLessons : session.FleetManagerLessons + "\n" + text;
+
         // BuildForSession already collapses whitespace-only text to empty, so an empty envelope is
         // impossible by construction rather than by coincidence.
         if (string.IsNullOrEmpty(text))
             return "";
 
-        return JsonSerializer.Serialize(new
-        {
-            hookSpecificOutput = new
-            {
-                hookEventName = "SessionStart",
-                additionalContext = text,
-            },
-        }, JsonOpts);
+        return Envelope(text);
     }
+
+    private static string Envelope(string text) => JsonSerializer.Serialize(new
+    {
+        hookSpecificOutput = new
+        {
+            hookEventName = "SessionStart",
+            additionalContext = text,
+        },
+    }, JsonOpts);
 }

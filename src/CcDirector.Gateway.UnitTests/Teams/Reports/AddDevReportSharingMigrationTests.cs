@@ -15,8 +15,8 @@ namespace CcDirector.Gateway.Tests.Teams.Reports;
 /// </summary>
 public sealed class AddDevReportSharingMigrationTests
 {
-    private const string MigrationBefore = "20261005160401_AddFleetMessageLinkRequests";
-    private const string MigrationUnderTest = "20261005170254_AddDevReportSharing";
+    private const string MigrationBefore = "20261005184745_AddFleetManagerLessons";
+    private const string MigrationUnderTest = "20261005234625_AddDevReportSharing";
 
     [Fact]
     public void AddDevReportSharing_UpThenDown_AddsAndRemovesTheTwoTablesAndTheAuthorColumn_AndKeepsOldReports()

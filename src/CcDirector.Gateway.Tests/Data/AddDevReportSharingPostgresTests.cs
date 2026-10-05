@@ -10,7 +10,7 @@ namespace CcDirector.Gateway.Tests.Data;
 
 /// <summary>
 /// The PostgreSQL half of a dev report sent to a member of a team (devthrottle_internal#2309): <c>AddDevReportSharing</c>
-/// applies to a real PostgreSQL database right after <c>AddFleetMessageLinkRequests</c>, adds the nullable author column to
+/// applies to a real PostgreSQL database right after <c>AddFleetManagerLessons</c>, adds the nullable author column to
 /// <c>dev_reports</c> without touching an existing report, keeps one recipient row per (team, report, member), and its Down
 /// removes both tables and the column again - the reversal the pull request names.
 ///
@@ -20,8 +20,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class AddDevReportSharingPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20261005160425_AddFleetMessageLinkRequests";
-    private const string MigrationUnderTest = "20261005170330_AddDevReportSharing";
+    private const string MigrationBefore = "20261005184813_AddFleetManagerLessons";
+    private const string MigrationUnderTest = "20261005234644_AddDevReportSharing";
 
     private sealed class RequiresPostgresFactAttribute : FactAttribute
     {
@@ -107,7 +107,7 @@ public sealed class AddDevReportSharingPostgresTests
         var duplicate = Assert.Throws<PostgresException>(() => Scalar(Recipient("7b000000-0000-4000-8000-000000000003", "sub-mike")));
         Assert.Equal(PostgresErrorCodes.UniqueViolation, duplicate.SqlState);
 
-        // The reversal: back to AddFleetMessageLinkRequests removes both tables and the column, and the old report survives.
+        // The reversal: back to AddFleetManagerLessons removes both tables and the column, and the old report survives.
         using (var ctx = NewContext())
         {
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);

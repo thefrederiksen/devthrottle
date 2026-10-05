@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261005170330_AddDevReportSharing")]
-    partial class AddDevReportSharing
+    [Migration("20261005184813_AddFleetManagerLessons")]
+    partial class AddFleetManagerLessons
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -303,53 +303,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("cron_runs", "gateway");
                 });
 
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportCommentEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("AtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FromSubject")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .UseCollation("C");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ToSubject")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .UseCollation("C");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ReportId", "AtUtc");
-
-                    b.ToTable("dev_report_comments", "gateway");
-                });
-
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportEntity", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("AuthorSubject")
-                        .HasColumnType("text")
-                        .UseCollation("C");
 
                     b.Property<string>("Key")
                         .IsRequired()
@@ -388,8 +345,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "AuthorSubject");
 
                     b.HasIndex("TenantId", "SessionId", "Key")
                         .IsUnique();
@@ -494,50 +449,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("TenantId", "SessionId", "Status");
 
                     b.ToTable("dev_report_items", "gateway");
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportRecipientEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("ReadAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("RecipientSubject")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .UseCollation("C");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("SentAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("SentBySubject")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .UseCollation("C");
-
-                    b.Property<int>("SentVersion")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "RecipientSubject", "SentAtUtc");
-
-                    b.HasIndex("TenantId", "ReportId", "RecipientSubject")
-                        .IsUnique();
-
-                    b.ToTable("dev_report_recipients", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportReplyEntity", b =>
@@ -1036,6 +947,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(16)")
                         .UseCollation("C");
 
+                    b.Property<string>("LessonId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("text");
 
@@ -1519,6 +1434,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("ConfirmedByOwnerAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -1526,6 +1444,17 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("preference");
+
+                    b.Property<string>("Mistake")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)");
 
                     b.Property<string>("TenantId")
                         .IsRequired()

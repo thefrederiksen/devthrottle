@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261005170254_AddDevReportSharing")]
-    partial class AddDevReportSharing
+    [Migration("20261005184745_AddFleetManagerLessons")]
+    partial class AddFleetManagerLessons
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -295,49 +295,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("cron_runs", (string)null);
                 });
 
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportCommentEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("AtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("FromSubject")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ToSubject")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ReportId", "AtUtc");
-
-                    b.ToTable("dev_report_comments", (string)null);
-                });
-
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportEntity", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AuthorSubject")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Key")
@@ -375,8 +335,6 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "AuthorSubject");
 
                     b.HasIndex("TenantId", "SessionId", "Key")
                         .IsUnique();
@@ -479,48 +437,6 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId", "SessionId", "Status");
 
                     b.ToTable("dev_report_items", (string)null);
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportRecipientEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("ReadAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RecipientSubject")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("SentAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SentBySubject")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("SentVersion")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "RecipientSubject", "SentAtUtc");
-
-                    b.HasIndex("TenantId", "ReportId", "RecipientSubject")
-                        .IsUnique();
-
-                    b.ToTable("dev_report_recipients", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportReplyEntity", b =>
@@ -1012,6 +928,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("LessonId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("TEXT");
 
@@ -1475,12 +1395,26 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("ConfirmedByOwnerAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("preference");
+
+                    b.Property<string>("Mistake")
+                        .HasMaxLength(300)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TenantId")

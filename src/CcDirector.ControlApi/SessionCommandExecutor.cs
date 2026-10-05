@@ -92,6 +92,9 @@ internal static class SessionCommandExecutor
         new DirectorConfigExecutor(),
         // Defect 5: the Gateway stamping a session's resolved role down onto this Director.
         new FleetRoleExecutor(),
+        // Issue #3559: the Gateway giving the marked Fleet Manager session its confirmed lessons, kept in the
+        // session-start preamble so a compaction or a clear does not lose them.
+        new FleetManagerLessonsExecutor(),
         // The Gateway stamping a session's FOLDED display state down onto this Director, so the desktop
         // rail renders the Gateway's answer instead of re-folding from local facts it cannot see.
         new FleetDisplayStateExecutor(),

@@ -123,10 +123,15 @@ public sealed class FleetManagerEventStore
     /// acknowledges them.</summary>
     public const string KindAnswered = "answered";
 
+    /// <summary>The owner kept a lesson on their own device ("That was a mistake", issue #3559): the owner's words,
+    /// already stored and confirmed, kept until the Fleet Manager acknowledges them. Dealt with before any other
+    /// event.</summary>
+    public const string KindLesson = "lesson";
+
     public const string StatusUnacknowledged = "unacknowledged";
     public const string StatusAll = "all";
 
-    public static readonly IReadOnlyList<string> Kinds = new[] { KindStop, KindDied, KindMarked, KindAnswered };
+    public static readonly IReadOnlyList<string> Kinds = new[] { KindStop, KindDied, KindMarked, KindAnswered, KindLesson };
 
     /// <summary>What a <c>marked</c> event tells the new Fleet Manager, exactly.</summary>
     public const string MarkedDetail =
@@ -392,9 +397,14 @@ public sealed class FleetManagerEventStore
     {
         if (string.IsNullOrWhiteSpace(fleetManagerSessionId)) throw new ArgumentException("the Fleet Manager session is required");
         var sid = fleetManagerSessionId.Trim();
-        if (ctx.FleetManagerEvents.Any(e => e.Kind == KindMarked && e.SessionId == sid))
+        // Only a marked event NOT YET DELIVERED counts as "already told" (issue #3559): a session marked again later -
+        // marked by hand, then another, then it again - is told again, because the event carries the lessons kept
+        // since. One still waiting is delivered with the lessons as they are then, so it is not stored twice; one
+        // already delivered (acknowledged or not) is never delivered to that session again, so a new one is stored.
+        if (ctx.FleetManagerEvents.Any(e => e.Kind == KindMarked && e.SessionId == sid
+                                            && e.AcknowledgedAtUtc == null && e.DeliveredAtUtc == null))
         {
-            FileLog.Write($"[FleetManagerEventStore] marked event: sid={sid} - already told, not stored again");
+            FileLog.Write($"[FleetManagerEventStore] marked event: sid={sid} - one is already waiting to be delivered, not stored again");
             return null;
         }
         var entity = new FleetManagerEventEntity
@@ -459,6 +469,31 @@ public sealed class FleetManagerEventStore
             OutcomeId = record.Id,
             OutcomeTitle = record.Title,
             Words = record.Answer,
+            CreatedAtUtc = Utc(nowUtc),
+        };
+    }
+
+    /// <summary>
+    /// The <c>lesson</c> event for a lesson the owner has just kept, not yet saved: the caller adds it in the same save
+    /// as the lesson (<see cref="FleetPreferenceStore.AddLesson"/>), so a kept lesson is never without it.
+    /// </summary>
+    /// <param name="addressedTo">The account's marked Fleet Manager when the owner kept it, or empty when none is
+    /// marked - it is delivered to whichever session is marked next.</param>
+    public static FleetManagerEventEntity LessonEvent(FleetPreferenceDto lesson, string? addressedTo, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(lesson);
+        if (lesson.Kind != FleetPreferenceStore.KindLesson)
+            throw new ArgumentException($"a lesson event is for a lesson, not a {lesson.Kind}", nameof(lesson));
+        if (string.IsNullOrEmpty(lesson.Text)) throw new ArgumentException("a lesson event needs the owner's words", nameof(lesson));
+        return new FleetManagerEventEntity
+        {
+            Kind = KindLesson,
+            SessionId = "",
+            SessionName = "",
+            AddressedTo = addressedTo?.Trim() ?? "",
+            Words = lesson.Text,
+            Detail = lesson.Mistake,
+            LessonId = lesson.Id,
             CreatedAtUtc = Utc(nowUtc),
         };
     }
@@ -838,5 +873,6 @@ public sealed class FleetManagerEventStore
         OutcomeId = e.OutcomeId,
         OutcomeTitle = e.OutcomeTitle,
         Words = e.Words,
+        LessonId = e.LessonId,
     };
 }

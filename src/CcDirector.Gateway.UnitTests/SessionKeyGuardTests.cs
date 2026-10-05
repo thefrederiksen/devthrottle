@@ -318,6 +318,22 @@ public sealed class SessionKeyGuardTests
     public void Fleet_manager_shapes_the_gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be refused");
 
+    // Issue #3559: editing a preference or a lesson, and confirming a lesson, are the OWNER's alone. Refused to every
+    // session key - a raised one's included - because a session that could do either would be writing the
+    // instructions every later Fleet Manager obeys.
+    [Theory]
+    [InlineData("PUT", "/gateway/fleet-manager/preferences/5b1c2d3e-0000-4000-8000-000000000002")]
+    [InlineData("POST", "/gateway/fleet-manager/preferences/5b1c2d3e-0000-4000-8000-000000000002/confirm")]
+    [InlineData("PUT", "/gateway/fleet-manager/preferences/5b1c2d3e-0000-4000-8000-000000000002/confirm")]
+    // Part 4: the owner's list of lessons and preferences on the Fleet Manager page.
+    [InlineData("GET", "/gateway/fleet-manager/standing")]
+    [InlineData("HEAD", "/gateway/fleet-manager/standing")]
+    public void Fleet_manager_lesson_edit_and_confirm_are_refused_to_every_session_key(string method, string path)
+    {
+        Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be refused");
+        Assert.False(SessionKeyGuard.Check(method, path, raised: true).Allowed, $"{method} {path} should be refused to a raised key");
+    }
+
     // The Fleet Manager mission, step 5: where the Fleet Manager runs, and starting, restarting and moving it, are
     // the OWNER's. A Fleet Manager that could move or restart itself would answer to nobody. Every verb is listed,
     // including the ones the Gateway does not route, so no future verb on these words slips through.

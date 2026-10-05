@@ -23,19 +23,29 @@ public sealed class FleetManagerEventSweep : TenantScopedSweep
 
     private readonly ITenantContext _tenantContext;
     private readonly FleetManagerEventService _service;
+    private readonly FleetManagerLessonsObserver? _lessons;
     private int _running;
 
+    /// <param name="lessons">Issue #3559: also make sure each account's marked Fleet Manager holds its current lessons
+    /// for the session-start hook - the backstop for a mark moved to a session that has not pushed since. Null in a test
+    /// of the events alone.</param>
     public FleetManagerEventSweep(HostedTenantBoundary boundary, TenantRegistry tenants, ITenantContext tenantContext,
-        FleetManagerEventService service)
+        FleetManagerEventService service, FleetManagerLessonsObserver? lessons = null)
         : base(boundary, tenants)
     {
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
         _service = service ?? throw new ArgumentNullException(nameof(service));
+        _lessons = lessons;
     }
 
     /// <summary>One reconcile pass over every account.</summary>
     public Task SweepAsync(CancellationToken ct = default)
-        => ForEachTenantAsync(() => _service.ReconcileAsync(_tenantContext.Current), ct);
+        => ForEachTenantAsync(async () =>
+        {
+            var tenant = _tenantContext.Current;
+            await _service.ReconcileAsync(tenant).ConfigureAwait(false);
+            if (_lessons is not null) await _lessons.Refresh(tenant).ConfigureAwait(false);
+        }, ct);
 
     /// <summary>The timer's entry point: never overlaps itself and never throws.</summary>
     public async Task SweepSafeAsync()

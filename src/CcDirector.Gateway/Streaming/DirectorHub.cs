@@ -42,6 +42,10 @@ public sealed class DirectorHub : Hub
     private readonly GatewayStreamRegistry _streamRegistry;
     private readonly Snooze.SnoozeLandingObserver? _snoozeLandings;
     private readonly Fleet.FleetRoleObserver? _fleetRoles;
+
+    /// <summary>Issue #3559: keeps the marked Fleet Manager's Director holding the confirmed lessons, so a compaction
+    /// injects them. Null (older callers, tests that do not exercise lessons) stamps nothing.</summary>
+    private readonly Fleet.FleetManagerLessonsObserver? _fleetManagerLessons;
     private readonly Fleet.FleetDisplayStateObserver? _fleetDisplayState;
     // Hosted Multi-Tenancy increment 1: resolves THIS connection's tenant from the authenticated device key
     // at Hello and enters that tenant's scope on every push (so the EF-writing observers stamp the right
@@ -73,8 +77,10 @@ public sealed class DirectorHub : Hub
         Fleet.RaisedSessionStore? raisedSessions = null,
         Wingman.VoiceAnswerObserver? voiceAnswers = null,
         Messaging.FleetMessageLinkStore? messageLinks = null,
-        Messaging.FleetMessageLinkRecord? messageLinkRecord = null)
+        Messaging.FleetMessageLinkRecord? messageLinkRecord = null,
+        Fleet.FleetManagerLessonsObserver? fleetManagerLessons = null)
     {
+        _fleetManagerLessons = fleetManagerLessons;
         _voiceAnswers = voiceAnswers;
         // A link store with nowhere to record what it ends would end links silently; refused at construction.
         if (messageLinks is not null && messageLinkRecord is null)
@@ -678,6 +684,8 @@ public sealed class DirectorHub : Hub
         // re-enter the liveness set, so their controllers' and workers' roles move with them). Re-resolve
         // and stamp down whatever changed, or the desktop keeps folding a role from before the reconnect.
         _fleetRoles?.ObserveSnapshot(set);
+        // Issue #3559: the lessons are NOT re-stamped here - this runs on every ten-second re-push. A new connection's
+        // first snapshot is answered once, through PushedSessionStore.SessionsArrivedOnNewConnection (GatewayHost).
         // The fold seam: a reconnecting Director's whole roster can change any session's folded display state
         // (its own, and others' across the fleet). Re-fold and stamp down whatever changed, so the desktop
         // rail renders the Gateway's answer rather than one from before the reconnect.
@@ -769,6 +777,10 @@ public sealed class DirectorHub : Hub
         // way the resolution is fleet-wide, and the changed roles are stamped back down so every desktop
         // folds the same answer the phone does.
         _fleetRoles?.Observe(session);
+        // Issue #3559: the marked Fleet Manager's first push after a mark moves gets the lessons for its session-start
+        // hook. Every other session costs one comparison. Fire-and-forget, like the role stamp above.
+        if (accepted && _fleetManagerLessons is not null)
+            _ = _fleetManagerLessons.Observe(RequireBoundTenant(), directorId, session.SessionId);
         // THE TURN-END SEAM (the Wingman-on-every-turn mission, owner ruling 2026-09-15: no red frame before the Wingman
         // reads). An ACCEPTED delta reaches the turn-end watcher HERE, immediately before the fold below pushes its
         // colour, so a stop that will be judged is stamped "reading" by the verdict seat before the first fold of that

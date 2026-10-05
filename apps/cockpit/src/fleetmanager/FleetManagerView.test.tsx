@@ -4,7 +4,8 @@ import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-li
 import { MemoryRouter } from "react-router-dom";
 import type { FleetManagerPlacement } from "@devthrottle/client-core/settings/fleetManagerClient";
 import type { FleetManagerPage } from "@devthrottle/client-core/fleetmanager/pageClient";
-import { emptyPage, FM_SESSION, morningPage } from "./fixtures";
+import type { FleetStanding } from "@devthrottle/client-core/fleetmanager/standingClient";
+import { emptyPage, FM_SESSION, morningPage, standing } from "./fixtures";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -18,6 +19,7 @@ const api = vi.hoisted(() => ({
   restart: vi.fn<() => Promise<FleetManagerPlacement>>(),
   page: vi.fn<() => Promise<FleetManagerPage>>(),
   sendPrompt: vi.fn(async () => ({ delivering: false })),
+  standing: vi.fn<() => Promise<FleetStanding>>(),
 }));
 
 vi.mock("@devthrottle/client-core/settings/fleetManagerClient", () => ({
@@ -30,6 +32,13 @@ vi.mock("@devthrottle/client-core/fleetmanager/pageClient", () => ({
   answerFleetOutcome: vi.fn(async () => undefined),
 }));
 vi.mock("@devthrottle/client-core/api/client", () => ({ sendPrompt: api.sendPrompt }));
+vi.mock("@devthrottle/client-core/fleetmanager/standingClient", () => ({
+  getFleetStanding: api.standing,
+  keepLesson: vi.fn(async () => undefined),
+  confirmLesson: vi.fn(async () => undefined),
+  editStanding: vi.fn(async () => undefined),
+  removeStanding: vi.fn(async () => undefined),
+}));
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   reportClientError: vi.fn(),
   describeAndReport: (_s: string, _a: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
@@ -128,6 +137,56 @@ describe("FleetManagerView", () => {
     api.restart.mockReset();
     api.page.mockReset();
     api.sendPrompt.mockClear();
+    api.standing.mockReset();
+    api.standing.mockResolvedValue(standing());
+  });
+
+  it("offers the owner's lessons from the header: the mistake box, and the list beside the conversation", async () => {
+    // Issue #3559, part 4. The labels, the waiting note and both buttons are the Gateway's (page.standing).
+    api.placement.mockResolvedValue(placement("running"));
+    api.page.mockResolvedValue(morningPage());
+    renderPage();
+
+    const open = await screen.findByRole("button", { name: "That was a mistake (fake)" });
+    expect(screen.getByTestId("fmp-standing-waiting").textContent).toBe("1 lesson waits for you to confirm. (fake)");
+    expect(screen.queryByTestId("fmp-mistake")).toBeNull();
+    fireEvent.click(open);
+    expect((within(screen.getByTestId("fmp-mistake")).getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel (fake)" }));
+    expect(screen.queryByTestId("fmp-mistake")).toBeNull();
+
+    expect(screen.queryByTestId("fmp-standing")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Lessons and preferences (3) (fake)" }));
+    expect(screen.getByTestId("fmp-standing").textContent).toContain("Ask before a release.");
+    fireEvent.click(screen.getByRole("button", { name: "Hide lessons and preferences (fake)" }));
+    expect(screen.queryByTestId("fmp-standing")).toBeNull();
+  });
+
+  it("after a lesson is kept, shows the Gateway's sentence, and clears it when the list is opened", async () => {
+    api.placement.mockResolvedValue(placement("running"));
+    api.page.mockResolvedValue(morningPage());
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "That was a mistake (fake)" }));
+    fireEvent.change(within(screen.getByTestId("fmp-mistake")).getByRole("textbox"), { target: { value: "Check first." } });
+    fireEvent.click(screen.getByRole("button", { name: "Keep (fake)" }));
+
+    await waitFor(() => expect(screen.getByTestId("fmp-lesson-kept").textContent).toBe("Kept. The Fleet Manager is told. (fake)"));
+    expect(screen.queryByTestId("fmp-mistake")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Lessons and preferences (3) (fake)" }));
+    expect(screen.queryByTestId("fmp-lesson-kept")).toBeNull();
+  });
+
+  it("offers no mistake box when the Gateway withholds it, and says why", async () => {
+    const s = standing();
+    s.mistake = { offered: false, label: "That was a mistake (fake)", busyLabel: "", note: "20 are confirmed. (fake)" };
+    api.standing.mockResolvedValue(s);
+    api.placement.mockResolvedValue(placement("running"));
+    api.page.mockResolvedValue(morningPage());
+    renderPage();
+
+    expect((await screen.findByTestId("fmp-mistake-note")).textContent).toBe("20 are confirmed. (fake)");
+    expect(screen.queryByRole("button", { name: "That was a mistake (fake)" })).toBeNull();
   });
 
   it("shows where it runs and the Gateway's state line under the title", async () => {

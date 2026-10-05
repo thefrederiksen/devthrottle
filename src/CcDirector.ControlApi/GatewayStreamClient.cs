@@ -138,10 +138,12 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Func<List<string>>? pendingRevocations = null,
         Action<string>? onRevocationConfirmed = null,
         Action<GatewayCapabilities>? onHello = null,
-        CcDirector.Core.Background.BackgroundJobs? jobs = null)
+        CcDirector.Core.Background.BackgroundJobs? jobs = null,
+        Action? onNewConnection = null)
     {
         _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
         _onHello = onHello;
+        _onNewConnection = onNewConnection;
         _sessionKeys = sessionKeys;
         _pendingRevocations = pendingRevocations;
         _onRevocationConfirmed = onRevocationConfirmed;
@@ -405,7 +407,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             _monitor?.MarkTunnelConnecting();
             return Task.CompletedTask;
         };
-        _connection.Reconnected += async _ => { await ReseedAsync(); _monitor?.MarkTunnelConnected(); };
+        _connection.Reconnected += async _ => { await ReseedAsync(newConnection: true); _monitor?.MarkTunnelConnected(); };
         // Also tear streams down on a full close (auto-reconnect gave up); the supervise loop then re-dials.
         // The capabilities go with the connection: the next dial may reach a different (older) Gateway, and a
         // caller must not act on the last one's answer until the new Hello has answered.
@@ -465,7 +467,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             var outcome = await TryConnectAsync();
             if (outcome == ConnectOutcome.Connected)
             {
-                await ReseedAsync();
+                await ReseedAsync(newConnection: true);
                 _monitor?.MarkTunnelConnected();   // tunnel up = the two-way connection is proven (green)
                 await WaitUntilClosedAsync();      // returns when auto-reconnect has exhausted its attempts
             }
@@ -615,6 +617,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// the answer and backfills). Called after the capability line is logged.</summary>
     private readonly Action<GatewayCapabilities>? _onHello;
 
+    /// <summary>Told once per NEW connection - the first connect and every reconnect - before its Hello and its first
+    /// snapshot, and never on the ten-second re-push, which reuses the connection (issue #3559).</summary>
+    private readonly Action? _onNewConnection;
+
     /// <summary>Whether the Gateway on the other end has this hub method. False before the first Hello and
     /// against a Gateway built before the method existed - the caller then does not call it.</summary>
     public bool GatewaySupports(string hubMethod)
@@ -708,11 +714,12 @@ public sealed class GatewayStreamClient : IAsyncDisposable
               + "means EVERY session's command line will answer 401.";
     }
 
-    private Task<ReseedReport> ReseedAsync()
+    /// <param name="newConnection">True on the first connect and on a reconnect; false on the timed re-push.</param>
+    private Task<ReseedReport> ReseedAsync(bool newConnection = false)
     {
         var conn = _connection;
         if (conn is null || conn.State != HubConnectionState.Connected) return Task.FromResult(ReseedReport.NotConnected);
-        return ReseedAsync(new HubConnectionCalls(conn), Interlocked.Read(ref _connectionGeneration));
+        return ReseedAsync(new HubConnectionCalls(conn), Interlocked.Read(ref _connectionGeneration), newConnection);
     }
 
     /// <summary>
@@ -731,9 +738,17 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// what keeps every session of this Director visible at all - and a failed roster push is still reported
     /// loudly. Internal so the order of the calls can be recorded and asserted.
     /// </summary>
-    internal async Task<ReseedReport> ReseedAsync(IDirectorHubCalls hub, long connectionGeneration)
+    /// <param name="newConnection">True on the first connect and on a reconnect: the new-connection callback runs first
+    /// (issue #3559). False on the timed re-push, which reuses the connection.</param>
+    internal async Task<ReseedReport> ReseedAsync(IDirectorHubCalls hub, long connectionGeneration, bool newConnection = false)
     {
         if (!hub.IsConnected) return ReseedReport.NotConnected;
+
+        if (newConnection && _onNewConnection is not null)
+        {
+            try { _onNewConnection(); }
+            catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] new-connection callback FAILED: {ex.Message}"); }
+        }
 
         var build = TimeSpan.Zero;
         var sendKeys = TimeSpan.Zero;

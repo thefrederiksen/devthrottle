@@ -1106,6 +1106,15 @@ public sealed class ControlApiHost : IAsyncDisposable
             {
                 if (capabilities.TurnWatermarksKnown) _turnPusher?.SeedWatermarks(capabilities.TurnWatermarks);
             },
+            // Issue #3559: on a NEW connection (never on the ten-second re-push) every session drops the Fleet Manager
+            // lessons it was given. While the tunnel was down the lessons may have been removed, or the mark moved to
+            // another session, and a Gateway that restarted cannot know what this Director still holds. This
+            // connection's first snapshot makes the Gateway stamp the marked Fleet Manager again, as the lessons are now.
+            onNewConnection: () =>
+            {
+                foreach (var session in _sessionManager.ListSessions())
+                    session.SetFleetManagerLessons(null);
+            },
             // Gateway Cleanup mission, Phase 0 (up-stream): pass the SessionManager so the four connection-bound
             // stream verbs work - their terminal/file producers read session and file state from it and stream
             // frames up this same connection.

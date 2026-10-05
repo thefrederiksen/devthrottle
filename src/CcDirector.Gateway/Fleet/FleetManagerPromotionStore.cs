@@ -74,10 +74,12 @@ public sealed class FleetManagerPromotionStore
 
     /// <summary>
     /// The OWNER marks <paramref name="sessionId"/> (the mark route and the command): the mark and its history, in one
-    /// transaction. When that session was started to take over and was never told, the same transaction stores its one
-    /// "you are now the Fleet Manager" event and drops it from the waiting list - it would otherwise wait forever. When
-    /// it is the successor of the replacement under way, that replacement is forgotten too: it closes nothing, because
-    /// the owner, not the replacement, moved the mark. Returns whether an event was stored.
+    /// transaction, with that session's one "you are now the Fleet Manager" event. EVERY session the owner marks is
+    /// told (issue #3559), not only one started to take over: the event carries the account's confirmed lessons, and a
+    /// session marked by hand would otherwise start acting as the Fleet Manager without them. A session started to
+    /// take over is also dropped from the waiting list - it would otherwise wait forever. When it is the successor of
+    /// the replacement under way, that replacement is forgotten too: it closes nothing, because the owner, not the
+    /// replacement, moved the mark. Returns whether an event was stored: false only when that session was already told.
     /// </summary>
     /// <exception cref="ArgumentException">The id is not a session id.</exception>
     public bool MarkByOwner(TenantId tenant, string sessionId, DateTime nowUtc)
@@ -91,6 +93,10 @@ public sealed class FleetManagerPromotionStore
             using var ctx = _db.CreateContext(tenant);
             using var tx = ctx.Database.BeginTransaction();
 
+            // Marking the session already marked moves nothing, so it is told nothing: it is already working as the
+            // Fleet Manager and was given the lessons when it started or was marked.
+            var alreadyMarked = string.Equals(ValueIn(ctx, TenantSettingKeys.FleetManagerSessionId), sid,
+                StringComparison.OrdinalIgnoreCase);
             var waiting = WaitingIn(ctx);
             var wasWaiting = waiting.Any(w => string.Equals(w, sid, StringComparison.OrdinalIgnoreCase));
             var isSuccessor = string.Equals(ValueIn(ctx, TenantSettingKeys.FleetManagerSuccessorSessionId), sid,
@@ -105,12 +111,12 @@ public sealed class FleetManagerPromotionStore
             ctx.SaveChanges();
 
             FleetManagerMarkHistory.UpsertIn(ctx, sid, now);
-            var told = wasWaiting ? FleetManagerEventStore.AddMarkedIn(ctx, sid, now) : null;
+            var told = alreadyMarked ? null : FleetManagerEventStore.AddMarkedIn(ctx, sid, now);
             ctx.SaveChanges();
             tx.Commit();
 
             FileLog.Write($"[FleetManagerPromotionStore] MarkByOwner: committed mark={sid}, waiting={wasWaiting}, "
-                          + $"replacementForgotten={isSuccessor}, event={(told is null ? "none" : told.Id.ToString())}");
+                          + $"replacementForgotten={isSuccessor}, event={(told is null ? "already told" : told.Id.ToString())}");
             return told is not null;
         }
         catch (Exception ex)

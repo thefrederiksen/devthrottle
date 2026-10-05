@@ -48,14 +48,14 @@ Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-r
 
 ## The migration
 
-`AddDevReportSharing`: SQLite `20261005170254`, PostgreSQL `20261005170330`. It sorts after `AddFleetMessageLinkRequests`.
+`AddDevReportSharing`: SQLite `20261005234625`, PostgreSQL `20261005234644`. It sorts after `AddFleetManagerLessons`.
 
 - **Up** adds:
   - the nullable `dev_reports.AuthorSubject` and its index on (tenant, AuthorSubject)
   - the `dev_report_recipients` table, including `SentVersion`, with three indexes (one row per report and recipient)
   - the `dev_report_comments` table, with two indexes
 - **Down** removes all of it.
-- To reverse it, migrate to `AddFleetMessageLinkRequests`. Old reports survive: the PostgreSQL test proves it on a real database.
+- To reverse it, migrate to `AddFleetManagerLessons`. Old reports survive: the PostgreSQL test proves it on a real database.
 - It was applied to local and test databases only.
 
 ## The privacy check
