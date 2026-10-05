@@ -27,8 +27,9 @@ import "./collaborator.css";
 //   - one of YOUR OWN reports: who it went to, which version they hold and whether they read it, sending it to more
 //     members (or the newest version to someone holding an older one), and the comments people wrote on it.
 //
-// The viewer opens only once the Gateway has answered, because whether the report's own notes are offered is that
-// answer (`notesOpen`, false for every team reader) - never this page's decision (review F2).
+// The viewer opens only once the Gateway has answered, because whether the report's own notes are offered, and whether
+// the answer controls in its markup may be used, are that answer (`notesOpen` and `answersOpen`, both false for every
+// team reader today) - never this page's decision (review F2, round-3 review R1).
 
 interface ViewProps {
   teamId: string;
@@ -71,9 +72,12 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  // The version this page marked read - not merely that it marked one - so a version sent while the report is open
-  // is marked when it is shown (delta review D5).
+  // The version this page has marked read - not merely that it marked one - so a version sent while the report is open
+  // is marked when it is shown (delta review D5). It is set only when the Gateway ACCEPTED the read (round-3 review
+  // R3): a read that failed leaves the version unmarked, and the next poll's answer tries it again.
   const markedVersion = useRef<number | null>(null);
+  // The version a read is on its way for, so a second answer arriving meanwhile does not post it twice.
+  const markingVersion = useRef<number | null>(null);
 
   const refresh = useCallback(
     async (signal: AbortSignal) => {
@@ -95,18 +99,22 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
   useVisiblePolling(refresh, TEAM_REPORTS_POLL_MS);
 
   // Opening a version is reading it - once per version, and only once the Gateway has said it was sent to this person.
-  // The request names the version shown; the Gateway marks it only when it is the one held, and otherwise says why,
-  // and the page reads again, which brings the version now held and marks that one.
+  // The request names the version shown; the Gateway marks it only when it is the one held, and otherwise says why.
+  // A refused or failed read is shown in the Gateway's words and tried again on the next poll - which also brings the
+  // version now held, when a newer one was sent - never in a tight loop.
   useEffect(() => {
-    if (detail === null || detail.report.read || markedVersion.current === detail.report.version) return;
+    if (detail === null || detail.report.read) return;
     const version = detail.report.version;
-    markedVersion.current = version;
-    markReportRead(teamId, reportId, version).catch((err: unknown) => {
-      setError(gatewayErrorMessage(err, "mark the report read"));
-      void getReportSentToMe(teamId, reportId).then((next) => {
-        if (next !== null) setDetail(next);
+    if (markedVersion.current === version || markingVersion.current === version) return;
+    markingVersion.current = version;
+    markReportRead(teamId, reportId, version)
+      .then(() => {
+        markedVersion.current = version;
+      })
+      .catch((err: unknown) => setError(gatewayErrorMessage(err, "mark the report read")))
+      .finally(() => {
+        if (markingVersion.current === version) markingVersion.current = null;
       });
-    });
   }, [detail, teamId, reportId]);
 
   const send = useCallback(async () => {
@@ -137,6 +145,7 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
         reportId={reportId}
         api={api}
         notes={detail.notesOpen === true}
+        answers={detail.answersOpen === true}
         onNotFound={() => setMissing(true)}
         leading={<BackButton onBack={onBack} />}
         renderConversation={() => (
@@ -252,6 +261,7 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
         reportId={reportId}
         api={api}
         notes={detail.notesOpen === true}
+        answers={detail.answersOpen === true}
         onNotFound={() => setMissing(true)}
         leading={<BackButton onBack={onBack} />}
         renderConversation={() => (

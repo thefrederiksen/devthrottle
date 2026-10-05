@@ -74,14 +74,29 @@ def report_bytes_shown(page):
                 continue
             seen.append(f"{frame.url[:60]}: {text[:60]!r}")
             if "Signup page rewrite" in text:
-                # A team reader's frame runs no notes script (the Gateway says notes are off), so nothing adds a Queue
-                # button or a notes tray: only the report's own markup is in it.
-                buttons = frame.evaluate("document.querySelectorAll('button').length")
-                if buttons != 0:
-                    sys.exit(f"ERROR: the report frame holds {buttons} button(s); a team reader's frame should hold none")
+                answers_are_off(frame)
                 return
         time.sleep(0.25)
     sys.exit(f"ERROR: the report's own bytes never rendered in the viewer's frame at {page.url}. Frames: {seen}")
+
+
+def answers_are_off(frame):
+    # The Gateway says notes AND answers are off for a team reader (round-3 review R1). Proven on the report's own
+    # controls, not inferred from the absence of buttons: the report carries a question as radio buttons; every control
+    # in it must be disabled, and clicking one must leave it unchosen.
+    controls = frame.evaluate("document.querySelectorAll('input, select, textarea, button').length")
+    if controls == 0:
+        sys.exit("ERROR: the report frame holds no form controls, so this proof would pass without looking at any")
+    live = frame.evaluate("Array.from(document.querySelectorAll('input, select, textarea, button')).filter(e => !e.disabled).length")
+    if live != 0:
+        sys.exit(f"ERROR: {live} of {controls} control(s) in the report frame are live; with answers off every one must be disabled")
+    radio = frame.locator("input[type=radio]").first
+    radio.click(force=True)
+    if frame.evaluate("Array.from(document.querySelectorAll('input[type=radio]')).some(e => e.checked)"):
+        sys.exit("ERROR: clicking a radio button in the report frame chose it; with answers off it must stay unchosen")
+    if frame.locator("button").count() != 0:
+        sys.exit("ERROR: the report frame holds a button; with notes off nothing adds a Queue button or a notes tray")
+    print(f"[proof] answers off: {controls} control(s) in the report, all disabled; a clicked radio stayed unchosen", flush=True)
 
 
 def shot(page, name):

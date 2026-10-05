@@ -6,6 +6,7 @@ import type { DevReportConversationModel } from "./DevReportConversation";
 import { DEV_REPORT_POLL_MS } from "./DevReportList";
 import { getDevReport, getDevReportHtml, sendDevReportItems } from "./devReportsClient";
 import { reportFileName, saveHtmlFile } from "./exportReport";
+import { DEV_REPORT_ANSWERS_OFF_SCRIPT } from "./answersOffScript";
 import { DEV_REPORT_NOTES_SCRIPT } from "./notesScript";
 import { DevReportStateStore } from "./stateStore";
 import { APP_DEV_REPORT_THEME } from "./theme";
@@ -35,6 +36,14 @@ export interface DevReportViewerProps {
    * script at all, so no control is drawn that could only be refused. Read once, when the report opens.
    */
   notes?: boolean;
+  /**
+   * Whether the report's OWN answer controls - radio buttons, text boxes and selects in its markup - may be used (on
+   * when left out). Consulted only when `notes` is off, because the notes script handles answers itself. Pass the
+   * GATEWAY's answer: off, the frame gets a script that disables every one of them, so a reader cannot pick an answer
+   * that goes nowhere (round-3 review R1). A later piece that lets a reader answer a question addressed to them
+   * (devthrottle_internal#2307) turns it on from the Gateway; nothing here changes. Read once, when the report opens.
+   */
+  answers?: boolean;
   /** Where the conversation goes. Given the model; render DevReportConversation in the shell's own frame. */
   renderConversation: (conversation: DevReportConversationModel, snapshot: DevReportSnapshot) => ReactNode;
   /** The Gateway answered 404 for this report: it does not appear. The shell usually goes back to the list. */
@@ -57,8 +66,14 @@ export interface DevReportViewerProps {
 
 const idleSubscribe = () => () => {};
 
-/** The frame's script when notes are off: nothing runs in the frame but the report's own markup. */
+/** The frame's script when notes are off but answers are on: nothing runs in the frame but the report's own markup. */
 const NO_NOTES_SCRIPT = "";
+
+/** Which script the frame gets, from the Gateway's two flags. */
+export function frameScriptFor(notes: boolean, answers: boolean): string {
+  if (notes) return DEV_REPORT_NOTES_SCRIPT;
+  return answers ? NO_NOTES_SCRIPT : DEV_REPORT_ANSWERS_OFF_SCRIPT;
+}
 
 /** A string the Gateway actually sent, or null. Whitespace is not words. */
 function nonEmpty(value: string | undefined): string | null {
@@ -78,10 +93,11 @@ const idleSnapshot: DevReportSnapshot = {
   noteMode: { picking: false, selectionQuote: null },
 };
 
-export function DevReportViewer({ reportId, api = gatewayDevReportApi, notes = true, renderConversation, onNotFound, onBackToSession, leading, trailing }: DevReportViewerProps) {
+export function DevReportViewer({ reportId, api = gatewayDevReportApi, notes = true, answers = true, renderConversation, onNotFound, onBackToSession, leading, trailing }: DevReportViewerProps) {
   // The data source is fixed for the life of one open report: a new one is a new report on screen.
   const apiRef = useRef(api);
   const notesRef = useRef(notes);
+  const answersRef = useRef(answers);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [controller, setController] = useState<DevReportController | null>(null);
 
@@ -94,9 +110,9 @@ export function DevReportViewer({ reportId, api = gatewayDevReportApi, notes = t
       store: new DevReportStateStore(window.localStorage),
       container,
       window,
-      // A reader who cannot send notes gets the report's bytes and nothing else: no notes tray, no answer controls -
-      // never a control that can only be refused (devthrottle_internal#2309, review F2).
-      script: notesRef.current ? DEV_REPORT_NOTES_SCRIPT : NO_NOTES_SCRIPT,
+      // A reader who cannot send notes gets no notes tray (devthrottle_internal#2309, review F2); one who cannot answer
+      // either gets the report's own answer controls disabled (round-3 review R1) - never a control that goes nowhere.
+      script: frameScriptFor(notesRef.current, answersRef.current),
       theme: APP_DEV_REPORT_THEME,
       onRefused: (why) => console.warn(`[DevReportViewer] report ${reportId}: refused a frame message - ${why}`),
     });

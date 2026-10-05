@@ -139,10 +139,12 @@ public sealed class TeamReportsTests : IDisposable
         _now = Now.AddHours(1);
         var again = _recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 1, _now);
 
-        Assert.Equal(new[] { Mike, Nina }, first.Select(r => r.RecipientSubject).OrderBy(s => s, StringComparer.Ordinal));
-        Assert.Equal(2, again.Count);
-        Assert.All(again, r => Assert.Equal(Now, r.SentAtUtc));
-        Assert.All(again, r => Assert.Equal(Alice, r.SentBySubject));
+        Assert.True(first.Sent);
+        Assert.Equal(new[] { Mike, Nina }, first.Recipients.Select(r => r.RecipientSubject).OrderBy(s => s, StringComparer.Ordinal));
+        Assert.True(again.Sent);
+        Assert.Equal(2, again.Recipients.Count);
+        Assert.All(again.Recipients, r => Assert.Equal(Now, r.SentAtUtc));
+        Assert.All(again.Recipients, r => Assert.Equal(Alice, r.SentBySubject));
     }
 
     [Fact]
@@ -668,24 +670,57 @@ public sealed class TeamReportsTests : IDisposable
     }
 
     [Fact]
-    public void Send_ALaterVersion_MovesTheRowForwardAndMarksItUnread_AndAnEarlierOneNeverMovesItBack()
+    public void Send_TheNewestVersion_MovesTheRowForwardAndMarksItUnread_AndAnOlderOneIsRefusedAndMovesNothing()
     {
-        var report = Publish(Alice);
-        _recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 2, Now);
-        _recipients.MarkRead(_tenant, report.Guid, Mike, 2, Now.AddMinutes(1));
+        var report = TwoVersionReport(Alice);
+        Assert.True(_recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 1, Now).Sent);
+        _recipients.MarkRead(_tenant, report.Guid, Mike, 1, Now.AddMinutes(1));
+        report.PublishVersion2();
 
-        _recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 1, Now.AddMinutes(2));
+        // Version 1 is no longer the newest: refused, and nothing changes for Mike.
+        var stale = _recipients.Send(_tenant, report.Guid, Alice, new[] { Mike, Nina }, 1, Now.AddMinutes(2));
+        Assert.False(stale.Sent);
         var held = _recipients.RowFor(_tenant, report.Guid, Mike)!;
-        Assert.Equal(2, held.SentVersion);
+        Assert.Equal(1, held.SentVersion);
         Assert.Equal(Now, held.SentAtUtc);
         Assert.NotNull(held.ReadAtUtc);
+        Assert.Null(_recipients.RowFor(_tenant, report.Guid, Nina));
 
-        _recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 3, Now.AddMinutes(3));
+        // The newest version moves him forward, unread again.
+        Assert.True(_recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 2, Now.AddMinutes(3)).Sent);
         held = _recipients.RowFor(_tenant, report.Guid, Mike)!;
-        Assert.Equal(3, held.SentVersion);
+        Assert.Equal(2, held.SentVersion);
         Assert.Equal(Now.AddMinutes(3), held.SentAtUtc);
         Assert.Null(held.ReadAtUtc);
         Assert.Throws<ArgumentOutOfRangeException>(() => _recipients.Send(_tenant, report.Guid, Alice, new[] { Mike }, 0, Now));
+    }
+
+    [Fact]
+    public async Task Issue2309_R2_APublishLandingBetweenTheRoutesCheckAndTheWrite_IsCaughtByTheWrite_AndNothingIsSent()
+    {
+        // Round-3 review R2, deterministically: the route checks version 1 is the newest (it is), and THEN - before the
+        // send's write - the session publishes version 2, as the other Gateway process can during a deploy. The write
+        // itself must refuse; a check read earlier cannot.
+        var report = TwoVersionReport(Alice);
+        _recipients.BeforeSendWriteForTests = report.PublishVersion2;
+        try
+        {
+            var (status, body) = await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 1));
+            Assert.Equal(409, status);
+            Assert.Equal("version_not_newest", body.GetProperty("code").GetString());
+            Assert.Equal(TeamReportEndpoints.NotTheNewestVersion, body.GetProperty("error").GetString());
+        }
+        finally
+        {
+            _recipients.BeforeSendWriteForTests = null;
+        }
+        // Nothing was sent: Mike holds nothing, and the report is at version 2.
+        Assert.Null(_recipients.RowFor(_tenant, report.Guid, Mike));
+        Assert.Equal(2, _store.Get(_tenant, report.Guid)!.Version);
+
+        // POSITIVE CONTROL: the same send, of the version now newest, goes through.
+        Assert.Equal(200, (await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 2))).Status);
+        Assert.Equal(2, _recipients.RowFor(_tenant, report.Guid, Mike)!.SentVersion);
     }
 
     [Fact]
@@ -777,6 +812,9 @@ public sealed class TeamReportsTests : IDisposable
 
         Assert.False((await Answer(_reports.SentToMeDetail(_team, Mike, report.Id))).Body.GetProperty("notesOpen").GetBoolean());
         Assert.False((await Answer(_reports.MineDetail(_team, Alice, report.Id))).Body.GetProperty("notesOpen").GetBoolean());
+        // Round-3 review R1: the report's own answer controls are off too, by the Gateway's flag.
+        Assert.False((await Answer(_reports.SentToMeDetail(_team, Mike, report.Id))).Body.GetProperty("answersOpen").GetBoolean());
+        Assert.False((await Answer(_reports.MineDetail(_team, Alice, report.Id))).Body.GetProperty("answersOpen").GetBoolean());
     }
 
     [Theory]

@@ -136,8 +136,8 @@ MUTATIONS = {
     "viewer-ignores-the-notes-flag": {
         "rule": "A team reader's frame gets no notes script, because the Gateway says notes are off (review F2).",
         "file": "packages/client-core/src/devreports/DevReportViewer.tsx",
-        "old": "script: notesRef.current ? DEV_REPORT_NOTES_SCRIPT : NO_NOTES_SCRIPT,",
-        "new": "script: DEV_REPORT_NOTES_SCRIPT,",
+        "old": "  if (notes) return DEV_REPORT_NOTES_SCRIPT;",
+        "new": "  if (notes || answers || !answers) return DEV_REPORT_NOTES_SCRIPT;",
         "runs": [vitest("apps/cockpit", "src/teams/collaborator/reportsPage.test.tsx")],
     },
     "team-key-admitted-as-a-person": {
@@ -171,8 +171,8 @@ MUTATIONS = {
     "page-marks-once-per-open": {
         "rule": "The page remembers the version it marked, so a version sent while the report is open is marked when shown (delta review D5).",
         "file": "apps/cockpit/src/teams/collaborator/TeamReportViews.tsx",
-        "old": "markedVersion.current === detail.report.version) return;",
-        "new": "markedVersion.current !== null) return;",
+        "old": "if (markedVersion.current === version || markingVersion.current === version) return;",
+        "new": "if (markedVersion.current !== null || markingVersion.current !== null) return;",
         "runs": [vitest("apps/cockpit", "src/teams/collaborator/reportsPage.test.tsx")],
     },
     "page-sends-a-fixed-version": {
@@ -180,6 +180,28 @@ MUTATIONS = {
         "file": "apps/cockpit/src/teams/collaborator/TeamReportViews.tsx",
         "old": "sendMyTeamReport(teamId, reportId, chosen, shownVersion)",
         "new": "sendMyTeamReport(teamId, reportId, chosen, 1)",
+        "runs": [vitest("apps/cockpit", "src/teams/collaborator/reportsPage.test.tsx")],
+    },
+    "answers-left-live": {
+        "rule": "With answers off, the report's own controls are disabled, by the Gateway's flag (round-3 review R1).",
+        "file": "packages/client-core/src/devreports/DevReportViewer.tsx",
+        "old": "  return answers ? NO_NOTES_SCRIPT : DEV_REPORT_ANSWERS_OFF_SCRIPT;",
+        "new": "  return NO_NOTES_SCRIPT;",
+        "runs": [vitest("packages/client-core", "src/devreports/answersOffScript.test.ts"),
+                 vitest("apps/cockpit", "src/teams/collaborator/reportsPage.test.tsx")],
+    },
+    "send-write-checks-no-version": {
+        "rule": "The newest-version check is the send's own conditional write, not a read before it (round-3 review R2).",
+        "file": "src/CcDirector.Gateway/DevReports/DevReportRecipients.cs",
+        "old": "            .Where(r => r.Id == reportId && r.Version == version)\n",
+        "new": "            .Where(r => r.Id == reportId)\n",
+        "runs": [UNIT],
+    },
+    "page-marks-before-success": {
+        "rule": "A version is marked read on the page only once the Gateway accepted the read (round-3 review R3).",
+        "file": "apps/cockpit/src/teams/collaborator/TeamReportViews.tsx",
+        "old": "    markingVersion.current = version;\n    markReportRead(",
+        "new": "    markingVersion.current = version;\n    markedVersion.current = version;\n    markReportRead(",
         "runs": [vitest("apps/cockpit", "src/teams/collaborator/reportsPage.test.tsx")],
     },
     "rail-without-team-pages": {

@@ -27,15 +27,25 @@ internal sealed class DevReportRecipients
 
     /// <summary>
     /// Record that <paramref name="senderSubject"/> sent <paramref name="version"/> of the report to each of
-    /// <paramref name="recipientSubjects"/> (Tech Lead ruling F1: a send covers the VERSION SENT). A member not sent it
-    /// before gets a row holding that version. A member holding an EARLIER version is moved to this one: sent again now,
-    /// and unread again, because what they hold changed. A member already holding this version or a later one is left
-    /// exactly as they are - a send never moves anyone backwards - so a send can be repeated safely. The move is one
-    /// conditional update on the row (<c>where SentVersion &lt; version</c>), as every state change in
-    /// <see cref="DevReportStore"/> is, so two sends across a publish cannot move a person back whichever lands last
-    /// (delta review D7). Returns every recipient of the report afterwards, oldest send first.
+    /// <paramref name="recipientSubjects"/> (Tech Lead ruling F1: a send covers the VERSION SENT) - but only while that
+    /// version is still the report's newest (delta review D2, round-3 review R2).
+    ///
+    /// ONE DATABASE DECISION. The first statement of one transaction is a conditional write on the report's own row,
+    /// <c>update dev_reports set Version = Version where Id = report and Version = version</c>. It matches no row when a
+    /// publish has already committed a newer version - from this process or the other one during a deploy, which no
+    /// in-memory lock spans - and then nothing is written and the answer is <see cref="DevReportSendOutcome.Sent"/> false,
+    /// which the route answers 409. When it matches, it holds the report's row until the recipient rows are committed
+    /// with it, so a publish that lands meanwhile waits and becomes the NEXT version: the send took effect while its
+    /// version was the newest. A check read before the write could not say that (R2).
+    ///
+    /// A member not sent it before gets a row holding that version. A member holding an EARLIER version is moved to this
+    /// one: sent again now, and unread again, because what they hold changed. A member already holding this version or a
+    /// later one is left exactly as they are - a send never moves anyone backwards - by a conditional update on their row
+    /// (<c>where SentVersion &lt; version</c>, delta review D7). Two sends of the same report to the same new member at
+    /// once collide on the unique index; the loser's transaction is rolled back and run once more, when that member is
+    /// found and moved instead. A second failure is a fault and surfaces.
     /// </summary>
-    public IReadOnlyList<DevReportRecipientEntity> Send(TenantId team, Guid reportId, string senderSubject,
+    public DevReportSendOutcome Send(TenantId team, Guid reportId, string senderSubject,
         IReadOnlyCollection<string> recipientSubjects, int version, DateTime nowUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(senderSubject);
@@ -47,7 +57,34 @@ internal sealed class DevReportRecipients
         if (version < 1)
             throw new ArgumentOutOfRangeException(nameof(version), version, "A report version starts at 1.");
 
+        BeforeSendWriteForTests?.Invoke();
+        try { return SendOnce(team, reportId, senderSubject, recipientSubjects, version, nowUtc); }
+        catch (DbUpdateException ex)
+        {
+            FileLog.Write($"[DevReportRecipients] Send: report={reportId} lost a race with another send " +
+                          $"({ex.InnerException?.Message ?? ex.Message}); rolled back, running once more");
+            return SendOnce(team, reportId, senderSubject, recipientSubjects, version, nowUtc);
+        }
+    }
+
+    /// <summary>Runs after the caller has checked the version and before the send's transaction begins - so a test can
+    /// stand in for a publish landing in between (round-3 review R2). Null outside tests.</summary>
+    internal Action? BeforeSendWriteForTests { get; set; }
+
+    private DevReportSendOutcome SendOnce(TenantId team, Guid reportId, string senderSubject,
+        IReadOnlyCollection<string> recipientSubjects, int version, DateTime nowUtc)
+    {
         using var ctx = _db.CreateContext(team);
+        using var tx = ctx.Database.BeginTransaction();
+        var stillNewest = ctx.DevReports
+            .Where(r => r.Id == reportId && r.Version == version)
+            .ExecuteUpdate(set => set.SetProperty(r => r.Version, r => r.Version));
+        if (stillNewest != 1)
+        {
+            FileLog.Write($"[DevReportRecipients] Send: tenant={team.ToLogString()} report={reportId} version={version} is not the newest - nothing sent");
+            return new DevReportSendOutcome(false, RecipientsOf(team, reportId));
+        }
+
         var existing = ctx.DevReportRecipients.AsNoTracking()
             .Where(r => r.ReportId == reportId)
             .Select(r => r.RecipientSubject)
@@ -78,23 +115,10 @@ internal sealed class DevReportRecipients
             });
             added++;
         }
-        try
-        {
-            ctx.SaveChanges();
-        }
-        catch (DbUpdateException ex)
-        {
-            // Two sends of the same report to the same member at once (two Gateway processes during a deploy): the unique
-            // index refuses the second, and the row the first wrote is the answer when it holds this version or a later
-            // one. Any other failure leaves a recipient without what was sent, and that is thrown below rather than
-            // answered as sent.
-            FileLog.Write($"[DevReportRecipients] Send: report={reportId} write refused ({ex.InnerException?.Message ?? ex.Message}); re-reading");
-            var now = RecipientsOf(team, reportId).ToDictionary(r => r.RecipientSubject, r => r.SentVersion, StringComparer.Ordinal);
-            if (!recipientSubjects.All(s => now.TryGetValue(s, out var held) && held >= version))
-                throw;
-        }
+        ctx.SaveChanges();
+        tx.Commit();
         FileLog.Write($"[DevReportRecipients] Send: tenant={team.ToLogString()} report={reportId} version={version} added={added} moved={moved} of {recipientSubjects.Count}");
-        return RecipientsOf(team, reportId);
+        return new DevReportSendOutcome(true, RecipientsOf(team, reportId));
     }
 
     /// <summary>The recipient's row for the report - which version they hold - or null when it was not sent to them.</summary>
@@ -189,6 +213,13 @@ internal sealed class DevReportRecipients
         return DevReportReadMark.Read;
     }
 }
+
+/// <summary>
+/// What a send did. <paramref name="Sent"/> is false when the version named was no longer the report's newest at the
+/// moment of the write, and then nothing was written. <paramref name="Recipients"/> is everyone the report was sent to
+/// afterwards, oldest send first.
+/// </summary>
+internal sealed record DevReportSendOutcome(bool Sent, IReadOnlyList<DevReportRecipientEntity> Recipients);
 
 /// <summary>What marking a report read did.</summary>
 internal enum DevReportReadMark

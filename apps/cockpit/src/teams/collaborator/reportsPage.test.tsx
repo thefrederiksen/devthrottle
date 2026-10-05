@@ -25,7 +25,8 @@ vi.mock("@devthrottle/client-core/teams/teamReportsClient", async (importOrigina
   ...(await importOriginal<object>()),
   getReportsSentToMe: vi.fn(async () => client.received),
   getMyTeamReports: vi.fn(async () => client.own),
-  getReportSentToMe: vi.fn(async () => client.receivedDetail),
+  // A fresh object per read, as a real answer parsed from the wire is: the page must not depend on object identity.
+  getReportSentToMe: vi.fn(async () => (client.receivedDetail === null ? null : { ...(client.receivedDetail as object) })),
   getMyTeamReport: vi.fn(async () => client.ownDetail),
   markReportRead: vi.fn(async () => {}),
   commentOnReport: vi.fn(async (_t: string, _r: string, text: string) => {
@@ -69,6 +70,7 @@ vi.mock("@devthrottle/client-core/devreports/controller", () => ({
 }));
 
 import { GatewayError } from "@devthrottle/client-core/api/client";
+import { DEV_REPORT_ANSWERS_OFF_SCRIPT } from "@devthrottle/client-core/devreports/answersOffScript";
 import {
   commentOnReport,
   getMyTeamReport,
@@ -97,6 +99,7 @@ const RECEIVED_DETAIL: ReceivedReportDetail = {
   canComment: true,
   commentsNote: "Odd note: your comments go to soren@odd.example and never to an agent.",
   notesOpen: false,
+  answersOpen: false,
 };
 
 const OWN_DETAIL: OwnReportDetail = {
@@ -113,6 +116,7 @@ const OWN_DETAIL: OwnReportDetail = {
   comments: [{ id: "c9", from: "mike@odd.example", text: "A comment from Mike, for you", atUtc: "2026-10-02T11:00:00" }],
   commentsEmptyText: "Odd no comments 5",
   notesOpen: false,
+  answersOpen: false,
 };
 
 function Where() {
@@ -145,7 +149,24 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  setVisibility("visible");
 });
+
+// The page reads the Gateway again on its poll, and also when it becomes visible again after being hidden - which is
+// how a test asks for the next poll without waiting five seconds.
+let visibility: DocumentVisibilityState = "visible";
+Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+function setVisibility(next: DocumentVisibilityState) {
+  visibility = next;
+}
+async function nextPoll() {
+  await act(async () => {
+    setVisibility("hidden");
+    document.dispatchEvent(new Event("visibilitychange"));
+    setVisibility("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+}
 
 describe("the list", () => {
   it("List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent", async () => {
@@ -227,15 +248,35 @@ describe("a report sent to you", () => {
 
   it("Open_AVersionSentWhileOpen_IsMarkedWhenShown_AfterTheGatewayRefusedTheOlderOne", async () => {
     // The page read version 1; by the time its read lands, the author has sent version 2. The Gateway refuses the read
-    // with its own sentence; the page shows it, reads again, and marks version 2 - the one it now shows.
+    // with its own sentence; the page shows it, and its next poll brings version 2 - which it then marks.
     vi.mocked(getReportSentToMe).mockResolvedValueOnce(RECEIVED_DETAIL);
     client.receivedDetail = { ...RECEIVED_DETAIL, report: { ...RECEIVED.reports[0], version: 2 } };
     vi.mocked(markReportRead).mockRejectedValueOnce(new GatewayError(409, "moved", { reason: "Odd newer one sent 7" }));
     renderAt("/reports?report=r-new");
 
+    await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("team-report-comments").textContent).toContain("Odd newer one sent 7"));
+    await nextPoll();
     await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(2));
     expect(vi.mocked(markReportRead).mock.calls.map((c) => c[2])).toEqual([1, 2]);
-    expect(screen.getByTestId("team-report-comments").textContent).toContain("Odd newer one sent 7");
+  });
+
+  it("Open_AReadThatFailed_IsTriedAgainForTheSameVersion_OnTheNextPoll_AndNotAfterItSucceeded", async () => {
+    // Round-3 review R3: a version is marked done only once the Gateway accepted the read. A failure - here one the
+    // Gateway says may be retried - leaves it unmarked, and the next poll tries the SAME version again.
+    vi.mocked(markReportRead).mockRejectedValueOnce(new GatewayError(503, "down", { reason: "Odd try again 9" }));
+    renderAt("/reports?report=r-new");
+
+    await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByTestId("team-report-comments").textContent).toContain("Odd try again 9"));
+    await nextPoll();
+    await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(markReportRead).mock.calls.map((c) => c[2])).toEqual([1, 1]);
+
+    // It succeeded: a later poll, still answering the same version, does not post it a third time.
+    await nextPoll();
+    await nextPoll();
+    expect(markReportRead).toHaveBeenCalledTimes(2);
   });
 
   it("Open_AReportAlreadyRead_IsNotMarkedAgain", async () => {
@@ -286,12 +327,23 @@ describe("a report sent to you", () => {
     expect(screen.getByTestId("where").textContent).toBe("/reports");
   });
 
-  it("Open_TheGatewaySaysNotesAreOff_TheViewerGetsNoNotesScript_SoNoNoteOrAnswerControlExists", async () => {
+  it("Open_TheGatewaySaysNotesAndAnswersAreOff_TheFrameGetsOnlyTheScriptThatDisablesTheReportsOwnControls", async () => {
     renderAt("/reports?report=r-new");
 
     expect(await screen.findByTestId("dev-report-viewer")).toBeTruthy();
-    // The viewer is opened only after the Gateway answered, with that answer: no script runs in the frame at all.
+    // The viewer is opened only after the Gateway answered, with that answer: no notes script, and the report's own
+    // answer controls disabled (round-3 review R1; what that script does to them is proven in answersOffScript.test).
     expect(viewer.options).toHaveLength(1);
+    expect(viewer.options[0].script).toBe(DEV_REPORT_ANSWERS_OFF_SCRIPT);
+  });
+
+  it("Open_TheGatewaySaysAnswersAreOpen_TheReportsOwnControlsAreLeftLive", async () => {
+    // The flag is the Gateway's, so a later piece that lets a reader answer (devthrottle_internal#2307) turns it on
+    // there and this page follows; it never decides it.
+    client.receivedDetail = { ...RECEIVED_DETAIL, answersOpen: true };
+    renderAt("/reports?report=r-new");
+
+    expect(await screen.findByTestId("dev-report-viewer")).toBeTruthy();
     expect(viewer.options[0].script).toBe("");
   });
 
@@ -358,7 +410,7 @@ describe("one of your own reports", () => {
 
     expect((await screen.findByTestId("team-report-recipient-version")).textContent).toContain("Odd holds 2 of 3");
     expect(screen.getByTestId("team-report-send").textContent).toContain("Odd gets version 3");
-    expect(viewer.options[0].script).toBe("");
+    expect(viewer.options[0].script).toBe(DEV_REPORT_ANSWERS_OFF_SCRIPT);
   });
 
   it("Own_SentToNobody_SaysTheGatewaysWords", async () => {

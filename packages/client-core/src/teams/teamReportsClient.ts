@@ -58,6 +58,8 @@ export interface ReceivedReportDetail {
   commentsNote: string;
   /** Whether the report's own notes and answers are offered. The Gateway's answer; false for every team reader. */
   notesOpen: boolean;
+  /** Whether the answer controls in the report's own markup may be used. The Gateway's answer; false today. */
+  answersOpen: boolean;
 }
 
 /** One of this person's own reports on their list. */
@@ -119,6 +121,8 @@ export interface OwnReportDetail {
   commentsEmptyText: string;
   /** Whether the report's own notes and answers are offered. The Gateway's answer; false for every team reader. */
   notesOpen: boolean;
+  /** Whether the answer controls in the report's own markup may be used. The Gateway's answer; false today. */
+  answersOpen: boolean;
 }
 
 const base = (teamId: string) => `/teams/${encodeURIComponent(teamId)}/reports`;

@@ -325,6 +325,10 @@ internal sealed class TeamReports
                 ? TeamReportEndpoints.CommentsGoTo(NameOf(report.AuthorSubject, names))
                 : TeamReportEndpoints.AuthorCannotReceive,
             notesOpen = false,
+            // The report's own answer controls: off, so a reader cannot pick an answer that goes nowhere (round-3
+            // review R1). The Collaborator's Questions (devthrottle_internal#2307) turns this on for a question put to
+            // them; the page follows this flag and nothing else.
+            answersOpen = false,
         });
     }
 
@@ -478,14 +482,12 @@ internal sealed class TeamReports
             return TeamReportEndpoints.NotFound(TeamReportEndpoints.NoSuchOwnReport);
         if (memberIds.Count == 0)
             return TeamReportEndpoints.BadRequest("no_recipients", "Choose at least one person to send the report to.");
+        // Refused early when it is already stale. The decision that counts is the recipients store's own conditional
+        // write below, which is the moment the send takes effect (round-3 review R2).
         if (version != report.Version)
         {
             FileLog.Write($"[TeamReports] Send: team {Team(teamId).ToLogString()} report={report.Id} - page showed version {version}, newest is {report.Version}, REFUSED");
-            return Results.Json(new
-            {
-                error = TeamReportEndpoints.NotTheNewestVersion,
-                code = "version_not_newest",
-            }, statusCode: StatusCodes.Status409Conflict);
+            return NotTheNewest();
         }
 
         var members = Members(teamId, caller);
@@ -514,9 +516,19 @@ internal sealed class TeamReports
             subjects.Add(member.AccountSubject);
         }
 
-        _recipients.Send(Team(teamId), report.Id, caller, subjects, version, _utcNow());
+        if (!_recipients.Send(Team(teamId), report.Id, caller, subjects, version, _utcNow()).Sent)
+        {
+            FileLog.Write($"[TeamReports] Send: team {Team(teamId).ToLogString()} report={report.Id} - a newer version was published before the send took effect, REFUSED");
+            return NotTheNewest();
+        }
         return Results.Json(Describe(teamId, caller, report));
     }
+
+    private static IResult NotTheNewest() => Results.Json(new
+    {
+        error = TeamReportEndpoints.NotTheNewestVersion,
+        code = "version_not_newest",
+    }, statusCode: StatusCodes.Status409Conflict);
 
     // ---------------------------------------------------------------- shapes and helpers
 
@@ -567,6 +579,9 @@ internal sealed class TeamReports
                 .ToList(),
             sendNote = TeamReportEndpoints.SendNote,
             notesOpen = false,
+            // The author cannot answer their own agent here either (gap 2 in the proof README): off, so the report's own
+            // answer controls are drawn disabled rather than live and lost.
+            answersOpen = false,
             comments = _comments.To(team, report.Id, caller).Select(c => new
             {
                 id = c.Id.ToString("D"),
