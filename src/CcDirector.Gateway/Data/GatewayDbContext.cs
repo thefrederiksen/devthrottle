@@ -403,6 +403,7 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>Each request's trail - sent, and every change of state (<c>team_request_changes</c>,
     /// devthrottle_internal#2308). Tenant-scoped to the TEAM's tenant.</summary>
     public DbSet<TeamRequestChangeEntity> TeamRequestChanges => Set<TeamRequestChangeEntity>();
+
     /// <summary>The Mentor's weekly blocks, one per (team, ISO week, person) (<c>team_mentor_blocks</c>,
     /// devthrottle_internal#2305). Tenant-scoped: a team is a tenant.</summary>
     public DbSet<TeamMentorBlockEntity> TeamMentorBlocks => Set<TeamMentorBlockEntity>();

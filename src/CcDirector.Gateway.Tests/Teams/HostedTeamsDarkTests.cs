@@ -136,6 +136,7 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         }
         Assert.Null(_gateway.TeamRegistry.RoleOf(team, joiner));
     }
+
     [Fact]
     public async Task SwitchUnset_EveryRequestRouteIsAbsent_AndNothingIsSentOrChanged()
     {

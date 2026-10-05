@@ -8,8 +8,8 @@ using Xunit;
 namespace CcDirector.Gateway.Tests.Teams;
 
 /// <summary>
-/// The SQLite half of the team requests migration (devthrottle_internal#2308): it applies right after the team
-/// invitations, adds exactly the two tables, and its Down removes them again - the reversal the pull request names.
+/// The SQLite half of the team requests migration (devthrottle_internal#2308): it applies right after the message
+/// links, adds exactly the two tables, and its Down removes them again - the reversal the pull request names.
 /// The PostgreSQL half is <c>AddTeamRequestsPostgresTests</c> in the Gateway suite.
 /// </summary>
 public sealed class AddTeamRequestsMigrationTests

@@ -10,6 +10,7 @@ using CcDirector.Gateway.Api;
 using CcDirector.Core.Sessions;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Teams;
+using CcDirector.Gateway.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 using Xunit.Abstractions;
@@ -168,6 +169,51 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
         Assert.Equal(id, Assert.Single(mine.GetProperty("requests").EnumerateArray()).GetProperty("id").GetString());
     }
 
+    // ---- A Collaborator is a free seat: no plan of their own, and the routes still serve them ----------------------
+
+    /// <summary>
+    /// A Collaborator is a free seat (devthrottle_internal#2098), so the person this page is built for has, typically,
+    /// never paid for anything. Every other test here seeds a hosted entitlement on each person's own account; this one
+    /// enrols a Collaborator with the test seeding switched off, proves their account holds NO entitlement row at all,
+    /// and then sends a request and reads it back over the wire with that person's own browser key.
+    /// </summary>
+    [Fact]
+    public async Task ACollaboratorWithNoEntitlementOfTheirOwn_SendsAndReadsTheirRequests_OverTheWire()
+    {
+        var seed = _gateway.Devices.OnAccountBoundForTest;
+        _gateway.Devices.OnAccountBoundForTest = null;
+        Person unpaid;
+        try
+        {
+            var subject = $"sub-req-unpaid-{_run}";
+            var tenant = _gateway.TenantRegistry.MintOrLookupBySubject(subject, "una@client.example");
+            var key = _gateway.Devices.RegisterForTenant(tenant, subject, $"dev-req-unpaid-{_run}", "BROWSER", deviceType: "browser").DeviceKey;
+            unpaid = new Person(subject, "una@client.example", tenant, key);
+        }
+        finally
+        {
+            _gateway.Devices.OnAccountBoundForTest = seed;
+        }
+        // No entitlement row and no trial row: nothing was ever bought or started. The account therefore reads as the
+        // FREE plan, which is what any person who never paid is - free carries the hosted Gateway and nothing else.
+        using (var db = _gateway.GatewayDatabaseForTests.CreateUnscopedContext())
+        {
+            Assert.False(db.Entitlements.AsNoTracking().Any(e => e.Subject == unpaid.Subject));
+            Assert.False(db.AccountTrials.AsNoTracking().Any(t => t.Subject == unpaid.Subject));
+        }
+        Assert.Equal(new EntitlementDecision(EntitlementOutcome.Entitled, EntitlementRegistry.TierFree),
+            _gateway.EntitlementRegistry.Evaluate(unpaid.Subject, DateTime.UtcNow));
+        Assert.True(_gateway.TeamRegistry.AddMember(_team, unpaid.Subject, TeamRole.Collaborator).IsDone);
+
+        var (sent, sentBody) = await Call(HttpMethod.Post, $"teams/{_team}/requests", unpaid.Key, new { text = "Please add the region column" });
+        Assert.Equal(HttpStatusCode.Created, sent);
+        var id = sentBody.GetProperty("request").GetProperty("id").GetString();
+
+        var (read, mine) = await Call(HttpMethod.Get, $"teams/{_team}/requests/mine", unpaid.Key);
+        Assert.Equal(HttpStatusCode.OK, read);
+        Assert.Equal(id, Assert.Single(mine.GetProperty("requests").EnumerateArray()).GetProperty("id").GetString());
+    }
+
     // ---- Test 2 of #2308: each state change is shown to the Collaborator who sent it, with the reason ------------
 
     [Fact]
@@ -261,9 +307,11 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
     /// request is marked Done. Then, on what the sessions ACTUALLY receive:
     ///
     /// <list type="bullet">
-    /// <item>no command the Gateway sent either Director - of any verb - carries either marker;</item>
+    /// <item>no command the Gateway sent either Director - of any verb - carries either marker, and the only prompts are
+    /// one ordinary control prompt per session, which must arrive (so the recorder is seen to fill);</item>
     /// <item>neither session's fleet inbox, read with the session's own key, carries either marker;</item>
-    /// <item>every request route refuses each session's key and each Director's device key, and nothing changes.</item>
+    /// <item>every request route refuses each session's key (the session-key guard) and each Director's device key (the
+    /// routes' own person-only check), and nothing changes.</item>
     /// </list>
     ///
     /// And the whole Gateway database and the Gateway's log: the marker IS in the request tables (so the sweep can
@@ -322,7 +370,15 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
             // stored requests do not move.
             foreach (var (directorKey, sessionKey, _) in sessions)
             {
-                foreach (var key in new[] { sessionKey, directorKey })
+                // Which check refuses each key is pinned, not only the status: a session key is stopped by the
+                // session-key guard before it reaches a team route, and a Director key by the request routes' OWN
+                // person-only check - so if anything else ever answered first, the routes' check would go unexercised
+                // and this would go red.
+                foreach (var (key, expectedCode) in new[]
+                         {
+                             (sessionKey, "session_key_out_of_scope"),
+                             (directorKey, TeamRequestEndpoints.PersonOnlyCode),
+                         })
                 {
                     foreach (var (method, path, body) in new (HttpMethod, string, object?)[]
                              {
@@ -335,7 +391,7 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
                              })
                     {
                         var (status, refusal) = await Call(method, path, key, body);
-                        Assert.Equal(HttpStatusCode.Forbidden, status);
+                        Assert.Equal((HttpStatusCode.Forbidden, expectedCode), (status, refusal.GetProperty("code").GetString()));
                         Assert.DoesNotContain(marker, refusal.ToString(), StringComparison.Ordinal);
                     }
                 }
@@ -355,15 +411,31 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
             using (var ctx = _gateway.GatewayDatabaseForTests.CreateContext(new TenantId(_team)))
                 Assert.Equal(2, ctx.TeamRequests.Count());
 
+            // THE POSITIVE CONTROL. An absence in the recorder means nothing unless the recorder can be seen to fill: each
+            // session's own person types one ordinary prompt into it, over the same tunnel anything else would take.
+            // Each control prompt must arrive, carrying its text - so the recorder is live and the tunnel delivers -
+            // and they must be the ONLY prompts.
+            var controls = new List<string>();
+            foreach (var (person, (_, _, sessionId)) in new[] { _owner, _manager }.Zip(sessions))
+            {
+                var control = "CONTROL-PROMPT-" + Guid.NewGuid().ToString("N");
+                controls.Add(control);
+                var (promptStatus, _) = await Call(HttpMethod.Post, $"sessions/{sessionId}/prompt", person.Key, new PromptRequest { Text = control });
+                Assert.Equal(HttpStatusCode.OK, promptStatus);
+            }
+
             // Give anything the Gateway might have queued for an idle session time to go out, then read what did.
             await Task.Delay(TimeSpan.FromSeconds(2));
             _output.WriteLine($"commands sent to the Directors: {commands.Count} ({string.Join(", ", commands.Select(c => c.Verb))})");
+            var prompts = commands.Where(c => c.Verb == "prompt").Select(c => c.PayloadJson).ToList();
+            Assert.Equal(controls.Count, prompts.Count);
+            foreach (var control in controls)
+                Assert.Single(prompts, p => p.Contains(control, StringComparison.Ordinal));
             foreach (var cmd in commands)
             {
                 Assert.DoesNotContain(marker, cmd.PayloadJson, StringComparison.Ordinal);
                 Assert.DoesNotContain(reasonMarker, cmd.PayloadJson, StringComparison.Ordinal);
             }
-            Assert.DoesNotContain(commands, c => c.Verb == "prompt");
         }
         finally
         {

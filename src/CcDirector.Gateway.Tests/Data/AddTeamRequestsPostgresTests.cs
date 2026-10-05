@@ -10,7 +10,7 @@ namespace CcDirector.Gateway.Tests.Data;
 
 /// <summary>
 /// The PostgreSQL half of the team requests tables (devthrottle_internal#2308): <c>AddTeamRequests</c> applies to a
-/// real PostgreSQL database right after <c>AddTeamInvitations</c>, a trail step cannot name a request that does not
+/// real PostgreSQL database right after <c>AddFleetMessageLinks</c>, a trail step cannot name a request that does not
 /// exist, deleting a request removes its trail (the foreign key cascades), and the migration's Down removes both
 /// tables again - the reversal the pull request names.
 ///
@@ -109,7 +109,7 @@ public sealed class AddTeamRequestsPostgresTests
         Scalar("DELETE FROM gateway.team_requests WHERE id = '" + RequestOne + "';");
         Assert.Equal("0", Scalar("SELECT count(*) FROM gateway.team_request_changes"));
 
-        // The reversal: migrating back to AddTeamInvitations removes both tables, and forward again restores them.
+        // The reversal: migrating back to AddFleetMessageLinks removes both tables, and forward again restores them.
         using (var ctx = NewContext())
         {
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
