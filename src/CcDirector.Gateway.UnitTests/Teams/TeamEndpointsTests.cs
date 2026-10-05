@@ -159,6 +159,68 @@ public sealed class TeamEndpointsTests : IDisposable
         Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path, raised: true).Allowed);
     }
 
+    private TeamCallerOwnership Ownership(Discovery.DirectorRegistry directors)
+    {
+        var devices = new DeviceRegistry(_db);
+        return new TeamCallerOwnership(directors, new Streaming.PushedSessionStore(), devices, new CcDirector.Gateway.History.SessionTurnStore(_db),
+            new HostedTenantBoundary(new SingleTenantContext(), devices));
+    }
+
+    private TeamFleetMap NewFleetMap(out Discovery.DirectorRegistry directors)
+    {
+        directors = new Discovery.DirectorRegistry(Path.Combine(Path.GetTempPath(), "cc-teamep-" + Guid.NewGuid().ToString("N")));
+        return new TeamFleetMap(_teams, new TeamAccess(_teams), directors, Ownership(directors),
+            new Streaming.PushedSessionStore());
+    }
+
+    [Fact]
+    public async Task ReadFleetMap_AMember_Answers200WithTheAllowListOnly()
+    {
+        _tenants.MintOrLookupBySubject(Alice, "alice@example.com");
+        var team = _teams.CreateTeam(Alice, "DevThrottle").Team!;
+        var map = NewFleetMap(out var directors);
+        using var _ = directors;
+
+        var (status, body) = await RenderAsync(TeamEndpoints.ReadFleetMap(map, Alice, team.TeamId));
+
+        Assert.Equal(200, status);
+        Assert.Equal("DevThrottle", body.GetProperty("teamName").GetString());
+        Assert.Equal("Owner", body.GetProperty("role").GetString());
+        Assert.Equal("everyone", body.GetProperty("scope").GetString());
+        Assert.Equal(new[] { "emptyText", "layouts", "people", "role", "scope", "summary", "teamId", "teamName" },
+            body.EnumerateObject().Select(p => p.Name).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public async Task ReadFleetMap_ACollaborator_Answers403WithTheRoleTablesSentence()
+    {
+        var team = _teams.CreateTeam(Alice, "DevThrottle").Team!;
+        Assert.True(_teams.AddMember(team.TeamId, Bob, TeamRole.Collaborator).IsDone);
+        var map = NewFleetMap(out var directors);
+        using var _ = directors;
+
+        var (status, body) = await RenderAsync(TeamEndpoints.ReadFleetMap(map, Bob, team.TeamId));
+
+        Assert.Equal(403, status);
+        Assert.Equal(TeamEndpointGate.RefusalCode, body.GetProperty("code").GetString());
+        Assert.Contains("Collaborator may not see the team's Fleet Map", body.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task ReadFleetMap_ANonMemberOrAnUnknownTeam_Answers404WithOneMessage()
+    {
+        var team = _teams.CreateTeam(Alice, "DevThrottle").Team!;
+        var map = NewFleetMap(out var directors);
+        using var _ = directors;
+
+        foreach (var teamId in new[] { team.TeamId, Guid.NewGuid().ToString(), null })
+        {
+            var (status, body) = await RenderAsync(TeamEndpoints.ReadFleetMap(map, Bob, teamId));
+            Assert.Equal(404, status);
+            Assert.Equal(TeamEndpoints.NoSuchTeamRefusal, body.GetProperty("error").GetString());
+        }
+    }
+
     private static async Task<(int Status, JsonElement Body)> RenderAsync(IResult result)
     {
         var provider = new ServiceCollection().AddLogging().AddOptions().BuildServiceProvider();

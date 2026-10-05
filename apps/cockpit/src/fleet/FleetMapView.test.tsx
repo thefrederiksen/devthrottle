@@ -56,6 +56,28 @@ const LEGEND = {
   verdictNote: "Some colours need the verdicts switched on.",
 };
 
+// The current team (devthrottle_internal#2312). The person's own account (null) is the map these tests are about; a
+// team on screen swaps in the team map, stubbed here - it has its own tests (TeamFleetMapView.test).
+const currentTeam = vi.hoisted(() => ({
+  value: null as null | { id: string; name: string; role: string; memberCount: number; people: string },
+  resolving: false,
+  status: "ready" as string,
+  error: null as string | null,
+}));
+vi.mock("@devthrottle/client-core/teams/CurrentTeam", () => ({
+  useCurrentTeam: () => ({
+    status: currentTeam.status,
+    teams: [],
+    current: currentTeam.value,
+    resolving: currentTeam.resolving,
+    error: currentTeam.error,
+    choose: () => {},
+  }),
+}));
+vi.mock("./TeamFleetMapView", () => ({
+  TeamFleetMapView: ({ team }: { team: { name: string } }) => <div data-testid="team-map-stub">{team.name}</div>,
+}));
+
 import { FleetMapView } from "./FleetMapView";
 import { resetCrewExpandedForTests } from "@devthrottle/client-core/sessions/tree";
 
@@ -86,6 +108,10 @@ function director(overrides: Partial<DirectorReachability> = {}): DirectorReacha
 
 beforeEach(() => {
   window.localStorage.clear();
+  currentTeam.value = null;
+  currentTeam.resolving = false;
+  currentTeam.status = "ready";
+  currentTeam.error = null;
   // jsdom has no ResizeObserver; a no-op stub is enough for the Canvas layout effect.
   globalThis.ResizeObserver = class {
     observe() {}
@@ -498,5 +524,58 @@ describe("FleetMapView - what the colours mean", () => {
     await screen.findByText(LEGEND.entries[2].means);
     const dot = container.querySelector(".fmap-card .fmap-dot") as HTMLElement;
     expect(dot.getAttribute("title")).toBe("Nothing needed from you: Monitor fix round 2 progress");
+  });
+});
+
+// devthrottle_internal#2312: the Fleet Map shows ONE team at a time, the one picked in the switcher.
+describe("FleetMapView and the current team", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("FleetMapView_OwnAccount_ShowsTheOwnFleetExactlyAsBefore", () => {
+    currentTeam.value = null;
+    rosterValue.current = { ...rosterValue.current, sessions: [session({ name: "my own work" })] };
+
+    render(<FleetMapView />);
+
+    expect(screen.queryByTestId("team-map-stub")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Fleet Map" })).toBeTruthy();
+  });
+
+  it("FleetMapView_ATeamOnScreen_ShowsThatTeamsMapInstead", () => {
+    currentTeam.value = { id: "t1", name: "DevThrottle", role: "Manager", memberCount: 4, people: "4 people" };
+    rosterValue.current = { ...rosterValue.current, sessions: [session({ name: "my own work" })] };
+
+    render(<FleetMapView />);
+
+    expect(screen.getByTestId("team-map-stub").textContent).toBe("DevThrottle");
+    // The person's own fleet is not drawn under it.
+    expect(screen.queryByText("my own work")).toBeNull();
+  });
+
+  // Review finding F3 of pull request 1: a remembered team the Gateway has not confirmed yet is not the own account.
+  it("FleetMapView_ARememberedTeamNotYetConfirmed_ShowsNeitherMap", () => {
+    currentTeam.resolving = true;
+    currentTeam.status = "loading";
+    rosterValue.current = { ...rosterValue.current, sessions: [session({ name: "my own work" })] };
+
+    render(<FleetMapView />);
+
+    expect(screen.getByTestId("fleet-map-resolving").textContent).toContain("Reading your teams...");
+    expect(screen.queryByText("my own work")).toBeNull();
+    expect(screen.queryByTestId("team-map-stub")).toBeNull();
+  });
+
+  it("FleetMapView_ARememberedTeamAndTheReadFailed_SaysWhy_AndShowsNeitherMap", () => {
+    currentTeam.resolving = true;
+    currentTeam.status = "error";
+    currentTeam.error = "Can't reach the Gateway - retrying.";
+    rosterValue.current = { ...rosterValue.current, sessions: [session({ name: "my own work" })] };
+
+    render(<FleetMapView />);
+
+    expect(screen.getByTestId("fleet-map-resolving").textContent).toContain("Can't reach the Gateway");
+    expect(screen.queryByText("my own work")).toBeNull();
   });
 });
