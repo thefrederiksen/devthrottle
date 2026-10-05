@@ -2412,7 +2412,9 @@ public sealed class GatewayHost : IAsyncDisposable
                                  : new History.DirectorFacts(d.MachineName, d.Version);
             },
             _knownRepositories,
-            personOf: TeamSessionPersonOf);
+            personOf: TeamSessionPersonOf,
+            // In a team, a session's history row is written and ended only by its own Director (#3552).
+            acceptsReport: (tenant, sid, directorId, isRemoval) => IsTeamSessionOfDirector(tenant, directorId, sid, isRemoval));
         // The one-repository-list mission, phase 2. The machine name comes from the Director REGISTRATION -
         // the same Registry.Get the read side's GET /directors/{id}/known-repositories resolves its machine
         // from - so the end that writes the rows and the end that reads them agree on one string. Writing

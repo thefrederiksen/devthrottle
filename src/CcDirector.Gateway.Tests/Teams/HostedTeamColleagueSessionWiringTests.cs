@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Teams;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Teams;
@@ -114,6 +115,50 @@ public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
 
         Assert.NotNull(await WaitFor(_seenByOwner, "screen-grid"));
         Assert.Null(await WaitFor(_seenByColleague, "screen-grid", seconds: 3));
+    }
+
+    /// <summary>
+    /// After #3551 the session history row of a team session carries its person, from the Director that pushed it. A
+    /// colleague's Director that lists another person's session id must not write that row: not take it over under its
+    /// own Director, not end it by dropping the id, and not stamp it with its own person by listing the id first - which
+    /// would also keep the real person's first prompt off it, since the first-prompt line goes only to a row of the
+    /// prompt's own person. The recorder takes a session's row only from the Director the one team rule says it is.
+    /// </summary>
+    [Fact]
+    public async Task ASessionsHistoryRow_IsWrittenOnlyByItsOwnDirector_NeverByAColleagueWhoListsItsId()
+    {
+        // Set up above: Bob's Director listed the session, then Alice's listed the same id. PRESENCE: the row is Bob's.
+        var row = HistoryRow(_sessionId);
+        Assert.NotNull(row);
+        Assert.Equal(OwnerDirector, row!.DirectorId);
+        Assert.Equal(_bob, row.PersonSubject);
+
+        // Alice's Director removes the id, then drops it from its roster: neither ends Bob's row.
+        await _colleague.RemoveSessionAsync(_sessionId);
+        row = HistoryRow(_sessionId);
+        Assert.Null(row!.EndedAtUtc);
+        await _colleague.PushSnapshotAsync();
+        row = HistoryRow(_sessionId);
+        Assert.Equal(OwnerDirector, row!.DirectorId);
+        Assert.Null(row.EndedAtUtc);
+
+        // A second session of Bob's, whose id Alice's Director lists FIRST: the row is still stamped with Bob.
+        var second = Guid.NewGuid().ToString();
+        _gateway.SeedStoredConversationForTest(_team, OwnerDirector, second, ("User", "ask"), ("Assistant", "answered"));
+        await _colleague.PushSnapshotAsync(Row(second, "Working"));
+        Assert.Null(HistoryRow(second));
+        await _owner.PushSnapshotAsync(Row(_sessionId, "Working"), Row(second, "Working"));
+        row = HistoryRow(second);
+        Assert.NotNull(row);
+        Assert.Equal(OwnerDirector, row!.DirectorId);
+        Assert.Equal(_bob, row.PersonSubject);
+    }
+
+    /// <summary>The session's history row as its own tenant reads it, or null.</summary>
+    private CcDirector.Gateway.Data.Entities.SessionHistoryEntity? HistoryRow(string sessionId)
+    {
+        using var ctx = _gateway.GatewayDatabaseForTests.CreateContext(_team);
+        return ctx.SessionHistory.AsNoTracking().SingleOrDefault(e => e.SessionId == sessionId);
     }
 
     private string TeamKey(string team, string subject, string directorId) =>

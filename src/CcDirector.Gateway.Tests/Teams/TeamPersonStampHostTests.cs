@@ -70,14 +70,20 @@ public sealed class TeamPersonStampHostTests
         return identity;
     }
 
+    /// <summary>The Director lists the session, then the recorder sees it - the hub's own order (it applies a push to the
+    /// roster before the recorder observes it). In a team the recorder writes a session's row only from the Director the
+    /// one team rule says it belongs to (#3552), and a session no Director lists is nobody's.</summary>
     private static void Observe(GatewayHost gateway, TenantId tenant, string directorId, string sessionId)
     {
-        using var scope = gateway.TenantBoundaryForTests.EnterScope(tenant);
-        gateway.SessionHistoryRecorderForTests.Observe(tenant, directorId, new SessionDto
+        var session = new SessionDto
         {
             SessionId = sessionId, Number = 1, RepoPath = @"D:\repos\acme", RepoName = "acme/acme", Agent = "ClaudeCode",
             MachineName = "", CreatedAt = DateTime.UtcNow.AddMinutes(-5), ActivityState = "Working", Status = "Running",
-        });
+        };
+        gateway.PushedSessions.RegisterConnection(tenant, directorId, "conn-" + directorId);
+        Assert.True(gateway.PushedSessions.ApplySnapshot(tenant, directorId, "conn-" + directorId, 1, new[] { session }));
+        using var scope = gateway.TenantBoundaryForTests.EnterScope(tenant);
+        gateway.SessionHistoryRecorderForTests.Observe(tenant, directorId, session);
     }
 
     /// <summary>The row as its own tenant sees it. <c>session_history</c> is tenant-scoped, so it is read through that
