@@ -307,3 +307,21 @@ Details in step2-team-bill.md.
         Together 9,050 passed, 0 failed.
       .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
       The revert proofs and the S2-F7 run above were made before the rebase; the code they mutate is unchanged by it.
+
+28. #3552 review round 3 (reviews/review-2311-step2.md "Round 3", rulings-2311-step2-review3.md). Fix commit 82b85d59c,
+    rebased onto origin/main b7e12f84b (#3539), no conflict; Gateway.UnitTests and Gateway.Tests both build.
+    New tests: 6 passed (S2-F8 x3, S2-F9 x1, S2-F10 x2 cases).
+    Revert proofs (one at a time; build checked; whole CcDirector.Gateway.Tests.Teams namespace, 999 tests, 3 skipped;
+    restored by trap, empty diff). Baseline: Passed 996, Skipped 3.
+      S2-F8   roster half never refuses                     Failed 1 of 999  AColleaguesDirector_RegisteringASessionKey... (the reproduction)
+      S2-F8   stored-rows half never refuses                Failed 1 of 999  ASessionKey_ForAnIdWithRowsAnotherPersonsDirectorWrote_...
+      S2-F8   the whole registration check removed          Failed 2 of 999  both of the above
+      S2-F10  database suffix match back in the revoke      Failed 1 of 999  SettingOneDirectorUpAgain_... (non-ASCII case)
+    (The revert proofs ran before the rebase onto #3539; the code they mutate is unchanged by it.)
+    On the rebased head:
+      Gateway.UnitTests in full, two halves: Half A Passed 3760, Skipped 4; Half B Passed 5323, Skipped 8.
+        Together 9,083 passed, 0 failed.
+      .\scripts\test-local.ps1 (default gate): first run every suite passed and every outcome=Completed, but RESULT
+        "OVER BUDGET": Core.UnitTests ran 1 m 51 s on a loaded machine (this change does not touch Core). Rerun:
+        RESULT: all projects exited zero; every suite outcome=Completed (Core.UnitTests 1 m 20 s); 3,601 tests.
+      Gateway.Tests: built, not run (by instruction).

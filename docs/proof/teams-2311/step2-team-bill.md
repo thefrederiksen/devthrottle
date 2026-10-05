@@ -180,6 +180,33 @@ Build succeeded.
 [restored] Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 4 s - CcDirector.Gateway.Tests.dll (net10.0)
 ```
 
+## #3552 review round 3
+
+Rulings: `rulings-2311-step2-review3.md`. Fix commit 82b85d59c, on origin/main b7e12f84b (#3539).
+
+| Finding | Test | On 73fcc561e | On the new head |
+|---|---|---|---|
+| S2-F8 | `TeamDirectorTunnelTests.AColleaguesDirector_RegisteringASessionKeyForAnIdAnotherDirectorLists_IsRefused_AndTheOwnersKeyMakesItTheirs` (the reviewer's first round-3 reproduction, turned round) | fails (Alice's key row is written) | PASS |
+| S2-F8 | `ASessionKey_ForAnIdWithRowsAnotherPersonsDirectorWrote_IsRefused_EvenWhenNobodyListsIt` | fails | PASS |
+| S2-F8 | `ASessionKey_RegisteredBeforeTheRoster_AfterTheRoster_OrAgainAfterAReconnect_IsAccepted` - the honest orders | PASS | PASS |
+| S2-F9 | `TheDirectorIdTakenRefusal_TellsThePersonWhatToDo` | fails (old text) | PASS |
+| S2-F10 | `SettingOneDirectorUpAgain_UnderItsIdInAnotherLetterCase_RevokesThePersonsFirstKey` (ASCII and non-ASCII) | the non-ASCII case fails | PASS |
+
+"Fails on 73fcc561e" was shown by putting each old behaviour back on the new head, one at a time, on a build that
+succeeded, with the whole `CcDirector.Gateway.Tests.Teams` namespace run (999 tests, 3 skipped), restored by a trap and
+checked for an empty diff:
+
+- S2-F8, the roster half never refuses: Failed 1 of 999, the reproduction.
+- S2-F8, the stored-rows half never refuses: Failed 1 of 999, the stored-rows test.
+- S2-F8, the whole registration check removed: Failed 2 of 999, both.
+- S2-F10, the database suffix match back in `RevokeOtherKeysOfDirector`: Failed 1 of 999, the non-ASCII case. The ASCII
+  case passes against it on SQLite, which is why the non-ASCII case is there.
+
+What holds the key row up now: in a team, only a Director whose roster alone lists the id, and that wrote nothing of
+another person's, may write it. The Director half - sending keys before the roster on a reseed
+(`GatewayStreamClient.ReseedAsync`, roster at line 724, keys from line 742, `RegisterSessionKey` at 787) - is a
+follow-up outside this pull request; with the Gateway refusing, it narrows a delay, not a harm.
+
 ## Schema
 
 None. No table, column or index added; no migration. The team bill table is the website's; the Gateway.Tests helper
