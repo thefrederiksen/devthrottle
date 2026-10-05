@@ -80,6 +80,7 @@ function week(overrides: Partial<MentorPage>): MentorAnswer {
       timeZone: "Europe/Copenhagen",
       scope: "everyone",
       written: true,
+      writingNote: null,
       blocks: [ROB_BLOCK],
       readers: READERS,
       ...overrides,
@@ -232,6 +233,25 @@ describe("MentorView", () => {
     await waitFor(() => expect(screen.getByText("No block was written for you this week.")).toBeTruthy());
     expect(blocks()).toHaveLength(0);
     expect(screen.getByTestId("mentor-page").textContent ?? "").not.toMatch(/ran sessions|no sessions/i);
+  });
+
+  it("MentorView_AWeekStillBeingWritten_ShowsTheBlocksSoFar_UnderTheGatewaysLine", async () => {
+    // Review H1: written false WITH blocks - the Mentor saved some blocks and is waiting on its model for someone else.
+    const line = "The Mentor is still writing this week. More blocks may follow.";
+    stage("default", week({ written: false, writingNote: line }));
+    renderAs(onTeam());
+
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    expect(screen.getByTestId("mentor-writing-note").textContent).toBe(line);
+    expect(screen.queryByText("The Mentor has not written this week yet.")).toBeNull();
+  });
+
+  it("MentorView_AWrittenWeek_ShowsNoStillWritingLine", async () => {
+    stage("default", week({}));
+    renderAs(onTeam());
+
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    expect(screen.queryByTestId("mentor-writing-note")).toBeNull();
   });
 
   it("MentorView_UnwrittenWeek_SaysSoAndRendersNoBlock", async () => {

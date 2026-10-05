@@ -43,6 +43,7 @@ block is about the person reading it.
   "timeZone": "UTC",
   "scope": "everyone",
   "written": true,
+  "writingNote": null,
   "readers": [
     { "email": "olivia@example.com", "role": "Owner" },
     { "email": "priya@example.com", "role": "Manager" }
@@ -71,10 +72,14 @@ Field rules - every one of them decided on the Gateway; a client renders, it doe
 
 - `scope` - `"everyone"` for an Owner or Manager, `"own"` for a Developer. The heading a client shows is its own
   layout choice; who is in `blocks` is already decided.
-- `written` - whether the Mentor run for this team and week has happened. `false` with empty `blocks` means "not
-  written yet"; `true` with empty `blocks` means "no block was written for you this week" (or, on an Owner's or
+- `written` - whether the Mentor run for this team and week has finished. `false` with empty `blocks` means "not
+  written yet". `false` WITH blocks means "still being written": the Mentor has stored some blocks and is still
+  waiting on its model for someone else (it tries again until the following week closes). The blocks so far are
+  served, and `writingNote` carries the line to show above them; `true` with empty `blocks` means "no block was written for you this week" (or, on an Owner's or
   Manager's page, for anyone). It does NOT say why: no sessions, no prompts, an answer the Gateway refused or a model
   that could not be reached all look the same here, so a page must not say which. No per-person reason is shown.
+- `writingNote` - the Gateway's line for a week still being written ("The Mentor is still writing this week. More
+  blocks may follow."), shown above the blocks as given. `null` in every other case.
 - `readers` - who reads every block of this team: the Owner, then the Managers, each by email and role, ordered by
   the Gateway (role, then email). The same list for every caller - it is what S7's "your Manager reads this same
   page" shows. A member with no email on record is listed with `email: null`.

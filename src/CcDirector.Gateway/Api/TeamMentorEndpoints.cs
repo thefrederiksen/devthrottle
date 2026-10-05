@@ -32,6 +32,10 @@ internal static class TeamMentorEndpoints
     /// <summary>What a week that is not an ISO week is told.</summary>
     internal const string BadWeekRefusal = "The week must be an ISO week such as 2026-W40.";
 
+    /// <summary>The line a page shows above the blocks of a week the Mentor has started and not finished (review H1):
+    /// some blocks are stored, and the run is still waiting on the model for someone else.</summary>
+    internal const string StillWritingNote = "The Mentor is still writing this week. More blocks may follow.";
+
     /// <summary>Maps the route.</summary>
     public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, TeamAccess access, TeamMentorStore store,
         HostedTenantBoundary boundary, TenantRegistry tenants, Func<TenantId, string> timeZoneOf, Func<DateTime>? now = null)
@@ -117,6 +121,10 @@ internal static class TeamMentorEndpoints
             .ToList();
 
         var scope = everyone.Allowed ? "everyone" : "own";
+        // A week the writer has started but not marked run - it saved some blocks and is still waiting on the model
+        // for someone else - is served as it stands: the blocks so far, and the Gateway's line saying so.
+        var written = store.HasRun(team, week);
+        var writingNote = !written && blocks.Count > 0 ? StillWritingNote : null;
         FileLog.Write($"[TeamMentorEndpoints] GET {Route}: week={week} scope={scope} blocks={blocks.Count}");
         return Results.Json(new
         {
@@ -126,7 +134,8 @@ internal static class TeamMentorEndpoints
             weekEnd = week.End.ToString("yyyy-MM-dd"),
             timeZone = zone.Id,
             scope,
-            written = store.HasRun(team, week),
+            written,
+            writingNote,
             readers = Readers(members.Values),
             blocks,
         });

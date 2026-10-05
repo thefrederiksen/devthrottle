@@ -14,6 +14,7 @@
 .mentor-week-label { color: var(--text); font-size: 14px; }
 
 .mentor-blocks { display: flex; flex-direction: column; gap: 14px; }
+.mentor-writing-note { margin: 0; color: var(--text-dim); font-size: 13px; }
 
 .mentor-block {
   background: var(--surface);

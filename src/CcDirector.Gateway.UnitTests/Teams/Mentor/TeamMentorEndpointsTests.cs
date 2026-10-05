@@ -228,6 +228,42 @@ public sealed class TeamMentorEndpointsTests : IDisposable
         Assert.Equal(200, status);
         Assert.False(page.GetProperty("written").GetBoolean());
         Assert.Equal(0, page.GetProperty("blocks").GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, page.GetProperty("writingNote").ValueKind);
+    }
+
+    [Fact]
+    public async Task Read_AWeekTheWriterLeftUnfinished_ServesTheBlocksSoFar_WithTheStillWritingLine()
+    {
+        // Review H1: the model answers for Rob and cannot be reached for Dana, so the writer saves Rob's block and
+        // leaves the week unmarked for a later tick.
+        _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
+        _rig.SessionOf(MentorRig.Dana, MentorRig.InWeek(1), "s-dana");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1), "rob's prompt");
+        _rig.PromptOf(MentorRig.Dana, MentorRig.InWeek(1), "dana's prompt");
+        _rig.Brain.Answer = prompt => prompt.Contains("dana's prompt", StringComparison.Ordinal)
+            ? throw new HttpRequestException("down")
+            : FakeBrain.GoodWeek();
+        var run = await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
+        Assert.Equal(1, run.Unfinished);
+
+        var (status, page) = await RenderAsync(Read(MentorRig.Manager));
+
+        Assert.Equal(200, status);
+        Assert.False(page.GetProperty("written").GetBoolean());
+        Assert.Equal(new[] { "rob.keller@example.com" },
+            page.GetProperty("blocks").EnumerateArray().Select(b => b.GetProperty("personEmail").GetString()));
+        Assert.Equal(TeamMentorEndpoints.StillWritingNote, page.GetProperty("writingNote").GetString());
+    }
+
+    [Fact]
+    public async Task Read_AWrittenWeek_CarriesNoStillWritingLine()
+    {
+        await WriteTheWeekAsync();
+
+        var (_, page) = await RenderAsync(Read(MentorRig.Manager));
+
+        Assert.True(page.GetProperty("written").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, page.GetProperty("writingNote").ValueKind);
     }
 
     [Fact]

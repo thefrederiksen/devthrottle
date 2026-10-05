@@ -16,7 +16,7 @@
 //   - anything else (a week the Gateway calls invalid, a fault, a body that is not the contract) is thrown.
 //
 // AN ANSWER THAT BREAKS THE CONTRACT IS THROWN, NEVER DRAWN AS A GUESS (review of devthrottle#3538, F3 and F4): an
-// unknown tone, a date that is not a date, quotes the contract does not allow, blocks in an unwritten week, more than
+// unknown tone, a date that is not a date, quotes the contract does not allow, more than
 // one block on a person's own page, or nobody listed as reading the page. Each would otherwise reach the screen as
 // something plausible - above all "nobody else reads this", composed from an absence.
 import { authHeaders, gatewayFetch, GatewayError } from "../api/client";
@@ -73,6 +73,9 @@ export interface MentorPage {
   /** Whether the Mentor's run for this team and week has happened. Written with no block for someone does not say
    *  why - the Gateway does not tell, so a page must not guess. */
   written: boolean;
+  /** The Gateway's line for a week still being written - `written` false WITH blocks: the blocks so far are shown
+   *  under it. null otherwise. Shown as given. */
+  writingNote: string | null;
   blocks: MentorBlock[];
   /** Who else reads the caller's page, in the Gateway's order. */
   readers: MentorReader[];
@@ -167,6 +170,7 @@ function readPage(raw: unknown): MentorPage {
     !isText(p.timeZone) ||
     !isText(p.scope) ||
     typeof p.written !== "boolean" ||
+    !isTextOrNull(p.writingNote) ||
     !Array.isArray(p.blocks) ||
     !Array.isArray(p.readers)
   ) {
@@ -182,9 +186,6 @@ function readPage(raw: unknown): MentorPage {
       502,
       `${UNREADABLE}: week ${p.week} is not the Monday ${p.weekStart} to the Sunday ${p.weekEnd}.`,
     );
-  }
-  if (!p.written && p.blocks.length > 0) {
-    throw new GatewayError(502, `${UNREADABLE}: it has blocks for a week the Mentor has not written.`);
   }
   if (p.scope === "own" && p.blocks.length > 1) {
     throw new GatewayError(502, `${UNREADABLE}: a person's own page holds more than one block.`);
@@ -207,6 +208,7 @@ function readPage(raw: unknown): MentorPage {
     timeZone: p.timeZone,
     scope: p.scope,
     written: p.written,
+    writingNote: p.writingNote,
     blocks,
     readers: p.readers.map(readReader),
   };
