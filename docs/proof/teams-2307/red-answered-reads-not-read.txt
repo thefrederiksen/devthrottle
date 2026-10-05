@@ -1,0 +1,24 @@
+RED PROOF: answered-reads-not-read
+Rule: The author's Sent to list says 'Answered a question' for a person who answered without opening the report (Tech Lead ruling).
+File: src/CcDirector.Gateway/Api/TeamReportEndpoints.cs
+
+Mutation - replaced:
+                    : answered.Contains(r.RecipientSubject) ? TeamReportEndpoints.AnsweredLabel
+with:
+                    : answered.Contains(r.RecipientSubject) && r.SentVersion < 0 ? TeamReportEndpoints.AnsweredLabel
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.SentTo_APersonWhoAnsweredOnlyAnotherReport_StillReadsNotReadYetOnThisOne [297 ms]
+   Assert.Equal() Failure: Values differ
+Expected: Tuple ("Answered a question", False)
+Actual:   Tuple ("Not read yet", False)
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.SentTo_APersonWhoAnsweredWithoutOpeningTheReport_ReadsAnsweredAQuestion_AndIsStillNotMarkedRead [169 ms]
+   Assert.Equal() Failure: Values differ
+Expected: Tuple ("Answered a question", False)
+Actual:   Tuple ("Not read yet", False)
+Failed!  - Failed:     2, Passed:    93, Skipped:     0, Total:    95, Duration: 13 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.
