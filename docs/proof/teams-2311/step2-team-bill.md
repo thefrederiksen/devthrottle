@@ -115,6 +115,71 @@ request falls through to the team gate. Run with the Tech Lead's leave, that one
 disabled it is RED (403 from the team gate with code `team_action_refused`, not `team_member_required`); restored, it
 is GREEN. The code assertion is what tells the lease's refusal from the gate's.
 
+## #3552 review round 2
+
+Rulings: `rulings-2311-step2-review2.md`. Fix commit cdd16f02e.
+
+| Finding | Test | On 533a76cf1 | On the new head |
+|---|---|---|---|
+| S2-F5 part 1 | `TeamDirectorTunnelTests.ADeviceIdWithABarBeforeAColleaguesDirectorId_IsRefusedAtEnrollmentAndMove_AndTheColleagueKeepsTheirId` (the reviewer's first round-2 reproduction, turned round) | fails (`x|director-bob` is enrolled 200) | PASS |
+| S2-F5 part 2 | `TeamDirectorTunnelTests.AColleaguesDirectorIdInAnotherLetterCase_IsRefused_ByTheComparisonHelloUses_MadeInMemory_NotByTheDatabase` | fails (the non-ASCII case variant is enrolled 200 by the old query) | PASS |
+| S2-F5 part 3 | `TeamDirectorTunnelTests.Hello_UnderAnIdAnotherPersonHoldsAnActiveKeyFor_IsRefused_EvenForARowWrittenStraightIntoTheDeviceTable` | fails (the stray row's Hello is accepted) | PASS |
+| S2-F6 | `TeamDirectorTunnelTests.AColleagueWhoListsALiveSessionIdUntilItEnds_IsNotItsOwner_BecauseTheSessionsKeyNamesTheOwnersDirector` (the reviewer's second round-2 reproduction, turned round) | fails (Bob's pushes refused for now, Alice answered owner) | PASS |
+| S2-F6 part 1 | `TeamDirectorTunnelTests.ASessionWithNothingStored_WhoseKeyNamesAnotherPersonsDirector_IsNotTheOnlyHoldersOwn` | fails | PASS |
+| S2-F2 | `AColleagueListingALiveSessionId_CannotPushItsFirstRows_...`, `PushTurns_ANewSessionWithNothingStored_...` - no key registered, so they now test the no-key-row path | - | PASS |
+| S2-F7 | `HostedTeamBillOverTheWireTests.ASessionKey_WhoseDirectorsOwnerIsNoLongerAMember_...` (Gateway.Tests, the one test, filtered) | - | red with the block removed, green restored - output below |
+
+"Fails on 533a76cf1" was shown by putting each part's old behaviour back on the new head, one at a time, on a build that
+succeeded, with the WHOLE `CcDirector.Gateway.Tests.Teams` namespace run (796 tests, 2 skipped), restored by a trap on
+exit and checked for an empty diff afterwards:
+
+- S2-F5 part 1, `DeviceIdRefusal` never refuses: Failed 1 of 796, the bar reproduction.
+- S2-F5 part 2, the old database query back (`DeviceId.EndsWith("|" + id)`, sent as `LIKE '%|<id>'`): Failed 1 of 796,
+  the letter-case test. Its ASCII half (`DIRECTOR-BOB`) passes against the old query on SQLite, as the reviewer said; the
+  non-ASCII half is the one that tells an in-memory comparison from a database one on the test database.
+- S2-F5 part 3, Hello's other-person check never true: Failed 1 of 796, the stray-row test.
+- S2-F6 part 1, the ownership answer not reading the session key row: Failed 1 of 796, the nothing-stored test.
+- S2-F6 part 2, the hub not reading the session key row: Failed 1 of 796, the second reproduction.
+
+A first try at the part 1 revert did not compile (a nullable warning is an error here); the script then ran the tests on
+the unmutated binary and reported green. That run proves nothing and is not counted. The script now stops when the build
+does not succeed, and the part 1 revert was redone on a build that succeeded.
+
+What holds the stored-content rule up, after round 2: a Director id in a team is one person's, asked one way
+(`DeviceCredentialIdentity.SameDirectorId`) at enrollment, at a move and at Hello, with the device table as the record;
+then item 7 and S2-F2 for the stored rows; then the session key row for a session with nothing stored. The one gap left
+is named in the S2-F6 answer: a session whose key registration was lost at launch has no key row until the next reseed,
+and the reseed sends the roster before the keys.
+
+S2-F7, run with the Tech Lead's leave, the one Gateway.Tests test, filtered, on the new head. The whole `DenyNotAMember`
+block was REMOVED from `AuthMiddleware` (10 lines, shown), not disabled:
+
+```
+REMOVED from AuthMiddleware.cs:
+                    if (access == CcDirector.Gateway.Tenancy.HostedAccessDecision.DenyNotAMember)
+                    {
+                        // In a team's tenant, the request names nobody who is a member (devthrottle_internal#2311). A
+                        // refusal of the person, not of the team's bill: 403, and nothing was revoked.
+                        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        ctx.Response.ContentType = "application/json; charset=utf-8";
+                        await ctx.Response.WriteAsync(
+                            "{\"error\":\"" + JsonEscape(TeamMemberRefusal) + "\",\"code\":\"team_member_required\"}");
+                        return;
+                    }
+
+ src/CcDirector.Gateway/Util/AuthMiddleware.cs | 10 ----------
+ 1 file changed, 10 deletions(-)
+Build succeeded.
+[block removed]   Failed CcDirector.Gateway.Tests.Teams.HostedTeamBillOverTheWireTests.ASessionKey_WhoseDirectorsOwnerIsNoLongerAMember_Is403TeamMemberRequired_FromTheLease_NotTheRegistrys401 [3 s]
+[block removed]    Assert.Equal() Failure: Strings differ
+[block removed] Expected: "team_member_required"
+[block removed] Actual:   "team_action_refused"
+[block removed] Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 3 s - CcDirector.Gateway.Tests.dll (net10.0)
+[restore] AuthMiddleware.cs restored, diff against HEAD empty
+Build succeeded.
+[restored] Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 4 s - CcDirector.Gateway.Tests.dll (net10.0)
+```
+
 ## Schema
 
 None. No table, column or index added; no migration. The team bill table is the website's; the Gateway.Tests helper
