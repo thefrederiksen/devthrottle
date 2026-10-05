@@ -69,3 +69,45 @@ export async function removeMessageLink(linkId: string): Promise<MessageLink> {
   if (!res.ok) throw await GatewayError.from(res, "remove the message link");
   return (await res.json()) as MessageLink;
 }
+
+// ===== Requests for a link (issue #3548) =====
+// A session that may not message another asks the owner for a link; the owner allows it with an amount, or says no.
+
+export interface MessageLinkRequest {
+  requestId: string;
+  requesterSessionId: string;
+  targetSessionId: string;
+  /** Why the session asked, in its own words. */
+  reason: string;
+  /** pending, allowed, declined or ended. */
+  status: string;
+  askedAtUtc: string;
+  answeredBy?: string | null;
+  answeredAtUtc?: string | null;
+  amount?: string | null;
+  linkId?: string | null;
+}
+
+/** GET /fleet/link-requests: every waiting request, and the ones answered lately. */
+export async function listMessageLinkRequests(signal?: AbortSignal): Promise<MessageLinkRequest[]> {
+  const res = await gatewayFetch("/fleet/link-requests", {
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "load the requests for a message link");
+  return ((await res.json()) as { requests: MessageLinkRequest[] }).requests;
+}
+
+/** POST /fleet/link-requests/{id}/answer: allow with an amount, or decline. A refusal throws the Gateway's sentence. */
+export async function answerMessageLinkRequest(
+  requestId: string,
+  answer: { amount: MessageLinkAmount } | { decline: true },
+): Promise<{ request: MessageLinkRequest; link?: MessageLink | null }> {
+  const res = await gatewayFetch(`/fleet/link-requests/${encodeURIComponent(requestId)}/answer`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(answer),
+  });
+  if (!res.ok) throw await GatewayError.from(res, "answer the request for a message link");
+  return (await res.json()) as { request: MessageLinkRequest; link?: MessageLink | null };
+}

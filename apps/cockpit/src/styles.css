@@ -3277,6 +3277,31 @@ body {
   color: var(--text-dim);
 }
 
+/* A session asking to talk to another (issue #3548): one card per waiting request, above the session detail. */
+.link-requests {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px 0;
+}
+.link-request-card {
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 13px;
+}
+.link-request-reason {
+  color: var(--text-dim);
+  margin: 4px 0 8px;
+}
+.link-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 /* "Let this session talk to..." (issue #3548). */
 .message-link-dialog {
   max-width: 560px;

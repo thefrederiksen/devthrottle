@@ -86,6 +86,22 @@ public sealed class GatewayStreamClient : IAsyncDisposable
 
     private HubConnection? _connection;
     private long _sequence;
+
+    /// <summary>
+    /// Which connection this is: moved on by every Reconnecting and Closed, so a connection that comes back
+    /// is a NEW connection and starts with the gate below shut (devthrottle_internal#2311, S2-F13).
+    /// </summary>
+    private long _connectionGeneration;
+
+    /// <summary>
+    /// The newest connection on which a reseed has sent every session key. Until it equals
+    /// <see cref="_connectionGeneration"/> no session id goes up as a delta or a turn push - see
+    /// <see cref="SessionIdsMayGoUp"/>.
+    /// </summary>
+    private long _keysSentGeneration = -1;
+
+    /// <summary>Deltas held back on the current connection because its keys had not been sent yet.</summary>
+    private int _deltasHeldBack;
     private int _started;
     private int _rePushInFlight;
     private readonly CcDirector.Core.Background.BackgroundJobs _jobs;
@@ -330,8 +346,9 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             {
                 FileLog.Write($"[GatewayStreamClient] re-push SLOW: took {elapsed.TotalSeconds:F1}s "
                     + $"(cadence {SlowRePushThreshold.TotalSeconds:F0}s) - the next tick was likely skipped. "
-                    + $"Of that, building the snapshot here took {report.BuildSnapshot.TotalSeconds:F1}s and "
-                    + $"waiting for the Gateway to accept it took {report.AwaitGateway.TotalSeconds:F1}s. "
+                    + $"Of that, building the snapshot here took {report.BuildSnapshot.TotalSeconds:F1}s, "
+                    + $"sending the session keys ahead of it took {report.SendKeys.TotalSeconds:F1}s, and "
+                    + $"waiting for the Gateway to accept the Hello and the snapshot took {report.AwaitGateway.TotalSeconds:F1}s. "
                     + MemoryNow());
             }
             _rePushStartedUtc = DateTime.MinValue;
@@ -380,6 +397,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         _connection.Reconnecting += ex =>
         {
             FileLog.Write($"[GatewayStreamClient] reconnecting: {ex?.Message}");
+            MarkConnectionLost();
             _capabilities = null;   // unknown until the reconnect's Hello answers
             // Gateway Cleanup Phase 0 (Architect ruling A): the tunnel dropped, so no frame can reach the
             // Gateway - tear down every live up-stream instead of leaving a producer sending into a dead socket.
@@ -391,7 +409,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // Also tear streams down on a full close (auto-reconnect gave up); the supervise loop then re-dials.
         // The capabilities go with the connection: the next dial may reach a different (older) Gateway, and a
         // caller must not act on the last one's answer until the new Hello has answered.
-        _connection.Closed += _ => { _capabilities = null; _upStreamHandler?.CancelAll(); _monitor?.MarkTunnelConnecting(); return Task.CompletedTask; };
+        _connection.Closed += _ => { MarkConnectionLost(); _capabilities = null; _upStreamHandler?.CancelAll(); _monitor?.MarkTunnelConnecting(); return Task.CompletedTask; };
 
         // Issue #1176 (Phase 1b): the down-channel proof. The Gateway can call this and await the reply
         // over the same connection (SignalR client results), demonstrating request-both-ways on one
@@ -549,12 +567,15 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// So the phases are separated and the outcome is named: how long WE spent building the snapshot on this
     /// machine, how long the GATEWAY took to accept it, and whether the wait finished at all. They fail for
     /// different reasons and have different fixes, and one combined number cannot tell them apart.
+    /// <para><c>SendKeys</c> is the session key leg, timed apart from both: since the keys go ahead of the roster
+    /// (devthrottle_internal#2311, S2-F13) the roster waits one round trip per live session behind them, and a
+    /// slow tick whose numbers left that out would not add up to the wait it reports.</para>
     /// </summary>
-    private readonly record struct ReseedReport(TimeSpan BuildSnapshot, TimeSpan AwaitGateway, bool Completed, string? Failure)
+    internal readonly record struct ReseedReport(TimeSpan BuildSnapshot, TimeSpan SendKeys, TimeSpan AwaitGateway, bool Completed, string? Failure)
     {
         /// <summary>Nothing was attempted: there was no connected tunnel to reseed down.</summary>
         public static ReseedReport NotConnected { get; } =
-            new(TimeSpan.Zero, TimeSpan.Zero, Completed: false, Failure: "the tunnel was not connected");
+            new(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, Completed: false, Failure: "the tunnel was not connected");
     }
 
     /// <summary>
@@ -610,8 +631,25 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         var conn = _connection;
         if (conn is null || conn.State != HubConnectionState.Connected)
             throw new InvalidOperationException("the Gateway stream is not connected");
+        return await PushTurnsAsync(batch, new HubConnectionCalls(conn), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <see cref="PushTurnsAsync(TurnPushBatch, CancellationToken)"/> over a given hub. Refused, like a
+    /// disconnected tunnel, until this connection's keys have been sent (S2-F13, see
+    /// <see cref="SessionIdsMayGoUp"/>): the turn pusher logs it and the sweep the Hello starts - which now
+    /// starts only after the keys - brings the session current.
+    /// </summary>
+    internal async Task<TurnWatermark?> PushTurnsAsync(TurnPushBatch batch, IDirectorHubCalls hub, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        if (!hub.IsConnected)
+            throw new InvalidOperationException("the Gateway stream is not connected");
+        if (!SessionIdsMayGoUp)
+            throw new InvalidOperationException(
+                "the session keys have not been sent on this Gateway connection yet, so no session id may go up before them");
         var seq = Interlocked.Increment(ref _sequence);
-        return await conn.InvokeAsync<TurnWatermark?>("PushTurns", seq, batch, ct).ConfigureAwait(false);
+        return await hub.PushTurnsAsync(seq, batch, ct).ConfigureAwait(false);
     }
 
     /// <summary>The capability line already reported, so a ten-second reseed does not repeat it forever.</summary>
@@ -670,24 +708,47 @@ public sealed class GatewayStreamClient : IAsyncDisposable
               + "means EVERY session's command line will answer 401.";
     }
 
-    private async Task<ReseedReport> ReseedAsync()
+    private Task<ReseedReport> ReseedAsync()
     {
         var conn = _connection;
-        if (conn is null || conn.State != HubConnectionState.Connected) return ReseedReport.NotConnected;
+        if (conn is null || conn.State != HubConnectionState.Connected) return Task.FromResult(ReseedReport.NotConnected);
+        return ReseedAsync(new HubConnectionCalls(conn), Interlocked.Read(ref _connectionGeneration));
+    }
+
+    /// <summary>
+    /// One reseed, in the order the Gateway must receive it: Hello, then every live session's key, then the
+    /// roster (devthrottle_internal#2311, review finding S2-F13).
+    ///
+    /// THE ORDER IS A SECURITY PROPERTY, NOT A STYLE. In a team the Gateway decides whose a session is from
+    /// its key row, and the first Director to register a key for a session id keeps the row. The roster used
+    /// to go up first and the keys after it, so for a session whose key had never reached the Gateway - one
+    /// started while the tunnel was down, which is every session started during a deploy - its id sat in the
+    /// Gateway's roster, visible to a colleague's Director, a moment before its key. A colleague that keyed it
+    /// in that moment owned the session for good. The Gateway's own guard reads its in-memory roster, which
+    /// is empty after every restart, so only this Director can close the window: its keys go first.
+    ///
+    /// Each leg keeps its own try/catch. A failed key registration does not stop the roster - the roster is
+    /// what keeps every session of this Director visible at all - and a failed roster push is still reported
+    /// loudly. Internal so the order of the calls can be recorded and asserted.
+    /// </summary>
+    internal async Task<ReseedReport> ReseedAsync(IDirectorHubCalls hub, long connectionGeneration)
+    {
+        if (!hub.IsConnected) return ReseedReport.NotConnected;
 
         var build = TimeSpan.Zero;
+        var sendKeys = TimeSpan.Zero;
         var awaitGateway = TimeSpan.Zero;
         var completed = false;
         string? failure = null;
+        GatewayCapabilities? capabilities = null;
+        var helloAnswered = false;
         try
         {
-            var seq = Interlocked.Increment(ref _sequence);
-
             var helloStarted = DateTime.UtcNow;
             // Invoked GENERICALLY so the Gateway's answer is read. A Gateway too old to return
             // capabilities returns nothing, which SignalR gives us as null - and null is the answer
             // that matters. See ReportGatewayCapabilities.
-            var capabilities = await conn.InvokeAsync<GatewayCapabilities?>("Hello", new DirectorStreamHello
+            capabilities = await hub.HelloAsync(new DirectorStreamHello
             {
                 DirectorId = _directorId,
                 Version = _version,
@@ -703,40 +764,17 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 ChangesOwnerIfExpected = true,    // ...and makes the change only while the owner is still the expected one
             });
             awaitGateway += DateTime.UtcNow - helloStarted;
+            helloAnswered = true;
             ReportGatewayCapabilities(capabilities);
             _capabilities = capabilities;
-            if (capabilities is not null && _onHello is not null)
-            {
-                try { _onHello(capabilities); }
-                catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] Hello callback FAILED: {ex.Message}"); }
-            }
-
-            // OUR work, on this machine: assembling the roster. Timed apart from the send because a slow build
-            // is a local problem (a starved machine, a lock held too long) and a slow send is the Gateway's -
-            // opposite diagnoses, opposite owners, and the single combined number could name neither.
-            var buildStarted = DateTime.UtcNow;
-            var snapshot = _snapshot().ToArray();
-            build = DateTime.UtcNow - buildStarted;
-
-            // The Gateway's work: InvokeAsync does not return when the frame is written, it returns when the
-            // hub method has FINISHED, so this measures the Gateway's own per-push processing.
-            var sendStarted = DateTime.UtcNow;
-            await conn.InvokeAsync("PushSnapshot", seq, snapshot);
-            awaitGateway += DateTime.UtcNow - sendStarted;
-
-            completed = true;
-            // The moment the Gateway's cache was made fresh, which is what a late tick reports against.
-            _lastAcceptedSnapshotUtc = DateTime.UtcNow;
-            FileLog.Write($"[GatewayStreamClient] reseeded full snapshot seq={seq} "
-                + $"(built in {build.TotalMilliseconds:F0}ms, Gateway accepted it in {awaitGateway.TotalMilliseconds:F0}ms)");
         }
         catch (Exception ex)
         {
-            // Kept LOUD and kept here. This catch is the only place a hub-side throw becomes visible to the
-            // Director, and it is the one thing the Director would lose if this ever moved to a
-            // fire-and-forget send - so if that change is made, the surfacing has to be replaced, not dropped.
+            // Kept LOUD, like the roster push below: these catches are the only place a hub-side throw becomes
+            // visible to the Director. Without a Hello the Gateway refuses every push on this connection, so
+            // the roster is not attempted; the key leg still is, exactly as before.
             failure = ex.Message;
-            FileLog.Write($"[GatewayStreamClient] reseed failed (auto-reconnect will retry): {ex.Message}");
+            FileLog.Write($"[GatewayStreamClient] reseed failed at Hello (auto-reconnect will retry): {ex.Message}");
         }
 
         // Remove-the-network-port phase 1b: re-register every live session's Gateway key, in its OWN
@@ -745,14 +783,18 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // THIS IS THE RECOVERY PATH, not an optimisation. The tunnel is how a key reaches the Gateway, and
         // the tunnel drops - a Gateway restart wipes nothing (the registry is durable) but a Director that
         // reconnects after one may have minted keys nobody received. Re-sending them on every reseed makes
-        // the new connection authoritative for credentials exactly as the snapshot above makes it
+        // the new connection authoritative for credentials exactly as the snapshot below makes it
         // authoritative for the roster, so a lost registration heals within one reseed instead of leaving an
         // agent permanently unable to call the Gateway.
         //
+        // It runs BEFORE the roster (S2-F13, see the summary): a session's key reaches the Gateway before
+        // its id does.
+        //
         // It also EXTENDS the expiry (RegistrationFor recomputes it), which is what lets a key be short-lived
         // without a long-running session ever losing it.
-        if (_sessionKeys is not null && conn.State == HubConnectionState.Connected)
+        if (_sessionKeys is not null && hub.IsConnected)
         {
+            var keysStarted = DateTime.UtcNow;
             // ONE BAD REGISTRATION MUST NOT TAKE THE OTHERS DOWN WITH IT.
             //
             // This loop used to sit inside a single try, so the FIRST registration that threw abandoned
@@ -784,7 +826,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 {
                     try
                     {
-                        await conn.InvokeAsync("RegisterSessionKey", registration);
+                        await hub.RegisterSessionKeyAsync(registration);
                         registered++;
                     }
                     catch (Exception ex)
@@ -820,13 +862,74 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 FileLog.Write("[GatewayStreamClient] session key re-registration pass FAILED before it " +
                               $"could report per-session results: {ex.GetType().Name}: {ex.Message}");
             }
+            sendKeys = DateTime.UtcNow - keysStarted;
+        }
+
+        if (helloAnswered)
+        {
+            // Every key this Director holds has now been sent on this connection, so a session id may follow:
+            // open the gate the deltas and the turn pushes wait at (see SessionIdsMayGoUp).
+            var heldBack = MarkKeysSent(connectionGeneration);
+            if (heldBack > 0)
+                FileLog.Write($"[GatewayStreamClient] {heldBack} session delta(s) were held back until the session keys "
+                    + "were sent on this connection; the roster below carries them");
+
+            // Only now hand the Hello's answer on. Its one production use seeds the turn pusher and starts a sweep
+            // that pushes every session's turns - session ids, which must not overtake their keys.
+            if (capabilities is not null && _onHello is not null)
+            {
+                try { _onHello(capabilities); }
+                catch (Exception ex) { FileLog.Write($"[GatewayStreamClient] Hello callback FAILED: {ex.Message}"); }
+            }
+
+            try
+            {
+                var seq = Interlocked.Increment(ref _sequence);
+
+                // OUR work, on this machine: assembling the roster. Timed apart from the send because a slow build
+                // is a local problem (a starved machine, a lock held too long) and a slow send is the Gateway's -
+                // opposite diagnoses, opposite owners, and the single combined number could name neither.
+                var buildStarted = DateTime.UtcNow;
+                var snapshot = _snapshot().ToArray();
+                build = DateTime.UtcNow - buildStarted;
+
+                // NO ROSTER ON A CONNECTION BEFORE THAT CONNECTION'S KEYS (#3558 review, K-F1). The connection
+                // object lives for the whole client and reconnects in place, so a reseed that began on a connection
+                // since lost can find it connected again - on a NEW connection whose own reseed is still sending
+                // its keys. The gate above asks which connection this is; the roster asks the same question.
+                if (Interlocked.Read(ref _connectionGeneration) != connectionGeneration)
+                    throw new InvalidOperationException(
+                        "the connection this reseed began on was lost, so its roster is not sent; the new connection's own reseed sends one after its keys");
+
+                // The Gateway's work: InvokeAsync does not return when the frame is written, it returns when the
+                // hub method has FINISHED, so this measures the Gateway's own per-push processing. Like the
+                // Hello above it is timed; the key leg between them is timed on its own (sendKeys).
+                var sendStarted = DateTime.UtcNow;
+                await hub.PushSnapshotAsync(seq, snapshot);
+                awaitGateway += DateTime.UtcNow - sendStarted;
+
+                completed = true;
+                // The moment the Gateway's cache was made fresh, which is what a late tick reports against.
+                _lastAcceptedSnapshotUtc = DateTime.UtcNow;
+                FileLog.Write($"[GatewayStreamClient] reseeded full snapshot seq={seq} "
+                    + $"(built in {build.TotalMilliseconds:F0}ms, keys sent ahead of it in {sendKeys.TotalMilliseconds:F0}ms, "
+                    + $"Gateway accepted the Hello and the snapshot in {awaitGateway.TotalMilliseconds:F0}ms)");
+            }
+            catch (Exception ex)
+            {
+                // Kept LOUD and kept here. This catch is the only place a hub-side throw becomes visible to the
+                // Director, and it is the one thing the Director would lose if this ever moved to a
+                // fire-and-forget send - so if that change is made, the surfacing has to be replaced, not dropped.
+                failure = ex.Message;
+                FileLog.Write($"[GatewayStreamClient] reseed failed (auto-reconnect will retry): {ex.Message}");
+            }
         }
 
         // Replay every revocation still owed. This is the other half of the recovery path above, and the
         // half that was missing: registrations healed on reseed while revocations did not, so the one
         // direction that matters for SECURITY was the one with no retry. Each is confirmed individually,
         // so a partial failure leaves exactly the undelivered ones owed for the next reseed.
-        if (_pendingRevocations is not null && conn.State == HubConnectionState.Connected)
+        if (_pendingRevocations is not null && hub.IsConnected)
         {
             try
             {
@@ -835,7 +938,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 {
                     try
                     {
-                        await conn.InvokeAsync("RevokeSessionKey", sessionId);
+                        await hub.RevokeSessionKeyAsync(sessionId);
                         _onRevocationConfirmed?.Invoke(sessionId);
                     }
                     catch (Exception ex)
@@ -855,12 +958,12 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // The repository snapshot rides the same reseed cadence, in its OWN try/catch: an old Gateway
         // without the PushRepoSnapshot hub method throws a HubException here, and that must never take
         // the session reseed down with it (best-effort, no capability negotiation - see phase C notes).
-        if (_repoSnapshot != null && conn.State == HubConnectionState.Connected)
+        if (_repoSnapshot != null && hub.IsConnected)
         {
             try
             {
                 var repoSeq = Interlocked.Increment(ref _sequence);
-                await conn.InvokeAsync("PushRepoSnapshot", repoSeq, _repoSnapshot().ToArray());
+                await hub.PushRepoSnapshotAsync(repoSeq, _repoSnapshot().ToArray());
                 FileLog.Write($"[GatewayStreamClient] reseeded repository snapshot seq={repoSeq}");
             }
             catch (Exception ex)
@@ -869,7 +972,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             }
         }
 
-        return new ReseedReport(build, awaitGateway, completed, failure);
+        return new ReseedReport(build, sendKeys, awaitGateway, completed, failure);
     }
 
     /// <summary>
@@ -888,12 +991,69 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// <summary>Push one changed session. Fire-and-forget; a drop is reconciled by the next snapshot.</summary>
     public void NotifyDelta(SessionDto session)
     {
-        if (session is null || string.IsNullOrEmpty(session.SessionId)) return;
         var conn = _connection;
         if (conn is null || conn.State != HubConnectionState.Connected) return;
-        var seq = Interlocked.Increment(ref _sequence);
-        _ = SendAsync(() => conn.InvokeAsync("PushDelta", seq, session), "PushDelta");
+        NotifyDelta(session, new HubConnectionCalls(conn));
     }
+
+    /// <summary>
+    /// <see cref="NotifyDelta(SessionDto)"/> over a given hub. A delta that arrives before this connection's
+    /// keys have been sent is HELD BACK, not sent (S2-F13): it may name a session whose key has never reached
+    /// the Gateway, and the roster the reseed sends right after the keys carries the same state anyway.
+    /// </summary>
+    internal void NotifyDelta(SessionDto session, IDirectorHubCalls hub)
+    {
+        if (session is null || string.IsNullOrEmpty(session.SessionId)) return;
+        if (!hub.IsConnected) return;
+        if (!SessionIdsMayGoUp)
+        {
+            Interlocked.Increment(ref _deltasHeldBack);
+            return;
+        }
+        var seq = Interlocked.Increment(ref _sequence);
+        _ = SendAsync(() => hub.PushDeltaAsync(seq, session), "PushDelta");
+    }
+
+    /// <summary>
+    /// True once the reseed on the CURRENT connection has sent every session key this Director holds
+    /// (devthrottle_internal#2311, review finding S2-F13). Until then no session id goes up as a delta or a
+    /// turn push.
+    ///
+    /// WHY A GATE AND NOT ONLY THE RESEED'S ORDER. On a new connection the Gateway accepts pushes the moment
+    /// Hello is answered, and the reseed sends the keys one round trip at a time after that. Without the gate
+    /// a delta - every activity change raises one - or the turn sweep the Hello starts could carry the id of a
+    /// session whose key never reached the Gateway (one started while the tunnel was down) into that gap, and
+    /// a colleague's Director that keyed it first would own it. A session created while the gate is open
+    /// registers its key at creation, before it joins the roster, so it needs no gate.
+    /// </summary>
+    internal bool SessionIdsMayGoUp
+        => Interlocked.Read(ref _keysSentGeneration) == Interlocked.Read(ref _connectionGeneration);
+
+    /// <summary>The connection is gone, so whatever comes back is a new connection and its keys are unsent.</summary>
+    internal void MarkConnectionLost()
+    {
+        Interlocked.Increment(ref _connectionGeneration);
+    }
+
+    /// <summary>
+    /// The reseed on connection <paramref name="generation"/> has sent its keys: open the gate if that is still
+    /// the current connection. A reseed that finishes on a connection already lost opens nothing, and an older
+    /// reseed finishing late never shuts a gate a newer one opened. Returns the deltas held back meanwhile.
+    /// </summary>
+    internal int MarkKeysSent(long generation)
+    {
+        if (Interlocked.Read(ref _connectionGeneration) != generation) return 0;
+        long seen;
+        do
+        {
+            seen = Interlocked.Read(ref _keysSentGeneration);
+            if (seen >= generation) break;
+        } while (Interlocked.CompareExchange(ref _keysSentGeneration, generation, seen) != seen);
+        return Interlocked.Exchange(ref _deltasHeldBack, 0);
+    }
+
+    /// <summary>The connection the next reseed will run on. A test seam for the gate.</summary>
+    internal long CurrentConnectionGeneration => Interlocked.Read(ref _connectionGeneration);
 
     /// <summary>
     /// Register ONE session's Gateway key (Remove-the-network-port mission, phase 1b), sent the instant the
