@@ -12,6 +12,7 @@ Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-r
 - **Sending (piece 1 for #2307: `DevReportRecipients`).**
   - `POST /teams/{teamId}/reports/mine/{reportId}/recipients` with `{memberIds, version}`, from the Cockpit, account token only.
   - **The send carries the version the page was showing (delta review D2).** The Gateway sends exactly that version. When the session has published a newer one meanwhile, nothing is sent: the answer is 409 `version_not_newest` with the Gateway's sentence, and the page shows it and reads again, so the author reads the newer version before sending it. A person is never sent a version its author did not see.
+  - **The newest-version check is the send's own write (round-3 review R2).** The send is one transaction whose first statement is a conditional write on the report's row (`where Id = report and Version = version`). It matches nothing when a newer version has already committed, from this process or the other one during a deploy, and then nothing is written and the answer is the same 409. When it matches, it holds the report's row until the recipient rows commit with it, so a publish landing meanwhile waits and becomes the next version. The route's earlier comparison only refuses a send that is already stale; it decides nothing.
   - All or nothing. These each refuse the whole send, and nothing is stored: someone who is not a member of this team, the author themselves, an empty list, or a member whose role may not read reports.
   - **A send covers the version sent (review F1).** The recipient row records `SentVersion`, and that version is the only one the recipient reads.
   - A later version reaches them only when the author sends again. Sending again moves their row forward and marks it unread. An earlier version never reaches them, and never moves a row back: the move is one conditional update (`where SentVersion < version`), so two sends across a publish cannot move a person back whichever lands last (delta review D7).
@@ -22,12 +23,13 @@ Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-r
   - `GET .../sent-to-me/{id}` and `.../sent-to-me/{id}/html` answer only for a report sent to the caller. Any other id is 404, however it is asked for.
   - The html route serves the version the caller was sent. A `?version=` naming any other version is 404 with the Gateway's sentence. This is watched over the wire, not only on the class behind the route (delta review D3).
   - **Opening a version marks that version read (delta review D5).** The read request names the version the page showed, and the Gateway marks the row only when that is the version held. A read for an older version, landing after the author sent a newer one, is 409 `version_not_held` and marks nothing. The page remembers the version it marked, not merely that it marked one, so a version sent while the report is open is marked once it is shown.
+  - **A version counts as marked only once the Gateway accepted the read (round-3 review R3).** A failed read leaves it unmarked and the next poll tries the same version again, at the poll's pace, never in a tight loop. Once accepted, it is not posted again.
   - The page opens it in the SAME shared viewer (`DevReportViewer`: the same frame host and trust rules, CONTRACT sections 4 and 5), fed from the team route. There is no second viewer.
-- **No notes or answers for a team reader (review F2).**
-  - Both detail answers carry `notesOpen: false`, a flag the Gateway sends.
-  - The page opens the viewer only after that answer and passes it through. With the flag off, the viewer loads no notes script into the frame, so there is no notes tray, no queue button and no answer control.
-  - A question in a report reads as the report's own markup. The screenshots show one.
-  - The page never decides this for itself.
+- **No notes and no answers for a team reader (review F2, round-3 review R1).**
+  - Both detail answers carry two flags the Gateway sends: `notesOpen: false` and `answersOpen: false`. The page passes both to the viewer and decides nothing itself.
+  - With notes off, the viewer loads no notes script, so there is no notes tray and no queue button.
+  - With answers off as well, the frame gets one script instead, which disables every control in the report's own markup (every input, select, text area and button) once the page has loaded. A question in the report shows its options greyed, and clicking one chooses nothing.
+  - **Why a flag and not a fixed rule:** #2307 will let a Collaborator answer a question addressed to them. That is the Gateway turning `answersOpen` on for that reader; the viewer then leaves the controls live. Nothing in the page changes.
 - **Commenting (piece 2 for #2307: `DevReportPersonComments`).**
   - `POST .../sent-to-me/{id}/comments` stores the words for the report's author person.
   - The comments are a separate table, written by nothing else and read by nothing else. A comment is never a dev report item and never a reply. It is never handed to `DevReportDelivery`, never put in a prompt, and served by no route that a session key or a Director key reaches.
@@ -86,6 +88,17 @@ So a session key, or a key bound to the team's tenant, cannot reach these routes
 
 ## The checks (counts)
 
+**On the round-3 head (on 3c5c8970a), these ran:**
+
+- the Gateway unit tests (Teams, DevReport, Migration, BootSmoke): 1,400 passed, 0 failed, 7 skipped (new: R2's interleaving test, which publishes version 2 between the route's check and the send's write and expects the 409 with nothing sent, plus a positive control)
+- the Cockpit web tests, all of them: 79 files, 783 passed (new: R1's two flag tests, R3's failure-then-success for the same version, and D5 with the older read accepted)
+- the client-core web tests, all of them: 150 files, 1,784 passed (new: the answers-off script disables every control and a clicked one stays unchosen, a positive control without it, and the four flag combinations)
+- `tsc --noEmit` for cockpit, client-core and mobile: clean
+- the screenshots, retaken. The driver now asserts the report's own inputs, not the absence of buttons: it fails when the frame holds no controls, when any control is enabled, or when a radio button it clicks becomes chosen.
+- Two screenshot runs failed before the third passed: one hit the known empty-frame wait, and in one the rig exited before it was ready, which looked like port 7913 still held by the run before. Recorded as seen, not explained.
+
+**Still not run: every hosted Gateway test, and the D3 red record.** The same release gate still held the machine-wide Gateway test lock at 20:10 UTC, as it had since 17:31 UTC. The Tech Lead's gate covers the hosted tests. The default gate was not rerun on this head; the last one is described below.
+
 **On the delta review's head (on 3c5c8970a), these ran:**
 
 - the Gateway unit tests (Teams, DevReport, Migration, BootSmoke): 1,399 passed, 0 failed, 7 skipped (the two new are D2 and D5)
@@ -127,20 +140,25 @@ The table below is from the two earlier heads, fcf1c50de and 215639cbd, before t
 - The first eleven records below were taken before the review fixes.
 - The resolver record was retaken after the first rebase, because that rebase merged main into the file that break mutates.
 - The six delta review records (D2, D3, D5) were taken on the delta review's code.
-- Every one of the 20 mutation targets matches exactly once on the head.
+- The round-3 records (R1, R2, R3) and the retaken F2 and D5 records were taken on the round-3 code.
+- **D5's record went GREEN at first on the round-3 code.** Its only guard was the test where the older read is refused, and after R3 a refused read leaves nothing marked, so "marks once per open" and "marks once per version" behaved alike there. A test with the older read accepted was added, and the record retaken red.
+- Every one of the 23 mutation targets matches exactly once on the head.
 
 | Break | Tests that went red | File |
 |---|---|---|
 | A report not sent to the caller is served (no recipient row needed) | unit `Issue2309_AReportNotSentToTheCaller_IsNotFound_OnEveryRecipientRoute` and the F1 test; 2 hosted (`..._AReportNotSentToACollaborator_IsRefused_...` and the privacy check). Retaken on the review's code. | `red-not-sent-is-served.txt` |
 | The recipient reads the latest version, not the one sent (F1) | unit `Issue2309_F1_TheRecipientReadsTheVersionSent_NeverAnEarlierOne_AndALaterOneOnlyWhenSentAgain` | `red-recipient-reads-the-latest-version.txt` |
 | Comments stay open whoever the author now is (F6) | unit `Issue2309_F6_...`, both cases ("left the team", "made a Collaborator") | `red-comments-open-whoever-the-author-is.txt` |
-| The viewer ignores the Gateway's notes flag (F2) | 2 Cockpit tests, including `Open_TheGatewaySaysNotesAreOff_TheViewerGetsNoNotesScript_...` | `red-viewer-ignores-the-notes-flag.txt` |
+| The viewer ignores the Gateway's notes flag (F2) | 3 Cockpit tests: `Open_TheGatewaySaysAnswersAreOpen_...`, `Open_TheGatewaySaysNotesAndAnswersAreOff_...` and `Own_ShowsWhichVersionEachPersonHolds_...` | `red-viewer-ignores-the-notes-flag.txt` |
 | A team-bound key is admitted as a person (F4) | hosted `Issue2309_F4_...` (the admission named the team instead of refusing) | `red-team-key-admitted-as-a-person.txt` |
 | The Gateway sends whatever version is current, not the one the page showed (D2) | unit `Issue2309_D2_ASendOfAVersionThatIsNoLongerTheNewest_IsRefusedWithTheGatewaysSentence_AndSendsNothing` | `red-send-ignores-the-version-shown.txt` |
 | The page's send names a fixed version, not the one shown (D2) | 2 Cockpit tests: `Send_SendsExactlyTheChosenMembers` and `Send_RefusedBecauseANewerVersionArrived_...` | `red-page-sends-a-fixed-version.txt` |
 | The html ROUTE is put back to the owner's `ServeHtml`, serving the newest version (D3, the review's own mutation) | NOT YET TAKEN - see the note under the checks | `red-html-route-serves-the-newest.txt` |
 | A read marks the row whatever version it names (D5) | unit `Issue2309_D5_AReadNamesTheVersion_AndOnlyTheVersionHeldIsMarked_...` | `red-read-marks-any-version.txt` |
-| The page marks once per open, not once per version (D5) | Cockpit `Open_AVersionSentWhileOpen_IsMarkedWhenShown_AfterTheGatewayRefusedTheOlderOne` | `red-page-marks-once-per-open.txt` |
+| The page marks once per open, not once per version (D5) | Cockpit `Open_AVersionSentWhileOpen_AfterTheOlderOneWasMarked_IsMarkedToo` | `red-page-marks-once-per-open.txt` |
+| With answers off, the viewer leaves the report's own controls live (R1) | client-core `FollowsTheGatewaysTwoFlags_AndNothingElse`; 2 Cockpit tests, `Open_TheGatewaySaysNotesAndAnswersAreOff_...` and `Own_ShowsWhichVersionEachPersonHolds_...` | `red-answers-left-live.txt` |
+| The send's write checks no version, so only the route's earlier read guards it (R2) | unit `Issue2309_R2_APublishLandingBetweenTheRoutesCheckAndTheWrite_...` and `Send_TheNewestVersion_..._AndAnOlderOneIsRefusedAndMovesNothing` | `red-send-write-checks-no-version.txt` |
+| The page counts a version marked before the Gateway accepted the read (R3) | Cockpit `Open_AReadThatFailed_IsTriedAgainForTheSameVersion_OnTheNextPoll_AndNotAfterItSucceeded` | `red-page-marks-before-success.txt` |
 | A comment is also written as a reply in the agent's conversation | hosted `Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire` and `Issue2309_ACommentNeverReachesTheSession_LiveSessionOnTheTunnel` | `red-comment-also-a-reply.txt` |
 | A comment is also queued as an item toward the session | the same two hosted tests | `red-comment-also-an-item.txt` |
 | The resolver answers "the caller's own" for every report | unit `Whose_...` and `Gate_FromTheirOwnAccount_...`; hosted `..._SendingAReportYouDidNotWrite_IsRefusedByTheGate` and the privacy check. Retaken after the rebase. | `red-report-owner-always-the-caller.txt` |
@@ -163,7 +181,7 @@ The table below is from the two earlier heads, fcf1c50de and 215639cbd, before t
   - tech sent it to docs@mindzie.com, a Collaborator, who opened it and commented.
 - A headless browser then drives each person at 1280 x 800 and at 390 x 844.
 - Seeding goes through the stores, for the 402 reason above. Everything the browsers show is read over the wire.
-- The driver fails if the report's frame holds any button. With notes off, the frame holds only the report's own markup, and the question shows as plain options.
+- The driver checks the report's own controls (round-3 review R1): it fails when the frame holds none, when any is enabled, when a radio button it clicks becomes chosen, or when the frame holds a button. The question shows as greyed options.
 
 | Screen | Desktop | 390 px |
 |---|---|---|
