@@ -76,6 +76,10 @@ public sealed class DirectorHub : Hub
         Messaging.FleetMessageLinkRecord? messageLinkRecord = null)
     {
         _voiceAnswers = voiceAnswers;
+        // A link store with nowhere to record what it ends would end links silently; refused at construction.
+        if (messageLinks is not null && messageLinkRecord is null)
+            throw new ArgumentNullException(nameof(messageLinkRecord),
+                "A message link store needs its record: links that end with a session must be recorded.");
         _messageLinks = messageLinks;
         _messageLinkRecord = messageLinkRecord;
         _raisedSessions = raisedSessions;
@@ -593,7 +597,7 @@ public sealed class DirectorHub : Hub
         var linksEnded = _messageLinks?.EndWithSession(tenant, sessionId, DateTime.UtcNow)
             ?? (IReadOnlyList<Messaging.FleetMessageLink>)Array.Empty<Messaging.FleetMessageLink>();
         foreach (var link in linksEnded)
-            _messageLinkRecord?.Stopped(tenant, link, $"gateway: session {sessionId} ended", "a session ended");
+            _messageLinkRecord!.Stopped(tenant, link, $"gateway: session {sessionId} ended", "a session ended");
         FileLog.Write($"[DirectorHub] RevokeSessionKey: director={directorId}, session={sessionId}, revoked={revoked}, raisedEntryRemoved={lowered}, linksEnded={linksEnded.Count}");
     }
 

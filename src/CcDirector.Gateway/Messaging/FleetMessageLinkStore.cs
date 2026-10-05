@@ -177,11 +177,17 @@ public sealed class FleetMessageLinkStore
             .Select(ToRecord).ToList();
     }
 
+    /// <summary>What one removal did.</summary>
+    /// <param name="Link">The link as it now stands.</param>
+    /// <param name="Removed">True only when THIS call took it from live to removed. False when it was already used,
+    /// removed or ended - including when a message used it up a moment before - and then nothing changed.</param>
+    public sealed record RemoveResult(FleetMessageLink Link, bool Removed);
+
     /// <summary>
-    /// Remove a live link. Returns the link as it now stands, or null when this account has no link with that id.
-    /// A link that is no longer live is returned unchanged: removing it again changes nothing.
+    /// Remove a live link. Returns what happened, or null when this account has no link with that id. A link that is
+    /// no longer live is returned unchanged, with <see cref="RemoveResult.Removed"/> false.
     /// </summary>
-    public FleetMessageLink? Remove(TenantId tenant, string linkId, string removedBy, DateTime nowUtc)
+    public RemoveResult? Remove(TenantId tenant, string linkId, string removedBy, DateTime nowUtc)
     {
         FileLog.Write($"[FleetMessageLinkStore] Remove: tenant={tenant.ToLogString()}, link={linkId}, by={removedBy}");
         try
@@ -191,17 +197,19 @@ public sealed class FleetMessageLinkStore
             lock (_gate)
             {
                 using var ctx = _db.CreateContext(tenant);
-                var row = ctx.FleetMessageLinks.FirstOrDefault(l => l.LinkId == id);
+                // A conditional update, so a message using the link up at the same moment and this removal cannot both win.
+                var by = Cap(removedBy);
+                var at = Utc(nowUtc);
+                var changed = ctx.FleetMessageLinks
+                    .Where(l => l.LinkId == id && l.Status == FleetMessageLinkStatuses.Live)
+                    .ExecuteUpdate(u => u
+                        .SetProperty(l => l.Status, FleetMessageLinkStatuses.Removed)
+                        .SetProperty(l => l.EndedBy, by)
+                        .SetProperty(l => l.EndedAtUtc, at)) == 1;
+                var row = ctx.FleetMessageLinks.AsNoTracking().FirstOrDefault(l => l.LinkId == id);
                 if (row is null) return null;
-                if (row.Status == FleetMessageLinkStatuses.Live)
-                {
-                    row.Status = FleetMessageLinkStatuses.Removed;
-                    row.EndedBy = Cap(removedBy);
-                    row.EndedAtUtc = Utc(nowUtc);
-                    ctx.SaveChanges();
-                }
-                FileLog.Write($"[FleetMessageLinkStore] Remove: link={id}, status={row.Status}");
-                return ToRecord(row);
+                FileLog.Write($"[FleetMessageLinkStore] Remove: link={id}, removed={changed}, status={row.Status}");
+                return new RemoveResult(ToRecord(row), changed);
             }
         }
         catch (Exception ex)
@@ -266,6 +274,10 @@ public sealed class FleetMessageLinkStore
             .FirstOrDefault();
         return row is null ? null : new FleetMessageLinkFacts(row.LinkId, row.Amount, Reversed: row.SenderSessionId != from);
     }
+
+    /// <summary>True when the link is still live, read inside the caller's context and transaction.</summary>
+    internal static bool IsLiveIn(GatewayDbContext ctx, string linkId)
+        => ctx.FleetMessageLinks.Any(l => l.LinkId == linkId && l.Status == FleetMessageLinkStatuses.Live);
 
     /// <summary>
     /// Use up a one-time link for <paramref name="messageId"/>, inside the caller's context and transaction. The row

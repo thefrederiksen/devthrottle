@@ -113,13 +113,48 @@ public sealed class FleetMessageLinkStoreTests : IDisposable
     }
 
     [Fact]
+    public void Messages_over_a_link_never_use_up_the_senders_budget_for_its_own_worker()
+    {
+        // Review finding 1: a link only adds. Talking over it must not stop the sender reaching its own worker.
+        var (links, _, service) = Open();
+        links.SetUp(TenantA, Investigator, Coordinator, FleetMessageLinkAmounts.Ongoing, Owner, T0);
+        for (var i = 0; i < FleetMessageLimits.Default.PerSenderPerHour; i++)
+        {
+            _now = T0.AddSeconds(i);
+            Assert.Equal(FleetMessageOutcome.Queued, Send(service, Investigator, Coordinator, text: $"over the link {i}").Outcome);
+        }
+
+        _now = T0.AddMinutes(1);
+        var worker = new FleetParty(Other, Investigator, "worker", "mac");
+        var toWorker = service.Send(TenantA, Party(Investigator), worker, "carry on", FleetMessageKinds.Message);
+
+        Assert.Equal(FleetMessageOutcome.Queued, toWorker.Outcome);
+        Assert.Null(toWorker.Link);
+    }
+
+    [Fact]
+    public void Removing_a_link_a_message_already_used_reports_that_nothing_was_removed()
+    {
+        var (links, _, service) = Open();
+        var link = links.SetUp(TenantA, Investigator, Coordinator, FleetMessageLinkAmounts.Once, Owner, T0).Link;
+        Send(service, Investigator, Coordinator);
+
+        var result = links.Remove(TenantA, link.LinkId, Owner, T0.AddMinutes(1))!;
+
+        Assert.False(result.Removed);
+        Assert.Equal(FleetMessageLinkStatuses.Used, result.Link.Status);
+    }
+
+    [Fact]
     public void A_removed_link_carries_nothing()
     {
         var (links, _, service) = Open();
         var link = links.SetUp(TenantA, Investigator, Coordinator, FleetMessageLinkAmounts.Ongoing, Owner, T0).Link;
 
-        var removed = links.Remove(TenantA, link.LinkId, Owner, T0.AddMinutes(1))!;
+        var result = links.Remove(TenantA, link.LinkId, Owner, T0.AddMinutes(1))!;
+        var removed = result.Link;
 
+        Assert.True(result.Removed);
         Assert.Equal(FleetMessageLinkStatuses.Removed, removed.Status);
         Assert.Equal(Owner, removed.EndedBy);
         Assert.Equal(FleetMessageOutcome.RefusedNotRelated, Send(service, Investigator, Coordinator).Outcome);
@@ -132,7 +167,7 @@ public sealed class FleetMessageLinkStoreTests : IDisposable
         var link = links.SetUp(TenantA, Investigator, Coordinator, FleetMessageLinkAmounts.Once, Owner, T0).Link;
         Send(service, Investigator, Coordinator);
 
-        var after = links.Remove(TenantA, link.LinkId, Owner, T0.AddMinutes(1))!;
+        var after = links.Remove(TenantA, link.LinkId, Owner, T0.AddMinutes(1))!.Link;
 
         Assert.Equal(FleetMessageLinkStatuses.Used, after.Status);
         Assert.Null(after.EndedBy);

@@ -247,6 +247,40 @@ public sealed class FleetMessageLinkHostTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_shared_machine_token_cannot_set_up_list_or_remove_a_link()
+    {
+        using var machine = Client(SharedToken);
+        foreach (var answer in new[]
+        {
+            await SetUp(machine, _investigatorId, _coordinatorId, "ongoing"),
+            await Send(machine, "GET", "fleet/links"),
+            await Send(machine, "DELETE", "fleet/links/0123456789abcdef0123456789abcdef"),
+        })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, answer.Status);
+        }
+    }
+
+    [Fact]
+    public async Task A_link_between_a_session_and_its_own_worker_is_refused_in_words()
+    {
+        var worker = Guid.NewGuid().ToString();
+        var row = Session(worker, "The investigator's worker", DateTime.UtcNow);
+        row.ControllerSessionId = _investigatorId;
+        Push(_tenantA, DirectorId,
+            Session(_investigatorId, "BDO Argentina bug", DateTime.UtcNow.AddHours(-3)),
+            Session(_coordinatorId, "Cube Coordinator", DateTime.UtcNow.AddHours(-2)),
+            Session(_fleetManagerId, "Fleet Manager", DateTime.UtcNow.AddHours(-1)),
+            Session(_thirdId, "A third session", DateTime.UtcNow.AddMinutes(-30)),
+            row);
+
+        var answer = await SetUp(_ownerA, _investigatorId, worker, "once");
+
+        Assert.Equal(HttpStatusCode.Conflict, answer.Status);
+        Assert.Equal("already_related", CodeOf(answer.Body));
+    }
+
+    [Fact]
     public async Task The_Fleet_Manager_raised_sets_up_a_link_between_two_others_and_it_is_recorded_as_its_act()
     {
         Assert.Equal(HttpStatusCode.OK, (await Send(_ownerA, "POST", $"sessions/{_fleetManagerId}/raise")).Status);

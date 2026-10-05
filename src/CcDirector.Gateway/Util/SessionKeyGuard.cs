@@ -198,9 +198,10 @@ public static class SessionKeyGuard
     /// The same decision for a session key whose session the owner has RAISED (the Fleet Manager Improvement mission,
     /// phase 1; <c>Fleet.RaisedSessions</c> is the one place that says whether it is).
     ///
-    /// A NAMED WIDENING, NOT A BLANKET ALLOW. A raised key passes exactly two refusals an unraised key does not: the
+    /// A NAMED WIDENING, NOT A BLANKET ALLOW. A raised key passes exactly three refusals an unraised key does not: the
     /// agent input refusal (<see cref="IsAgentInput"/>) and the owner-only Fleet Manager routes
-    /// (<see cref="IsFleetManagerOwnerRoute"/>). Each is its own literal list, and the verdict says which one let the
+    /// (<see cref="IsFleetManagerOwnerRoute"/>), and the message link routes (<see cref="IsMessageLinkRoute"/>,
+    /// issue #3548). Each is its own literal list, and the verdict says which one let the
     /// request through (<see cref="SessionKeyVerdict.RaisedGrant"/>) so the middleware can record it. This is still an
     /// allow list: a route the product grows later is refused to a raised key too, until somebody adds it here.
     ///
@@ -728,18 +729,6 @@ public static class SessionKeyGuard
     /// with the session that took it. A raised Fleet Manager answers a record with its own answer route, which records
     /// the Fleet Manager, and types an answer into a session with the agent input grant.
     /// </summary>
-    /// <summary>
-    /// The message link routes (issue #3548): <c>GET</c> and <c>POST /fleet/links</c>, and
-    /// <c>DELETE /fleet/links/{id}</c>. The owner's own device reaches them, and a RAISED session does on this grant -
-    /// an ordinary session key never does, because a session that could set up its own link would have no limit at all.
-    /// </summary>
-    private static bool IsMessageLinkRoute(string verb, string[] s)
-    {
-        if (s.Length < 2 || s[0] != "fleet" || s[1] != "links") return false;
-        if (s.Length == 2) return verb is "GET" or "HEAD" or "POST";
-        return s.Length == 3 && verb == "DELETE";
-    }
-
     private static bool IsFleetManagerOwnerRoute(string verb, string[] s)
     {
         if (s.Length != 3 || s[0] != "gateway" || s[1] != "fleet-manager") return false;
@@ -751,6 +740,18 @@ public static class SessionKeyGuard
             "page" or "walkthrough" => read,
             _ => false,
         };
+    }
+
+    /// <summary>
+    /// The message link routes (issue #3548): <c>GET</c> and <c>POST /fleet/links</c>, and
+    /// <c>DELETE /fleet/links/{id}</c>. The owner's own device reaches them, and a RAISED session does on this grant -
+    /// an ordinary session key never does, because a session that could set up its own link would have no limit at all.
+    /// </summary>
+    private static bool IsMessageLinkRoute(string verb, string[] s)
+    {
+        if (s.Length < 2 || s[0] != "fleet" || s[1] != "links") return false;
+        if (s.Length == 2) return verb is "GET" or "HEAD" or "POST";
+        return s.Length == 3 && verb == "DELETE";
     }
 
     /// <summary>

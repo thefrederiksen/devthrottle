@@ -118,6 +118,12 @@ internal static class FleetMessageLinkEndpoints
                     return Refuse(StatusCodes.Status409Conflict, "session_ended",
                         $"Session {id} has ended, so no link was set up. A link ends with either of its sessions.");
             }
+            // A session and its own worker may already message each other, so a link between them would never be used,
+            // would read "Live" for ever, and would come alive unseen if ownership later changed. Refused, in words.
+            if (FleetManagerSessions.SameId(sender!.ControllerSessionId, recipientId)
+                || FleetManagerSessions.SameId(recipient!.ControllerSessionId, senderId))
+                return Refuse(StatusCodes.Status409Conflict, "already_related",
+                    "One of these sessions started the other, so they may already message each other. No link was set up.");
 
             var setUp = links.SetUp(tenant, senderId, recipientId, amount, caller.Actor, nowUtc());
             foreach (var old in setUp.Replaced)
@@ -186,8 +192,10 @@ internal static class FleetMessageLinkEndpoints
                 return Refuse(StatusCodes.Status403Forbidden, "own_link",
                     "A raised session never changes a link it is part of.");
 
-            var after = links.Remove(tenant, before.LinkId, caller.Actor, nowUtc())!;
-            if (before.Status == FleetMessageLinkStatuses.Live)
+            var result = links.Remove(tenant, before.LinkId, caller.Actor, nowUtc())!;
+            var after = result.Link;
+            // Recorded and told only when THIS call removed it: a link a message used up a moment before was not removed.
+            if (result.Removed)
             {
                 record.Stopped(tenant, after, caller.Actor, "removed");
                 if (findSession(tenant, after.SenderSessionId) is { } sender && !FleetManagerSessions.IsGone(sender))
