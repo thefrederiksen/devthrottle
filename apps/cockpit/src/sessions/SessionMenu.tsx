@@ -16,6 +16,7 @@ import { ConfirmDialog, useDismissOnBackdrop } from "../components";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useStopSession } from "./StopSessionProvider";
 import { runHandOver } from "@devthrottle/client-core/fleetmanager/handOverClient";
+import { MessageLinkDialog } from "./MessageLinkDialog";
 
 // The surface label on every client-error report from this view, so the Gateway log and
 // GET /client-errors/recent name where the user was standing (issue #2189).
@@ -60,6 +61,8 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
   // The Gateway's sentence after a change of owner, shown on the button row like an error is.
   const [ownerNote, setOwnerNote] = useState<string | null>(null);
   const [ownerBusy, setOwnerBusy] = useState(false);
+  // "Let this session talk to..." (issue #3548): the owner lets this session message one it is not related to.
+  const [linkOpen, setLinkOpen] = useState(false);
   // The stop lives above this component, in the one owner that survives this row being removed.
   const { openStop: startStop } = useStopSession();
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -156,7 +159,7 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
       // the button's top instead. "Snooze for" is only present when this client knows the user's snooze
       // lengths, so the height is not fixed - measure it off the item count rather than hard-coding a
       // number that silently goes stale the next time a row is added.
-      const MENU_HEIGHT = 184 + (snoozeMenu.choices.length > 0 ? 31 : 0) + (session.ownerChange ? 31 : 0);
+      const MENU_HEIGHT = 215 + (snoozeMenu.choices.length > 0 ? 31 : 0) + (session.ownerChange ? 31 : 0);
       const spaceBelow = window.innerHeight - r.bottom;
       if (spaceBelow < MENU_HEIGHT + 8) {
         setPopPos({ bottom: Math.max(8, window.innerHeight - r.top + 4), right });
@@ -380,6 +383,15 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
             <button type="button" role="menuitem" className="session-menu-item" onClick={openHandover}>
               Handover info
             </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="session-menu-item"
+              title="Let this session message another session it did not start and was not started by"
+              onClick={() => { setOpen(false); setError(null); setLinkOpen(true); }}
+            >
+              Let this session talk to...
+            </button>
             {hasContextVerbs && <div className="session-menu-head">Context</div>}
             {canCompact && (
               <button
@@ -519,6 +531,8 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
           {ownerNote}
         </span>
       )}
+
+      {linkOpen && <MessageLinkDialog session={session} onClose={() => setLinkOpen(false)} />}
 
       {dialog !== null && (
         <div className="session-dialog-overlay" {...dismissDialog}>
