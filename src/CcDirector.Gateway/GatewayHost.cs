@@ -779,6 +779,12 @@ public sealed class GatewayHost : IAsyncDisposable
     public Teams.TeamEndpointGate TeamGate { get; }
 
     /// <summary>
+    /// Requests to a team's Owner and Managers (devthrottle_internal#2308). Present on every host; its routes are mapped
+    /// only when Teams is released. Exposed so the hosted tests read the same store the routes write.
+    /// </summary>
+    public Teams.TeamRequestStore TeamRequests { get; }
+
+    /// <summary>
     /// The retry net for the team seat sync (devthrottle_internal#2301): null except on a hosted Gateway with Teams
     /// released, where it runs every <see cref="Teams.TeamSeatConvergence.Interval"/>.
     /// </summary>
@@ -1819,6 +1825,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary);
         TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
+        TeamRequests = new Teams.TeamRequestStore(_gatewayDb, TeamRegistry);
         // Removing a person from a team, or making them a Collaborator, cuts their Directors off that team: their keys
         // there are revoked and their open tunnels there cut (devthrottle_internal#2311). Attached only where Teams is
         // released, at the one place a membership change is committed.
@@ -4853,6 +4860,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, TeamCallerOwnership, PushedSessions), Devices);
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
             TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
+            // Requests to the Owner and Managers (devthrottle_internal#2308), behind the same switch. People only - a request
+            // is never readable with a session key or a Director's key.
+            TeamRequestEndpoints.Map(_app, TeamRequests, _tenantBoundary, TenantRegistry);
             // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow
             // routes mounted again under /teams/{teamId}, answering for the team's tenant, plus the Skills and
             // workflows page's read. Dark with the rest of Teams.

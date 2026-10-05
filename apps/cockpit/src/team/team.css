@@ -84,3 +84,48 @@
 .team-accept-title { font-size: 22px; margin: 0 0 6px; color: var(--text); }
 .team-accept-sub { color: var(--text-dim); margin: 0 0 4px; }
 .team-link { color: var(--accent-text); display: inline-block; margin-top: 16px; }
+
+/* Requests (devthrottle_internal#2308, screen S9): one card per request - its words, when it was sent, its trail, and
+   the reason when it is not being done. Works down to a 390px phone: the buttons wrap, the textarea is full width. */
+.team-textarea { max-width: 100%; min-height: 64px; resize: vertical; }
+.team-req {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin: 0 0 12px;
+  overflow-wrap: anywhere;
+}
+.team-req-text { color: var(--text); font-weight: 600; white-space: pre-wrap; }
+.team-req-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; color: var(--text-dim); margin: 4px 0 10px; }
+.team-req-state {
+  display: inline-block;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.team-req-state-accepted { color: var(--accent-text); border-color: var(--accent); }
+.team-req-state-done { color: var(--ok-text); }
+.team-req-state-declined { color: var(--danger-text); }
+.team-req-trail { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.team-req-trail li { font-size: 12px; border-radius: 6px; padding: 4px 8px; border: 1px solid var(--border); color: var(--text-dim); }
+.team-req-trail .team-req-now { color: var(--text); border-color: var(--accent); background: var(--surface-2); }
+.team-req-when { color: var(--text-dim); margin-left: 4px; }
+.team-req-reason {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--danger-text);
+  background: var(--code-bg);
+  border-radius: 0 6px 6px 0;
+  color: var(--text);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.team-req-reason-who { font-size: 12px; color: var(--text-dim); margin-bottom: 2px; }
+.team-req-decline { margin-top: 10px; }
+@media (max-width: 480px) {
+  .team-card, .team-req { padding: 12px; }
+  .team-row .ui-btn { flex: 1 1 auto; }
+}

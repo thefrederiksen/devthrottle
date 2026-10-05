@@ -35,6 +35,15 @@ vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", async (importOri
   getFactoryAgentsSwitch: vi.fn(async () => ({ enabled: false })),
 }));
 vi.mock("../../network/CockpitStatusPill", () => ({ CockpitStatusPill: () => null }));
+// The Requests page's one read (devthrottle_internal#2308): recorded, so a test can show the slot asks for the team on
+// screen.
+const requestsRead = vi.hoisted(() => ({ teams: [] as string[] }));
+vi.mock("@devthrottle/client-core/teams/requestsClient", () => ({
+  listMyRequests: vi.fn(async (teamId: string) => {
+    requestsRead.teams.push(teamId);
+    return [];
+  }),
+}));
 
 // The whole app's pages. A page mounted when it must not be shows up as its own text, which the tests look for.
 vi.mock("../../fleetmanager/FleetManagerView", () => ({ FleetManagerView: () => <div>fleet manager page</div> }));
@@ -191,7 +200,18 @@ describe("The Collaborator's app", () => {
     expect(screen.getByTestId("where").textContent).toBe("/questions");
   });
 
-  it.each([["/requests", "team-page-requests", "No requests from you yet."], ["/reports", "team-page-reports", "No reports sent to you yet."]])(
+  it("Page_Collaborator_Requests_IsTheRequestsPageForTheTeamOnScreen", async () => {
+    requestsRead.teams = [];
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/requests");
+
+    const page = await screen.findByTestId("team-page-requests");
+    expect(within(page).getByRole("button", { name: "Send request" })).toBeTruthy();
+    expect((await within(page).findByText(/No requests from you yet\./)).textContent).toContain("No requests from you yet.");
+    expect(requestsRead.teams).toEqual([COLLABORATOR_TEAM.id]);
+  });
+
+  it.each([["/reports", "team-page-reports", "No reports sent to you yet."]])(
     "Page_Collaborator_%s_RendersItsHonestEmptyPage",
     async (path, testId, empty) => {
       rememberTeam(COLLABORATOR_TEAM.id);

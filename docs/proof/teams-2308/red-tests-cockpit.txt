@@ -1,0 +1,47 @@
+Red-test record - devthrottle_internal#2308, Cockpit page (npx vitest run src/team/requests.test.tsx), on commit f695003d0.
+MUTATION C1: the Accept button shows whatever the Gateway's canAccept says
+ apps/cockpit/src/team/RequestsView.tsx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+   FAILED: the Owner and Managers' Requests list > shows exactly the buttons the Gateway's verdicts allow, whatever the state 28ms
+   FAILED: the Owner and Managers' Requests list > accepts a request and replaces its card with the Gateway's answer 25ms
+------- Failed Tests 2 -------
+ FAIL  src/team/requests.test.tsx > the Owner and Managers' Requests list > shows exactly the buttons the Gateway's verdicts allow, whatever the state
+ FAIL  src/team/requests.test.tsx > the Owner and Managers' Requests list > accepts a request and replaces its card with the Gateway's answer
+      Tests  2 failed | 6 passed (8)
+MUTATION C2: Not doing this can be sent with an empty reason
+ apps/cockpit/src/team/RequestsView.tsx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+   FAILED: the Owner and Managers' Requests list > will not mark Not doing this until a reason is written, then sends the reason 43ms
+------- Failed Tests 1 -------
+ FAIL  src/team/requests.test.tsx > the Owner and Managers' Requests list > will not mark Not doing this until a reason is written, then sends the reason
+      Tests  1 failed | 7 passed (8)
+restored:
+?? docs/proof/teams-2308/red-tests-cockpit.txt
+
+--- After plugging into #2306's slot (2026-10-05) ---
+MUTATION C3: the /requests slot draws the Requests page for the wrong team
+ apps/cockpit/src/teams/collaborator/RequestsPage.tsx: teamId={current.id} -> teamId={current.name}
+   FAILED: The Collaborator's app > Page_Collaborator_Requests_IsTheRequestsPageForTheTeamOnScreen
+   AssertionError: expected [ 'DevThrottle' ] to deeply equal [ 'team-dt' ]
+      Tests  1 failed | 33 skipped (34)
+restored: source copied back; the full run below is green.
+MUTATION C4: the Owner and Managers' list is not at /team/{teamId}/requests
+ apps/cockpit/src/routes.tsx: "/team/:teamId/requests" -> "/team/:teamId/requests-moved"
+   FAILED: team routes > Route_TeamRequests_OpensTheOwnerAndManagersListForTheTeamInTheAddress
+   TestingLibraryElementError: Unable to find an element with the text: Nobody on the team has sent a request yet.
+restored: source copied back; the full run below is green.
+MUTATION C5: the reason box stays open after the Gateway's answer (the defect the screenshots found)
+ apps/cockpit/src/team/RequestsView.tsx: useEffect(..., [request.trail.length]) -> useEffect(..., [])
+   FAILED: the Owner and Managers' Requests list > will not mark Not doing this until a reason is written, then sends the reason
+   AssertionError: expected <button type="button" ...(1)></button> to be null
+      Tests  1 failed | 7 passed (8)
+restored: Tests  8 passed (8)
+
+--- After the review of #3556 (5 October 2026), review F3 ---
+
+MUTATION: the list is not read again after a refused decision (the `await load();` line removed from decide in
+apps/cockpit/src/team/RequestsView.tsx), then: npx vitest run src/team/requests.test.tsx
+  Tests 1 failed | 8 passed (9)
+    FAIL the Owner and Managers' Requests list > after a refused decision, shows the refusal and reads the list
+         again, so only the buttons now allowed remain
+  restored with git checkout; no change left under apps/.

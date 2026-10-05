@@ -59,6 +59,11 @@ public enum TeamAction
     /// finding F3).</summary>
     ChangeAnotherPersonsMentorSettings,
 
+    /// <summary>Read the team's whole Requests list and decide a request: accept it, mark it Not doing this, or mark
+    /// it Done (devthrottle_internal#2308). Sending a request is <see cref="AnswerQuestionsSendRequestsReadReports"/>,
+    /// which every member may; deciding one is the Owner's and the Managers' alone. A sender reads their OWN requests
+    /// through the sending row, never through this one.</summary>
+    ReadAndDecideTeamRequests,
     /// <summary>Open the Team page (screen S1): the member list with roles and seats, and what the caller may do to
     /// each member. devthrottle_internal#2303: the Owner, Managers and Developers have the page; a Collaborator does
     /// not - their app is the Collaborator's own (#2306), though they may still read the member list
@@ -131,6 +136,7 @@ public static class TeamPermissions
         new TeamPermissionRow(TeamAction.ReadAnotherPersonsPrompts, "read another person's prompts", No, No, No, No),
         new TeamPermissionRow(TeamAction.ReadPromptsQuotedOnMentorPage, "read the prompts the Mentor quotes on its page about a person", Yes, Yes, No, No),
         new TeamPermissionRow(TeamAction.ChangeAnotherPersonsMentorSettings, "change the Mentor's settings for another person", No, No, No, No),
+        new TeamPermissionRow(TeamAction.ReadAndDecideTeamRequests, "read the team's Requests list or accept a request, mark it Not doing this or mark it Done", Yes, Yes, No, No),
         // devthrottle_internal#2303: "Collaborator: no Team page."
         new TeamPermissionRow(TeamAction.SeeTeamPage, "open the Team page", Yes, Yes, Yes, No),
     };
