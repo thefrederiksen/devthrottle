@@ -83,6 +83,26 @@ public sealed class GatewayStreamClientTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task RealClient_TheNewConnectionCallback_RunsOnceForTheConnection_NotOnEveryRePush()
+    {
+        // Issue #3559: the Director drops its Fleet Manager lessons when a NEW connection opens. The timed re-push
+        // reseeds (Hello and snapshot) on the same connection, and must not drop them again - a compaction in that gap
+        // would lose the lessons. The re-push is made fast here so several happen within the test.
+        var snapshots = 0;
+        var newConnections = 0;
+        var config = new GatewayConfig { Url = $"http://127.0.0.1:{_gateway.Port}", Token = Token, StreamMode = true };
+        await using var client = new GatewayStreamClient(config, "dir-A", "test",
+            () => { Interlocked.Increment(ref snapshots); return new List<SessionDto> { Session("s1") }; },
+            rePushInterval: TimeSpan.FromMilliseconds(200),
+            onNewConnection: () => Interlocked.Increment(ref newConnections));
+        client.Start();
+
+        await WaitUntil(() => Task.FromResult(Volatile.Read(ref snapshots) >= 4), "four snapshots on one connection");
+
+        Assert.Equal(1, Volatile.Read(ref newConnections));
+    }
+
+    [Fact]
     public async Task RealClient_NotifyDelta_IsReflected()
     {
         await using var client = NewClient(() => new List<SessionDto> { Session("s1", "Working") });
