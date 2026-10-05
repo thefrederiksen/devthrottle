@@ -163,13 +163,40 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
                 PackageKind = "agent-reply",
                 Failed = true,
                 FailureReason = "the judge could not be asked: seeded by the test",
+                // DECIDED BY A CODE STEP, NOT LEFT UNNAMED. A reading with no decider is one the Wingman must decide
+                // again as soon as nothing is working under the session (ReadingOutlivedItsRunningWork), and nothing is
+                // ever working under these. Seeded without it, every sweep decided these sessions again and stored a
+                // newer reading: they were never the no-op this class is about, and the control below passed only
+                // while that newer reading had not been stored yet.
+                DecidedBy = CcDirector.Core.Wingman.CallACodeSteps.NothingUnderItStep,
             };
             _gateway.TurnVerdicts.Store(TenantNoOp, sid, seeded);
             _seededVerdictIds[sid] = seeded.VerdictId;
         }
 
+        // A PUSHED, ALREADY-WAITING SESSION IS A TURN END, and its judgement runs on its own task: it looks at the
+        // judge switch, and for a voice session waits 600 milliseconds and then asks the judge - a turn end never
+        // reuses a failed reading of an unreadable screen. Marking the sessions as voice while those judgements were
+        // still deciding let one of them see a voice session, and when the machine was slow enough it stored a newer
+        // reading over the seeded one before the control below read it. So every session's turn-end judgement is
+        // seen to END here, as the non-voice session it was pushed as, before any of them is marked.
+        var turnEndsOver = new ConcurrentDictionary<string, byte>();
+        _gateway.TurnVerdictServiceForTest!.OnLeftGateForTests = sid => turnEndsOver[sid] = 0;
+
         await _dirNoOp.PushSnapshotAsync(NoOpSessions.Select(Sample).ToArray());
         await _dirNarratable.PushSnapshotAsync(Sample(NarratableSession));
+
+        var pushed = NoOpSessions.Append(NarratableSession).ToArray();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (!pushed.All(turnEndsOver.ContainsKey))
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new InvalidOperationException(
+                    "the turn-end judgement of a pushed session never ended: "
+                    + string.Join(", ", pushed.Where(sid => !turnEndsOver.ContainsKey(sid))));
+            await Task.Delay(20);
+        }
+        _gateway.TurnVerdictServiceForTest!.OnLeftGateForTests = null;
 
         foreach (var sid in NoOpSessions)
             _gateway.VoiceService!.Mark(TenantNoOp, sid);
