@@ -650,6 +650,132 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Alice, "session-alice"));
     }
 
+    // ---- #3552 review round 3: S2-F8 (who may write a session's key row) and S2-F10 (a person's own keys) ----------
+
+    /// <summary>
+    /// #3552 review S2-F8, the reviewer's first round-3 reproduction turned round. It passed on 73fcc561e: in the gap
+    /// where Bob's session is in his roster and its key has not arrived (a session started while the tunnel was down),
+    /// Alice's Director registered a key for Bob's session id, the row named her Director, Bob's own registration was
+    /// refused for good, and the session became hers. Now, in a team, the hub refuses a key for an id ANOTHER Director's
+    /// roster lists: Alice is refused and nothing is written, Bob's registration is accepted, and the session is his.
+    /// </summary>
+    [Fact]
+    public void AColleaguesDirector_RegisteringASessionKeyForAnIdAnotherDirectorLists_IsRefused_AndTheOwnersKeyMakesItTheirs()
+    {
+        // The gap: Bob's session is in his roster and its key registration has not arrived yet.
+        var bob = Hello(_teamA, Bob, "director-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        var aliceKey = _devices.RegisterForTenant(new TenantId(_teamA), Alice,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA, Alice, "director-alice"), "M").DeviceKey;
+        var alice = SayHello(aliceKey, "director-alice");
+
+        // Alice's Director registers a key for Bob's session id: refused, and no row is written.
+        Assert.Throws<HubException>(() => RegisterSessionKey(alice, "session-bob"));
+        Assert.Null(_sessionKeys.DirectorOfSession(new TenantId(_teamA), "session-bob"));
+
+        // Bob's own registration - the honest reseed, roster first and then the key - is accepted.
+        RegisterSessionKey(bob, "session-bob");
+        Assert.Equal("director-bob", _sessionKeys.DirectorOfSession(new TenantId(_teamA), "session-bob"));
+
+        // The session is Bob's: his pushes are stored, and Alice's is refused for good.
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
+        Assert.Equal(2, bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2))!.Count);
+        Assert.Null(alice.Hub.PushTurns(1, Conversation("session-bob", 2, 1)));
+
+        // Bob's session ends; Alice lists the id: it is not hers, and the three routes are refused to her.
+        bob.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+        var gate = Gate(out var ownership);
+        foreach (var pattern in new[] { "/sessions/{sid}/wingman-stops", "/sessions/{sid}/turn-verdicts", "/sessions/{sid}/recap" })
+        {
+            var verdict = Ask(gate, ownership, "GET", pattern, "session-bob", new TenantId(_teamA),
+                _devices.ResolveCredential(aliceKey).Identity, null);
+            Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
+        }
+    }
+
+    /// <summary>
+    /// #3552 review S2-F8: every honest order stays accepted. A stock Director registers a new session's key before it
+    /// lists the session; on a reseed it sends its roster and then its keys; and after a reconnect it registers the same
+    /// key again. None of these is refused, because no OTHER Director lists the id and nothing of another person's is
+    /// stored for it.
+    /// </summary>
+    [Fact]
+    public void ASessionKey_RegisteredBeforeTheRoster_AfterTheRoster_OrAgainAfterAReconnect_IsAccepted()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+
+        // A new session: key first, then the roster (the stock order).
+        RegisterSessionKey(bob, "session-new");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-new" } });
+        Assert.Equal("director-bob", _sessionKeys.DirectorOfSession(new TenantId(_teamA), "session-new"));
+
+        // A key that was lost at launch arrives in the reseed: roster first, then the key.
+        bob.Hub.PushSnapshot(2, new[] { new SessionDto { SessionId = "session-new" }, new SessionDto { SessionId = "session-lost" } });
+        RegisterSessionKey(bob, "session-lost");
+        Assert.Equal("director-bob", _sessionKeys.DirectorOfSession(new TenantId(_teamA), "session-lost"));
+        Assert.Equal(2, bob.Hub.PushTurns(1, Conversation("session-lost", 0, 2))!.Count);
+
+        // A reconnect: the same Director on a new connection lists both and registers both again.
+        var bobAgain = Hello(_teamA, Bob, "director-bob");
+        bobAgain.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-new" }, new SessionDto { SessionId = "session-lost" } });
+        RegisterSessionKey(bobAgain, "session-new");
+        RegisterSessionKey(bobAgain, "session-lost");
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-lost"));
+    }
+
+    /// <summary>
+    /// #3552 review S2-F8, the second half of the rule: an id with stored rows that another person's Director wrote is
+    /// refused a key too, even when nobody lists it any more. Bob's session was stored without a key row (the
+    /// sole-holder rule) and has ended; Alice's Director cannot then make the key row name it.
+    /// </summary>
+    [Fact]
+    public void ASessionKey_ForAnIdWithRowsAnotherPersonsDirectorWrote_IsRefused_EvenWhenNobodyListsIt()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Equal(2, bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2))!.Count);
+        bob.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+        Assert.Empty(_store.DirectorsHoldingSession(new TenantId(_teamA), "session-bob"));
+
+        var alice = Hello(_teamA, Alice, "director-alice");
+        Assert.Throws<HubException>(() => RegisterSessionKey(alice, "session-bob"));
+        Assert.Null(_sessionKeys.DirectorOfSession(new TenantId(_teamA), "session-bob"));
+    }
+
+    /// <summary>
+    /// #3552 review S2-F10. Setting one Director up again revokes the person's other key for it - and "the same
+    /// Director" is decided by <see cref="DeviceCredentialIdentity.SameDirectorId"/> on the person's rows in memory, not
+    /// by a suffix match in the database. One person sets one Director id up for team A and then for team B in another
+    /// letter case: the first key is revoked, so the Director is in one place. The non-ASCII pair is the case SQLite's
+    /// own matching does not fold, so it would keep both keys against the old query on the test database as well as on
+    /// PostgreSQL.
+    /// </summary>
+    [Theory]
+    [InlineData("director-alice", "DIRECTOR-ALICE")]
+    [InlineData("director-bjørn", "DIRECTOR-BJØRN")]
+    public void SettingOneDirectorUpAgain_UnderItsIdInAnotherLetterCase_RevokesThePersonsFirstKey(string first, string again)
+    {
+        var firstKey = EnrolledKey(Alice, first, _teamA);
+        var secondKey = EnrolledKey(Alice, again, _teamB);
+
+        Assert.Equal(DeviceCredentialResolutionKind.Revoked, KindOf(firstKey));
+        Assert.Equal(DeviceCredentialResolutionKind.Active, KindOf(secondKey));
+        Assert.Single(_devices.ActiveKeysOfDirector(Alice, first));
+        Assert.Empty(_devices.ActiveKeysOfDirector(Bob, first));
+    }
+
+    /// <summary>#3552 review S2-F9: the refusal tells the person what to do, not only what happened.</summary>
+    [Fact]
+    public void TheDirectorIdTakenRefusal_TellsThePersonWhatToDo()
+    {
+        EnrolledKey(Bob, "director-bob", _teamA);
+        var refused = Enroll(Alice, "director-bob", _teamA);
+        Assert.Equal(409, refused.Status);
+        Assert.Contains("Ask the team's Owner, or set this computer up as a new Director.", refused.Error);
+    }
+
     [Fact]
     public void PushTurns_ANewSessionWithNothingStored_IsAcceptedOnlyFromADirectorWhoseRosterHoldsIt()
     {

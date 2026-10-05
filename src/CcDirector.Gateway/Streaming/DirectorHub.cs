@@ -497,6 +497,52 @@ public sealed class DirectorHub : Hub
         }
     }
 
+    /// <summary>Whether any of <paramref name="writers"/> - the Directors that wrote a session's stored rows, in any
+    /// generation - is neither this Director nor another Director of <paramref name="person"/>
+    /// (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>; a writer it cannot name is not the person's). THE ONE stored-writer
+    /// question in the hub, asked by the turn push and by a session key registration (#3552 review, S2-F8).</summary>
+    private bool WrittenByAnotherPerson(IReadOnlyList<string> writers, TenantId tenant, string directorId, string person)
+    {
+        foreach (var writer in writers)
+        {
+            if (string.Equals(writer, directorId, StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (!string.Equals(_teamOwnership!.OwnerOf(tenant, writer), person, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// IN A TEAM, A SESSION KEY IS REGISTERED ONLY FOR A SESSION THAT IS NOT ANOTHER DIRECTOR'S (#3552 review, S2-F8).
+    /// The key row is the record of whose a session id is (S2-F6), and the first Director to write it keeps it, so it must
+    /// not be writable by a colleague's Director for an id it has learned. Refused when ANOTHER Director's roster in the
+    /// tenant lists the id, or when the id has stored rows written by another person's Director - read through the same
+    /// roster and stored-writer readers the ownership answer and the turn push use. A Director registering a key for an
+    /// id only its own roster lists is accepted: that is the honest reseed, which sends the roster and then the keys; and
+    /// a stock Director registers a new session's key before it lists the session at all. Null when allowed; otherwise
+    /// the reason. A personal key is never asked. Called with the session id already trimmed.
+    /// </summary>
+    private string? TeamSessionKeyRefusalFor(string directorId, TenantId tenant, string sessionId)
+    {
+        if (!Context.Items.TryGetValue(TeamKeyHolderItemKey, out var holder))
+            return null;
+        var person = holder as string;
+        if (string.IsNullOrEmpty(person) || _teamOwnership is null || _sessionTurns is null)
+            return "in a team, a session key cannot be checked on this Gateway (the person, the ownership answer or the turn store is missing)";
+
+        var holders = _store.DirectorsHoldingSession(tenant, sessionId);
+        if (holders.Any(h => !Pairing.DeviceCredentialIdentity.SameDirectorId(h, directorId)))
+            return $"in a team, session {sessionId} is listed by another Director, so this Director may not register its key";
+
+        IReadOnlyList<string> writers;
+        using (EnterBoundTenantScope())
+            writers = _sessionTurns.DirectorsOfAnyGeneration(sessionId);
+        if (WrittenByAnotherPerson(writers, tenant, directorId, person))
+            return $"in a team, session {sessionId} holds rows another person's Director wrote, so this Director may not register its key";
+        return null;
+    }
+
     /// <summary>Whether, in the team <paramref name="tenant"/>, a person other than the team key's own holds an active
     /// key enrolled for <paramref name="directorId"/>. A team key naming no person, or a Gateway with no ownership
     /// answer, cannot be cleared, so it is answered yes and the Hello refused - never guessed.</summary>
@@ -539,15 +585,10 @@ public sealed class DirectorHub : Hub
         var writers = _sessionTurns!.DirectorsOfAnyGeneration(sessionId);
         if (writers.Count > 0)
         {
-            foreach (var writer in writers)
+            if (WrittenByAnotherPerson(writers, tenant, directorId, person))
             {
-                if (string.Equals(writer, directorId, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                if (!string.Equals(_teamOwnership.OwnerOf(tenant, writer), person, StringComparison.Ordinal))
-                {
-                    FileLog.Write($"[DirectorHub] PushTurns REFUSED (in a team, session {Short(sessionId)} holds rows a Director that is not this person's wrote): director={directorId}");
-                    return TeamTurnPushRefusal.AnotherPersonWroteIt;
-                }
+                FileLog.Write($"[DirectorHub] PushTurns REFUSED (in a team, session {Short(sessionId)} holds rows a Director that is not this person's wrote): director={directorId}");
+                return TeamTurnPushRefusal.AnotherPersonWroteIt;
             }
             return TeamTurnPushRefusal.None;
         }
@@ -667,6 +708,13 @@ public sealed class DirectorHub : Hub
         {
             FileLog.Write($"[DirectorHub] RegisterSessionKey REJECTED (the connection's bound tenant is not valid): director={directorId}, session={registration.SessionId}");
             throw new HubException("the connection's bound tenant is not valid");
+        }
+
+        var teamRefusal = TeamSessionKeyRefusalFor(directorId, tenant, registration.SessionId.Trim());
+        if (teamRefusal is not null)
+        {
+            FileLog.Write($"[DirectorHub] RegisterSessionKey REFUSED ({teamRefusal}): director={directorId}");
+            throw new HubException(teamRefusal);
         }
 
         bool registered;

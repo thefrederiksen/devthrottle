@@ -269,20 +269,27 @@ public sealed class DeviceRegistry : IDisposable
     }
 
     /// <summary>
-    /// The ACTIVE keys of one Director, by the Director's own id: every row whose registry id is
-    /// <c>&lt;namespace&gt;|<paramref name="directorId"/></c> and that <see cref="ResolveCredential"/> would judge
-    /// active, whoever it was issued to. A move names its Director this way (devthrottle_internal#2311); the caller
-    /// filters by person. Normally one; enrollment with Teams released keeps it to one per person.
+    /// The ACTIVE keys ONE PERSON holds for one Director, by the Director's own id: every row of
+    /// <paramref name="accountSubject"/> enrolled for <paramref name="directorId"/> by
+    /// <see cref="DeviceCredentialIdentity.SameDirectorId"/>, that <see cref="ResolveCredential"/> would judge active. A
+    /// move and setting a Director up again name it this way (devthrottle_internal#2311). Normally one; enrollment with
+    /// Teams released keeps it to one per person. The person's rows are read and the Director id compared in memory, never
+    /// by the database (#3552 review, S2-F10), so one Director id in two letter cases is one Director on SQLite and
+    /// PostgreSQL alike.
     /// </summary>
-    public IReadOnlyList<DeviceCredentialIdentity> ActiveKeysOfDirector(string directorId)
+    public IReadOnlyList<DeviceCredentialIdentity> ActiveKeysOfDirector(string accountSubject, string directorId)
     {
+        if (string.IsNullOrWhiteSpace(accountSubject))
+            throw new ArgumentException("accountSubject is required", nameof(accountSubject));
         if (string.IsNullOrWhiteSpace(directorId))
             throw new ArgumentException("directorId is required", nameof(directorId));
-        var suffix = "|" + directorId.Trim();
+        var subject = accountSubject.Trim();
         using var ctx = _db.CreateUnscopedContext();
         var rows = ctx.DeviceCredentials
             .AsNoTracking()
-            .Where(d => d.DeviceId.EndsWith(suffix) && d.Status == StatusActive && d.RevokedAtUtc == null)
+            .Where(d => d.AccountSubject == subject && d.Status == StatusActive && d.RevokedAtUtc == null)
+            .ToList()
+            .Where(d => RowIsEnrolledFor(d.DeviceId, directorId))
             .ToList();
         var active = rows
             .Select(row => Judge(ctx, row))
@@ -292,6 +299,37 @@ public sealed class DeviceRegistry : IDisposable
         FileLog.Write($"[DeviceRegistry] ActiveKeysOfDirector: director={directorId.Trim()} active={active.Count} of {rows.Count} row(s)");
         return active;
     }
+
+    /// <summary>
+    /// Whether a person other than <paramref name="accountSubject"/> holds an ACTIVE key for Director
+    /// <paramref name="directorId"/>, anywhere - asked only when a move finds none of the person's own, to tell "that
+    /// Director is someone else's" from "no such Director". It reads every active row and compares in memory with
+    /// <see cref="DeviceCredentialIdentity.SameDirectorId"/> (#3552 review, S2-F10); that is a whole-table read, which is
+    /// why it is asked only on that refusal and never on a path that succeeds.
+    /// </summary>
+    public bool AnotherPersonHasActiveKeyForDirector(string accountSubject, string directorId)
+    {
+        if (string.IsNullOrWhiteSpace(accountSubject))
+            throw new ArgumentException("accountSubject is required", nameof(accountSubject));
+        if (string.IsNullOrWhiteSpace(directorId))
+            throw new ArgumentException("directorId is required", nameof(directorId));
+        var subject = accountSubject.Trim();
+        using var ctx = _db.CreateUnscopedContext();
+        var held = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.Status == StatusActive && d.RevokedAtUtc == null
+                        && (d.AccountSubject == null || d.AccountSubject != subject))
+            .ToList()
+            .Where(d => RowIsEnrolledFor(d.DeviceId, directorId))
+            .Any(row => Judge(ctx, row).Kind == DeviceCredentialResolutionKind.Active);
+        FileLog.Write($"[DeviceRegistry] AnotherPersonHasActiveKeyForDirector: director={directorId.Trim()} held={held}");
+        return held;
+    }
+
+    /// <summary>Whether a registry id was enrolled for <paramref name="directorId"/>: THE one comparison of a Director id,
+    /// <see cref="DeviceCredentialIdentity.SameDirectorId"/>, on the part after the id's last bar.</summary>
+    private static bool RowIsEnrolledFor(string deviceId, string directorId) =>
+        DeviceCredentialIdentity.SameDirectorId(DeviceCredentialIdentity.EnrolledDirectorIdOf(deviceId), directorId);
 
     /// <summary>
     /// Whether ANOTHER person than <paramref name="accountSubject"/> has ever had a key for Director
@@ -353,12 +391,13 @@ public sealed class DeviceRegistry : IDisposable
         return rows.Count(row =>
             (row.AccountSubject == null || !string.Equals(row.AccountSubject, subject, StringComparison.Ordinal))
             && (!activeOnly || (string.Equals(row.Status, StatusActive, StringComparison.Ordinal) && row.RevokedAtUtc is null))
-            && DeviceCredentialIdentity.SameDirectorId(DeviceCredentialIdentity.EnrolledDirectorIdOf(row.DeviceId), directorId));
+            && RowIsEnrolledFor(row.DeviceId, directorId));
     }
 
     /// <summary>
-    /// Revoke every OTHER active key one person holds for one Director - the rows <c>&lt;namespace&gt;|<paramref
-    /// name="directorId"/></c> of <paramref name="accountSubject"/> other than <paramref name="keepDeviceId"/>. Called
+    /// Revoke every OTHER active key one person holds for one Director - the rows of <paramref name="accountSubject"/>
+    /// enrolled for <paramref name="directorId"/> by <see cref="DeviceCredentialIdentity.SameDirectorId"/>, other than
+    /// <paramref name="keepDeviceId"/>. Called
     /// when that Director is set up again, for a team or for the person's own account, so a Director holds exactly one
     /// working key and is in exactly one place (devthrottle_internal#2311). Returns the number revoked.
     /// </summary>
@@ -374,13 +413,20 @@ public sealed class DeviceRegistry : IDisposable
             throw new ArgumentException("reason is required", nameof(reason));
 
         var subject = accountSubject.Trim();
-        var suffix = "|" + directorId.Trim();
         var why = reason.Trim();
         var when = DateTime.UtcNow;
         using var ctx = _db.CreateUnscopedContext();
-        var changed = ctx.DeviceCredentials
-            .Where(d => d.AccountSubject == subject && d.DeviceId.EndsWith(suffix) && d.DeviceId != keepDeviceId
-                        && d.Status == StatusActive)
+        // The person's own rows are read and the Director id compared in memory (#3552 review, S2-F10); only the ids
+        // chosen that way are sent back to the database to be revoked.
+        var others = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => d.AccountSubject == subject && d.DeviceId != keepDeviceId && d.Status == StatusActive)
+            .Select(d => d.DeviceId)
+            .ToList()
+            .Where(id => RowIsEnrolledFor(id, directorId))
+            .ToList();
+        var changed = others.Count == 0 ? 0 : ctx.DeviceCredentials
+            .Where(d => others.Contains(d.DeviceId) && d.Status == StatusActive)
             .ExecuteUpdate(setters => setters
                 .SetProperty(d => d.Status, StatusRevoked)
                 .SetProperty(d => d.RevokedAtUtc, when)

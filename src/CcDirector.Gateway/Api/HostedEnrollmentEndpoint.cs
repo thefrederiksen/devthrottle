@@ -380,7 +380,7 @@ internal static class HostedEnrollmentEndpoint
     /// <summary>What setting a Director up for a team, or moving one into it, is told when another person in that team
     /// already set a Director up under the same id (#3552 review, S2-F1).</summary>
     public const string DirectorIdTakenInTeamRefusal =
-        "Another member of this team has already set up a Director with this id, so it cannot be set up for the team under your account. Nothing was changed.";
+        "Another member of this team already holds this Director id in this team, so it cannot be set up for the team under your account. Nothing was changed. Ask the team's Owner, or set this computer up as a new Director.";
 
     /// <summary>The machine-readable code beside <see cref="DirectorIdTakenInTeamRefusal"/>.</summary>
     public const string DirectorIdTakenInTeamCode = "director_id_taken_in_team";
@@ -468,9 +468,8 @@ internal static class HostedEnrollmentEndpoint
     private static LeaveResult LeaveOtherPlaces(string subject, string directorId, TenantId to, string keepDeviceId,
         string reason, DeviceRegistry devices, TeamEnrollment teams)
     {
-        var leaving = devices.ActiveKeysOfDirector(directorId)
-            .Where(k => string.Equals(k.AccountSubject, subject, StringComparison.Ordinal)
-                        && k.TenantId is not null
+        var leaving = devices.ActiveKeysOfDirector(subject, directorId)
+            .Where(k => k.TenantId is not null
                         && new TenantId(k.TenantId) != to)
             .Select(k => new TenantId(k.TenantId!))
             .Distinct()
@@ -622,11 +621,10 @@ internal static class HostedEnrollmentEndpoint
 
         // The Director's working key, by its own id. Only this person's counts; a working key of the same id issued to
         // someone else is the one case that says "not yours" rather than "no such Director".
-        var keys = devices.ActiveKeysOfDirector(directorId);
-        var mine = keys.Where(k => string.Equals(k.AccountSubject, subject, StringComparison.Ordinal)).ToList();
+        var mine = devices.ActiveKeysOfDirector(subject, directorId);
         if (mine.Count == 0)
         {
-            var someoneElses = keys.Count > 0;
+            var someoneElses = devices.AnotherPersonHasActiveKeyForDirector(subject, directorId);
             FileLog.Write($"[HostedEnrollment] Move REFUSED: director={directorId} has no working key of this account (another account's: {someoneElses})");
             return someoneElses
                 ? new EnrollResult(StatusCodes.Status403Forbidden, null, MoveSomeoneElsesKeyRefusal)
