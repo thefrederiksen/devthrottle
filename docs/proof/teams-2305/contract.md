@@ -75,11 +75,15 @@ Field rules - every one of them decided on the Gateway; a client renders, it doe
 - `written` - whether the Mentor run for this team and week has finished. `false` with empty `blocks` means "not
   written yet". `false` WITH blocks means "still being written": the Mentor has stored some blocks and is still
   waiting on its model for someone else (it tries again until the following week closes). The blocks so far are
-  served, and `writingNote` carries the line to show above them; `true` with empty `blocks` means "no block was written for you this week" (or, on an Owner's or
+  served, and `writingNote` carries the line to show above them. It is served only on an Owner's or Manager's page,
+  and only while this Gateway can still finish the week (the Mentor is switched on and the week is the last closed
+  one or the one before). A week left unfinished that nothing will finish is served as finished: `written: true`
+  with its blocks. A person's own page never shows the state: their block, once written, is final; `true` with empty `blocks` means "no block was written for you this week" (or, on an Owner's or
   Manager's page, for anyone). It does NOT say why: no sessions, no prompts, an answer the Gateway refused or a model
   that could not be reached all look the same here, so a page must not say which. No per-person reason is shown.
 - `writingNote` - the Gateway's line for a week still being written ("The Mentor is still writing this week. More
-  blocks may follow."), shown above the blocks as given. `null` in every other case.
+  blocks may follow."), shown above the blocks as given. Text exactly when `written` is false, `blocks` is not empty
+  and `scope` is `everyone`; `null` in every other case. A client refuses an answer where the two disagree.
 - `readers` - who reads every block of this team: the Owner, then the Managers, each by email and role, ordered by
   the Gateway (role, then email). The same list for every caller - it is what S7's "your Manager reads this same
   page" shows. A member with no email on record is listed with `email: null`.

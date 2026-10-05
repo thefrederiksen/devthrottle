@@ -197,6 +197,13 @@ function readPage(raw: unknown): MentorPage {
   if (blocks.filter((b) => b.isYou).length > 1) {
     throw new GatewayError(502, `${UNREADABLE}: more than one block is marked as the reader's own.`);
   }
+  // The line and the week are worked out together on the Gateway: the line is there exactly when an Owner's or
+  // Manager's week is still being written. A finished week under "still writing", an unfinished week drawn as finished,
+  // or an empty line, would each be drawn as something plausible and false (review J8).
+  const stillBeingWritten = !p.written && p.blocks.length > 0 && p.scope === "everyone";
+  if (stillBeingWritten !== (p.writingNote !== null) || p.writingNote === "") {
+    throw new GatewayError(502, `${UNREADABLE}: its "still writing" line does not match the week it is on.`);
+  }
   if (p.readers.length === 0) {
     throw new GatewayError(502, `${UNREADABLE}: nobody is listed as reading the page, yet every team has an Owner.`);
   }

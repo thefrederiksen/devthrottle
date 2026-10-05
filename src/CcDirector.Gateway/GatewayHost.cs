@@ -4823,7 +4823,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // The Mentor's weekly page, read (devthrottle_internal#2305), behind the same switch. Whether the writer
             // runs is a separate switch; the page reads whatever is stored.
             TeamMentorEndpoints.Map(_app, TeamRegistry, TeamAccess, TeamMentorStore, _tenantBoundary, TenantRegistry,
-                _tenantSettingsResolver.TimeZone);
+                _tenantSettingsResolver.TimeZone, mentorRunning: TeamMentorWriter is not null);
         }
         // The team seat convergence (devthrottle_internal#2301): retries any seat sync that failed. Hosted with Teams
         // released only - TeamSeatConvergence is null everywhere else.

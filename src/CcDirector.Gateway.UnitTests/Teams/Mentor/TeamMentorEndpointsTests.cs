@@ -57,8 +57,8 @@ public sealed class TeamMentorEndpointsTests : IDisposable
         await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone);
     }
 
-    private IResult Read(string subject, string? week = "2026-W40") =>
-        TeamMentorEndpoints.Read(_rig.Teams, _access, _rig.Store, _ => "UTC", _rig.Now, subject, _teamId, week);
+    private IResult Read(string subject, string? week = "2026-W40", bool mentorRunning = true) =>
+        TeamMentorEndpoints.Read(_rig.Teams, _access, _rig.Store, _ => "UTC", _rig.Now, subject, _teamId, week, mentorRunning);
 
     private TeamGateVerdict GateForPage(string subject) =>
         _gate.Check("GET", Route, name => name == "teamId" ? _teamId : null, null, () => subject, _ => TeamOwnership.Unknown);
@@ -253,6 +253,71 @@ public sealed class TeamMentorEndpointsTests : IDisposable
         Assert.Equal(new[] { "rob.keller@example.com" },
             page.GetProperty("blocks").EnumerateArray().Select(b => b.GetProperty("personEmail").GetString()));
         Assert.Equal(TeamMentorEndpoints.StillWritingNote, page.GetProperty("writingNote").GetString());
+    }
+
+    /// <summary>Rob's block is saved; the model cannot be reached for Dana, so the week is left unmarked.</summary>
+    private async Task LeaveTheWeekUnfinishedAsync()
+    {
+        _rig.SessionOf(MentorRig.Rob, MentorRig.InWeek(1), "s-rob");
+        _rig.SessionOf(MentorRig.Dana, MentorRig.InWeek(1), "s-dana");
+        _rig.PromptOf(MentorRig.Rob, MentorRig.InWeek(1), "rob's prompt");
+        _rig.PromptOf(MentorRig.Dana, MentorRig.InWeek(1), "dana's prompt");
+        _rig.Brain.Answer = prompt => prompt.Contains("dana's prompt", StringComparison.Ordinal)
+            ? throw new HttpRequestException("down")
+            : FakeBrain.GoodWeek();
+        Assert.Equal(1, (await _rig.Writer().WriteWeekAsync(_rig.Team, MentorRig.Week, MentorRig.Zone)).Unfinished);
+    }
+
+    [Fact]
+    public async Task Read_AWeekLeftUnfinished_ReadByTheDeveloperWithABlock_GetsTheBlockAndNoStillWritingLine()
+    {
+        // Review J1: on a person's own page more blocks never follow, and their block is final.
+        await LeaveTheWeekUnfinishedAsync();
+
+        var (_, page) = await RenderAsync(Read(MentorRig.Rob));
+
+        Assert.Equal("own", page.GetProperty("scope").GetString());
+        Assert.Single(page.GetProperty("blocks").EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, page.GetProperty("writingNote").ValueKind);
+    }
+
+    [Fact]
+    public async Task Read_AWeekLeftUnfinished_ReadByTheDeveloperStillWaiting_IsNotWrittenYet_WithNoLine()
+    {
+        await LeaveTheWeekUnfinishedAsync();
+
+        var (_, page) = await RenderAsync(Read(MentorRig.Dana));
+
+        Assert.False(page.GetProperty("written").GetBoolean());
+        Assert.Equal(0, page.GetProperty("blocks").GetArrayLength());
+        Assert.Equal(JsonValueKind.Null, page.GetProperty("writingNote").ValueKind);
+    }
+
+    [Fact]
+    public async Task Read_AWeekLeftUnfinished_OutsideTheSweepsReach_IsServedAsFinished_WithNoLine()
+    {
+        // Review J2: three weeks on, the sweep no longer goes back to it; nothing will ever finish it.
+        await LeaveTheWeekUnfinishedAsync();
+        _rig.Now = _rig.Now.AddDays(21);
+
+        var (_, page) = await RenderAsync(Read(MentorRig.Manager));
+
+        Assert.True(page.GetProperty("written").GetBoolean());
+        Assert.Single(page.GetProperty("blocks").EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, page.GetProperty("writingNote").ValueKind);
+    }
+
+    [Fact]
+    public async Task Read_AWeekLeftUnfinished_OnAGatewayWithTheMentorOff_IsServedAsFinished_WithNoLine()
+    {
+        // Review J2: the owner switched the Mentor off while a week was unfinished.
+        await LeaveTheWeekUnfinishedAsync();
+
+        var (_, page) = await RenderAsync(Read(MentorRig.Manager, mentorRunning: false));
+
+        Assert.True(page.GetProperty("written").GetBoolean());
+        Assert.Single(page.GetProperty("blocks").EnumerateArray());
+        Assert.Equal(JsonValueKind.Null, page.GetProperty("writingNote").ValueKind);
     }
 
     [Fact]

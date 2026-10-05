@@ -195,6 +195,24 @@ describe("getMentorPage", () => {
     ["a week start that is not a date", (b) => (b.weekStart = "next Monday")],
     ["a week end that is not a real date", (b) => (b.weekEnd = "2026-02-30")],
     ["a writing note that is not text", (b) => (b.writingNote = 7)],
+    ["a finished week under the still-writing line", (b) => (b.writingNote = "The Mentor is still writing this week.")],
+    ["an unfinished week with blocks and no still-writing line", (b) => (b.written = false)],
+    [
+      "an empty still-writing line",
+      (b) => {
+        b.written = false;
+        b.writingNote = "";
+      },
+    ],
+    [
+      "the still-writing line on a person's own page",
+      (b) => {
+        b.scope = "own";
+        b.written = false;
+        b.blocks[0].isYou = true;
+        b.writingNote = "The Mentor is still writing this week.";
+      },
+    ],
     ["an unknown scope", (b) => (b.scope = "team")],
     [
       "two blocks on a person's own page",

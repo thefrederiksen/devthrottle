@@ -37,8 +37,11 @@ internal static class TeamMentorEndpoints
     internal const string StillWritingNote = "The Mentor is still writing this week. More blocks may follow.";
 
     /// <summary>Maps the route.</summary>
+    /// <param name="mentorRunning">Whether this Gateway has the Mentor's writer, so an unfinished week can still be
+    /// finished. Off, a week left unfinished is served as finished (review J2).</param>
     public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, TeamAccess access, TeamMentorStore store,
-        HostedTenantBoundary boundary, TenantRegistry tenants, Func<TenantId, string> timeZoneOf, Func<DateTime>? now = null)
+        HostedTenantBoundary boundary, TenantRegistry tenants, Func<TenantId, string> timeZoneOf, bool mentorRunning,
+        Func<DateTime>? now = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(teams);
@@ -54,7 +57,7 @@ internal static class TeamMentorEndpoints
             try
             {
                 var caller = TeamEndpoints.ResolveCaller(ctx, boundary, tenants);
-                return caller.Denial ?? Read(teams, access, store, timeZoneOf, clock(), caller.Subject!, teamId, week);
+                return caller.Denial ?? Read(teams, access, store, timeZoneOf, clock(), caller.Subject!, teamId, week, mentorRunning);
             }
             catch (Exception ex)
             {
@@ -69,7 +72,7 @@ internal static class TeamMentorEndpoints
 
     /// <summary>The page for one caller and week. Internal so every branch is tested without a host.</summary>
     internal static IResult Read(TeamRegistry teams, TeamAccess access, TeamMentorStore store, Func<TenantId, string> timeZoneOf,
-        DateTime nowUtc, string callerSubject, string? teamId, string? weekText)
+        DateTime nowUtc, string callerSubject, string? teamId, string? weekText, bool mentorRunning)
     {
         if (string.IsNullOrWhiteSpace(teamId))
             return Results.NotFound(new { error = TeamEndpoints.NoSuchTeamRefusal });
@@ -122,9 +125,15 @@ internal static class TeamMentorEndpoints
 
         var scope = everyone.Allowed ? "everyone" : "own";
         // A week the writer has started but not marked run - it saved some blocks and is still waiting on the model
-        // for someone else - is served as it stands: the blocks so far, and the Gateway's line saying so.
-        var written = store.HasRun(team, week);
-        var writingNote = !written && blocks.Count > 0 ? StillWritingNote : null;
+        // for someone else - is served as it stands: the blocks so far, and the Gateway's line saying so (review H1).
+        // The line is a promise, so it is given only while it can be kept (review J2): this Gateway has the writer,
+        // and the week is within the sweep's reach (the last closed week or the one before). Otherwise nothing will
+        // ever finish the week, and its blocks are served as a finished week. And never on a person's own page: their
+        // block, or its absence, is final, and more blocks never follow there (review J1).
+        var unfinished = !store.HasRun(team, week) && blocks.Count > 0;
+        var canStillFinish = mentorRunning && week.Start >= MentorWeek.LastClosed(nowUtc, zone).Previous.Start;
+        var written = store.HasRun(team, week) || (unfinished && !canStillFinish);
+        var writingNote = unfinished && canStillFinish && everyone.Allowed ? StillWritingNote : null;
         FileLog.Write($"[TeamMentorEndpoints] GET {Route}: week={week} scope={scope} blocks={blocks.Count}");
         return Results.Json(new
         {
