@@ -290,19 +290,6 @@ public sealed class DirectorRegistry : IDisposable
     }
 
     /// <summary>
-    /// The credential <paramref name="directorId"/> said Hello on in <paramref name="tenant"/> - <c>device:&lt;device id&gt;</c>
-    /// for a per-device key - or null when it is not registered there or was registered with no credential (a file or
-    /// an HTTP registration). The team Fleet Map (devthrottle_internal#2312) reads it to learn WHOSE Director this is:
-    /// the device credential it names carries the person who enrolled it.
-    /// </summary>
-    public string? RegisteringCredentialOf(TenantId tenant, string directorId)
-    {
-        if (string.IsNullOrEmpty(directorId)) return null;
-        var key = new DirectorKey(tenant, directorId);
-        return _directors.ContainsKey(key) && _registeredBy.TryGetValue(key, out var credential) ? credential : null;
-    }
-
-    /// <summary>
     /// True when this account's <paramref name="directorId"/> is already bound to a credential and it is NOT
     /// <paramref name="credential"/> - that is, when a Hello on <paramref name="credential"/> would be refused.
     /// The hub asks this BEFORE it touches any connection state, so a refused Hello leaves nothing behind; the

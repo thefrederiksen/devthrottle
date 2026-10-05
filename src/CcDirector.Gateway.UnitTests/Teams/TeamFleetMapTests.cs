@@ -37,7 +37,8 @@ public sealed class TeamFleetMapTests : IDisposable
     private readonly TeamRegistry _teams;
     private readonly TeamAccess _access;
     private readonly DirectorRegistry _directors;
-    private readonly TeamDirectorOwnership _ownership;
+    private readonly DeviceRegistry _devices;
+    private readonly TeamCallerOwnership _ownership;
     private readonly PushedSessionStore _sessions = new();
     private readonly TeamFleetMap _map;
     private readonly string _instancesDir = Path.Combine(Path.GetTempPath(), "cc-teammap-" + Guid.NewGuid().ToString("N"));
@@ -56,7 +57,9 @@ public sealed class TeamFleetMapTests : IDisposable
         _teams = new TeamRegistry(_db, _tenants);
         _access = new TeamAccess(_teams);
         _directors = new DirectorRegistry(_instancesDir);
-        _ownership = new TeamDirectorOwnership(_directors, _db);
+        _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
+        _ownership = new TeamCallerOwnership(_directors, _sessions, _devices, new CcDirector.Gateway.History.SessionTurnStore(_db),
+            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices));
         _map = new TeamFleetMap(_teams, _access, _directors, _ownership, _sessions);
 
         _team = _teams.CreateTeam(Owner, "DevThrottle").Team!.TeamId;
@@ -92,6 +95,7 @@ public sealed class TeamFleetMapTests : IDisposable
     public void Dispose()
     {
         _directors.Dispose();
+        _devices.Dispose();
         _harness.Dispose();
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
@@ -511,103 +515,78 @@ public sealed class TeamFleetMapTests : IDisposable
         Assert.Equal("x", TeamFleetMap.SessionName(new SessionDto { Name = "x" }));
     }
 
-    [Fact]
-    public void RegisteringCredentialOf_IsTheKeyTheDirectorSaidHelloOn_InItsOwnTenantOnly()
-    {
-        Assert.Equal("device:device-dir-owner", _directors.RegisteringCredentialOf(new TenantId(_team), "dir-owner"));
-        Assert.Null(_directors.RegisteringCredentialOf(new TenantId(_otherTeam), "dir-owner"));
-        Assert.Null(_directors.RegisteringCredentialOf(new TenantId(_team), "no-such-director"));
-        Assert.Null(_directors.RegisteringCredentialOf(new TenantId(_team), ""));
-    }
-
-    // ---- Whose a Director is: the ONE shared answer, TeamDirectorOwnership.PersonOfDirector -------------------------
+    // ---- Whose a Director is: the ONE answer, TeamCallerOwnership.OwnerOf (#2311), as the map asks it --------------
 
     [Fact]
-    public void PersonOfDirector_AnActiveCredentialBoundToTheTeam_IsThePersonWhoEnrolledIt()
+    public void OwnerOf_AnActiveCredentialBoundToTheTeam_IsThePersonWhoEnrolledIt()
     {
-        Assert.Equal(Owner, _ownership.PersonOfDirector(new TenantId(_team), "dir-owner"));
-        Assert.Equal(Developer, _ownership.PersonOfDirector(new TenantId(_team), "dir-dev-laptop"));
-        Assert.Equal(Developer, _ownership.PersonOfDirector(new TenantId(_otherTeam), "dir-dev-elsewhere"));
+        Assert.Equal(Owner, _ownership.OwnerOf(new TenantId(_team), "dir-owner"));
+        Assert.Equal(Developer, _ownership.OwnerOf(new TenantId(_team), "dir-dev-laptop"));
+        Assert.Equal(Developer, _ownership.OwnerOf(new TenantId(_otherTeam), "dir-dev-elsewhere"));
     }
 
     [Fact]
-    public void PersonOfDirector_ARevokedCredential_IsNobody()
+    public void OwnerOf_ACredentialRevokedByStatus_IsNobody_EvenWithNoRevocationTime()
     {
-        // The same seeding as an active Director in every respect but the revocation, so only that refuses it.
-        SeedCredential("device-revoked", Developer2, _team, revokedAtUtc: DateTime.UtcNow);
-        RegisterDirector(_team, "dir-revoked", "Revoked", "REVOKED-PC", "device:device-revoked");
+        SeedCredential("device-status-revoked", Developer2, _team, revokedAtUtc: null, status: DeviceRegistry.StatusRevoked);
+        RegisterDirector(_team, "dir-status-revoked", "Status revoked", "STATUS-PC", "device:device-status-revoked");
 
-        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-revoked"));
+        Assert.Null(_ownership.OwnerOf(new TenantId(_team), "dir-status-revoked"));
+        Assert.DoesNotContain("Status revoked", DirectorNames(MapFor(Owner)));
     }
 
     [Fact]
-    public void PersonOfDirector_ACredentialBoundToAnotherTenant_IsNobody()
+    public void OwnerOf_ACredentialRevokedByTime_IsNobody_EvenWithAnActiveStatus()
+    {
+        SeedCredential("device-time-revoked", Developer2, _team, revokedAtUtc: DateTime.UtcNow, status: DeviceRegistry.StatusActive);
+        RegisterDirector(_team, "dir-time-revoked", "Time revoked", "TIME-PC", "device:device-time-revoked");
+
+        Assert.Null(_ownership.OwnerOf(new TenantId(_team), "dir-time-revoked"));
+        Assert.DoesNotContain("Time revoked", DirectorNames(MapFor(Owner)));
+    }
+
+    [Fact]
+    public void OwnerOf_ACredentialBoundToAnotherTenant_IsNobody()
     {
         // Registered under THIS team's tenant, on a device whose active credential is bound to the other team.
         SeedCredential("device-elsewhere", Developer, _otherTeam);
         RegisterDirector(_team, "dir-bound-elsewhere", "Bound elsewhere", "ELSE-PC", "device:device-elsewhere");
 
-        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-bound-elsewhere"));
+        Assert.Null(_ownership.OwnerOf(new TenantId(_team), "dir-bound-elsewhere"));
     }
 
     [Fact]
-    public void PersonOfDirector_NoDeviceKeyNoPersonOrNotRegisteredThere_IsNobody()
+    public void OwnerOf_NoDeviceKeyNoPersonOrNotRegisteredThere_IsNobody()
     {
         RegisterDirector(_team, "dir-no-key", "No key", "NOKEY-PC", credential: null);
         RegisterDirector(_team, "dir-token", "Token", "TOKEN-PC", "machine-token");
         SeedCredential("device-nobody", null, _team);
         RegisterDirector(_team, "dir-nobody", "Nobody's", "NOBODY-PC", "device:device-nobody");
 
-        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-no-key"));
-        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-token"));
-        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-nobody"));
-        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "no-such-director"));
+        Assert.Null(_ownership.OwnerOf(new TenantId(_team), "dir-no-key"));
+        Assert.Null(_ownership.OwnerOf(new TenantId(_team), "dir-token"));
+        Assert.Null(_ownership.OwnerOf(new TenantId(_team), "dir-nobody"));
+        Assert.Null(_ownership.OwnerOf(new TenantId(_team), "no-such-director"));
         // Registered on the other team only: not this team's.
-        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-dev-elsewhere"));
+        Assert.Null(_ownership.OwnerOf(new TenantId(_team), "dir-dev-elsewhere"));
     }
 
     [Fact]
-    public void PersonOfDirector_ACollaborator_IsStillNamed_TheRoleCheckIsTheCallers()
+    public void OwnerOf_ACollaborator_IsStillNamed_TheRoleCheckIsTheMaps()
     {
         // It answers WHO, not whether they may: the Fleet Map asks the role table itself (review of #3533, F1).
         SeedDirector(_team, "dir-collaborator", Collaborator, "Collaborator box", "COLLAB-PC");
 
-        Assert.Equal(Collaborator, _ownership.PersonOfDirector(new TenantId(_team), "dir-collaborator"));
+        Assert.Equal(Collaborator, _ownership.OwnerOf(new TenantId(_team), "dir-collaborator"));
         Assert.DoesNotContain("Collaborator box", DirectorNames(MapFor(Owner)));
-    }
-
-    [Fact]
-    public void PersonOfDirector_AStatusThatIsNotActive_IsNobody_EvenWithNoRevocationTime()
-    {
-        // "Active" is the Gateway's one rule for a credential row (DeviceRegistry.IsActiveCredential), the one the key
-        // check uses: the status counts as well as the revocation time (delta review of #3533, F2).
-        SeedCredential("device-status-revoked", Developer2, _team, revokedAtUtc: null, status: DeviceRegistry.StatusRevoked);
-        RegisterDirector(_team, "dir-status-revoked", "Status revoked", "STATUS-PC", "device:device-status-revoked");
-
-        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), "dir-status-revoked"));
-        Assert.DoesNotContain("Status revoked", DirectorNames(MapFor(Owner)));
     }
 
     [Theory]
     [InlineData("")]
     [InlineData("   ")]
-    public void PersonOfDirector_NoDirectorId_IsNobody(string directorId)
+    public void OwnerOf_NoDirectorId_IsNobody(string directorId)
     {
-        // Like every other case where the person cannot be said: null, so a caller refuses rather than faulting (F3).
-        Assert.Null(_ownership.PersonOfDirector(new TenantId(_team), directorId));
-    }
-
-    [Theory]
-    [InlineData("active", false, true)]
-    [InlineData("active", true, false)]
-    [InlineData("revoked", false, false)]
-    [InlineData("revoked", true, false)]
-    [InlineData("", false, false)]
-    public void IsActiveCredential_TheStatusAndTheRevocationTimeBothDecide(string status, bool revoked, bool expected)
-    {
-        var row = new DeviceCredentialEntity { DeviceId = "d", Status = status, RevokedAtUtc = revoked ? DateTime.UtcNow : null };
-
-        Assert.Equal(expected, DeviceRegistry.IsActiveCredential(row));
+        Assert.Null(_ownership.OwnerOf(new TenantId(_team), directorId));
     }
 }
 

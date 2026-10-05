@@ -159,10 +159,17 @@ public sealed class TeamEndpointsTests : IDisposable
         Assert.False(CcDirector.Gateway.Util.SessionKeyGuard.Check(method, path, raised: true).Allowed);
     }
 
+    private TeamCallerOwnership Ownership(Discovery.DirectorRegistry directors)
+    {
+        var devices = new DeviceRegistry(_db);
+        return new TeamCallerOwnership(directors, new Streaming.PushedSessionStore(), devices, new CcDirector.Gateway.History.SessionTurnStore(_db),
+            new HostedTenantBoundary(new SingleTenantContext(), devices));
+    }
+
     private TeamFleetMap NewFleetMap(out Discovery.DirectorRegistry directors)
     {
         directors = new Discovery.DirectorRegistry(Path.Combine(Path.GetTempPath(), "cc-teamep-" + Guid.NewGuid().ToString("N")));
-        return new TeamFleetMap(_teams, new TeamAccess(_teams), directors, new TeamDirectorOwnership(directors, _db),
+        return new TeamFleetMap(_teams, new TeamAccess(_teams), directors, Ownership(directors),
             new Streaming.PushedSessionStore());
     }
 

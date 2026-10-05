@@ -17,7 +17,7 @@ namespace CcDirector.Gateway.Teams;
 /// permission check. Owner and Manager (<see cref="TeamGrant.Yes"/>) get every Director on the team. A Developer
 /// (<see cref="TeamGrant.Own"/>) gets ONLY their own Directors: the list is cut HERE, on the server, never hidden by a
 /// page. A Collaborator is refused; someone who is not a member is told there is no such team.</item>
-/// <item>WHOSE A DIRECTOR IS comes from the one shared answer, <see cref="TeamDirectorOwnership.PersonOfDirector"/>:
+/// <item>WHOSE A DIRECTOR IS comes from the one shared answer, <see cref="TeamCallerOwnership.OwnerOf"/>:
 /// the device key the Director said Hello on, and that device's active credential bound to this team. A Director
 /// whose person cannot be read that way - registered with no device key, a credential that is revoked or bound
 /// elsewhere - or whose person is no longer a member, or is a member whose role the table does not let run sessions
@@ -45,10 +45,10 @@ public sealed class TeamFleetMap
     private readonly TeamRegistry _teams;
     private readonly TeamAccess _access;
     private readonly DirectorRegistry _directors;
-    private readonly TeamDirectorOwnership _ownership;
+    private readonly TeamCallerOwnership _ownership;
     private readonly PushedSessionStore _sessions;
 
-    public TeamFleetMap(TeamRegistry teams, TeamAccess access, DirectorRegistry directors, TeamDirectorOwnership ownership,
+    public TeamFleetMap(TeamRegistry teams, TeamAccess access, DirectorRegistry directors, TeamCallerOwnership ownership,
         PushedSessionStore sessions)
     {
         _teams = teams ?? throw new ArgumentNullException(nameof(teams));
@@ -102,7 +102,7 @@ public sealed class TeamFleetMap
         var unattributed = 0;
         foreach (var director in registered)
         {
-            if (_ownership.PersonOfDirector(tenant, director.DirectorId) is not { } subject || !labels.ContainsKey(subject))
+            if (_ownership.OwnerOf(tenant, director.DirectorId) is not { } subject || !labels.ContainsKey(subject))
             {
                 unattributed++;
                 continue;
