@@ -1,6 +1,6 @@
 # Proof: a dev report sent to a member of the team, and comments that go to its author (devthrottle_internal#2309)
 
-Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-reports`, on `origin/main` at 16d267109 (the v2.15.0 release). Main includes the team requests (#3556, devthrottle_internal#2308) and a session's request for a message link (#3560); each added a migration, so this change's migration was regenerated after them, on that model. The first review's answers (`review-2309.md`, F1 to F13) and the delta review's (`review-2309-delta.md`, D1 to D10) are built in.
+Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-reports`, on `origin/main` at 3c5c8970a. Main includes the team requests (#3556, devthrottle_internal#2308) and a session's request for a message link (#3560); each added a migration, so this change's migration was regenerated after them, on that model. The first review's answers (`review-2309.md`, F1 to F13) and the delta review's (`review-2309-delta.md`, D1 to D10) are built in.
 
 ## What was built
 
@@ -86,13 +86,24 @@ So a session key, or a key bound to the team's tenant, cannot reach these routes
 
 ## The checks (counts)
 
-**On the head after the second rebase (onto 3c8808ec6).** That rebase changed only the migration, its pins and the collation list, and these were rerun on it:
+**On the delta review's head (on 3c5c8970a), these ran:**
 
-- the Gateway unit tests (Teams, DevReport, Migration, BootSmoke): 1,397 passed, 0 failed, 7 skipped
-- `-Gateway -Filter "FullyQualifiedName~Postgres|FullyQualifiedName~Migration"`: 54 passed, 4 skipped, outcome Completed
-- `-Gateway -Filter "FullyQualifiedName~DevReport|FullyQualifiedName~Teams.HostedTeamReports"`: 48 of 48 passed
+- the Gateway unit tests (Teams, DevReport, Migration, BootSmoke): 1,399 passed, 0 failed, 7 skipped (the two new are D2 and D5)
+- the Cockpit team tests: 96 passed (three new: D2's refusal, D5's version sent while open, and the send naming the version shown)
+- the client-core team tests: 139 passed
+- `tsc --noEmit` for cockpit, client-core and mobile: clean
+- the default gate: 9 of 10 suites Completed. `CcDirector.Avalonia.Tests` had one failure, `GitChangesViewHiddenTabTests.WhileTheHostPanelIsHidden_NeitherTickRuns_AndNothingIsFetched`, in code this branch does not change; run alone it passed once and failed once. `CcDirector.Core.UnitTests` passed all 1,228 but went over the 120-second budget. The machine was carrying two other worktrees' gates at the time.
 
-The other hosted Teams tests (123) were queued twice behind a release gate in another worktree, which holds the machine-wide Gateway test lock, and recorded no result before the ten-minute foreground limit. Their last result, on the code before this rebase, is in the table below. In the table, the default gate, the other hosted Teams tests, the web tests and the type checks are from that earlier head; the three rows above were retaken here, with the same counts.
+**What did NOT run on this head: every hosted Gateway test.** A release gate in another worktree held the machine-wide Gateway test lock from 13:31 for over 90 minutes. So these have not run on this head:
+
+- the new `Issue2309_D3_...` over-the-wire test
+- `Postgres|Migration`
+- the hosted report tests
+- the D3 red record
+
+The Tech Lead ruled to push anyway: their gate on this head runs the hosted Teams and dev report tests, including D3. The D3 red record (`red-html-route-serves-the-newest.txt`, the review's own mapping mutation) is taken when the lock frees and pushed then. The migration is unchanged since the last head, where `Postgres|Migration` passed 54.
+
+The table below is from the two earlier heads, fcf1c50de and 215639cbd, before the delta review.
 
 | Check | Result | File |
 |---|---|---|
@@ -127,7 +138,7 @@ The other hosted Teams tests (123) were queued twice behind a release gate in an
 | A team-bound key is admitted as a person (F4) | hosted `Issue2309_F4_...` (the admission named the team instead of refusing) | `red-team-key-admitted-as-a-person.txt` |
 | The Gateway sends whatever version is current, not the one the page showed (D2) | unit `Issue2309_D2_ASendOfAVersionThatIsNoLongerTheNewest_IsRefusedWithTheGatewaysSentence_AndSendsNothing` | `red-send-ignores-the-version-shown.txt` |
 | The page's send names a fixed version, not the one shown (D2) | 2 Cockpit tests: `Send_SendsExactlyTheChosenMembers` and `Send_RefusedBecauseANewerVersionArrived_...` | `red-page-sends-a-fixed-version.txt` |
-| The html ROUTE is put back to the owner's `ServeHtml`, serving the newest version (D3, the review's own mutation) | HTML_ROUTE_RED | `red-html-route-serves-the-newest.txt` |
+| The html ROUTE is put back to the owner's `ServeHtml`, serving the newest version (D3, the review's own mutation) | NOT YET TAKEN - see the note under the checks | `red-html-route-serves-the-newest.txt` |
 | A read marks the row whatever version it names (D5) | unit `Issue2309_D5_AReadNamesTheVersion_AndOnlyTheVersionHeldIsMarked_...` | `red-read-marks-any-version.txt` |
 | The page marks once per open, not once per version (D5) | Cockpit `Open_AVersionSentWhileOpen_IsMarkedWhenShown_AfterTheGatewayRefusedTheOlderOne` | `red-page-marks-once-per-open.txt` |
 | A comment is also written as a reply in the agent's conversation | hosted `Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire` and `Issue2309_ACommentNeverReachesTheSession_LiveSessionOnTheTunnel` | `red-comment-also-a-reply.txt` |
