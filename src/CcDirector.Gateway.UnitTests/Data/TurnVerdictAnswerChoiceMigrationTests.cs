@@ -56,7 +56,9 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             Assert.Equal("20261005031703_AddFleetMessageLinks", all[index + 15]);
             // The team requests (devthrottle_internal#2308), after that.
             Assert.Equal("20261005124413_AddTeamRequests", all[index + 16]);
-            Assert.Equal(index + 17, all.Count);
+            // The Fleet Manager's lessons (issue #3559), after that.
+            Assert.Equal("20261005155915_AddFleetManagerLessons", all[index + 17]);
+            Assert.Equal(index + 18, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
             Assert.Empty(context.Database.GetAppliedMigrations());

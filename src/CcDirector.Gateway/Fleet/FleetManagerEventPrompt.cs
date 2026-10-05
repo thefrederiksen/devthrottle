@@ -14,6 +14,11 @@ namespace CcDirector.Gateway.Fleet;
 /// event, and the acknowledge command at the end. The Wingman's words are copied as stored - the evidence exactly,
 /// never reworded and never cut short, between markers of its own so a line break inside it cannot be mistaken
 /// for the framing.
+///
+/// LESSONS FIRST (issue #3559). A <c>lesson</c> event - the owner kept a correction on the Fleet Manager page - is
+/// written before every other event, because it changes how the Fleet Manager should handle the rest. And a
+/// <c>marked</c> event's text is built HERE, at delivery, not when its row was written: it carries the account's
+/// confirmed lessons as they are now, so a lesson kept between the promotion and the delivery is included.
 /// </summary>
 internal static class FleetManagerEventPrompt
 {
@@ -28,19 +33,31 @@ internal static class FleetManagerEventPrompt
     /// <param name="events">The events, oldest first. At least one. The Wingman's readings are served to the Fleet
     /// Manager whatever the account's colour switch says, as the digest serves them.</param>
     /// <param name="moreOwed">How many more events are owed after these; they are sent at the next idle moment.</param>
-    public static string Build(IReadOnlyList<FleetManagerEventDto> events, int moreOwed = 0)
+    /// <param name="lessons">The account's confirmed lessons block (<see cref="FleetManagerLessons.Build"/>) as it is at
+    /// delivery, or null when there are none. Written into a <c>marked</c> event, the start of a new Fleet Manager's
+    /// work.</param>
+    public static string Build(IReadOnlyList<FleetManagerEventDto> events, int moreOwed = 0, string? lessons = null)
     {
         if (moreOwed < 0) throw new ArgumentOutOfRangeException(nameof(moreOwed), "cannot be negative");
         ArgumentNullException.ThrowIfNull(events);
         if (events.Count == 0) throw new ArgumentException("a delivery carries at least one event", nameof(events));
 
+        // The owner's lessons come first, in the order they were kept; every other event keeps its order.
+        events = events.Where(e => e.Kind == FleetManagerEventStore.KindLesson)
+            .Concat(events.Where(e => e.Kind != FleetManagerEventStore.KindLesson))
+            .ToList();
+
         var stops = events.Count(e => e.Kind == FleetManagerEventStore.KindStop);
         var died = events.Count(e => e.Kind == FleetManagerEventStore.KindDied);
         var answered = events.Count(e => e.Kind == FleetManagerEventStore.KindAnswered);
+        var taught = events.Count(e => e.Kind == FleetManagerEventStore.KindLesson);
         var marked = events.Any(e => e.Kind == FleetManagerEventStore.KindMarked);
         var sb = new StringBuilder();
         sb.Append(FirstLinePrefix).Append(' ');
         if (marked) sb.Append("You are now this account's Fleet Manager. ");
+        if (taught > 0)
+            sb.Append(Count(taught, "lesson", "lessons")).Append(" kept by the owner - deal with ")
+              .Append(taught == 1 ? "it" : "them").Append(" first. ");
         sb.Append(Count(stops, "stop", "stops")).Append(" and ")
           .Append(died).Append(" died");
         if (answered > 0) sb.Append(", and ").Append(Count(answered, "card answered by the owner", "cards answered by the owner"));
@@ -57,11 +74,24 @@ internal static class FleetManagerEventPrompt
             sb.Append('\n');
             sb.Append("event ").Append(i + 1).Append(" of ").Append(events.Count).Append(": ").Append(e.Id).Append('\n');
             sb.Append("kind: ").Append(e.Kind).Append('\n');
-            if (e.Kind != FleetManagerEventStore.KindAnswered)
+            if (e.Kind != FleetManagerEventStore.KindAnswered && e.Kind != FleetManagerEventStore.KindLesson)
                 sb.Append("session: ").Append(e.SessionId).Append(" \"").Append(e.SessionName).Append("\"\n");
             if (e.Kind == FleetManagerEventStore.KindMarked)
             {
-                sb.Append("what: ").Append(e.Detail).Append('\n');
+                // Built now, not read from the row: the lessons are the account's as they stand at delivery.
+                sb.Append("what: ").Append(FleetManagerEventStore.MarkedDetail).Append('\n');
+                if (!string.IsNullOrEmpty(lessons)) sb.Append(lessons);
+                continue;
+            }
+            if (e.Kind == FleetManagerEventStore.KindLesson)
+            {
+                // The owner's correction, already stored and confirmed. The words are copied as stored, between markers.
+                sb.Append("kept by: the owner, on the Fleet Manager page (\"That was a mistake\"). It is already stored and ")
+                  .Append("confirmed, and every later Fleet Manager is given it. Obey it from now on: say back in one sentence ")
+                  .Append("what you will do differently, fix what the mistake broke, then acknowledge this event.\n");
+                sb.Append(WordsStart).Append('\n');
+                sb.Append(EvidenceOpen).Append(e.Words).Append(EvidenceClose).Append('\n');
+                if (!string.IsNullOrEmpty(e.Detail)) sb.Append("what went wrong: ").Append(e.Detail).Append('\n');
                 continue;
             }
             if (e.Kind == FleetManagerEventStore.KindAnswered)

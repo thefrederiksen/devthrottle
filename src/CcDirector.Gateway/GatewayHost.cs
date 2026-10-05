@@ -354,6 +354,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// step 3). Written when the mark is set; read by the Fleet Manager digest.</summary>
     internal Fleet.FleetManagerMarkHistory FleetManagerMarks { get; }
 
+    /// <summary>The account's confirmed lessons as the one block every Fleet Manager is given (issue #3559), read now,
+    /// or null when it has none.</summary>
+    private string? FleetManagerLessonsBlock(TenantId tenant)
+        => Fleet.FleetManagerLessons.Build(_fleetPreferences!.ConfirmedLessons(tenant));
+
     /// <summary>The sessions each account has RAISED to act with the owner's permissions (the Fleet Manager
     /// Improvement mission, phase 1) - the one list the guard, the message routes and the roster fold ask.</summary>
     internal Fleet.RaisedSessionStore RaisedSessions { get; }
@@ -1198,6 +1203,9 @@ public sealed class GatewayHost : IAsyncDisposable
     // the service that records a stop or a death of a session a Fleet Manager owns and delivers it at the Fleet
     // Manager only while it is waiting for a prompt.
     private Fleet.FleetManagerEventStore? _fleetManagerEventStore;
+    // The owner's standing preferences and lessons for the Fleet Manager (issue #3559 for the lessons): one store, read
+    // by the routes and - for the confirmed lessons - by every path that starts a Fleet Manager's context.
+    private Fleet.FleetPreferenceStore? _fleetPreferences;
     private Fleet.FleetManagerEventService? _fleetManagerEvents;
     private Fleet.FleetManagerEventSweep? _fleetManagerEventSweep;
     private Timer? _fleetManagerEventTimer;
@@ -2299,6 +2307,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
         _turnVerdictTraces = new Wingman.TurnVerdictTraceStore(_gatewayDb);
         _fleetManagerEventStore = new Fleet.FleetManagerEventStore(_gatewayDb);
+        _fleetPreferences = new Fleet.FleetPreferenceStore(_gatewayDb);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
         // The Message Load mission: the fleet message inbox, the one service that decides and writes a send, and
@@ -3593,7 +3602,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 checksIdleBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
                 directorShutDown: (tenant, directorId) => Registry.Get(tenant, directorId)?.StoppedAtUtc is not null,
                 enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)),
-            _fleetManagerDeliveryGate);
+            _fleetManagerDeliveryGate,
+            // A marked event carries the account's confirmed lessons as they are when it is delivered (issue #3559).
+            lessons: FleetManagerLessonsBlock);
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.
         _fleetManagerEventSweep = new Fleet.FleetManagerEventSweep(_tenantBoundary, TenantRegistry, _tenantContext,
@@ -4915,9 +4926,10 @@ public sealed class GatewayHost : IAsyncDisposable
         FleetManagerEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             outcomes: fleetOutcomes,
-            preferences: new Fleet.FleetPreferenceStore(_gatewayDb),
+            preferences: _fleetPreferences!,
             events: _fleetManagerEventStore!,
-            // The owner's answer to a card is queued to the Fleet Manager in the same save; book its delivery.
+            // The owner's answer to a card, and a lesson the owner keeps, are queued to the Fleet Manager in the same
+            // save; book its delivery.
             answerQueued: tenant => _fleetManagerEvents?.OnEventQueued(tenant),
             digest: new FleetDigestSources(
                 FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
@@ -4956,7 +4968,9 @@ public sealed class GatewayHost : IAsyncDisposable
             },
             _fleetManagerDeliveryGate,
             // Raised follows the mark: this service is where the mark is set by hand, set by a start, and handed on.
-            raised: RaisedSessions, raisedRecord: RaisedSessionRecord);
+            raised: RaisedSessions, raisedRecord: RaisedSessionRecord,
+            // A plain start's first prompt carries the account's confirmed lessons (issue #3559).
+            lessons: FleetManagerLessonsBlock);
         // A restart or a move left under way by an earlier process carries on (the mark moves only after the old Fleet
         // Manager has closed, and that can outlast a Gateway restart).
         var replacementSweep = new Fleet.FleetManagerReplacementSweep(_tenantBoundary, TenantRegistry, _tenantContext,

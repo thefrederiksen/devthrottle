@@ -46,9 +46,9 @@ internal interface IFleetManagerPlacementEnvironment
     void PromoteSuccessor(TenantId tenant, string sessionId, DateTime nowUtc);
 
     /// <summary>
-    /// The owner marks a session (<see cref="FleetManagerPromotionStore.MarkByOwner"/>): the mark and its history, and -
-    /// when the session was started to take over and never told - its one event, in ONE transaction; then book that
-    /// event's delivery. True when an event was stored.
+    /// The owner marks a session (<see cref="FleetManagerPromotionStore.MarkByOwner"/>): the mark, its history and - unless
+    /// that session was already told - its one event, in ONE transaction; then book that event's delivery. True when an
+    /// event was stored.
     /// </summary>
     bool MarkByOwner(TenantId tenant, string sessionId, DateTime nowUtc);
 
@@ -166,11 +166,16 @@ internal sealed class FleetManagerPlacementService : IDisposable
     private readonly RaisedSessionStore? _raised;
     private readonly RaisedSessionRecord? _raisedRecord;
 
+    // The account's confirmed lessons block as it is now (issue #3559), read when a Fleet Manager is started plainly so
+    // its first prompt carries them. Null in a test of placement alone: then the first prompt carries none.
+    private readonly Func<TenantId, string?>? _lessons;
+
     /// <param name="deliveryGate">Shared with the event service, so a delivery and a replacement never overlap.</param>
     public FleetManagerPlacementService(TenantSettingsResolver settings, IFleetManagerPlacementEnvironment environment,
         FleetManagerDeliveryGate deliveryGate, TimeSpan? retirePoll = null,
-        RaisedSessionStore? raised = null, RaisedSessionRecord? raisedRecord = null)
+        RaisedSessionStore? raised = null, RaisedSessionRecord? raisedRecord = null, Func<TenantId, string?>? lessons = null)
     {
+        _lessons = lessons;
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _env = environment ?? throw new ArgumentNullException(nameof(environment));
         _deliveryGate = deliveryGate ?? throw new ArgumentNullException(nameof(deliveryGate));
@@ -478,7 +483,10 @@ internal sealed class FleetManagerPlacementService : IDisposable
         var facts = _env.Machines(tenant).First(m => FleetManagerPlacementFold.SameMachine(m.Machine, dto.Machine));
         var running = FleetManagerPlacementFold.RunningDirector(facts, _env.NowUtc());
 
-        var request = BuildStartRequest(dto.Agent, replacing is not null);
+        // A plain start's first prompt carries the account's confirmed lessons as they are now. A replacement waits for
+        // the mark and is given them in the marked event, built when that event is delivered.
+        var request = BuildStartRequest(dto.Agent, replacing is not null,
+            replacing is null ? _lessons?.Invoke(tenant) : null);
         stampOrigin(request);
         // Pinned to the Director the page called running, so the capability that was checked is the one that
         // takes the create. With none running, the launcher starts one and the check runs on that one.
@@ -541,13 +549,16 @@ internal sealed class FleetManagerPlacementService : IDisposable
     /// <summary>The create request every Fleet Manager start sends. The origin is stated as a person's action from
     /// the Cockpit; the route overwrites it from the verified credential the way both spawn doors do.</summary>
     /// <param name="waitForMark">True for a replacement, which is told to wait for the mark instead of starting work.</param>
-    public static NewSessionRequest BuildStartRequest(string agent, bool waitForMark = false) => new()
+    /// <param name="lessons">The account's confirmed lessons block (<see cref="FleetManagerLessons.Build"/>), put in front
+    /// of a plain start's first prompt so the new Fleet Manager reads them before it acts (issue #3559). Never given to a
+    /// replacement, which is told them in its marked event.</param>
+    public static NewSessionRequest BuildStartRequest(string agent, bool waitForMark = false, string? lessons = null) => new()
     {
         RepoPath = "",
         FleetManagerHome = true,
         Name = SessionName,
         Agent = agent,
-        PrePrompt = waitForMark ? WaitForMarkPrompt : FirstPrompt,
+        PrePrompt = waitForMark ? WaitForMarkPrompt : FleetManagerLessons.Prepend(lessons, FirstPrompt),
         ControllerSessionId = null,
         Origin = SessionOriginKinds.Human,
         OriginSurface = SessionOriginSurfaces.Cockpit,

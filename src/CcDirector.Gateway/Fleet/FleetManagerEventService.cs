@@ -195,6 +195,7 @@ public sealed class FleetManagerEventService : IDisposable
     private readonly TimeSpan _batchWindow;
     private readonly FleetManagerDeliveryGate _deliveryGate;
     private readonly DateTime _startedAtUtc;
+    private readonly Func<TenantId, string?>? _lessons;
     private readonly CancellationTokenSource _shutdown = new();
 
     // At most one delivery in flight per Fleet Manager session, and the ones asked for again while it ran. A pass that
@@ -224,9 +225,13 @@ public sealed class FleetManagerEventService : IDisposable
     private volatile bool _disposed;
 
     /// <param name="deliveryGate">Shared with the placement service, so a delivery and a replacement never overlap.</param>
+    /// <param name="lessons">The account's confirmed lessons block as it is now (<see cref="FleetManagerLessons.Build"/>),
+    /// read at the moment a <c>marked</c> event is delivered (issue #3559). Null in a test of delivery alone: then a
+    /// marked event carries no lessons.</param>
     public FleetManagerEventService(FleetManagerEventStore store, IFleetManagerEventEnvironment environment,
-        FleetManagerDeliveryGate deliveryGate, TimeSpan? batchWindow = null)
+        FleetManagerDeliveryGate deliveryGate, TimeSpan? batchWindow = null, Func<TenantId, string?>? lessons = null)
     {
+        _lessons = lessons;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _env = environment ?? throw new ArgumentNullException(nameof(environment));
         _deliveryGate = deliveryGate ?? throw new ArgumentNullException(nameof(deliveryGate));
@@ -940,7 +945,11 @@ public sealed class FleetManagerEventService : IDisposable
             return (FleetManagerDeliveryResult.TurnNotFinished, waiting, held);
         }
 
-        var text = FleetManagerEventPrompt.Build(owed, found.MoreOwed);
+        // The lessons are read NOW, at delivery, so a lesson kept after the promotion is in the marked event's text.
+        var lessons = _lessons is not null && owed.Any(e => e.Kind == FleetManagerEventStore.KindMarked)
+            ? _lessons(tenant)
+            : null;
+        var text = FleetManagerEventPrompt.Build(owed, found.MoreOwed, lessons);
         var sent = await _env.SendPromptAsync(tenant, fm.DirectorId, target, text, _shutdown.Token).ConfigureAwait(false);
         switch (sent)
         {

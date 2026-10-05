@@ -140,18 +140,23 @@ public sealed class FleetManagerPromotionStoreTests : IDisposable
     }
 
     [Fact]
-    public void MarkByOwner_ASessionThatNeverWaited_IsMarkedAndToldNothing_AndTheReplacementStaysRecorded()
+    public void MarkByOwner_ASessionThatNeverWaited_IsMarkedAndToldOnce_AndTheReplacementStaysRecorded()
     {
         const string Other = "60000000-0000-4000-8000-000000000003";
 
-        Assert.False(_store.MarkByOwner(Tenant, Other.ToUpperInvariant(), Now));
+        // Issue #3559: a session the owner marks by hand is told too, because that event carries the lessons.
+        Assert.True(_store.MarkByOwner(Tenant, Other.ToUpperInvariant(), Now));
+        Assert.False(_store.MarkByOwner(Tenant, Other, Now.AddMinutes(1)));
 
         Assert.Equal(Other, _settings.FleetManagerSessionId(Tenant));
         Assert.Equal(NewId, _settings.FleetManagerSuccessorSessionId(Tenant));
         Assert.Null(_settings.FleetManagerMarkClearedByGateway(Tenant));
         Assert.Equal(new[] { NewId }, _settings.FleetManagerWaitingSuccessors(Tenant));
         Assert.Equal(Other, Assert.Single(_marks.List(Tenant)).SessionId);
-        Assert.Empty(_events.Unacknowledged(Tenant));
+        var told = Assert.Single(_events.Unacknowledged(Tenant));
+        Assert.Equal(FleetManagerEventStore.KindMarked, told.Kind);
+        Assert.Equal(Other, told.SessionId);
+        Assert.Equal(Other, told.AddressedTo);
     }
 
     [Fact]

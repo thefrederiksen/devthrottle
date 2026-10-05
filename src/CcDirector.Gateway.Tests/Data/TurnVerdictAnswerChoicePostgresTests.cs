@@ -97,7 +97,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20261005031815_AddFleetMessageLinks", all[index + 15]);
             // The team requests (devthrottle_internal#2308), after that.
             Assert.Equal("20261005124444_AddTeamRequests", all[index + 16]);
-            Assert.Equal(index + 17, all.Count);
+            // The Fleet Manager's lessons (issue #3559), after that.
+            Assert.Equal("20261005155950_AddFleetManagerLessons", all[index + 17]);
+            Assert.Equal(index + 18, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

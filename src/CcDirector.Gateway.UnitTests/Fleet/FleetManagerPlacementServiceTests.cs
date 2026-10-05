@@ -733,12 +733,14 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
         Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
         Assert.Empty(_world.Closed);
         Assert.Empty(_world.MarkMovedTo);
-        Assert.Empty(MarkedEvents());
+        // Issue #3559: the third session, marked by hand, is told once (its marked event carries the lessons). The
+        // waiting one is still told nothing, because it is not the Fleet Manager.
+        Assert.Equal(Third, Assert.Single(MarkedEvents()).SessionId);
 
         // The session that was waiting does not wait forever: marking it later tells it, once.
         await restarted.SetMarkByOwnerAsync(Tenant, NewId, default);
         await restarted.SetMarkByOwnerAsync(Tenant, NewId, default);
-        Assert.Equal(NewId, Assert.Single(MarkedEvents()).SessionId);
+        Assert.Equal(new[] { NewId, Third }, MarkedEvents().Select(e => e.SessionId).OrderBy(s => s).ToArray());
         Assert.Empty(_world.Closed);
     }
 
