@@ -202,7 +202,10 @@ export function TeamRequestsView({ teamId }: { teamId: string }) {
     return () => controller.abort();
   }, [load]);
 
-  // The Gateway answers each decision with the request as it now stands; that one card is replaced in place.
+  // The Gateway answers each decision with the request as it now stands; that one card is replaced in place. When it
+  // REFUSES one - most often because another Owner or Manager decided the request a moment earlier - the cards on
+  // screen are the Gateway's old verdicts, so the list is read again: the refusal is shown, and beside it the request
+  // as it now stands, with only the buttons the Gateway now allows.
   const decide = async (request: TeamRequest, what: string, act: () => Promise<TeamRequest>) => {
     setBusy(request.id);
     setActionError(null);
@@ -211,6 +214,7 @@ export function TeamRequestsView({ teamId }: { teamId: string }) {
       setRequests((list) => (list ?? []).map((r) => (r.id === updated.id ? updated : r)));
     } catch (err) {
       setActionError(gatewayErrorMessage(err, what));
+      await load();
     } finally {
       setBusy(null);
     }

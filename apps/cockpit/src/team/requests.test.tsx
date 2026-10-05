@@ -165,6 +165,29 @@ describe("the Owner and Managers' Requests list", () => {
     expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
   });
 
+  it("after a refused decision, shows the refusal and reads the list again, so only the buttons now allowed remain", async () => {
+    const before = request({ sentBy: "carla@client.example", isYours: false, canAccept: true, canDecline: true, canMarkDone: true });
+    const now = request({
+      sentBy: "carla@client.example", isYours: false, state: "accepted", stateLabel: "Accepted", canDecline: true, canMarkDone: true,
+      trail: [
+        { state: "sent", label: "Sent", by: "carla@client.example", atUtc: "2026-09-29T10:00:00Z", reason: null, sentence: "Sent by carla@client.example" },
+        { state: "accepted", label: "Accepted", by: "olivia@acme.example", atUtc: "2026-09-30T10:00:00Z", reason: null, sentence: "Accepted by olivia@acme.example" },
+      ],
+    });
+    client.listTeamRequests.mockResolvedValueOnce([before]).mockResolvedValueOnce([now]);
+    client.acceptRequest.mockRejectedValueOnce(refusal(409, "This request has already been accepted."));
+
+    render(<TeamRequestsView teamId={TEAM} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
+
+    expect(await screen.findByText("This request has already been accepted.")).toBeTruthy();
+    expect(await screen.findByText("Accepted by olivia@acme.example")).toBeTruthy();
+    expect(client.listTeamRequests).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("button", { name: "Accept" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Not doing this" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+  });
+
   it("will not mark Not doing this until a reason is written, then sends the reason", async () => {
     client.listTeamRequests.mockResolvedValue([request({ sentBy: "carla@client.example", isYours: false, canAccept: true, canDecline: true, canMarkDone: true })]);
     client.declineRequest.mockResolvedValue({ ...declined, id: "r1", sentBy: "carla@client.example", isYours: false });
