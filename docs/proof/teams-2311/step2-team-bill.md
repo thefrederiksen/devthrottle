@@ -247,6 +247,24 @@ check, the turn-end watcher and the display push all ask it. The host's `IsTeamS
 team-and-released check in front of it, is covered only by Gateway.Tests, not run here; the unit tests wire
 `TeamCallerOwnership.AcceptsReport` directly.
 
+## #3552 review round 5
+
+Rulings: `rulings-2311-step2-review5.md`. Test commit 549dc06b9, rebased onto origin/main with #3555 (no conflict).
+
+S2-F15: `Teams/HostedTeamColleagueSessionWiringTests` in Gateway.Tests - Teams released, two members' Directors over the
+real tunnel in one team, the colleague listing the owner's session id. Each test asserts a PRESENCE on the owner's side
+and the absence on the colleague's: the owner's Director is sent the folded state and the colleague's is not; the
+owner's stop ends the turn and his screen is read, the colleague's report does not.
+
+| Line changed in `GatewayHost.cs` | Result |
+|---|---|
+| `mayReceive:` wire removed (2021-2022) | Failed 1 of 2 - the colleague is sent the fold |
+| `acceptsReport:` wire removed (3802-3804) | Failed 1 of 2 - the colleague's report ends the turn; the owner's screen is never read |
+| `IsTeamSessionOfDirector` team branch with Director and session swapped (3277) - no for the owner | Failed 2 of 2 - the owner is starved of both |
+| none (clean rebuild after the three) | Passed 2 of 2 |
+
+Each on a build that succeeded, restored by a trap, diff empty. Only this class of Gateway.Tests was run, as ruled.
+
 ## Schema
 
 None. No table, column or index added; no migration. The team bill table is the website's; the Gateway.Tests helper

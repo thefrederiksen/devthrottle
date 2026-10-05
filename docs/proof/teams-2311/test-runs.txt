@@ -350,3 +350,14 @@ Details in step2-team-bill.md.
         Together 9,146 passed on the first run, plus the 2 on the rerun.
       .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
       Gateway.Tests: built, not run (by instruction).
+
+30. #3552 review round 5 (reviews/review-2311-step2.md "Round 5", rulings-2311-step2-review5.md). Rebased onto origin/main
+    with #3555, no conflict (round 4 commits now afd453825 and d7da1aed2). Test commit 549dc06b9.
+    Gateway.Tests, ONE class filtered (as ruled): Teams.HostedTeamColleagueSessionWiringTests.
+      Green: Passed 2 of 2.
+      mayReceive wire removed (GatewayHost.cs 2021-2022)            Failed 1 of 2  folded-state test, colleague absence
+      acceptsReport wire removed (GatewayHost.cs 3802-3804)         Failed 1 of 2  turn-end test, owner presence
+      team branch, Director and session swapped (GatewayHost 3277)  Failed 2 of 2  both, owner presence
+      Each on a build that succeeded, restored by trap, empty diff. Clean rebuild after: Passed 2 of 2.
+    .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
+    Gateway.UnitTests: builds; not rerun (no change to it or to production code this round).
