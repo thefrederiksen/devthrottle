@@ -31,7 +31,10 @@ namespace CcDirector.Gateway.Teams;
 /// caller owns - its head's Director and the Director of every turn row of its current generation. A roster lists live
 /// sessions only, so once a colleague's session has ended a member's Director can be the only holder of the colleague's
 /// old id; the stored conversation still names the colleague's Director, and the route that would serve it is refused.
-/// Personal tenants never reach this class.</item>
+/// AND, when nothing is stored yet, the session's KEY ROW must not name another person's Director (#3552 review, S2-F6):
+/// that row is written by the session's own Director before the session can be listed or pushed, and is never taken over,
+/// so a colleague who lists the id until the session ends cannot become its owner by keeping its first rows from being
+/// stored. Personal tenants never reach this class.</item>
 /// <item>Pushing prompts (<c>POST /prompts</c>, exactly) is the caller's own: the Gateway stamps every record it writes
 /// with the caller, from the calling key, so what the request writes can only ever be the caller's
 /// (devthrottle_internal#2305). Every other method on <c>/prompts</c> - reading, exporting, deleting - reaches the whole
@@ -55,22 +58,26 @@ public sealed class TeamCallerOwnership
     private readonly DeviceRegistry _devices;
     private readonly SessionTurnStore _turns;
     private readonly HostedTenantBoundary _boundary;
+    private readonly SessionKeyRegistry _sessionKeys;
     private readonly Func<TenantId, Guid, string?>? _reportAuthor;
 
     /// <param name="turns">The stored conversations - the one store the Gateway serves them from.</param>
     /// <param name="boundary">Enters the team's tenant scope for the stored-conversation read, which is partitioned by
     /// it.</param>
+    /// <param name="sessionKeys">The session key rows - the record of whose a session id is (<see cref="SessionKeyDirectorOf"/>).</param>
     /// <param name="reportAuthor">The author recorded on a dev report in a tenant, or null when the tenant holds no such
     /// report or none was recorded (devthrottle_internal#2309). Null answers Unknown for every report route, which the
     /// gate refuses.</param>
     public TeamCallerOwnership(DirectorRegistry directors, PushedSessionStore sessions, DeviceRegistry devices,
-        SessionTurnStore turns, HostedTenantBoundary boundary, Func<TenantId, Guid, string?>? reportAuthor = null)
+        SessionTurnStore turns, HostedTenantBoundary boundary, SessionKeyRegistry sessionKeys,
+        Func<TenantId, Guid, string?>? reportAuthor = null)
     {
         _directors = directors ?? throw new ArgumentNullException(nameof(directors));
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _devices = devices ?? throw new ArgumentNullException(nameof(devices));
         _turns = turns ?? throw new ArgumentNullException(nameof(turns));
         _boundary = boundary ?? throw new ArgumentNullException(nameof(boundary));
+        _sessionKeys = sessionKeys ?? throw new ArgumentNullException(nameof(sessionKeys));
         _reportAuthor = reportAuthor;
     }
 
@@ -129,14 +136,27 @@ public sealed class TeamCallerOwnership
         return TeamOwnership.Unknown;
     }
 
-    /// <summary>The caller's own only when every Director that wrote the session's stored conversation is the caller's;
-    /// nothing stored is nothing to refuse. Otherwise the first writer that is not the caller's decides the answer -
-    /// someone else's, or unknown - and either is refused.</summary>
+    /// <summary>The caller's own only when every Director that wrote the session's stored conversation is the caller's.
+    /// Otherwise the first writer that is not the caller's decides the answer - someone else's, or unknown - and either is
+    /// refused. With nothing stored, the session's key row decides instead (#3552 review, S2-F6): a row naming a Director
+    /// other than the live holder is answered by that Director's owner, so another person's is someone else's; no row is
+    /// nothing to refuse.</summary>
     private TeamOwnership OwnerOfStoredConversation(TenantId tenant, string sessionId, string liveHolder, string callerSubject)
     {
         IReadOnlyList<string> writers;
         using (_boundary.EnterScope(tenant))
             writers = _turns.DirectorsOfCurrentConversation(sessionId);
+
+        if (writers.Count == 0)
+        {
+            var keyed = SessionKeyDirectorOf(tenant, sessionId);
+            if (keyed is null || DeviceCredentialIdentity.SameDirectorId(keyed, liveHolder))
+                return TeamOwnership.Callers;
+            var owner = OwnerOfDirector(tenant, keyed, callerSubject, "session key");
+            if (owner != TeamOwnership.Callers)
+                FileLog.Write($"[TeamCallerOwnership] Whose: session {sessionId} - nothing stored, and its key was registered by director={keyed}, not the caller's - refused");
+            return owner;
+        }
 
         foreach (var writer in writers)
         {
@@ -197,6 +217,21 @@ public sealed class TeamCallerOwnership
         FileLog.Write($"[TeamCallerOwnership] Whose: report {id} in tenant {tenant.ToLogString()} - {(mine ? "the caller's own" : "someone else's")}");
         return mine ? TeamOwnership.Callers : TeamOwnership.SomeoneElses;
     }
+
+    /// <summary>
+    /// The Director named on a session's key row in <paramref name="tenant"/>, or null when it never registered one
+    /// (<see cref="SessionKeyRegistry.DirectorOfSession"/>). THE ONE READER of that record inside a team: the ownership
+    /// answer above and the hub's first-rows rule both ask it here (#3552 review, S2-F6).
+    /// </summary>
+    public string? SessionKeyDirectorOf(TenantId tenant, string sessionId) => _sessionKeys.DirectorOfSession(tenant, sessionId);
+
+    /// <summary>
+    /// Whether, in <paramref name="tenant"/>, a person other than <paramref name="person"/> holds an ACTIVE key set up
+    /// for Director <paramref name="directorId"/> (<see cref="DeviceRegistry.AnotherPersonHoldsActiveKeyForDirectorInTenant"/>).
+    /// A team key's Hello is refused when it does (#3552 review, S2-F5).
+    /// </summary>
+    public bool IsAnotherPersonsDirector(TenantId tenant, string person, string directorId) =>
+        _devices.AnotherPersonHoldsActiveKeyForDirectorInTenant(tenant, person, directorId);
 
     /// <summary>
     /// THE ONE ANSWER TO "WHO IS ASKING" inside a team's tenant (devthrottle_internal#2311, seam-director-key.md, seams 1

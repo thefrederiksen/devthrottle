@@ -132,6 +132,9 @@ internal static class HostedEnrollmentEndpoint
     {
         if (req is null || string.IsNullOrWhiteSpace(req.DeviceId))
             return new EnrollResult(StatusCodes.Status400BadRequest, null, "deviceId is required");
+        var badDeviceId = DeviceIdRefusal(req.DeviceId);
+        if (badDeviceId is not null)
+            return badDeviceId;
 
         if (bearer is null)
             return new EnrollResult(StatusCodes.Status401Unauthorized, null, "an account access token is required");
@@ -382,6 +385,14 @@ internal static class HostedEnrollmentEndpoint
     /// <summary>The machine-readable code beside <see cref="DirectorIdTakenInTeamRefusal"/>.</summary>
     public const string DirectorIdTakenInTeamCode = "director_id_taken_in_team";
 
+    /// <summary>What setting a Director up, or moving one, is told when its device id holds a <c>|</c> or a control
+    /// character (#3552 review, S2-F5).</summary>
+    public const string DeviceIdNotAllowedRefusal =
+        "This device id cannot be used: it contains a '|' or a control character, which no Director id ever does. Nothing was changed.";
+
+    /// <summary>The machine-readable code beside <see cref="DeviceIdNotAllowedRefusal"/>.</summary>
+    public const string DeviceIdNotAllowedCode = "device_id_not_allowed";
+
     /// <summary>What a move is told when one Director id has more than one working key for this person - a state
     /// enrollment no longer leaves behind.</summary>
     public const string MoveAmbiguousRefusal =
@@ -498,6 +509,22 @@ internal static class HostedEnrollmentEndpoint
     }
 
     /// <summary>
+    /// A DEVICE ID WITH A BAR OR A CONTROL CHARACTER IN IT IS REFUSED, by setting a Director up and by a move alike
+    /// (#3552 review, S2-F5). The registry id is <c>&lt;namespace&gt;|&lt;device id&gt;</c>, and the Director a key may
+    /// say Hello as is read back as the part after the LAST bar - so a device id <c>x|&lt;a colleague's id&gt;</c> would be
+    /// stored as one id and read back as another. A Director's own id never holds either: it is a GUID, minted and
+    /// re-read by <c>DirectorIdentitySlot.LoadOrCreate</c> (a file that does not parse as a GUID is replaced with a new
+    /// one), and that is the id the desktop sends as its device id. Null when the id is allowed.
+    /// </summary>
+    internal static EnrollResult? DeviceIdRefusal(string deviceId)
+    {
+        if (!deviceId.Contains('|') && !deviceId.Any(char.IsControl))
+            return null;
+        FileLog.Write("[HostedEnrollment] REFUSED: the device id holds a '|' or a control character (the id is not logged)");
+        return new EnrollResult(StatusCodes.Status400BadRequest, null, DeviceIdNotAllowedRefusal, DeviceIdNotAllowedCode);
+    }
+
+    /// <summary>
     /// The one permission question for putting a Director in a team - enrollment and a move ask it alike: null when
     /// the person may run sessions in the team, otherwise the refusal.
     /// </summary>
@@ -579,6 +606,9 @@ internal static class HostedEnrollmentEndpoint
 
         if (req is null || string.IsNullOrWhiteSpace(req.DeviceId))
             return new EnrollResult(StatusCodes.Status400BadRequest, null, "deviceId is required");
+        var badDeviceId = DeviceIdRefusal(req.DeviceId);
+        if (badDeviceId is not null)
+            return badDeviceId;
         if (bearer is null)
             return new EnrollResult(StatusCodes.Status401Unauthorized, null, "an account access token is required");
         var validation = accountTokenValidator.ValidateForAuthorization(bearer);

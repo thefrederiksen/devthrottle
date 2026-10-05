@@ -49,6 +49,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     private readonly GatewayInputStatsAggregator _inputStats;
     private readonly AsyncLocalTenantContext _tenantContext = new();
     private readonly SessionTurnStore _turns;
+    private readonly SessionKeyRegistry _sessionKeys;
     private readonly TestEs256Key _key = new();
     private readonly JwtAccessTokenValidator _validator;
     private int _connectionCount;
@@ -61,6 +62,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         // read made outside the team's scope fails here instead of quietly answering from a fixed tenant.
         _db = _harness.Open(_tenantContext);
         _turns = new SessionTurnStore(_db);
+        _sessionKeys = new SessionKeyRegistry(_db, isHosted: true);
         _tenants = new TenantRegistry(_db);
         _teams = new TeamRegistry(_db, _tenants);
         _devices = new DeviceRegistry(_db, _harness.LegacyPath("devices.json"), isHosted: true, teamsReleased: true);
@@ -113,8 +115,8 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         http.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = resolution.Identity;
         var ctx = new FakeHubCtx("conn-" + directorId + "-" + Interlocked.Increment(ref _connectionCount), http);
         var hub = new DirectorHub(_store, _directors, InputStatsHandle.Available(_inputStats), _streams,
-            tenantBoundary: _boundary, connections: _connections, sessionTurns: _turns,
-            teamOwnership: new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary)) { Context = ctx };
+            tenantBoundary: _boundary, connections: _connections, sessionTurns: _turns, sessionKeys: _sessionKeys,
+            teamOwnership: new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary, _sessionKeys)) { Context = ctx };
         hub.Hello(new DirectorStreamHello { DirectorId = directorId, MachineName = "M", User = "u", Version = "1", Pid = 1, StartedAt = DateTime.UtcNow });
         return new Connected(hub, ctx);
     }
@@ -145,7 +147,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     private DeviceCredentialResolutionKind KindOf(string key) => _devices.ResolveCredential(key).Kind;
 
     private TeamOwnership Whose(string team, string caller, string sessionId) =>
-        new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary)
+        new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary, _sessionKeys)
             .Whose(new TenantId(team), caller, "/sessions/{sid}", name => name == "sid" ? sessionId : null);
 
     private string[] Sessions(string team) =>
@@ -452,6 +454,202 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         Assert.Null(alice.Hub.PushTurns(3, Conversation("session-bob", 2, 1)));
     }
 
+    // ---- #3552 review round 2: S2-F5 (one question, asked one way) and S2-F6 (the session key row says whose) ------
+
+    /// <summary>
+    /// #3552 review S2-F5, the reviewer's first round-2 reproduction turned round. It passed on 533a76cf1: Alice
+    /// enrolled with the device id <c>x|director-bob</c>, which the old check read as a different id from Bob's, while
+    /// Hello read the part after the last bar - Bob's id - and after a restart she owned his stored session. Now a device
+    /// id holding a bar is refused at the door, by enrollment and by a move, and nothing is written; Bob keeps his id.
+    /// </summary>
+    [Fact]
+    public void ADeviceIdWithABarBeforeAColleaguesDirectorId_IsRefusedAtEnrollmentAndMove_AndTheColleagueKeepsTheirId()
+    {
+        var bobKey = EnrolledKey(Bob, "director-bob", _teamA);
+        var bob = SayHello(bobKey, "director-bob");
+        Assert.False(bob.Context.Aborted);
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Equal(2, bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2))!.Count);
+
+        var enrolled = Enroll(Alice, "x|director-bob", _teamA);
+        Assert.Equal(400, enrolled.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DeviceIdNotAllowedCode, enrolled.Code);
+        // Into her own account as well: a personal key under that id would otherwise be moved in.
+        Assert.Equal(400, Enroll(Alice, "x|director-bob", null).Status);
+        var moved = Move(Alice, "x|director-bob", _teamA);
+        Assert.Equal(400, moved.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DeviceIdNotAllowedCode, moved.Code);
+        // A control character is refused the same way.
+        Assert.Equal(HostedEnrollmentEndpoint.DeviceIdNotAllowedCode, Enroll(Alice, "director-bob\t", _teamA).Code);
+        using (var ctx = _db.CreateUnscopedContext())
+            Assert.False(ctx.DeviceCredentials.Any(d => d.AccountSubject == Alice));
+
+        // The Gateway restarts: Alice has no key to say Hello with, and Bob's Director takes its own id back.
+        _directors = new DirectorRegistry(_harness.LegacyPath("instances-after-restart"));
+        _store = new PushedSessionStore();
+        var bobAgain = SayHello(bobKey, "director-bob");
+        Assert.False(bobAgain.Context.Aborted);
+        bobAgain.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+    }
+
+    /// <summary>
+    /// #3552 review S2-F5, the letter-case variant. A real Director id has letters in it. The old check sent
+    /// <c>"DeviceId" LIKE '%|&lt;id&gt;'</c> to the database: SQLite's LIKE ignores letter case, PostgreSQL's does not, so
+    /// a test of it here proved nothing about production. The check now reads the team's rows and compares in memory
+    /// through <see cref="DeviceCredentialIdentity.SameDirectorId"/>, the comparison Hello uses, so this answer is the
+    /// same on both databases. The second id is the proof that the comparison really is made in memory and not by the
+    /// database: SQLite's LIKE folds the letter case of ASCII letters only, so it does NOT match a capital O with a stroke
+    /// to a small one, and against the old query that enrollment was accepted. Hello compares ignoring case for every
+    /// letter, so it would have read that key as Bob's.
+    /// </summary>
+    [Fact]
+    public void AColleaguesDirectorIdInAnotherLetterCase_IsRefused_ByTheComparisonHelloUses_MadeInMemory_NotByTheDatabase()
+    {
+        EnrolledKey(Bob, "director-bob", _teamA);
+        var upper = Enroll(Alice, "DIRECTOR-BOB", _teamA);
+        Assert.Equal(409, upper.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DirectorIdTakenInTeamCode, upper.Code);
+
+        // "director-bjørn" and "DIRECTOR-BJØRN": the same id to Hello, not the same text to SQLite's LIKE.
+        const string bobsSecond = "director-bjørn";
+        const string aliceAsks = "DIRECTOR-BJØRN";
+        EnrolledKey(Bob, bobsSecond, _teamA);
+        Assert.True(DeviceCredentialIdentity.SameDirectorId(bobsSecond, aliceAsks));
+        var nonAscii = Enroll(Alice, aliceAsks, _teamA);
+        Assert.Equal(409, nonAscii.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DirectorIdTakenInTeamCode, nonAscii.Code);
+        using (var ctx = _db.CreateUnscopedContext())
+            Assert.False(ctx.DeviceCredentials.Any(d => d.AccountSubject == Alice));
+    }
+
+    /// <summary>
+    /// #3552 review S2-F5, part 3: Hello holds even for a row written BEFORE the enrollment refusal existed. Alice's row
+    /// under Bob's id is written straight into the device table, bypassing enrollment. After a restart her key's Hello
+    /// is refused, because another person holds an active key for that id in the team. The same rule refuses Bob's own
+    /// Hello while her stray row is active - neither is guessed to be the owner - and once that row is revoked, Bob
+    /// connects and his session is his.
+    /// </summary>
+    [Fact]
+    public void Hello_UnderAnIdAnotherPersonHoldsAnActiveKeyFor_IsRefused_EvenForARowWrittenStraightIntoTheDeviceTable()
+    {
+        var bobKey = EnrolledKey(Bob, "director-bob", _teamA);
+        var bob = SayHello(bobKey, "director-bob");
+        Assert.False(bob.Context.Aborted);
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Equal(2, bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2))!.Count);
+
+        // A row of Alice's under Bob's id, in another letter case, as an older Gateway could have left it.
+        var strayDeviceId = HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA, Alice, "Director-Bob");
+        var aliceKey = _devices.RegisterForTenant(new TenantId(_teamA), Alice, strayDeviceId, "M").DeviceKey;
+
+        _directors = new DirectorRegistry(_harness.LegacyPath("instances-after-restart"));
+        _store = new PushedSessionStore();
+
+        var alice = SayHello(aliceKey, "director-bob");
+        Assert.True(alice.Context.Aborted);
+        Assert.Null(_directors.RegisteringCredentialOf(new TenantId(_teamA), "director-bob"));
+
+        Assert.True(SayHello(bobKey, "director-bob").Context.Aborted);
+
+        Assert.True(_devices.RevokeDevice(strayDeviceId, "test: the stray row is removed"));
+        var bobAgain = SayHello(bobKey, "director-bob");
+        Assert.False(bobAgain.Context.Aborted);
+        bobAgain.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+    }
+
+    /// <summary>Register a session key for <paramref name="sessionId"/> over a Director's own tunnel, as a stock Director
+    /// does when it creates the session, before the agent starts.</summary>
+    private static void RegisterSessionKey(Connected director, string sessionId) =>
+        director.Hub.RegisterSessionKey(new SessionKeyRegistration
+        {
+            SessionId = sessionId,
+            KeyHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes("key-of-" + sessionId))).ToLowerInvariant(),
+            ExpiresAtUtc = DateTime.UtcNow.AddHours(1),
+        });
+
+    /// <summary>
+    /// #3552 review S2-F6, the reviewer's second round-2 reproduction turned round. It passed on 533a76cf1: Alice listed
+    /// Bob's live session id until it ended, every push of Bob's was refused for now, nothing was stored, and once the
+    /// session ended Alice was answered its owner. Now the session's key row - registered by Bob's Director when the
+    /// session was created - says whose it is: Bob's pushes are stored while Alice lists the id, Alice's push is refused
+    /// for good, and after the session ends all three routes are refused to her.
+    /// </summary>
+    [Fact]
+    public void AColleagueWhoListsALiveSessionIdUntilItEnds_IsNotItsOwner_BecauseTheSessionsKeyNamesTheOwnersDirector()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        RegisterSessionKey(bob, "session-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        var aliceKey = _devices.RegisterForTenant(new TenantId(_teamA), Alice,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA, Alice, "director-alice"), "M").DeviceKey;
+        var alice = SayHello(aliceKey, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+
+        // While she lists it, Bob's pushes are stored; hers is refused for good.
+        Assert.Null(alice.Hub.PushTurns(1, Conversation("session-bob", 0, 1)));
+        for (var i = 1; i <= 3; i++)
+        {
+            var answer = bob.Hub.PushTurns(i, Conversation("session-bob", 0, 2));
+            Assert.NotNull(answer);
+            Assert.Equal(2, answer!.Count);
+        }
+        using (_boundary.EnterScope(new TenantId(_teamA)))
+            Assert.Equal(new[] { "director-bob" }, _turns.DirectorsOfAnyGeneration("session-bob").ToArray());
+
+        // Bob's session ends and leaves his roster. Alice is the only holder - and it is not hers.
+        bob.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+        var gate = Gate(out var ownership);
+        foreach (var pattern in new[] { "/sessions/{sid}/wingman-stops", "/sessions/{sid}/turn-verdicts", "/sessions/{sid}/recap" })
+        {
+            var verdict = Ask(gate, ownership, "GET", pattern, "session-bob", new TenantId(_teamA),
+                _devices.ResolveCredential(aliceKey).Identity, null);
+            Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
+        }
+    }
+
+    /// <summary>
+    /// #3552 review S2-F6, part 1 on its own: with NOTHING stored - the case the stored writers cannot answer - a
+    /// session whose key row names another person's Director is not the caller's own, even when the caller's Director is
+    /// its only holder. Bob's session ends before any push of it gets through; Alice listed the id all along.
+    /// </summary>
+    [Fact]
+    public void ASessionWithNothingStored_WhoseKeyNamesAnotherPersonsDirector_IsNotTheOnlyHoldersOwn()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        RegisterSessionKey(bob, "session-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        var aliceKey = _devices.RegisterForTenant(new TenantId(_teamA), Alice,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA, Alice, "director-alice"), "M").DeviceKey;
+        var alice = SayHello(aliceKey, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+
+        bob.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+        using (_boundary.EnterScope(new TenantId(_teamA)))
+            Assert.Null(_turns.ReadHead("session-bob"));
+        Assert.Equal(new[] { "director-alice" }, _store.DirectorsHoldingSession(new TenantId(_teamA), "session-bob").ToArray());
+
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+        var gate = Gate(out var ownership);
+        Assert.Null(ownership.PersonOfSession(new TenantId(_teamA), "session-bob"));
+        foreach (var pattern in new[] { "/sessions/{sid}/wingman-stops", "/sessions/{sid}/turn-verdicts", "/sessions/{sid}/recap" })
+        {
+            var verdict = Ask(gate, ownership, "GET", pattern, "session-bob", new TenantId(_teamA),
+                _devices.ResolveCredential(aliceKey).Identity, null);
+            Assert.Equal(TeamGateOutcome.Refused, verdict.Outcome);
+        }
+
+        // Her own session, keyed by her own Director, is hers as before.
+        RegisterSessionKey(alice, "session-alice");
+        alice.Hub.PushSnapshot(2, new[] { new SessionDto { SessionId = "session-alice" } });
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Alice, "session-alice"));
+    }
+
     [Fact]
     public void PushTurns_ANewSessionWithNothingStored_IsAcceptedOnlyFromADirectorWhoseRosterHoldsIt()
     {
@@ -505,7 +703,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         var key = EnrolledKey(Alice, "director-alice", _teamA);
         var alice = SayHello(key, "director-alice");
         alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-alice" } });
-        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary);
+        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary, _sessionKeys);
         Assert.Equal(Alice, ownership.OwnerOf(new TenantId(_teamA), "director-alice"));
 
         Assert.True(_devices.RevokeDevice(_devices.ResolveCredential(key).Identity!.DeviceId, "test_reason"));
@@ -539,7 +737,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
             registeredByCredential: "device:" + deviceId);
         _directors.RegisterFromStream("director-alice", "M", "u", "1", 1, DateTime.UtcNow, new TenantId(_teamB),
             registeredByCredential: "device:" + deviceId);
-        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary);
+        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary, _sessionKeys);
 
         Assert.Null(ownership.OwnerOf(new TenantId(_teamA), "director-alice"));
         // Control: the same registration in the tenant the key IS bound to names its person.
@@ -553,7 +751,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     /// <summary>The team gate exactly as the Gateway wires it: the same ownership answer the hub asks.</summary>
     private TeamEndpointGate Gate(out TeamCallerOwnership ownership)
     {
-        ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary);
+        ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary, _sessionKeys);
         return new TeamEndpointGate(new TeamAccess(_teams), _teams, _tenants, _boundary, ownership);
     }
 
@@ -619,7 +817,7 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     public void PersonOf_ASessionKeyInATeam_IsItsDirectorsOwner_ReadLive_AndNobodyOnceTheirKeyIsRevoked()
     {
         var alice = Hello(_teamA, Alice, "director-alice");
-        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary);
+        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary, _sessionKeys);
         var session = new SessionCredentialIdentity(Guid.NewGuid(), new TenantId(_teamA), "director-alice");
 
         Assert.Equal(Alice, ownership.PersonOf(new TenantId(_teamA), null, session));

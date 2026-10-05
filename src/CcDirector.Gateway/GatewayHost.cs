@@ -1860,7 +1860,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _devReportComments = new DevReports.DevReportPersonComments(_gatewayDb);
         // ONE answer to "whose Director is this" in a team, asked by the team gate and by the hub before it accepts a
         // team's turn push (devthrottle_internal#2311).
-        TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary,
+        TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary, SessionKeys,
             reportAuthor: (tenant, reportId) => _devReports.Get(tenant, reportId)?.AuthorSubject);
         TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
         TeamRequests = new Teams.TeamRequestStore(_gatewayDb, TeamRegistry);
