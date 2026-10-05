@@ -15,7 +15,7 @@ Line numbers are on this branch.
 
 | Path | Where | How the key goes first |
 |---|---|---|
-| Reseed (on connect, on reconnect, every re-push tick) | `src/CcDirector.ControlApi/GatewayStreamClient.cs:730` | Hello (`:746`), then every live key (`:823`), then the gate opens (`:865`), the Hello callback runs (`:874`), and only then the roster (`:893`). It used to be Hello, roster, keys. |
+| Reseed (on connect, on reconnect, every re-push tick). A reseed that began on a connection since lost sends no roster on the new one (K-F1); the key leg is timed and reported in the slow line (K-F3). | `src/CcDirector.ControlApi/GatewayStreamClient.cs:730` | Hello (`:746`), then every live key (`:823`), then the gate opens (`:865`), the Hello callback runs (`:874`), and only then the roster (`:893`). It used to be Hello, roster, keys. |
 | Delta (every activity, hold, colour, owner change) | `GatewayStreamClient.cs:988`, gate at `:992`; raised from `ControlApiHost.cs:1754` onward | Held back until the CURRENT connection's reseed has sent its keys. The roster the reseed sends right after carries the same state. The connection count moves on every Reconnecting (`:399`) and Closed (`:411`), so a connection that comes back starts with the gate shut. |
 | Turn push | `GatewayStreamClient.cs:639`, gate at `:644`; called from `ControlApiHost.cs:1159` | Refused (like a dropped tunnel) until that connection's keys are sent. The turn sweep the Hello starts (`ControlApiHost.cs:1107`, `SeedWatermarks`) now starts only after the keys, because the callback moved behind them (`GatewayStreamClient.cs:874`). |
 | New, resumed and restored sessions | `src/CcDirector.Core/Sessions/SessionManager.cs:860` (key minted) before `:1120` (roster add); the send is `ControlApiHost.cs:607` | The key is minted and its registration started on the creating thread while the environment is built, before the session joins the roster. A resumed or restored session has a new id and takes this path. |
@@ -34,7 +34,15 @@ Named and left alone, as ruled: `CreatePipeModeSession` (`SessionManager.cs:1355
 (`:1447`) and `RestoreEmbeddedSession` (`:2001`) also add a session with no key, but none has a production caller.
 `AdoptSession` (`:1969`) is a test seam.
 
-What this does not cover: the order between the creation-time key send and a later delta on one connection rests
+What this does not cover:
+
+- **A session whose key the Gateway refuses or loses.** This change sends every key before the id; it does not make
+  the Gateway accept it. The window is closed for a session whose key registration the Gateway ACCEPTED, and it
+  stays open for a session whose registration is refused or lost, until a later registration is accepted (the next
+  reseed, about ten seconds, or longer while the refusal lasts). For that session S2-F13 is exactly as open as
+  before. This is deliberate: a failing key must not hide a session from its own owner. Teams must not be released
+  believing a listed session always has a key row. (#3558 review, K-F2.)
+- The order between the creation-time key send and a later delta on one connection rests
 on the SignalR client sending one call at a time in the order they were started; that is not proved by a test here.
 
 ## Tests
@@ -60,4 +68,8 @@ on the SignalR client sending one call at a time in the order they were started;
 - `revert-2-gate-off.txt`: both `if (!SessionIdsMayGoUp)` lines made `if (false && ...)`. 3 red (the held-delta,
   held-after-reconnect and refused-turn-push tests).
 - `revert-3-github-actions-no-key.txt`: the two key-mint lines in `CreateGitHubActionsSession` removed. 3 red.
+- `revert-4-roster-on-a-lost-connection.txt` (#3558 review, K-F1): the connection check before the roster push made
+  `if (false && ...)`. 1 red: `ReseedAsync_OnAConnectionLostWhileItRan_SendsNoRosterOnTheNewOne`
+  (`Assert.DoesNotContain() Failure: Filter matched in collection` - the roster went up on the new connection).
+  Restored and rebuilt: `restored-after-review.txt`, 13 passed.
 - `restored.txt`: each restored from the commit and rebuilt (no `--no-build`), all green.

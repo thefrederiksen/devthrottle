@@ -1,0 +1,6 @@
+[xUnit.net 00:00:03.08]       Assert.DoesNotContain() Failure: Filter matched in collection
+  Failed CcDirector.Avalonia.Tests.Teams.DirectorKeysBeforeRosterTests.ReseedAsync_OnAConnectionLostWhileItRan_SendsNoRosterOnTheNewOne [23 ms]
+   Assert.DoesNotContain() Failure: Filter matched in collection
+Total tests: 13
+     Passed: 12
+     Failed: 1
