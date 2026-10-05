@@ -3277,6 +3277,54 @@ body {
   color: var(--text-dim);
 }
 
+/* "Let this session talk to..." (issue #3548). */
+.message-link-dialog {
+  max-width: 560px;
+}
+.message-link-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.message-link-amounts {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px 8px;
+  margin: 10px 0;
+}
+.message-link-amounts legend {
+  color: var(--text-dim);
+  font-size: 13px;
+  padding: 0 4px;
+}
+.message-link-amount {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 6px 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.message-link-amount strong {
+  color: var(--text);
+}
+.message-link-current {
+  margin: 12px 0 4px;
+}
+.message-link-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+}
+
 .session-dialog-actions {
   display: flex;
   justify-content: flex-end;
