@@ -122,3 +122,15 @@ Red proof (whole Teams unit filter), committed first, each mutation restored in 
     (A first try at this mutation left the return unreachable and did not compile; it was redone as a throw in place of
     the return.)
 Restored: 725 passed, 0 failed.
+
+== Rebased onto #3530 (main 3fa6f7ca0); the map asks TeamCallerOwnership.OwnerOf, code head c52da2749 ==
+TeamDirectorOwnership, PersonOfDirector, the second RegisteringCredentialOf and IsActiveCredential are deleted;
+DeviceRegistry.cs and DirectorRegistry.cs are main's text. Picked: drop IsActiveCredential (zero diff against main).
+dotnet test src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams:
+Passed!  - Failed:     0, Passed:   816, Skipped:     2, Total:   818 - CcDirector.Gateway.UnitTests.dll (net10.0)
+Red proof (whole Teams unit filter), committed first, each mutation restored in a finally, tree clean:
+17. Revoked check dropped from AccountSubjectOfActiveDevice (what OwnerOf reads): 5 failed | 811 passed, including the
+    map's Read_ARevokedCredential_IsOnNobodysMap, OwnerOf_ACredentialRevokedByTime_..., OwnerOf_ACredentialRevokedByStatus_...
+18. Tenant check dropped: 3 failed | 813 passed, including the map's Read_ACredentialBoundToAnotherTenant_IsOnNobodysMap
+    and OwnerOf_ACredentialBoundToAnotherTenant_IsNobody.
+NOT YET RUN on this head: the restore run, the hosted Gateway.Tests filter, the grep evidence, continuous integration.
