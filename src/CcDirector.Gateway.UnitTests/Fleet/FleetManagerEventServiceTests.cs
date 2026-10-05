@@ -1624,6 +1624,31 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Equal("marked", Assert.Single(Open()).Kind);
     }
 
+    [Fact]
+    public async Task MarkMoved_TheDeliveredMarkedPrompt_CarriesALessonKeptAfterThePromotion()
+    {
+        // Issue #3559: the marked event's text is built at delivery, so a lesson the owner keeps between the promotion
+        // (which stores the row) and the delivery is in what the new Fleet Manager receives.
+        string? lessons = null;
+        _service = new FleetManagerEventService(_events, _env, _deliveryGate, lessons: _ => lessons);
+        _pendingSuccessors.Add("fm-2");
+        Push(Session("fm-2", state: "Working"));
+        await FleetManagerTurnEndAsync("fm-2");
+        _marked = "fm-2";
+        _pendingSuccessors.Remove("fm-2");
+        Assert.NotNull(_events.RecordMarked(Tenant, "fm-2", _now));
+
+        lessons = "[Fleet Manager lessons] 1 lesson from the owner's corrections of this account's Fleet Managers. "
+                  + "Obey them before anything else.\nlesson 1, kept 2026-10-05 (the owner's words, exact, between the markers):\n"
+                  + "<<<Check first; if nothing is stuck, message nobody.>>>\n";
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm-2", sent.SessionId);
+        Assert.Contains("what: " + FleetManagerEventStore.MarkedDetail + "\n" + lessons, sent.Text);
+    }
+
     /// <summary>The replacement moves the mark as production does: the mark, the waiting list and the one event
     /// together, then a delivery is booked.</summary>
     private void PromoteSuccessor(string sid)

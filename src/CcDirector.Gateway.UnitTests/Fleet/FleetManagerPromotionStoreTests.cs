@@ -140,18 +140,61 @@ public sealed class FleetManagerPromotionStoreTests : IDisposable
     }
 
     [Fact]
-    public void MarkByOwner_ASessionThatNeverWaited_IsMarkedAndToldNothing_AndTheReplacementStaysRecorded()
+    public void MarkByOwner_ASessionThatNeverWaited_IsMarkedAndToldOnce_AndTheReplacementStaysRecorded()
     {
         const string Other = "60000000-0000-4000-8000-000000000003";
 
-        Assert.False(_store.MarkByOwner(Tenant, Other.ToUpperInvariant(), Now));
+        // Issue #3559: a session the owner marks by hand is told too, because that event carries the lessons.
+        Assert.True(_store.MarkByOwner(Tenant, Other.ToUpperInvariant(), Now));
+        Assert.False(_store.MarkByOwner(Tenant, Other, Now.AddMinutes(1)));
 
         Assert.Equal(Other, _settings.FleetManagerSessionId(Tenant));
         Assert.Equal(NewId, _settings.FleetManagerSuccessorSessionId(Tenant));
         Assert.Null(_settings.FleetManagerMarkClearedByGateway(Tenant));
         Assert.Equal(new[] { NewId }, _settings.FleetManagerWaitingSuccessors(Tenant));
         Assert.Equal(Other, Assert.Single(_marks.List(Tenant)).SessionId);
-        Assert.Empty(_events.Unacknowledged(Tenant));
+        var told = Assert.Single(_events.Unacknowledged(Tenant));
+        Assert.Equal(FleetManagerEventStore.KindMarked, told.Kind);
+        Assert.Equal(Other, told.SessionId);
+        Assert.Equal(Other, told.AddressedTo);
+    }
+
+    [Fact]
+    public void MarkByOwner_ASessionMarkedAgainAfterItAcknowledged_IsToldAgain_AndTheMarkedOneIsToldNothing()
+    {
+        // Review of part 1, finding 3: the event carries the lessons kept since, so a session marked again later must be
+        // told again. Marking the session already marked moves nothing and tells it nothing.
+        const string A = "60000000-0000-4000-8000-00000000000a";
+        const string B = "60000000-0000-4000-8000-00000000000b";
+
+        Assert.True(_store.MarkByOwner(Tenant, A, Now));
+        Assert.False(_store.MarkByOwner(Tenant, A, Now.AddMinutes(1)));
+        var told = Assert.Single(_events.Unacknowledged(Tenant));
+        _events.Acknowledge(Tenant, new[] { Guid.Parse(told.Id) }, all: false, A, Now.AddMinutes(2));
+        Assert.True(_store.MarkByOwner(Tenant, B, Now.AddMinutes(3)));
+        Assert.True(_store.MarkByOwner(Tenant, A, Now.AddMinutes(4)));
+
+        var open = _events.Unacknowledged(Tenant).Where(e => e.Kind == FleetManagerEventStore.KindMarked).ToList();
+        Assert.Equal(new[] { B, A }, open.Select(e => e.SessionId).ToArray());
+    }
+
+    [Fact]
+    public void MarkByOwner_ASessionWhoseEarlierEventWasDeliveredButNeverAcknowledged_IsToldAgain()
+    {
+        // Review of parts 1 and 2, finding 1: a delivered event is never delivered to that session again, so it must not
+        // count as "already told" - the new marked event carries the lessons kept since.
+        const string A = "60000000-0000-4000-8000-00000000000a";
+        const string B = "60000000-0000-4000-8000-00000000000b";
+
+        Assert.True(_store.MarkByOwner(Tenant, A, Now));
+        var first = Assert.Single(_events.Owed(Tenant, A, FleetManagerEventStore.MaxDeliveryBatch).Events);
+        _events.MarkDelivered(Tenant, new[] { Guid.Parse(first.Id) }, A, Now.AddMinutes(1));
+        Assert.True(_store.MarkByOwner(Tenant, B, Now.AddMinutes(2)));
+        Assert.True(_store.MarkByOwner(Tenant, A, Now.AddMinutes(3)));
+
+        var owedToA = _events.Owed(Tenant, A, FleetManagerEventStore.MaxDeliveryBatch).Events
+            .Where(e => e.Kind == FleetManagerEventStore.KindMarked && e.SessionId == A).ToList();
+        Assert.NotEqual(first.Id, Assert.Single(owedToA).Id);
     }
 
     [Fact]

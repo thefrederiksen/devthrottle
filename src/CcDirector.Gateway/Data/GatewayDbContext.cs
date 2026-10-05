@@ -960,6 +960,9 @@ public sealed class GatewayDbContext : DbContext
             b.ToTable("fleet_preferences");
             b.HasKey(e => e.Id);
             b.Property(e => e.CreatedBy).HasMaxLength(64);
+            // Every row stored before lessons existed is a preference (issue #3559).
+            b.Property(e => e.Kind).HasMaxLength(16).HasDefaultValue(Fleet.FleetPreferenceStore.KindPreference);
+            b.Property(e => e.Mistake).HasMaxLength(Fleet.FleetPreferenceStore.MaxMistakeLength);
             b.HasIndex(e => new { e.TenantId, e.CreatedAtUtc });
         });
 
@@ -1068,6 +1071,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.VerdictId).HasMaxLength(64);
             b.Property(e => e.DirectorId).HasMaxLength(256);
             b.Property(e => e.OutcomeId).HasMaxLength(64);
+            b.Property(e => e.LessonId).HasMaxLength(64);
             // "The account's unacknowledged events, oldest first" is the read every delivery and every digest makes.
             b.HasIndex(e => new { e.TenantId, e.AcknowledgedAtUtc, e.CreatedAtUtc });
             b.HasIndex(e => new { e.TenantId, e.SessionId });
