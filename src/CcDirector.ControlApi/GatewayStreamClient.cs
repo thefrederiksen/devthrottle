@@ -346,8 +346,9 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             {
                 FileLog.Write($"[GatewayStreamClient] re-push SLOW: took {elapsed.TotalSeconds:F1}s "
                     + $"(cadence {SlowRePushThreshold.TotalSeconds:F0}s) - the next tick was likely skipped. "
-                    + $"Of that, building the snapshot here took {report.BuildSnapshot.TotalSeconds:F1}s and "
-                    + $"waiting for the Gateway to accept it took {report.AwaitGateway.TotalSeconds:F1}s. "
+                    + $"Of that, building the snapshot here took {report.BuildSnapshot.TotalSeconds:F1}s, "
+                    + $"sending the session keys ahead of it took {report.SendKeys.TotalSeconds:F1}s, and "
+                    + $"waiting for the Gateway to accept the Hello and the snapshot took {report.AwaitGateway.TotalSeconds:F1}s. "
                     + MemoryNow());
             }
             _rePushStartedUtc = DateTime.MinValue;
@@ -566,12 +567,15 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// So the phases are separated and the outcome is named: how long WE spent building the snapshot on this
     /// machine, how long the GATEWAY took to accept it, and whether the wait finished at all. They fail for
     /// different reasons and have different fixes, and one combined number cannot tell them apart.
+    /// <para><c>SendKeys</c> is the session key leg, timed apart from both: since the keys go ahead of the roster
+    /// (devthrottle_internal#2311, S2-F13) the roster waits one round trip per live session behind them, and a
+    /// slow tick whose numbers left that out would not add up to the wait it reports.</para>
     /// </summary>
-    internal readonly record struct ReseedReport(TimeSpan BuildSnapshot, TimeSpan AwaitGateway, bool Completed, string? Failure)
+    internal readonly record struct ReseedReport(TimeSpan BuildSnapshot, TimeSpan SendKeys, TimeSpan AwaitGateway, bool Completed, string? Failure)
     {
         /// <summary>Nothing was attempted: there was no connected tunnel to reseed down.</summary>
         public static ReseedReport NotConnected { get; } =
-            new(TimeSpan.Zero, TimeSpan.Zero, Completed: false, Failure: "the tunnel was not connected");
+            new(TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, Completed: false, Failure: "the tunnel was not connected");
     }
 
     /// <summary>
@@ -732,6 +736,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         if (!hub.IsConnected) return ReseedReport.NotConnected;
 
         var build = TimeSpan.Zero;
+        var sendKeys = TimeSpan.Zero;
         var awaitGateway = TimeSpan.Zero;
         var completed = false;
         string? failure = null;
@@ -789,6 +794,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // without a long-running session ever losing it.
         if (_sessionKeys is not null && hub.IsConnected)
         {
+            var keysStarted = DateTime.UtcNow;
             // ONE BAD REGISTRATION MUST NOT TAKE THE OTHERS DOWN WITH IT.
             //
             // This loop used to sit inside a single try, so the FIRST registration that threw abandoned
@@ -856,6 +862,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 FileLog.Write("[GatewayStreamClient] session key re-registration pass FAILED before it " +
                               $"could report per-session results: {ex.GetType().Name}: {ex.Message}");
             }
+            sendKeys = DateTime.UtcNow - keysStarted;
         }
 
         if (helloAnswered)
@@ -886,9 +893,17 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 var snapshot = _snapshot().ToArray();
                 build = DateTime.UtcNow - buildStarted;
 
+                // NO ROSTER ON A CONNECTION BEFORE THAT CONNECTION'S KEYS (#3558 review, K-F1). The connection
+                // object lives for the whole client and reconnects in place, so a reseed that began on a connection
+                // since lost can find it connected again - on a NEW connection whose own reseed is still sending
+                // its keys. The gate above asks which connection this is; the roster asks the same question.
+                if (Interlocked.Read(ref _connectionGeneration) != connectionGeneration)
+                    throw new InvalidOperationException(
+                        "the connection this reseed began on was lost, so its roster is not sent; the new connection's own reseed sends one after its keys");
+
                 // The Gateway's work: InvokeAsync does not return when the frame is written, it returns when the
                 // hub method has FINISHED, so this measures the Gateway's own per-push processing. Like the
-                // Hello above it is timed; the key leg between them is not, exactly as before it moved.
+                // Hello above it is timed; the key leg between them is timed on its own (sendKeys).
                 var sendStarted = DateTime.UtcNow;
                 await hub.PushSnapshotAsync(seq, snapshot);
                 awaitGateway += DateTime.UtcNow - sendStarted;
@@ -897,7 +912,8 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 // The moment the Gateway's cache was made fresh, which is what a late tick reports against.
                 _lastAcceptedSnapshotUtc = DateTime.UtcNow;
                 FileLog.Write($"[GatewayStreamClient] reseeded full snapshot seq={seq} "
-                    + $"(built in {build.TotalMilliseconds:F0}ms, Gateway accepted it in {awaitGateway.TotalMilliseconds:F0}ms)");
+                    + $"(built in {build.TotalMilliseconds:F0}ms, keys sent ahead of it in {sendKeys.TotalMilliseconds:F0}ms, "
+                    + $"Gateway accepted the Hello and the snapshot in {awaitGateway.TotalMilliseconds:F0}ms)");
             }
             catch (Exception ex)
             {
@@ -956,7 +972,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             }
         }
 
-        return new ReseedReport(build, awaitGateway, completed, failure);
+        return new ReseedReport(build, sendKeys, awaitGateway, completed, failure);
     }
 
     /// <summary>

@@ -130,15 +130,21 @@ public sealed class DirectorKeysBeforeRosterTests
     }
 
     [Fact]
-    public async Task ReseedAsync_OnAConnectionLostWhileItRan_DoesNotLetSessionIdsGoUpOnTheNewOne()
+    public async Task ReseedAsync_OnAConnectionLostWhileItRan_SendsNoRosterOnTheNewOne()
     {
+        // #3558 review, K-F1. The connection drops during the key leg and comes straight back: the hub reports
+        // connected again (one connection object, reconnected in place), but it is a NEW connection whose own
+        // reseed has not sent its keys. The old reseed must send no roster there, and open no gate.
         var hub = new RecordingHub();
         var client = NewClient(sessionIds: new[] { Alpha });
         var generation = client.CurrentConnectionGeneration;
         hub.OnKeyRegistered = () => client.MarkConnectionLost();
 
-        await client.ReseedAsync(hub, generation);
+        var report = await client.ReseedAsync(hub, generation);
 
+        Assert.True(hub.IsConnected);
+        Assert.DoesNotContain(hub.Calls, c => c.Method == "PushSnapshot");
+        Assert.False(report.Completed);
         Assert.False(client.SessionIdsMayGoUp);
     }
 
