@@ -21,6 +21,40 @@ public sealed class DirectorKeysBeforeRosterTests
     // ===================== the reseed =====================
 
     [Fact]
+    public async Task ReseedAsync_OnANewConnection_RunsTheNewConnectionCallbackFirst_AndOnARePushNever()
+    {
+        // Issue #3559: a Director drops every session's Fleet Manager lessons when a NEW connection opens, before its
+        // first roster goes up, so the Gateway's restamp on that roster is the only lessons block left. The timed
+        // re-push reuses the connection and must leave them alone - a compaction in that gap would lose them.
+        var hub = new RecordingHub();
+        var client = NewClient(sessionIds: new[] { Alpha },
+            onNewConnection: () => hub.Calls.Add(new HubCall("NewConnection", Array.Empty<string>(), false)));
+
+        await client.ReseedAsync(hub, client.CurrentConnectionGeneration, newConnection: true);
+        Assert.Equal("NewConnection", hub.Calls[0].Method);
+        Assert.Single(hub.Calls, c => c.Method == "NewConnection");
+
+        hub.Calls.Clear();
+        await client.ReseedAsync(hub, client.CurrentConnectionGeneration);
+        await client.ReseedAsync(hub, client.CurrentConnectionGeneration);
+        Assert.DoesNotContain(hub.Calls, c => c.Method == "NewConnection");
+        Assert.Equal(2, hub.Calls.Count(c => c.Method == "PushSnapshot"));
+    }
+
+    [Fact]
+    public async Task ReseedAsync_TheNewConnectionCallbackThrows_TheReseedStillCompletes()
+    {
+        var hub = new RecordingHub();
+        var client = NewClient(sessionIds: new[] { Alpha },
+            onNewConnection: () => throw new InvalidOperationException("a session could not drop its lessons"));
+
+        var report = await client.ReseedAsync(hub, client.CurrentConnectionGeneration, newConnection: true);
+
+        Assert.True(report.Completed);
+        Assert.Single(hub.Calls, c => c.Method == "PushSnapshot");
+    }
+
+    [Fact]
     public async Task ReseedAsync_SessionsWithKeys_EveryKeyIsSentBeforeTheRosterThatListsIt()
     {
         var hub = new RecordingHub();
@@ -228,7 +262,8 @@ public sealed class DirectorKeysBeforeRosterTests
     private static GatewayStreamClient NewClient(
         IReadOnlyList<string> sessionIds,
         Func<List<SessionKeyRegistration>>? sessionKeys = null,
-        Action<GatewayCapabilities>? onHello = null)
+        Action<GatewayCapabilities>? onHello = null,
+        Action? onNewConnection = null)
     {
         // No URL: the client is never started, so nothing dials. Every call goes to the recording hub.
         var config = new GatewayConfig();
@@ -237,7 +272,8 @@ public sealed class DirectorKeysBeforeRosterTests
             sessionKeys: sessionKeys ?? (() => sessionIds
                 .Select(id => new SessionKeyRegistration { SessionId = id, KeyHash = "hash-" + id, ExpiresAtUtc = DateTime.UtcNow.AddHours(1) })
                 .ToList()),
-            onHello: onHello);
+            onHello: onHello,
+            onNewConnection: onNewConnection);
     }
 
     private sealed record HubCall(string Method, string[] SessionIds, bool GateOpen);

@@ -151,6 +151,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     internal Fleet.FleetRoleObserver FleetRoles { get; }
 
+    /// <summary>Stamps the confirmed lessons down to the marked Fleet Manager's Director (issue #3559). Shared with the
+    /// DirectorHub through the container, like <see cref="FleetRoles"/>.</summary>
+    internal Fleet.FleetManagerLessonsObserver FleetManagerLessonsStamp { get; }
+
     /// <summary>
     /// The observer that stamps each session's FOLDED display state (effective color, label, triage bucket,
     /// needs-you-since, the snooze clock, the snooze-ended marker) back DOWN to the Director that owns it, so
@@ -1993,6 +1997,17 @@ public sealed class GatewayHost : IAsyncDisposable
             () => AmbientSnapshotFresh(AutoDismissStaleAfter),
             SendCommandAsync,
             currentScopeKey: () => _tenantPass.Current?.Value);
+        // Issue #3559: the marked Fleet Manager's Director holds the account's confirmed lessons, so its session-start
+        // hook injects them on a compaction or a clear. Read lazily: the preference store is built further down.
+        FleetManagerLessonsStamp = new Fleet.FleetManagerLessonsObserver(
+            markedSessionId: tenant => _tenantSettingsResolver!.FleetManagerSessionId(tenant),
+            lessonsBlock: FleetManagerLessonsBlock,
+            directorOf: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid)?.DirectorId,
+            sendCommand: SendCommandAsync);
+        // A Director drops every session's lessons when a new connection opens; its first snapshot is the moment to
+        // stamp the marked Fleet Manager again. Off the pushing Director's call, which a handler must not block.
+        PushedSessions.SessionsArrivedOnNewConnection += (tenant, directorId)
+            => _ = Task.Run(() => FleetManagerLessonsStamp.DirectorReconnected(tenant, directorId));
         // The fold push seam: stamps each session's folded display state down to its owning Director, so the
         // desktop rail stops re-folding from local facts it cannot see. Folds through the SAME method the
         // roster serves from (StampFleetRolesAndFold with THIS host's NeedsYouClock and snooze registry), so
@@ -3612,7 +3627,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.
         _fleetManagerEventSweep = new Fleet.FleetManagerEventSweep(_tenantBoundary, TenantRegistry, _tenantContext,
-            _fleetManagerEvents);
+            _fleetManagerEvents, FleetManagerLessonsStamp);
         if (Fleet.FleetManagerEventSweep.Enabled)
             _fleetManagerEventTimer = new Timer(_ => _ = _fleetManagerEventSweep.SweepSafeAsync(), null,
                 TimeSpan.FromSeconds(5), Fleet.FleetManagerEventSweep.Interval);
@@ -3900,6 +3915,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // the Director pushes up "the hold landed".
         builder.Services.AddSingleton(SnoozeLandings);
         builder.Services.AddSingleton(FleetRoles);
+        builder.Services.AddSingleton(FleetManagerLessonsStamp);
         builder.Services.AddSingleton(FleetDisplayState);
         // Issue #3124 (the 8-day empty ledger): the session-state funnel must also be fed from the TUNNEL,
         // not only from the legacy HTTP legs that are 403 on hosted. THE SAME INSTANCE is bound to the one
@@ -4935,6 +4951,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // The owner's answer to a card, and a lesson the owner keeps, are queued to the Fleet Manager in the same
             // save; book its delivery.
             answerQueued: tenant => _fleetManagerEvents?.OnEventQueued(tenant),
+            // A lesson kept, confirmed, edited or removed reaches the marked Fleet Manager's session-start context now.
+            lessonsChanged: tenant => _ = FleetManagerLessonsStamp.LessonsChanged(tenant),
             digest: new FleetDigestSources(
                 FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
                     _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry, _fleetMessages,
