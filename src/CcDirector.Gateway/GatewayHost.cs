@@ -1129,6 +1129,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private TurnLog.TurnLogSwitchStore? _turnLogSwitches;
     private Timer? _turnLogRetentionTimer;
     private Timer? _voiceClipSweepTimer;
+    private Timer? _repoHistorySaveTimer;
+
+    /// <summary>How often the repository history is written when it has changed (see RepoHistoryStore).</summary>
+    internal static readonly TimeSpan RepoHistorySaveEvery = TimeSpan.FromMinutes(5);
     private Wingman.WingmanVoiceService? _voiceService;
     // The turn-verdict seat (the Wingman-on-every-turn mission, slice C). Built once, shared by the turn-end
     // boundary, the voice narration and the explain route, so one stop is one judgement whoever asks first.
@@ -3426,6 +3430,14 @@ public sealed class GatewayHost : IAsyncDisposable
             try { _voiceService?.SweepClips(PushedSessions.KnownSessionIds, DateTime.UtcNow); }
             catch (Exception ex) { FileLog.Write($"[GatewayHost] narration clip sweep FAILED: {ex.Message}"); }
         }, null, TimeSpan.FromHours(1), TimeSpan.FromHours(6));
+
+        // The repository history is written on this clock rather than on every changed push (Money Saver, 4 October
+        // 2026): one 1.6 MB file on the billed share was rewritten about 2,100 times a day. Saved again at shutdown.
+        _repoHistorySaveTimer = new Timer(_ =>
+        {
+            try { RepoHistory.SaveIfChanged(); }
+            catch (Exception ex) { FileLog.Write($"[GatewayHost] repository history save FAILED: {ex.Message}"); }
+        }, null, RepoHistorySaveEvery, RepoHistorySaveEvery);
 
         _fleetManagerEvents = new Fleet.FleetManagerEventService(_fleetManagerEventStore!,
             new Fleet.GatewayFleetManagerEventEnvironment(PushedSessions, _streamStaleAfter,
@@ -6258,6 +6270,13 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnLogRetentionTimer = null;
         try { _voiceClipSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] narration clip sweep dispose error: {ex.Message}"); }
         _voiceClipSweepTimer = null;
+        // Stop the repository history clock and save what it had not written. This early save is the one a hard exit
+        // relies on: the self-update watchdog (GatewayService) ends the process after ten seconds, and the drains below
+        // can take longer than that. A second save after the web application stops (at the end) catches any push
+        // accepted in between, and costs nothing when there was none.
+        try { _repoHistorySaveTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] repository history timer dispose error: {ex.Message}"); }
+        _repoHistorySaveTimer = null;
+        SaveRepoHistoryAtShutdown();
         try { _turnEndWatcher?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] watcher dispose error: {ex.Message}"); }
         // Issue #915: cancel any recovery wait in flight, so a Gateway shutdown does not leave a background
         // ladder holding a token and re-sending into a fleet this process no longer owns.
@@ -6312,6 +6331,19 @@ public sealed class GatewayHost : IAsyncDisposable
             await _app.DisposeAsync();
             _app = null;
         }
+
+        // Nothing can push any more: write anything that arrived after the early save, so a clean shutdown loses nothing.
+        SaveRepoHistoryAtShutdown();
+    }
+
+    private void SaveRepoHistoryAtShutdown()
+    {
+        try
+        {
+            if (!RepoHistory.SaveIfChanged())
+                FileLog.Write("[GatewayHost] repository history: the save at shutdown FAILED; the latest values of today's rows are lost until each Director pushes again");
+        }
+        catch (Exception ex) { FileLog.Write($"[GatewayHost] repository history save at shutdown error: {ex.Message}"); }
     }
 
     public async ValueTask DisposeAsync() => await StopAsync();
