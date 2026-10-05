@@ -216,6 +216,28 @@ public sealed partial class TeamRegistry
             return TeamMembersResult.NotFound;
         }
 
+        var members = ReadMembers(ctx, teamId);
+        FileLog.Write($"[TeamRegistry] ListMembers: team {LogTeam(teamId)} has {members.Count} member(s)");
+        return TeamMembersResult.Found(new TeamSummary(team.Id, team.Name, callerRow.Role, members.Count), members);
+    }
+
+    /// <summary>
+    /// A team's members and their roles, for the Gateway's own background work - the Mentor's weekly run
+    /// (devthrottle_internal#2305) - which acts for no caller. Empty for a team that does not exist. Never serve this to
+    /// a person: a person's read is <see cref="ListMembers"/>, which checks they are a member.
+    /// </summary>
+    public IReadOnlyList<TeamMember> MembersOf(string teamId)
+    {
+        if (string.IsNullOrWhiteSpace(teamId))
+            throw new ArgumentException("A team id is required.", nameof(teamId));
+        using var ctx = _db.CreateUnscopedContext();
+        var members = ReadMembers(ctx, teamId);
+        FileLog.Write($"[TeamRegistry] MembersOf: team {LogTeam(teamId)} has {members.Count} member(s)");
+        return members;
+    }
+
+    private static List<TeamMember> ReadMembers(GatewayDbContext ctx, string teamId)
+    {
         var rows = ctx.TeamMembers.AsNoTracking().Where(m => m.TeamId == teamId).ToList();
         var subjects = rows.Select(r => r.AccountSubject).ToList();
         var emails = ctx.Tenants.AsNoTracking()
@@ -224,7 +246,7 @@ public sealed partial class TeamRegistry
             .ToList()
             .ToDictionary(t => t.AccountSubject, t => t.Email, StringComparer.Ordinal);
 
-        var members = rows
+        return rows
             .Select(r => new TeamMember(
                 r.AccountSubject,
                 emails.TryGetValue(r.AccountSubject, out var email) && !string.IsNullOrWhiteSpace(email) ? email : null,
@@ -234,9 +256,6 @@ public sealed partial class TeamRegistry
             .ThenBy(m => m.Email ?? "", StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.JoinedAtUtc)
             .ToList();
-
-        FileLog.Write($"[TeamRegistry] ListMembers: team {LogTeam(teamId)} has {members.Count} member(s)");
-        return TeamMembersResult.Found(new TeamSummary(team.Id, team.Name, callerRow.Role, members.Count), members);
     }
 
     /// <summary>

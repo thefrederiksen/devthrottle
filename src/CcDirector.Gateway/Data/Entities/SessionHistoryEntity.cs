@@ -136,6 +136,16 @@ public sealed class SessionHistoryEntity : TenantScopedEntity
     /// </summary>
     public string? Factory { get; set; }
 
+    /// <summary>
+    /// In a TEAM's tenant, the account subject of the person whose Director ran this session
+    /// (devthrottle_internal#2305), stamped by the Gateway from the Director's key through the team caller resolver
+    /// (devthrottle_internal#2311) - never taken from the pushed session. Null in a personal tenant, where the tenant
+    /// already names the one person, and null when the resolver could not name anyone. Write-once. The Mentor's weekly
+    /// run reads "did this person run sessions this week" from this column, because by then the Director may be gone.
+    /// Personally identifying: never logged.
+    /// </summary>
+    public string? PersonSubject { get; set; }
+
     /// <summary>Director-measured session creation time (SessionDto.CreatedAt) - a real measurement.</summary>
     public DateTime StartedAtUtc { get; set; }
 

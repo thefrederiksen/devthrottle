@@ -96,6 +96,9 @@
          C# string literals, so they stay diffable against the skill files they came from and cannot
          drift through escaping. -->
     <EmbeddedResource Include="Skills\Content\*.skill.md" />
+    <!-- The one instruction the Mentor's weekly writer gives the model (devthrottle_internal#2305). A file, reviewed
+         like code, never a string literal. -->
+    <EmbeddedResource Include="Teams\Mentor\Content\mentor-weekly.instructions.md" LogicalName="CcDirector.Gateway.Teams.Mentor.mentor-weekly.instructions.md" />
   </ItemGroup>
 
   <!-- ============================================================================
