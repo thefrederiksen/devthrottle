@@ -108,6 +108,56 @@ public sealed class TeamMemberAccessRevokerTests : IDisposable
     }
 
     [Fact]
+    public void RemoveTeamMember_TheTeamPagesRemove_RevokesTheirKeysAndCutsTheirTunnelsOnThatTeamOnly()
+    {
+        // The Team page's own remove path (devthrottle_internal#2303), as its endpoint calls it: the Owner removes
+        // Alice by member id. It commits through CommitMembershipChange, so the revoke follows it.
+        var team = new TenantId(_team);
+        var other = new TenantId(_otherTeam);
+        var aliceHere = Key(team, Alice, "a-here");
+        var aliceThere = Key(other, Alice, "a-there");
+        var bobHere = Key(team, Bob, "b-here");
+        Tunnel(team, Alice, "conn-alice-here");
+        Tunnel(other, Alice, "conn-alice-there");
+        Tunnel(team, Bob, "conn-bob-here");
+
+        var result = _teams.RemoveTeamMember(_team, Owner, TeamMemberIds.For(_team, Alice));
+
+        Assert.Equal(TeamMemberChangeOutcome.Done, result.Outcome);
+        Assert.Null(_teams.RoleOf(_team, Alice));
+        Assert.Equal(new[] { "conn-alice-here" }, _cut.ToArray());
+        Assert.Equal(DeviceCredentialResolutionKind.Revoked, Resolve(aliceHere));
+        Assert.Equal(DeviceCredentialResolutionKind.Active, Resolve(aliceThere));
+        Assert.Equal(DeviceCredentialResolutionKind.Active, Resolve(bobHere));
+        Assert.Equal(TeamMemberAccessRevoker.RemovedReason, RevokedReason(_team + "|a-here"));
+    }
+
+    [Fact]
+    public void ChangeMemberRole_TheTeamPagesChangeRole_ToCollaborator_RevokesTheirKeysAndCutsTheirTunnelsOnThatTeamOnly()
+    {
+        // The Team page's own change-role path (devthrottle_internal#2303), as its endpoint calls it: the Owner makes
+        // Alice a Collaborator by member id. It commits through CommitMembershipChange, so the revoke follows it.
+        var team = new TenantId(_team);
+        var other = new TenantId(_otherTeam);
+        var aliceHere = Key(team, Alice, "a-here");
+        var aliceThere = Key(other, Alice, "a-there");
+        var bobHere = Key(team, Bob, "b-here");
+        Tunnel(team, Alice, "conn-alice-here");
+        Tunnel(other, Alice, "conn-alice-there");
+        Tunnel(team, Bob, "conn-bob-here");
+
+        var result = _teams.ChangeMemberRole(_team, Owner, TeamMemberIds.For(_team, Alice), TeamRole.Collaborator);
+
+        Assert.Equal(TeamMemberChangeOutcome.Done, result.Outcome);
+        Assert.Equal(TeamRole.Collaborator, _teams.RoleOf(_team, Alice));
+        Assert.Equal(new[] { "conn-alice-here" }, _cut.ToArray());
+        Assert.Equal(DeviceCredentialResolutionKind.Revoked, Resolve(aliceHere));
+        Assert.Equal(DeviceCredentialResolutionKind.Active, Resolve(aliceThere));
+        Assert.Equal(DeviceCredentialResolutionKind.Active, Resolve(bobHere));
+        Assert.Equal(TeamMemberAccessRevoker.RoleCannotRunSessionsReason, RevokedReason(_team + "|a-here"));
+    }
+
+    [Fact]
     public void ARoleChangeThatStillRunsSessions_AndAddingAMember_CutNothing()
     {
         var team = new TenantId(_team);
