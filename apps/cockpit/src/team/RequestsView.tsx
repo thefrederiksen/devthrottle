@@ -45,6 +45,12 @@ interface RequestCardProps {
 export function RequestCard({ request, showSender, busy, onAccept, onDecline, onDone }: RequestCardProps) {
   const [declining, setDeclining] = useState(false);
   const [reason, setReason] = useState("");
+  // Every decision adds a step to the trail. When the Gateway answers with a longer trail, the reason box it was
+  // written in is finished with and closes, whatever the request now allows.
+  useEffect(() => {
+    setDeclining(false);
+    setReason("");
+  }, [request.trail.length]);
   // The Gateway sends a reason on the "Not doing this" step only; when there is one, it is shown with who gave it.
   const declined = request.trail.find((s) => s.reason !== null);
   const anyAction = request.canAccept || request.canDecline || request.canMarkDone;

@@ -383,6 +383,62 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
         Assert.DoesNotContain(lines, l => l.Contains(marker, StringComparison.Ordinal) || l.Contains(reasonMarker, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Test 3 again, with keys bound to the TEAM's tenant (devthrottle_internal#2311, merged as #3530): the Owner's and
+    /// the Manager's Directors set up for the team, and a session key under each, in the team's tenant. Every request
+    /// route refuses every one of them, the refusal carries no request text, and nothing changes in the store.
+    ///
+    /// WHAT REFUSES THEM TODAY. A team key authenticates, and then the request-path access lease refuses it with 402,
+    /// because it reads a personal account's bill and a team's tenant is no one person's (#3530's own tests say the
+    /// same). So the request routes' own person-only check is not what answers here: the lease is in front of it. When
+    /// the lease learns the team's bill, this test goes red on the status, and the answer it must then show is the
+    /// routes' own 403 person_only - which the personal-account test above already proves for Director and session keys.
+    /// A team Director also cannot open the tunnel over the wire for the same reason, so the "live session receives
+    /// nothing" half of test 3 cannot run on a team Director yet; it runs above on the personal ones.
+    /// </summary>
+    [Fact]
+    public async Task ARequestsRoutes_RefuseTeamBoundDirectorAndSessionKeys_AndNothingChanges()
+    {
+        var marker = "TEAM-KEY-MARKER-" + Guid.NewGuid().ToString("N");
+        var id = await SendRequest(_collaborator, $"Please change the report header {marker}");
+
+        var keys = new List<(string What, string Key)>();
+        foreach (var person in new[] { _owner, _manager })
+        {
+            var directorId = $"director-team-{person.Email.Split('@')[0]}-{_run}";
+            var teamDeviceId = HostedEnrollmentEndpoint.TeamScopedDeviceId(_team, person.Subject, directorId);
+            var directorKey = _gateway.Devices.RegisterForTenant(new TenantId(_team), person.Subject, teamDeviceId, "MTEAM").DeviceKey;
+            var sessionKey = GatewaySessionKey.Mint();
+            Assert.True(_gateway.SessionKeys.Register(new TenantId(_team), teamDeviceId, Guid.NewGuid().ToString("D"),
+                GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
+            keys.Add(($"{person.Email} team Director key", directorKey));
+            keys.Add(($"{person.Email} team session key", sessionKey));
+        }
+
+        foreach (var (what, key) in keys)
+        {
+            foreach (var (method, path, body) in new (HttpMethod, string, object?)[]
+                     {
+                         (HttpMethod.Get, $"teams/{_team}/requests", null),
+                         (HttpMethod.Get, $"teams/{_team}/requests/mine", null),
+                         (HttpMethod.Post, $"teams/{_team}/requests", new { text = "from an agent" }),
+                         (HttpMethod.Post, $"teams/{_team}/requests/{id}/accept", null),
+                         (HttpMethod.Post, $"teams/{_team}/requests/{id}/decline", new { reason = "agent" }),
+                         (HttpMethod.Post, $"teams/{_team}/requests/{id}/done", null),
+                     })
+            {
+                var (status, refusal) = await Call(method, path, key, body);
+                _output.WriteLine($"{what}: {method} /{path} -> {(int)status} {refusal}");
+                Assert.Equal(HttpStatusCode.PaymentRequired, status);
+                Assert.DoesNotContain(marker, refusal.ToString(), StringComparison.Ordinal);
+            }
+        }
+
+        Assert.Equal((TeamRequestStates.Sent, 1), Stored(id));
+        using var ctx = _gateway.GatewayDatabaseForTests.CreateContext(new TenantId(_team));
+        Assert.Equal(1, ctx.TeamRequests.Count());
+    }
+
     /// <summary>Every table in the Gateway's database with a text value holding <paramref name="needle"/>.</summary>
     private List<string> TablesHolding(string needle)
     {

@@ -183,6 +183,9 @@ describe("the Owner and Managers' Requests list", () => {
 
     await waitFor(() => expect(client.declineRequest).toHaveBeenCalledWith(TEAM, "r1", "Not this quarter."));
     expect(await screen.findByText("Not doing this - priya@acme.example")).toBeTruthy();
+    // The decision is made: the reason box closes with it.
+    expect(screen.queryByRole("button", { name: "Mark Not doing this" })).toBeNull();
+    expect(screen.queryByLabelText(/Why is this not being done/)).toBeNull();
   });
 
   it("marks a request Done", async () => {
