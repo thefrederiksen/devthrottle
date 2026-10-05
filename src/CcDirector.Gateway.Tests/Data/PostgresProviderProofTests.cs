@@ -242,6 +242,12 @@ public sealed class PostgresProviderProofTests
             // missed here with the ones above.
             ("fleet_manager_owned_sessions", "FleetManagerSessionId"),
             ("fleet_manager_owned_sessions", "SessionId"),
+            // A session's request to the owner for a message link (issue #3548, #3560): the minted request id, the
+            // two session ids, and the status word it is selected on - added with that table and missed here.
+            ("fleet_message_link_requests", "RequestId"),
+            ("fleet_message_link_requests", "RequesterSessionId"),
+            ("fleet_message_link_requests", "Status"),
+            ("fleet_message_link_requests", "TargetSessionId"),
             // The message links between sessions (issue #3548): the minted link id, the two session ids a link
             // is found by, and the amount and status words it is selected on - added with that table and missed here.
             ("fleet_message_links", "Amount"),

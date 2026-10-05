@@ -1,6 +1,6 @@
 # Proof: a dev report sent to a member of the team, and comments that go to its author (devthrottle_internal#2309)
 
-Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-reports`. The branch is one commit on `origin/main` at 4da603b10, which includes the team requests (#3556, devthrottle_internal#2308). That rebase moved this change's migration to after main's new `AddTeamRequests`, and the migration was regenerated on that model. The review's answers (`review-2309.md`, F1 to F13) are built in.
+Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-reports`. The branch is one change commit and one proof commit on `origin/main` at 3c8808ec6. That includes the team requests (#3556, devthrottle_internal#2308) and a session's request for a message link (#3560). Each of those added a migration, so this change's migration was regenerated after them, on that model. The review's answers (`review-2309.md`, F1 to F13) are built in.
 
 ## What was built
 
@@ -44,14 +44,14 @@ Run on 2026-10-05 in the worktree `devthrottle-teams-2309`, branch `teams/2309-r
 
 ## The migration
 
-`AddDevReportSharing`: SQLite `20261005162524`, PostgreSQL `20261005162638`. It sorts after `AddTeamRequests`.
+`AddDevReportSharing`: SQLite `20261005170254`, PostgreSQL `20261005170330`. It sorts after `AddFleetMessageLinkRequests`.
 
 - **Up** adds:
   - the nullable `dev_reports.AuthorSubject` and its index on (tenant, AuthorSubject)
   - the `dev_report_recipients` table, including `SentVersion`, with three indexes (one row per report and recipient)
   - the `dev_report_comments` table, with two indexes
 - **Down** removes all of it.
-- To reverse it, migrate to `AddTeamRequests`. Old reports survive: the PostgreSQL test proves it on a real database.
+- To reverse it, migrate to `AddFleetMessageLinkRequests`. Old reports survive: the PostgreSQL test proves it on a real database.
 - It was applied to local and test databases only.
 
 ## The privacy check
@@ -80,6 +80,14 @@ So a session key, or a key bound to the team's tenant, cannot reach these routes
 
 ## The checks (counts)
 
+**On the head after the second rebase (onto 3c8808ec6).** That rebase changed only the migration, its pins and the collation list, and these were rerun on it:
+
+- the Gateway unit tests (Teams, DevReport, Migration, BootSmoke): 1,397 passed, 0 failed, 7 skipped
+- `-Gateway -Filter "FullyQualifiedName~Postgres|FullyQualifiedName~Migration"`: 54 passed, 4 skipped, outcome Completed
+- `-Gateway -Filter "FullyQualifiedName~DevReport|FullyQualifiedName~Teams.HostedTeamReports"`: 48 of 48 passed
+
+The other hosted Teams tests (123) were queued twice behind a release gate in another worktree, which holds the machine-wide Gateway test lock, and recorded no result before the ten-minute foreground limit. Their last result, on the code before this rebase, is in the table below. In the table, the default gate, the other hosted Teams tests, the web tests and the type checks are from that earlier head; the three rows above were retaken here, with the same counts.
+
 | Check | Result | File |
 |---|---|---|
 | `.\scripts\test-local.ps1` (the default gate) | 10 of 10 suites outcome Completed, 3,601 tests, 0 failed | `checks/default-gate.txt` |
@@ -91,7 +99,7 @@ So a session key, or a key bound to the team's tenant, cannot reach these routes
 | client-core web tests (`packages/client-core`, `npx vitest run`) | 149 files, 1,778 tests passed. A first run had one failure, in `src/sessions/VerdictPanel.test.tsx`, which this change does not touch. It passed three times on its own and in the full rerun recorded here. | `checks/client-core-vitest.txt` |
 | `tsc --noEmit` for cockpit, client-core and mobile | clean | `checks/tsc.txt` |
 
-**Found by the PostgreSQL run and fixed here.** `Collation_ExplicitC_OnExactlyTheDeclaredNaturalKeys_OnRealPostgres` lists every column pinned to the "C" collation. It needed this change's five person columns, and it was ALREADY red on main: #3549 pinned five `fleet_message_links` columns and did not list them. Both sets are added. The `-Parked` run is the Tech Lead's to start, as the brief says.
+**Found by the PostgreSQL run and fixed here.** `Collation_ExplicitC_OnExactlyTheDeclaredNaturalKeys_OnRealPostgres` lists every column pinned to the "C" collation. It needed this change's five person columns, and main had left it red twice: #3549 pinned five `fleet_message_links` columns, and #3560 pinned four `fleet_message_link_requests` columns, and neither listed them. All three sets are added. The `-Parked` run is the Tech Lead's to start, as the brief says.
 
 **Also repaired here (review F8).** The boot smoke test's pins now include main's Mentor migration.
 
