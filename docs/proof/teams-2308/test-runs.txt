@@ -68,3 +68,25 @@ MSBUILDDISABLENODEREUSE=1 for every run.
    TurnVerdictAnswerChoiceMigrationTests and FleetManagerEventOutcomeAnswerMigrationTests counted one migration too few.)
 5. apps/cockpit: vitest 76 files, 734 tests passed; tsc --noEmit clean.
    packages/client-core: vitest 147 files, 1752 tests passed; tsc --noEmit clean.
+
+=== After merging origin/main again at d5cae288a (message links #3549, voice sweep test #3554) - 5 October 2026 ===
+AddTeamRequests regenerated on top of AddFleetMessageLinks: SQLite 20261005124413, PostgreSQL 20261005124444. Up and
+Down byte-for-byte the previous ones; pins and counts moved (the chain count is 72).
+
+1. .\scripts\test-local.ps1 (default): 9 of 10 suites Completed with executed = total. CcDirector.Avalonia.Tests
+   outcome=Failed total=892 executed=892, failed 1: GitChangesViewHiddenTabTests.WhileTheHostPanelIsHidden_NeitherTickRuns_AndNothingIsFetched.
+   Known flaky on main (devthrottle#3409). This branch changes no desktop code; run alone three times it passed,
+   passed, failed. The default run before this merge passed it (892 of 892).
+2. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams"
+   CcDirector.Gateway.Tests outcome=Completed total=119 executed=119, failed 0.
+3. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Postgres|FullyQualifiedName~Migration"
+   CcDirector.Gateway.Tests outcome=Failed total=57 executed=53, failed 1, passed 52:
+   PostgresProviderProofTests.Collation_ExplicitC_OnExactlyTheDeclaredNaturalKeys_OnRealPostgres - the live catalog
+   has fleet_message_links columns with collation C that the test's hand list does not name. Those come from main's
+   #3549 (merged 2026-10-05 12:40), which declared five UseCollation("C") columns on fleet_message_links; this branch
+   declares none (git diff origin/main...HEAD of GatewayDbContext has no UseCollation line). The same filter passed
+   53 of 53 executed before this merge. AddTeamRequestsPostgresTests passed.
+4. dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams|FullyQualifiedName~Migration|FullyQualifiedName~GatewayHostBootSmoke"
+   Passed 1139, Skipped 6, Failed 0, Total 1145.
+5. Web: apps/cockpit vitest 734 of 734, tsc clean; packages/client-core vitest 1752 of 1752, tsc clean (run on the
+   first merge; the second merge changed no file under apps/ or packages/).
