@@ -61,4 +61,11 @@ public sealed class DevReportCommentEntity : GatewayMintedKeyEntity
 
     /// <summary>When it was written (UTC).</summary>
     public DateTime AtUtc { get; set; }
+
+    /// <summary>
+    /// The question the comment was written beside, when it came with an answer on the Questions page
+    /// (devthrottle_internal#2307) - so the author reads which question it is about. Null for a comment on the whole
+    /// report.
+    /// </summary>
+    public string? QuestionId { get; set; }
 }

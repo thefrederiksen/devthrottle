@@ -1,15 +1,171 @@
-import { EmptyState, PageHeader } from "../../components";
+import { useCallback, useState } from "react";
+import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
+import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
+import { answerQuestion, getMyQuestions, type TeamQuestion, type TeamQuestions } from "@devthrottle/client-core/teams/teamQuestionsClient";
+import { Button, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../../components";
+import { shortDate, TEAM_REPORTS_POLL_MS } from "./teamReportFormat";
+import "../../team/team.css";
 import "./collaborator.css";
 
-// QUESTIONS (screen S8, devthrottle_internal#2306): where a Collaborator lands. This is the SLOT - the shell, its
-// route and its navigation item are #2306's; what fills the page (the questions waiting on this person, and their
-// answers) is devthrottle_internal#2307, written here and nowhere else. The navigation and the route guard never need
-// to change for it.
+// QUESTIONS (screen S8): the slot devthrottle_internal#2306 made, filled by devthrottle_internal#2307 - the questions
+// waiting on this person, in the team on screen. Each is in a dev report its author sent them; they answer by picking
+// one option, and may add words of their own.
+//
+// THE CHOICE GOES TO THE SESSION THAT ASKED; THE WORDS GO TO A PERSON. Both are the Gateway's doing: this page sends the
+// option and the comment to one route, and the Gateway delivers the option to the session and the comment to the
+// person who asked, never to an agent. Every sentence here - who asked, "recommended", where the words go, what became
+// of an answer - is the Gateway's, rendered verbatim (rule 7). The navigation and the route guard are #2306's.
 export function QuestionsPage() {
+  const { current } = useCurrentTeam();
+  if (current === null) {
+    throw new Error("The Questions page was drawn with no team on screen. TeamPageRoute must guard it.");
+  }
+  return <QuestionsView key={current.id} teamId={current.id} />;
+}
+
+function QuestionsView({ teamId }: { teamId: string }) {
+  const [questions, setQuestions] = useState<TeamQuestions | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(
+    async (signal: AbortSignal) => {
+      try {
+        setQuestions(await getMyQuestions(teamId, signal));
+        setError(null);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        setError(gatewayErrorMessage(err, "load your questions"));
+      }
+    },
+    [teamId],
+  );
+  useVisiblePolling(refresh, TEAM_REPORTS_POLL_MS);
+
+  const reload = useCallback(() => {
+    void refresh(new AbortController().signal);
+  }, [refresh]);
+
   return (
-    <section className="pane team-page" data-testid="team-page-questions">
-      <PageHeader title="Questions" subtitle="Questions your team is waiting on you to answer." />
-      <EmptyState message="No questions waiting on you." />
+    <section className="pane team-page team-questions" data-testid="team-page-questions">
+      <PageHeader title="Questions" subtitle={questions?.subtitle ?? "Questions your team is waiting on you to answer."} />
+      {error && <ErrorBanner message={error} />}
+      {questions === null && !error && <LoadingState message="Loading questions..." />}
+      {questions !== null && questions.waiting.length === 0 && <EmptyState message={questions.emptyText} />}
+      {questions !== null && questions.waiting.length > 0 && (
+        <ul className="team-question-list" data-testid="team-questions-waiting">
+          {questions.waiting.map((q) => (
+            <li key={`${q.reportId}/${q.questionId}`}>
+              <QuestionCard teamId={teamId} question={q} onAnswered={reload} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {questions !== null && questions.answered.length > 0 && (
+        <div className="team-questions-answered" data-testid="team-questions-answered">
+          <h2 className="team-reports-heading">{questions.answeredHeading}</h2>
+          <ul className="team-question-list">
+            {questions.answered.map((q) => (
+              <li key={`${q.reportId}/${q.questionId}`}>
+                <QuestionCard teamId={teamId} question={q} onAnswered={reload} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
+  );
+}
+
+function QuestionCard({ teamId, question, onAnswered }: { teamId: string; question: TeamQuestion; onAnswered: () => void }) {
+  const recommended = question.options.find((o) => o.recommended)?.value ?? "";
+  const [chosen, setChosen] = useState(recommended);
+  const [comment, setComment] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [shown, setShown] = useState<TeamQuestion>(question);
+  const q = shown.answer === null ? question : shown;
+  const name = `q-${q.reportId}-${q.questionId}`;
+
+  const send = useCallback(async () => {
+    setSending(true);
+    setSendError(null);
+    try {
+      setShown(await answerQuestion(teamId, q, chosen, comment));
+      setComment("");
+      onAnswered();
+    } catch (err) {
+      setSendError(gatewayErrorMessage(err, "send your answer"));
+      onAnswered();
+    } finally {
+      setSending(false);
+    }
+  }, [teamId, q, chosen, comment, onAnswered]);
+
+  return (
+    <article className={q.answer === null ? "team-card team-question team-question-waiting" : "team-card team-question"} data-testid="team-question" data-question-id={q.questionId}>
+      <div className="team-question-meta">
+        <span className="team-question-tag">{q.reportTitle}</span> asked <time dateTime={q.askedAtUtc}>{shortDate(q.askedAtUtc)}</time> by {q.askedBy}
+      </div>
+      <p className="team-question-title">{q.question}</p>
+
+      {q.answer === null && (
+        <>
+          <div className="team-question-options" role="radiogroup" aria-label={q.question}>
+            {q.options.map((o) => (
+              <label key={o.value} className={chosen === o.value ? "team-option team-option-on" : "team-option"}>
+                <input
+                  type="radio"
+                  name={name}
+                  value={o.value}
+                  checked={chosen === o.value}
+                  disabled={!q.canAnswer || sending}
+                  onChange={() => setChosen(o.value)}
+                  data-testid="team-question-option"
+                />
+                <span className="team-option-title">{o.label}</span>
+                {o.recommended && <span className="team-question-recommended">{q.recommendedLabel}</span>}
+              </label>
+            ))}
+          </div>
+          {q.canComment && (
+            <textarea
+              className="team-input team-textarea"
+              aria-label={q.commentPlaceholder}
+              placeholder={q.commentPlaceholder}
+              rows={3}
+              value={comment}
+              disabled={sending}
+              onChange={(e) => setComment(e.target.value)}
+              data-testid="team-question-comment"
+            />
+          )}
+          {sendError && (
+            <div className="dev-report-error" role="alert" data-testid="team-question-error">
+              {sendError}
+            </div>
+          )}
+          <div className="team-row">
+            <Button variant="primary" disabled={!q.canAnswer || sending || chosen === ""} onClick={() => void send()} data-testid="team-question-send">
+              {sending ? "Sending..." : q.sendLabel}
+            </Button>
+            <span className="team-hint" data-testid="team-question-note">{q.commentNote}</span>
+          </div>
+        </>
+      )}
+
+      {q.answer !== null && (
+        <div className="team-question-answer" data-testid="team-question-answer">
+          <p className="team-question-chosen">{q.answer.chosenLabel}</p>
+          <p className="team-hint" data-testid="team-question-status">{q.answer.statusLabel}</p>
+          {q.answer.yourComment !== null && (
+            <div className="team-question-your-words" data-testid="team-question-your-comment">
+              <span className="team-question-your-words-label">{q.answer.yourCommentLabel}</span>
+              <p>{q.answer.yourComment}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </article>
   );
 }

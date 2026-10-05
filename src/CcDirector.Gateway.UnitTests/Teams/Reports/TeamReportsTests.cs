@@ -613,6 +613,37 @@ public sealed class TeamReportsTests : IDisposable
         Assert.Equal((false, 404), await Run(Request("GET", TeamReportEndpoints.MineReportPattern, stranger, ("teamId", _team), ("reportId", alices.Id))));
     }
 
+    [Fact]
+    public async Task Gate_TheQuestionsRoutes_AreOpenToEveryRoleFromTheirOwnAccount_AndAStrangerIsToldThereIsNoSuchTeam()
+    {
+        // devthrottle_internal#2307: answering questions is the row every role has. Which questions a person may answer is
+        // narrowed by the endpoint - only those in a report sent to them (TeamQuestionsTests).
+        var alices = Publish(Alice);
+        const string answer = TeamQuestionEndpoints.GroupPath + "/{reportId}/{questionId}/answer";
+        foreach (var who in new[] { Owner, Alice, Mike })
+        {
+            var key = OwnAccountKey(who);
+            Assert.Equal((true, 200), await Run(Request("GET", TeamQuestionEndpoints.GroupPath, key, ("teamId", _team))));
+            Assert.Equal((true, 200), await Run(Request("POST", answer, key, ("teamId", _team), ("reportId", alices.Id), ("questionId", "q"))));
+        }
+        var stranger = OwnAccountKey(Stranger);
+        Assert.Equal((false, 404), await Run(Request("GET", TeamQuestionEndpoints.GroupPath, stranger, ("teamId", _team))));
+        Assert.Equal((false, 404), await Run(Request("POST", answer, stranger, ("teamId", _team), ("reportId", alices.Id), ("questionId", "q"))));
+    }
+
+    [Theory]
+    [InlineData("GET", TeamQuestionEndpoints.GroupPath)]
+    [InlineData("POST", TeamQuestionEndpoints.GroupPath + "/{reportId}/{questionId}/answer")]
+    public void Rules_EachQuestionsRoute_StatesAnsweringQuestions_ForTheWholeTeam_FromTheRoute(string method, string pattern)
+    {
+        var rule = TeamEndpointRules.Find(method, pattern);
+
+        Assert.NotNull(rule);
+        Assert.Equal(TeamAction.AnswerQuestionsSendRequestsReadReports, rule!.Action);
+        Assert.Equal(TeamTarget.Team, rule.Target);
+        Assert.Equal(TeamFrom.RouteTeamId, rule.TeamFrom);
+    }
+
     [Theory]
     [InlineData("GET", TeamReportEndpoints.SentToMePattern, TeamAction.AnswerQuestionsSendRequestsReadReports, TeamTarget.Team)]
     [InlineData("GET", TeamReportEndpoints.SentToMePattern + "/{reportId}/html", TeamAction.AnswerQuestionsSendRequestsReadReports, TeamTarget.Team)]

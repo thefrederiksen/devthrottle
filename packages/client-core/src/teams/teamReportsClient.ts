@@ -31,6 +31,8 @@ export interface ReceivedReport {
   read: boolean;
   /** "New" or "Read", in the Gateway's words. */
   readLabel: string;
+  /** How many of its questions wait on this person and where to answer them, or null when none do (#2307). */
+  questionsLabel: string | null;
 }
 
 export interface ReceivedReports {
@@ -46,6 +48,8 @@ export interface ReportComment {
   id: string;
   text: string;
   atUtc: string;
+  /** For a comment written with an answer on the Questions page: which question, and what was chosen (#2307). */
+  aboutLabel: string | null;
 }
 
 export interface ReceivedReportDetail {
@@ -107,6 +111,8 @@ export interface CommentFromPerson {
   from: string;
   text: string;
   atUtc: string;
+  /** For a comment written with an answer on the Questions page: which question, and what was chosen (#2307). */
+  aboutLabel: string | null;
 }
 
 export interface OwnReportDetail {

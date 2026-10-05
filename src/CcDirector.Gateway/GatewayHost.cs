@@ -4915,8 +4915,13 @@ public sealed class GatewayHost : IAsyncDisposable
                 _tenantSettingsResolver.TimeZone, mentorRunning: TeamMentorWriter is not null);
             // A dev report sent to a member of the team, and that member's Reports page (devthrottle_internal#2309).
             // Dark with the rest of Teams.
+            // The questions in those reports, waiting on the members they were sent to (devthrottle_internal#2307): the
+            // choice goes to the session through the one answer delivery, the words to the author person. Dark with the rest.
+            var teamQuestions = new TeamQuestions(_devReports, _devReportRecipients, _devReportComments, TeamRegistry, TeamAccess,
+                _devReportDelivery);
             TeamReportEndpoints.Map(_app, _devReports, _devReportRecipients, _devReportComments, TeamRegistry, TeamAccess,
-                _tenantBoundary, TenantRegistry);
+                _tenantBoundary, TenantRegistry, teamQuestions);
+            TeamQuestionEndpoints.Map(_app, teamQuestions, _tenantBoundary, TenantRegistry);
         }
         // The team seat convergence (devthrottle_internal#2301): retries any seat sync that failed. Hosted with Teams
         // released only - TeamSeatConvergence is null everywhere else.

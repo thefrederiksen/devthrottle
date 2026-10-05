@@ -87,15 +87,15 @@ const RECEIVED: ReceivedReports = {
   showYourReports: false,
   reports: [
     { id: "r-new", title: "Signup page rewrite", status: "waiting-on-you", version: 1, from: "soren@odd.example",
-      sentAtUtc: "2026-10-02T09:00:00", read: false, readLabel: "Fresh~odd" },
+      sentAtUtc: "2026-10-02T09:00:00", read: false, readLabel: "Fresh~odd", questionsLabel: "Odd 1 question waits~q" },
     { id: "r-old", title: "September conversion numbers", status: "done", version: 2, from: "priya@odd.example",
-      sentAtUtc: "2026-09-30T09:00:00", read: true, readLabel: "Seen~odd" },
+      sentAtUtc: "2026-09-30T09:00:00", read: true, readLabel: "Seen~odd", questionsLabel: null },
   ],
 };
 
 const RECEIVED_DETAIL: ReceivedReportDetail = {
   report: RECEIVED.reports[0],
-  comments: [{ id: "c1", text: "Earlier words of mine", atUtc: "2026-10-02T10:00:00" }],
+  comments: [{ id: "c1", text: "Earlier words of mine", atUtc: "2026-10-02T10:00:00", aboutLabel: null }],
   canComment: true,
   commentsNote: "Odd note: your comments go to soren@odd.example and never to an agent.",
   notesOpen: false,
@@ -113,7 +113,8 @@ const OWN_DETAIL: OwnReportDetail = {
     { memberId: "m-mike", name: "mike@odd.example", role: "Collaborator", heldLabel: "Odd gets version 3" },
   ],
   sendNote: "Odd send note 3",
-  comments: [{ id: "c9", from: "mike@odd.example", text: "A comment from Mike, for you", atUtc: "2026-10-02T11:00:00" }],
+  comments: [{ id: "c9", from: "mike@odd.example", text: "A comment from Mike, for you", atUtc: "2026-10-02T11:00:00",
+    aboutLabel: "Odd about the trial~q" }],
   commentsEmptyText: "Odd no comments 5",
   notesOpen: false,
   answersOpen: false,
@@ -181,6 +182,14 @@ describe("the list", () => {
     expect(within(rows[1]).getByTestId("team-report-read").textContent).toBe("Seen~odd");
   });
 
+  it("List_SaysHowManyQuestionsWaitOnTheReader_InTheGatewaysWords_OnlyWhereTheGatewaySaysSo", async () => {
+    renderAt("/reports");
+
+    const rows = await screen.findAllByTestId("team-report-row");
+    expect(within(rows[0]).getByTestId("team-report-questions-label").textContent).toBe("Odd 1 question waits~q");
+    expect(within(rows[1]).queryByTestId("team-report-questions-label")).toBeNull();
+  });
+
   it("List_NothingSent_SaysTheGatewaysWords", async () => {
     client.received = { ...RECEIVED, count: 0, reports: [] };
     renderAt("/reports");
@@ -234,6 +243,22 @@ describe("a report sent to you", () => {
     vi.stubGlobal("fetch", fetchMock);
     await viewer.options.at(-1)!.api.getHtml("r-new", 3);
     expect(fetchMock.mock.calls[0][0]).toBe("/teams/team-dt/reports/sent-to-me/r-new/html?version=3");
+  });
+
+  it("Open_QuestionsWaitOnTheReader_TheGatewaysLineLinksToTheQuestionsPage", async () => {
+    renderAt("/reports?report=r-new");
+
+    const line = await screen.findByTestId("team-report-questions-waiting");
+    expect(line.textContent).toBe("Odd 1 question waits~q");
+    expect(within(line).getByRole("link").getAttribute("href")).toBe("/questions");
+  });
+
+  it("Open_NoQuestionsWait_DrawsNoQuestionsLine", async () => {
+    client.receivedDetail = { ...RECEIVED_DETAIL, report: RECEIVED.reports[1] };
+    renderAt("/reports?report=r-old");
+
+    await screen.findByTestId("team-report-comments-note");
+    expect(screen.queryByTestId("team-report-questions-waiting")).toBeNull();
   });
 
   it("Open_ANewReport_IsMarkedReadOnce_AndShowsWhereCommentsGo", async () => {
@@ -412,6 +437,8 @@ describe("one of your own reports", () => {
     const comment = await screen.findByTestId("team-report-comment-from-person");
     expect(comment.textContent).toContain("mike@odd.example");
     expect(comment.textContent).toContain("A comment from Mike, for you");
+    // A comment written with an answer on the Questions page says which question, in the Gateway's words.
+    expect(within(comment).getByTestId("team-report-comment-about").textContent).toBe("Odd about the trial~q");
     expect(screen.getByTestId("team-report-recipient").textContent).toContain("Opened~odd");
     expect(screen.getByTestId("team-report-send").textContent).toContain("Odd send note 3");
     expect(screen.getAllByTestId("team-report-choice").map((c) => (c as HTMLInputElement).value)).toEqual(["m-nina", "m-bob", "m-mike"]);

@@ -66,4 +66,13 @@ public sealed class DevReportItemEntity : GatewayMintedKeyEntity
 
     /// <summary>The client item id of the later answer that replaced this one, or null.</summary>
     public string? ReplacedBy { get; set; }
+
+    /// <summary>
+    /// In a TEAM's tenant, the account subject of the member who answered - a person the report was sent to, answering on
+    /// their Questions page (devthrottle_internal#2307). Null for the account owner's own notes and answers. A later answer
+    /// replaces only an earlier one by the SAME person, and the prompt says the answer came from a person the report was
+    /// sent to. Such an item never carries a comment: the person's own words go to the report's author person, never into
+    /// a session (<see cref="DevReports.DevReportPersonComments"/>). Personally identifying: never logged.
+    /// </summary>
+    public string? AnswererSubject { get; set; }
 }

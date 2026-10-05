@@ -891,6 +891,8 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.ReportId, e.ClientItemId }).IsUnique();
             // A turn end drains everything held for one session, across its reports.
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.Status });
+            // A team member's Questions page: the answers they gave (devthrottle_internal#2307).
+            b.HasIndex(e => new { e.TenantId, e.AnswererSubject });
         });
 
         modelBuilder.Entity<DevReportReplyEntity>(b =>
@@ -1835,6 +1837,8 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<DevReportRecipientEntity>().Property(e => e.SentBySubject).UseCollation("C");
             modelBuilder.Entity<DevReportCommentEntity>().Property(e => e.FromSubject).UseCollation("C");
             modelBuilder.Entity<DevReportCommentEntity>().Property(e => e.ToSubject).UseCollation("C");
+            // the member who answered a question on their Questions page (devthrottle_internal#2307), matched the same way.
+            modelBuilder.Entity<DevReportItemEntity>().Property(e => e.AnswererSubject).UseCollation("C");
             // fleet_messages: the minted message id is the key, and the recipient and sender session ids are
             // what the inbox read and the sender's limits select on - all compared byte-ordinally, as above.
             modelBuilder.Entity<FleetMessageEntity>().Property(e => e.MessageId).UseCollation("C");

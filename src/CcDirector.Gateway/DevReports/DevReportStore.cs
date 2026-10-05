@@ -271,12 +271,23 @@ internal sealed class DevReportStore
 
     /// <summary>
     /// Store NEW items (the caller has already excluded ids the report holds) in the given state, in send order,
-    /// and apply rule 2: a new answer REPLACES every answer to the same question in this report that is still
-    /// waiting to go - stored earlier or earlier in this same batch. Returns the stored rows in order.
+    /// and apply rule 2: a new answer REPLACES every answer to the same question in this report BY THE SAME PERSON that
+    /// is still waiting to go - stored earlier or earlier in this same batch. Returns the stored rows in order.
     /// </summary>
+    /// <param name="answererSubject">In a team's tenant, the member answering on their Questions page
+    /// (devthrottle_internal#2307); null for the account owner. Two people's answers to one question never replace each
+    /// other, and such an item may carry no comment - the person's own words never go into a session.</param>
+    /// <exception cref="ArgumentException">A member's item is not an answer, or carries a comment.</exception>
     public IReadOnlyList<DevReportItemEntity> AddItems(
-        TenantId tenant, DevReportEntity report, IReadOnlyList<DevReportItem> items, DevReportItemStates.State state, string senderKind, DateTime nowUtc)
+        TenantId tenant, DevReportEntity report, IReadOnlyList<DevReportItem> items, DevReportItemStates.State state, string senderKind, DateTime nowUtc,
+        string? answererSubject = null)
     {
+        if (answererSubject is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(answererSubject);
+            if (items.Any(i => i.Kind != DevReportItem.Answer || i.Comment.Length > 0 || i.Text.Length > 0))
+                throw new ArgumentException("A team member's item is an answer with no words of their own: no note, no text, no comment.", nameof(items));
+        }
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
@@ -290,7 +301,7 @@ internal sealed class DevReportStore
                 if (item.Kind == DevReportItem.Answer)
                 {
                     // An earlier answer in this batch is not in the database yet, so it is replaced in memory.
-                    foreach (var earlier in added.Where(i => IsEarlierAnswer(i, item.QuestionId) && DevReportItemStates.IsWaiting(i.Status)))
+                    foreach (var earlier in added.Where(i => IsEarlierAnswer(i, item.QuestionId, answererSubject) && DevReportItemStates.IsWaiting(i.Status)))
                     {
                         earlier.Status = DevReportItemStates.ReplacedState.Status;
                         earlier.StatusLabel = DevReportItemStates.ReplacedState.Label;
@@ -300,7 +311,7 @@ internal sealed class DevReportStore
 
                     // A stored one is replaced only WHERE IT IS STILL WAITING, in the database: another Gateway process
                     // may have claimed it for a send since it was read, and an item that is going must not be relabelled.
-                    foreach (var earlier in existing.Where(i => IsEarlierAnswer(i, item.QuestionId)))
+                    foreach (var earlier in existing.Where(i => IsEarlierAnswer(i, item.QuestionId, answererSubject)))
                     {
                         var replaced = ctx.DevReportItems
                             .Where(i => i.Id == earlier.Id
@@ -333,6 +344,7 @@ internal sealed class DevReportStore
                     Sequence = ++sequence,
                     SenderKind = senderKind,
                     SentAtUtc = nowUtc,
+                    AnswererSubject = answererSubject,
                 };
                 ctx.DevReportItems.Add(row);
                 added.Add(row);
@@ -446,8 +458,9 @@ internal sealed class DevReportStore
         return refused;
     }
 
-    private static bool IsEarlierAnswer(DevReportItemEntity row, string questionId)
-        => row.Kind == DevReportItem.Answer && string.Equals(row.QuestionId, questionId, StringComparison.Ordinal);
+    private static bool IsEarlierAnswer(DevReportItemEntity row, string questionId, string? answererSubject)
+        => row.Kind == DevReportItem.Answer && string.Equals(row.QuestionId, questionId, StringComparison.Ordinal)
+           && string.Equals(row.AnswererSubject, answererSubject, StringComparison.Ordinal);
 
     /// <summary>The sessions of the account that have any item not yet settled (queued, held or sending) - what the
     /// settle sweep visits.</summary>
@@ -464,12 +477,35 @@ internal sealed class DevReportStore
             .ToList();
     }
 
-    /// <summary>True when the report already delivered an answer to this question - so a newer answer is a change.</summary>
-    public bool HasDeliveredAnswer(TenantId tenant, Guid reportId, string questionId)
+    /// <summary>True when the report already delivered an answer to this question from the same person - the account
+    /// owner when <paramref name="answererSubject"/> is null, otherwise that team member - so a newer answer is a
+    /// change.</summary>
+    public bool HasDeliveredAnswer(TenantId tenant, Guid reportId, string questionId, string? answererSubject = null)
     {
         using var ctx = _db.CreateContext(tenant);
         return ctx.DevReportItems.AsNoTracking().Any(i =>
             i.ReportId == reportId && i.Kind == DevReportItem.Answer && i.QuestionId == questionId
+            && i.AnswererSubject == answererSubject
             && i.Status == DevReportItemStates.Delivered);
+    }
+
+    /// <summary>
+    /// The answers <paramref name="answererSubject"/> gave on the given reports (devthrottle_internal#2307), one per
+    /// (report, question): the latest that was not refused, since a refused answer never reached the session and the
+    /// question is still waiting on them.
+    /// </summary>
+    public IReadOnlyDictionary<(Guid ReportId, string QuestionId), DevReportItemEntity> AnswersBy(
+        TenantId tenant, string answererSubject, IReadOnlyCollection<Guid> reportIds)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(answererSubject);
+        ArgumentNullException.ThrowIfNull(reportIds);
+        if (reportIds.Count == 0) return new Dictionary<(Guid, string), DevReportItemEntity>();
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.DevReportItems.AsNoTracking()
+            .Where(i => i.AnswererSubject == answererSubject && i.Kind == DevReportItem.Answer
+                        && reportIds.Contains(i.ReportId) && i.Status != DevReportItemStates.Refused)
+            .ToList()
+            .GroupBy(i => (i.ReportId, i.QuestionId))
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(i => i.Sequence).First());
     }
 }

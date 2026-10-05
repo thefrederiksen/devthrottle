@@ -126,8 +126,13 @@ internal sealed class DevReportDelivery
     /// <param name="ct">Cancels only the wait for the session's lock. Once the lock is held the send runs to its end
     /// on the Gateway's lifetime, whatever becomes of the caller.</param>
     /// <param name="senderKind">The credential kind behind the send, recorded on the delivered prompt.</param>
+    /// <param name="answererSubject">In a team's tenant, the member answering a question on their Questions page
+    /// (devthrottle_internal#2307); null for the account owner. Their answer goes the same way as the owner's - held while
+    /// the session works, delivered when it is idle, at most once - but it carries the CHOICE only: the store refuses a
+    /// member's item with any words of their own in it, because those go to a person and never into a session.</param>
     public async Task<IReadOnlyList<DevReportItemUpdate>> SendAsync(
-        TenantId tenant, DevReportEntity report, IReadOnlyList<DevReportItem> items, string senderKind, CancellationToken ct)
+        TenantId tenant, DevReportEntity report, IReadOnlyList<DevReportItem> items, string senderKind, CancellationToken ct,
+        string? answererSubject = null)
     {
         ArgumentNullException.ThrowIfNull(report);
         ArgumentNullException.ThrowIfNull(items);
@@ -164,7 +169,7 @@ internal sealed class DevReportDelivery
             }
             else if (fresh.Count > 0)
             {
-                _store.AddItems(tenant, report, fresh, DevReportItemStates.HeldState, senderKind, _nowUtc());
+                _store.AddItems(tenant, report, fresh, DevReportItemStates.HeldState, senderKind, _nowUtc(), answererSubject);
             }
 
             // Rules 4 and 5: the settle pass delivers to an idle session now, as one prompt with anything else held
@@ -388,7 +393,8 @@ internal sealed class DevReportDelivery
                 ?? throw new InvalidOperationException($"held items name report {group.Key}, which the account does not hold");
             var foldItems = group
                 .Select(row => new DevReportPromptFold.FoldItem(ToItem(row),
-                    row.Kind == DevReportItem.Answer && _store.HasDeliveredAnswer(tenant, report.Id, row.QuestionId)))
+                    row.Kind == DevReportItem.Answer && _store.HasDeliveredAnswer(tenant, report.Id, row.QuestionId, row.AnswererSubject),
+                    row.AnswererSubject is not null))
                 .ToList();
             reports.Add(new DevReportPromptFold.FoldReport(report.Id, report.Key, report.Title, report.Version, foldItems));
         }

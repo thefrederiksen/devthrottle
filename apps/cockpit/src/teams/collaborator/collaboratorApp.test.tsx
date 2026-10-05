@@ -50,6 +50,13 @@ vi.mock("@devthrottle/client-core/teams/teamReportsClient", async (importOrigina
   getReportsSentToMe: vi.fn(async () => ({ count: 0, reports: [], emptyText: "No reports sent to you yet.", showYourReports: false })),
   getReportSentToMe: vi.fn(async () => null),
 }));
+// The Questions page reads what waits on this person from the Gateway (devthrottle_internal#2307); here, nothing does.
+vi.mock("@devthrottle/client-core/teams/teamQuestionsClient", () => ({
+  getMyQuestions: vi.fn(async () => ({
+    count: 0, subtitle: "No questions waiting on you.", emptyText: "No questions waiting on you.", waiting: [], answered: [], answeredHeading: "Answered",
+  })),
+  answerQuestion: vi.fn(),
+}));
 
 // The whole app's pages. A page mounted when it must not be shows up as its own text, which the tests look for.
 vi.mock("../../fleetmanager/FleetManagerView", () => ({ FleetManagerView: () => <div>fleet manager page</div> }));
@@ -184,7 +191,7 @@ describe("The Collaborator's app", () => {
     expect(document.querySelectorAll(".nav-link")).toHaveLength(3);
     expect(document.querySelector(".nav-list-foot")).toBeNull();
     expect(screen.getByTestId("team-switcher")).toBeTruthy();
-    expect(screen.getByText("No questions waiting on you.")).toBeTruthy();
+    expect((await screen.findAllByText("No questions waiting on you.")).length).toBeGreaterThan(0);
   });
 
   it("Navigation_IsDrawnFromTheGatewaysVerdict_NotFromTheRoleName", async () => {

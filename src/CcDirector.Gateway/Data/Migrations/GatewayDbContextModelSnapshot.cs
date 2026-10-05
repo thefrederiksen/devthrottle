@@ -304,6 +304,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("QuestionId")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("ReportId")
                         .HasColumnType("TEXT");
 
@@ -389,6 +392,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("AnchorJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AnswererSubject")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid?>("ClaimId")
                         .HasColumnType("TEXT");
 
@@ -469,6 +475,8 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AnswererSubject");
 
                     b.HasIndex("TenantId", "ReportId", "ClientItemId")
                         .IsUnique();
