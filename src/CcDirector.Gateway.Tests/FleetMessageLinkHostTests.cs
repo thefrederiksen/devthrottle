@@ -257,8 +257,14 @@ public sealed class FleetMessageLinkHostTests : IAsyncLifetime
             await Send(machine, "DELETE", "fleet/links/0123456789abcdef0123456789abcdef"),
         })
         {
-            Assert.Equal(HttpStatusCode.Forbidden, answer.Status);
+            // On an account-bound Gateway the shared token is not a sign-in at all, so it is turned away before
+            // any route runs - earlier than the owner-only refusal, and stricter.
+            Assert.Equal(HttpStatusCode.Unauthorized, answer.Status);
         }
+
+        // And nothing was set up.
+        var (_, list) = await Send(_ownerA, "GET", "fleet/links");
+        Assert.Empty(Root(list).GetProperty("links").EnumerateArray());
     }
 
     [Fact]
