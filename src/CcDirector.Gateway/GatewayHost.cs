@@ -781,7 +781,8 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Whose what a team request touches, and the one answer to "whose Director is this" in a team
     /// (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>, devthrottle_internal#2311). One instance: the team gate asks it,
     /// and so does the team Fleet Map (devthrottle_internal#2312), and the prompt stamp and the session history's person
-    /// read it too (devthrottle_internal#2305), so the question has one copy.
+    /// read it too (devthrottle_internal#2305), and so does the hub before it accepts a team's turn push, so the question
+    /// has one copy.
     /// </summary>
     public Teams.TeamCallerOwnership TeamCallerOwnership { get; }
 
