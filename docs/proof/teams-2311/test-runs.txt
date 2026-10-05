@@ -252,3 +252,24 @@ Details in step2-team-bill.md.
       Together 8,815 passed, 0 failed.
     .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; 3,601 tests.
     Gateway.Tests: compiled, NOT run here (by instruction); continuous integration is their result.
+
+26. #3552 review round 1 (reviews/review-2311-step2.md, rulings-2311-step2-review1.md). Rebased onto origin/main
+    8b23aaba4 (#3537). Conflicts resolved by hand in EntitlementRegistry.cs (ReadTeamBill now computes
+    TeamBillFingerprint for every row it counts as a bill; TeamBill carries Fingerprint) and TeamSeatSync.cs
+    (ConvergeAsync keeps #3537's stop marks and reads ReadTeamBill), in commit d8a38d341.
+    TeamSeatConvergenceEndedSubscriptionTests + OneTeamBillReaderTests together: Passed 30, 0 failed.
+    Revert proofs (restore by trap on exit, build checked before the test run, no diff afterwards):
+      D8     ReadTeamBill ignores livemode            Failed 4 of 68  OneTeamBillReaderTests (live: False),
+                                                                      EvaluateTeamTenant_ProductionHostedAndTestModeRow_... x2,
+                                                                      ReadTeamBill_OnAHostedGateway_ALiveRowCarriesItsFingerprint_...
+      S2-F1  DirectorIdTakenRefusal never refuses     Failed 4 of 76  AKeyUnderAColleaguesDirectorId_... (the reproduction),
+                                                                      EnrollOrMove_IntoATeam_UnderADirectorIdAnotherMemberHolds_...,
+                                                                      Enroll_TwoMembersPresentingTheSameDeviceId_TheSecondIsRefused_...,
+                                                                      Enroll_TheSameDirectorSomewhereElse_...
+      S2-F2  nothing-stored rule back to "this        Failed 1 of 76  AColleagueListingALiveSessionId_... (the reproduction)
+             Director's roster holds it"
+      S2-F4  the DenyNotAMember block in AuthMiddleware: Gateway.Tests, NOT run here (by instruction); for CI.
+    Gateway.UnitTests in full, two halves: Half A Passed 3526, Skipped 2; Half B Passed 5318, Skipped 8.
+      Together 8,844 passed, 0 failed.
+    .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
+    Gateway.Tests: built, NOT run here (by instruction).
