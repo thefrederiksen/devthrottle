@@ -302,17 +302,18 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
     [Fact]
     public async Task OverTheWire_AKeyBoundToATeamsTenant_AuthenticatesForADeveloper_ButNotForACollaborator()
     {
-        // The binding devthrottle_internal#2311 makes for a Director set up for a team. The hosted device registry now
+        // The binding devthrottle_internal#2311 makes for a Director set up for a team. The hosted device registry
         // accepts it while its person may run sessions in the team, so a Developer's team key authenticates and meets
-        // the request-path access lease next - which refuses it (402) until the lease reads the team's bill, the step
-        // after #3521. A Collaborator's team key never authenticates (401). TeamCallerOwnershipTests shows what the
-        // gate does with an authenticated one.
+        // the request-path access lease next - which reads the team's bill and never refuses a member for it, so with no
+        // bill the Developer is served on the free tier (Gateway step 2). A Collaborator's team key never authenticates
+        // (401). TeamCallerOwnershipTests shows what the gate does with an authenticated one.
+        HostedTeamBill.CreateTable(_gateway);
         var developerKey = _gateway.Devices.Register("dev-walk-team-bound", "M-team").DeviceKey;
         _gateway.Devices.SetAccountBinding("dev-walk-team-bound", _developer, _team);
         var collaboratorKey = _gateway.Devices.Register("dev-walk-team-collab", "M-team").DeviceKey;
         _gateway.Devices.SetAccountBinding("dev-walk-team-collab", _collaborator, _team);
 
-        Assert.Equal(HttpStatusCode.PaymentRequired, (await Get("gateway/skills", developerKey)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Get("gateway/skills", developerKey)).Status);
         Assert.Equal(HttpStatusCode.Unauthorized, (await Get("gateway/skills", collaboratorKey)).Status);
     }
 
