@@ -468,9 +468,10 @@ public sealed class DirectorHub : Hub
             case TeamTurnPushRefusal.AnotherPersonWroteIt:
                 // Refused for good: the Director stops re-sending this generation, as for a malformed batch.
                 return null;
-            case TeamTurnPushRefusal.NotInThisDirectorsRoster:
+            case TeamTurnPushRefusal.NotItsOnlyHolder:
                 // Refused for now: an answer on another generation makes the Director re-read at its next trigger, so
-                // a first push that arrived before its own roster entry is sent again rather than lost.
+                // a first push that arrived before its own roster entry, or while another Director also lists the id, is sent
+                // again rather than lost.
                 return new TurnWatermark { SessionId = batch.SessionId, Generation = "", Count = 0 };
         }
         try
@@ -484,7 +485,7 @@ public sealed class DirectorHub : Hub
         }
     }
 
-    private enum TeamTurnPushRefusal { None, AnotherPersonWroteIt, NotInThisDirectorsRoster }
+    private enum TeamTurnPushRefusal { None, AnotherPersonWroteIt, NotItsOnlyHolder }
 
     /// <summary>
     /// A TEAM'S TURN PUSH IS ACCEPTED ONLY INTO THE PUSHER'S OWN SESSION (devthrottle_internal#2311, Gateway review
@@ -492,8 +493,8 @@ public sealed class DirectorHub : Hub
     /// answer is who wrote it - so the write itself must not let one person write into another's session. A session
     /// id with anything stored, in ANY generation, is accepted only when every Director that wrote it is this one or
     /// another Director of the same person (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>; a writer it cannot name
-    /// is not the pusher's). A session id with nothing stored is accepted only when this Director's own roster holds
-    /// it. That closes both harms: a later generation taking over a colleague's ended session, and a foreign row
+    /// is not the pusher's). A session id with nothing stored is accepted only when this Director is the ONLY one in the
+    /// tenant whose roster holds it. That closes both harms: a later generation taking over a colleague's ended session, and a foreign row
     /// spoiling a colleague's live one. A personal key is never asked: <see cref="TeamKeyHolderItemKey"/> is set only
     /// for a team key. Called inside the bound tenant scope.
     /// </summary>
@@ -525,10 +526,15 @@ public sealed class DirectorHub : Hub
             return TeamTurnPushRefusal.None;
         }
 
-        if (_store.DirectorsHoldingSession(tenant, sessionId).Contains(directorId, StringComparer.OrdinalIgnoreCase))
+        // Nothing stored: the first rows decide whose the session is, so they are taken only from the ONE Director in
+        // the tenant whose roster holds the id (#3552 review, S2-F2). A roster is client-written; a colleague who
+        // lists a live session's id beside its owner must not get to write first. Two holders: refused for now, never
+        // guessed - the same footing as the duplicate roster id, and it ends when the other stops listing it.
+        var holders = _store.DirectorsHoldingSession(tenant, sessionId);
+        if (holders.Count == 1 && string.Equals(holders[0], directorId, StringComparison.OrdinalIgnoreCase))
             return TeamTurnPushRefusal.None;
-        FileLog.Write($"[DirectorHub] PushTurns REFUSED for now (in a team, session {Short(sessionId)} has nothing stored and is not in this Director's roster): director={directorId}");
-        return TeamTurnPushRefusal.NotInThisDirectorsRoster;
+        FileLog.Write($"[DirectorHub] PushTurns REFUSED for now (in a team, session {Short(sessionId)} has nothing stored and this Director is not its only holder; holders={holders.Count}): director={directorId}");
+        return TeamTurnPushRefusal.NotItsOnlyHolder;
     }
 
     /// <summary>

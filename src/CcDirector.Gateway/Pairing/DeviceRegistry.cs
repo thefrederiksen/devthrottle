@@ -294,6 +294,38 @@ public sealed class DeviceRegistry : IDisposable
     }
 
     /// <summary>
+    /// Whether ANOTHER person than <paramref name="accountSubject"/> has ever had a key for Director
+    /// <paramref name="directorId"/> in <paramref name="tenant"/> - any row <c>&lt;namespace&gt;|<paramref
+    /// name="directorId"/></c> bound to that tenant, active OR revoked, whose person is not this one (a row naming no
+    /// person counts as another's). In a team a Director id belongs to ONE person for good (#3552 review, S2-F1):
+    /// stored turns, Wingman stops and session keys name their writer by Director id, and the ownership answer reads
+    /// whoever holds that id, so a second person enrolling it would inherit the first one's stored sessions the moment
+    /// the in-memory registry binding is gone (every restart). The device table survives a restart, so it is where the
+    /// rule is kept. Revoked rows count because the person who left, or moved the Director away, still wrote the
+    /// sessions stored under that id.
+    /// </summary>
+    public bool AnotherPersonHasHeldDirectorInTenant(TenantId tenant, string accountSubject, string directorId)
+    {
+        if (!tenant.IsValid)
+            throw new ArgumentException("A tenant is required.", nameof(tenant));
+        if (string.IsNullOrWhiteSpace(accountSubject))
+            throw new ArgumentException("accountSubject is required", nameof(accountSubject));
+        if (string.IsNullOrWhiteSpace(directorId))
+            throw new ArgumentException("directorId is required", nameof(directorId));
+
+        var subject = accountSubject.Trim();
+        var suffix = "|" + directorId.Trim();
+        var tenantId = tenant.Value;
+        using var ctx = _db.CreateUnscopedContext();
+        var taken = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Any(d => d.TenantId == tenantId && d.DeviceId.EndsWith(suffix)
+                      && (d.AccountSubject == null || d.AccountSubject != subject));
+        FileLog.Write($"[DeviceRegistry] AnotherPersonHasHeldDirectorInTenant: director={directorId.Trim()} tenant={tenant.ToLogString()} taken={taken}");
+        return taken;
+    }
+
+    /// <summary>
     /// Revoke every OTHER active key one person holds for one Director - the rows <c>&lt;namespace&gt;|<paramref
     /// name="directorId"/></c> of <paramref name="accountSubject"/> other than <paramref name="keepDeviceId"/>. Called
     /// when that Director is set up again, for a team or for the person's own account, so a Director holds exactly one

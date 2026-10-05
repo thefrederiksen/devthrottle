@@ -46,7 +46,7 @@ internal static class HostedEnrollmentEndpoint
 
     /// <summary>The outcome of <see cref="Enroll"/>, extracted so the enrollment logic is unit-tested without a
     /// web host. <see cref="Response"/> is set only on <see cref="Status"/> 200.</summary>
-    public sealed record EnrollResult(int Status, DeviceRegistrationResponse? Response, string Error);
+    public sealed record EnrollResult(int Status, DeviceRegistrationResponse? Response, string Error, string? Code = null);
 
     /// <param name="entitlements">
     /// The paid-entitlement gate. NULL means no gate - that is the self-host case, where there is no billing
@@ -110,6 +110,8 @@ internal static class HostedEnrollmentEndpoint
             }, statusCode: result.Status);
         }
 
+        if (result.Code is not null)
+            return Results.Json(new { error = result.Error, code = result.Code }, statusCode: result.Status);
         return Results.Json(new { error = result.Error }, statusCode: result.Status);
     }
 
@@ -372,6 +374,14 @@ internal static class HostedEnrollmentEndpoint
     public const string MoveSomeoneElsesKeyRefusal =
         "That Director was set up by a different account, so it cannot be moved from yours. Sign in with the account that set it up.";
 
+    /// <summary>What setting a Director up for a team, or moving one into it, is told when another person in that team
+    /// already set a Director up under the same id (#3552 review, S2-F1).</summary>
+    public const string DirectorIdTakenInTeamRefusal =
+        "Another member of this team has already set up a Director with this id, so it cannot be set up for the team under your account. Nothing was changed.";
+
+    /// <summary>The machine-readable code beside <see cref="DirectorIdTakenInTeamRefusal"/>.</summary>
+    public const string DirectorIdTakenInTeamCode = "director_id_taken_in_team";
+
     /// <summary>What a move is told when one Director id has more than one working key for this person - a state
     /// enrollment no longer leaves behind.</summary>
     public const string MoveAmbiguousRefusal =
@@ -417,6 +427,9 @@ internal static class HostedEnrollmentEndpoint
             return refusal!;
 
         var team = new TenantId(teamId);
+        var taken = DirectorIdTakenRefusal(team, subject, req.DeviceId, devices);
+        if (taken is not null)
+            return taken;
         var scopedDeviceId = TeamScopedDeviceId(teamId, subject, req.DeviceId);
         var left = LeaveOtherPlaces(subject, req.DeviceId, team, scopedDeviceId, SetUpAgainReason, devices, teams);
         if (left.Refusal is not null)
@@ -467,6 +480,21 @@ internal static class HostedEnrollmentEndpoint
             teams.Connections.AbortForDirector(place, directorId, reason);
         FileLog.Write($"[HostedEnrollment] LeaveOtherPlaces: director={directorId} left {leaving.Count} other tenant(s), revoked={revoked}");
         return new LeaveResult(null, revoked);
+    }
+
+    /// <summary>
+    /// THE ONE ANSWER to "is this Director id another person's in this team", asked alike by setting a Director up for
+    /// a team and by moving one into it (#3552 review, S2-F1). A Director id in a team belongs to one person for good:
+    /// refused 409 <see cref="DirectorIdTakenInTeamCode"/> when another person has any key row for that id in the team,
+    /// active or revoked. The same person setting the same id up again is unchanged. Null when allowed. No person or
+    /// email is logged.
+    /// </summary>
+    private static EnrollResult? DirectorIdTakenRefusal(TenantId team, string subject, string directorId, DeviceRegistry devices)
+    {
+        if (!devices.AnotherPersonHasHeldDirectorInTenant(team, subject, directorId))
+            return null;
+        FileLog.Write($"[HostedEnrollment] REFUSED: director={directorId.Trim()} is already another person's in team {team.ToLogString()} (no subject/email logged)");
+        return new EnrollResult(StatusCodes.Status409Conflict, null, DirectorIdTakenInTeamRefusal, DirectorIdTakenInTeamCode);
     }
 
     /// <summary>
@@ -593,6 +621,9 @@ internal static class HostedEnrollmentEndpoint
             if (refusal is not null)
                 return refusal;
             to = new TenantId(teamId);
+            var taken = DirectorIdTakenRefusal(to, subject, directorId, devices);
+            if (taken is not null)
+                return taken;
             newDeviceId = TeamScopedDeviceId(teamId, subject, directorId);
         }
         else

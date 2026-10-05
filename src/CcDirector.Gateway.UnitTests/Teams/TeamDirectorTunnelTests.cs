@@ -42,8 +42,8 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     private readonly TeamRegistry _teams;
     private readonly DeviceRegistry _devices;
     private readonly HostedTenantBoundary _boundary;
-    private readonly DirectorRegistry _directors;
-    private readonly PushedSessionStore _store = new();
+    private DirectorRegistry _directors;
+    private PushedSessionStore _store = new();
     private readonly GatewayStreamRegistry _streams = new();
     private readonly DirectorConnectionRegistry _connections = new();
     private readonly GatewayInputStatsAggregator _inputStats;
@@ -372,6 +372,84 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
         // And Bob's own next turn is still taken: the refused row did not hold his ordinal.
         Assert.Equal(3, bob.Hub.PushTurns(2, Conversation("session-bob", 2, 1))!.Count);
+    }
+
+    /// <summary>
+    /// #3552 review S2-F1, the reviewer's reproduction turned round. It passed on bc0bbedea: Alice enrolled under Bob's
+    /// Director id and, once the in-memory registry was empty (every restart), owned his stored sessions. Now the
+    /// device table refuses the enrollment, so after a restart there is nothing of Alice's to say Hello with, and Bob's
+    /// Director takes its own id back.
+    /// </summary>
+    [Fact]
+    public void AKeyUnderAColleaguesDirectorId_IsRefusedAtEnrollment_SoAfterARestartTheColleagueStillOwnsTheirStoredSessions()
+    {
+        var bobKey = EnrolledKey(Bob, "director-bob", _teamA);
+        var bob = SayHello(bobKey, "director-bob");
+        Assert.False(bob.Context.Aborted);
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Equal(2, bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2))!.Count);
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
+
+        // Alice names Bob's Director id as her device id: refused, and nothing is written.
+        var alice = Enroll(Alice, "director-bob", _teamA);
+        Assert.Equal(409, alice.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DirectorIdTakenInTeamCode, alice.Code);
+        using (var ctx = _db.CreateUnscopedContext())
+            Assert.False(ctx.DeviceCredentials.Any(d => d.TenantId == _teamA && d.AccountSubject == Alice));
+        Assert.Equal(DeviceCredentialResolutionKind.Active, KindOf(bobKey));
+
+        // The Gateway restarts: the Director registry and the roster start empty, the database is the same.
+        _directors = new DirectorRegistry(_harness.LegacyPath("instances-after-restart"));
+        _store = new PushedSessionStore();
+        // Still refused - the rule is in the device table, not in memory.
+        Assert.Equal(409, Enroll(Alice, "director-bob", _teamA).Status);
+
+        // Bob's Director says Hello first or last, it makes no difference: the id is his.
+        var bobAgain = SayHello(bobKey, "director-bob");
+        Assert.False(bobAgain.Context.Aborted);
+        bobAgain.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+        Assert.Equal(3, bobAgain.Hub.PushTurns(2, Conversation("session-bob", 2, 1))!.Count);
+    }
+
+    /// <summary>
+    /// #3552 review S2-F2, the reviewer's reproduction turned round. It passed on bc0bbedea: Alice listed Bob's live
+    /// session id and pushed its first rows, and Bob was refused his own session for good. Now nothing-stored is
+    /// accepted only from the ONE Director in the tenant whose roster holds the id: while both list it, both are
+    /// refused for now (never guessed); once Alice stops, Bob's push is stored and the session is his.
+    /// </summary>
+    [Fact]
+    public void AColleagueListingALiveSessionId_CannotPushItsFirstRows_AndOnceTheyStop_TheOwnersPushIsStoredAndTheSessionIsTheirs()
+    {
+        // Bob's session is live and in his roster; nothing of it is stored yet.
+        var bob = Hello(_teamA, Bob, "director-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+
+        // Alice's Director lists the same id in its own roster and pushes first: refused for now.
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        var first = alice.Hub.PushTurns(1, Conversation("session-bob", 0, 1));
+        Assert.NotNull(first);
+        Assert.Equal("", first!.Generation);
+        Assert.Equal(0, first.Count);
+        using (_boundary.EnterScope(new TenantId(_teamA)))
+            Assert.Empty(_turns.DirectorsOfAnyGeneration("session-bob"));
+
+        // While two Directors hold the id, Bob's push waits too - a delay, never a guess.
+        var bobsWhileShared = bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2));
+        Assert.Equal(0, bobsWhileShared!.Count);
+
+        // Alice stops listing it. Bob's push is stored, and the session is his.
+        alice.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+        Assert.Equal(2, bob.Hub.PushTurns(2, Conversation("session-bob", 0, 2))!.Count);
+        using (_boundary.EnterScope(new TenantId(_teamA)))
+            Assert.Equal(new[] { "director-bob" }, _turns.DirectorsOfAnyGeneration("session-bob").ToArray());
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+        // And Alice listing it again now cannot write into it.
+        alice.Hub.PushSnapshot(3, new[] { new SessionDto { SessionId = "session-bob" } });
+        Assert.Null(alice.Hub.PushTurns(3, Conversation("session-bob", 2, 1)));
     }
 
     [Fact]

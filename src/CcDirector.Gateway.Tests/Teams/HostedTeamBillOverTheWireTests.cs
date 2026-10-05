@@ -202,6 +202,37 @@ public sealed class HostedTeamBillOverTheWireTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "gateway/skills", bobKey)).Status);
     }
 
+    /// <summary>
+    /// #3552 review S2-F4: the lease's own "not a member" answer, over the wire. The two refusals above are the device
+    /// registry's 401 (the key itself is revoked) and never reach the lease. A SESSION key is not revoked when its
+    /// Director's person leaves the team, so it still authenticates; the lease then asks who it names
+    /// (<see cref="TeamCallerOwnership.PersonOf"/>: its Director's owner, whose key is now revoked - nobody) and answers
+    /// <c>DenyNotAMember</c>, which the auth middleware maps to 403 <c>team_member_required</c>. Remove that mapping in
+    /// <c>AuthMiddleware</c> and the request falls through as allowed: this test goes red.
+    /// </summary>
+    [Fact]
+    public async Task ASessionKey_WhoseDirectorsOwnerIsNoLongerAMember_Is403TeamMemberRequired_FromTheLease_NotTheRegistrys401()
+    {
+        var (bob, bobsSession) = await Connect(TeamKey(_teamA, _bob, "director-bob-a"), "director-bob-a");
+        await using var _b = bob;
+        var sessionKey = GatewaySessionKey.Mint();
+        Assert.True(_gateway.SessionKeys.Register(new TenantId(_teamA), "director-bob-a", bobsSession,
+            GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
+        var patKey = TeamKey(_teamA, _pat, "director-pat-a");
+
+        // Control: while Bob is a member, his session's key is served.
+        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "gateway/skills", sessionKey)).Status);
+
+        Assert.True(_gateway.TeamRegistry.RemoveMember(_teamA, _bob).IsDone);
+
+        var (status, answer) = await Send(HttpMethod.Get, "gateway/skills", sessionKey);
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("team_member_required", answer.GetProperty("code").GetString());
+        Assert.Equal(Util.AuthMiddleware.TeamMemberRefusal, answer.GetProperty("error").GetString());
+        // A refusal of the person, never of the team: Pat's key is still served.
+        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "gateway/skills", patKey)).Status);
+    }
+
     // ---- #2312's Test 3 over the wire (reviews/review-2312-pr2.md F2) -----------------------------------------------
 
     [Fact]
