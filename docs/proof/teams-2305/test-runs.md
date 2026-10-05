@@ -189,5 +189,22 @@ Failed SessionHistoryPersonTests.The_person_is_asked_for_once_per_session_then_n
 Failed SessionHistoryPersonTests.A_session_whose_person_is_not_known_is_asked_again_until_it_is
 ```
 
-`TeamPersonStampHostTests` (the production wiring, review P2) is in `Gateway.Tests` and was compiled, not run here:
-the Tech Lead's gate session runs the `-Gateway` suites.
+`TeamPersonStampHostTests` (the production wiring, review P2), run for real after continuous integration found it
+red on `eb602cf99` ("Sequence contains no elements"). The cause was the test's read, not production: it read
+`session_history` through an UNSCOPED context, whose query filter matches no tenant-scoped row by design, so it found
+no row even when one was written. It now reads through the tenant's own context.
+
+```
+.\scripts	est-local.ps1 -Gateway -Filter 'FullyQualifiedName~TeamPersonStampHostTests'
+  Gateway.Tests   outcome=Completed  total=2  executed=2   Passed: 2
+```
+
+**Red proof - the wiring removed** (`personOf: TeamSessionPersonOf` taken off the recorder in `GatewayHost`):
+
+```
+Failed TeamPersonStampHostTests.GatewayHost_TeamsReleased_ATeamSessionCarriesTheKeysPerson_AndAPersonalOneCarriesNone
+  Assert.Equal() Failure: Expected "sub-alice", Actual: null
+```
+
+The row is there and carries no person - the failure the wiring prevents, not a missing row. Restored and rebuilt:
+`Passed: 2, executed=2`.
