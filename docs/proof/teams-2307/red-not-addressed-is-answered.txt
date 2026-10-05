@@ -1,0 +1,20 @@
+RED PROOF: not-addressed-is-answered
+Rule: A question is answered only by a person the report was sent to; anyone else gets not-found and nothing is stored.
+File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
+
+Mutation - replaced:
+        if (!Guid.TryParse(reportId, out var id) || _recipients.RowFor(team, id, caller) is not { } row
+with:
+        if (!Guid.TryParse(reportId, out var id) || (_recipients.RowFor(team, id, caller) ?? new DevReportRecipientEntity { ReportId = id, RecipientSubject = caller, SentVersion = 1 }) is not { } row
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.Issue2307_AQuestionAddressedToANamedCollaborator_AppearsOnlyForThem_AndAnyoneElseIsRefused [1 s]
+   Assert.Equal() Failure: Values differ
+Expected: 404
+Actual:   200
+Failed!  - Failed:     1, Passed:    91, Skipped:     0, Total:    92, Duration: 17 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.

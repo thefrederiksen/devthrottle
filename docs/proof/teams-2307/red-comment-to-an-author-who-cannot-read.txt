@@ -1,0 +1,15 @@
+RED PROOF: comment-to-an-author-who-cannot-read
+Rule: A worded answer is refused when the person who asked can no longer read comments in the team.
+File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
+
+Mutation - replaced:
+        if (words.Length > 0 && !TeamReports.AuthorCanReceive(_access, teamId, report))
+with:
+        if (false)
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway\Api\TeamQuestionEndpoints.cs(253,13): error CS0162: Unreachable code detected [D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway\CcDirector.Gateway.csproj]
+
+Restored from the committed tree afterwards; git diff on the file is empty.

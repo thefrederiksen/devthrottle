@@ -1,0 +1,27 @@
+RED PROOF: fold-takes-member-words
+Rule: The prompt refuses a member's item that carries any words of their own.
+File: src/CcDirector.Gateway/DevReports/DevReportPromptFold.cs
+
+Mutation - replaced:
+        if (memberWords is not null)
+            throw
+with:
+        if (memberWords is not null && false)
+            throw
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.Compose_AMembersItemCarryingWordsOfTheirOwn_IsRefused(comment: "", text: "their words", kind: "note") [9 ms]
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.ArgumentException)
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.Compose_AMembersItemCarryingWordsOfTheirOwn_IsRefused(comment: "", text: "their words", kind: "answer") [< 1 ms]
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.ArgumentException)
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.Compose_AMembersItemCarryingWordsOfTheirOwn_IsRefused(comment: "their words", text: "", kind: "answer") [< 1 ms]
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.ArgumentException)
+Failed!  - Failed:     3, Passed:    89, Skipped:     0, Total:    92, Duration: 15 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.

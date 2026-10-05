@@ -1,0 +1,18 @@
+RED PROOF: comment-in-the-choice
+Rule: The member's comment is never part of the item delivered to the session: the choice carries no words.
+File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
+
+Mutation - replaced:
+            var item = ChoiceItem(question, option);
+with:
+            var item = ChoiceItem(question, option) with { Comment = words };
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.List_AnAnsweredQuestion_MovesToAnswered_WithTheChoiceItsStateAndTheWordsReadBackToTheirWriterOnly [91 ms]
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.Issue2307_TheCollaboratorsComment_GoesToThePersonWhoAsked_AndIsNeverPlacedInAnySessionsInput [147 ms]
+Failed!  - Failed:     2, Passed:    90, Skipped:     0, Total:    92, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.

@@ -1,0 +1,26 @@
+RED PROOF: answers-replace-across-people
+Rule: A later answer replaces only the same person's waiting answer; two people's answers both reach the session.
+File: src/CcDirector.Gateway/DevReports/DevReportStore.cs
+
+Mutation - replaced:
+           && string.Equals(row.AnswererSubject, answererSubject, StringComparison.Ordinal);
+with:
+           && true;
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddItems_ALaterAnswerReplacesOnlyTheSamePersonsWaitingOne_AndADeliveredOneCountsPerPerson [383 ms]
+   Assert.All() Failure: 2 out of 3 items in the collection did not pass.
+     Error: Assert.Equal() Failure: Strings differ
+            Expected: "held"
+            Actual:   "replaced"
+     Error: Assert.Equal() Failure: Strings differ
+            Expected: "held"
+            Actual:   "replaced"
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_TwoPeopleAnswerTheSameQuestionWhileTheSessionWorks_NeitherReplacesTheOther_AndBothReachIt [294 ms]
+   Assert.Contains() Failure: Sub-string not found
+Failed!  - Failed:     2, Passed:    90, Skipped:     0, Total:    92, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.
