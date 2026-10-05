@@ -51,6 +51,8 @@ class FakeGateway:
         self.events = []
         self.delivery_note = None
         self.calls = []
+        # True answers as the Gateway before issue #3559: `kind` is ignored and never returned.
+        self.without_lessons = False
 
     def add_event(self, kind, session_id, name, acknowledged=False, **extra):
         event = {
@@ -131,7 +133,13 @@ class FakeGateway:
                     return o
             raise shared_gateway.GatewayError(f"no outcome {oid} in this account", status=404)
         if route == "gateway/fleet-manager/preferences":
-            return {"count": len(self.preferences), "preferences": self.preferences}
+            # As the Gateway answers since issue #3559: preferences unless the caller asks for lessons.
+            kind = query.get("kind", "preference")
+            if self.without_lessons:
+                rows = [{k: v for k, v in p.items() if k != "kind"} for p in self.preferences]
+                return {"count": len(rows), "preferences": rows}
+            rows = [p for p in self.preferences if p.get("kind", "preference") == kind]
+            return {"count": len(rows), "preferences": rows}
         if route == "gateway/fleet-manager/events":
             status = query.get("status", "unacknowledged")
             # Unacknowledged oldest first; all newest first, as the route answers.
@@ -177,7 +185,15 @@ class FakeGateway:
             return record
         if path == "gateway/fleet-manager/preferences":
             pref = {"id": str(uuid.uuid4()), "text": body["text"], "createdAtUtc": "2026-09-16T12:00:00Z",
-                    "createdBy": ME}
+                    "createdBy": ME, "kind": body.get("kind", "preference")}
+            if self.without_lessons:
+                pref.pop("kind")
+                self.preferences.append(dict(pref, kind="preference"))
+                return pref
+            if pref["kind"] == "lesson":
+                # Kept with a session key: stored, not confirmed.
+                pref["mistake"] = body.get("mistake")
+                pref["confirmedByOwnerAtUtc"] = None
             self.preferences.append(pref)
             return pref
         if path == "gateway/fleet-manager/events/ack":
@@ -504,6 +520,149 @@ def test_answering_an_answered_record_fails_with_the_gateways_reason(gw):
 # ---- preferences ------------------------------------------------------------------------------------
 
 
+# ---- lessons (issue #3559) --------------------------------------------------------------------------
+
+CORRECTION = "Never queue a message to every session when none is stuck.\nCheck first; if nothing is stuck, do nothing."
+
+
+def test_lesson_sends_the_owners_words_exactly_as_a_lesson_and_says_it_waits_for_the_owner(gw):
+    result = runner.invoke(app, ["fleet", "lesson", CORRECTION, "--mistake", "messaged all 36 sessions"])
+
+    assert result.exit_code == 0, result.output
+    method, path, body = gw.calls[-1]
+    assert (method, path) == ("POST", "gateway/fleet-manager/preferences")
+    assert body == {"text": CORRECTION, "kind": "lesson", "mistake": "messaged all 36 sessions"}
+    assert "confirmed: no - the owner confirms it on the Cockpit's Fleet Manager page" in result.output
+
+
+def test_lesson_without_a_mistake_sends_no_mistake(gw):
+    result = runner.invoke(app, ["fleet", "lesson", "Check before messaging everyone."])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[-1][2] == {"text": "Check before messaging everyone.", "kind": "lesson"}
+
+
+def test_lessons_are_listed_apart_from_preferences(gw):
+    runner.invoke(app, ["fleet", "prefer", "merge docs on green"])
+    runner.invoke(app, ["fleet", "lesson", "Check before messaging everyone."])
+
+    prefs = runner.invoke(app, ["fleet", "preferences"])
+    lessons = runner.invoke(app, ["fleet", "preferences", "--kind", "lesson"])
+
+    assert "count: 1" in prefs.output and "merge docs on green" in prefs.output
+    assert "Check before messaging everyone." not in prefs.output
+    _, rows = read_table(lessons.output, "lessons")
+    assert [(r["text"], r["confirmed"]) for r in rows] == [("Check before messaging everyone.", "no - waits for the owner")]
+    assert runner.invoke(app, ["fleet", "preferences", "--kind", "rule"]).exit_code == 2
+
+
+# ---- the window the shipping order creates: this tool released, the Gateway not yet updated --------------
+
+
+def test_lesson_against_a_gateway_without_lessons_fails_and_says_what_it_kept_instead(gw):
+    gw.without_lessons = True
+
+    result = runner.invoke(app, ["fleet", "lesson", "Check before messaging everyone."])
+
+    assert result.exit_code != 0
+    kept = gw.preferences[0]["id"]
+    assert "older than lessons" in result.output
+    assert f"standing preference instead ({kept})" in result.output
+    assert "leave that row" in result.output
+    assert "fleet forget" not in result.output and "fleet prefer" not in result.output
+    assert "confirmed:" not in result.output
+
+
+def test_forget_by_the_start_of_an_id_works_against_a_gateway_without_lessons(gw):
+    gw.without_lessons = True
+    runner.invoke(app, ["fleet", "prefer", "merge docs on green"])
+    pid = gw.preferences[0]["id"]
+
+    result = runner.invoke(app, ["fleet", "forget", pid[:8]])
+
+    assert result.exit_code == 0, result.output
+    assert gw.preferences == []
+
+
+def test_listing_lessons_against_a_gateway_without_lessons_says_so_and_lists_no_preference_as_a_lesson(gw):
+    gw.without_lessons = True
+    runner.invoke(app, ["fleet", "prefer", "merge docs on green"])
+
+    result = runner.invoke(app, ["fleet", "preferences", "--kind", "lesson"])
+
+    assert result.exit_code != 0
+    assert "older than lessons" in result.output
+    assert "merge docs on green" not in result.output
+
+
+def test_digest_from_a_gateway_without_lessons_says_unknown_not_none(gw):
+    d = _digest()
+    del d["lessons"]
+    gw.digest = d
+
+    result = runner.invoke(app, ["fleet", "digest"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0].startswith("lessons: unknown - this Gateway is older than lessons")
+
+
+def test_listing_lessons_offers_to_forget_only_an_unconfirmed_one_this_session_kept(gw):
+    gw.preferences = [
+        {"id": "l-owner", "kind": "lesson", "text": "Check first.", "createdAtUtc": "2026-10-05T12:00:00Z",
+         "createdBy": "owner", "confirmedByOwnerAtUtc": "2026-10-05T12:00:00Z"},
+        {"id": "l-mine", "kind": "lesson", "text": "Ask first.", "createdAtUtc": "2026-10-06T12:00:00Z",
+         "createdBy": ME.upper(), "confirmedByOwnerAtUtc": None},
+    ]
+
+    result = runner.invoke(app, ["fleet", "preferences", "--kind", "lesson"])
+
+    assert "cc-devthrottle fleet forget l-mine" in result.output
+    assert "fleet forget l-owner" not in result.output
+
+
+def test_a_lesson_event_shows_the_owners_words_and_what_went_wrong(gw):
+    gw.add_event("lesson", None, None, words="Check first.", detail="messaged all 36 sessions")
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.exit_code == 0, result.output
+    _, rows = read_table(result.output, "events")
+    assert (rows[0]["name"], rows[0]["verdict"], rows[0]["label"]) == ("Check first.", "lesson kept", "messaged all 36 sessions")
+
+
+def test_forget_finds_a_lesson_by_the_start_of_its_id(gw):
+    runner.invoke(app, ["fleet", "lesson", "Check before messaging everyone."])
+    lid = gw.preferences[0]["id"]
+
+    result = runner.invoke(app, ["fleet", "forget", lid[:8]])
+
+    assert result.exit_code == 0, result.output
+    assert gw.preferences == []
+
+
+def test_digest_prints_the_lessons_first_dated_and_marked_confirmed_or_not(gw):
+    gw.digest = _digest(lessons=[
+        {"id": "l-1", "kind": "lesson", "text": "Check first.", "createdAtUtc": "2026-10-05T12:00:00Z",
+         "createdBy": "owner", "confirmedByOwnerAtUtc": "2026-10-05T12:00:00Z"},
+        {"id": "l-2", "kind": "lesson", "text": "Ask before a release.", "createdAtUtc": "2026-10-06T09:00:00Z",
+         "createdBy": ME, "confirmedByOwnerAtUtc": None, "mistake": "cut a release unasked"},
+    ])
+
+    result = runner.invoke(app, ["fleet", "digest"])
+
+    assert result.exit_code == 0, result.output
+    lines = result.output.splitlines()
+    assert lines[0] == "lessons: 2 (1 confirmed - obey them before anything else; 1 waiting for the owner)"
+    _, rows = read_table(result.output, "lessons")
+    assert rows == [
+        {"id": "l-1", "kept": "2026-10-05", "confirmed": "yes", "keptBy": "owner", "text": "Check first.", "mistake": None},
+        {"id": "l-2", "kept": "2026-10-06", "confirmed": "no - waits for the owner", "keptBy": ME,
+         "text": "Ask before a release.", "mistake": "cut a release unasked"},
+    ]
+    assert result.output.index("lessons:") < result.output.index("session:") < result.output.index("outcomes:")
+
+
+
 def test_prefer_keeps_the_words_exactly_and_they_read_back(gw):
     words = "stop asking me about draft posts, just stage them"
 
@@ -546,6 +705,7 @@ def _digest(**overrides):
         "outcomes": [],
         "ownedSessions": [],
         "preferences": [],
+        "lessons": [],
         "outcomeCounts": {"ready": 0, "finding": 0, "decision": 0, "total": 0},
         "ownedSessionCounts": {"needsYou": 0, "working": 0, "stopped": 0, "total": 0},
         "fleetManagerSessionId": ME,
@@ -575,10 +735,12 @@ def test_digest_defaults_to_this_session_and_reads_back(gw):
     assert result.exit_code == 0, result.output
     assert gw.calls[-1][1] == f"gateway/fleet-manager/digest?session={ME}"
     lines = result.output.splitlines()
-    assert lines[0] == f"session: {ME}"
-    assert lines[1] == "fleetManager: yes"
-    assert lines[2] == f"markedFleetManager: {ME}"
-    assert lines[3] == f"fleetManagerSessions[2]: {FORMER},{ME}"
+    # The lessons line comes first (issue #3559), even when there are none.
+    assert lines[0].startswith("lessons: 0 (0 confirmed")
+    assert lines[1] == f"session: {ME}"
+    assert lines[2] == "fleetManager: yes"
+    assert lines[3] == f"markedFleetManager: {ME}"
+    assert lines[4] == f"fleetManagerSessions[2]: {FORMER},{ME}"
     assert "outcomes: 1 open (ready 0, finding 0, decision 1)" in lines
     assert "sessions: 1 owned (needs-you 0, working 0, stopped 1)" in lines
     _, outcomes = read_table(result.output, "outcomes")
@@ -1042,7 +1204,7 @@ def test_the_fleet_commands_are_discoverable_through_actions():
     assert {
         "fleet-digest", "fleet-ready", "fleet-finding", "fleet-decision", "fleet-outcomes",
         "fleet-show", "fleet-answer", "fleet-prefer", "fleet-preferences", "fleet-forget",
-        "fleet-events", "fleet-ack", "fleet-advise",
+        "fleet-events", "fleet-ack", "fleet-advise", "fleet-lesson",
     } <= ids
 
 
