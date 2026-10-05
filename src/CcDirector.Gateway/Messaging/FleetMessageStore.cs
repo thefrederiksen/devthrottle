@@ -38,12 +38,14 @@ public sealed record FleetMessageDraft(
 /// does (inspection 6, ruling 2).</param>
 /// <param name="DuplicateMessageId">The id of that waiting message, when there is one.</param>
 /// <param name="DuplicateCorrelationId">That waiting message's correlation id, when it asked for a reply.</param>
+/// <param name="Link">A live message link that may carry this message, when there is one (issue #3548).</param>
 public readonly record struct FleetMessageHistory(
     int SentBySenderInWindow,
     DateTime? LastSentToRecipientUtc,
     bool RecipientHasUnreadDuplicate,
     string? DuplicateMessageId = null,
-    string? DuplicateCorrelationId = null);
+    string? DuplicateCorrelationId = null,
+    FleetMessageLinkFacts? Link = null);
 
 /// <summary>Why a reply found no message to answer (slice 3).</summary>
 public enum FleetReplyMiss
@@ -161,12 +163,32 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
         {
             using var ctx = _db.CreateContext(tenant);
             var history = ReadHistory(ctx, draft, hash, now, senderWindow);
+            // A MESSAGE LINK is looked up here, under the same lock and in the same context the message is written in
+            // (issue #3548), so the link the policy rules on is the link this write uses up.
+            if (draft.SenderSessionId is not null)
+                history = history with { Link = FleetMessageLinkStore.FindLiveIn(ctx, draft.SenderSessionId, draft.RecipientSessionId) };
             var verdict = decide(history);
             if (!verdict.Queued) return (verdict, null);
 
             var row = NewRow(ctx, draft, hash, now);
+            row.LinkId = verdict.Link?.LinkId;
+            using var tx = ctx.Database.BeginTransaction();
             ctx.FleetMessages.Add(row);
             ctx.SaveChanges();
+            // THE LINK MUST STILL BE LIVE AT THE WRITE, OR THE MESSAGE IS NOT WRITTEN. A one-time link is used up by this
+            // message, changing only while it is still live; an ongoing link is re-read inside the same transaction. So
+            // a link removed between the lookup and here carries nothing.
+            if (verdict.Link is { } link && !(link.IsOneTime
+                    ? FleetMessageLinkStore.TryUseIn(ctx, link.LinkId, row.MessageId, now)
+                    : FleetMessageLinkStore.IsLiveIn(ctx, link.LinkId)))
+            {
+                tx.Rollback();
+                FileLog.Write($"[FleetMessageStore] TryEnqueue: link={link.LinkId} stopped before message {row.MessageId} could use it; nothing written");
+                return (new FleetMessageVerdict(FleetMessageOutcome.RefusedNotRelated,
+                    "The message link the user set up between you was removed or used a moment ago, so nothing was queued. " +
+                    FleetMessagePolicy.PutItInYourReport), null);
+            }
+            tx.Commit();
             CountsChanged(tenant);
             return (verdict, row);
         }
@@ -234,6 +256,8 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
             if (!verdict.Queued) return new FleetReplyResult(FleetReplyMiss.None, verdict, null, original);
 
             var row = NewRow(ctx, draft, hash, now);
+            // A reply to a message a link carried is carried by the same link (issue #3548).
+            row.LinkId = original.LinkId;
             ctx.FleetMessages.Add(row);
             original.RepliedAtUtc ??= now;
             ctx.SaveChanges();
@@ -290,12 +314,16 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
         var since = now - senderWindow;
         // A whole-account broadcast is a human's act, authorized by a grant, so it is not charged to the
         // agent that carried it. A reply is an answer the other side asked for, not a new demand (slice 3), so it
-        // is not charged either - to the hourly count or to the spacing. Every other kind a session sends counts.
+        // is not charged either - to the hourly count or to the spacing. A message a MESSAGE LINK carried is not
+        // charged either (issue #3548): the owner decided how much talking the link allows, and a link only adds, so
+        // using it must never use up the sender's budget for its own owner and workers. Every other kind a session
+        // sends counts.
         var count = ctx.FleetMessages.Count(m => m.SenderSessionId == sender
-            && m.CreatedAtUtc > since && m.Kind != FleetMessageKinds.Everyone && m.Kind != FleetMessageKinds.Reply);
+            && m.CreatedAtUtc > since && m.Kind != FleetMessageKinds.Everyone && m.Kind != FleetMessageKinds.Reply
+            && m.LinkId == null);
         var last = ctx.FleetMessages
             .Where(m => m.SenderSessionId == sender && m.RecipientSessionId == recipient
-                && m.Kind != FleetMessageKinds.Everyone && m.Kind != FleetMessageKinds.Reply)
+                && m.Kind != FleetMessageKinds.Everyone && m.Kind != FleetMessageKinds.Reply && m.LinkId == null)
             .OrderByDescending(m => m.CreatedAtUtc)
             .Select(m => (DateTime?)m.CreatedAtUtc)
             .FirstOrDefault();

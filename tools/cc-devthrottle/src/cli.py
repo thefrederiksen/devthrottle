@@ -17,6 +17,7 @@ from . import factory_ops
 from . import factory_memory_ops
 from . import fleet_manager_ops
 from . import fleet_ops
+from . import link_ops
 from . import mission_ops
 from . import schedule_ops
 from . import trigger_ops
@@ -101,6 +102,13 @@ mission_app = typer.Typer(
     no_args_is_help=True,
 )
 message_app = typer.Typer(cls=AxiGroup, help="Send messages between sessions.", add_completion=False)
+link_app = typer.Typer(
+    cls=AxiGroup,
+    help="Let two unrelated sessions message each other: once, with a reply, or ongoing.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+message_app.add_typer(link_app, name="link")
 fleet_manager_app = typer.Typer(
     cls=AxiGroup,
     help="Show, set, or clear which session is this account's one Fleet Manager.",
@@ -2894,6 +2902,46 @@ def message_reply(
     the reply from its inbox.
     """
     send_reply(reply_id, text)
+
+
+@link_app.command("add")
+def message_link_add(
+    sender: str = typer.Argument(..., help="The session that may send: its number, an id prefix, or its exact name."),
+    recipient: str = typer.Argument(..., help="The session it may send to."),
+    amount: str = typer.Option(
+        ..., "--amount",
+        help="once (one message, no reply), once-with-reply (one message and its reply), or ongoing (as much as "
+        "they need, both ways, until removed or either session ends).",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Set up a message link so SENDER may message RECIPIENT.
+
+    The Gateway allows this from the owner's own phone or browser and from a session the owner has raised
+    (the Fleet Manager), for two OTHER sessions. Every other session is refused. The sending session is told
+    in its inbox what it may now send; a new link between the same two sessions replaces the old one.
+    """
+    link_ops.add(sender, recipient, amount, json_output)
+
+
+@link_app.command("list")
+def message_link_list(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """List every live message link, and every link that stopped in the last 30 days."""
+    link_ops.list_links(json_output)
+
+
+@link_app.command("remove")
+def message_link_remove(
+    link_id: str = typer.Argument(..., metavar="ID", help="The link id, from 'message link list'."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+) -> None:
+    """Remove a message link; the sending session is told it no longer may.
+
+    The owner's own phone or browser, or a session the owner has raised (the Fleet Manager), only.
+    """
+    link_ops.remove(link_id, json_output)
 
 
 @message_app.command("inbox")

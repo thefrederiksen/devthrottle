@@ -93,4 +93,9 @@ public sealed class FleetMessageEntity : TenantScopedEntity
     /// <see cref="Messaging.FleetMessageLimits.UnreachableAfter"/> (UTC), or null. Written in the same save as that
     /// notice, so the notice is written once. The message keeps ringing; this only stops a second notice.</summary>
     public DateTime? UnreachableNoticeAtUtc { get; set; }
+
+    /// <summary>The message link that let this message through, or null (issue #3548). Set on a message the
+    /// relationship rule alone would have refused, and on the reply to it, so every message a link carried is
+    /// answerable by query.</summary>
+    public string? LinkId { get; set; }
 }

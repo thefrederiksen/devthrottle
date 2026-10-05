@@ -1088,6 +1088,10 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<DateTime?>("LastRungAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("LinkId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("ReadAtUtc")
                         .HasColumnType("TEXT");
 
@@ -1148,6 +1152,77 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("TenantId", "RecipientSessionId", "ReadAtUtc", "CreatedAtUtc");
 
                     b.ToTable("fleet_messages", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetMessageLinkEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Amount")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EndedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EndedBy")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LinkId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RecipientSessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SenderSessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("SetUpAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SetUpBy")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTime?>("UsedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UsedMessageId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "LinkId")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "RecipientSessionId", "Status");
+
+                    b.HasIndex("TenantId", "SenderSessionId", "RecipientSessionId", "Status");
+
+                    b.ToTable("fleet_message_links", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetOutcomeEntity", b =>

@@ -20,8 +20,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class AddTeamRequestsPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20261004214416_AddTeamMentor";
-    private const string MigrationUnderTest = "20261005115930_AddTeamRequests";
+    private const string MigrationBefore = "20261005031815_AddFleetMessageLinks";
+    private const string MigrationUnderTest = "20261005124444_AddTeamRequests";
 
     // The ids are Gateway-minted Guids, stored as uuid on PostgreSQL.
     private const string RequestOne = "11111111-1111-4111-8111-111111111111";

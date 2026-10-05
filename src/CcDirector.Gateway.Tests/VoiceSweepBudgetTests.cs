@@ -163,13 +163,49 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
                 PackageKind = "agent-reply",
                 Failed = true,
                 FailureReason = "the judge could not be asked: seeded by the test",
+                // A DECIDER IS NAMED, AND IT IS A CODE STEP. Every pushed turn end starts ReReadAboveAStopAsync, which
+                // 600 milliseconds later reads again every stored reading in the account that names no decider (or the
+                // model) and has nothing working under its session - and nothing is ever working under these. Seeded
+                // with no decider, each of these readings was replaced by a newer one decided by the nothing-under-it
+                // step, and the control below passed only when it ran inside those 600 milliseconds. A reading that
+                // names a code step is never read again by that pass.
+                //
+                // THIS RECORD IS CONSTRUCTED, NOT COPIED: no production path stores a failed reading that names a model
+                // and a code step together. It is built so that every rule which could replace it leaves it alone. The
+                // sweep's own decision about a slot reads the screen hash, Failed and the spoken words only, so what
+                // this class proves about the budget does not depend on the decider.
+                DecidedBy = CcDirector.Core.Wingman.CallACodeSteps.NothingUnderItStep,
             };
             _gateway.TurnVerdicts.Store(TenantNoOp, sid, seeded);
             _seededVerdictIds[sid] = seeded.VerdictId;
         }
 
+        // A PUSHED, ALREADY-WAITING SESSION IS A TURN END, and its judgement runs on its own task. For a session that
+        // is not in voice mode it stops at the judge switch; for a voice session it waits 600 milliseconds and stores
+        // a new reading, because a turn end never reuses a reading of an unreadable screen. Marking the sessions as
+        // voice while those judgements were still deciding let one of them see a voice session. So every session's
+        // turn-end judgement is seen to END here, as the non-voice session it was pushed as, before any is marked.
+        //
+        // The turn-end handler itself, with its own voice check, runs inside the push call and is over when the push
+        // returns: both feeds a push drives are synchronous. GAP, STATED: the watcher's reconcile timer is a third
+        // feed, and a first sighting it took would run that handler on its own thread, unordered against the marks.
+        var turnEndsOver = new ConcurrentDictionary<string, byte>();
+        _gateway.TurnVerdictServiceForTest!.OnLeftGateForTests = sid => turnEndsOver[sid] = 0;
+
         await _dirNoOp.PushSnapshotAsync(NoOpSessions.Select(Sample).ToArray());
         await _dirNarratable.PushSnapshotAsync(Sample(NarratableSession));
+
+        var pushed = NoOpSessions.Append(NarratableSession).ToArray();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (!pushed.All(turnEndsOver.ContainsKey))
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new InvalidOperationException(
+                    "the turn-end judgement of a pushed session never ended: "
+                    + string.Join(", ", pushed.Where(sid => !turnEndsOver.ContainsKey(sid))));
+            await Task.Delay(20);
+        }
+        _gateway.TurnVerdictServiceForTest!.OnLeftGateForTests = null;
 
         foreach (var sid in NoOpSessions)
             _gateway.VoiceService!.Mark(TenantNoOp, sid);
