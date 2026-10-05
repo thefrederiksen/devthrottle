@@ -1,43 +1,43 @@
 
  RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2309/packages/client-core
 
-  src/sessions/ordering.test.ts (38 tests) 38ms
+  src/voice/voiceRowState.test.ts (18 tests) 10ms
 stderr | src/dictation/recorder.test.ts > MicRecorder.snapshotFlushed > resolves via the backstop when the flush is never delivered, with what has arrived
 [MicRecorder] snapshotFlushed: no flush within 500ms; snapshotting what has arrived
 
 stderr | src/dictation/recorder.test.ts > MicRecorder.snapshotFlushed > resolves with what has arrived when requestData throws (a concurrent stop)
 [MicRecorder] snapshotFlushed: requestData failed: The MediaRecorder is in an invalid state.
 
+  src/history/lineage.test.ts (20 tests) 14ms
+  src/auth/accountStore.test.ts (24 tests) 18ms
+  src/sessions/ordering.test.ts (38 tests) 34ms
+  src/dictation/transcriptionAccuracy.test.ts (31 tests) 24ms
+  src/stats/statsClient.test.ts (21 tests) 79ms
+  src/sessions/tree.test.ts (17 tests) 15ms
+  src/api/stopSession.test.ts (12 tests) 14ms
+  src/recorder/ingestUpload.test.ts (12 tests) 91ms
   src/speech/localSpeech.test.ts (20 tests) 18ms
-  src/voice/voiceRowState.test.ts (18 tests) 7ms
-  src/history/lineage.test.ts (20 tests) 15ms
-  src/stats/statsClient.test.ts (21 tests) 73ms
-  src/terminal/stream.test.ts (10 tests) 16ms
-  src/terminal/interactive.test.ts (20 tests) 32ms
-  src/dictation/transcriptionAccuracy.test.ts (31 tests) 21ms
-  src/auth/accountStore.test.ts (24 tests) 17ms
-  src/api/stopSession.test.ts (12 tests) 13ms
-  src/sessions/tree.test.ts (17 tests) 16ms
-  src/push/enablePush.test.ts (9 tests) 13ms
-  src/auth/enrollCallback.test.ts (9 tests) 16ms
-  src/api/dictationSendTimeAndDelivering.test.ts (13 tests) 21ms
-  src/teams/teamsClient.test.ts (16 tests) 35ms
-  src/teams/teamLibraryClient.test.ts (16 tests) 41ms
-  src/teams/mentorClient.test.ts (41 tests) 50ms
-  src/api/errorReporting.test.ts (14 tests) 20ms
-  src/fleet/rosterClockFields.test.ts (11 tests) 31ms
-  src/fleet/rosterRetention.test.ts (24 tests) 20ms
+  src/terminal/stream.test.ts (10 tests) 15ms
+  src/api/dictationSendTimeAndDelivering.test.ts (13 tests) 20ms
+  src/terminal/interactive.test.ts (20 tests) 31ms
+  src/teams/teamsClient.test.ts (16 tests) 33ms
+  src/teams/teamLibraryClient.test.ts (16 tests) 35ms
+  src/teams/mentorClient.test.ts (41 tests) 45ms
+  src/auth/enrollCallback.test.ts (9 tests) 14ms
+  src/api/errorReporting.test.ts (14 tests) 19ms
+  src/fleet/rosterClockFields.test.ts (11 tests) 28ms
+  src/fleet/rosterRetention.test.ts (24 tests) 19ms
 stderr | src/dictation/recorder.test.ts > MicRecorder.stop > stops and returns the clip even when the tail flush throws
 [MicRecorder] stop: tail flush failed: The MediaRecorder is in an invalid state.
 
-  src/recorder/ingestUpload.test.ts (12 tests) 91ms
 stderr | src/dictation/recorder.test.ts > MicRecorder.stop > does not ask for a flush when the recorder is no longer recording
 [MicRecorder] stop: the recorder was already inactive; returning the chunks it delivered
 
 stderr | src/dictation/recorder.test.ts > MicRecorder.stop tail > returns the delivered chunks when the recorder goes inactive on its own during the tail
 [MicRecorder] stop: the recorder was already inactive; returning the chunks it delivered
 
-  src/dictation/recorder.test.ts (27 tests) 811ms
+  src/dictation/recorder.test.ts (27 tests) 801ms
+  src/auth/enrollRequest.test.ts (15 tests) 10ms
 stderr | src/dictation/backgroundSend.test.ts > the empty-capture gate (an empty recording must never enter the durable queue) > a recording WITH audio is untouched by the gate
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
@@ -127,97 +127,93 @@ stderr | src/dictation/backgroundSend.test.ts > could not confirm it arrived (ph
 stderr | src/dictation/backgroundSend.test.ts > could not confirm it arrived (phase 2, change 1) > C1: a shown-back answer without the Gateway's offer keeps the copy and is logged with the upload id
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-  src/dictation/backgroundSend.test.ts (68 tests) 137ms
-  src/auth/enrollRequest.test.ts (15 tests) 11ms
-  src/history/historyLinks.test.ts (44 tests) 19ms
-  src/api/newSession.test.ts (6 tests) 23ms
-  src/api/client.test.ts (11 tests) 15ms
-  src/voice/rowVoiceInputs.test.ts (7 tests) 8ms
-  src/api/dictationUnreadableRecord.test.ts (6 tests) 15ms
-  src/auth/accountIsolation.test.ts (10 tests) 13ms
-  src/teams/teamReportsClient.test.ts (14 tests) 33ms
-  src/dictation/micQuality.test.ts (27 tests) 2064ms
-  src/api/dictationOutcomeRead.test.ts (12 tests) 19ms
-  src/stats/statsClient.contract.test.ts (8 tests) 90ms
-  src/polling/pollingStore.test.ts (7 tests) 112ms
-  src/settings/tabs.test.ts (16 tests) 13ms
-  src/api/enroll.test.ts (8 tests) 13ms
+  src/dictation/backgroundSend.test.ts (68 tests) 91ms
+  src/push/enablePush.test.ts (9 tests) 17ms
+  src/api/newSession.test.ts (6 tests) 21ms
+  src/auth/accountIsolation.test.ts (10 tests) 14ms
+  src/api/enroll.test.ts (8 tests) 12ms
   src/teams/teamFleetMapClient.test.ts (15 tests) 31ms
-  src/sessions/supervision.test.ts (17 tests) 13ms
-  src/speech/oneSpeechPath.test.ts (3 tests) 403ms
-  src/factory/factoryMemoryClient.test.ts (7 tests) 25ms
-  src/api/promptOutcomeRead.test.ts (11 tests) 20ms
-  src/sessions/tree.agreement.test.ts (64 tests) 43ms
+  src/history/historyLinks.test.ts (44 tests) 20ms
+  src/voice/rowVoiceInputs.test.ts (7 tests) 7ms
+  src/settings/tabs.test.ts (16 tests) 15ms
+  src/api/client.test.ts (11 tests) 14ms
+  src/api/dictationUnreadableRecord.test.ts (6 tests) 14ms
+  src/sessions/supervision.test.ts (17 tests) 12ms
+  src/api/dictationOutcomeRead.test.ts (12 tests) 20ms
+  src/api/promptOutcomeRead.test.ts (11 tests) 23ms
+  src/stats/statsClient.contract.test.ts (8 tests) 71ms
+  src/polling/pollingStore.test.ts (7 tests) 147ms
+  src/factory/factoryMemoryClient.test.ts (7 tests) 23ms
+  src/teams/teamReportsClient.test.ts (14 tests) 30ms
+  src/dictation/micQuality.test.ts (27 tests) 1947ms
+  src/sessions/tree.agreement.test.ts (64 tests) 45ms
+  src/speech/oneSpeechPath.test.ts (3 tests) 328ms
+  src/api/dictationEmptyAudio.test.ts (3 tests) 12ms
+  src/api/transcriptionFailureMessage.test.ts (14 tests) 10ms
   src/sessions/snoozeAction.test.ts (8 tests) 9ms
-  src/api/dictationEmptyAudio.test.ts (3 tests) 15ms
-  src/api/transcriptionFailureMessage.test.ts (14 tests) 9ms
-  src/api/dictationDedupe.test.ts (4 tests) 11ms
-  src/dictation/readyCue.test.ts (5 tests) 9ms
-  src/dictation/composerProvenance.test.ts (9 tests) 12ms
-  src/voice/queueTouch.test.ts (9 tests) 24ms
-  src/dictation/deviceIdentity.test.ts (10 tests) 9ms
   src/history/myPromptsOnly.test.ts (9 tests) 10ms
-  src/api/dictation402Copy.test.ts (5 tests) 10ms
-  src/api/voiceModeAll.test.ts (7 tests) 17ms
-  src/history/chatView.test.ts (9 tests) 33ms
-  src/history/conversationTail.test.ts (7 tests) 83ms
-  src/sessions/delivery.test.ts (16 tests) 9ms
-  src/voice/voiceQueue.test.ts (5 tests) 6ms
-  src/history/fileTypes.test.ts (61 tests) 14ms
-  src/api/handover.test.ts (5 tests) 15ms
-  src/voice/reportClipPlaying.test.ts (5 tests) 68ms
-  src/api/gatewayError.test.ts (8 tests) 8ms
-  src/sessions/filter.test.ts (16 tests) 27ms
-  src/fleet/fleetClient.test.ts (10 tests) 16ms
-  src/dictation/platform.test.ts (7 tests) 9ms
-  src/sessions/sessionColours.test.ts (10 tests) 13ms
-  src/api/reasonBodyIsRead.test.ts (4 tests) 12ms
-  src/api/gatewayFetchTimeout.test.ts (4 tests) 14ms
-  src/api/dictationCaptureHealthForward.test.ts (2 tests) 13ms
-  src/dictation/dictionaryEdits.test.ts (10 tests) 7ms
+  src/sessions/delivery.test.ts (16 tests) 8ms
+  src/dictation/readyCue.test.ts (5 tests) 9ms
+  src/dictation/composerProvenance.test.ts (9 tests) 11ms
+  src/api/voiceModeAll.test.ts (7 tests) 13ms
+  src/voice/queueTouch.test.ts (9 tests) 26ms
+  src/api/dictation402Copy.test.ts (5 tests) 11ms
+  src/api/dictationDedupe.test.ts (4 tests) 12ms
+  src/dictation/deviceIdentity.test.ts (10 tests) 8ms
+  src/voice/voiceQueue.test.ts (5 tests) 7ms
+  src/history/chatView.test.ts (9 tests) 35ms
+  src/history/conversationTail.test.ts (7 tests) 71ms
+  src/api/handover.test.ts (5 tests) 14ms
+  src/history/fileTypes.test.ts (61 tests) 13ms
+  src/sessions/filter.test.ts (16 tests) 31ms
   src/polling/clock.test.ts (4 tests) 6ms
-  src/settings/snoozeFormat.test.ts (16 tests) 10ms
-  src/settings/snoozeMenu.test.ts (10 tests) 9ms
-  src/history/historyMarkdown.test.ts (10 tests) 33ms
-  src/fleet/messageLinksClient.test.ts (4 tests) 10ms
-  src/learning/learningClient.test.ts (5 tests) 14ms
+  src/voice/reportClipPlaying.test.ts (5 tests) 92ms
+  src/api/gatewayError.test.ts (8 tests) 8ms
+  src/api/dictationCaptureHealthForward.test.ts (2 tests) 14ms
+  src/sessions/sessionColours.test.ts (10 tests) 10ms
+  src/fleet/fleetClient.test.ts (10 tests) 15ms
   src/fleetmanager/walkthroughActions.test.ts (6 tests) 10ms
+  src/history/historyMarkdown.test.ts (10 tests) 33ms
+  src/dictation/dictionaryEdits.test.ts (10 tests) 9ms
+  src/settings/snoozeFormat.test.ts (16 tests) 10ms
+  src/api/reasonBodyIsRead.test.ts (4 tests) 12ms
+  src/api/gatewayFetchTimeout.test.ts (4 tests) 13ms
+  src/settings/snoozeMenu.test.ts (10 tests) 10ms
+  src/learning/learningClient.test.ts (5 tests) 11ms
+  src/fleet/messageLinksClient.test.ts (4 tests) 9ms
+  src/teams/requestsClient.test.ts (5 tests) 17ms
+  src/sessions/wingmanNowWordsAreTheGateways.test.ts (19 tests) 7ms
+  src/dictation/platform.test.ts (7 tests) 7ms
+  src/recorder/uploadGate.test.ts (11 tests) 9ms
   src/teams/invitationsClient.test.ts (4 tests) 15ms
-  src/sessions/wingmanNowWordsAreTheGateways.test.ts (19 tests) 8ms
+  src/sessions/model.test.ts (5 tests) 11ms
   src/connection/health.test.ts (6 tests) 10ms
-  src/dictation/pendingStore.test.ts (6 tests) 6ms
-  src/recorder/uploadGate.test.ts (11 tests) 8ms
-  src/dictation/qualityReport.test.ts (6 tests) 1330ms
-    measureDictationQuality > measures an ordinary dictation and reports the device it came from 346ms
-    measureDictationQuality > is JSON-safe even when a measurement is infinite 321ms
-    measureDictationQuality > copes with an unnamed microphone 318ms
-  src/missions/missions.test.ts (6 tests) 13ms
-  src/sessions/pinning.test.ts (5 tests) 8ms
-  src/terminal/lineLinks.test.ts (5 tests) 10ms
-  src/dictation/status.test.ts (5 tests) 10ms
-  src/sessions/changes.test.ts (10 tests) 7ms
-  src/api/hold.test.ts (3 tests) 8ms
+  src/dictation/qualityReport.test.ts (6 tests) 1120ms
   src/sessions/stampedField.test.ts (4 tests) 7ms
-  src/account/accountClient.test.ts (3 tests) 7ms
-  src/dictation/captureHealth.test.ts (5 tests) 6ms
-  src/recordings/recordingsClient.test.ts (5 tests) 12ms
-  src/skills/skillsClient.test.ts (4 tests) 18ms
-  src/teams/teamPageClient.test.ts (3 tests) 18ms
-  src/push/register.test.ts (5 tests) 8ms
-  src/sessions/model.test.ts (5 tests) 7ms
-  src/fleet/reachability.test.ts (4 tests) 5ms
+  src/sessions/changes.test.ts (10 tests) 8ms
+  src/dictation/pendingStore.test.ts (6 tests) 6ms
+  src/terminal/lineLinks.test.ts (5 tests) 9ms
+  src/dictation/status.test.ts (5 tests) 10ms
+  src/skills/skillsClient.test.ts (4 tests) 16ms
+  src/sessions/pinning.test.ts (5 tests) 7ms
+  src/dictation/captureHealth.test.ts (5 tests) 7ms
+  src/recordings/recordingsClient.test.ts (5 tests) 11ms
+  src/missions/missions.test.ts (6 tests) 12ms
+  src/api/hold.test.ts (3 tests) 7ms
   src/dictation/wav.test.ts (4 tests) 6ms
-  src/fleetmanager/handOverClient.test.ts (4 tests) 14ms
-  src/sessions/wingmanStops.test.ts (3 tests) 17ms
+  src/teams/teamPageClient.test.ts (3 tests) 12ms
+  src/fleet/reachability.test.ts (4 tests) 5ms
+  src/push/register.test.ts (5 tests) 7ms
   src/sessions/screenshotGallery.test.ts (4 tests) 5ms
-  src/dictation/recorderTimeout.test.ts (7 tests) 2137ms
-    startRecorderWithTimeout > says how long it waited, in seconds, so the message is actionable 2007ms
-  src/transcription/transcriptionAnalysisClient.test.ts (4 tests) 5ms
-  src/fleet/directorEndpoint.test.ts (9 tests) 7ms
-  src/fleetmanager/answerCard.test.ts (4 tests) 15ms
-  src/fleet/settingsEditor.test.ts (6 tests) 6ms
+  src/sessions/wingmanStops.test.ts (3 tests) 14ms
+  src/fleetmanager/handOverClient.test.ts (4 tests) 14ms
+  src/transcription/transcriptionAnalysisClient.test.ts (4 tests) 6ms
+  src/account/accountClient.test.ts (3 tests) 9ms
+  src/fleetmanager/answerCard.test.ts (4 tests) 13ms
+  src/fleet/settingsEditor.test.ts (6 tests) 5ms
   src/recorder/segmentRecorder.test.ts (3 tests) 5ms
-  src/workflows/workflowsClient.test.ts (4 tests) 6ms
+  src/workflows/workflowsClient.test.ts (4 tests) 5ms
+  src/fleet/directorEndpoint.test.ts (9 tests) 6ms
 stderr | src/errors/reportClientError.test.ts > client error report rate cap > admits up to the cap within one minute, then drops
 [client-errors] rate cap reached; further reports this minute stay local
 
@@ -227,7 +223,9 @@ stderr | src/errors/reportClientError.test.ts > client error report rate cap > a
 stderr | src/errors/reportClientError.test.ts > client error report rate cap > a render-loop burst cannot exceed the cap even across repeated calls
 [client-errors] rate cap reached; further reports this minute stay local
 
-  src/errors/reportClientError.test.ts (3 tests) 6ms
+  src/errors/reportClientError.test.ts (3 tests) 5ms
+  src/dictation/recorderTimeout.test.ts (7 tests) 2098ms
+    startRecorderWithTimeout > says how long it waited, in seconds, so the message is actionable 2004ms
 stderr | src/devreports/devReportNotes.test.ts > hosted, the app owns the conversation > draws no tray at all - no conversation, and no floating note controls over the report
 Error: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
@@ -273,6 +271,7 @@ Error: Not implemented: window.scrollTo
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
     at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
 
+  src/devreports/frameHost.test.ts (17 tests) 50ms
 stderr | src/devreports/devReportNotes.test.ts > note-mode > cancels picking when the app asks
 Error: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
@@ -291,6 +290,9 @@ Error: Not implemented: window.scrollTo
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
     at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
 
+stderr | src/dictation/backgroundSendGatewayOwns.test.ts > after the Gateway acknowledged the complete (202), the client never drives the delivery again > timers far past the old cadence, the page becoming visible and the connection returning: no complete, no prompt - only reads
+[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
 stderr | src/devreports/devReportNotes.test.ts > note-mode > says where note-taking stands as soon as it is hosted, before anything is asked of it
 Error: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
@@ -299,22 +301,6 @@ Error: Not implemented: window.scrollTo
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
     at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
-
-stderr | src/devreports/devReportNotes.test.ts > note-mode > ignores a note-mode message that is not one of the three modes
-Error: Not implemented: window.scrollTo
-    at module.exports (D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
-    at D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
-    at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2309\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
-    at MessagePort.eventHandler (node:internal/event_target:1111:12)
-    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
-
-  src/devreports/devReportNotes.test.ts (64 tests) 1628ms
-    hosted, the app owns the conversation > hands the app the same state hosted as the page keeps unhosted - the panel still gets everything 444ms
-  src/devreports/frameHost.test.ts (17 tests) 41ms
-  src/dictation/typedPromptDelivery.test.ts (28 tests) 122ms
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > after the Gateway acknowledged the complete (202), the client never drives the delivery again > timers far past the old cadence, the page becoming visible and the connection returning: no complete, no prompt - only reads
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > after the Gateway acknowledged the complete (202), the client never drives the delivery again > marks the record on disk as held by the Gateway, so a reload knows
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
@@ -325,6 +311,7 @@ stderr | src/dictation/backgroundSendGatewayOwns.test.ts > after the Gateway ack
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 202: Still delivering, calm, with nothing that sends a second copy
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
+  src/dictation/typedPromptDelivery.test.ts (28 tests) 66ms
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 200 delivered: the copy is deleted and the send shows done
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
@@ -337,13 +324,21 @@ stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outco
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 200 session ended: the words, the ended-session label and Dismiss only - and it is final
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
+stderr | src/devreports/devReportNotes.test.ts > note-mode > ignores a note-mode message that is not one of the three modes
+Error: Not implemented: window.scrollTo
+    at module.exports (D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at D:\ReposFred\devthrottle-teams-2309\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
+    at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2309\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
+    at MessagePort.eventHandler (node:internal/event_target:1111:12)
+    at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 200 session ended with no words: the ended-session label that points at the saved recording, Dismiss only
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > Dismiss on a session-ended record deletes the copy
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
-  src/voice/useVoiceModeAll.test.tsx (10 tests) 337ms
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 404 for a record the client marked as held: an error naming the upload id, the copy kept, nothing re-driven
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
@@ -356,45 +351,28 @@ stderr | src/dictation/backgroundSendGatewayOwns.test.ts > before the Gateway ow
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > what the Gateway handed back (voice delivery phase 5, review round) > out of credits: the held strip with the Gateway's copy, Retry, and a later complete delivers once
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
-  src/devreports/controller.test.ts (13 tests) 77ms
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > what the Gateway handed back (voice delivery phase 5, review round) > a permanent failure: parked with Retry, and an explicit Retry re-drives it
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
 stderr | src/dictation/backgroundSendGatewayOwns.test.ts > what the Gateway handed back (voice delivery phase 5, review round) > an incomplete upload: the client resumes its own chunk upload and delivers
 [backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
-  src/dictation/backgroundSendGatewayOwns.test.ts (27 tests) 243ms
-  src/restart/RestartRequestsPanel.test.tsx (10 tests) 425ms
-  src/sessions/VerdictPanel.test.tsx (21 tests) 1070ms
-  src/sessions/WingmanNow.test.tsx (51 tests) 1524ms
-    Now - the live stop > draws the everyday needs-you stop: the pill, when it stopped, the story, the agent's sentence and the needs card 453ms
-  src/devreports/DevReportViews.test.tsx (11 tests) 516ms
-  src/sessions/WingmanTab.test.tsx (9 tests) 933ms
-  src/devreports/exportReport.test.tsx (10 tests) 964ms
-    Export HTML > saves the bytes the Gateway serves for the version on screen, unchanged 815ms
-  src/sessions/wingmanTabViews.test.tsx (12 tests) 1490ms
-    the Wingman tab's views > opens on Now, fed by the Now route, with History beside it 519ms
-  src/sessions/wingmanNowWireSample.test.tsx (9 tests) 503ms
-    Now, rendered from the answer the Gateway actually sends > draws a needs-you answer with no option buttons, because the Gateway sends none 369ms
-  src/teams/CurrentTeam.test.tsx (25 tests) 2254ms
-  src/voice/clipUrlOutlivesTheListener.test.ts (2 tests) 8ms
+  src/dictation/backgroundSendGatewayOwns.test.ts (27 tests) 100ms
+  src/devreports/controller.test.ts (13 tests) 101ms
+  src/devreports/devReportNotes.test.ts (64 tests) 1010ms
+  src/sessions/WingmanNow.test.tsx (51 tests) 936ms
 stderr | src/settings/FleetManagerTab.test.tsx > the Fleet Manager tab > shows a loading line before the Gateway answers
  React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
  React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
-  src/auth/accountsLayout.test.tsx (7 tests) 463ms
-  src/voice/voiceColdEntryIsNotStale.test.tsx (2 tests) 37ms
-  src/voice/voiceMenuGuard.test.tsx (7 tests) 132ms
-  src/sessions/WingmanErrorLine.test.tsx (11 tests) 458ms
-  src/voice/voiceSwitchFailureIsVisible.test.tsx (3 tests) 72ms
-  src/devreports/noteControls.test.tsx (6 tests) 197ms
-  src/sessions/wingmanDebugView.test.tsx (6 tests) 391ms
-  src/auth/AccountsPanel.test.tsx (15 tests) 710ms
-  src/settings/FleetManagerTab.test.tsx (14 tests) 1573ms
-  src/history/chatFilterPersistence.test.ts (5 tests) 6ms
-  src/devreports/DevReportLanding.test.tsx (3 tests) 180ms
-  src/history/useSessionChat.test.tsx (5 tests) 206ms
-  src/history/useSessionChatTail.test.tsx (5 tests) 145ms
+  src/voice/voiceMenuGuard.test.tsx (7 tests) 78ms
+  src/voice/useVoiceModeAll.test.tsx (10 tests) 242ms
+  src/restart/RestartRequestsPanel.test.tsx (10 tests) 339ms
+  src/auth/AccountsPanel.test.tsx (15 tests) 508ms
+  src/devreports/exportReport.test.tsx (10 tests) 271ms
+  src/devreports/DevReportViews.test.tsx (11 tests) 370ms
+  src/sessions/WingmanErrorLine.test.tsx (11 tests) 435ms
+  src/sessions/wingmanNowWireSample.test.tsx (9 tests) 314ms
 stderr | src/sessions/ColourLegend.test.tsx > ColourLegendPanel > says the read failed, and draws no colours, when the Gateway refuses
 [sessionColours] the colour legend could not be read GatewayError: boom
     at Function.from (D:\ReposFred\devthrottle-teams-2309\packages\client-core\src\api\client.ts:433:12)
@@ -405,37 +383,51 @@ stderr | src/sessions/ColourLegend.test.tsx > ColourLegendPanel > says the read 
   retryable: false
 }
 
-  src/stats/ThrottleWindowSelector.test.tsx (5 tests) 505ms
-    ThrottleWindowSelector > renders the served choices in the served order with the served labels, and marks the one in effect 415ms
-  src/dictation/dictationLiveAlarm.test.tsx (5 tests) 297ms
-  src/sessions/ColourLegend.test.tsx (11 tests) 926ms
-  src/sessions/density.test.ts (8 tests) 10ms
-  src/dictation/dictationStripLayout.test.tsx (1 test) 208ms
+  src/sessions/ColourLegend.test.tsx (11 tests) 497ms
+  src/sessions/WingmanTab.test.tsx (9 tests) 692ms
+  src/settings/FleetManagerTab.test.tsx (14 tests) 993ms
+  src/sessions/VerdictPanel.test.tsx (21 tests) 967ms
+  src/auth/accountsLayout.test.tsx (7 tests) 339ms
 stderr | src/settings/SettingsTabs.test.tsx > the Settings tab strip > offers the four shared tabs on the phone
  React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
  React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
+  src/sessions/wingmanTabViews.test.tsx (12 tests) 940ms
+    the Wingman tab's views > opens on Now, fed by the Now route, with History beside it 420ms
 stderr | src/settings/TurnVerdictCard.test.tsx > the Turn verdicts card > is on the Fleet Manager tab that both shells mount
  React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
  React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
-  src/settings/TurnVerdictCard.test.tsx (8 tests) 782ms
-stderr | src/settings/DailyReportCard.test.tsx > the Daily report card > is on the Notifications tab that both shells mount
- React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
- React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
-  src/settings/DailyReportCard.test.tsx (5 tests) 930ms
-    the Daily report card > is on the Notifications tab that both shells mount 425ms
+  src/settings/TurnVerdictCard.test.tsx (8 tests) 417ms
+  src/settings/SettingsTabs.test.tsx (20 tests) 959ms
+  src/teams/CurrentTeam.test.tsx (25 tests) 2096ms
+  src/voice/voiceSwitchFailureIsVisible.test.tsx (3 tests) 53ms
+  src/dictation/dictationLiveAlarm.test.tsx (5 tests) 141ms
+  src/voice/clipUrlOutlivesTheListener.test.ts (2 tests) 9ms
 stderr | src/settings/MentorReportCard.test.tsx > the Mentor report card > is on the Notifications tab that both shells mount
  React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
  React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
-  src/settings/MentorReportCard.test.tsx (7 tests) 1256ms
-    the Mentor report card > is on the Notifications tab that both shells mount 557ms
-  src/settings/SettingsTabs.test.tsx (20 tests) 1901ms
+  src/settings/MentorReportCard.test.tsx (7 tests) 579ms
+    the Mentor report card > is on the Notifications tab that both shells mount 316ms
+  src/sessions/wingmanDebugView.test.tsx (6 tests) 389ms
+  src/sessions/density.test.ts (8 tests) 9ms
+stderr | src/settings/DailyReportCard.test.tsx > the Daily report card > is on the Notifications tab that both shells mount
+ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- Test Files  148 passed (148)
-      Tests  1773 passed (1773)
-   Start at  12:18:56
-   Duration  27.35s (transform 107.57s, setup 6.89s, collect 178.02s, tests 32.38s, environment 138.16s, prepare 58.18s)
+  src/settings/DailyReportCard.test.tsx (5 tests) 393ms
+  src/history/chatFilterPersistence.test.ts (5 tests) 7ms
+  src/devreports/noteControls.test.tsx (6 tests) 103ms
+  src/voice/voiceColdEntryIsNotStale.test.tsx (2 tests) 38ms
+  src/devreports/DevReportLanding.test.tsx (3 tests) 161ms
+  src/history/useSessionChat.test.tsx (5 tests) 81ms
+  src/history/useSessionChatTail.test.tsx (5 tests) 84ms
+  src/stats/ThrottleWindowSelector.test.tsx (5 tests) 207ms
+  src/dictation/dictationStripLayout.test.tsx (1 test) 162ms
+
+ Test Files  149 passed (149)
+      Tests  1778 passed (1778)
+   Start at  12:51:45
+   Duration  16.24s (transform 35.96s, setup 5.05s, collect 76.57s, tests 23.51s, environment 91.74s, prepare 42.10s)
 

@@ -1,4 +1,4 @@
 Test run for D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
 A total of 1 test files matched the specified pattern.
 
-Passed!  - Failed:     0, Passed:  1266, Skipped:     6, Total:  1272, Duration: 1 m 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+Passed!  - Failed:     0, Passed:  1397, Skipped:     7, Total:  1404, Duration: 1 m 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)

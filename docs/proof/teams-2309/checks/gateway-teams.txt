@@ -1,4 +1,4 @@
-Starting a throwaway PostgreSQL for this run (instance runb57b8b0a, port 57864)...
+Starting a throwaway PostgreSQL for this run (instance run0bafc897, port 52736)...
 PostgreSQL ready. It is destroyed when this run ends.
 Building once, then running 1 test project(s)...
 
@@ -6,18 +6,18 @@ Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:12.45
+Time Elapsed 00:00:14.65
   started CcDirector.Gateway.Tests
 
 Waiting. The Gateway suite serializes machine-wide, so it may queue behind another run;
 that is not a hang - it prints its holder every 30s into its log.
 
-  PASS  CcDirector.Gateway.Tests  Passed!  - Failed:     0, Passed:   112, Skipped:     0, Total:   112, Duration: 9 m 2 s - CcDirector.Gateway.Tests.dll (net10.0)
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed:     0, Passed:   123, Skipped:     0, Total:   123, Duration: 7 m 38 s - CcDirector.Gateway.Tests.dll (net10.0)
 
 TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
-  CcDirector.Gateway.Tests                 outcome=Completed    total=112    executed=112
+  CcDirector.Gateway.Tests                 outcome=Completed    total=123    executed=123
 
-TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-61912264
+TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-56baeab0
 
 
 RESULT: PART OF THE FILTER MATCHED NOTHING - this run is not evidence for what it named.
@@ -25,7 +25,7 @@ These terms RAN no test anywhere in the run - a test that was collected and then
 skipped does not count, because a skip proves nothing:
   FullyQualifiedName~Teams&FullyQualifiedName!~HostedTeamReports
 
-112 test(s) were collected in total, so the run is not empty - which is exactly
+123 test(s) were collected in total, so the run is not empty - which is exactly
 why it would otherwise have passed. A term that matches nothing is a test name that has
 drifted, a test that has been removed, or a typo; in all three the claim this run was
 gathered to support is unproven.
