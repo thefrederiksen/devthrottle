@@ -17,6 +17,8 @@ import { SessionComposer } from "../sessions/SessionComposer";
 import { mergeConversation } from "./conversation";
 import { OutcomeCard } from "./OutcomeCard";
 import { fleetManagerPageStore } from "./pageStore";
+import { MistakeBox, StandingPanel } from "./StandingPanel";
+import { fleetStandingStore } from "./standingStore";
 
 // THE FLEET MANAGER PAGE (the Fleet Manager mission, step 6) - the page the Cockpit opens on.
 //
@@ -43,12 +45,19 @@ import { fleetManagerPageStore } from "./pageStore";
 // not-running bar shows, and the thinking line all come from status.page (the placement answer). A card button is one
 // Gateway call; the Gateway passes the answer to the Fleet Manager.
 //
+// THE OWNER'S LESSONS (issue #3559, part 4). "That was a mistake" in the header opens an empty box for the owner's
+// correction; the Gateway keeps it confirmed and tells the Fleet Manager. "Lessons and preferences" shows the one list
+// beside the conversation, where each row is confirmed, edited or removed. Both come from the list's own Gateway answer
+// (GET /gateway/fleet-manager/standing), read only while this page is open, slowly, and again after each change.
+//
 // The "Started ..." lines of the design are not drawn as small lines: the history carries no record that tells a
 // start apart from any other reply, and guessing at the prose is exactly what this page must not do. They show as
 // the ordinary replies they are. Nor does the history record how a message was entered (typed or dictated), so
 // the owner's bubbles do not say.
 
 const SURFACE = "cockpit-fleet-manager";
+// How long "Kept." stays after a lesson is kept.
+const KEPT_SHOWN_MS = 8000;
 const PLACEMENT_REFRESH_MS = 8000;
 const BOTTOM_THRESHOLD_PX = 40;
 
@@ -90,6 +99,20 @@ export function FleetManagerView() {
   // words, and withdrawn if the Gateway withdraws the offer before the owner answers.
   const [freshAsked, setFreshAsked] = useState<FleetManagerAction | null>(null);
   const [freshBusy, setFreshBusy] = useState(false);
+  const [mistakeOpen, setMistakeOpen] = useState(false);
+  const [lessonKept, setLessonKept] = useState(false);
+  const [standingShown, setStandingShown] = useState(false);
+  const standingState = usePollingStore(fleetStandingStore);
+  const standing = standingState.data ?? undefined;
+  useEffect(() => {
+    if (!lessonKept) return;
+    const timer = window.setTimeout(() => setLessonKept(false), KEPT_SHOWN_MS);
+    return () => window.clearTimeout(timer);
+  }, [lessonKept]);
+  const standingChanged = useCallback(() => {
+    setLessonKept(false);
+    fleetStandingStore.refreshNow();
+  }, []);
 
   const refreshAll = useCallback(() => {
     fleetManagerPageStore.refreshNow();
@@ -195,6 +218,39 @@ export function FleetManagerView() {
               {quickBusy === q.words ? controls?.quickPromptBusyLabel : q.label}
             </Button>
           ))}
+          {standing?.mistake.offered && (
+            <Button
+              onClick={() => {
+                setMistakeOpen(true);
+                setLessonKept(false);
+              }}
+              data-testid="fmp-mistake-open"
+            >
+              {standing.mistake.label}
+            </Button>
+          )}
+          {standing && !standing.mistake.offered && standing.mistake.note && (
+            <span className="fmp-head-note" data-testid="fmp-mistake-note">
+              {standing.mistake.note}
+            </span>
+          )}
+          {standing && (
+            <Button
+              aria-expanded={standingShown}
+              onClick={() => {
+                setStandingShown((v) => !v);
+                setLessonKept(false);
+              }}
+              data-testid="fmp-standing-toggle"
+            >
+              {standingShown ? standing.hideLabel : standing.showLabel}
+            </Button>
+          )}
+          {standing?.waitingNote && (
+            <span className="fmp-head-note fmp-head-note-attention" data-testid="fmp-standing-waiting">
+              {standing.waitingNote}
+            </span>
+          )}
           {controls?.startFresh.offered && (
             <Button onClick={() => setFreshAsked(controls.startFresh)} data-testid="fmp-start-fresh">
               {controls.startFresh.label}
@@ -210,6 +266,28 @@ export function FleetManagerView() {
       {quickError !== null && (
         <div className="fmp-bar fmp-bar-bad" role="alert">
           {quickError}
+        </div>
+      )}
+
+      {mistakeOpen && standing && (
+        <MistakeBox
+          standing={standing}
+          onKept={() => {
+            setMistakeOpen(false);
+            setLessonKept(true);
+            fleetStandingStore.refreshNow();
+          }}
+          onClose={() => setMistakeOpen(false)}
+        />
+      )}
+      {standingState.error !== null && (standingShown || mistakeOpen) && (
+        <div className="fmp-bar fmp-bar-bad" role="alert">
+          {standingState.error}
+        </div>
+      )}
+      {lessonKept && standing && (
+        <div className="fmp-bar" role="status" data-testid="fmp-lesson-kept">
+          <span className="fmp-bar-text">{standing.keptSentence}</span>
         </div>
       )}
 
@@ -241,7 +319,7 @@ export function FleetManagerView() {
         </div>
       )}
 
-      <div className="fmp-body">
+      <div className={standingShown && standing ? "fmp-body fmp-body-with-side" : "fmp-body"}>
         <div className="fmp-convo">
           <div className="fmp-scroll" ref={scrollRef} onScroll={onScroll} data-testid="fmp-conversation">
             {chat.staleNotice !== null && (
@@ -326,6 +404,7 @@ export function FleetManagerView() {
             {controls && <div className="fmp-hint">{controls.composerHint}</div>}
           </div>
         </div>
+        {standingShown && standing && <StandingPanel standing={standing} onChanged={standingChanged} />}
       </div>
 
       {freshAsked?.confirmTitle && freshAsked.confirmMessage && (

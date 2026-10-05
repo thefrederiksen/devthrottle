@@ -1,8 +1,94 @@
 import type { FleetManagerPage, FleetOutcomeCard } from "@devthrottle/client-core/fleetmanager/pageClient";
+import type { FleetStanding } from "@devthrottle/client-core/fleetmanager/standingClient";
 
 // Synthetic Gateway answers for the Fleet Manager page's tests. Neutral names only: this repository is public.
 
 export const FM_SESSION = "80000000-0000-4000-8000-000000000001";
+
+function act(label: string, offered: boolean, extra: { note?: string | null; confirmTitle?: string; confirmMessage?: string } = {}) {
+  return { offered, label, busyLabel: `${label} busy (fake)`, note: extra.note ?? null, ...extra };
+}
+
+/** The owner's lessons and preferences as the Gateway folds them (issue #3559): one lesson the Fleet Manager kept that
+ *  waits for the owner, one the owner kept, and one preference. Every word is fake, so a test proves it is rendered. */
+export function standing(): FleetStanding {
+  const remove = (what: string) =>
+    act("Remove (fake)", true, { confirmTitle: `Remove this ${what}? (fake)`, confirmMessage: "No Fleet Manager is given it again. (fake)" });
+  return {
+    mistake: act("That was a mistake (fake)", true),
+    boxTitle: "What should it never do again? (fake)",
+    boxNote: "Kept in your words, exactly. (fake)",
+    boxPlaceholder: "For example... (fake)",
+    maxLessonLength: 500,
+    keepLabel: "Keep (fake)",
+    keepBusyLabel: "Keeping... (fake)",
+    keptSentence: "Kept. The Fleet Manager is told. (fake)",
+    saveLabel: "Save (fake)",
+    saveBusyLabel: "Saving... (fake)",
+    cancelLabel: "Cancel (fake)",
+    showLabel: "Lessons and preferences (3) (fake)",
+    hideLabel: "Hide lessons and preferences (fake)",
+    waitingNote: "1 lesson waits for you to confirm. (fake)",
+    lessons: {
+      title: "Lessons (fake)",
+      count: 2,
+      note: "Only confirmed lessons are given to the Fleet Manager. (fake)",
+      emptyText: null,
+      rows: [
+        {
+          id: "lesson-waiting",
+          kind: "lesson",
+          text: "Ask before a release.",
+          mistakeLine: null,
+          keptLine: "Kept 6 October 2026 by the Fleet Manager (fake)",
+          maxLength: 500,
+          removeAction: "remove this lesson (fake)",
+          statusLine: "Kept by the Fleet Manager - confirm? (fake)",
+          tone: "waiting",
+          confirm: act("Confirm (fake)", true),
+          edit: act("Edit (fake)", true),
+          remove: remove("lesson"),
+        },
+        {
+          id: "lesson-confirmed",
+          kind: "lesson",
+          text: "Never message every session when none is stuck.\nCheck first.",
+          mistakeLine: "What went wrong: messaged all 36 sessions (fake)",
+          keptLine: "Kept 5 October 2026 by you (fake)",
+          maxLength: 500,
+          removeAction: "remove this lesson (fake)",
+          statusLine: "Confirmed 5 October 2026 (fake)",
+          tone: "confirmed",
+          confirm: act("", false),
+          edit: act("Edit (fake)", true, { note: "The Fleet Manager is told the new words. (fake)" }),
+          remove: remove("lesson"),
+        },
+      ],
+    },
+    preferences: {
+      title: "Standing preferences (fake)",
+      count: 1,
+      note: null,
+      emptyText: null,
+      rows: [
+        {
+          id: "pref-1",
+          kind: "preference",
+          text: "Merge docs on green.",
+          mistakeLine: null,
+          keptLine: "Kept 2 October 2026 by the Fleet Manager (fake)",
+          maxLength: 2000,
+          removeAction: "remove this preference (fake)",
+          statusLine: null,
+          tone: "preference",
+          confirm: act("", false),
+          edit: act("Edit (fake)", true),
+          remove: remove("preference"),
+        },
+      ],
+    },
+  };
+}
 
 export const READY_CARD: FleetOutcomeCard = {
   id: "80000000-0000-4000-8000-0000000000a1",

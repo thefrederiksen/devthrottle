@@ -165,7 +165,7 @@ internal static class FleetManagerEndpoints
         app.MapDelete(Prefix + "/preferences/{id}", (HttpContext ctx, string id)
             => DeletePreference(ctx, id, resolveTenant, access, preferences, lessonsChanged));
         app.MapPut(Prefix + "/preferences/{id}", (HttpContext ctx, string id)
-            => EditPreferenceAsync(ctx, id, resolveTenant, access, preferences, lessonsChanged));
+            => EditPreferenceAsync(ctx, id, resolveTenant, access, preferences, answerQueued, lessonsChanged));
         app.MapPost(Prefix + "/preferences/{id}/confirm", (HttpContext ctx, string id)
             => ConfirmLesson(ctx, id, resolveTenant, access, preferences, lessonsChanged));
 
@@ -544,8 +544,10 @@ internal static class FleetManagerEndpoints
     /// session key, the Fleet Manager's included, because a Fleet Manager that could edit a confirmed lesson could write
     /// its own instructions. A lesson keeps its confirmation.
     /// </summary>
+    /// <param name="lessonQueued">Called after an edit queued a fresh <c>lesson</c> event, so its delivery is booked.</param>
     internal static async Task<IResult> EditPreferenceAsync(HttpContext ctx, string id, Func<HttpContext, TenantId?> resolveTenant,
-        FleetManagerAccess access, FleetPreferenceStore store, Action<TenantId>? lessonsChanged = null)
+        FleetManagerAccess access, FleetPreferenceStore store, Action<TenantId>? lessonQueued = null,
+        Action<TenantId>? lessonsChanged = null)
     {
         FileLog.Write($"[FleetManagerEndpoints] EditPreference: id={id}");
         try
@@ -562,8 +564,18 @@ internal static class FleetManagerEndpoints
             if (body!.Kind is not null && body.Kind != row.Kind)
                 return BadRequest($"{id} is a {row.Kind}; an edit never changes a row's kind. Remove it and keep a new "
                                   + $"{body.Kind} instead");
-            var updated = store.Update(tenant, guid, body.Text, body.Mistake);
+            // A confirmed lesson the Fleet Manager already acknowledged is told again, with the new words.
+            var now = DateTime.UtcNow;
+            var queued = false;
+            var updated = store.Update(tenant, guid, body.Text, body.Mistake, edited =>
+            {
+                queued = true;
+                return FleetManagerEventStore.LessonEvent(edited, access.MarkedSessionId(tenant), now);
+            });
+            if (queued) lessonQueued?.Invoke(tenant);
+            FileLog.Write($"[FleetManagerEndpoints] EditPreference: id={id}, updated={updated is not null}, lessonEventQueued={queued}");
             if (updated is null) return PreferenceNotFound(id);
+            // The compaction path (part 2): the marked Fleet Manager's Director is stamped with the new block.
             if (updated.Kind == FleetPreferenceStore.KindLesson) lessonsChanged?.Invoke(tenant);
             return Results.Json(updated);
         }

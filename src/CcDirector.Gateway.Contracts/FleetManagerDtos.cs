@@ -179,7 +179,8 @@ public sealed class FleetPreferenceRequest
     /// changes a row's kind and refuses one that names a different kind.</summary>
     public string? Kind { get; set; }
 
-    /// <summary>On a lesson: one line saying what went wrong, or null.</summary>
+    /// <summary>On a lesson: one line saying what went wrong, or null. On an edit (<c>PUT</c>), null keeps the line as
+    /// it is and an empty string clears it.</summary>
     public string? Mistake { get; set; }
 }
 

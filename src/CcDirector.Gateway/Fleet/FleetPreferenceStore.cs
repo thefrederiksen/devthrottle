@@ -180,6 +180,20 @@ public sealed class FleetPreferenceStore
         return rows.Select(ToDto).ToList();
     }
 
+    /// <summary>Every lesson and every standing preference of this account, each oldest first, in ONE query - the
+    /// owner's list on the Fleet Manager page (issue #3559, part 4), which is polled.</summary>
+    public (IReadOnlyList<FleetPreferenceDto> Lessons, IReadOnlyList<FleetPreferenceDto> Preferences) ListBoth(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var rows = ctx.FleetPreferences.AsNoTracking()
+            .OrderBy(p => p.CreatedAtUtc).ThenBy(p => p.Id)
+            .ToList();
+        var lessons = rows.Where(p => p.Kind == KindLesson).Select(ToDto).ToList();
+        var preferences = rows.Where(p => p.Kind == KindPreference).Select(ToDto).ToList();
+        FileLog.Write($"[FleetPreferenceStore] ListBoth: tenant={tenant}, lessons={lessons.Count}, preferences={preferences.Count}");
+        return (lessons, preferences);
+    }
+
     /// <summary>The lessons the owner kept or confirmed, oldest first - the only ones given to a Fleet Manager as
     /// lessons it must obey.</summary>
     public IReadOnlyList<FleetPreferenceDto> ConfirmedLessons(TenantId tenant)
@@ -243,12 +257,17 @@ public sealed class FleetPreferenceStore
 
     /// <summary>
     /// The owner rewrites one row in their own words. A lesson keeps its confirmation, and its line about the mistake
-    /// is replaced by <paramref name="mistake"/> (null clears it). A preference takes no mistake.
+    /// is replaced by <paramref name="mistake"/>: null keeps it as it is (the Cockpit's edit rewrites the words only), and
+    /// an empty string clears it. A preference takes no mistake.
     /// </summary>
     /// <exception cref="ArgumentException">The text is blank or too long for its kind, or a preference was given a
     /// mistake.</exception>
+    /// <param name="lessonEvent">For a CONFIRMED lesson whose earlier event the Fleet Manager has already acknowledged:
+    /// the event telling it the new words, saved in the same save. Without it a running Fleet Manager would go on
+    /// obeying the old words until it next started. Null queues nothing.</param>
     /// <returns>The row as stored, or null when this account holds no row with that id.</returns>
-    public FleetPreferenceDto? Update(TenantId tenant, Guid id, string? text, string? mistake)
+    public FleetPreferenceDto? Update(TenantId tenant, Guid id, string? text, string? mistake,
+        Func<FleetPreferenceDto, FleetManagerEventEntity>? lessonEvent = null)
     {
         FileLog.Write($"[FleetPreferenceStore] Update: tenant={tenant}, id={id}, length={text?.Length ?? 0}");
         try
@@ -265,14 +284,30 @@ public sealed class FleetPreferenceStore
                 if (row.Kind == KindLesson)
                 {
                     CheckLessonText(text);
-                    row.Mistake = CheckMistake(mistake);
-                    // A lesson event not yet acknowledged delivers the words as they are now, never the old ones.
+                    var newMistake = mistake is null ? row.Mistake : CheckMistake(mistake);
+                    var changed = !string.Equals(row.Text, text, StringComparison.Ordinal)
+                                  || !string.Equals(row.Mistake, newMistake, StringComparison.Ordinal);
+                    row.Mistake = newMistake;
+                    // Every lesson event not yet acknowledged carries the words as they are now, so no later Fleet
+                    // Manager it is still owed to is ever sent the withdrawn ones.
                     var lessonId = id.ToString();
-                    foreach (var evt in ctx.FleetManagerEvents.Where(e => e.Kind == FleetManagerEventStore.KindLesson
-                                 && e.LessonId == lessonId && e.AcknowledgedAtUtc == null))
+                    var open = ctx.FleetManagerEvents.Where(e => e.Kind == FleetManagerEventStore.KindLesson
+                                 && e.LessonId == lessonId && e.AcknowledgedAtUtc == null).ToList();
+                    foreach (var evt in open)
                     {
                         evt.Words = text!;
                         evt.Detail = row.Mistake;
+                    }
+                    // A delivered event is never sent again (FleetManagerEventStore.Owed), even before it is acknowledged.
+                    // So when none is still waiting to be sent, the Fleet Manager has the old words and is told the new
+                    // ones - but only when there are new ones; a save that changed nothing tells it nothing.
+                    var undelivered = open.Count(e => e.DeliveredAtUtc == null);
+                    if (undelivered == 0 && changed && row.ConfirmedByOwnerAtUtc is not null && lessonEvent is not null)
+                    {
+                        row.Text = text!;
+                        var evt = lessonEvent(ToDto(row));
+                        evt.TenantId = ctx.ActiveTenant!;
+                        ctx.FleetManagerEvents.Add(evt);
                     }
                 }
                 else

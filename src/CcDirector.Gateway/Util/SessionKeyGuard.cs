@@ -714,6 +714,9 @@ public static class SessionKeyGuard
             // THE OWNER'S WALKTHROUGH (step 7): the same readings as the page, and the owner's own answers, snoozes and
             // closes recorded as the owner's.
             case "walkthrough":
+            // THE OWNER'S LIST OF LESSONS AND PREFERENCES (issue #3559, part 4), with the owner's buttons. A session -
+            // raised or not - reads the same rows from /preferences?kind=lesson and its digest.
+            case "standing":
                 return false;
             // HAND OVER (step 8). The owner's choice - the Fleet Manager's too, with its own key, when the owner has
             // asked it. Any session may also RELEASE a session it owns to the owner (issue #3086) and TAKE a session

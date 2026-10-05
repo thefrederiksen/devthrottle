@@ -5086,7 +5086,17 @@ public sealed class GatewayHost : IAsyncDisposable
                 TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
                 NowUtc: () => DateTime.UtcNow,
                 AnswerEvents: (tenant, ids) => _fleetManagerEventStore!.AnswerEvents(tenant, ids),
-                SuccessorSessionId: _tenantSettingsResolver.FleetManagerSuccessorSessionId));
+                SuccessorSessionId: _tenantSettingsResolver.FleetManagerSuccessorSessionId),
+            standing: new FleetStandingSources(
+                Rows: tenant => _fleetPreferences!.ListBoth(tenant),
+                TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+                FleetManagerRunning: tenant =>
+                {
+                    var marked = _tenantSettingsResolver.FleetManagerSessionId(tenant);
+                    if (string.IsNullOrWhiteSpace(marked)) return false;
+                    var row = GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, marked.Trim());
+                    return row is not null && Fleet.FleetManagerSessions.LiveFleetManager(new[] { row }, marked.Trim()) is not null;
+                }));
 
         // The Fleet Manager walkthrough (step 7): one item at a time, the Wingman's reading, the Fleet Manager's advice,
         // and the answer, snooze and close. The owner's routes: SessionKeyGuard refuses a session key, and the handlers
