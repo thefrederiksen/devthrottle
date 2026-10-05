@@ -619,6 +619,28 @@ public sealed class DeviceRegistry : IDisposable
             .ToList();
     }
 
+    /// <summary>
+    /// Whether <paramref name="tenant"/> has a DIRECTOR's device on record - any device that is not a phone or a browser
+    /// (devthrottle_internal#2306: where a fresh browser starts). A revoked device keeps its row and still counts; a
+    /// device removed from "Your devices" loses its row (<see cref="RemoveForTenant"/>) and no longer does, so a person
+    /// who removed their only Director reads as one who never had one. Phones and browsers enroll with their own types;
+    /// every other writer records a Director as a workstation.
+    /// </summary>
+    public bool HasADirectorOnRecord(TenantId tenant)
+    {
+        if (!tenant.IsValid)
+            throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
+
+        using var ctx = _db.CreateUnscopedContext();
+        var found = ctx.DeviceCredentials
+            .AsNoTracking()
+            .Any(d => d.TenantId == tenant.Value
+                      && d.DeviceType != Account.MobileDeviceEnrollmentService.PhoneDeviceType
+                      && d.DeviceType != Account.MobileDeviceEnrollmentService.BrowserDeviceType);
+        FileLog.Write($"[DeviceRegistry] HasADirectorOnRecord: tenant {tenant.ToLogString()} -> {found}");
+        return found;
+    }
+
     public int Count
     {
         get

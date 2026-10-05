@@ -4063,7 +4063,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // (Accept: text/html, phone User-Agent) not already under the mobile app gets a 302 to the mobile
         // app at /mobile/; a desktop UA falls through unchanged to the Cockpit. After auth, before the
         // Cockpit's browser-page routes - so a phone never reaches the Cockpit sitemap.
-        Mobile.MobileRedirect.UseMobileRedirect(_app);
+        Mobile.MobileRedirect.UseMobileRedirect(_app, TeamsReleased);
 
         // Browser-aware front door (the Cockpit sitemap): a PERSON navigating to /sessions,
         // /directors, or /cockpit (Accept: text/html) gets the React Cockpit shell; programs keep
@@ -4812,7 +4812,7 @@ public sealed class GatewayHost : IAsyncDisposable
         if (TeamsReleased)
         {
             TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry,
-                new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, TeamCallerOwnership, PushedSessions));
+                new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, TeamCallerOwnership, PushedSessions), Devices);
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
             TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
             // The team's shared skills and workflows (devthrottle_internal#2304): the existing skill and workflow

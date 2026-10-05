@@ -45,7 +45,7 @@ function stage(week: string, ...answers: Staged[]) {
 }
 
 const TEAM_ID = "team-test";
-const team = (role: string): TeamSummary => ({ id: TEAM_ID, name: "Teams test", role, memberCount: 3, people: "3 people" });
+const team = (role: string): TeamSummary => ({ id: TEAM_ID, name: "Teams test", role, memberCount: 3, people: "3 people", app: { full: true, pages: [], landing: null, elsewhere: null } });
 
 const ROB_QUOTE = "fix the signup thing so it doesnt break on mobile";
 
@@ -102,7 +102,7 @@ function renderAs(teams: MyTeamsAnswer, chosen: string | null = TEAM_ID) {
   );
 }
 
-const onTeam = (): MyTeamsAnswer => ({ kind: "teams", teams: [team("Manager")] });
+const onTeam = (): MyTeamsAnswer => ({ kind: "teams", teams: [team("Manager")], start: { where: "own-account" } });
 
 function blocks(): HTMLElement[] {
   return screen.queryAllByTestId("mentor-block");
@@ -190,7 +190,7 @@ describe("MentorView", () => {
   });
 
   it("MentorView_NotOnATeam_IsTheOrdinaryMissingPage_AndAsksNothing", async () => {
-    renderAs({ kind: "teams", teams: [] }, null);
+    renderAs({ kind: "teams", teams: [], start: { where: "own-account" } }, null);
 
     await waitFor(() => expect(screen.getByText("Page not found")).toBeTruthy());
     expect(mentor.calls).toEqual([]);

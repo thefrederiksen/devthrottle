@@ -16,7 +16,14 @@ vi.mock("@devthrottle/client-core/teams/teamFleetMapClient", () => ({
 import { GatewayError } from "@devthrottle/client-core/api/client";
 import { TeamFleetMapView } from "./TeamFleetMapView";
 
-const TEAM: TeamSummary = { id: "team-dt", name: "DevThrottle", role: "Manager", memberCount: 4, people: "4 people" };
+const TEAM: TeamSummary = {
+  id: "team-dt",
+  name: "DevThrottle",
+  role: "Manager",
+  memberCount: 4,
+  people: "4 people",
+  app: { full: true, pages: [], landing: null, elsewhere: null },
+};
 
 // D5, as the Gateway sends it to Priya, a Manager.
 const D5: TeamFleetMap = {

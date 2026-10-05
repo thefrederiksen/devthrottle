@@ -1,0 +1,45 @@
+﻿=== RED PROOF: The start rule ignores the own account's Director
+Broke src\CcDirector.Gateway\Teams\TeamApp.cs
+  was: if (ownAccountHasADirector || teams.Count == 0)
+  now: if (teams.Count == 0)
+Ran: dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams.TeamStart"
+
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2306\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+  Failed CcDirector.Gateway.Tests.Teams.TeamStartTests.For_ADirectorOnTheOwnAccount_StartsThereWhateverTheTeams [5 s]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: OwnAccount
+Actual:   Team
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.TeamStartTests.For_ADirectorOnTheOwnAccount_StartsThereWhateverTheTeams() in D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\Teams\TeamStartTests.cs:line 52
+   at System.RuntimeMethodHandle.InvokeMethod(ObjectHandleOnStack target, Void** arguments, ObjectHandleOnStack sig, BOOL isConstructor, ObjectHandleOnStack result)
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Failed CcDirector.Gateway.Tests.Teams.TeamStartTests.ListTeams_ADirectorOnTheOwnAccount_SaysTheOwnAccount [652 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+           ↓ (pos 0)
+Expected: "own-account"
+Actual:   "team"
+           ↑ (pos 0)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.TeamStartTests.ListTeams_ADirectorOnTheOwnAccount_SaysTheOwnAccount() in D:\ReposFred\devthrottle-teams-2306\src\CcDirector.Gateway.UnitTests\Teams\TeamStartTests.cs:line 119
+--- End of stack trace from previous location ---
+
+Failed!  - Failed:     2, Passed:     9, Skipped:     0, Total:    11, Duration: 9 s - CcDirector.Gateway.UnitTests.dll (net10.0)

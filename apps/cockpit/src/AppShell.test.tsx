@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 
 // The left rail's ORDER is a product decision, not an accident of the array literal, so it is pinned
 // here: the Fleet Manager first (the Fleet Manager mission, step 6 - it replaced the Assistant), then Sessions,
@@ -33,13 +34,16 @@ vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => ({
 
 // The person's teams (devthrottle_internal#2312). The switcher at the top of the rail follows the Gateway's answer.
 const myTeams = vi.hoisted(() => ({
-  answer: { kind: "teams", teams: [] } as
-    | { kind: "teams"; teams: Array<{ id: string; name: string; role: string; memberCount: number; people: string }> }
+  answer: { kind: "teams", teams: [], start: { where: "own-account" } } as
+    | { kind: "teams"; teams: TeamSummary[]; start: { where: "own-account" } }
     | { kind: "not-offered"; reason: string }
     | Error,
+  // While set, the read has not answered yet: the test releases it.
+  held: null as Promise<void> | null,
 }));
 vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
   getMyTeams: vi.fn(async () => {
+    if (myTeams.held !== null) await myTeams.held;
     if (myTeams.answer instanceof Error) throw myTeams.answer;
     return myTeams.answer;
   }),
@@ -84,7 +88,7 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", async (importActual
   }),
 }));
 
-import { screen, waitFor, within, fireEvent } from "@testing-library/react";
+import { act, screen, waitFor, within, fireEvent } from "@testing-library/react";
 import { GatewayError } from "@devthrottle/client-core/api/client";
 import { getMyTeams } from "@devthrottle/client-core/teams/teamsClient";
 import { getMentorPage } from "@devthrottle/client-core/teams/mentorClient";
@@ -105,7 +109,8 @@ describe("Cockpit left rail", () => {
     cleanup();
     factory.enabled = false;
     resetFactorySwitchCache();
-    myTeams.answer = { kind: "teams", teams: [] };
+    myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
+    myTeams.held = null;
     vi.clearAllMocks();
     mentorRead.answers.clear();
     mentorRead.calls = [];
@@ -221,7 +226,7 @@ describe("Cockpit left rail", () => {
 
   // Teams must change nothing for a person who never joins one: no switcher, and the rail exactly as it was.
   it("shows no team switcher to a person with no team", async () => {
-    myTeams.answer = { kind: "teams", teams: [] };
+    myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
         <AppShell />
@@ -231,6 +236,33 @@ describe("Cockpit left rail", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId("team-switcher")).toBeNull();
     expect(screen.queryByTestId("team-switcher-error")).toBeNull();
+  });
+
+  // Delta review D1: the state production is in - Teams dark, or no team, and nothing remembered in this browser - draws
+  // today's Cockpit AT ONCE, before the list of teams answers, and never says "Loading your team".
+  it.each([
+    ["Teams dark", { kind: "not-offered", reason: "dark" }],
+    ["no team", { kind: "teams", teams: [], start: { where: "own-account" } }],
+  ] as Array<[string, typeof myTeams.answer]>)("draws today's Cockpit at once with nothing remembered (%s), before the teams answer", async (_name, answer) => {
+    myTeams.answer = answer;
+    let release: () => void = () => {};
+    myTeams.held = new Promise<void>((r) => (release = r));
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    // Not answered yet, and the whole rail is already there.
+    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    expect(document.querySelector(".nav-list-foot")).not.toBeNull();
+    expect(screen.queryByText("Loading your team...")).toBeNull();
+
+    await act(async () => release());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    expect(screen.queryByText("Loading your team...")).toBeNull();
+    expect(screen.queryByTestId("team-switcher")).toBeNull();
   });
 
   it("shows no team switcher on a Gateway that has not turned Teams on", async () => {
@@ -263,7 +295,17 @@ describe("Cockpit left rail", () => {
   it("puts the team switcher at the top of the rail, above the navigation, for a person in a team", async () => {
     myTeams.answer = {
       kind: "teams",
-      teams: [{ id: "t1", name: "DevThrottle", role: "Owner", memberCount: 5, people: "5 people" }],
+      teams: [
+        {
+          id: "t1",
+          name: "DevThrottle",
+          role: "Owner",
+          memberCount: 5,
+          people: "5 people",
+          app: { full: true, pages: [], landing: null, elsewhere: null },
+        },
+      ],
+      start: { where: "own-account" },
     };
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -279,11 +321,11 @@ describe("Cockpit left rail", () => {
   });
 
   describe("the Mentor entry", () => {
-    const TEAM = { id: "team-test", name: "Teams test", role: "Developer", memberCount: 2, people: "2 people" };
-    const OTHER = { id: "team-other", name: "Other team", role: "Manager", memberCount: 4, people: "4 people" };
+    const TEAM = { id: "team-test", name: "Teams test", role: "Developer", memberCount: 2, people: "2 people", app: { full: true, pages: [], landing: null, elsewhere: null } } as TeamSummary;
+    const OTHER = { id: "team-other", name: "Other team", role: "Manager", memberCount: 4, people: "4 people", app: { full: true, pages: [], landing: null, elsewhere: null } } as TeamSummary;
 
     function renderOn(teams: (typeof TEAM)[], chosen: string | null) {
-      myTeams.answer = { kind: "teams", teams };
+      myTeams.answer = { kind: "teams", teams, start: { where: "own-account" } };
       if (chosen !== null) window.localStorage.setItem(currentTeamStorageKey(), chosen);
       render(
         <MemoryRouter initialEntries={["/sessions"]}>

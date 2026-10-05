@@ -53,8 +53,9 @@ internal static class TeamEndpoints
 
     /// <summary>Maps every route listed in the class comment.</summary>
     public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, HostedTenantBoundary boundary, TenantRegistry tenants,
-        TeamFleetMap fleetMap)
+        TeamFleetMap fleetMap, Pairing.DeviceRegistry devices)
     {
+        ArgumentNullException.ThrowIfNull(devices);
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(teams);
         ArgumentNullException.ThrowIfNull(boundary);
@@ -64,7 +65,10 @@ internal static class TeamEndpoints
         app.MapGet(Path, (HttpContext ctx) => Guarded("GET /teams", () =>
         {
             var caller = ResolveCaller(ctx, boundary, tenants);
-            return caller.Denial ?? ListTeams(teams, caller.Subject!);
+            if (caller.Denial is not null) return caller.Denial;
+            // ResolveCaller has just shown the request is bound to this person's own tenant.
+            var own = boundary.ResolveRequestTenant(ctx)!.Value;
+            return ListTeams(teams, caller.Subject!, devices.HasADirectorOnRecord(own));
         }));
 
         app.MapPost(Path, async (HttpContext ctx) =>
@@ -289,15 +293,18 @@ internal static class TeamEndpoints
         return (subject, null);
     }
 
-    /// <summary>The caller's teams, each with the caller's role and the member count.</summary>
-    internal static IResult ListTeams(TeamRegistry teams, string callerSubject)
+    /// <summary>The caller's teams, each with the caller's role and the member count, and where a fresh browser of
+    /// theirs starts (<see cref="TeamStart"/>).</summary>
+    internal static IResult ListTeams(TeamRegistry teams, string callerSubject, bool ownAccountHasADirector)
     {
         var list = teams.ListTeamsFor(callerSubject);
-        FileLog.Write($"[TeamEndpoints] GET /teams: {list.Count} team(s)");
+        var start = TeamStart.For(ownAccountHasADirector, list);
+        FileLog.Write($"[TeamEndpoints] GET /teams: {list.Count} team(s), a fresh browser starts at {TeamStart.Wire(start.Place)}");
         return Results.Json(new
         {
             count = list.Count,
             teams = list.Select(Describe).ToList(),
+            start = new { where = TeamStart.Wire(start.Place), teamId = start.TeamId },
         });
     }
 
@@ -372,7 +379,8 @@ internal static class TeamEndpoints
         }
     }
 
-    /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team.</summary>
+    /// <summary>One team as the caller sees it. <c>role</c> is the CALLER's role in the team, and <c>app</c> is what
+    /// the caller's Cockpit is in it (<see cref="TeamApp"/>, devthrottle_internal#2306).</summary>
     private static object Describe(TeamSummary team) => new
     {
         id = team.TeamId,
@@ -380,6 +388,16 @@ internal static class TeamEndpoints
         role = TeamRoles.Label(team.Role),
         memberCount = team.MemberCount,
         people = team.MemberCount == 1 ? "1 person" : $"{team.MemberCount} people",
+        app = DescribeApp(TeamApp.For(team.Role)),
+    };
+
+    /// <summary>The page verdict on the wire.</summary>
+    internal static object DescribeApp(TeamAppVerdict app) => new
+    {
+        full = app.FullApp,
+        pages = app.Pages.Select(p => new { id = p.Id, label = p.Label, path = p.Path }).ToList(),
+        landing = app.Landing,
+        elsewhere = app.Elsewhere,
     };
 
     private static IResult Guarded(string route, Func<IResult> handle)
