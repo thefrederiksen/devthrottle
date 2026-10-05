@@ -1411,6 +1411,15 @@ public sealed class SessionManager : IDisposable
 
         try
         {
+            // devthrottle_internal#2311, review finding S2-F13: this session runs no local agent, so nothing is
+            // ever handed the key - but in a team the Gateway decides whose a session is from its key row, and
+            // the first Director to key an id keeps it. A session listed with no key row could be keyed first
+            // by a colleague's Director and become theirs. So it gets a key like any other session, minted and
+            // registered BEFORE it joins the roster, kept in the Director's key store so every reseed refreshes
+            // it, and revoked when the session ends. Same rule as CreateSession: only when a Gateway is set.
+            if (!string.IsNullOrEmpty(GatewayUrl))
+                GatewaySessionCredentialSource?.Invoke(id);
+
             backend.StartRemote();
             session.MarkRunning();
 
@@ -1421,6 +1430,9 @@ public sealed class SessionManager : IDisposable
         }
         catch (Exception ex)
         {
+            // End the Gateway key if one was minted before the throw; the session never joined the roster,
+            // so the reaper will never revoke it. Idempotent, keyed by session id.
+            GatewaySessionCredentialRevoker?.Invoke(id);
             session.MarkFailed();
             _log?.Invoke($"Failed to create GitHub Actions session for {config.Slug}: {ex.Message}");
             session.Dispose();
