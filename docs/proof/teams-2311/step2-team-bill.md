@@ -9,13 +9,14 @@ Test commands, totals and revert proofs are in [test-runs.txt](test-runs.txt) (r
 
 | Item | Piece | What it does |
 |---|---|---|
-| 7 (first) | `Streaming/DirectorHub.cs` `TeamTurnPushRefusalFor`, `SessionTurnStore.DirectorsOfAnyGeneration` | Review round 2 R2-F1. In a team, the hub accepts a turn push only into a session every writer of which (any generation) is the pushing Director or another Director of the same person. A colleague's push is refused for good (the push answers no watermark). A session with nothing stored yet is accepted only from a Director whose roster holds it; otherwise the answer is an empty watermark, a soft refusal so the Director tries again at its next trigger once its roster has caught up. Personal keys are not asked. |
+| 7 (first) | `Streaming/DirectorHub.cs` `TeamTurnPushRefusalFor`, `SessionTurnStore.DirectorsOfAnyGeneration` | Review round 2 R2-F1. In a team, the hub accepts a turn push only into a session every writer of which (any generation) is the pushing Director or another Director of the same person. A colleague's push is refused for good (the push answers no watermark). A session with nothing stored yet is accepted only from the ONE Director in the tenant whose roster holds it (review S2-F2); otherwise - not in its roster, or another Director lists the id too - the answer is an empty watermark, a soft refusal so the Director tries again at its next trigger. Personal keys are not asked. |
 | 1 | `Teams/TeamMemberEntitlement.cs` (new), `Tenancy/HostedAccessLeaseService.cs` | The lease reads the TEAM's bill and the calling person's role there. A member is always allowed (team tier with a seat, free tier without). A person who is not a member is refused 403 `team_member_required` and nothing is revoked. A bill that cannot be read is Unknown: an existing lease is honoured, otherwise a temporary refusal - never a grant, never a revoke. A team lease is keyed by tenant and person, so a stranger cannot ride a member's lease. The sweep re-reads each person's lease. |
 | 2 | `Wingman/NarrationPlan.cs` `DecideForTeamSession`, `GatewayHost.ResolveNarrationPlan`, `Tenancy/PreFreeTierKeyReinstatement.cs`, `DeviceRegistry.ReinstateTeamMembersRevokedBefore` | The narration plan for a team session is its Director's owner's answer in that team; nobody's session is Unknown. Reinstatement in a team gives back only members' keys, one person at a time. |
 | 3 | (no change to the personal path) | A personal tenant reads exactly as before - proven with and without the team branch wired. |
 | 4 | `GatewayHost` | The team entitlement is handed to the lease and to reinstatement only when Teams is released. Dark, the personal rule runs exactly as before and team keys stay revoked by `Judge`. |
 | 5 | `Teams/TeamCallerOwnership.PersonOf`, `AuthMiddleware.RequireToken.TeamPerson`, `TeamEndpointGate.CallerSubject` | Seam 2: one resolver. A device key names its account subject; a session key names its Director's owner, read live, and nobody once that owner's key is revoked. The middleware and the gate both ask it. |
 | 6 | `EntitlementRegistry.ReadTeamBill` (`TeamBill`) | Decision D8: one reader of a team's bill. Paid features, invite, resend, accept and the seat convergence all read it. On a hosted Gateway a row that is not live money is no bill. `ReadTeamBilledSeats` is gone. |
+| S2-F1 | `DeviceRegistry.AnotherPersonHasHeldDirectorInTenant`, `HostedEnrollmentEndpoint.DirectorIdTakenRefusal` | Review round 1 of #3552. A Director id in a team belongs to ONE person for good, kept in the device table so it survives a restart. Setting a Director up for a team, and moving one into a team, are refused 409 `director_id_taken_in_team` when another person has any key row for that id in the team, active or revoked. The same person setting the same id up again is unchanged. No schema change. |
 | 8 | `Teams/TeamsDarkRoutes.cs`, `DeviceRegistry.AccountSubjectOfActiveDevice`, `HostedTeamsDarkCockpitTests` | Review round 3. R3-F1: the dark filter catches `/team-invitations`. R3-F2: a trailing slash on the enrollment team routes. R3-F3: the REAL hosted Gateway, dark, with the Cockpit in the web root, answers 404 on `/teams` with a key and without. R3-F4: a test of OwnerOf's tenant check that fails when the check is removed. |
 
 ## #2299 and the tunnel tests
@@ -44,8 +45,17 @@ These run over the wire against a real hosted Gateway, so they are Gateway.Tests
 13 routes that read or change a session's stored content. A colleague's session ends; the member's Director now holds
 its old id; each route is refused to the member. All 13 are covered by the gate's `CallersOwn` rule on `/sessions`,
 which reads `TeamCallerOwnership` (every writer of the stored conversation must be the caller's). `/recording/{id}` is
-not keyed by a session id and is not in the walk. Item 7 closes the write side: the member cannot push turns into the
-colleague's stored conversation, so it cannot become theirs.
+not keyed by a session id and is not in the walk.
+
+What actually holds this up (corrected after #3552 review S2-F1). Stored turns, and everything the walk's routes read,
+name their writer by DIRECTOR ID; the read rule and item 7's write rule both ask `OwnerOf` who holds each writer's id
+now. That is the right person only because **a Director id in a team is one person's for good**, and that rule lives in
+the device table: enrollment and a move into a team refuse an id another person has ever held there
+(`DirectorIdTakenRefusal`). The in-memory registry binding alone did not hold it - it is empty after every restart, and
+before this fix a member enrolled under a colleague's id could say Hello first and inherit their stored sessions. With
+the id fixed to one person, item 7 then refuses a colleague's push into a stored conversation, and the first rows of a
+session with nothing stored are taken only from the one Director in the tenant whose roster holds it (S2-F2), so a
+colleague cannot write first and make the session theirs.
 
 ## Personal tenants unchanged (item 3)
 
@@ -76,6 +86,33 @@ Each mechanism broken on purpose, the tests run on a build that succeeded, and t
 - R3-F1 and R3-F2, the filter as it was before round 3: 7 red.
 
 Every one restored and green.
+
+## #3552 review round 1
+
+The reviewer's two reproduction tests passed on bc0bbedea (both harms happened). Pasted into `TeamDirectorTunnelTests`
+turned round, they are the first tests of the two fixes:
+
+| Finding | Test | On bc0bbedea | On the new head |
+|---|---|---|---|
+| S2-F1 | `AKeyUnderAColleaguesDirectorId_IsRefusedAtEnrollment_SoAfterARestartTheColleagueStillOwnsTheirStoredSessions` | fails (the enrollment is 200; reproduced by turning the refusal off) | PASS |
+| S2-F1 | `HostedTeamEnrollmentTests.EnrollOrMove_IntoATeam_UnderADirectorIdAnotherMemberHolds_IsRefused409_ActiveOrRevoked_AndNothingIsWritten` | fails | PASS |
+| S2-F1 | `HostedTeamEnrollmentTests.Enroll_TheSameDirectorSomewhereElse_...` and `Enroll_TwoMembersPresentingTheSameDeviceId_TheSecondIsRefused_...` - changed on purpose: both pinned two people on one Director id in one team, which was the defect | fail | PASS |
+| S2-F2 | `AColleagueListingALiveSessionId_CannotPushItsFirstRows_AndOnceTheyStop_TheOwnersPushIsStoredAndTheSessionIsTheirs` | fails (reproduced by restoring the old roster rule) | PASS |
+| S2-F4 | `HostedTeamBillOverTheWireTests.ASessionKey_WhoseDirectorsOwnerIsNoLongerAMember_Is403TeamMemberRequired_FromTheLease_NotTheRegistrys401` (Gateway.Tests) | - | compiled; continuous integration to run |
+
+"Fails on bc0bbedea" was shown by putting the old behaviour back on the new head, not by checking out the old head:
+the refusal answering "not taken" (4 red), and the nothing-stored rule back to "this Director's roster holds it" (1 red).
+
+S2-F3: the rebase onto 8b23aaba4 (#3537). `TeamBill` carries `Fingerprint`, computed inside `ReadTeamBill` for every row
+it counts as a bill, so #3537's stop holds. On a hosted Gateway a test-mode row is no bill: convergence answers `NoBill`
+for it and clears any stop mark for that team. That is consistent with D8 (a test-mode row is not a bill there) and is
+pinned by `ReadTeamBill_OnAHostedGateway_ALiveRowCarriesItsFingerprint_AndATestModeRowIsNoBillWithNone`. The D8 revert
+check, redone after the rebase (`ReadTeamBill` ignoring livemode): 4 red of 68.
+
+S2-F4: the line to remove is the `if (access == ...HostedAccessDecision.DenyNotAMember)` block in
+`AuthMiddleware` (the 403 `team_member_required` answer); with it gone the request falls through as allowed and the new
+test's 403 assertion fails. It is a Gateway.Tests test, so by instruction it was not run here - that red is for the
+continuous integration run to show.
 
 ## Schema
 
