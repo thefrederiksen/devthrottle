@@ -2,7 +2,7 @@
 
 /// <summary>The verdict on one request from a session key, and the sentence explaining it. A refusal always
 /// names its reason so an agent whose command breaks is debuggable from one log line.</summary>
-/// <param name="RaisedGrant">Which of the two grants a RAISED session has let this request through, or
+/// <param name="RaisedGrant">Which of the grants a RAISED session has let this request through, or
 /// <see cref="RaisedGrant.None"/> when any session key may make it. Anything but None is an action an unraised key
 /// could not have taken, which is exactly what the middleware records.</param>
 public readonly record struct SessionKeyVerdict(bool Allowed, string Reason, RaisedGrant RaisedGrant = RaisedGrant.None)
@@ -15,8 +15,8 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason, Rai
 }
 
 /// <summary>
-/// The two things a RAISED session key may do that no other session key may (the Fleet Manager Improvement mission,
-/// phase 1). Two, by name - not "whatever the owner may do".
+/// The things a RAISED session key may do that no other session key may (the Fleet Manager Improvement mission,
+/// phase 1, and issue #3548). Each by name - not "whatever the owner may do".
 /// </summary>
 public enum RaisedGrant
 {
@@ -29,6 +29,11 @@ public enum RaisedGrant
     /// <summary>The Fleet Manager routes that are otherwise the owner's alone: where it runs, start, restart and move,
     /// the page and the walkthrough.</summary>
     FleetManagerOwnerRoute,
+
+    /// <summary>Setting up, listing and removing message links between OTHER sessions (issue #3548): the owner ruled
+    /// "it is a good idea to let the fleet manager allow sessions to talk to each other". The route refuses a raised
+    /// session a link it would itself be part of.</summary>
+    MessageLinks,
 }
 
 /// <summary>
@@ -249,6 +254,9 @@ public static class SessionKeyGuard
 
         if (raised && IsFleetManagerOwnerRoute(verb, segments))
             return SessionKeyVerdict.AllowRaised(RaisedGrant.FleetManagerOwnerRoute);
+
+        if (raised && IsMessageLinkRoute(verb, segments))
+            return SessionKeyVerdict.AllowRaised(RaisedGrant.MessageLinks);
 
         return SessionKeyVerdict.Refuse(
             $"a session key may not call {verb} {p}; it may run the fleet's agent routes and configure the " +
@@ -720,6 +728,18 @@ public static class SessionKeyGuard
     /// with the session that took it. A raised Fleet Manager answers a record with its own answer route, which records
     /// the Fleet Manager, and types an answer into a session with the agent input grant.
     /// </summary>
+    /// <summary>
+    /// The message link routes (issue #3548): <c>GET</c> and <c>POST /fleet/links</c>, and
+    /// <c>DELETE /fleet/links/{id}</c>. The owner's own device reaches them, and a RAISED session does on this grant -
+    /// an ordinary session key never does, because a session that could set up its own link would have no limit at all.
+    /// </summary>
+    private static bool IsMessageLinkRoute(string verb, string[] s)
+    {
+        if (s.Length < 2 || s[0] != "fleet" || s[1] != "links") return false;
+        if (s.Length == 2) return verb is "GET" or "HEAD" or "POST";
+        return s.Length == 3 && verb == "DELETE";
+    }
+
     private static bool IsFleetManagerOwnerRoute(string verb, string[] s)
     {
         if (s.Length != 3 || s[0] != "gateway" || s[1] != "fleet-manager") return false;

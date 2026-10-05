@@ -49,6 +49,7 @@ internal sealed class RaisedSessionRecord
     {
         RaisedGrant.AgentInput => $"typed into a session as the owner would: {method} {path}",
         RaisedGrant.FleetManagerOwnerRoute => $"called a Fleet Manager route that is otherwise the owner's alone: {method} {path}",
+        RaisedGrant.MessageLinks => $"called a message link route that is otherwise the owner's alone: {method} {path}",
         _ => throw new ArgumentOutOfRangeException(nameof(grant), grant, "only a raised grant is recorded"),
     };
 

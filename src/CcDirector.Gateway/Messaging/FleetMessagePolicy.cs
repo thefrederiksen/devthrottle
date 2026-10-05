@@ -62,6 +62,24 @@ public enum FleetMessageOutcome
 
     /// <summary>A reply named a message that did not ask for one. Decided by the store's lookup (slice 3).</summary>
     RefusedNoReplyWanted,
+
+    /// <summary>The send went over a message link that does not allow what it asked for: a one-message link with no
+    /// reply, asked to carry a question (issue #3548).</summary>
+    RefusedLinkAmount,
+}
+
+/// <summary>
+/// A live MESSAGE LINK between the two parties of a send, as the store found it (issue #3548). The owner, or the
+/// Fleet Manager for him, set it up; the policy decides whether it carries this message.
+/// </summary>
+/// <param name="LinkId">The link.</param>
+/// <param name="Amount">One of <see cref="FleetMessageLinkAmounts"/>.</param>
+/// <param name="Reversed">True when the link was set up from the RECIPIENT to the sender - found only for an
+/// <see cref="FleetMessageLinkAmounts.Ongoing"/> link, which carries messages both ways.</param>
+public sealed record FleetMessageLinkFacts(string LinkId, string Amount, bool Reversed = false)
+{
+    /// <summary>True for a link that one message uses up.</summary>
+    public bool IsOneTime => Amount is FleetMessageLinkAmounts.Once or FleetMessageLinkAmounts.OnceWithReply;
 }
 
 /// <summary>The message a reply answers, as the store found it (slice 3, ruling 10).</summary>
@@ -96,6 +114,9 @@ public sealed record FleetReplyOriginal(
 /// <param name="Kind">The kind of message, one of <see cref="FleetMessageKinds"/>. A report is not held to
 /// the per-recipient spacing - see <see cref="FleetMessagePolicy"/>.</param>
 /// <param name="ReplyTo">For a <see cref="FleetMessageKinds.Reply"/>, the message it answers; null otherwise.</param>
+/// <param name="Link">A live message link between the sender and the recipient, when the store found one; null
+/// otherwise (issue #3548).</param>
+/// <param name="ReplyWanted">True when this send asks for a reply.</param>
 public sealed record FleetMessageAttempt(
     string? SenderSessionId,
     string? SenderControllerSessionId,
@@ -108,14 +129,19 @@ public sealed record FleetMessageAttempt(
     bool RecipientHasUnreadDuplicate,
     FleetMessageExemption Exemption = FleetMessageExemption.None,
     string Kind = FleetMessageKinds.Message,
-    FleetReplyOriginal? ReplyTo = null);
+    FleetReplyOriginal? ReplyTo = null,
+    FleetMessageLinkFacts? Link = null,
+    bool ReplyWanted = false);
 
 /// <summary>The decision and the sentence that explains it. <see cref="Reason"/> is what the sender reads;
 /// it is empty only for <see cref="FleetMessageOutcome.Queued"/>.</summary>
 /// <param name="WaivedForRaisedSender">True when the message was queued ONLY because its sender is raised: the
 /// relationship rule or a rate would have refused it. That is an action an unraised session could not have taken, so
 /// the caller records it. False for every message an unraised sender could have sent just the same.</param>
-public readonly record struct FleetMessageVerdict(FleetMessageOutcome Outcome, string Reason, bool WaivedForRaisedSender = false)
+/// <param name="Link">The message link that let the message through, when the relationship rule alone would have
+/// refused it; null otherwise. A one-time link is used up by this message, in the same save that writes it.</param>
+public readonly record struct FleetMessageVerdict(FleetMessageOutcome Outcome, string Reason, bool WaivedForRaisedSender = false,
+    FleetMessageLinkFacts? Link = null)
 {
     /// <summary>True when the record should be written.</summary>
     public bool Queued => Outcome == FleetMessageOutcome.Queued;
@@ -158,6 +184,14 @@ public readonly record struct FleetMessageVerdict(FleetMessageOutcome Outcome, s
 /// rules and "a session cannot message itself". The verdict says when the waiver was what let a message through
 /// (<see cref="FleetMessageVerdict.WaivedForRaisedSender"/>), and the caller records exactly those.
 ///
+/// A MESSAGE LINK LETS TWO UNRELATED SESSIONS TALK (issue #3548). The owner - or the Fleet Manager for him - sets up
+/// a link between two sessions and says how much talking it allows: one message, one message and its reply, or as
+/// much as they need, both ways. It is consulted only when rule 1 would refuse, and after a raised sender, so a link is
+/// never used up by a message that needed no link. A message a link carries is not held to the two rates - the owner
+/// decided how much talking there is when he set the link up - but the duplicate rule stays. A one-message link with
+/// no reply refuses a send that asks for a reply, so nobody waits for an answer that cannot come. A link never
+/// refuses anything rule 1 allows: it only adds.
+///
 /// THE ORDER IS PART OF THE RULE. Text first (nothing else can be judged about a blank message); then
 /// self and relationship, because a session that may not write to this recipient at all should be told
 /// THAT, not that it is sending too fast; then the duplicate, so a repeat of a waiting message is dropped
@@ -197,6 +231,7 @@ public static class FleetMessagePolicy
         var exempt = attempt.Exemption is FleetMessageExemption.HumanGrant or FleetMessageExemption.System;
         var raised = attempt.Exemption == FleetMessageExemption.Raised;
         var waived = false;
+        FleetMessageLinkFacts? usedLink = null;
         var recipient = attempt.RecipientSessionId;
         var sender = attempt.SenderSessionId;
 
@@ -216,18 +251,33 @@ public static class FleetMessagePolicy
             var recipientIsMyWorker = Same(attempt.RecipientControllerSessionId, sender);
             if (!recipientIsMySupervisor && !recipientIsMyWorker)
             {
-                if (!raised)
+                if (raised)
+                {
+                    waived = true;
+                }
+                else if (attempt.Link is { } link)
+                {
+                    if (link.Amount == FleetMessageLinkAmounts.Once && attempt.ReplyWanted)
+                        return new(FleetMessageOutcome.RefusedLinkAmount,
+                            $"The link the user set up lets you send {Short(recipient)} one message with no reply, so " +
+                            "this message cannot ask for one. Send it without asking for a reply. Nothing was queued.");
+                    usedLink = link;
+                }
+                else
+                {
                     return new(FleetMessageOutcome.RefusedNotRelated,
                         $"You may message only the session that started you and the sessions you started. " +
-                        $"{Short(recipient)} is neither, so nothing was queued. {PutItInYourReport}");
-                waived = true;
+                        $"{Short(recipient)} is neither, so nothing was queued. If the two of you need to talk, the " +
+                        $"user can set up a message link between you. {PutItInYourReport}");
+                }
             }
         }
 
         if (attempt.RecipientHasUnreadDuplicate)
             return Duplicate(recipient);
 
-        if (!exempt)
+        // A message a link carries is held to no rate: how much talking there is was decided when the link was set up.
+        if (!exempt && usedLink is null)
         {
             var isReport = attempt.Kind == FleetMessageKinds.Report;
             if (attempt.SentBySenderInWindow >= limits.PerSenderPerHour)
@@ -258,7 +308,7 @@ public static class FleetMessagePolicy
             }
         }
 
-        return new(FleetMessageOutcome.Queued, "", waived);
+        return new(FleetMessageOutcome.Queued, "", waived, usedLink);
     }
 
     private static FleetMessageVerdict DecideReply(FleetMessageAttempt attempt, string recipient, string? sender)

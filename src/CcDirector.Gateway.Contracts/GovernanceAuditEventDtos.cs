@@ -83,13 +83,30 @@ public static class GovernanceAuditEventType
     /// </summary>
     public const string RaisedAction = "raised-action";
 
+    /// <summary>
+    /// The owner, or a raised session for him, SET UP A MESSAGE LINK between two sessions that are not owner and worker
+    /// (issue #3548). The SessionId is the session the link lets send; the Actor is who set it up; the Detail names the
+    /// link, the recipient and the amount.
+    /// </summary>
+    public const string MessageLinkSetUp = "message-link-set-up";
+
+    /// <summary>A message link STOPPED: removed by the owner or a raised session, replaced by a new link between the same
+    /// two sessions, or ended because a session ended. The SessionId is the link's sender; the Actor is who stopped it.
+    /// A one-time link that was used up is recorded by <see cref="MessageOverLink"/> instead.</summary>
+    public const string MessageLinkStopped = "message-link-stopped";
+
+    /// <summary>A message went through ONLY because a message link let it (issue #3548). The SessionId and the Actor are
+    /// the session that sent it; the Detail names the message, the recipient and the link, and says when it used a
+    /// one-time link up. The text is never recorded.</summary>
+    public const string MessageOverLink = "message-over-link";
+
     private static readonly string[] Intervention =
         { Needed, HumanRescued, HumanRedirected, HumanCancelled, Resolved, Stopped, HandedOver };
 
     private static readonly string[] Permission =
     {
         PermissionRequested, PermissionGranted, PermissionDenied, ModeObserved, ElevatedRunStarted, ElevatedRunEnded,
-        SessionRaised, SessionLowered, RaisedAction,
+        SessionRaised, SessionLowered, RaisedAction, MessageLinkSetUp, MessageLinkStopped, MessageOverLink,
     };
 
     /// <summary>The legal event types for a category, or empty for an unknown category.</summary>

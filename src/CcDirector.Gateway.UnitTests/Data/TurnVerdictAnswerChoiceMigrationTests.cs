@@ -50,7 +50,8 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             Assert.Equal("20260928124401_AddFactoryMemoryNotes", all[index + 11]);
             Assert.Equal("20261003182410_AddTeams", all[index + 12]);
             Assert.Equal("20261003233525_AddTeamInvitations", all[index + 13]);
-            Assert.Equal(index + 14, all.Count);
+            Assert.Equal("20261005031703_AddFleetMessageLinks", all[index + 14]);
+            Assert.Equal(index + 15, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
             Assert.Empty(context.Database.GetAppliedMigrations());

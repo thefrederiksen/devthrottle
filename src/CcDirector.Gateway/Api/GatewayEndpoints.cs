@@ -310,6 +310,9 @@ internal static class GatewayEndpoints
         // session is ever raised here: the two routes are not mapped, and every sender is limited exactly as before.
         Fleet.RaisedSessionStore? raisedSessions = null,
         Fleet.RaisedSessionRecord? raisedRecord = null,
+        // Issue #3548: the record of every message a message link carried past the relationship rule. Null (older
+        // callers, tests without a database) leaves such a message unrecorded only where no link store exists either.
+        Messaging.FleetMessageLinkRecord? messageLinkRecord = null,
         // The Website Business Factory, Screen 6: the "started" rows the roster fold stamps the factory agent chip
         // from. Null while the Factory Agents switch is off, and then no row carries a chip.
         Factory.FactorySessionStarts.Reader? factoryStarts = null,
@@ -3765,6 +3768,7 @@ internal static class GatewayEndpoints
                 PartyFrom(session.SessionId, session, director),
                 req.Text ?? "", kind, exemption, replyWithin: replyWithin);
             RecordRaisedMessage(tenant.Value, from, outcome);
+            RecordLinkMessage(tenant.Value, from, outcome);
             FileLog.Write($"[GatewayEndpoints] POST message: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)} kind={kind} replyWanted={req.ReplyWanted} exemption={exemption} status={outcome.Response.Status}");
             return Results.Json(outcome.Response, statusCode: outcome.StatusCode);
         });
@@ -3784,6 +3788,17 @@ internal static class GatewayEndpoints
             raisedRecord!.Action(tenant, senderSessionId,
                 $"sent message {outcome.Response.MessageId} to session {outcome.Response.RecipientSessionId} past the "
                 + "relationship rule or a rate limit");
+        }
+
+        // A message queued ONLY because a message link let it through (issue #3548) is recorded with the session that sent
+        // it, the link, and whether it used a one-time link up. The text is never recorded.
+        void RecordLinkMessage(TenantId tenant, string senderSessionId, Messaging.FleetSendOutcome outcome)
+        {
+            if (outcome.Link is not { } link || outcome.Response.MessageId is not { } messageId) return;
+            if (messageLinkRecord is null)
+                throw new InvalidOperationException(
+                    "A message link carried a message on a Gateway with nowhere to record it; messageLinkRecord must be set.");
+            messageLinkRecord.MessageOver(tenant, senderSessionId, messageId, outcome.Response.RecipientSessionId, link);
         }
 
         // POST /fleet/reply - answer a message that asked for a reply (the Message Load mission, slice 3, ruling 10).

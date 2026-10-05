@@ -55,6 +55,10 @@ public sealed class GovernanceAuditLog
         GovernanceAuditEventType.SessionRaised,
         GovernanceAuditEventType.SessionLowered,
         GovernanceAuditEventType.RaisedAction,
+        // Who set up or stopped a message link, and which session a link carried a message for (issue #3548).
+        GovernanceAuditEventType.MessageLinkSetUp,
+        GovernanceAuditEventType.MessageLinkStopped,
+        GovernanceAuditEventType.MessageOverLink,
     };
 
     public GovernanceAuditLog(GatewayDatabase db)

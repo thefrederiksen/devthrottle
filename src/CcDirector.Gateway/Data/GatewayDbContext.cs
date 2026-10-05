@@ -343,6 +343,10 @@ public sealed class GatewayDbContext : DbContext
     /// Improvement mission, phase 1).</summary>
     public DbSet<RaisedSessionEntity> RaisedSessions => Set<RaisedSessionEntity>();
 
+    /// <summary>The message links each account's owner has set up between two sessions that are not owner and worker
+    /// (issue #3548).</summary>
+    public DbSet<FleetMessageLinkEntity> FleetMessageLinks => Set<FleetMessageLinkEntity>();
+
     /// <summary>The factory triggers (the Website Business Factory mission, product track): a model-free check a
     /// Director runs on an interval, which has the Gateway start a session only when the check counts work.</summary>
     public DbSet<TriggerEntity> Triggers => Set<TriggerEntity>();
@@ -894,6 +898,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.TextHash).HasMaxLength(64);
             b.Property(e => e.CorrelationId).HasMaxLength(32);
             b.Property(e => e.InReplyToMessageId).HasMaxLength(32);
+            b.Property(e => e.LinkId).HasMaxLength(32);
             // The inbox read: one recipient's unread messages, oldest first. Also serves "has this recipient
             // an unread identical message from this sender", which narrows on the recipient first.
             b.HasIndex(e => new { e.TenantId, e.RecipientSessionId, e.ReadAtUtc, e.CreatedAtUtc });
@@ -988,6 +993,26 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.RaisedBy).HasMaxLength(256);
             // One row per session per account: raising a raised session again changes its source, never adds a row.
             b.HasIndex(e => new { e.TenantId, e.SessionId }).IsUnique();
+        });
+
+        modelBuilder.Entity<FleetMessageLinkEntity>(b =>
+        {
+            b.ToTable("fleet_message_links");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.LinkId).HasMaxLength(32);
+            b.Property(e => e.SenderSessionId).HasMaxLength(64);
+            b.Property(e => e.RecipientSessionId).HasMaxLength(64);
+            b.Property(e => e.Amount).HasMaxLength(32);
+            b.Property(e => e.Status).HasMaxLength(16);
+            b.Property(e => e.SetUpBy).HasMaxLength(256);
+            b.Property(e => e.UsedMessageId).HasMaxLength(32);
+            b.Property(e => e.EndedBy).HasMaxLength(256);
+            // A link is addressed by its id.
+            b.HasIndex(e => new { e.TenantId, e.LinkId }).IsUnique();
+            // Every send asks "is there a live link between these two"; the sender leads, and an ongoing link is also
+            // found from the recipient's side, which the second index serves.
+            b.HasIndex(e => new { e.TenantId, e.SenderSessionId, e.RecipientSessionId, e.Status });
+            b.HasIndex(e => new { e.TenantId, e.RecipientSessionId, e.Status });
         });
 
         modelBuilder.Entity<FleetManagerEventEntity>(b =>
@@ -1575,6 +1600,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FleetPreferenceEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerMarkEntity>(modelBuilder);
         ApplyTenantScope<RaisedSessionEntity>(modelBuilder);
+        ApplyTenantScope<FleetMessageLinkEntity>(modelBuilder);
         ApplyTenantScope<TriggerEntity>(modelBuilder);
         ApplyTenantScope<TriggerRunEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
@@ -1672,6 +1698,13 @@ public sealed class GatewayDbContext : DbContext
             // closed word compared byte-ordinally.
             modelBuilder.Entity<RaisedSessionEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<RaisedSessionEntity>().Property(e => e.Source).UseCollation("C");
+            // fleet_message_links: the session ids are the exact keys every send looks a link up by, and the amount and
+            // status are closed words compared byte-ordinally.
+            modelBuilder.Entity<FleetMessageLinkEntity>().Property(e => e.LinkId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageLinkEntity>().Property(e => e.SenderSessionId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageLinkEntity>().Property(e => e.RecipientSessionId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageLinkEntity>().Property(e => e.Amount).UseCollation("C");
+            modelBuilder.Entity<FleetMessageLinkEntity>().Property(e => e.Status).UseCollation("C");
             // triggers: the name is the key a caller looks a trigger up by, and the machine is compared to a
             // Director's registered machine name; trigger_runs: the outcome is a closed word.
             modelBuilder.Entity<TriggerEntity>().Property(e => e.Name).UseCollation("C");

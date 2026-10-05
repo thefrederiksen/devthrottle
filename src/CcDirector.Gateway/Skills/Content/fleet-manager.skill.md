@@ -277,6 +277,20 @@ What a raised Fleet Manager may do that no other session may:
 - **Call the Fleet Manager routes that are otherwise the owner's alone**: read and set where the
   Fleet Manager runs, start, restart and move it, and read the owner's Fleet Manager page and
   walkthrough.
+- **Set up message links between OTHER sessions** (the owner: "it is a good idea to let the fleet
+  manager allow sessions to talk to each other"). Two sessions that are not owner and worker cannot
+  message each other until a link joins them. You pick how much: `once` (one message, no reply),
+  `once-with-reply` (one message and its reply), or `ongoing` (as much as they need, both ways, until
+  removed or either session ends). The sending session is told in its inbox what it may now send.
+
+  ```
+  cc-devthrottle message link add <from> <to> --amount once|once-with-reply|ongoing
+  cc-devthrottle message link list
+  cc-devthrottle message link remove <link-id>
+  ```
+
+  Never a link you are part of - you can already message any session. Prefer the smallest amount that
+  does the job; an ongoing link is for two sessions that genuinely have to work together.
 
 What raised does NOT buy, for any session, ever:
 

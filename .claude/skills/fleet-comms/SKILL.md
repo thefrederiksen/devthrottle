@@ -222,6 +222,16 @@ limits would have refused is recorded against it. Only the owner raises a sessio
 or browser - setting a session up as the Fleet Manager there raises it. No session can raise or lower
 any session, itself included. Unless the owner raised you, none of this is about you.
 
+**A message link lets two sessions talk that otherwise could not.** The owner - or the Fleet Manager
+for him - can set up a link between two sessions that are not owner and worker, and picks how much
+talking it allows: ONE message with no reply, ONE message and its reply, or as much as you need, both
+ways. When one is set up for you, a notice from the Gateway lands in your inbox saying exactly what you
+may now send and the command to send it. Then use plain `message send` (add `--reply-wanted` only if
+the link allows a reply). A message over a link is not held to the six an hour; a one-message link is
+used up by the one message, and the next is refused. A link ends when it is used, removed, or either
+session ends. You cannot set one up yourself, so if you need to talk to a session you are not related
+to, say so in your report and the owner decides.
+
 **A message never interrupts.** Nothing is typed into the receiving session while it works. The
 Gateway stores the message, and `message send` answers "queued" - never "delivered". When the
 recipient is not working and its composer is empty, its Director types ONE fixed doorbell line:
