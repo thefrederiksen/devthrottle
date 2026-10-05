@@ -645,3 +645,61 @@ a.fmp-item:hover { background: var(--surface-2); }
 .fmp-ho-btn:disabled { opacity: 0.5; cursor: default; }
 .fmp-ho-done { margin-top: 4px; font-size: 12px; color: var(--ok-text); }
 .fmp-ho-error { margin-top: 4px; font-size: 12px; color: var(--attention); }
+
+/* The owner's lessons and standing preferences (issue #3559, part 4): the "That was a mistake" box under the header,
+   and the list as a second column beside the conversation while it is shown. */
+.fmp-body-with-side { grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); }
+.fmp-head-note-attention { color: var(--attention); }
+.fmp-mistake {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex: 0 0 auto;
+}
+.fmp-mistake-title { margin: 0; font-size: 14px; }
+.fmp-mistake-note { font-size: 12px; color: var(--text-dim); line-height: 1.45; }
+.fmp-mistake-text {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-deep);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+.fmp-mistake-actions,
+.fmp-st-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fmp-st-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+}
+.fmp-st-confirmed { border-left-color: var(--ok); }
+.fmp-st-waiting { border-left-color: var(--attention); }
+.fmp-st-text { font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fmp-st-meta { font-size: 12px; color: var(--text-dim); }
+.fmp-st-status { font-size: 12px; }
+.fmp-st-waiting .fmp-st-status { color: var(--attention); }
+@media (max-width: 900px) {
+  /* One column: the list above the conversation, capped so the conversation keeps most of the height. */
+  .fmp-body-with-side {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .fmp-body-with-side .fmp-standing {
+    order: -1;
+    max-height: 40vh;
+    border-bottom: 1px solid var(--border);
+  }
+}

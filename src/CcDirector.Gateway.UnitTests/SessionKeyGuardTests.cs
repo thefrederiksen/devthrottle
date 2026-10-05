@@ -325,6 +325,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("PUT", "/gateway/fleet-manager/preferences/5b1c2d3e-0000-4000-8000-000000000002")]
     [InlineData("POST", "/gateway/fleet-manager/preferences/5b1c2d3e-0000-4000-8000-000000000002/confirm")]
     [InlineData("PUT", "/gateway/fleet-manager/preferences/5b1c2d3e-0000-4000-8000-000000000002/confirm")]
+    // Part 4: the owner's list of lessons and preferences on the Fleet Manager page.
+    [InlineData("GET", "/gateway/fleet-manager/standing")]
+    [InlineData("HEAD", "/gateway/fleet-manager/standing")]
     public void Fleet_manager_lesson_edit_and_confirm_are_refused_to_every_session_key(string method, string path)
     {
         Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be refused");

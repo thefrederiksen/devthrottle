@@ -29,6 +29,15 @@ internal sealed record FleetManagerPageSources(
     Func<TenantId, IReadOnlyCollection<string>, IReadOnlyDictionary<string, FleetManagerEventDto>>? AnswerEvents = null,
     Func<TenantId, string?>? SuccessorSessionId = null);
 
+/// <summary>Where the owner's list of lessons and preferences reads its facts (issue #3559, part 4).</summary>
+/// <param name="Rows">Every lesson and every preference of the account, each oldest first.</param>
+/// <param name="TimeZone">The account's display time zone.</param>
+/// <param name="FleetManagerRunning">Whether the account's marked Fleet Manager is running now.</param>
+internal sealed record FleetStandingSources(
+    Func<TenantId, (IReadOnlyList<FleetPreferenceDto> Lessons, IReadOnlyList<FleetPreferenceDto> Preferences)> Rows,
+    Func<TenantId, TimeZoneInfo> TimeZone,
+    Func<TenantId, bool> FleetManagerRunning);
+
 /// <summary>
 /// The Fleet Manager page (the Fleet Manager mission, step 6):
 ///
@@ -43,15 +52,52 @@ internal static class FleetManagerPageEndpoints
 {
     public const string PageRoute = FleetManagerEndpoints.Prefix + "/page";
 
+    /// <summary>The owner's lessons and standing preferences (issue #3559, part 4). Apart from the page answer, which
+    /// is polled every few seconds wherever the Cockpit is open: this list changes a few times a week and is read only
+    /// by the Fleet Manager page, slowly, and again after each change.</summary>
+    public const string StandingRoute = FleetManagerEndpoints.Prefix + "/standing";
+
     public static void Map(IEndpointRouteBuilder app, Func<HttpContext, TenantId?> resolveTenant,
-        FleetOutcomeStore outcomes, FleetManagerPageSources sources)
+        FleetOutcomeStore outcomes, FleetManagerPageSources sources, FleetStandingSources standing)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(outcomes);
         ArgumentNullException.ThrowIfNull(sources);
+        ArgumentNullException.ThrowIfNull(standing);
 
         app.MapGet(PageRoute, (HttpContext ctx) => Read(ctx, resolveTenant, outcomes, sources));
-        FileLog.Write($"[FleetManagerPageEndpoints] mapped {PageRoute}");
+        app.MapGet(StandingRoute, (HttpContext ctx) => ReadStanding(ctx, resolveTenant, standing));
+        FileLog.Write($"[FleetManagerPageEndpoints] mapped {PageRoute} and {StandingRoute}");
+    }
+
+    /// <summary>
+    /// GET /gateway/fleet-manager/standing - the owner's lessons and preferences, folded. THE OWNER'S ALONE: every
+    /// session key is refused, a raised one's included. The Fleet Manager reads the same rows with
+    /// <c>fleet preferences --kind lesson</c> and its digest; this answer is the owner's page, with the owner's buttons.
+    /// </summary>
+    internal static IResult ReadStanding(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, FleetStandingSources sources)
+    {
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant)
+                return Results.Json(new { error = "no account is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+            if (AuthMiddleware.CallingSession(ctx) is not null)
+            {
+                FileLog.Write("[FleetManagerPageEndpoints] GET standing REFUSED: a session key asked for the owner's list");
+                return Results.Json(new { error = "The list of lessons and preferences on the Fleet Manager page is the owner's. "
+                                                  + "A session reads GET /gateway/fleet-manager/preferences?kind=lesson." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
+            var (lessons, preferences) = sources.Rows(tenant);
+            var dto = FleetStandingFold.Fold(lessons, preferences, sources.TimeZone(tenant), sources.FleetManagerRunning(tenant));
+            FileLog.Write($"[FleetManagerPageEndpoints] GET standing: lessons={dto.Lessons.Count}, preferences={dto.Preferences.Count}");
+            return Results.Json(dto);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerPageEndpoints] GET standing FAILED: {ex.Message}");
+            throw;
+        }
     }
 
     internal static IResult Read(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,

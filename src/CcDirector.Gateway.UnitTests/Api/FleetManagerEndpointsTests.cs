@@ -745,6 +745,26 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     }
 
     [Fact]
+    public async Task Edit_OfALessonTheFleetManagerAlreadyAcknowledged_TellsItTheNewWords_AndBooksTheDelivery()
+    {
+        // Review of part 4: an edit must reach the running Fleet Manager, not wait for its next start.
+        var kept = Body<FleetPreferenceDto>(await KeepLessonAsync(Owner));
+        var first = Assert.Single(_events.Unacknowledged(TenantA));
+        _events.Acknowledge(TenantA, new[] { Guid.Parse(first.Id) }, all: false, FleetManager, DateTime.UtcNow);
+        var booked = new List<TenantId>();
+
+        var result = await FleetManagerEndpoints.EditPreferenceAsync(
+            Request(TenantA, Owner, new { text = "Check first. Nothing stuck means do nothing." }), kept.Id,
+            ResolveTenant, Access(), _preferences, booked.Add);
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        var told = Assert.Single(_events.Unacknowledged(TenantA));
+        Assert.Equal((FleetManagerEventStore.KindLesson, "Check first. Nothing stuck means do nothing.", FleetManager),
+            (told.Kind, told.Words, told.AddressedTo));
+        Assert.Equal(new[] { TenantA }, booked);
+    }
+
+    [Fact]
     public async Task Forget_TheFleetManagerForgetsOnlyAnUnconfirmedLessonItKept_TheOwnerRemovesAny()
     {
         var confirmed = Body<FleetPreferenceDto>(await KeepLessonAsync(Owner));
