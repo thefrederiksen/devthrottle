@@ -1,0 +1,38 @@
+RED PROOF: answers-left-live
+Rule: With answers off, the report's own controls are disabled, by the Gateway's flag (round-3 review R1).
+File: packages/client-core/src/devreports/DevReportViewer.tsx
+
+Mutation - replaced:
+  return answers ? NO_NOTES_SCRIPT : DEV_REPORT_ANSWERS_OFF_SCRIPT;
+with:
+  return NO_NOTES_SCRIPT;
+
+Command: npx vitest run src/devreports/answersOffScript.test.ts
+Exit code: 1
+Output (the lines that say what failed):
+   ? which script the frame gets > FollowsTheGatewaysTwoFlags_AndNothingElse 12ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 2 passed (3)
+??????? Failed Tests 1 ???????
+ FAIL  src/devreports/answersOffScript.test.ts > which script the frame gets > FollowsTheGatewaysTwoFlags_AndNothingElse
+AssertionError: expected '' to be '(function () {\n  "use strict";\n  fu?' // Object.is equality
+- Expected
+
+Command: npx vitest run src/teams/collaborator/reportsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ ? src/teams/collaborator/reportsPage.test.tsx (27 tests | 2 failed) 854ms
+   ? a report sent to you > Open_TheGatewaySaysNotesAndAnswersAreOff_TheFrameGetsOnlyTheScriptThatDisablesTheReportsOwnControls 29ms
+   ? one of your own reports > Own_ShowsWhichVersionEachPersonHolds_AndWhatSendingDoesForThem_InTheGatewaysWords 18ms
+ Test Files  1 failed (1)
+      Tests  2 failed | 25 passed (27)
+stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
+??????? Failed Tests 2 ???????
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > a report sent to you > Open_TheGatewaySaysNotesAndAnswersAreOff_TheFrameGetsOnlyTheScriptThatDisablesTheReportsOwnControls
+AssertionError: expected '' to be '(function () {\n  "use strict";\n  fu?' // Object.is equality
+- Expected
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > one of your own reports > Own_ShowsWhichVersionEachPersonHolds_AndWhatSendingDoesForThem_InTheGatewaysWords
+AssertionError: expected '' to be '(function () {\n  "use strict";\n  fu?' // Object.is equality
+- Expected
+
+Restored from the committed tree afterwards; git diff on the file is empty.

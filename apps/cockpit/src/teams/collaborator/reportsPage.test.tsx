@@ -261,6 +261,20 @@ describe("a report sent to you", () => {
     expect(vi.mocked(markReportRead).mock.calls.map((c) => c[2])).toEqual([1, 2]);
   });
 
+  it("Open_AVersionSentWhileOpen_AfterTheOlderOneWasMarked_IsMarkedToo", async () => {
+    // Delta review D5 with the older read ACCEPTED: version 1 is marked, then the author sends version 2 while the
+    // report is still open. The page remembers WHICH version it marked, so version 2 is marked when the poll shows it.
+    renderAt("/reports?report=r-new");
+    await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(1));
+    await nextPoll();
+    expect(markReportRead).toHaveBeenCalledTimes(1);
+
+    client.receivedDetail = { ...RECEIVED_DETAIL, report: { ...RECEIVED.reports[0], version: 2 } };
+    await nextPoll();
+    await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(markReportRead).mock.calls.map((c) => c[2])).toEqual([1, 2]);
+  });
+
   it("Open_AReadThatFailed_IsTriedAgainForTheSameVersion_OnTheNextPoll_AndNotAfterItSucceeded", async () => {
     // Round-3 review R3: a version is marked done only once the Gateway accepted the read. A failure - here one the
     // Gateway says may be retried - leaves it unmarked, and the next poll tries the SAME version again.

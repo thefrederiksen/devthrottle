@@ -3,21 +3,74 @@ Rule: A team reader's frame gets no notes script, because the Gateway says notes
 File: packages/client-core/src/devreports/DevReportViewer.tsx
 
 Mutation - replaced:
-script: notesRef.current ? DEV_REPORT_NOTES_SCRIPT : NO_NOTES_SCRIPT,
+  if (notes) return DEV_REPORT_NOTES_SCRIPT;
 with:
-script: DEV_REPORT_NOTES_SCRIPT,
+  if (notes || answers || !answers) return DEV_REPORT_NOTES_SCRIPT;
 
 Command: npx vitest run src/teams/collaborator/reportsPage.test.tsx
 Exit code: 1
 Output (the lines that say what failed):
- ? src/teams/collaborator/reportsPage.test.tsx (23 tests | 2 failed) 709ms
-   ? a report sent to you > Open_TheGatewaySaysNotesAreOff_TheViewerGetsNoNotesScript_SoNoNoteOrAnswerControlExists 27ms
-   ? one of your own reports > Own_ShowsWhichVersionEachPersonHolds_AndWhatSendingDoesForThem_InTheGatewaysWords 22ms
+ ? src/teams/collaborator/reportsPage.test.tsx (27 tests | 3 failed) 718ms
+   ? a report sent to you > Open_TheGatewaySaysNotesAndAnswersAreOff_TheFrameGetsOnlyTheScriptThatDisablesTheReportsOwnControls 33ms
+   ? a report sent to you > Open_TheGatewaySaysAnswersAreOpen_TheReportsOwnControlsAreLeftLive 48ms
+   ? one of your own reports > Own_ShowsWhichVersionEachPersonHolds_AndWhatSendingDoesForThem_InTheGatewaysWords 26ms
  Test Files  1 failed (1)
-      Tests  2 failed | 21 passed (23)
+      Tests  3 failed | 24 passed (27)
 stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
-??????? Failed Tests 2 ???????
- FAIL  src/teams/collaborator/reportsPage.test.tsx > a report sent to you > Open_TheGatewaySaysNotesAreOff_TheViewerGetsNoNotesScript_SoNoNoteOrAnswerControlExists
+??????? Failed Tests 3 ???????
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > a report sent to you > Open_TheGatewaySaysNotesAndAnswersAreOff_TheFrameGetsOnlyTheScriptThatDisablesTheReportsOwnControls
+AssertionError: expected '/*\r\n * dev-report-notes.js - the no?' to be '(function () {\n  "use strict";\n  fu?' // Object.is equality
+- Expected
++  *   - It runs inside <iframe sandbox="allow-scripts"> WITHOUT allow-same-origin. So: no storage APIs,
++  *     renders. The note box is placed against the element the note is about, never over it.
++         if (same.length > 1) part += ":nth-of-type(" + (same.indexOf(node) + 1) + ")";
++     return parts.join(" > ");
++     var index = rows.indexOf(row);
++     if (index < 0) return true;
++         if (span === 0 || (span !== null && span > index - i)) return true;
++     var index = cells.indexOf(cell);
++     if (index < 0) return null;
++       var hex = "";
++       for (var i = 0; i < bytes.length; i++) hex += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
++       return prefix + "-" + hex;
++     ".drn-hover { outline: 2px solid " + (hostTheme || DEFAULT_THEME).accent + " !important; outline-offset: 2px; }"
++       ".drn-tray { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; width: 360px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; background: " + t.surface + "; border: 1px solid " + t.border + "; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }",
++       ".drn-notebox { position: fixed; left: 0; top: 0; z-index: 2147483001; width: 320px; max-width: calc(100vw - 16px); background: " + t.surface + "; border: 1px solid " + t.border + "; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); padding: 10px 12px; }",
++       ".drn-notebox textarea { min-height: 44px; resize: none; overflow: hidden; }",
++       // Only when the note itself grows past the ceiling does the note's own text scroll. The box is never
++       ".drn-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid " + t.border + "; }",
++       ".drn-body { padding: 10px 12px; }",
++       ".drn-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: " + t.textDim + "; margin: 12px 0 6px; }",
++       ".drn-list li { background: " + t.surface2 + "; border: 1px solid " + t.border + "; border-radius: 8px; padding: 8px; margin: 0 0 6px; overflow-wrap: anywhere; }",
++       "button { font: inherit; font-weight: 600; border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid " + t.border + "; background: " + t.surface2 + "; color: " + t.text + "; }",
++       "textarea { width: 100%; min-height: 64px; font: inherit; padding: 6px 8px; background: " + t.background + "; color: " + t.text + "; border: 1px solid " + t.border + "; border-radius: 8px; }",
++       ".drn-payload { white-space: pre-wrap; overflow-wrap: anywhere; font-family: " + t.monoFont + "; font-size: 12px; background: " + t.background + "; border: 1px solid " + t.border + "; border-radius: 8px; padding: 8px; }",
++       ".drn-q-state { font-size: 13px; margin-left: 8px; padding: 4px 8px; border-radius: 6px; background: " + t.surface + "; color: " + t.text + "; }",
++       "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
++   // republished with different markup - gives null, and the note box is then placed against the top-left of
++   // Where the note box goes. Pure, so the rule can be checked with rectangles rather than with a browser.
++   //   box          - { width, height } of the note box
++   // The box goes BELOW what it is about when there is room below, otherwise ABOVE; when neither fits as the
++       if (questionRect.bottom > avoidBottom) avoidBottom = questionRect.bottom;
++     if (left > rightmost) left = rightmost;
++     // leaves the screen, and put the box below it.
++     // The note box lives in its OWN shadow host, not in the tray: it is placed against the element the note
++     var payloadBox = el(doc, "div", { "data-drn": "payload-box", hidden: "" });
++     // The element the open note box is about. It is looked up from the note's own selector, so the click path
++     // and a restore after a reload place the box the same way.
++     // scrolls inside the textarea - the box itself never becomes a scrolling panel, and the report keeps one
++       if (wanted > ceiling) composer.classList.add("drn-scrolls");
++     // Draw the box where placeNoteBox says. The anchor may have been scrolled away since the box was opened,
++         // Only a box that has just appeared may scroll the page to make room for itself; one that is already
++         selectionBtn.textContent = "Note on \"" + anchor.quote.slice(0, 30) + (anchor.quote.length > 30 ? "..." : "") + "\"";
++       if (composerText.value.trim().length > MAX_STRING) {
++         if (text.length > MAX_STRING || (chosen && String(chosen.value).length > MAX_STRING)) return;
++         if (answer.comment.length > MAX_STRING) tooLong.push("the comment");
++         if (answer.question.length > MAX_STRING) tooLong.push("the question text");
++         if (answer.optionValue.length > MAX_STRING) tooLong.push("the option's value");
++         if (answer.questionId.length > MAX_STRING) tooLong.push("the question id");
++         // Scroll first, then draw: the note box is placed against where its anchor is ON SCREEN, so it has to
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > a report sent to you > Open_TheGatewaySaysAnswersAreOpen_TheReportsOwnControlsAreLeftLive
 AssertionError: expected '/*\r\n * dev-report-notes.js - the no?' to be '' // Object.is equality
 - Expected
 +  *   - It runs inside <iframe sandbox="allow-scripts"> WITHOUT allow-same-origin. So: no storage APIs,
@@ -70,56 +123,12 @@ AssertionError: expected '/*\r\n * dev-report-notes.js - the no?' to be '' // Ob
 +         if (answer.questionId.length > MAX_STRING) tooLong.push("the question id");
 +         // Scroll first, then draw: the note box is placed against where its anchor is ON SCREEN, so it has to
  FAIL  src/teams/collaborator/reportsPage.test.tsx > one of your own reports > Own_ShowsWhichVersionEachPersonHolds_AndWhatSendingDoesForThem_InTheGatewaysWords
-AssertionError: expected '/*\r\n * dev-report-notes.js - the no?' to be '' // Object.is equality
+AssertionError: expected '/*\r\n * dev-report-notes.js - the no?' to be '(function () {\n  "use strict";\n  fu?' // Object.is equality
 - Expected
 +  *   - It runs inside <iframe sandbox="allow-scripts"> WITHOUT allow-same-origin. So: no storage APIs,
 +  *     renders. The note box is placed against the element the note is about, never over it.
 +         if (same.length > 1) part += ":nth-of-type(" + (same.indexOf(node) + 1) + ")";
 +     return parts.join(" > ");
 +     var index = rows.indexOf(row);
-+     if (index < 0) return true;
-+         if (span === 0 || (span !== null && span > index - i)) return true;
-+     var index = cells.indexOf(cell);
-+     if (index < 0) return null;
-+       var hex = "";
-+       for (var i = 0; i < bytes.length; i++) hex += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
-+       return prefix + "-" + hex;
-+     ".drn-hover { outline: 2px solid " + (hostTheme || DEFAULT_THEME).accent + " !important; outline-offset: 2px; }"
-+       ".drn-tray { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; width: 360px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; background: " + t.surface + "; border: 1px solid " + t.border + "; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }",
-+       ".drn-notebox { position: fixed; left: 0; top: 0; z-index: 2147483001; width: 320px; max-width: calc(100vw - 16px); background: " + t.surface + "; border: 1px solid " + t.border + "; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); padding: 10px 12px; }",
-+       ".drn-notebox textarea { min-height: 44px; resize: none; overflow: hidden; }",
-+       // Only when the note itself grows past the ceiling does the note's own text scroll. The box is never
-+       ".drn-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid " + t.border + "; }",
-+       ".drn-body { padding: 10px 12px; }",
-+       ".drn-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: " + t.textDim + "; margin: 12px 0 6px; }",
-+       ".drn-list li { background: " + t.surface2 + "; border: 1px solid " + t.border + "; border-radius: 8px; padding: 8px; margin: 0 0 6px; overflow-wrap: anywhere; }",
-+       "button { font: inherit; font-weight: 600; border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid " + t.border + "; background: " + t.surface2 + "; color: " + t.text + "; }",
-+       "textarea { width: 100%; min-height: 64px; font: inherit; padding: 6px 8px; background: " + t.background + "; color: " + t.text + "; border: 1px solid " + t.border + "; border-radius: 8px; }",
-+       ".drn-payload { white-space: pre-wrap; overflow-wrap: anywhere; font-family: " + t.monoFont + "; font-size: 12px; background: " + t.background + "; border: 1px solid " + t.border + "; border-radius: 8px; padding: 8px; }",
-+       ".drn-q-state { font-size: 13px; margin-left: 8px; padding: 4px 8px; border-radius: 6px; background: " + t.surface + "; color: " + t.text + "; }",
-+       "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
-+   // republished with different markup - gives null, and the note box is then placed against the top-left of
-+   // Where the note box goes. Pure, so the rule can be checked with rectangles rather than with a browser.
-+   //   box          - { width, height } of the note box
-+   // The box goes BELOW what it is about when there is room below, otherwise ABOVE; when neither fits as the
-+       if (questionRect.bottom > avoidBottom) avoidBottom = questionRect.bottom;
-+     if (left > rightmost) left = rightmost;
-+     // leaves the screen, and put the box below it.
-+     // The note box lives in its OWN shadow host, not in the tray: it is placed against the element the note
-+     var payloadBox = el(doc, "div", { "data-drn": "payload-box", hidden: "" });
-+     // The element the open note box is about. It is looked up from the note's own selector, so the click path
-+     // and a restore after a reload place the box the same way.
-+     // scrolls inside the textarea - the box itself never becomes a scrolling panel, and the report keeps one
-+       if (wanted > ceiling) composer.classList.add("drn-scrolls");
-+     // Draw the box where placeNoteBox says. The anchor may have been scrolled away since the box was opened,
-+         // Only a box that has just appeared may scroll the page to make room for itself; one that is already
-+         selectionBtn.textContent = "Note on \"" + anchor.quote.slice(0, 30) + (anchor.quote.length > 30 ? "..." : "") + "\"";
-+       if (composerText.value.trim().length > MAX_STRING) {
-+         if (text.length > MAX_STRING || (chosen && String(chosen.value).length > MAX_STRING)) return;
-+         if (answer.comment.length > MAX_STRING) tooLong.push("the comment");
-+         if (answer.question.length > MAX_STRING) tooLong.push("the question text");
-+         if (answer.optionValue.length > MAX_STRING) tooLong.push("the option's value");
-+         if (answer.questionId.length > MAX_STRING) tooLong.push("the question id");
-+         // Scroll first, then draw: the note box is placed against where its anchor is ON SCREEN, so it has to
 
 Restored from the committed tree afterwards; git diff on the file is empty.
