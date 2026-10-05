@@ -138,6 +138,13 @@ MUTATIONS = {
         "new": "",
         "runs": [UNIT],
     },
+    "answered-reads-not-read": {
+        "rule": "The author's Sent to list says 'Answered a question' for a person who answered without opening the report (Tech Lead ruling).",
+        "file": TR,
+        "old": "                    : answered.Contains(r.RecipientSubject) ? TeamReportEndpoints.AnsweredLabel",
+        "new": "                    : answered.Contains(r.RecipientSubject) && r.SentVersion < 0 ? TeamReportEndpoints.AnsweredLabel",
+        "runs": [UNIT],
+    },
     "page-trims-the-words": {
         "rule": "The page sends the person's words exactly as typed.",
         "file": QPAGE,

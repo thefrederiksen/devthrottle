@@ -431,6 +431,51 @@ public sealed class TeamQuestionsTests : IDisposable
         Assert.Equal(JsonValueKind.Null, list.GetProperty("reports")[0].GetProperty("questionsLabel").ValueKind);
     }
 
+    /// <summary>The author's Sent to list, for one person: (readLabel, read).</summary>
+    private async Task<(string? Label, bool Read)> SentToStatus(Guid report, string who)
+    {
+        var (_, mine) = await Run(_reports.MineDetail(_team, Alice, report.ToString("D")));
+        var row = mine.GetProperty("recipients").EnumerateArray()
+            .Single(r => r.GetProperty("memberId").GetString() == TeamMemberIds.For(_team, who));
+        return (row.GetProperty("readLabel").GetString(), row.GetProperty("read").GetBoolean());
+    }
+
+    [Fact]
+    public async Task SentTo_APersonWhoAnsweredWithoutOpeningTheReport_ReadsAnsweredAQuestion_AndIsStillNotMarkedRead()
+    {
+        var (report, sid) = Report(Mike, Nina);
+        _reach[sid] = DevReportSessionReach.Busy;
+
+        Assert.Equal(200, (await AnswerAsync(Mike, report, "30", "my words")).Status);
+
+        Assert.Equal((TeamReportEndpoints.AnsweredLabel, false), await SentToStatus(report, Mike));
+        Assert.Equal((TeamReportEndpoints.NotReadLabel, false), await SentToStatus(report, Nina));
+    }
+
+    [Fact]
+    public async Task SentTo_APersonWhoAnsweredAndThenOpenedTheReport_ReadsRead()
+    {
+        var (report, sid) = Report(Mike);
+        _reach[sid] = DevReportSessionReach.Busy;
+        Assert.Equal(200, (await AnswerAsync(Mike, report, "14")).Status);
+
+        Assert.Equal(200, (await Run(_reports.MarkRead(_team, Mike, report.ToString("D"), 1))).Status);
+
+        Assert.Equal((TeamReportEndpoints.ReadLabel, true), await SentToStatus(report, Mike));
+    }
+
+    [Fact]
+    public async Task SentTo_APersonWhoAnsweredOnlyAnotherReport_StillReadsNotReadYetOnThisOne()
+    {
+        var (other, otherSid) = Report(Mike);
+        _reach[otherSid] = DevReportSessionReach.Busy;
+        var (report, _) = Report(Mike);
+        Assert.Equal(200, (await AnswerAsync(Mike, other, "14")).Status);
+
+        Assert.Equal((TeamReportEndpoints.NotReadLabel, false), await SentToStatus(report, Mike));
+        Assert.Equal((TeamReportEndpoints.AnsweredLabel, false), await SentToStatus(other, Mike));
+    }
+
     [Fact]
     public async Task AboutLabelFor_IsNullForAPlainCommentOnTheReport()
     {

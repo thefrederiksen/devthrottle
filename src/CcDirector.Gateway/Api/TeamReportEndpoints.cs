@@ -117,6 +117,14 @@ internal static class TeamReportEndpoints
     internal const string ReadLabel = "Read";
     internal const string NewLabel = "New";
 
+    /// <summary>What the author sees for a person who has not opened the report.</summary>
+    internal const string NotReadLabel = "Not read yet";
+
+    /// <summary>What the author sees for a person who answered a question in the report on their Questions page and has
+    /// not opened the report itself (devthrottle_internal#2307, Tech Lead ruling): "Not read yet" beside that person's
+    /// comment read as a contradiction. The read mark itself is unchanged - answering is not reading.</summary>
+    internal const string AnsweredLabel = "Answered a question";
+
     /// <summary>Maps every route listed in the class comment.</summary>
     public static void Map(IEndpointRouteBuilder app, DevReportStore store, DevReportRecipients recipients,
         DevReportPersonComments comments, TeamRegistry teams, TeamAccess access, HostedTenantBoundary boundary, TenantRegistry tenants,
@@ -555,6 +563,8 @@ internal sealed class TeamReports
         var names = members.ToDictionary(m => m.AccountSubject, TeamRegistry.DisplayName, StringComparer.Ordinal);
         var sent = _recipients.RecipientsOf(team, report.Id);
         var held = sent.ToDictionary(r => r.RecipientSubject, r => r.SentVersion, StringComparer.Ordinal);
+        var answered = sent.Where(r => r.ReadAtUtc is null && _store.AnswersBy(team, r.RecipientSubject, [report.Id]).Count > 0)
+            .Select(r => r.RecipientSubject).ToHashSet(StringComparer.Ordinal);
         return new
         {
             report = new
@@ -574,7 +584,9 @@ internal sealed class TeamReports
                 sentVersion = r.SentVersion,
                 versionLabel = r.SentVersion == report.Version ? null : $"Has version {r.SentVersion} of {report.Version}",
                 read = r.ReadAtUtc is not null,
-                readLabel = r.ReadAtUtc is null ? "Not read yet" : TeamReportEndpoints.ReadLabel,
+                readLabel = r.ReadAtUtc is not null ? TeamReportEndpoints.ReadLabel
+                    : answered.Contains(r.RecipientSubject) ? TeamReportEndpoints.AnsweredLabel
+                    : TeamReportEndpoints.NotReadLabel,
             }).ToList(),
             recipientsEmptyText = TeamReportEndpoints.NotSentYet,
             // Who it can go to now: a member other than the author who may read reports sent to them - asked of the one
