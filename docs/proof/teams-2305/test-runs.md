@@ -99,3 +99,23 @@ this week (`if (!request.PromptsByLabel.ContainsKey(label) && label.Length < 0)`
 
 **The own-block rule** (the read route's pull request, first round) - the read route serving every block to a
 Developer (`.Where(b => true)`): 2 tests red, green when restored.
+
+## After the delta review (4 to 5 October 2026)
+
+On both pull requests stacked, after the fixes for H1 to H4 and H6:
+
+```
+dotnet test src\CcDirector.Gateway.UnitTests, in three parts:
+  Wingman, History, Factory, Data     Failed: 0, Passed: 1442, Skipped: 1, Total: 1443
+  Every other folder                  Failed: 0, Passed: 2353, Skipped: 9, Total: 2362
+  Every test outside those folders    Failed: 0, Passed: 4934, Skipped: 0, Total: 4934
+.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Mentor"    outcome=Completed  total=8   executed=8
+.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams"     outcome=Completed  total=62  executed=62
+.\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Prompt"    outcome=Completed  total=96  executed=96
+packages/client-core  npx vitest run    Test Files 144 passed, Tests 1716 passed
+apps/cockpit          npx vitest run    Test Files 72 passed, Tests 667 passed
+npm run typecheck (Cockpit and client)  clean
+```
+
+The Mentor piece now includes `GatewayHost_MentorSwitchSet_WithNoKeyForItsModel_RefusesToStart_NamingTheKeyAndTheFix`.
+The five `OwnedSessionsAreNotReadTests` of devthrottle#3534 passed in this run's first part; they are order-dependent.
