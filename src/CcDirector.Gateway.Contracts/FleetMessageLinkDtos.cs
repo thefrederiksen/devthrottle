@@ -76,7 +76,7 @@ public sealed class FleetMessageLinkRequestAskRequest
     /// <summary>The session it wants to talk to.</summary>
     public string TargetSessionId { get; set; } = "";
 
-    /// <summary>Why, in a sentence the owner reads as written. Required; at most 500 characters are kept.</summary>
+    /// <summary>Why, in a sentence the owner reads as written. Required; at most 380 characters are kept.</summary>
     public string Reason { get; set; } = "";
 }
 
