@@ -500,8 +500,12 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
 
         foreach (var (method, pattern) in refusedForCollaborator)
         {
-            var path = pattern.Replace("{teamId}", _team, StringComparison.Ordinal)
-                .Replace("{invitationId}", Guid.NewGuid().ToString("N"), StringComparison.Ordinal)
+            // The team's id, then a sample for every other placeholder, so each route is matched and reaches the gate:
+            // a number where the route takes only one ({version:int}), a fresh id anywhere else.
+            var path = System.Text.RegularExpressions.Regex.Replace(
+                    pattern.Replace("{teamId}", _team, StringComparison.Ordinal),
+                    @"\{\**(\w+)(:int)?\}",
+                    m => m.Groups[2].Success ? "1" : Guid.NewGuid().ToString("N"))
                 .TrimStart('/');
             using var req = new HttpRequestMessage(new HttpMethod(method), path);
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
