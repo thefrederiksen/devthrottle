@@ -3364,20 +3364,11 @@ public sealed class GatewayHost : IAsyncDisposable
 
     private Wingman.NarrationPlan ResolveTeamNarrationPlan(TenantId tenant, string sid)
     {
-        var person = TeamCallerOwnership.PersonOfSession(tenant, sid);
-        if (person is null)
-        {
-            FileLog.Write($"[GatewayHost] ResolveNarrationPlan: team {tenant.ToLogString()} session {sid} is nobody's - the plan is Unknown");
-            return Wingman.NarrationPlan.Unknown;
-        }
-        var team = TeamMemberEntitlement.Decide(tenant, person, DateTime.UtcNow);
-        if (!team.IsMember)
-        {
-            FileLog.Write($"[GatewayHost] ResolveNarrationPlan: team {tenant.ToLogString()} session {sid} - its owner is not a member - the plan is Unknown");
-            return Wingman.NarrationPlan.Unknown;
-        }
-        var plan = Wingman.NarrationPlanRule.Decide(hosted: true, person, team.Entitlement);
-        FileLog.Write($"[GatewayHost] ResolveNarrationPlan: team {tenant.ToLogString()} outcome={team.Entitlement!.Outcome} tier={team.Entitlement.Tier ?? "none"} plan={plan}");
+        var owner = TeamCallerOwnership.PersonOfSession(tenant, sid);
+        var decision = owner is null ? null : TeamMemberEntitlement.DecideOrUnknown(tenant, owner, DateTime.UtcNow);
+        var plan = Wingman.NarrationPlanRule.DecideForTeamSession(owner, decision);
+        FileLog.Write($"[GatewayHost] ResolveNarrationPlan: team {tenant.ToLogString()} session {sid} owner={(owner is null ? "nobody" : "known")} " +
+                      $"member={decision?.IsMember.ToString() ?? "not known"} tier={decision?.Entitlement?.Tier ?? "none"} plan={plan}");
         return plan;
     }
 
