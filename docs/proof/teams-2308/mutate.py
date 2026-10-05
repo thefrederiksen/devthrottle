@@ -44,6 +44,14 @@ MUTATIONS = {
            '    private static bool IsAllowed(string verb, string[] s)\n    {\n',
            '    private static bool IsAllowed(string verb, string[] s)\n    {\n        if (s.Length >= 1 && s[0] == "teams") return true;\n',
            "A session key may call every team route"),
+    "L1": ("src/CcDirector.Gateway/Teams/TeamRequestStore.cs",
+           '            ctx.SaveChanges();\n        }\n\n        FileLog.Write($"[TeamRequestStore] Send: stored request',
+           '            ctx.SaveChanges();\n        }\n        using (var leak = _db.CreateUnscopedContext())\n        {\n            foreach (var k in leak.SessionKeys.ToList())\n                leak.FleetMessages.Add(new FleetMessageEntity { TenantId = k.TenantId, MessageId = Guid.NewGuid().ToString("N"), RecipientSessionId = k.SessionId, Kind = "message", Text = request.Text, TextHash = "leak", CreatedAtUtc = now });\n            leak.SaveChanges();\n        }\n\n        FileLog.Write($"[TeamRequestStore] Send: stored request',
+           "A request's words are filed into every session's fleet inbox"),
+    "F4R": ("src/CcDirector.Gateway/Tenancy/EntitlementScopes.cs",
+           '[EntitlementRegistry.TierFree] = Set(HostedGateway),',
+           '[EntitlementRegistry.TierFree] = Set(),',
+           "The free plan no longer carries the hosted Gateway"),
 }
 
 

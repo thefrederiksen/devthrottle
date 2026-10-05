@@ -90,3 +90,12 @@ Down byte-for-byte the previous ones; pins and counts moved (the chain count is 
    Passed 1139, Skipped 6, Failed 0, Total 1145.
 5. Web: apps/cockpit vitest 734 of 734, tsc clean; packages/client-core vitest 1752 of 1752, tsc clean (run on the
    first merge; the second merge changed no file under apps/ or packages/).
+
+=== After the review of #3556, on the tree merged with origin/main at ba08a4c87 (#3542, #3555) - 5 October 2026 ===
+No migration arrived with that merge; the newest-migration pins are unchanged.
+1. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams"
+   CcDirector.Gateway.Tests outcome=Completed total=120 executed=120, failed 0 (the 120th is the new
+   ACollaboratorWithNoEntitlementOfTheirOwn_SendsAndReadsTheirRequests_OverTheWire).
+2. dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams"
+   Passed 1121, Skipped 5, Failed 0, Total 1126.
+3. apps/cockpit: src/team/requests.test.tsx 9 of 9 (one new: a refused decision reloads the list); tsc --noEmit clean.

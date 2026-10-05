@@ -36,3 +36,12 @@ MUTATION C5: the reason box stays open after the Gateway's answer (the defect th
    AssertionError: expected <button type="button" ...(1)></button> to be null
       Tests  1 failed | 7 passed (8)
 restored: Tests  8 passed (8)
+
+--- After the review of #3556 (5 October 2026), review F3 ---
+
+MUTATION: the list is not read again after a refused decision (the `await load();` line removed from decide in
+apps/cockpit/src/team/RequestsView.tsx), then: npx vitest run src/team/requests.test.tsx
+  Tests 1 failed | 8 passed (9)
+    FAIL the Owner and Managers' Requests list > after a refused decision, shows the refusal and reads the list
+         again, so only the buttons now allowed remain
+  restored with git checkout; no change left under apps/.

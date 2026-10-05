@@ -85,3 +85,35 @@ MUTATION T1: A session key may call every team route  (src/CcDirector.Gateway/Ut
   access lease answers a team Director key with 402 before the request routes see it. That is the gap named in the
   pull request: until the lease reads the team's bill, the routes' own check is unexercised for team Director keys
   (it is exercised for personal Director keys by issue test 3, which H1 turns red - see above).
+
+--- After the review of #3556 (5 October 2026) ---
+
+MUTATION L1: A request's words are filed into every session's fleet inbox  (src/CcDirector.Gateway/Teams/TeamRequestStore.cs)
+  python docs/proof/teams-2308/mutate.py hosted L1
+  CcDirector.Gateway.Tests outcome=Failed total=14 executed=14 - Failed 1, Passed 13
+    RED (trx): HostedTeamRequestEndpointsTests.ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys
+    on the inbox assertion (line 406): Assert.DoesNotContain() Failure: Sub-string found ... "REQUEST-MARKER-480c9b..."
+  restored; src changes after restore: ''
+  What it shows (review F1): the "what a session receives" half of issue test 3 fails when a request's words are
+  sent toward a session - here into the session's own fleet inbox, read with the session's own key. The command
+  check now has its positive control in the same test: each session's own person types one ordinary prompt, and
+  each control prompt must arrive in the recorder carrying its text, and must be the only prompts - so an idle
+  recorder or a tunnel that never delivered goes red rather than passing the absence checks.
+
+MUTATION T1 (again, with review F2's assertion): A session key may call every team route
+  CcDirector.Gateway.Tests outcome=Failed total=14 executed=14 - Failed 2, Passed 12
+    RED (trx): ARequestsRoutes_RefuseTeamBoundDirectorAndSessionKeys_AndNothingChanges
+      Expected: (Forbidden, "session_key_out_of_scope")  Actual: (PaymentRequired, "hosted_subscription_required")
+    RED (trx): ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys
+      Expected: (Forbidden, "session_key_out_of_scope")  Actual: (Forbidden, "person_only")
+  restored; src changes after restore: ''
+  What it shows (review F2): the status stays 403 under this mutation - the routes' own person-only check refuses
+  the session key instead - so the earlier status-only assertion stayed green; the code assertion goes red.
+
+MUTATION F4R: The free plan no longer carries the hosted Gateway  (src/CcDirector.Gateway/Tenancy/EntitlementScopes.cs)
+  CcDirector.Gateway.Tests outcome=Failed total=14 executed=14 - Failed 1, Passed 13
+    RED (trx): ACollaboratorWithNoEntitlementOfTheirOwn_SendsAndReadsTheirRequests_OverTheWire
+      Expected: Created  Actual: PaymentRequired
+  restored; src changes after restore: ''
+  What it shows (review F4): a Collaborator with no entitlement row and no trial reads as the free plan, and the
+  request routes serve them only because free carries the hosted Gateway - the test goes red the moment it does not.
