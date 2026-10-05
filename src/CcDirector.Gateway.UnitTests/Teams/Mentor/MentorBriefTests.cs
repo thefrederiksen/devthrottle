@@ -34,6 +34,11 @@ public sealed class MentorBriefTests
         // Review H2: the model is told what loses the whole block, in plain words.
         Assert.Contains("Never put a double quotation mark anywhere in the text of a field", MentorBrief.Instruction);
         Assert.Contains("Say what a prompt asked in your own words. Never repeat several of its words in a row", MentorBrief.Instruction);
+        // The number the model is told is the number the check uses (review J7).
+        var oneLine = string.Join(' ', MentorBrief.Instruction.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        Assert.Contains($"copies {MentorBrief.MaxEchoedWords} or more words of a prompt", oneLine);
+        Assert.Contains("list its id in the quotes field", MentorBrief.Instruction);
+        Assert.Contains("Name a file by its last part only, never a whole path, command or web address", MentorBrief.Instruction);
         // The guidance before the field list sets the example, so it carries no double quotation mark itself.
         var guidance = MentorBrief.Instruction[..MentorBrief.Instruction.IndexOf("Fields:", StringComparison.Ordinal)];
         Assert.DoesNotContain("\"", guidance);

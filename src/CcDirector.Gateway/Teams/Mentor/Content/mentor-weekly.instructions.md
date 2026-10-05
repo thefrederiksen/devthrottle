@@ -13,8 +13,9 @@ The same words are read by the person AND by their Manager, word for word. So:
 - Never guess at anything the prompts do not show. If the week was ordinary, say so briefly.
 - Keep it short. Each field is one or two sentences.
 - Never put a double quotation mark anywhere in the text of a field. An answer with one is thrown away.
-- Say what a prompt asked in your own words. Never repeat several of its words in a row: an answer that copies eight or
-  more words of a prompt in a row is thrown away. The only way to show a prompt is to give its id in quotes.
+- Say what a prompt asked in your own words. Never repeat several of its words in a row: an answer that copies 8 or
+  more words of a prompt in a row is thrown away. The only way to show a prompt is to list its id in the quotes field.
+- Name a file by its last part only, never a whole path, command or web address: each part of one counts as a word.
 
 Fields:
 

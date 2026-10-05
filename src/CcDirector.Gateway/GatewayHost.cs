@@ -2209,16 +2209,6 @@ public sealed class GatewayHost : IAsyncDisposable
         TeamMentorStore = new Teams.Mentor.TeamMentorStore(_gatewayDb);
         if (Teams.Mentor.TeamMentorSwitch.IsOn(TeamsReleased))
         {
-            // Switched on with no key for its model, the Mentor could never write a week, and the only sign would be a
-            // type name in the sweep's log every fifteen minutes (review H3). So the Gateway refuses to start instead.
-            var mentorKeyName = Core.Configuration.TranscriptionEndpointResolver
-                .ResolveWingman(Core.Configuration.TranscriptionModeConfig.Get()).KeyName;
-            if (string.IsNullOrWhiteSpace(_keyVault.Get(mentorKeyName)))
-            {
-                FileLog.Write($"[GatewayHost] team Mentor switched on with NO key '{mentorKeyName}' - refusing to start");
-                throw new InvalidOperationException(
-                    $"[GatewayHost] {Teams.Mentor.TeamMentorSwitch.EnvVar}=1 switches the team Mentor on, but the Gateway's key vault holds no '{mentorKeyName}' for its model. Add that key to the Gateway's key vault, or unset {Teams.Mentor.TeamMentorSwitch.EnvVar}.");
-            }
             TeamMentorWriter = new Teams.Mentor.TeamMentorWriter(
                 TeamRegistry, TeamMentorStore, _sessionHistory, _promptLog,
                 (tenant, ct) =>
@@ -2629,6 +2619,29 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Windows). Never clobbers an existing vault value.
     /// Key name matches <see cref="Core.Configuration.HostedAiKeyResolver.KeyName"/>.
     /// </summary>
+    /// <summary>
+    /// Switched on with no key for its model, the Mentor could never write a week, and the only sign would be a type
+    /// name in the sweep's log every fifteen minutes (review H3). So the Gateway refuses to start instead - checked
+    /// after <see cref="SeedKeyVaultFromEnvironment"/>, so a key that arrives from the environment counts (review J3).
+    /// Nothing to check when the Mentor is off.
+    /// </summary>
+    private void EnsureTeamMentorKey()
+    {
+        if (TeamMentorWriter is null)
+            return;
+        var keyName = Core.Configuration.TranscriptionEndpointResolver
+            .ResolveWingman(Core.Configuration.TranscriptionModeConfig.Get()).KeyName;
+        if (!string.IsNullOrWhiteSpace(_keyVault.Get(keyName)))
+            return;
+
+        FileLog.Write($"[GatewayHost] team Mentor switched on with NO key '{keyName}' - refusing to start");
+        var whereItComesFrom = GatewayHostedMode.IsHosted
+            ? $"On the hosted Gateway nothing fills it: place '{keyName}' in the hosted Gateway's key vault before setting the switch."
+            : $"On this Gateway it comes from signing in to DevThrottle, or from the '{keyName}' environment variable, which is copied into the vault at start.";
+        throw new InvalidOperationException(
+            $"[GatewayHost] {Teams.Mentor.TeamMentorSwitch.EnvVar}=1 switches the team Mentor on, but the Gateway's key vault holds no '{keyName}' for its model. {whereItComesFrom} Or unset {Teams.Mentor.TeamMentorSwitch.EnvVar}.");
+    }
+
     private void SeedKeyVaultFromEnvironment()
     {
         // HOSTED-GATED. The global key vault is denied in whole on hosted (VaultEndpoints), and a deny on the
@@ -3370,6 +3383,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // Seed the central vault from a DevThrottle account-key environment value once when present.
         // The vault is the live source of truth thereafter and SetIfAbsent never clobbers it.
         SeedKeyVaultFromEnvironment();
+
+        // The team Mentor's key, checked once the environment's copy has landed and before the Gateway serves.
+        EnsureTeamMentorKey();
 
         // Issue #881: an install that was already signed in before this shipped won't fire the
         // post-sign-in hook again, so ensure the hosted transcription key here too - detached and
