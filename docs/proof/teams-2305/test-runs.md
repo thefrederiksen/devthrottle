@@ -119,3 +119,24 @@ npm run typecheck (Cockpit and client)  clean
 
 The Mentor piece now includes `GatewayHost_MentorSwitchSet_WithNoKeyForItsModel_RefusesToStart_NamingTheKeyAndTheFix`.
 The five `OwnedSessionsAreNotReadTests` of devthrottle#3534 passed in this run's first part; they are order-dependent.
+
+## The third pull request - the person from the one team resolver (5 October 2026)
+
+On `teams/2305-mentor-person`, stacked on the read route, on main `8b23aaba4` (with devthrottle#3530):
+
+```
+dotnet test src\CcDirector.Gateway.UnitTests --filter "Mentor|Teams|Prompt"   Failed: 1, Passed: 1190, Total: 1194
+```
+
+The one failure, `VerbAnswersWhenStarvedTests.PromptVerb_DirectorStartedBelowNormalOnABusyMachine_...`, failed in its
+own set-up ("the busy process never kept the processor busy") on a loaded machine and passed 3/3 rerun alone.
+
+**Red proof - a team read of prompts let through the gate:** `TeamCallerOwnership.Whose` answering "the caller's own"
+for `GET` as well as `POST` on `/prompts`:
+
+```
+Failed TeamCallerOwnershipTests.Whose_OnlyPostOnPromptsItself_IsTheCallersOwn
+Failed TeamCallerOwnershipTests.RunAsync_ReadingPrompts_InATeam_StaysRefused
+```
+
+(plus the same busy-machine test). Restored: `Passed! - Failed: 0, Passed: 1185, Total: 1188` on Teams|Prompt.
