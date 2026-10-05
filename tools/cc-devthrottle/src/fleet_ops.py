@@ -34,7 +34,10 @@ RISKS = ("low", "medium", "high")
 CHECKS = ("passed", "failed", "none")
 EVENT_KINDS = ("stop", "died")
 # Counted only when present, so the usual line reads as it always has.
-EVENT_KINDS_WHEN_PRESENT = ("answered", "marked")
+EVENT_KINDS_WHEN_PRESENT = ("answered", "marked", "lesson")
+
+# The two kinds of row the owner's standing list holds (issue #3559).
+PREFERENCE_KINDS = ("preference", "lesson")
 
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _PLAIN = re.compile(r"^[A-Za-z0-9 _./:@+()'?!;=<>#%&*~^|\[\]{}$-]*$")
@@ -154,10 +157,15 @@ def _outcome_id(given: str) -> str:
 
 
 def _preference_id(given: str) -> str:
+    """A full id as it is; otherwise the start of exactly one id among the preferences AND the lessons."""
     if _GUID.match((given or "").strip()):
         return given.strip().lower()
-    listed = _call(gateway.get_json, f"{PREFIX}/preferences")
-    return _resolve_id(given, listed.get("preferences", []), "preference", "cc-devthrottle fleet preferences")
+    rows: List[Dict[str, Any]] = []
+    for kind in PREFERENCE_KINDS:
+        listed = _call(gateway.get_json, f"{PREFIX}/preferences?{urllib.parse.urlencode({'kind': kind})}")
+        rows.extend(listed.get("preferences", []))
+    return _resolve_id(given, rows, "preference or lesson",
+                       "cc-devthrottle fleet preferences --kind preference, or --kind lesson")
 
 
 def _about_session(target: Optional[str]) -> Optional[str]:
@@ -441,23 +449,62 @@ def _print_preferences(rows: List[Dict[str, Any]]) -> None:
     _table("preferences", ["id", "text"], [[p.get("id"), p.get("text")] for p in rows])
 
 
-def list_preferences(json_output: bool) -> None:
-    """Every standing preference, oldest first."""
-    answer = _call(gateway.get_json, f"{PREFIX}/preferences")
+def _print_lessons(rows: List[Dict[str, Any]]) -> None:
+    """Each lesson with the day it was kept, whether the owner confirmed it, and who kept it. Only a confirmed
+    lesson is one to obey; an unconfirmed one waits for the owner's one-press confirmation."""
+    _table("lessons", ["id", "kept", "confirmed", "keptBy", "text", "mistake"],
+           [[l.get("id"), (l.get("createdAtUtc") or "")[:10], "yes" if l.get("confirmedByOwnerAtUtc") else "no - waits for the owner",
+             l.get("createdBy"), l.get("text"), l.get("mistake")] for l in rows])
+
+
+def list_preferences(kind: str, json_output: bool) -> None:
+    """Every standing preference, or every lesson, oldest first."""
+    if kind not in PREFERENCE_KINDS:
+        _fail(f"--kind must be one of: {', '.join(PREFERENCE_KINDS)}", code=2)
+    answer = _call(gateway.get_json, f"{PREFIX}/preferences?{urllib.parse.urlencode({'kind': kind})}")
     if json_output:
         _print_json(answer)
         return
     rows = answer.get("preferences", [])
     _out(f"count: {len(rows)}")
     if rows:
-        _print_preferences(rows)
+        if kind == "lesson":
+            _print_lessons(rows)
+        else:
+            _print_preferences(rows)
         _help([f"cc-devthrottle fleet forget {rows[0].get('id')}"])
+    elif kind == "lesson":
+        _help(['cc-devthrottle fleet lesson "<the owner\'s correction, verbatim>"'])
     else:
         _help(['cc-devthrottle fleet prefer "<the owner\'s preference, verbatim>"'])
 
 
+def add_lesson(text: str, mistake: Optional[str], json_output: bool) -> None:
+    """Keep one lesson - the owner's correction of a mistake - in the owner's words, exactly (issue #3559).
+
+    Kept with this session's key it is stored at once but NOT confirmed: it is shown to the owner to confirm in one
+    press, and only a confirmed lesson is given to every later Fleet Manager as one to obey."""
+    if text is None or not text.strip():
+        _fail("give the owner's correction, in their own words", code=2)
+    body: Dict[str, Any] = {"text": text, "kind": "lesson"}
+    if mistake is not None:
+        body["mistake"] = mistake
+    p = _call(gateway.post_json, f"{PREFIX}/preferences", body)
+    if json_output:
+        _print_json(p)
+        return
+    _out(f"kept: {p.get('id')}")
+    _out(f"text: {cell(p.get('text'))}")
+    if p.get("mistake"):
+        _out(f"mistake: {cell(p.get('mistake'))}")
+    _out("confirmed: " + ("yes" if p.get("confirmedByOwnerAtUtc") else
+                          "no - the owner confirms it on the Cockpit's Fleet Manager page; until then it is not given "
+                          "to a later Fleet Manager"))
+    _help(["cc-devthrottle fleet preferences --kind lesson", f"cc-devthrottle fleet forget {p.get('id')}"])
+
+
 def forget_preference(given: str, json_output: bool) -> None:
-    """Remove one standing preference."""
+    """Remove one standing preference, or an unconfirmed lesson this Fleet Manager kept itself."""
     pid = _preference_id(given)
     answer = _call(gateway.delete, f"{PREFIX}/preferences/{gateway.path_segment(pid)}")
     if json_output:
@@ -494,7 +541,9 @@ def _event_verdict(e: Dict[str, Any]) -> List[Any]:
 def _events_table(rows: List[Dict[str, Any]]) -> None:
     _table("events", ["id", "kind", "sessionId", "name", "verdictId", "verdict", "label", "deliveredTo", "acknowledged"],
            # An answered event is about a record: its title stands in the name column.
-           [[e.get("id"), e.get("kind"), e.get("sessionId"), e.get("outcomeTitle") if e.get("kind") == "answered" else e.get("sessionName"),
+           # A lesson event is about no session: the owner's words stand in the name column.
+           [[e.get("id"), e.get("kind"), e.get("sessionId"),
+             e.get("outcomeTitle") if e.get("kind") == "answered" else e.get("words") if e.get("kind") == "lesson" else e.get("sessionName"),
              (e.get("verdict") or {}).get("verdictId"), *_event_verdict(e),
              e.get("deliveredTo"), "yes" if e.get("acknowledgedAtUtc") else "no"] for e in rows])
 
@@ -638,6 +687,14 @@ def digest(session: Optional[str], json_output: bool) -> None:
     if json_output:
         _print_json(d)
         return
+
+    # The lessons come FIRST (issue #3559): they say how to handle everything below them.
+    lessons = d.get("lessons", [])
+    confirmed = sum(1 for l in lessons if l.get("confirmedByOwnerAtUtc"))
+    _out(f"lessons: {len(lessons)} ({confirmed} confirmed - obey them before anything else; "
+         f"{len(lessons) - confirmed} waiting for the owner)")
+    if lessons:
+        _print_lessons(lessons)
 
     _out(f"session: {d.get('sessionId')}")
     _out(f"fleetManager: {'yes' if d.get('isFleetManager') else 'no'}")

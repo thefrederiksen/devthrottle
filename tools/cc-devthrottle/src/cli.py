@@ -340,16 +340,27 @@ _ACTIONS = [
         "args": [{"name": "text", "required": True}],
     },
     {
+        "id": "fleet-lesson",
+        "description": (
+            "Keep a lesson: the owner's correction of a Fleet Manager's mistake, in their words, exactly. Kept before "
+            "anything else in the turn the owner corrects you. Stored at once, unconfirmed until the owner confirms it; "
+            "only confirmed lessons are given to later Fleet Managers. At most 500 characters."
+        ),
+        "command": 'cc-devthrottle fleet lesson "<the owner\'s words, exactly>" [--mistake "<one line>"]',
+        "mutatesState": True,
+        "args": [{"name": "text", "required": True}, {"name": "mistake", "required": False}],
+    },
+    {
         "id": "fleet-preferences",
-        "description": "List the owner's standing preferences, oldest first.",
-        "command": "cc-devthrottle fleet preferences [--json]",
+        "description": "List the owner's standing preferences, or the lessons, oldest first.",
+        "command": "cc-devthrottle fleet preferences [--kind preference|lesson] [--json]",
         "mutatesState": False,
-        "args": [],
+        "args": [{"name": "kind", "required": False}],
     },
     {
         "id": "fleet-forget",
-        "description": "Remove one standing preference.",
-        "command": "cc-devthrottle fleet forget <preference id>",
+        "description": "Remove one standing preference, or an unconfirmed lesson this Fleet Manager kept itself.",
+        "command": "cc-devthrottle fleet forget <preference or lesson id>",
         "mutatesState": True,
         "args": [{"name": "id", "required": True}],
     },
@@ -3935,10 +3946,23 @@ def fleet_prefer(
     fleet_ops.add_preference(text, json_output)
 
 
+@fleet_app.command("lesson")
+def fleet_lesson(
+    text: str = typer.Argument(..., help="The owner's correction, in their own words, exactly."),
+    mistake: Optional[str] = typer.Option(None, "--mistake", help="One line saying what went wrong."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Keep a lesson from the owner's correction; it waits for the owner to confirm."""
+    fleet_ops.add_lesson(text, mistake, json_output)
+
+
 @fleet_app.command("preferences")
-def fleet_preferences(json_output: bool = _JSON_OPT) -> None:
-    """List the owner's standing preferences, oldest first."""
-    fleet_ops.list_preferences(json_output)
+def fleet_preferences(
+    kind: str = typer.Option("preference", "--kind", help="preference (the default) or lesson."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """List the owner's standing preferences, or the lessons, oldest first."""
+    fleet_ops.list_preferences(kind, json_output)
 
 
 @fleet_app.command("forget")
@@ -3946,7 +3970,7 @@ def fleet_forget(
     preference_id: str = typer.Argument(..., metavar="ID", help="The preference's id, or the start of it."),
     json_output: bool = _JSON_OPT,
 ) -> None:
-    """Remove one standing preference."""
+    """Remove one standing preference, or an unconfirmed lesson you kept yourself."""
     fleet_ops.forget_preference(preference_id, json_output)
 
 
