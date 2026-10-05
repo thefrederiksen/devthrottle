@@ -39,8 +39,8 @@ public sealed class TeamPersonStampHostTests
             Observe(gateway, team, "director-alice", "session-alice");
             Observe(gateway, personal, "director-solo", "session-solo");
 
-            Assert.Equal(Alice, PersonOn(gateway, "session-alice"));
-            Assert.Null(PersonOn(gateway, "session-solo"));
+            Assert.Equal(Alice, PersonOn(gateway, team, "session-alice"));
+            Assert.Null(PersonOn(gateway, personal, "session-solo"));
         });
     }
 
@@ -80,9 +80,11 @@ public sealed class TeamPersonStampHostTests
         });
     }
 
-    private static string? PersonOn(GatewayHost gateway, string sessionId)
+    /// <summary>The row as its own tenant sees it. <c>session_history</c> is tenant-scoped, so it is read through that
+    /// tenant's context: an unscoped context matches no scoped row at all, by design.</summary>
+    private static string? PersonOn(GatewayHost gateway, TenantId tenant, string sessionId)
     {
-        using var ctx = gateway.GatewayDatabaseForTests.CreateUnscopedContext();
+        using var ctx = gateway.GatewayDatabaseForTests.CreateContext(tenant);
         return ctx.SessionHistory.Single(e => e.SessionId == sessionId).PersonSubject;
     }
 
