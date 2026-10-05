@@ -265,6 +265,55 @@ owner's stop ends the turn and his screen is read, the colleague's report does n
 
 Each on a build that succeeded, restored by a trap, diff empty. Only this class of Gateway.Tests was run, as ruled.
 
+## Rebase onto #3551, #3556 and #3560, and the history row
+
+Brief: `developer-2311-step2-rebase-onto-3551.md`. Rebased onto origin/main 3c5c8970a (it also has #3564, the v2.15.0
+release, and #3558, the Director half of S2-F13). Fix commit 3f51557fa.
+
+Resolved hunks, both sides kept:
+- `GatewayHost.cs`: the `TeamCallerOwnership` property - main already had one (#3533, #3551); this branch's second
+  copy dropped, the doc comment names all four askers (gate, Fleet Map, #3551's prompt stamp and history person, the
+  hub). `TeamRequests` (#3556) kept. One instance, built once with the session key registry.
+- `Teams/TeamEndpointGate.cs`: the private `Whose` takes #3551's `method` AND this branch's session key identity; the
+  call passes `ctx.Request.Method` and the session. `CallerSubject`'s session parameter stays optional, so #3551's
+  `TeamPromptCaller` (two arguments) still compiles.
+- `Teams/TeamCallerOwnership.cs`: the class comment keeps this branch's key-row item (S2-F6) and #3551's
+  `POST /prompts` item.
+
+Point 2 - can a colleague's push write another person's history row? YES, it could, so it is fixed here.
+`SessionHistoryRecorder.ObserveCore` wrote `UpsertLive(directorId, ...)` for every session in any Director's push,
+and `SessionHistoryStore.UpsertLive` sets `entity.DirectorId = directorId` on the row found by session id alone. So
+Alice's Director, listing Bob's session id: created the row first if she listed it first, and the recorder's
+`tracked.Person ??= PersonFor(tenant, directorId)` then stamped it with HER person - after which
+`SetFirstPrompt(..., first.PersonSubject)` would refuse Bob's own first prompt, since the row is not his; took the
+row over under her Director on a later write; and `ObserveRemoval` -> `RecordEnding(sessionId)` ended Bob's row when
+her Director removed the id.
+
+The fix: the recorder takes an `acceptsReport` filter (`SessionHistoryRecorder.cs`), asked first in `ObserveCore`
+(before anything is tracked, so a refused report leaves no person or facts behind) and in `ObserveRemoval`. The host
+wires it to `IsTeamSessionOfDirector` - the one rule, `ClaimOf`, the same one the display push and the turn-end
+watcher ask; outside a team, and while Teams is dark, it answers yes and nothing changes.
+
+Test: `HostedTeamColleagueSessionWiringTests.ASessionsHistoryRow_IsWrittenOnlyByItsOwnDirector_NeverByAColleagueWhoListsItsId`
+- Bob's row is his (Director and person); Alice's removal of the id and her roster without it do not end it; and for a
+second session of Bob's whose id Alice lists FIRST, no row is written for her and Bob's push writes it stamped Bob.
+#3551's `TeamPersonStampHostTests` helper now lists the session in the roster before the recorder sees it - the hub's
+own order (`DirectorHub.PushSnapshotCore` applies the push to the store, then calls the recorder); a session no
+Director lists is nobody's, so the old helper's direct call would be refused.
+
+Runs (before the final rebase; the rebase onto 3c5c8970a brought no Gateway change):
+- Gateway.Tests, the two classes filtered: Passed 5 of 5.
+- Red, recorder's `ObserveCore` check gated off: Failed 1 of 5 - the history test, at "no row for Alice's listing"
+  (line 149). Restored, diff empty.
+- Red, recorder's `ObserveRemoval` check gated off: NO RESULT. The run built and then queued on the Gateway.Tests
+  machine-wide lock, held since 1:30 PM by another session's release-gate run; it was stopped and the source restored
+  (diff empty). Not counted.
+- Red, the host's `acceptsReport:` wire on the recorder removed: NOT RUN, for the same lock.
+- Gateway.UnitTests in full, two halves: Half A Passed 3964, Skipped 5; Half B Passed 5338, Skipped 8. 0 failed.
+- Default gate: green before the final rebase (3,601). On the rebased head every suite passed except that
+  Core.UnitTests ran over the 120-second ceiling on a loaded machine and was stopped; run alone it passed 1,228 of
+  1,228 in 1 m 14 s.
+
 ## Schema
 
 None. No table, column or index added; no migration. The team bill table is the website's; the Gateway.Tests helper

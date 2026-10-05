@@ -361,3 +361,15 @@ Details in step2-team-bill.md.
       Each on a build that succeeded, restored by trap, empty diff. Clean rebuild after: Passed 2 of 2.
     .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
     Gateway.UnitTests: builds; not rerun (no change to it or to production code this round).
+
+31. Rebase onto #3551, #3556, #3560 (then #3564, #3558): origin/main 3c5c8970a. Conflicts resolved in GatewayHost.cs,
+    TeamEndpointGate.cs, TeamCallerOwnership.cs, both sides kept. Point 2 fix commit 3f51557fa (history row taken only
+    from the session's own Director).
+    Gateway.Tests filtered (HostedTeamColleagueSessionWiringTests, TeamPersonStampHostTests): Passed 5 of 5.
+      recorder ObserveCore check gated off       Failed 1 of 5  ASessionsHistoryRow_... (line 149)
+      recorder ObserveRemoval check gated off    NO RESULT - queued on the Gateway.Tests lock (held by the release-gate
+                                                 run from 1:30 PM), stopped, restored, diff empty. Not counted.
+      host acceptsReport wire on the recorder    NOT RUN - same lock.
+    Gateway.UnitTests in full, two halves: Half A Passed 3964, Skipped 5; Half B Passed 5338, Skipped 8. 0 failed.
+    .\scripts	est-local.ps1: green before the last rebase (3,601). On 3c5c8970a-based head: all passed except
+      Core.UnitTests OVER BUDGET (stopped at 120 s, loaded machine); alone: Passed 1228 of 1228 in 1 m 14 s.
