@@ -776,6 +776,239 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         Assert.Contains("Ask the team's Owner, or set this computer up as a new Director.", refused.Error);
     }
 
+    // ---- #3552 review round 4: S2-F11 (who may end a key), S2-F12 (the honest refresh), questions 1 and 2 -----------
+
+    private static string R4Hash(string rawKey) =>
+        Convert.ToHexString(CcDirector.Core.Security.GatewaySessionKey.HashBytes(rawKey)).ToLowerInvariant();
+
+    private static void R4Register(Connected director, string sessionId, string rawKey, DateTime expiresUtc) =>
+        director.Hub.RegisterSessionKey(new SessionKeyRegistration { SessionId = sessionId, KeyHash = R4Hash(rawKey), ExpiresAtUtc = expiresUtc });
+
+    /// <summary>
+    /// #3552 review S2-F11, the reviewer's first round-4 reproduction turned round. It passed on 80d46ca40: Alice's
+    /// Director ended the key of Bob's session, and since a revoked row is never revived, Bob's session had no Gateway
+    /// credential for the rest of its life. Now, in a team, a revoke ends a row only when it names the calling Director:
+    /// Alice's ends nothing, Bob's key still works and can still be refreshed, and Bob's own revoke still ends it.
+    /// </summary>
+    [Fact]
+    public void AColleaguesDirector_RevokingAnotherPersonsSessionKey_EndsNothing_AndTheOwnersOwnRevokeStillWorks()
+    {
+        var sid = Guid.NewGuid().ToString("D");
+        var raw = "raw-key-of-bobs-session";
+        var bob = Hello(_teamA, Bob, "director-bob");
+        R4Register(bob, sid, raw, DateTime.UtcNow.AddHours(1));
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid } });
+        Assert.Equal(SessionCredentialResolutionKind.Active, _sessionKeys.ResolveCredential(raw).Kind);
+
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.RevokeSessionKey(sid);
+        // And a revoke for an id with no key row at all ends nothing either.
+        alice.Hub.RevokeSessionKey(Guid.NewGuid().ToString("D"));
+
+        Assert.Equal(SessionCredentialResolutionKind.Active, _sessionKeys.ResolveCredential(raw).Kind);
+        R4Register(bob, sid, raw, DateTime.UtcNow.AddHours(2));
+        Assert.Equal(SessionCredentialResolutionKind.Active, _sessionKeys.ResolveCredential(raw).Kind);
+
+        bob.Hub.RevokeSessionKey(sid);
+        Assert.Equal(SessionCredentialResolutionKind.Revoked, _sessionKeys.ResolveCredential(raw).Kind);
+    }
+
+    /// <summary>
+    /// #3552 review S2-F11: a PERSONAL tenant is unchanged. It is one person's, so any of that person's Directors may
+    /// end a key of that account's sessions, exactly as before - the team rule is asked only on a team key's connection.
+    /// </summary>
+    [Fact]
+    public void InAPersonalTenant_AnotherDirectorOfTheSamePerson_StillEndsTheSessionsKey_AsBefore()
+    {
+        var personal = _tenants.MintOrLookupBySubject(Alice, null);
+        Connected Personal(string directorId)
+        {
+            var key = _devices.RegisterForTenant(personal, Alice, "personal-namespace|" + directorId, "M").DeviceKey;
+            Assert.False(_devices.ResolveCredential(key).Identity!.IsTeamKey);
+            var connected = SayHello(key, directorId);
+            Assert.False(connected.Context.Aborted);
+            return connected;
+        }
+
+        var laptop = Personal("director-laptop");
+        var desktop = Personal("director-desktop");
+        var sid = Guid.NewGuid().ToString("D");
+        var raw = "raw-key-of-a-personal-session";
+        R4Register(laptop, sid, raw, DateTime.UtcNow.AddHours(1));
+        Assert.Equal(SessionCredentialResolutionKind.Active, _sessionKeys.ResolveCredential(raw).Kind);
+
+        desktop.Hub.RevokeSessionKey(sid);
+        Assert.Equal(SessionCredentialResolutionKind.Revoked, _sessionKeys.ResolveCredential(raw).Kind);
+    }
+
+    /// <summary>
+    /// #3552 review S2-F12, the reviewer's second round-4 reproduction turned round. It passed on 80d46ca40: while Alice
+    /// listed Bob's session id, every refresh of the key row that already named Bob's Director was refused, and the key
+    /// ran out. Now the roster is asked only while there is no key row; with one, the registry decides, so Bob's refresh
+    /// is accepted while Alice lists the id and the key does not run out.
+    /// </summary>
+    [Fact]
+    public void WhileAColleagueListsASessionId_ItsOwnDirectorStillRefreshesTheSessionsKey_SoTheKeyDoesNotRunOut()
+    {
+        var sid = Guid.NewGuid().ToString("D");
+        var raw = "raw-key-of-bobs-session-2";
+        var bob = Hello(_teamA, Bob, "director-bob");
+        R4Register(bob, sid, raw, DateTime.UtcNow.AddSeconds(2));
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid } });
+
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid } });
+
+        // Bob's refresh of the row that already names his Director is accepted.
+        R4Register(bob, sid, raw, DateTime.UtcNow.AddHours(1));
+        Thread.Sleep(2500);
+        Assert.Equal(SessionCredentialResolutionKind.Active, _sessionKeys.ResolveCredential(raw).Kind);
+        Assert.Equal("director-bob", _sessionKeys.DirectorOfSession(new TenantId(_teamA), sid));
+        // Alice still cannot write it.
+        Assert.Throws<HubException>(() => R4Register(alice, sid, "alice-raw", DateTime.UtcNow.AddHours(1)));
+    }
+
+    /// <summary>
+    /// #3552 review S2-F12, the reviewer's third round-4 reproduction turned round. It passed on 80d46ca40: Bob's
+    /// refresh was refused while Alice listed the id, the key lapsed, the expiry sweep revoked it, and Bob's registration
+    /// was refused for good. Now the refresh is accepted, so the sweep finds nothing lapsed and the key stays working
+    /// after Alice stops.
+    /// </summary>
+    [Fact]
+    public void WhileAColleagueListsASessionId_TheExpirySweepFindsTheOwnersRefreshedKey_AndLeavesItWorking()
+    {
+        var sid = Guid.NewGuid().ToString("D");
+        var raw = "raw-key-of-bobs-session-3";
+        var bob = Hello(_teamA, Bob, "director-bob");
+        R4Register(bob, sid, raw, DateTime.UtcNow.AddSeconds(2));
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid } });
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid } });
+
+        R4Register(bob, sid, raw, DateTime.UtcNow.AddHours(1));
+        Thread.Sleep(2500);
+        Assert.Equal(0, _sessionKeys.SweepExpired());
+        alice.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+        R4Register(bob, sid, raw, DateTime.UtcNow.AddHours(1));
+        Assert.Equal(SessionCredentialResolutionKind.Active, _sessionKeys.ResolveCredential(raw).Kind);
+    }
+
+    /// <summary>
+    /// #3552 review S2-F13, the reviewer's fourth round-4 reproduction, kept AS IT IS: it still passes, on purpose. After
+    /// a Gateway restart the roster is empty, so a session that still has no key row can be keyed by a colleague's
+    /// Director first. The Gateway cannot close this from memory; the Director half - registering keys before the roster
+    /// on a reseed - closes it, and Teams must not be released without it. This test pins the gap so that change is
+    /// seen when it lands: it is the one to turn round then.
+    /// </summary>
+    [Fact]
+    public void Gap_AfterAGatewayRestart_ASessionStillWithoutAKeyRow_CanBeKeyedByAColleagueFirst_UntilTheDirectorSendsKeysFirst()
+    {
+        var sid = Guid.NewGuid().ToString("D");
+        var bob = Hello(_teamA, Bob, "director-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = sid } });
+        var aliceKey = _devices.RegisterForTenant(new TenantId(_teamA), Alice,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamA, Alice, "director-alice"), "M").DeviceKey;
+        var alice = SayHello(aliceKey, "director-alice");
+        Assert.Throws<HubException>(() => R4Register(alice, sid, "alice-raw", DateTime.UtcNow.AddHours(1)));
+
+        _directors = new DirectorRegistry(_harness.LegacyPath("instances-after-restart-r4"));
+        _store = new PushedSessionStore();
+        alice = SayHello(aliceKey, "director-alice");
+        R4Register(alice, sid, "alice-raw", DateTime.UtcNow.AddHours(1));
+        Assert.Equal("director-alice", _sessionKeys.DirectorOfSession(new TenantId(_teamA), sid));
+    }
+
+    /// <summary>
+    /// #3552 review round 4, Tech Lead question 2. A turn end reported for a session by a Director that lists a
+    /// colleague's session id used to move that session's turn and hand the Wingman the reporting Director's id, so the
+    /// Wingman read THAT Director's screen and stored the verdict under the colleague's session. Now, in a team, the
+    /// watcher takes a report only from the session's own Director (the one rule, ClaimOf), through both of its feeds:
+    /// the hub's report and its own sweep of the roster.
+    /// </summary>
+    [Fact]
+    public async Task ATurnEnd_ReportedForAColleaguesSession_ByADirectorThatListsItsId_IsNotTaken_ThroughEitherFeed()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        RegisterSessionKey(bob, "session-bob");
+        var alice = Hello(_teamA, Alice, "director-alice");
+        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary, _sessionKeys);
+        var team = new TenantId(_teamA);
+        var signals = new List<CcDirector.Gateway.Briefing.TurnEndSignal>();
+        var removed = new List<string>();
+        var watcher = new CcDirector.Gateway.Briefing.TurnEndWatcher(
+            onTurnEnd: signals.Add,
+            onSessionWorking: (_, _, _) => { },
+            pushedSessions: _store,
+            onSessionRemoved: (_, sid, directorId) => removed.Add(directorId),
+            acceptsReport: (tenant, sid, directorId, isRemoval) => ownership.AcceptsReport(tenant, directorId, sid, isRemoval));
+
+        // The hub's feed. Bob's session is working; Alice reports it as waiting: nothing is taken.
+        watcher.Observe(team, "session-bob", "Working", "director-bob");
+        watcher.Observe(team, "session-bob", "WaitingForInput", "director-alice");
+        Assert.Empty(signals);
+        // Alice "removing" it forgets nothing of Bob's session.
+        watcher.ObserveRemoval(team, "session-bob", "director-alice");
+        Assert.Empty(removed);
+        // Bob's own stop is taken, with his Director's id - so the Wingman reads his screen.
+        watcher.Observe(team, "session-bob", "WaitingForInput", "director-bob");
+        var signal = Assert.Single(signals);
+        Assert.Equal("director-bob", signal.DirectorId);
+
+        // The sweep's feed: both rosters list the id; only Bob's entry moves the turn.
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob", ActivityState = "Working" } });
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob", ActivityState = "WaitingForInput" } });
+        signals.Clear();
+        watcher.Observe(team, "session-bob", "Working", "director-bob");
+        await watcher.SweepAsync(sweepAll: true);
+        Assert.Empty(signals);
+    }
+
+    /// <summary>
+    /// #3552 review round 4, Tech Lead question 1. A Director that lists a colleague's session id was sent that
+    /// session's folded display state on every change - the state label carries the Wingman's own line about the
+    /// session, beside its snooze times and the count of messages waiting for it, none of which any surface shows another
+    /// member (the team Fleet Map shows a name and one of three words). Now, in a team, the fold is sent only to the
+    /// session's own Director; the stand-in fold below stamps a line on every entry so a send to Alice would carry it.
+    /// </summary>
+    [Fact]
+    public async Task AColleaguesSessionsFoldedState_IsSentOnlyToItsOwnDirector_NotToADirectorThatListsItsId()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        RegisterSessionKey(bob, "session-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob", ActivityState = "WaitingForInput" } });
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob", ActivityState = "Idle" } });
+        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary, _sessionKeys);
+        var team = new TenantId(_teamA);
+
+        var sentTo = new List<string>();
+        var observer = new CcDirector.Gateway.Fleet.FleetDisplayStateObserver(
+            () => _store.SnapshotConnected(team),
+            rows =>
+            {
+                foreach (var row in rows)
+                {
+                    row.EffectiveColor = "green";
+                    row.StateLabel = "Report - the line the Wingman wrote about Bob's turn " + row.ActivityState;
+                }
+            },
+            (directorId, command, ct) =>
+            {
+                lock (sentTo) sentTo.Add(directorId);
+                return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success());
+            },
+            mayReceive: (directorId, sid) => ownership.AcceptsReport(team, directorId, sid, isRemoval: false));
+
+        observer.Sweep();
+        await observer.PushSessionAsync("session-bob", CancellationToken.None);
+
+        lock (sentTo)
+        {
+            Assert.Contains("director-bob", sentTo);
+            Assert.DoesNotContain("director-alice", sentTo);
+        }
+    }
+
     [Fact]
     public void PushTurns_ANewSessionWithNothingStored_IsAcceptedOnlyFromADirectorWhoseRosterHoldsIt()
     {

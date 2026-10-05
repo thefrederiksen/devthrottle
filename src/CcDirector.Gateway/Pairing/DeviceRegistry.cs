@@ -304,8 +304,9 @@ public sealed class DeviceRegistry : IDisposable
     /// Whether a person other than <paramref name="accountSubject"/> holds an ACTIVE key for Director
     /// <paramref name="directorId"/>, anywhere - asked only when a move finds none of the person's own, to tell "that
     /// Director is someone else's" from "no such Director". It reads every active row and compares in memory with
-    /// <see cref="DeviceCredentialIdentity.SameDirectorId"/> (#3552 review, S2-F10); that is a whole-table read, which is
-    /// why it is asked only on that refusal and never on a path that succeeds.
+    /// <see cref="DeviceCredentialIdentity.SameDirectorId"/> (#3552 review, S2-F10). It reads the device id column of every
+    /// active row, which is why it is asked only on that refusal and never on a path that succeeds; only the rows that
+    /// match are read whole (S2-F14).
     /// </summary>
     public bool AnotherPersonHasActiveKeyForDirector(string accountSubject, string directorId)
     {
@@ -315,12 +316,20 @@ public sealed class DeviceRegistry : IDisposable
             throw new ArgumentException("directorId is required", nameof(directorId));
         var subject = accountSubject.Trim();
         using var ctx = _db.CreateUnscopedContext();
-        var held = ctx.DeviceCredentials
+        // Only the device id column is carried for the comparison (#3552 review, S2-F14) - never whole rows with their key
+        // hashes - and only the few rows that match are read whole, to be judged.
+        var matching = ctx.DeviceCredentials
             .AsNoTracking()
             .Where(d => d.Status == StatusActive && d.RevokedAtUtc == null
                         && (d.AccountSubject == null || d.AccountSubject != subject))
+            .Select(d => d.DeviceId)
             .ToList()
-            .Where(d => RowIsEnrolledFor(d.DeviceId, directorId))
+            .Where(id => RowIsEnrolledFor(id, directorId))
+            .ToList();
+        var held = matching.Count > 0 && ctx.DeviceCredentials
+            .AsNoTracking()
+            .Where(d => matching.Contains(d.DeviceId))
+            .ToList()
             .Any(row => Judge(ctx, row).Kind == DeviceCredentialResolutionKind.Active);
         FileLog.Write($"[DeviceRegistry] AnotherPersonHasActiveKeyForDirector: director={directorId.Trim()} held={held}");
         return held;

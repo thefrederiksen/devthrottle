@@ -219,6 +219,93 @@ public sealed class TeamCallerOwnership
     }
 
     /// <summary>
+    /// THE ONE ANSWER TO "IS THIS SESSION THIS DIRECTOR'S OWN" inside a team (#3552 review, round 4) - asked by the hub
+    /// before it accepts a turn push, by the turn-end watcher before a Director's report of a session's state may move
+    /// that session's turn, and by the display push before a session's folded state is sent to a Director. One rule, so
+    /// a Director that lists a colleague's session id cannot write into it, cannot end its turns, and is not sent what
+    /// the Gateway knows about it:
+    /// <list type="bullet">
+    /// <item>Anything stored for the id, in any generation: its own only when every Director that wrote it is this one or
+    /// another Director of <paramref name="person"/> (<see cref="WrittenByAnotherPerson"/>).</item>
+    /// <item>Nothing stored, and a session key row: its own only when the row names this Director (S2-F6).</item>
+    /// <item>Neither: its own only when this Director is the ONE Director in the tenant whose roster lists the id; with
+    /// two, nobody's for now (S2-F2).</item>
+    /// </list>
+    /// <paramref name="person"/> is the person whose key the Director said Hello on.
+    /// </summary>
+    public TeamSessionClaim ClaimOf(TenantId tenant, string directorId, string person, string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(directorId))
+            throw new ArgumentException("directorId is required", nameof(directorId));
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException("sessionId is required", nameof(sessionId));
+        if (string.IsNullOrWhiteSpace(person))
+            return TeamSessionClaim.NoPerson;
+
+        IReadOnlyList<string> writers;
+        using (_boundary.EnterScope(tenant))
+            writers = _turns.DirectorsOfAnyGeneration(sessionId);
+        if (writers.Count > 0)
+            return WrittenByAnotherPerson(tenant, writers, directorId, person)
+                ? TeamSessionClaim.AnotherPersonWroteIt
+                : TeamSessionClaim.Its;
+
+        var keyed = SessionKeyDirectorOf(tenant, sessionId);
+        if (keyed is not null)
+            return DeviceCredentialIdentity.SameDirectorId(keyed, directorId)
+                ? TeamSessionClaim.Its
+                : TeamSessionClaim.AnotherDirectorsKey;
+
+        var holders = _sessions.DirectorsHoldingSession(tenant, sessionId);
+        return holders.Count == 1 && DeviceCredentialIdentity.SameDirectorId(holders[0], directorId)
+            ? TeamSessionClaim.Its
+            : TeamSessionClaim.NotNow;
+    }
+
+    /// <summary><see cref="ClaimOf(TenantId, string, string, string)"/> for a Director named by its id alone: its person
+    /// is <see cref="OwnerOf"/>, and a Director that is nobody's is <see cref="TeamSessionClaim.NoPerson"/>.</summary>
+    public TeamSessionClaim ClaimOf(TenantId tenant, string directorId, string sessionId)
+    {
+        var person = OwnerOf(tenant, directorId);
+        return person is null ? TeamSessionClaim.NoPerson : ClaimOf(tenant, directorId, person, sessionId);
+    }
+
+    /// <summary>
+    /// Whether, in a team, a Director's report about a session - a state, or a removal - may move that session's turn,
+    /// and whether that Director may be sent the session's folded state (#3552 review, round 4): only when the session is
+    /// its own by <see cref="ClaimOf(TenantId, string, string)"/>. A REMOVAL is refused only when the session is someone
+    /// else's for good: one that is nobody's for now (two holders, no record) may still be forgotten, or its own
+    /// Director's removal would never be heard. The caller asks this only for a team's tenant.
+    /// </summary>
+    public bool AcceptsReport(TenantId tenant, string directorId, string sessionId, bool isRemoval)
+    {
+        if (string.IsNullOrWhiteSpace(directorId) || string.IsNullOrWhiteSpace(sessionId))
+            return false;
+        var claim = ClaimOf(tenant, directorId, sessionId);
+        var accepted = claim == TeamSessionClaim.Its || (isRemoval && claim == TeamSessionClaim.NotNow);
+        if (!accepted)
+            FileLog.Write($"[TeamCallerOwnership] AcceptsReport: director={directorId} session={sessionId} claim={claim} removal={isRemoval} - not accepted");
+        return accepted;
+    }
+
+    /// <summary>Whether any of <paramref name="writers"/> - the Directors that wrote a session's stored rows - is neither
+    /// <paramref name="directorId"/> nor another Director of <paramref name="person"/> (<see cref="OwnerOf"/>; a writer it
+    /// cannot name is not the person's). THE ONE stored-writer question: <see cref="ClaimOf(TenantId, string, string, string)"/>
+    /// and the hub's session key check both ask it (#3552 review, S2-F8).</summary>
+    public bool WrittenByAnotherPerson(TenantId tenant, IReadOnlyList<string> writers, string directorId, string person)
+    {
+        ArgumentNullException.ThrowIfNull(writers);
+        foreach (var writer in writers)
+        {
+            if (DeviceCredentialIdentity.SameDirectorId(writer, directorId))
+                continue;
+            if (!string.Equals(OwnerOf(tenant, writer), person, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// The Director named on a session's key row in <paramref name="tenant"/>, or null when it never registered one
     /// (<see cref="SessionKeyRegistry.DirectorOfSession"/>). THE ONE READER of that record inside a team: the ownership
     /// answer above and the hub's first-rows rule both ask it here (#3552 review, S2-F6).
@@ -295,4 +382,23 @@ public sealed class TeamCallerOwnership
     private static bool IsUnder(string pattern, string prefix) =>
         string.Equals(pattern, prefix, StringComparison.Ordinal)
         || pattern.StartsWith(prefix + "/", StringComparison.Ordinal);
+}
+
+/// <summary>The answer of <see cref="TeamCallerOwnership.ClaimOf(TenantId, string, string, string)"/>.</summary>
+public enum TeamSessionClaim
+{
+    /// <summary>The session is this Director's own.</summary>
+    Its,
+
+    /// <summary>Nothing records whose it is and two Directors list it: nobody's for now; it ends when the other stops.</summary>
+    NotNow,
+
+    /// <summary>Its stored rows were written by another person's Director. For good: rows are never taken back.</summary>
+    AnotherPersonWroteIt,
+
+    /// <summary>Nothing is stored and its session key row names another Director. For good: the row is never taken over.</summary>
+    AnotherDirectorsKey,
+
+    /// <summary>The Director is nobody's, or the key it said Hello on names no person.</summary>
+    NoPerson,
 }

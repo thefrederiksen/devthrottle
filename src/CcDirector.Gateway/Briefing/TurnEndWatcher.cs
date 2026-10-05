@@ -80,6 +80,10 @@ public sealed class TurnEndWatcher : IDisposable
     private readonly Action<TenantId, string, string>? _onSessionExited;
     // (tenant, sessionId, directorId): a session this watcher had seen alive was removed from its Director's list. Optional.
     private readonly Action<TenantId, string, string>? _onSessionRemoved;
+    // (tenant, sessionId, directorId, isRemoval) -> whether this Director's report may move this session's turn. Null
+    // accepts every report, as before. The host answers it from the one "is this session this Director's own" rule for a
+    // team tenant, and yes for every other (#3552 review, round 4, question 2).
+    private readonly Func<TenantId, string, string, bool, bool>? _acceptsReport;
     // MTR-10 Gap C: keyed by (tenant, sessionId), never the bare session id. Two accounts can run sessions with
     // the SAME id; a bare key let one tenant's last-seen state suppress - or fabricate - the other tenant's
     // Working -> Waiting transition (and so its voice refresh / stale-cache clear). The owning tenant is
@@ -99,6 +103,11 @@ public sealed class TurnEndWatcher : IDisposable
     /// FIRST seen already exited (a Gateway restart) does not raise it: that exit is not news.</param>
     /// <param name="onSessionRemoved">Raised once when a session this watcher had seen, and not seen exit, is removed
     /// from its Director's list (<see cref="ObserveRemoval"/>).</param>
+    /// <param name="acceptsReport">Whether a Director's report of a session (a state, or a removal when the last argument
+    /// is true) may move that session's turn. Asked only when the report would change something. Null accepts every
+    /// report. In a team, a Director that lists a colleague's session id would otherwise drive the colleague's turn ends
+    /// with its own Director id, and the Wingman would read ITS screen and record the verdict under the colleague's
+    /// session (#3552 review, round 4, question 2).</param>
     public TurnEndWatcher(
         Action<TurnEndSignal> onTurnEnd,
         Action<TenantId, string, string> onSessionWorking,
@@ -106,8 +115,10 @@ public sealed class TurnEndWatcher : IDisposable
         PushedSessionStore? pushedSessions = null,
         TimeSpan? streamStale = null,
         Action<TenantId, string, string>? onSessionExited = null,
-        Action<TenantId, string, string>? onSessionRemoved = null)
+        Action<TenantId, string, string>? onSessionRemoved = null,
+        Func<TenantId, string, string, bool, bool>? acceptsReport = null)
     {
+        _acceptsReport = acceptsReport;
         _onSessionRemoved = onSessionRemoved;
         _onSessionExited = onSessionExited;
         _pushedSessions = pushedSessions;
@@ -150,6 +161,14 @@ public sealed class TurnEndWatcher : IDisposable
         if (string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(activityState)) return;
 
         var key = (tenant, sessionId);
+
+        // A REPORT FROM A DIRECTOR WHOSE SESSION THIS IS NOT MOVES NOTHING. Asked only when the report would change the
+        // remembered state, so a repeated state costs nothing. The memory is keyed by session id, not by Director, so
+        // without this a second Director listing the id would move the owner's turn and hand the Wingman its own id.
+        if (_acceptsReport is not null
+            && !(_lastActivity.TryGetValue(key, out var unchanged) && unchanged == activityState)
+            && !_acceptsReport(tenant, sessionId, directorId, false))
+            return;
 
         // THE TRANSITION IS TAKEN ATOMICALLY, AND ONLY THE CALLER THAT TAKES IT RAISES IT. Three feeds observe the same
         // session - the hub's accepted delta, the host's session-state path and this watcher's own reconcile sweep - and
@@ -211,6 +230,9 @@ public sealed class TurnEndWatcher : IDisposable
     public void ObserveRemoval(TenantId tenant, string sessionId, string directorId)
     {
         if (_disposed || string.IsNullOrEmpty(sessionId)) return;
+        if (_acceptsReport is not null && _lastActivity.ContainsKey((tenant, sessionId))
+            && !_acceptsReport(tenant, sessionId, directorId, true))
+            return;
         if (_lastActivity.TryRemove((tenant, sessionId), out var last) && last != "Exited")
             _onSessionRemoved?.Invoke(tenant, sessionId, directorId);
     }

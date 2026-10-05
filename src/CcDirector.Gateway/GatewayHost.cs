@@ -2084,7 +2084,8 @@ public sealed class GatewayHost : IAsyncDisposable
             AmbientSnapshotConnected,
             sessions => _displayFold.Push(_tenantPass.Current, sessions, _turnVerdictRows),
             SendCommandAsync,
-            currentScopeKey: () => _tenantPass.Current?.Value);
+            currentScopeKey: () => _tenantPass.Current?.Value,
+            mayReceive: (directorId, sessionId) => IsTeamSessionOfDirector(_tenantPass.Current, directorId, sessionId, isRemoval: false));
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
         // (CcStorage.Root(), the same location the snooze and cron stores use). Loaded here so a Gateway
         // restart re-serves every WHY. Tests MUST pass an isolated path so they never touch the real store.
@@ -3331,6 +3332,20 @@ public sealed class GatewayHost : IAsyncDisposable
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
 
     /// <summary>
+    /// Whether a Director's report about a session, or a fold sent to it, belongs to that session (#3552 review, round
+    /// 4): in a team's tenant, <see cref="Teams.TeamCallerOwnership.AcceptsReport"/>, the one rule; in every other tenant,
+    /// and on a Gateway where Teams is dark, yes - unchanged. Asked by the turn-end watcher and by the display push, so a
+    /// Director that lists a colleague's session id neither drives that session's turns (the Wingman would read the wrong
+    /// screen and record it under the colleague's session) nor is sent what the Gateway knows about it.
+    /// </summary>
+    internal bool IsTeamSessionOfDirector(TenantId? tenant, string directorId, string sessionId, bool isRemoval)
+    {
+        if (tenant is not { IsValid: true } t || !TeamsReleased || !TeamMemberEntitlement.IsTeam(t))
+            return true;
+        return TeamCallerOwnership.AcceptsReport(t, directorId, sessionId, isRemoval);
+    }
+
+    /// <summary>
     /// Whether this account's plan includes the Wingman's narration: the account subject its tenant maps to, that
     /// subject's entitlement, and <see cref="Wingman.NarrationPlanRule"/> for the answer. A read that throws is a
     /// read that could not be made - Unknown, never "needs Pro", so a paying account is never told it must upgrade
@@ -3854,7 +3869,9 @@ public sealed class GatewayHost : IAsyncDisposable
             {
                 _fleetManagerEvents?.OnSessionRemoved(tenant, sid, directorId);
                 ReReadAboveAStop(tenant, sid);
-            });
+            },
+            // In a team, only the session's own Director moves its turn (#3552 review, round 4, question 2).
+            acceptsReport: (tenant, sid, directorId, isRemoval) => IsTeamSessionOfDirector(tenant, directorId, sid, isRemoval));
         // First tick = the startup catch-up sweep; then the 15s reconcile poll for
         // Directors that never push (file-discovered locals, old builds).
         _turnEndWatcher.Start();
