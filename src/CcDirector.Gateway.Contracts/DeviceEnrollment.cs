@@ -23,6 +23,58 @@ public sealed class EnrollSignedInRequest
 
     /// <summary>The device type - defaults to "workstation" - for the cloud mirror roster.</summary>
     public string DeviceType { get; set; } = "";
+
+    /// <summary>
+    /// HOSTED ONLY (devthrottle_internal#2311): the team this Director is set up for, one of the teams
+    /// <c>GET /devices/enroll-hosted/teams</c> offered. Null or absent sets it up for the person's own account,
+    /// exactly as before teams existed. Refused by a Gateway on which Teams is not released.
+    /// Left out of the JSON when null, so a personal enrollment's body is byte-for-byte the body sent before teams
+    /// existed - what an older Gateway has always read, and what the Director's own tests pin.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TeamId { get; set; }
+}
+
+/// <summary>
+/// The answer to <c>GET /devices/enroll-hosted/teams</c> (devthrottle_internal#2311): the teams the signed-in person may
+/// set a Director up for - every team where they may run sessions on their own computers. Never a Collaborator's team,
+/// and never the person's own account, which the Director always offers itself. Empty for a person in no such team.
+/// </summary>
+public sealed class EnrollHostedTeamsResponse
+{
+    public List<EnrollHostedTeam> Teams { get; set; } = new();
+}
+
+/// <summary>One team a Director can be set up for.</summary>
+public sealed class EnrollHostedTeam
+{
+    /// <summary>The team's id: what <see cref="EnrollSignedInRequest.TeamId"/> and <see cref="MoveDirectorRequest.TeamId"/> take.</summary>
+    public string TeamId { get; set; } = "";
+
+    /// <summary>The team's name, as its members see it.</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>The person's role in the team, as stored: <c>owner</c>, <c>manager</c> or <c>developer</c>.</summary>
+    public string Role { get; set; } = "";
+
+    /// <summary>How many members the team has, the person included.</summary>
+    public int MemberCount { get; set; }
+}
+
+/// <summary>
+/// HOSTED ONLY (devthrottle_internal#2311): move one enrolled Director to another team, or back to the person's own
+/// account. Posted to <c>/devices/enroll-hosted/move</c> with the person's account token as the bearer, like
+/// enrollment. The Director is named by its own id - the <see cref="EnrollSignedInRequest.DeviceId"/> it was set up
+/// with - and must have been set up by the same account. On success its key is revoked and a new one, bound to the
+/// new team, is returned in a <see cref="DeviceRegistrationResponse"/>.
+/// </summary>
+public sealed class MoveDirectorRequest
+{
+    /// <summary>The Director's own id: the device id it was set up with.</summary>
+    public string DeviceId { get; set; } = "";
+
+    /// <summary>The team to move to; null or absent moves it to the person's own account.</summary>
+    public string? TeamId { get; set; }
 }
 
 /// <summary>

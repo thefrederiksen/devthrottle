@@ -156,6 +156,14 @@ internal static class AuthMiddleware
         // the caller's verified Supabase ACCOUNT token, which the endpoint validates itself (aud/iss/sig/exp)
         // before minting a device key. It is exact-match public, exactly like the loopback enroll route above.
         Api.HostedEnrollmentEndpoint.Path,
+        // Its two Teams companions (devthrottle_internal#2311), on exactly the same footing: each carries the
+        // caller's own account token and validates it itself, because a Director being set up has no device key
+        // yet (the teams list) and a Director changing team proves its person afresh (the move). The move never
+        // receives a device key: it names the Director by its id, the account token alone proves the person, and the
+        // endpoint checks that the Director's working key was issued to that same account. Exact-match. Mapped only where Teams is released;
+        // elsewhere the request finds no route and is answered as for any route that does not exist.
+        Api.HostedEnrollmentEndpoint.TeamsPath,
+        Api.HostedEnrollmentEndpoint.MovePath,
         // Issue #1076 (epic #1069): the credential-free cloud sign-in START front door. A signed-out
         // browser must reach this to BEGIN cloud sign-in, so it cannot sit behind the raw-token wall
         // (that is the deadlock the epic breaks). It is exact-match, so ONLY /account/sign-in-start is
@@ -710,6 +718,15 @@ internal static class AuthMiddleware
         if (ctx.Items.ContainsKey(AuthenticatedCredentialItemKey)) return "machine-token";
         return null;
     }
+
+    /// <summary>
+    /// The device identity the auth gate resolved for this request, or null when it was not made with a device key
+    /// (a session key, the machine token, or no credential at all).
+    /// </summary>
+    public static DeviceCredentialIdentity? AuthenticatedDevice(HttpContext? ctx)
+        => ctx?.Items.TryGetValue(AuthenticatedDeviceItemKey, out var value) == true
+            ? value as DeviceCredentialIdentity
+            : null;
 
     public static SessionCredentialIdentity? CallingSession(HttpContext? ctx)
         => ctx?.Items.TryGetValue(AuthenticatedSessionItemKey, out var value) == true

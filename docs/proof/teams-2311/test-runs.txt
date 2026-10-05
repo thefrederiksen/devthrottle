@@ -1,0 +1,238 @@
+devthrottle_internal#2311 (Gateway part 1) - test runs on branch teams/2311-gateway-team-key, SOREN_NORTH, 4 October 2026
+All runs with MSBUILDDISABLENODEREUSE=1, on the final code.
+
+1. .\scripts\test-local.ps1  (default gate)
+  CcDirector.Core.UnitTests                outcome=Completed    total=1148   executed=1148
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+  RESULT: all projects exited zero. 3,463 passed, 0 failed.
+  COVERAGE GAP named by the script: CcDirector.Core.Tests, CcDirector.Gateway.Tests, CcDirector.Gateway.UnitTests
+  (runs 2 and 3 below cover the last two; the full -Parked run is the Tech Lead's).
+
+2. dotnet test src/CcDirector.Gateway.UnitTests  (whole suite)
+  Passed!  - Failed: 0, Passed: 8397, Skipped: 8, Total: 8405, Duration: 8 m 18 s
+
+3. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~.Teams.|FullyQualifiedName~HostedMobile|FullyQualifiedName~HostedAccount|FullyQualifiedName~DeviceListTenantScoping|FullyQualifiedName~CrossTenantDuplicateDirectorId|FullyQualifiedName~DirectorRouteTenantScoping|FullyQualifiedName~PromptLogTenantIsolation|FullyQualifiedName~OmittedTenantBoundary"
+  CcDirector.Gateway.Tests                 outcome=Completed    total=110    executed=110
+  Passed!  - Failed: 0, Passed: 110, Skipped: 0, Total: 110, Duration: 7 m 48 s
+  (An earlier run of a narrower filter, before TeamEndpointWalkTests was updated, failed exactly that one test:
+   OverTheWire_AKeyBoundToATeamsTenant_IsNotAcceptedToday_... expected 401, got 402 - the behaviour this step changes.)
+
+4. The new tests alone
+  dotnet test src/CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~TeamDirectorKeyTests|FullyQualifiedName~HostedTeamEnrollmentTests|FullyQualifiedName~TeamMemberAccessRevokerTests|FullyQualifiedName~TeamCallerOwnershipTests|FullyQualifiedName~TeamDirectorTunnelTests"
+  Passed!  - Failed: 0, Passed: 69, Total: 69
+  Gateway.Tests: HostedTeamDirectorKeyTests (3) and HostedTeamDirectorKeyDarkTests (1) are inside run 3.
+
+5. Revert check 1 - DeviceRegistry.IsLiveTeamBinding: "return member is not null && ..." -> "return false && member is not null && ..."
+  filter FullyQualifiedName~TeamDirectorKeyTests
+  Failed!  - Failed: 8, Passed: 7, Total: 15
+    ResolveCredential_ATeamKeyOfEveryRoleThatRunsSessions_IsActive_AndNamesThePerson
+    ResolveCredential_RemovingTheMember_RevokesTheirTeamKeyOnTheVeryNextRequest
+    ResolveCredential_MakingTheMemberACollaborator_RevokesTheirTeamKey_AndMakingThemADeveloperAgainRestoresIt
+    ResolveCredential_OnePersonsKeyOnOneTeam_IsUntouchedByTheirRemovalFromAnother
+    Initialize_KeepsAValidTeamKey_AndStillQuarantinesABadOne
+    RevokeTenantMember_RevokesOnlyThatPersonsKeysInThatTenant
+    RevokeDevice_RevokesExactlyThatKey_Once
+    TwoDirectorsOfOnePerson_OnTwoTeams_EachResolveToTheirOwnTeam_AndRegisterOnlyThere
+  restored; run 2 above is on the restored source (it rebuilt).
+
+6. Revert check 2 - TeamCallerOwnership: "return mine ? Callers : SomeoneElses" -> "return Callers"
+  filter FullyQualifiedName~TeamCallerOwnershipTests
+  Failed!  - Failed: 3, Passed: 8, Total: 11
+    Whose_ADirector_IsItsKeysPersons
+    Whose_ADirectorsOwnSession_IsTheCallersOwn_AnotherMembersIsSomeoneElses
+    RunAsync_AMembersDirectorKey_TouchingAnotherMembersSession_IsRefusedAsWatchingIt
+  restored.
+
+7. Revert check 3 - TeamMemberAccessRevoker: "AbortForTenantMember(...)" -> "0" (no tunnel cut)
+  filter FullyQualifiedName~TeamDirectorTunnelTests|FullyQualifiedName~TeamMemberAccessRevokerTests
+  Failed!  - Failed: 4, Passed: 12, Total: 16
+    TeamDirectorTunnelTests.RemovingAPerson_CutsTheirOpenTunnelOnThatTeamOnly
+    TeamDirectorTunnelTests.DemotingAPersonToCollaborator_CutsTheirOpenTunnelOnThatTeamOnly
+    TeamMemberAccessRevokerTests.MakingAPersonACollaborator_RevokesTheirKeysAndCutsTheirTunnelsOnThatTeam_AndTheyStayRevoked
+    TeamMemberAccessRevokerTests.RemovingAPerson_RevokesTheirKeysAndCutsTheirTunnelsOnThatTeamOnly
+  restored.
+
+Not run: .\scripts\test-local.ps1 -Parked (Gateway.Tests in full, Core.Tests) - longer than one command here.
+
+==== Review round 1 (head after rebase onto d3c225be2) ====
+Changes: /healthz "teams" signal; tests that both team routes pass the auth middleware; the move names the Director by
+deviceId; setting a Director up again revokes that person's other keys for the same Director id.
+
+8. .\scripts\test-local.ps1  (default gate)
+  CcDirector.Core.UnitTests                outcome=Completed    total=1161   executed=1161
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+  RESULT: all projects exited zero. 3,476 passed, 0 failed.
+
+9. dotnet test src/CcDirector.Gateway.UnitTests, whole suite in two complementary halves (one run no longer fits in a
+   10-minute command). Half A = namespaces CcDirector.Gateway.Tests.{Wingman,Teams,Fleet,Api,History,Messaging,
+   Factory,Rules,DevReports}.  Half B = everything not in half A (the same nine as "!~" filters, joined with "&").
+  Half A: Failed: 5, Passed: 3173, Total: 3178
+  Half B: Passed: 5225, Skipped: 8, Total: 5233
+  Together 8,411 = the whole suite.
+  The 5 failures are all Wingman.OwnedSessionsAreNotReadTests (TurnEnd_SessionTheOwnerOwns_... x3,
+  SpeechTriggers_TheOwnersOwnVoiceSession_IsRead x2, "Expected 1, Actual 2"). They FAIL THE SAME WAY ON CLEAN
+  origin/main d3c225be2 (built in a scratch worktree off origin/main, class run alone: Failed 5, Passed 19), and they
+  passed in run 2 on the old base cdaab4f2b - so they came in with #3531, not with this change.
+
+10. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~.Teams.|FullyQualifiedName~Healthz|FullyQualifiedName~HostedMobile"
+  NOT COMPLETED. Queued behind another session's Gateway run, then stopped by the session host because the machine
+  was critically low on memory. No verdict. Not restarted. The round-1 Gateway.Tests changes (the /healthz signal
+  tests, the move body) therefore have NO Gateway.Tests run on this head; the -Parked run is where they are proven.
+  Run 3 (round 0) covered the rest of these classes on the earlier head.
+
+GATEWAY REVIEW ROUND (rulings-2311-gateway-review1.md), rebased onto origin/main 24cf04bfa, fix commit 0c6ca344a.
+
+11. Revert proofs, each mutation restored in a finally block, then a fresh build (never --no-build on the restore):
+    dotnet build src/CcDirector.Gateway.UnitTests; dotnet test src/CcDirector.Gateway.UnitTests --no-build
+      --filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams."
+  Hello check off (IsTeamKey && false)                       Failed 1 of 450  ATeamKey_SayingHelloUnderAnotherMembersDirectorId_...
+  Duplicate holders let through (Count > 99)                 Failed 1 of 450  TwoMembersDirectors_ClaimingOneSessionId_...
+  Session check in LeaveOtherPlaces off (sessions > 999)     Failed 4 of 450  Move_WithASessionRegistered_..., Move_WithASessionInTheRealRoster_...,
+                                                                              SettingADirectorUpForAnotherTeam_WhileItHasASession..., SettingADirectorUpForThePersonsOwnAccount_...
+  Old tunnel cut in LeaveOtherPlaces off                     Failed 3 of 450  Move_WithNoSession_..., Move_WithASessionInTheRealRoster_..., SettingADirectorUpForAnotherTeam_WithNoSession_...
+  TeamEnrollment.Over count returns 0                        Failed 3 of 450  Move_WithASessionInTheRealRoster_..., the two set-up-again 409 tests
+  Dark start tombstones team keys again                      Failed 1 of 450  Initialize_TeamsNotReleased_LeavesATeamKeyUntouched_...
+  Restored: Passed 450 of 450; git diff after restore empty.
+
+12. .\scripts\test-local.ps1  (default gate)
+  CcDirector.Core.UnitTests                outcome=Completed    total=1161   executed=1161
+  CcDirector.Avalonia.Tests                outcome=Completed    total=862    executed=862
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=649    executed=649
+  cc-director-setup-cli.Tests              outcome=Completed    total=34     executed=34
+  RESULT: all projects exited zero. 3,476 passed, 0 failed.
+
+13. dotnet test src/CcDirector.Gateway.UnitTests in the same two halves as run 9.
+  Half A: Failed: 5, Passed: 3182, Total: 3187
+  Half B: Passed: 5293, Skipped: 8, Total: 5301
+  Together 8,488 = the whole suite (8 skipped is the standing count, as in runs 2 and 9).
+  The 5 failures are the same Wingman.OwnedSessionsAreNotReadTests as run 9.
+
+14. The 5 Wingman.OwnedSessionsAreNotReadTests, this head against clean main, class run alone
+    (--filter "FullyQualifiedName~OwnedSessionsAreNotReadTests"):
+  this head (0c6ca344a on 24cf04bfa)          Failed 5, Passed 19, Total 24
+  clean d3c225be2 (scratch worktree, built)   Failed 5, Passed 19, Total 24   - the same five tests by name
+  clean 24cf04bfa (same worktree, rebuilt)    Failed 5, Passed 19, Total 24
+  The scratch worktree was removed afterwards. They fail identically without this change, so they are not caused by it.
+
+15. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~CcDirector.Gateway.Tests.Teams."
+  STOPPED, no verdict. Still running after 15 minutes when the Tech Lead relayed the owner's instruction to free
+  memory: no long Gateway.Tests runs locally. Stopped, and its throwaway PostgreSQL container removed. The Tech Lead
+  runs the full suite in continuous integration on this branch. The Gateway.Tests classes for teams were not changed
+  in this round; the code under them was, so they have no run on this head.
+
+ENDED-SESSION RULING (Tech Lead, after the hand-back of 627970c57). Fix commit fedb03941.
+
+16. Revert proofs, as run 11 (restore in finally, fresh build, filter FullyQualifiedName~CcDirector.Gateway.Tests.Teams.):
+  Stored-conversation check skipped (return live)            Failed 2 of 453  AColleaguesEndedSession_..., AMemberPushingIntoAColleaguesStoredConversation_...
+  Check reads the head only (rows Where false)               Failed 1 of 453  AMemberPushingIntoAColleaguesStoredConversation_...
+  Stored read outside the team scope (EnterScope removed)    Failed 4 of 453  the three new tests and TwoMembersDirectors_ClaimingOneSessionId_...
+  Restored: Passed 453 of 453; git diff after restore empty.
+
+17. .\scripts\test-local.ps1  (default gate): every suite outcome=Completed, executed = total, as run 12.
+  RESULT: all projects exited zero. 3,476 passed, 0 failed.
+
+18. dotnet test src/CcDirector.Gateway.UnitTests in the two halves of run 9.
+  Half A: Passed: 3190, Failed: 0, Total: 3190   (the five Wingman tests PASSED in this order - they depend on run
+          order, as the Tech Lead found on 16b10ff75)
+  Half B: Failed: 3, Passed: 5290, Skipped: 8, Total: 5301
+  Together 8,491 = the whole suite.
+  The 3 failures are VerbAnswersWhenStarvedTests (DeliveryStateVerb_..., PromptVerb_..., RecordWrite_...). Rerun alone:
+  2 of 3 failed. The failure is in the test's own set-up - "System.InvalidOperationException : the busy process never
+  kept the processor busy" at BusyProcessor..ctor - before any Gateway code runs: the machine was at 100% processor
+  load from other work (6.3 GB free). The same three passed in run 13 on this branch. Not caused by this change.
+
+CONTINUOUS INTEGRATION 37225566489 on 70698b569: 3 failures in Gateway.Tests, everything else 0 failed. Fix commit b1fa8fd17.
+
+19. The cause, reproduced and proven (dotnet build src/CcDirector.Gateway.Tests -p:BuildCockpit=true, so the test output
+    carries the Cockpit exactly as the Release build in continuous integration does; then
+    dotnet test --no-build --filter "FullyQualifiedName~HostedTeamsDarkTests|FullyQualifiedName~HostedTeamDirectorKeyTests|FullyQualifiedName~HostedTeamDirectorKeyDarkTests"):
+  On 70698b569: Failed 3 of 7 - the same three tests, the same lines, the same Expected/Actual as continuous integration.
+  (1) TheTwoTeamEnrollmentRoutes_AreMapped_AndAskForTheAccountToken: the TEST posted the move's old body
+      { deviceKey }. Since review round 1 the move names the Director by deviceId, and a missing deviceId is 400
+      before the token is read - the contract's order. The test now sends { deviceId }, and gets the 401 it is about.
+  (2) and (3), the dark routes: the 200 is the Cockpit's page. A diagnostic print of the dark GET /teams answer (local,
+      never committed): "GET teams -> 200 text/html; charset=utf-8 <!doctype html>". An unmapped GET falls to
+      CockpitReactApp's single-page fallback, which serves index.html whenever wwwroot/c exists.
+  Not caused by this branch for /teams: HostedTeamsDarkTests fails the same way on clean 24cf04bfa built with the
+  Cockpit (scratch worktree, removed afterwards): Failed 1 of 1, Expected NotFound, Actual OK.
+  Why another branch's run passed it: CockpitReactAppServingTests deletes the real wwwroot/c when it finishes
+  (CockpitReactAppServingTests.cs:59), so any Gateway test that runs AFTER it sees no Cockpit and gets 404, and any
+  that runs BEFORE it gets the 200 page. The dark tests passed or failed by run order.
+  The production meaning: every deployed Gateway carries the Cockpit, so a dark Gateway answered GET /teams with 200
+  HTML - and the Cockpit's own team switcher calls GET /teams.
+  The fix: TeamsDarkRoutes, a middleware added only while Teams is not released, before authentication, answers every
+  team path 404 text/plain. Not a mapped endpoint, so the dark route table still has no team route.
+
+20. After the fix, same build and filter: Passed 7 of 7.
+    Revert proof (the middleware not added, restore in finally, rebuilt with the Cockpit): Failed 2 of 7 -
+    Dark_TheTeamEnrollmentRoutesAreAbsent_... and SwitchUnset_EveryTeamRouteIsAbsent_...; restored: Passed 7 of 7, no diff.
+    TeamsDarkRoutesTests (Gateway.UnitTests, a real web host whose fallback answers 200 to everything, so the result
+    cannot depend on run order): Passed 9 of 9.
+
+21. .\scripts\test-local.ps1 (default gate): every suite outcome=Completed, executed = total; 3,476 passed, 0 failed.
+    dotnet test src/CcDirector.Gateway.UnitTests in the two halves of run 9:
+      Half A: Passed: 3199, Failed: 0, Total: 3199
+      Half B: Passed: 5293, Skipped: 8, Total: 5301
+      Together 8,500 = the whole suite, 0 failed.
+REBASED onto origin/main f2c5c29a9 (after #3526 invitations, #3535, #3528 Director teams), before the CI rerun.
+
+22. The one conflict: TeamRegistry.CommitMembershipChange, where #3526 added the seat sync and this branch added the
+    membership event. Both kept: save, then the seat sync is STARTED, then the event is raised - so a listener that
+    throws after the commit can never stop the website being told. #3526's invitation accept now passes the person and
+    the role like every other call site.
+    The rebase showed one defect of THIS branch that only main's new Director code could catch: the contract's
+    EnrollSignedInRequest.TeamId serialised as "teamId":null, so the Director's personal enrollment body was no longer
+    the body sent before teams (#3528's HostedTeamEnrollRunnerTests x4 and EnrollTargetsTheDefaultDirectorTests x1 red).
+    TeamId is now left out of the JSON when null (as HealthDto.Teams is). Both setup suites: 676 and 35 passed.
+
+23. On the rebased head:
+    .\scripts\test-local.ps1 (default gate): every suite outcome=Completed, executed = total; 3,594 passed, 0 failed.
+      (A first run under 99% processor load had Core.UnitTests over the 120-second ceiling and one timing test each in
+      Avalonia.Tests (GitChangesViewHiddenTabTests) and Core.UnitTests (CodexWrappedComposerTests) red; both passed alone,
+      and the whole gate passed on the rerun above.)
+    Gateway.UnitTests, two halves: Half A Passed 3337, Skipped 1 (TeamInvitationProofRig, #3526's manual screen rig);
+      Half B Passed 5311, Skipped 8. Together 8,657, 0 failed.
+    Gateway.Tests, built with the Cockpit, filter HostedTeamsDarkTests|HostedTeamDirectorKeyTests|
+      HostedTeamDirectorKeyDarkTests|Invitation: Passed 25, Skipped 1 (AddTeamInvitationsPostgresTests, needs the
+      PostgreSQL this short run does not start), 0 failed.
+
+ONE ANSWER TO "WHOSE DIRECTOR IS THIS" (Tech Lead, seam-director-key.md; #3533 not merged, so this is the one public
+method). Commit 3523df018.
+
+24. TeamCallerOwnership.OwnerOf(tenant, directorId) is public: the account subject on the ACTIVE device credential the
+    Director said Hello on, bound to THIS tenant; null otherwise. It reads DeviceRegistry.AccountSubjectOfActiveDevice
+    (replacing AccountSubjectOfDevice, which read any row), which keeps #3533's two refusals: a revoked credential, and
+    one bound to another tenant.
+    Teams unit tests: Passed 602, Skipped 1 (TeamInvitationProofRig).
+    Revert proofs (restore in finally, fresh build):
+      revoked credential still names its person          Failed 2 of 603  AccountSubjectOfActiveDevice_NamesNobody_...,
+                                                                          OwnerOf_ADirectorWhoseKeyIsRevoked_IsNobodys_...
+      credential bound to another tenant still names it  Failed 1 of 603  AccountSubjectOfActiveDevice_NamesNobody_...
+      Restored: Passed 602, no diff.
+    Gateway.UnitTests, two halves: Half A Passed 3339, Skipped 1; Half B Passed 5311, Skipped 8. 8,659, 0 failed.
+    Gateway.Tests built with the Cockpit, filter HostedTeamsDarkTests|HostedTeamDirectorKeyTests|
+      HostedTeamDirectorKeyDarkTests|Invitation|TeamEndpointWalkTests: Passed 42, Skipped 1 (the PostgreSQL migration
+      test), 0 failed.
+    .\scripts\test-local.ps1 (default gate): every suite outcome=Completed; 3,594 passed, 0 failed.

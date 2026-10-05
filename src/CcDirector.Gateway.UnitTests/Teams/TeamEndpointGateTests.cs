@@ -20,9 +20,9 @@ namespace CcDirector.Gateway.Tests.Teams;
 ///
 /// <see cref="TeamEndpointGate.Check"/> is the server's decision for one request. Its inputs are what the request's
 /// credential and route say; the per-cell tests below supply the caller and whether the request touches the caller's
-/// own things, because on today's Gateway nothing supplies them inside a team's tenant (devthrottle_internal#2311
-/// does - see the class comment on the gate). The middleware tests at the end run <see cref="TeamEndpointGate.RunAsync"/>
-/// with exactly what production supplies, and show it refuses.
+/// own things directly. The middleware tests at the end run <see cref="TeamEndpointGate.RunAsync"/> with a device
+/// identity that names no person, and show it refuses; TeamCallerOwnershipTests runs it with the team keys of
+/// devthrottle_internal#2311, which do.
 /// </summary>
 public sealed class TeamEndpointGateTests : IDisposable
 {
@@ -338,7 +338,7 @@ public sealed class TeamEndpointGateTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_AKeyBoundToATeamsTenant_IsRefused_BecauseTodayNothingSaysWhichMemberHoldsIt()
+    public async Task RunAsync_AKeyBoundToATeamsTenantThatNamesNoPerson_IsRefusedAsUnidentified()
     {
         var ctx = Request("GET", "/gateway/skills", _team);
         var reached = false;

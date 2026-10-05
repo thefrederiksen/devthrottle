@@ -147,6 +147,14 @@ public static class TeamPermissions
     public static TeamGrant Grant(TeamRole role, TeamAction action) => Row(action).For(role);
 
     /// <summary>
+    /// Whether a member holding <paramref name="role"/> may do <paramref name="action"/> at all - the cell is anything
+    /// but <see cref="TeamGrant.No"/>. The same reading <see cref="TeamAccess.Decide"/> gives as
+    /// <see cref="TeamAccessDecision.Allowed"/>, for a caller that already holds the member's role (the device registry
+    /// reads the role straight off the member row it is checking).
+    /// </summary>
+    public static bool Allows(TeamRole role, TeamAction action) => Grant(role, action) != TeamGrant.No;
+
+    /// <summary>
     /// The action that adding or removing a member of <paramref name="role"/> needs - the one rule for "who may
     /// invite or remove whom" (the invitations of devthrottle_internal#2301 and the Team page's remove of #2303 ask
     /// it, so the rule is not written a second time). A Developer or Collaborator is the row "invite or remove

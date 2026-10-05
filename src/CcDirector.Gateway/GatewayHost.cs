@@ -1702,8 +1702,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // deferInitialize: establishing the credential authority READS the database, and that read used to
         // sit in front of the listener bind. StartAsync initialises it immediately after the database opens,
         // and the readiness gate refuses everything but /healthz until it has.
+        // teamsReleased: only where Teams is released may a hosted key be bound to a team's tenant
+        // (devthrottle_internal#2311); dark, every key is judged exactly as before.
         Devices = new Pairing.DeviceRegistry(_gatewayDb, devicesPath, GatewayHostedMode.IsHosted,
-            deferInitialize: true);
+            deferInitialize: true, teamsReleased: TeamsReleased);
         // Remove-the-network-port phase 1b: the per-session credential registry. A Director registers one key
         // per session over the tunnel it already holds, and an agent inside that session authenticates as the
         // session rather than with its Director's account-wide key. Same database and the same stored-hash
@@ -1760,7 +1762,20 @@ public sealed class GatewayHost : IAsyncDisposable
         // the stores read (so a scope it enters is what they resolve) and the device registry.
         _tenantBoundary = new Tenancy.HostedTenantBoundary(_tenantContext, Devices);
         TeamAccess = new Teams.TeamAccess(TeamRegistry);
-        TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary);
+        // The stored conversations. Built here, before the team gate, because whose a session is in a team also asks
+        // who wrote its stored conversation (devthrottle_internal#2311) - and it must be THIS one store, whose cache the
+        // hub writes through, never a second instance.
+        _sessionTurns = new History.SessionTurnStore(_gatewayDb);
+        TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary,
+            new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary));
+        // Removing a person from a team, or making them a Collaborator, cuts their Directors off that team: their keys
+        // there are revoked and their open tunnels there cut (devthrottle_internal#2311). Attached only where Teams is
+        // released, at the one place a membership change is committed.
+        if (TeamsReleased)
+        {
+            var memberAccess = new Teams.TeamMemberAccessRevoker(Devices, _directorConnections);
+            TeamRegistry.MembershipCommitted += change => memberAccess.OnMembershipCommitted(change);
+        }
         // The background-loop seam (Hosted Multi-Tenancy, session-serving PR2). Its tenant list is the live
         // push-store partition set - exactly the tenants with a Director bound to the tunnel, which is the
         // only fleet a push-store-driven sweep could act on - so a sweep costs no per-tick database scan.
@@ -2187,7 +2202,6 @@ public sealed class GatewayHost : IAsyncDisposable
         _devReportSettleSweep = new DevReports.DevReportSettleSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _devReports, _devReportDelivery);
         _knownRepositories = new History.KnownRepositoryStore(_gatewayDb);
-        _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         // The Wingman-on-every-turn mission: the judged-stop record, and its seven-day purge on the same
         // per-tenant worker seam the activity ledger's retention uses.
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
@@ -3917,6 +3931,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // Both orderings are pinned by DevReportLinkRouteTests. See DevReportLinkRoute for the full reasoning.
         Api.DevReportLinkRoute.UseDevReportLink(_app);
 
+        // Teams dark (devthrottle_internal#2300, #2311): the team routes are not mapped, and an unmapped GET would
+        // otherwise fall to the Cockpit's fallback and answer 200 with its page. Every team path answers 404 here,
+        // before authentication, so a dark Gateway says the same thing to everyone: there is no such route.
+        if (!TeamsReleased)
+            Teams.TeamsDarkRoutes.Use(_app);
+
         if (AuthEnabled)
         {
             // Issue #469: a per-device key issued at enrollment is a valid Bearer credential
@@ -4170,6 +4190,9 @@ public sealed class GatewayHost : IAsyncDisposable
             gatewayPort: () => Port,
             // Not-ready until the database is open - see the /healthz handler.
             databaseReady: () => _gatewayDb.IsOpen,
+            // The one "Teams released" signal on /healthz (devthrottle_internal#2311): true exactly where the team
+            // enrollment routes are mapped - the hosted enrollment routes exist only on hosted.
+            teamsOffered: GatewayHostedMode.IsHosted && TeamsReleased,
             // Per-subsystem readiness on /healthz, so a deploy can tell "the process is up" apart from
             // "the pages work". Statistics is the one subsystem that is designed to fail on its own without
             // stopping the Gateway, so it is the one that can be silently down after a green deploy - which
@@ -4438,9 +4461,16 @@ public sealed class GatewayHost : IAsyncDisposable
             // The paid gate rides along here and ONLY here. This route is mapped on hosted only, so passing
             // the entitlement registry means the gate is active wherever enrollment is possible - self-host
             // never maps this route at all and therefore cannot be gated by accident.
+            //
+            // The Teams half (devthrottle_internal#2311) - the teams a Director may be set up for, enrollment into one,
+            // and moving a Director between them - exists only where Teams is released. A move is refused while the
+            // Director has a session on this Gateway: its last known roster here.
+            var teamEnrollment = TeamsReleased
+                ? Api.HostedEnrollmentEndpoint.TeamEnrollment.Over(TeamRegistry, TeamAccess, PushedSessions, _directorConnections)
+                : null;
             Api.HostedEnrollmentEndpoint.Map(_app, hostedEnrollDeps.Devices, hostedEnrollDeps.Tenants,
                 hostedEnrollDeps.AccountTokenValidator, entitlements: hostedEnrollDeps.Entitlements,
-                trials: hostedEnrollDeps.Trials);
+                trials: hostedEnrollDeps.Trials, teams: teamEnrollment);
         }
 
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
