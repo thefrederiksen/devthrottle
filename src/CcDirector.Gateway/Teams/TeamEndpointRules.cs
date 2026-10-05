@@ -135,6 +135,12 @@ public static class TeamEndpointRules
         new TeamEndpointRule(TeamFleetMap.RoutePattern, TeamMethods.Read, TeamAction.SeeFleetMap, TeamTarget.TeamNarrowedToCaller,
             TeamFrom: TeamFrom.RouteTeamId, Exact: true),
 
+        // The Mentor's weekly page (devthrottle_internal#2305). Reading it at all needs the cell "read the Mentor's page
+        // about themselves" - so a Collaborator, who runs no sessions, is refused here. WHICH blocks a reader gets (every
+        // block for an Owner or Manager, their own for a Developer) is narrowed by the endpoint, asking TeamAccess for
+        // "read the Mentor's page about each person" and "read the prompts quoted on it". There is no write.
+        new TeamEndpointRule("/teams/{teamId}/mentor", TeamMethods.Read, TeamAction.ReadOwnMentorPage, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+
         // Sessions: a person's own sessions; touching another person's is joining or watching it.
         new TeamEndpointRule("/sessions", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
         new TeamEndpointRule("/interrupted", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
