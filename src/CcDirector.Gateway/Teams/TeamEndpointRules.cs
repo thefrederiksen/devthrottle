@@ -107,6 +107,14 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/teams/{teamId}/skills", TeamMethods.Write, TeamAction.ChangeSharedSkillsAndWorkflows, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         new TeamEndpointRule("/teams/{teamId}/workflows", TeamMethods.Read, TeamAction.UseSharedSkillsAndWorkflows, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         new TeamEndpointRule("/teams/{teamId}/workflows", TeamMethods.Write, TeamAction.ChangeSharedSkillsAndWorkflows, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // The Team page (devthrottle_internal#2303). Reading it is its own row: a Collaborator has no Team page. Removing
+        // a member needs the right to remove; WHICH role a person may remove is then the cell for removing that role
+        // (TeamPermissions.ActionToAddOrRemove), asked inside the registry, because the role is the member's, not the
+        // route's. Exact: a write to the member list itself is no action yet. Changing a role is the row "make someone a
+        // Manager, change roles".
+        new TeamEndpointRule("/teams/{teamId}/page", TeamMethods.Read, TeamAction.SeeTeamPage, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        new TeamEndpointRule("/teams/{teamId}/members/{memberId}", TeamMethods.Write, TeamAction.InviteOrRemoveDevelopersAndCollaborators, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule("/teams/{teamId}/members/{memberId}/role", TeamMethods.Write, TeamAction.MakeManagersAndChangeRoles, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
 
         // Sessions: a person's own sessions; touching another person's is joining or watching it.
         new TeamEndpointRule("/sessions", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),

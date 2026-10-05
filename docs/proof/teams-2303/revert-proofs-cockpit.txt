@@ -1,0 +1,11 @@
+Revert proof, Cockpit Team page: the page decides from the role instead of rendering the Gateway's verdicts.
+    - {m.canChangeRole ? (
+    + {m.role !== "Owner" ? (
+    - {m.canRemove && (
+    + {m.role !== "Owner" && (
+    exit code: 1
+    ok the Team page, per role > Owner: every role but their own is a dropdown, Remove on everyone but themselves, Invite someone shown 475ms
+    x the Team page, per role > Manager: role is plain text, Remove only on Developers and Collaborators, can invite 54ms
+    x the Team page, per role > Developer: the list, and nothing to click 64ms
+    Test Files  1 failed (1)
+    Tests  2 failed | 5 passed (7)
