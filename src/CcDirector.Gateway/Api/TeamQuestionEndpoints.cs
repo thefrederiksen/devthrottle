@@ -140,10 +140,14 @@ internal sealed class TeamQuestions
         _ => $"{waiting} questions waiting on you - answer them on Questions",
     };
 
-    /// <summary>The page's line under its title.</summary>
+    /// <summary>What the page is for, under its title when nothing waits; the empty state alone says nothing does.</summary>
+    internal const string PagePurpose = "Questions your team is waiting on you to answer.";
+
+    /// <summary>The page's line under its title. With nothing waiting it says what the page is for, because the empty
+    /// state below already says nothing is waiting and the page would otherwise say it twice.</summary>
     internal static string Subtitle(int waiting) => waiting switch
     {
-        0 => NothingWaiting,
+        0 => PagePurpose,
         1 => "One question is waiting on you.",
         _ => $"{waiting} questions are waiting on you.",
     };

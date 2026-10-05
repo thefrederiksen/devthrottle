@@ -129,7 +129,7 @@ def main():
                 wait_for(page, page.get_by_text(WORDS_SENTENCE), "the sentence saying where the words go")
                 shot(page, f"{prefix}-1-question-waiting.png")
 
-                card.first.get_by_test_id("team-question-option").filter(has_text=CHOICE).click()
+                card.first.locator("label.team-option").filter(has_text=CHOICE).click()
                 card.first.get_by_test_id("team-question-comment").fill(comment)
                 shot(page, f"{prefix}-2-question-filled-in.png")
                 card.first.get_by_test_id("team-question-send").click()

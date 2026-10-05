@@ -259,7 +259,8 @@ public sealed class TeamQuestionsTests : IDisposable
 
         var nina = await ListFor(Nina);
         Assert.Empty(QuestionIds(nina, "waiting"));
-        Assert.Equal(TeamQuestions.NothingWaiting, nina.GetProperty("subtitle").GetString());
+        Assert.Equal(TeamQuestions.PagePurpose, nina.GetProperty("subtitle").GetString());
+        Assert.Equal(TeamQuestions.NothingWaiting, nina.GetProperty("emptyText").GetString());
         Assert.Empty(QuestionIds(await ListFor(Alice), "waiting"));
 
         // Nina answering Mike's question, or a report sent to nobody, gets the one not-found - and nothing is stored or sent.
@@ -402,7 +403,8 @@ public sealed class TeamQuestionsTests : IDisposable
         var list = await ListFor(Mike);
 
         Assert.Empty(QuestionIds(list, "waiting"));
-        Assert.Equal(TeamQuestions.NothingWaiting, list.GetProperty("subtitle").GetString());
+        Assert.Equal(TeamQuestions.PagePurpose, list.GetProperty("subtitle").GetString());
+        Assert.NotEqual(list.GetProperty("emptyText").GetString(), list.GetProperty("subtitle").GetString());
         var answer = list.GetProperty("answered")[0].GetProperty("answer");
         Assert.Equal("You chose \"30 days\"", answer.GetProperty("chosenLabel").GetString());
         Assert.Equal("Delivered when the agent finishes its turn", answer.GetProperty("statusLabel").GetString());
@@ -440,7 +442,7 @@ public sealed class TeamQuestionsTests : IDisposable
     }
 
     [Theory]
-    [InlineData(0, null, "No questions waiting on you.")]
+    [InlineData(0, null, "Questions your team is waiting on you to answer.")]
     [InlineData(1, "1 question waiting on you - answer it on Questions", "One question is waiting on you.")]
     [InlineData(3, "3 questions waiting on you - answer them on Questions", "3 questions are waiting on you.")]
     public void WaitingLabelAndSubtitle_SayHowManyInWords(int waiting, string? label, string subtitle)
