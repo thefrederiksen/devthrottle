@@ -550,7 +550,9 @@ public sealed class FleetManagerPlacementFoldTests
         Assert.Equal("Claude Code", dto.Agents[0].DisplayName);
         Assert.DoesNotContain(dto.Agents, a => a.Value == "RawCli");
         Assert.Equal("Claude Code, Codex, Gemini, OpenCode, Pi, Grok, Copilot or Cursor - any agent installed on the "
-                     + "chosen computer. It uses that agent's own sign-in and default model.", dto.AgentNote);
+                     + "chosen computer. It uses that agent's own sign-in and default model. After it runs out of room "
+                     + "and compacts, only Claude Code and Codex are given your lessons again automatically; on any other "
+                     + "agent it re-reads them only when it next starts a conversation.", dto.AgentNote);
     }
 
     // ---- times ------------------------------------------------------------------------------------------
