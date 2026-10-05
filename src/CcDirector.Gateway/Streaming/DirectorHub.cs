@@ -30,6 +30,8 @@ public sealed class DirectorHub : Hub
 {
     private const string DirectorIdItemKey = "cc.directorId";
     private const string TenantIdItemKey = "cc.tenantId";
+    // The person a TEAM key was issued to, recorded at Hello only for a team key (devthrottle_internal#2311).
+    private const string TeamKeyHolderItemKey = "cc.teamKeyHolder";
     /// <summary>Set on a connection once its turn watermarks have been handed to the Director.</summary>
     private const string TurnWatermarksHandedItemKey = "cc.turnWatermarksHanded";
 
@@ -78,9 +80,11 @@ public sealed class DirectorHub : Hub
         Wingman.VoiceAnswerObserver? voiceAnswers = null,
         Messaging.FleetMessageLinkStore? messageLinks = null,
         Messaging.FleetMessageLinkRecord? messageLinkRecord = null,
-        Fleet.FleetManagerLessonsObserver? fleetManagerLessons = null)
+        Fleet.FleetManagerLessonsObserver? fleetManagerLessons = null,
+        Teams.TeamCallerOwnership? teamOwnership = null)
     {
         _fleetManagerLessons = fleetManagerLessons;
+        _teamOwnership = teamOwnership;
         _voiceAnswers = voiceAnswers;
         // A link store with nowhere to record what it ends would end links silently; refused at construction.
         if (messageLinks is not null && messageLinkRecord is null)
@@ -149,6 +153,8 @@ public sealed class DirectorHub : Hub
     private readonly SessionStateObservationSink? _sessionState;
     /// <summary>The stored conversation (turn-push mission). Null only in tests that do not exercise it.</summary>
     private readonly History.SessionTurnStore? _sessionTurns;
+    // Whose a Director is inside a team (devthrottle_internal#2311): the one answer the team gate also asks.
+    private readonly Teams.TeamCallerOwnership? _teamOwnership;
     /// <summary>Which connected Directors send their conversations - learned here, from Hello.</summary>
     private readonly TurnPushCapabilityRegistry? _turnPushCapabilities;
     private readonly FleetManagerHomeCapabilityRegistry? _fleetManagerHomeCapabilities;
@@ -329,6 +335,8 @@ public sealed class DirectorHub : Hub
 
         Context.Items[DirectorIdItemKey] = directorId;
         Context.Items[TenantIdItemKey] = tenant;
+        if (device is { IsTeamKey: true })
+            Context.Items[TeamKeyHolderItemKey] = device.AccountSubject ?? "";
         _store.RegisterConnection(tenant, directorId, Context.ConnectionId);
         // The repository store follows the same ownership discipline: only this - the current -
         // connection may push repository snapshots from now on.
@@ -455,6 +463,16 @@ public sealed class DirectorHub : Hub
             return null;
         }
         using var tenantScope = EnterBoundTenantScope();
+        switch (TeamTurnPushRefusalFor(directorId, batch.SessionId))
+        {
+            case TeamTurnPushRefusal.AnotherPersonWroteIt:
+                // Refused for good: the Director stops re-sending this generation, as for a malformed batch.
+                return null;
+            case TeamTurnPushRefusal.NotInThisDirectorsRoster:
+                // Refused for now: an answer on another generation makes the Director re-read at its next trigger, so
+                // a first push that arrived before its own roster entry is sent again rather than lost.
+                return new TurnWatermark { SessionId = batch.SessionId, Generation = "", Count = 0 };
+        }
         try
         {
             return _sessionTurns.Append(directorId, batch, DateTime.UtcNow);
@@ -464,6 +482,53 @@ public sealed class DirectorHub : Hub
             FileLog.Write($"[DirectorHub] PushTurns REFUSED a malformed batch: director={directorId} session={batch.SessionId} seq={sequence}: {ex.Message}");
             return null;
         }
+    }
+
+    private enum TeamTurnPushRefusal { None, AnotherPersonWroteIt, NotInThisDirectorsRoster }
+
+    /// <summary>
+    /// A TEAM'S TURN PUSH IS ACCEPTED ONLY INTO THE PUSHER'S OWN SESSION (devthrottle_internal#2311, Gateway review
+    /// round 2, R2-F1). Inside a team, whose a session is decides who may read its stored content, and part of that
+    /// answer is who wrote it - so the write itself must not let one person write into another's session. A session
+    /// id with anything stored, in ANY generation, is accepted only when every Director that wrote it is this one or
+    /// another Director of the same person (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>; a writer it cannot name
+    /// is not the pusher's). A session id with nothing stored is accepted only when this Director's own roster holds
+    /// it. That closes both harms: a later generation taking over a colleague's ended session, and a foreign row
+    /// spoiling a colleague's live one. A personal key is never asked: <see cref="TeamKeyHolderItemKey"/> is set only
+    /// for a team key. Called inside the bound tenant scope.
+    /// </summary>
+    private TeamTurnPushRefusal TeamTurnPushRefusalFor(string directorId, string sessionId)
+    {
+        if (!Context.Items.TryGetValue(TeamKeyHolderItemKey, out var holder))
+            return TeamTurnPushRefusal.None;
+        var person = holder as string;
+        var tenant = RequireBoundTenant();
+        if (string.IsNullOrEmpty(person) || _teamOwnership is null)
+        {
+            FileLog.Write($"[DirectorHub] PushTurns REFUSED (a team key, and its person or the ownership answer is missing): director={directorId} session={Short(sessionId)}");
+            return TeamTurnPushRefusal.AnotherPersonWroteIt;
+        }
+
+        var writers = _sessionTurns!.DirectorsOfAnyGeneration(sessionId);
+        if (writers.Count > 0)
+        {
+            foreach (var writer in writers)
+            {
+                if (string.Equals(writer, directorId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!string.Equals(_teamOwnership.OwnerOf(tenant, writer), person, StringComparison.Ordinal))
+                {
+                    FileLog.Write($"[DirectorHub] PushTurns REFUSED (in a team, session {Short(sessionId)} holds rows a Director that is not this person's wrote): director={directorId}");
+                    return TeamTurnPushRefusal.AnotherPersonWroteIt;
+                }
+            }
+            return TeamTurnPushRefusal.None;
+        }
+
+        if (_store.DirectorsHoldingSession(tenant, sessionId).Contains(directorId, StringComparer.OrdinalIgnoreCase))
+            return TeamTurnPushRefusal.None;
+        FileLog.Write($"[DirectorHub] PushTurns REFUSED for now (in a team, session {Short(sessionId)} has nothing stored and is not in this Director's roster): director={directorId}");
+        return TeamTurnPushRefusal.NotInThisDirectorsRoster;
     }
 
     /// <summary>

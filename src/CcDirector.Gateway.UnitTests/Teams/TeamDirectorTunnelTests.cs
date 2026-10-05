@@ -113,7 +113,8 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         http.Items[AuthMiddleware.AuthenticatedDeviceItemKey] = resolution.Identity;
         var ctx = new FakeHubCtx("conn-" + directorId + "-" + Interlocked.Increment(ref _connectionCount), http);
         var hub = new DirectorHub(_store, _directors, InputStatsHandle.Available(_inputStats), _streams,
-            tenantBoundary: _boundary, connections: _connections, sessionTurns: _turns) { Context = ctx };
+            tenantBoundary: _boundary, connections: _connections, sessionTurns: _turns,
+            teamOwnership: new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary)) { Context = ctx };
         hub.Hello(new DirectorStreamHello { DirectorId = directorId, MachineName = "M", User = "u", Version = "1", Pid = 1, StartedAt = DateTime.UtcNow });
         return new Connected(hub, ctx);
     }
@@ -268,11 +269,14 @@ public sealed class TeamDirectorTunnelTests : IDisposable
 
     // ---- Gateway review, the ended-session gap: a stored conversation is its writers' ----------------------------
 
-    private static TurnPushBatch Conversation(string sid, int start, int count) => new()
+    private static TurnPushBatch Conversation(string sid, int start, int count) =>
+        Conversation(sid, start, count, "C:/transcripts/" + sid + ".jsonl", new DateTime(2026, 10, 4, 12, 0, 0, DateTimeKind.Utc));
+
+    private static TurnPushBatch Conversation(string sid, int start, int count, string generation, DateTime startedUtc) => new()
     {
         SessionId = sid,
-        Generation = "C:/transcripts/" + sid + ".jsonl",
-        GenerationStartedUtc = new DateTime(2026, 10, 4, 12, 0, 0, DateTimeKind.Utc),
+        Generation = generation,
+        GenerationStartedUtc = startedUtc,
         Agent = "ClaudeCode",
         StartOrdinal = start,
         TotalCount = start + count,
@@ -302,22 +306,119 @@ public sealed class TeamDirectorTunnelTests : IDisposable
     }
 
     [Fact]
-    public void AMemberPushingIntoAColleaguesStoredConversation_DoesNotMakeItTheirs()
+    public void AMemberPushingIntoAColleaguesStoredConversation_IsRefused_AndDoesNotMakeItTheirs()
     {
         var bob = Hello(_teamA, Bob, "director-bob");
         bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
         bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2));
         bob.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
 
-        // Alice's Director appends to Bob's conversation, so the stored head now names Alice's Director - but the rows
-        // the conversation would serve are still Bob's.
+        // Alice's Director appends to Bob's conversation, in the same generation: refused at the write (review round 2,
+        // R2-F1), so the head still names Bob's Director and nothing of Alice's is stored.
         var alice = Hello(_teamA, Alice, "director-alice");
         alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
-        alice.Hub.PushTurns(1, Conversation("session-bob", 2, 1));
+        Assert.Null(alice.Hub.PushTurns(1, Conversation("session-bob", 2, 1)));
         using (_boundary.EnterScope(new TenantId(_teamA)))
-            Assert.Equal("director-alice", _turns.ReadHead("session-bob")!.DirectorId);
+        {
+            Assert.Equal("director-bob", _turns.ReadHead("session-bob")!.DirectorId);
+            Assert.Equal(new[] { "director-bob" }, _turns.DirectorsOfAnyGeneration("session-bob").ToArray());
+        }
 
         Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-bob"));
+    }
+
+    // ---- Gateway review round 2, R2-F1: a team's turn push is accepted only into the pusher's own session ----------
+
+    [Fact]
+    public void PushTurns_ALaterGenerationIntoAColleaguesEndedSession_IsRefused_AndItIsStillNotThePushersOwn()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2));
+        bob.Hub.PushSnapshot(2, Array.Empty<SessionDto>());
+        string bobsGeneration;
+        using (_boundary.EnterScope(new TenantId(_teamA)))
+            bobsGeneration = _turns.ReadHead("session-bob")!.Generation;
+
+        // Alice's Director becomes the only holder of Bob's old id and pushes a NEW generation, started later - the move
+        // that used to switch the head to her Director and leave only her rows in the current generation.
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        var answer = alice.Hub.PushTurns(1, Conversation("session-bob", 0, 1, "C:/transcripts/taken-over.jsonl",
+            new DateTime(2026, 10, 4, 13, 0, 0, DateTimeKind.Utc)));
+
+        Assert.Null(answer);
+        using (_boundary.EnterScope(new TenantId(_teamA)))
+        {
+            var head = _turns.ReadHead("session-bob")!;
+            Assert.Equal("director-bob", head.DirectorId);
+            Assert.Equal(bobsGeneration, head.Generation);
+            Assert.Equal(new[] { "director-bob" }, _turns.DirectorsOfAnyGeneration("session-bob").ToArray());
+        }
+        Assert.NotEqual(TeamOwnership.Callers, Whose(_teamA, Alice, "session-bob"));
+    }
+
+    [Fact]
+    public void PushTurns_AColleaguesPushIntoALiveSession_IsRefused_AndTheOwnerIsStillAnsweredOwn()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        bob.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-bob" } });
+        bob.Hub.PushTurns(1, Conversation("session-bob", 0, 2));
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
+
+        var alice = Hello(_teamA, Alice, "director-alice");
+        Assert.Null(alice.Hub.PushTurns(1, Conversation("session-bob", 2, 1)));
+
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-bob"));
+        // And Bob's own next turn is still taken: the refused row did not hold his ordinal.
+        Assert.Equal(3, bob.Hub.PushTurns(2, Conversation("session-bob", 2, 1))!.Count);
+    }
+
+    [Fact]
+    public void PushTurns_ANewSessionWithNothingStored_IsAcceptedOnlyFromADirectorWhoseRosterHoldsIt()
+    {
+        var alice = Hello(_teamA, Alice, "director-alice");
+
+        // Not in her roster yet: refused for now, with an answer on no generation so a real Director re-reads and sends
+        // it again at its next trigger instead of dropping it.
+        var early = alice.Hub.PushTurns(1, Conversation("session-new", 0, 2));
+        Assert.NotNull(early);
+        Assert.Equal("", early!.Generation);
+        Assert.Equal(0, early.Count);
+        using (_boundary.EnterScope(new TenantId(_teamA)))
+            Assert.Null(_turns.ReadHead("session-new"));
+
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-new" } });
+        var accepted = alice.Hub.PushTurns(2, Conversation("session-new", 0, 2));
+        Assert.Equal(2, accepted!.Count);
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Alice, "session-new"));
+    }
+
+    [Fact]
+    public void PushTurns_TwoDirectorsOfTheSamePerson_MayBothWriteTheirSession()
+    {
+        var laptop = Hello(_teamA, Alice, "director-alice-laptop");
+        laptop.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-alice" } });
+        laptop.Hub.PushTurns(1, Conversation("session-alice", 0, 2));
+
+        var desktop = Hello(_teamA, Alice, "director-alice-desktop");
+        Assert.Equal(3, desktop.Hub.PushTurns(1, Conversation("session-alice", 2, 1))!.Count);
+    }
+
+    [Fact]
+    public void PushTurns_APersonalKey_IsNotAsked_AndWritesAsBefore()
+    {
+        // A personal account's Director: nothing in its roster, and another of the account's Directors wrote the
+        // session. Both are accepted, as before the team rule.
+        var personal = _tenants.MintOrLookupBySubject(Alice, null);
+        var first = SayHello(_devices.RegisterForTenant(personal, Alice, "home-1", "M").DeviceKey, "home-1");
+        Assert.False(first.Context.Aborted);
+        Assert.Equal(2, first.Hub.PushTurns(1, Conversation("session-home", 0, 2))!.Count);
+
+        var second = SayHello(_devices.RegisterForTenant(personal, Alice, "home-2", "M").DeviceKey, "home-2");
+        Assert.Equal(3, second.Hub.PushTurns(1, Conversation("session-home", 2, 1))!.Count);
+        using (_boundary.EnterScope(personal))
+            Assert.Equal("home-2", _turns.ReadHead("session-home")!.DirectorId);
     }
 
     [Fact]

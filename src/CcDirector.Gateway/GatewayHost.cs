@@ -1848,6 +1848,8 @@ public sealed class GatewayHost : IAsyncDisposable
         _devReports = new DevReports.DevReportStore(_gatewayDb);
         _devReportRecipients = new DevReports.DevReportRecipients(_gatewayDb);
         _devReportComments = new DevReports.DevReportPersonComments(_gatewayDb);
+        // ONE answer to "whose Director is this" in a team, asked by the team gate and by the hub before it accepts a
+        // team's turn push (devthrottle_internal#2311).
         TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary,
             reportAuthor: (tenant, reportId) => _devReports.Get(tenant, reportId)?.AuthorSubject);
         TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
@@ -3905,6 +3907,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(_discoveredRepositories);
         // The stored conversation (turn-push mission): DirectorHub.PushTurns writes it, Hello reads its watermarks.
         builder.Services.AddSingleton(_sessionTurns);
+        builder.Services.AddSingleton(TeamCallerOwnership);
         // Which Directors say they send conversations - recorded at Hello, read when Chat finds nothing stored.
         builder.Services.AddSingleton(_turnPushCapabilities);
         builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
