@@ -1814,12 +1814,12 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             var seatSync = new Tenancy.TeamSeatSync(EntitlementRegistry, new Core.Account.TeamSeatSyncClient());
             TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, seatSync: seatSync,
-                readTeamBill: EntitlementRegistry.ReadTeamBilledSeats);
+                readTeamBill: EntitlementRegistry.ReadTeamBill);
             TeamSeatConvergence = new Teams.TeamSeatConvergence(_gatewayDb, seatSync);
         }
         else
         {
-            TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, readTeamBill: EntitlementRegistry.ReadTeamBilledSeats);
+            TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, readTeamBill: EntitlementRegistry.ReadTeamBill);
         }
         TeamInvitationMailer = new Teams.TeamInvitationMailer(new Core.Account.TeamInvitationMailClient());
         // ONE answer to a person's paid features inside a team: their membership and the team's bill

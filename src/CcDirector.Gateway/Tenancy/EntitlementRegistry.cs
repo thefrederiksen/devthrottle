@@ -444,39 +444,19 @@ public sealed class EntitlementRegistry
         var id = teamId.Trim();
         var teamLog = new Core.Tenancy.TenantId(id).ToLogString();
 
-        Data.Entities.TeamEntitlementEntity? row;
-        try
-        {
-            using var ctx = _db.CreateUnscopedContext();
-            row = ctx.TeamEntitlements.AsNoTracking().FirstOrDefault(e => e.TeamId == id);
-        }
-        catch (Exception ex)
-        {
-            // IGNORANCE, NOT ABSENCE - the same rule, and the same loud log, as the personal read.
-            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} READ FAILED ({ex.GetType().Name}) - answering UNKNOWN, " +
-                          "which must be retried and must NEVER be treated as unpaid or as paid");
-            var pg = ex as Npgsql.PostgresException ?? ex.InnerException as Npgsql.PostgresException;
-            if (pg is not null)
-                FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} PostgreSQL error SqlState={pg.SqlState} MessageText={pg.MessageText}");
+        var bill = ReadTeamBill(id);
+        if (!bill.Known)
             return new EntitlementDecision(EntitlementOutcome.Unknown, null);
-        }
-
-        if (row is null)
+        if (!bill.HasBill)
         {
-            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the read succeeded and the team has no bill (no team entitlement record)");
+            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the read succeeded and the team has no bill");
             return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
         }
 
-        if (_requireLivemode && row.Livemode != true)
-        {
-            FileLog.Write($"[EntitlementRegistry] EvaluateTeam: team={teamLog} NOT ENTITLED - the team's subscription is not a live-mode one (a test-mode or unrecorded one is not an entitlement)");
-            return new EntitlementDecision(EntitlementOutcome.NotEntitled, null);
-        }
-
-        var status = (row.Status ?? "").Trim();
+        var status = bill.Status ?? "";
 
         if (string.Equals(status, StatusActive, StringComparison.OrdinalIgnoreCase))
-            return new EntitlementDecision(EntitlementOutcome.Entitled, TierTeam, row.CurrentPeriodEnd);
+            return new EntitlementDecision(EntitlementOutcome.Entitled, TierTeam, bill.CurrentPeriodEnd);
 
         if (string.Equals(status, StatusPastDue, StringComparison.OrdinalIgnoreCase))
         {
@@ -492,31 +472,49 @@ public sealed class EntitlementRegistry
     }
 
     /// <summary>
-    /// The billed seat count on a team's row, for the seat-convergence check ONLY (<see cref="TeamSeatSync"/>).
-    /// Three-way like every other read here: <see cref="TeamBilledSeats.Known"/> false means the read FAILED.
-    /// Never used to decide access.
+    /// THE ONE READER OF "HAS THIS TEAM A RUNNING BILL" (decision D8, Phase 1 review finding 2; devthrottle_internal#2311
+    /// Gateway step 2). Every question about a team's bill reads it here and nowhere else: its paid features
+    /// (<see cref="EvaluateTeam"/>), whether its Owner and Managers may invite, resend and accept
+    /// (<see cref="Teams.TeamRegistry"/>'s bill gate), and the seat convergence (<see cref="TeamSeatSync"/>). So the
+    /// live-money rule is applied once: on the production hosted Gateway a row whose <c>livemode</c> is not true
+    /// (false or null) is NO BILL for all of them, and a test-mode subscription can never open inviting on production
+    /// while giving no paid features. Three-way like every other read here: <see cref="TeamBill.Known"/> false means the
+    /// read FAILED, which no caller may treat as a bill or as no bill.
     /// </summary>
     /// <param name="teamId">The team id, which is the tenant id. Logged only in the hashed tenant form.</param>
-    public TeamBilledSeats ReadTeamBilledSeats(string teamId)
+    public TeamBill ReadTeamBill(string teamId)
     {
         if (string.IsNullOrWhiteSpace(teamId))
             throw new ArgumentException("A team id is required", nameof(teamId));
 
         var id = teamId.Trim();
+        var teamLog = new Core.Tenancy.TenantId(id).ToLogString();
+        Data.Entities.TeamEntitlementEntity? row;
         try
         {
             using var ctx = _db.CreateUnscopedContext();
-            var row = ctx.TeamEntitlements.AsNoTracking().FirstOrDefault(e => e.TeamId == id);
-            if (row is null)
-                return new TeamBilledSeats(Known: true, HasBill: false, Status: null, Seats: null);
-            return new TeamBilledSeats(Known: true, HasBill: true, Status: (row.Status ?? "").Trim(), Seats: row.Seats,
-                Fingerprint: TeamBillFingerprint(row));
+            row = ctx.TeamEntitlements.AsNoTracking().FirstOrDefault(e => e.TeamId == id);
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[EntitlementRegistry] ReadTeamBilledSeats: team={new Core.Tenancy.TenantId(id).ToLogString()} READ FAILED ({ex.GetType().Name}) - the seat count is unknown; convergence will retry");
-            return new TeamBilledSeats(Known: false, HasBill: false, Status: null, Seats: null);
+            // IGNORANCE, NOT ABSENCE - the same rule, and the same loud log, as the personal read.
+            FileLog.Write($"[EntitlementRegistry] ReadTeamBill: team={teamLog} READ FAILED ({ex.GetType().Name}) - answering UNKNOWN, " +
+                          "which must be retried and must NEVER be treated as a bill or as no bill");
+            var pg = ex as Npgsql.PostgresException ?? ex.InnerException as Npgsql.PostgresException;
+            if (pg is not null)
+                FileLog.Write($"[EntitlementRegistry] ReadTeamBill: team={teamLog} PostgreSQL error SqlState={pg.SqlState} MessageText={pg.MessageText}");
+            return new TeamBill(Known: false, HasBill: false, Status: null, Seats: null);
         }
+
+        if (row is null)
+            return new TeamBill(Known: true, HasBill: false, Status: null, Seats: null);
+        if (_requireLivemode && row.Livemode != true)
+        {
+            FileLog.Write($"[EntitlementRegistry] ReadTeamBill: team={teamLog} NO BILL - the team's subscription is not a live-mode one (a test-mode or unrecorded one is not a bill on this Gateway)");
+            return new TeamBill(Known: true, HasBill: false, Status: null, Seats: null);
+        }
+        return new TeamBill(Known: true, HasBill: true, Status: (row.Status ?? "").Trim(), Seats: row.Seats, CurrentPeriodEnd: row.CurrentPeriodEnd,
+            Fingerprint: TeamBillFingerprint(row));
     }
 
     /// <summary>
@@ -655,12 +653,14 @@ public sealed record TeamTenantDecision(bool IsMember, EntitlementDecision? Enti
 }
 
 /// <summary>
-/// What a team row says about its billed seats, for the seat-convergence check. <see cref="Known"/> false means
-/// the read failed (nothing else on the record is meaningful); <see cref="HasBill"/> false means the read
-/// succeeded and the team has no bill yet. <see cref="Fingerprint"/> is
-/// <see cref="EntitlementRegistry.TeamBillFingerprint"/> of the row when there is one, and null when there is not.
+/// What a team's bill row says, from <see cref="EntitlementRegistry.ReadTeamBill"/>, the one reader of it.
+/// <see cref="Known"/> false means the read failed (nothing else on the record is meaningful); <see cref="HasBill"/>
+/// false means the read succeeded and the team has no bill this Gateway counts - none yet, or, on the production hosted
+/// Gateway, only a test-mode one. <see cref="Fingerprint"/> is <see cref="EntitlementRegistry.TeamBillFingerprint"/> of
+/// the row for every row counted as a bill, and null when there is none.
 /// </summary>
-public sealed record TeamBilledSeats(bool Known, bool HasBill, string? Status, int? Seats, string? Fingerprint = null);
+public sealed record TeamBill(bool Known, bool HasBill, string? Status, int? Seats, DateTime? CurrentPeriodEnd = null,
+    string? Fingerprint = null);
 
 /// <summary>
 /// THE ONE PLACE that says which team roles are PAID SEATS (#2299, owner 3 Oct 2026: "Every team member pays.

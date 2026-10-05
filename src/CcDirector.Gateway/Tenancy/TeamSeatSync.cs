@@ -118,7 +118,7 @@ public sealed class TeamSeatSync
         string teamId, int gatewayPaidMembers, CancellationToken ct = default)
     {
         var key = teamId.Trim();
-        var bill = _entitlements.ReadTeamBilledSeats(teamId);
+        var bill = _entitlements.ReadTeamBill(teamId);
         var verdict = Decide(bill, gatewayPaidMembers);
 
         // A marked team whose bill has not changed: nothing to call, and nothing to log - the stop was logged once.
@@ -156,7 +156,7 @@ public sealed class TeamSeatSync
     /// The convergence decision from what the team row says. A failed read decides nothing (Unknown); a team with
     /// no row, or a canceled bill, has no seat quantity to correct (NoBill); otherwise the counts are compared.
     /// </summary>
-    public static SeatSyncVerdict Decide(TeamBilledSeats bill, int gatewayPaidMembers)
+    public static SeatSyncVerdict Decide(TeamBill bill, int gatewayPaidMembers)
     {
         if (!bill.Known) return SeatSyncVerdict.Unknown;
         if (!bill.HasBill) return SeatSyncVerdict.NoBill;
