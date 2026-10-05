@@ -40,6 +40,10 @@ MUTATIONS = {
            '            TeamRequestEndpoints.Map(_app, TeamRequests, _tenantBoundary, TenantRegistry);\n        }',
            '        }\n        TeamRequestEndpoints.Map(_app, TeamRequests, _tenantBoundary, TenantRegistry);',
            "The request routes are mapped with Teams switched off"),
+    "T1": ("src/CcDirector.Gateway/Util/SessionKeyGuard.cs",
+           '    private static bool IsAllowed(string verb, string[] s)\n    {\n',
+           '    private static bool IsAllowed(string verb, string[] s)\n    {\n        if (s.Length >= 1 && s[0] == "teams") return true;\n',
+           "A session key may call every team route"),
 }
 
 

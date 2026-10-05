@@ -48,3 +48,23 @@ Run on 2026-10-04 on SOREN_NORTH.
    PostgreSQL-gated) before the red-test runs.
 
 Red-test record: red-tests.txt in this folder (mutate.py is the script that made each mutation and restored it).
+
+=== After merging origin/main at b7e12f84b (#2306 squashed, #3530, #3533, #3541) - 5 October 2026 ===
+AddTeamRequests regenerated on top of AddTeamMentor: SQLite 20261005115901, PostgreSQL 20261005115930. Up and Down
+are byte-for-byte the previous ones; the migration pins and counts move to it as the newest.
+MSBUILDDISABLENODEREUSE=1 for every run.
+
+1. .\scripts\test-local.ps1 (default)
+   Every suite outcome=Completed, executed = total: Core.UnitTests 1228, Avalonia.Tests 892, Engine.Tests 68,
+   HostedAgent.Tests 88, Launcher.Tests 197, Terminal.Avalonia.Tests 82, Reclaim.Tests 310, setup.Tests 25,
+   setup-engine.Tests 676, setup-cli.Tests 35 - 3,601 executed, 0 failed.
+2. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams"
+   CcDirector.Gateway.Tests outcome=Completed total=119 executed=119, failed 0.
+3. .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Postgres|FullyQualifiedName~Migration"
+   CcDirector.Gateway.Tests outcome=Completed total=57 executed=53, failed 0, against a throwaway PostgreSQL the run
+   built and destroyed. The 4 not executed are GatewayDatabaseLivePostgresProofTests (hosted database only).
+4. dotnet test src\CcDirector.Gateway.UnitTests --filter "FullyQualifiedName~Teams|FullyQualifiedName~Migration|FullyQualifiedName~GatewayHostBootSmoke"
+   Passed 1139, Skipped 6, Failed 0, Total 1145. (The first run of this, before the count pins moved, failed 2:
+   TurnVerdictAnswerChoiceMigrationTests and FleetManagerEventOutcomeAnswerMigrationTests counted one migration too few.)
+5. apps/cockpit: vitest 76 files, 734 tests passed; tsc --noEmit clean.
+   packages/client-core: vitest 147 files, 1752 tests passed; tsc --noEmit clean.

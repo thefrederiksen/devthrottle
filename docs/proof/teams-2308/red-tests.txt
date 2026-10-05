@@ -69,3 +69,19 @@ TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
 exit=1; tests RED under this mutation (0):
     RED (trx): CcDirector.Gateway.Tests.Teams.HostedTeamRequestEndpointsTests.ARequestsText_NeverReachesASessionsInput_AndTheRoutesRefuseSessionAndDirectorKeys
 restored; src changes after restore: ''
+
+--- After merging main (5 October 2026): the team-key variant of issue test 3 ---
+
+MUTATION T1: A session key may call every team route  (src/CcDirector.Gateway/Util/SessionKeyGuard.cs)
+  python docs/proof/teams-2308/mutate.py hosted T1
+  CcDirector.Gateway.Tests outcome=Failed total=13 executed=13 - Failed 1, Passed 12
+    RED (trx): CcDirector.Gateway.Tests.Teams.HostedTeamRequestEndpointsTests.ARequestsRoutes_RefuseTeamBoundDirectorAndSessionKeys_AndNothingChanges
+  restored; src changes after restore: ''
+  What it shows: the variant pins WHICH refusal answers a team session key (403 session_key_out_of_scope from the
+  session-key guard), so opening the guard turns it red. Issue test 3 on the personal keys stays green under the
+  same mutation, because the request routes' own person-only check (403 person_only) still refuses a session key
+  that gets past the guard - the second wall holds when the first is removed.
+  Not a red: H1 (the routes serve a Director's device key) does NOT turn the team-key variant red, because the
+  access lease answers a team Director key with 402 before the request routes see it. That is the gap named in the
+  pull request: until the lease reads the team's bill, the routes' own check is unexercised for team Director keys
+  (it is exercised for personal Director keys by issue test 3, which H1 turns red - see above).
