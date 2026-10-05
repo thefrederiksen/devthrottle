@@ -114,8 +114,12 @@ public sealed class TheRegistryReachesTheCatalogTests : IDisposable
         => _statusStore.TryGetFresh(TenantId.Local, DirectorId, TimeSpan.FromHours(1))?.Repositories
            ?? Array.Empty<RepoStatusDto>();
 
+    // The host saves the history on a clock; save here, as that clock would, before reading the file.
     private string DriftHistoryFile()
-        => File.Exists(_driftHistoryPath) ? File.ReadAllText(_driftHistoryPath) : "";
+    {
+        _driftHistory.SaveIfChanged();
+        return File.Exists(_driftHistoryPath) ? File.ReadAllText(_driftHistoryPath) : "";
+    }
 
     // ---------- THE FLOW ----------
 

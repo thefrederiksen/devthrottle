@@ -40,6 +40,7 @@ public sealed class RepoHistoryStoreTests : IDisposable
         var store = new RepoHistoryStore(_path);
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 6, safe: 2) }, day);
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 4, safe: 1) }, day); // same day again
+        store.SaveIfChanged(); // the host's clock
 
         // A fresh store (new process) reads the persisted file: one row for the day, the LAST values.
         var reloaded = new RepoHistoryStore(_path);
@@ -255,7 +256,9 @@ public sealed class RepoHistoryStoreTests : IDisposable
         var store = new RepoHistoryStore(_path);
 
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day);
-        store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 6) }, day); // second save swaps in a new file
+        store.SaveIfChanged();
+        store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 6) }, day);
+        store.SaveIfChanged(); // second save swaps in a new file
 
         Assert.True(File.Exists(_path));
         Assert.True(File.Exists(_path + ".bak"), "the atomic swap must keep the previous file as a backup");
@@ -369,11 +372,13 @@ public sealed class RepoHistoryStoreTests : IDisposable
         var store = new RepoHistoryStore(_path);
 
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day);
+        store.SaveIfChanged();
         Assert.True(File.Exists(_path));
         var firstWrite = File.GetLastWriteTimeUtc(_path);
 
         Thread.Sleep(80);
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day); // identical values
+        store.SaveIfChanged();
 
         Assert.Equal(firstWrite, File.GetLastWriteTimeUtc(_path)); // no rewrite for an unchanged observation
     }
@@ -387,10 +392,12 @@ public sealed class RepoHistoryStoreTests : IDisposable
         var store = new RepoHistoryStore(_path);
 
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day);
+        store.SaveIfChanged();
         var firstWrite = File.GetLastWriteTimeUtc(_path);
 
         Thread.Sleep(80);
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 6) }, day); // a real change
+        store.SaveIfChanged();
 
         Assert.True(File.GetLastWriteTimeUtc(_path) > firstWrite);
         Assert.Equal(6, store.WeeklyTrends(tenant, 1, day)[^1].MaxWorktrees);
@@ -410,6 +417,7 @@ public sealed class RepoHistoryStoreTests : IDisposable
 
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("ancient", worktrees: 9) }, ancient);
         store.ObserveSnapshot(tenant, "d1", new[] { Repo("recent", worktrees: 2) }, today); // prunes on this push
+        store.SaveIfChanged();
 
         // Persisted: the ancient row is gone; the recent one stays.
         var reloaded = new RepoHistoryStore(_path);
@@ -421,9 +429,10 @@ public sealed class RepoHistoryStoreTests : IDisposable
     // REGRESSION (inspection): a SUPPRESSED save failure must be retried, even when the next
     // observation is logically unchanged. Change detection compares in-memory rows, so without a
     // pending-failure flag the update would stay non-durable until some unrelated value changed.
+    // Since saves moved onto the host's clock (Money Saver), the retry is the next clock tick.
     // ---------------------------------------------------------------------------------------
     [Fact]
-    public void SuppressedSaveFailure_IsRetriedOnTheNextObservation_EvenWhenUnchanged()
+    public void SuppressedSaveFailure_IsRetriedOnTheNextSave_EvenWhenUnchanged()
     {
         // Force the first save to fail: put a FILE where the history file's parent directory would be,
         // so Directory.CreateDirectory throws.
@@ -436,14 +445,16 @@ public sealed class RepoHistoryStoreTests : IDisposable
             var day = new DateOnly(2026, 07, 24);
 
             store.ObserveSnapshot(TenantId.Local, "d1", new[] { Repo("a", worktrees: 5) }, day);
+            Assert.False(store.SaveIfChanged(), "the first save was forced to fail");
             Assert.False(File.Exists(historyPath), "the first save was forced to fail");
 
             // Clear the blocker so a save can now succeed, then push an IDENTICAL snapshot. Change
             // detection alone would skip the write; the pending failure must force a retry.
             File.Delete(blocker);
             store.ObserveSnapshot(TenantId.Local, "d1", new[] { Repo("a", worktrees: 5) }, day);
+            Assert.True(store.SaveIfChanged());
 
-            Assert.True(File.Exists(historyPath), "a suppressed save failure must be retried on the next observation");
+            Assert.True(File.Exists(historyPath), "a suppressed save failure must be retried on the next save");
         }
         finally
         {
@@ -451,6 +462,43 @@ public sealed class RepoHistoryStoreTests : IDisposable
             if (File.Exists(blocker)) File.Delete(blocker);
             if (Directory.Exists(blocker)) Directory.Delete(blocker, recursive: true);
         }
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Money Saver (4 October 2026): an observation does not touch the file; the host's clock does. One
+    // file holds every account's history on a billed share and was rewritten on every changed push.
+    // ---------------------------------------------------------------------------------------
+    [Fact]
+    public void ChangedObservation_DoesNotWriteTheFile_UntilSaveIfChanged()
+    {
+        var tenant = TenantId.Local;
+        var day = new DateOnly(2026, 07, 24);
+        var store = new RepoHistoryStore(_path);
+
+        store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day);
+        store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 6) }, day);
+
+        Assert.False(File.Exists(_path), "an observation must only mark the rows unsaved");
+        Assert.Equal(6, store.WeeklyTrends(tenant, 1, day)[^1].MaxWorktrees); // readers see it at once
+
+        Assert.True(store.SaveIfChanged());
+        Assert.Equal(6, new RepoHistoryStore(_path).WeeklyTrends(tenant, 1, day)[^1].MaxWorktrees);
+    }
+
+    [Fact]
+    public void SaveIfChanged_WithNothingUnsaved_DoesNotRewriteTheFile()
+    {
+        var tenant = TenantId.Local;
+        var day = new DateOnly(2026, 07, 24);
+        var store = new RepoHistoryStore(_path);
+        store.ObserveSnapshot(tenant, "d1", new[] { Repo("a", worktrees: 5) }, day);
+        store.SaveIfChanged();
+        var firstWrite = File.GetLastWriteTimeUtc(_path);
+
+        Thread.Sleep(80);
+        Assert.True(store.SaveIfChanged());
+
+        Assert.Equal(firstWrite, File.GetLastWriteTimeUtc(_path));
     }
 
     // REGRESSION (inspection): a readable-but-corrupt live file lost row B, so the load must recover
