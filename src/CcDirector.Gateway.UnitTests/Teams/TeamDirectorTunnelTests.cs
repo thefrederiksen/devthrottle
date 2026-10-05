@@ -448,6 +448,26 @@ public sealed class TeamDirectorTunnelTests : IDisposable
         Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Bob, "session-alice"));
     }
 
+    [Fact]
+    public void OwnerOf_ADirectorRegisteredInATeamByAKeyBoundToAnotherTeam_IsNobodys()
+    {
+        // #3530 review round 3, R3-F4: the line that can fail on the tenant check alone. The Director is listed in team A,
+        // registered by an ACTIVE key whose row is bound to team B - the Director still listed in the team it left. Its
+        // key is not revoked and the registration is real, so only the tenant check can answer nobody's.
+        var deviceId = HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamB, Alice, "director-alice");
+        var key = _devices.RegisterForTenant(new TenantId(_teamB), Alice, deviceId, "M").DeviceKey;
+        Assert.Equal(DeviceCredentialResolutionKind.Active, KindOf(key));
+        _directors.RegisterFromStream("director-alice", "M", "u", "1", 1, DateTime.UtcNow, new TenantId(_teamA),
+            registeredByCredential: "device:" + deviceId);
+        _directors.RegisterFromStream("director-alice", "M", "u", "1", 1, DateTime.UtcNow, new TenantId(_teamB),
+            registeredByCredential: "device:" + deviceId);
+        var ownership = new TeamCallerOwnership(_directors, _store, _devices, _turns, _boundary);
+
+        Assert.Null(ownership.OwnerOf(new TenantId(_teamA), "director-alice"));
+        // Control: the same registration in the tenant the key IS bound to names its person.
+        Assert.Equal(Alice, ownership.OwnerOf(new TenantId(_teamB), "director-alice"));
+    }
+
     // ---- Seam 2: the person behind a SESSION key, one resolver for both kinds of key (Gateway step 2, item 5) ------
 
     private const string Mandy = "sub-mandy";
