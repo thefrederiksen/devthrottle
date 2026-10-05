@@ -14,8 +14,8 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// </summary>
 public sealed class AddTeamRequestsMigrationTests
 {
-    private const string MigrationBefore = "20261003233525_AddTeamInvitations";
-    private const string MigrationUnderTest = "20261004212559_AddTeamRequests";
+    private const string MigrationBefore = "20261004214334_AddTeamMentor";
+    private const string MigrationUnderTest = "20261005115901_AddTeamRequests";
 
     [Fact]
     public void AddTeamRequests_UpThenDown_AddsAndRemovesExactlyTheTwoRequestTables()

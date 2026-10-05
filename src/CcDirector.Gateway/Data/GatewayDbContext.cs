@@ -399,6 +399,16 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>Each request's trail - sent, and every change of state (<c>team_request_changes</c>,
     /// devthrottle_internal#2308). Tenant-scoped to the TEAM's tenant.</summary>
     public DbSet<TeamRequestChangeEntity> TeamRequestChanges => Set<TeamRequestChangeEntity>();
+    /// <summary>The Mentor's weekly blocks, one per (team, ISO week, person) (<c>team_mentor_blocks</c>,
+    /// devthrottle_internal#2305). Tenant-scoped: a team is a tenant.</summary>
+    public DbSet<TeamMentorBlockEntity> TeamMentorBlocks => Set<TeamMentorBlockEntity>();
+
+    /// <summary>What the Mentor did for each member in a week - written, nobody to write about, or refused with the
+    /// reason (<c>team_mentor_outcomes</c>, devthrottle_internal#2305).</summary>
+    public DbSet<TeamMentorOutcomeEntity> TeamMentorOutcomes => Set<TeamMentorOutcomeEntity>();
+
+    /// <summary>The "already ran" marker per team and ISO week (<c>team_mentor_runs</c>, devthrottle_internal#2305).</summary>
+    public DbSet<TeamMentorRunEntity> TeamMentorRuns => Set<TeamMentorRunEntity>();
 
     /// <summary>
     /// The paid-entitlement records the payment side writes and this Gateway only READS. Excluded from
@@ -1195,6 +1205,32 @@ public sealed class GatewayDbContext : DbContext
             b.HasKey(e => new { e.TenantId, e.Term });
         });
 
+        modelBuilder.Entity<TeamMentorBlockEntity>(b =>
+        {
+            b.ToTable("team_mentor_blocks");
+            // One block per person per week in a team; the tenant leads so the key also serves the tenant filter.
+            b.HasKey(e => new { e.TenantId, e.Week, e.PersonSubject });
+            b.Property(e => e.Week).HasMaxLength(8);
+            b.Property(e => e.Tone).HasMaxLength(10);
+            b.Property(e => e.Model).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<TeamMentorOutcomeEntity>(b =>
+        {
+            b.ToTable("team_mentor_outcomes");
+            b.HasKey(e => new { e.TenantId, e.Week, e.PersonSubject });
+            b.Property(e => e.Week).HasMaxLength(8);
+            b.Property(e => e.Outcome).HasMaxLength(20);
+        });
+
+        modelBuilder.Entity<TeamMentorRunEntity>(b =>
+        {
+            b.ToTable("team_mentor_runs");
+            b.HasKey(e => new { e.TenantId, e.Week });
+            b.Property(e => e.Week).HasMaxLength(8);
+            b.Property(e => e.TimeZone).HasMaxLength(100);
+        });
+
         modelBuilder.Entity<DictationSuggestionScanEntity>(b =>
         {
             b.ToTable("dictation_suggestion_scans");
@@ -1623,6 +1659,9 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FleetManagerOwnedSessionEntity>(modelBuilder);
         ApplyTenantScope<TeamRequestEntity>(modelBuilder);
         ApplyTenantScope<TeamRequestChangeEntity>(modelBuilder);
+        ApplyTenantScope<TeamMentorBlockEntity>(modelBuilder);
+        ApplyTenantScope<TeamMentorOutcomeEntity>(modelBuilder);
+        ApplyTenantScope<TeamMentorRunEntity>(modelBuilder);
 
         ApplyCommonSubsetConventions(modelBuilder);
 

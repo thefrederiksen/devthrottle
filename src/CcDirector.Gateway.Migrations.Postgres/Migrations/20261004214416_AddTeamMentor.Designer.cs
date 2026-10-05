@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261004212621_AddTeamRequests")]
-    partial class AddTeamRequests
+    [Migration("20261004214416_AddTeamMentor")]
+    partial class AddTeamMentor
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -1702,6 +1702,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<long?>("PeakContextTokens")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("PersonSubject")
+                        .HasColumnType("text");
+
                     b.Property<string>("PullRequestsJson")
                         .HasColumnType("text");
 
@@ -2561,99 +2564,114 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("team_members", "gateway");
                 });
 
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamRequestChangeEntity", b =>
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMentorBlockEntity", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("AtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("at_utc");
-
-                    b.Property<string>("BySubject")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("by_subject");
-
-                    b.Property<string>("Reason")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)")
-                        .HasColumnName("reason");
-
-                    b.Property<Guid>("RequestId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("request_id");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("state");
-
                     b.Property<string>("TenantId")
-                        .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("tenant_id");
 
-                    b.HasKey("Id");
+                    b.Property<string>("Week")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
 
-                    b.HasIndex("RequestId");
+                    b.Property<string>("PersonSubject")
+                        .HasColumnType("text");
+
+                    b.Property<string>("HowItWent")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("OneThingToTry")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("QuotesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Tone")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("WentBadlyAndWhy")
+                        .HasColumnType("text");
+
+                    b.Property<string>("WorkedOn")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("WrittenAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("TenantId", "Week", "PersonSubject");
 
                     b.HasIndex("TenantId");
 
-                    b.HasIndex("TenantId", "RequestId", "AtUtc");
-
-                    b.ToTable("team_request_changes", "gateway");
+                    b.ToTable("team_mentor_blocks", "gateway");
                 });
 
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamRequestEntity", b =>
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMentorOutcomeEntity", b =>
                 {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("SenderSubject")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("sender_subject");
-
-                    b.Property<DateTime>("SentAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("sent_at_utc");
-
-                    b.Property<string>("State")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("state");
-
                     b.Property<string>("TenantId")
-                        .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("tenant_id");
 
-                    b.Property<string>("Text")
+                    b.Property<string>("Week")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<string>("PersonSubject")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Outcome")
                         .IsRequired()
-                        .HasMaxLength(4000)
-                        .HasColumnType("character varying(4000)")
-                        .HasColumnName("text");
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at_utc");
+                    b.Property<string>("Reason")
+                        .HasColumnType("text");
 
-                    b.HasKey("Id");
+                    b.HasKey("TenantId", "Week", "PersonSubject");
 
                     b.HasIndex("TenantId");
 
-                    b.HasIndex("TenantId", "SentAtUtc");
+                    b.ToTable("team_mentor_outcomes", "gateway");
+                });
 
-                    b.HasIndex("TenantId", "SenderSubject", "SentAtUtc");
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamMentorRunEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
 
-                    b.ToTable("team_requests", "gateway");
+                    b.Property<string>("Week")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)");
+
+                    b.Property<int>("BlocksWritten")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("RanAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TimeZone")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("TenantId", "Week");
+
+                    b.HasIndex("TenantId");
+
+                    b.ToTable("team_mentor_runs", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TenantEntity", b =>
@@ -3722,15 +3740,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
                         .WithMany()
                         .HasForeignKey("TeamId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamRequestChangeEntity", b =>
-                {
-                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamRequestEntity", null)
-                        .WithMany()
-                        .HasForeignKey("RequestId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

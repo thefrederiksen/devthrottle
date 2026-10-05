@@ -81,7 +81,8 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         Assert.False(_gateway.TeamsReleased);
         Assert.DoesNotContain(MappedPatterns(), p => p.StartsWith("/teams", StringComparison.Ordinal));
 
-        foreach (var (method, path) in new[] { (HttpMethod.Get, "teams"), (HttpMethod.Post, "teams"), (HttpMethod.Get, $"teams/{Guid.NewGuid()}/members") })
+        foreach (var (method, path) in new[] { (HttpMethod.Get, "teams"), (HttpMethod.Post, "teams"), (HttpMethod.Get, $"teams/{Guid.NewGuid()}/members"),
+                     (HttpMethod.Get, $"teams/{Guid.NewGuid()}/fleet-map") })
             await AssertAnsweredAsAPathThatDoesNotExist(method, path, new { name = "Should not exist" });
         // Absence is proven by what was written, not by the words of the answer (the Gateway's not-found answer
         // echoes the path, which itself says "teams"): the create did not reach the registry.
@@ -208,6 +209,17 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         using var ownResp = await _http.SendAsync(own);
         Assert.Equal(HttpStatusCode.OK, ownResp.StatusCode);
         Assert.Equal("application/json", ownResp.Content.Headers.ContentType?.MediaType);
+    }
+
+    [Fact]
+    public void SwitchUnset_TheTeamFleetMapRoute_IsNotOnTheRouteTable()
+    {
+        // devthrottle_internal#2312: the team Fleet Map is a team route, so it is dark with the rest. Read off the route
+        // table itself, so a not-found answer from some other cause cannot pass for "not mapped".
+        var patterns = MappedPatterns();
+        Assert.True(patterns.Length > 300, $"The route table read only {patterns.Length} endpoints - the check would prove nothing.");
+        Assert.DoesNotContain(CcDirector.Gateway.Teams.TeamFleetMap.RoutePattern, patterns);
+        Assert.DoesNotContain(patterns, p => p.StartsWith("/teams", StringComparison.Ordinal));
     }
 
     private string[] MappedPatterns() => _gateway.MappedEndpoints.OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()

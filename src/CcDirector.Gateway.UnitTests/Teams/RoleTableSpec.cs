@@ -18,8 +18,8 @@ public static class RoleTableSpec
     public static readonly SpecRow[] Rows =
     {
         new(TeamAction.RunSessionsOnOwnComputers, "YYYN", "POST", "/sessions/{sid}/prompt", TeamOwnership.Callers, null),
-        new(TeamAction.SeeFleetMap, "YYON", "GET", "/directors", TeamOwnership.Unknown,
-            "devthrottle_internal#2312 cuts the list to a Developer's own Directors; until then a Developer is refused it"),
+        // The team's Fleet Map (devthrottle_internal#2312), which cuts its answer to a Developer's own Directors.
+        new(TeamAction.SeeFleetMap, "YYON", "GET", "/teams/{teamId}/fleet-map", TeamOwnership.Unknown, null),
         new(TeamAction.UseSharedSkillsAndWorkflows, "YYYN", "GET", "/gateway/skills", TeamOwnership.Unknown, null),
         new(TeamAction.ReadOwnMentorPage, "YYYN", "GET", "/gateway/mentor-report", TeamOwnership.Callers,
             "devthrottle_internal#2305 builds the Mentor page; today's endpoint is the Mentor report's on/off setting"),

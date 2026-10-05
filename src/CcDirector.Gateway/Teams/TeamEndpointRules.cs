@@ -25,6 +25,12 @@ public enum TeamTarget
     /// be shown to touch only the CALLER's own; one that touches someone else's is asked as the rule's
     /// <see cref="TeamEndpointRule.OthersAction"/>, and one that cannot be shown either way is refused.</summary>
     CallersOwn,
+
+    /// <summary>Something the whole team shares, answered by an endpoint that CUTS ITS OWN ANSWER to the caller's own
+    /// part when the cell is <see cref="TeamGrant.Own"/> - the team Fleet Map, which gives a Developer only their own
+    /// Directors (devthrottle_internal#2312). The gate lets a cell of <see cref="TeamGrant.Own"/> through to such an
+    /// endpoint, and the endpoint asks <see cref="TeamAccess.Decide"/> itself and narrows on the grant it gets.</summary>
+    TeamNarrowedToCaller,
 }
 
 /// <summary>Where the team a request acts in comes from.</summary>
@@ -123,6 +129,11 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/teams/{teamId}/page", TeamMethods.Read, TeamAction.SeeTeamPage, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         new TeamEndpointRule("/teams/{teamId}/members/{memberId}", TeamMethods.Write, TeamAction.InviteOrRemoveDevelopersAndCollaborators, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
         new TeamEndpointRule("/teams/{teamId}/members/{memberId}/role", TeamMethods.Write, TeamAction.MakeManagersAndChangeRoles, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+
+        // The team's Fleet Map (devthrottle_internal#2312): every Director on the team, by person, names and status only.
+        // A Developer's cell is "their own Directors", so the endpoint cuts its answer to the caller's own Directors.
+        new TeamEndpointRule(TeamFleetMap.RoutePattern, TeamMethods.Read, TeamAction.SeeFleetMap, TeamTarget.TeamNarrowedToCaller,
+            TeamFrom: TeamFrom.RouteTeamId, Exact: true),
 
         // Sessions: a person's own sessions; touching another person's is joining or watching it.
         new TeamEndpointRule("/sessions", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
