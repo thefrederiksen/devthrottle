@@ -16,6 +16,19 @@ namespace CcDirector.Core.Sessions;
 /// Every mutating call reads, mutates, and rewrites the file under a single lock so concurrent Control API
 /// requests cannot interleave a half-written set.
 ///
+/// READS ARE SERVED FROM MEMORY (Money Saver, 4 October 2026). On the hosted Gateway the file sits on a billed
+/// network share, and every GET /missions and GET /missions/{id} re-read all of it - about 1,600 billed file
+/// opens an hour for a 60 KB file that changes a few times a day. Get and List now read a copy held in memory,
+/// re-read from the file once it is older than <c>refreshAfter</c> (a minute by default). That refresh is for
+/// the one case this process cannot see: during a deploy two containers share the file for a few seconds, and
+/// a mission the other one writes reaches this one's reads within that minute - except by id: a Get that finds
+/// nothing reads the file once before answering null, so a mission just created on the other container is
+/// never refused as "unknown mission" (a spawn or an attach would otherwise fail on it for up to a minute). A
+/// mission the other container DELETED can still be found here for up to that minute. Writes are unchanged - each
+/// still reads the file fresh, under the lock, before it changes anything - so a write never overwrites what
+/// another container wrote, and every write this process makes replaces the held copy at once. Reads hand out
+/// COPIES of the records, as the file read did, so a caller that changes a returned record changes nothing here.
+///
 /// PARTITIONED BY TENANT (devthrottle_internal issue #1039). One hosted Gateway process serves every
 /// account from ONE of these files, so a mission carries the tenant that created it and every accessor
 /// takes the tenant it is acting for. There is deliberately NO bare-id and NO unscoped accessor left on
@@ -44,6 +57,16 @@ public sealed class MissionStore
 
     private readonly object _lock = new();
 
+    /// <summary>How long a held copy serves reads before the next read goes back to the file.</summary>
+    public static readonly TimeSpan DefaultRefreshAfter = TimeSpan.FromMinutes(1);
+
+    private readonly TimeSpan _refreshAfter;
+    private readonly Func<DateTime> _utcNow;
+
+    /// <summary>The set as last read or written, and when; null until the first read. Guarded by _lock.</summary>
+    private List<Mission>? _held;
+    private DateTime _heldAtUtc;
+
     /// <summary>
     /// The tenant that owns rows written before missions carried an owner, or null to quarantine them.
     /// See the type remarks - this is a statement about the DEPLOYMENT (one tenant, or many sharing the
@@ -59,9 +82,26 @@ public sealed class MissionStore
     /// null where more than one tenant shares the file, which quarantines them. It has no default on
     /// purpose: a store that serves several tenants must not inherit a single-tenant answer by omission.
     /// </param>
-    public MissionStore(string? filePath, TenantId? adoptUnattributedAs)
+    /// <param name="refreshAfter">How long reads are served from memory before the file is read again.
+    /// Null means <see cref="DefaultRefreshAfter"/>.</param>
+    /// <param name="utcNow">The clock the held copy's age is measured on; null means a clock that only moves
+    /// forward (the start time plus a stopwatch), so a system clock stepping backwards cannot freeze the copy.
+    /// Tests pass their own.</param>
+    public MissionStore(string? filePath, TenantId? adoptUnattributedAs, TimeSpan? refreshAfter = null,
+        Func<DateTime>? utcNow = null)
     {
         _adoptUnattributedAs = adoptUnattributedAs;
+        _refreshAfter = refreshAfter ?? DefaultRefreshAfter;
+        if (utcNow is null)
+        {
+            var started = DateTime.UtcNow;
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            _utcNow = () => started + stopwatch.Elapsed;
+        }
+        else
+        {
+            _utcNow = utcNow;
+        }
         FilePath = filePath ?? Path.Combine(
             CcStorage.ToolConfig("director"),
             "missions.json");
@@ -92,7 +132,7 @@ public sealed class MissionStore
 
         lock (_lock)
         {
-            var missions = LoadAll();
+            var missions = LoadFresh();
             missions.Add(mission);
             SaveAll(missions);
         }
@@ -110,7 +150,13 @@ public sealed class MissionStore
     {
         RequireValid(tenant);
         lock (_lock)
-            return LoadAll().FirstOrDefault(m => m.MissionId == missionId && OwnedBy(m, tenant));
+        {
+            var found = HeldSet().FirstOrDefault(m => m.MissionId == missionId && OwnedBy(m, tenant))
+                        // Not held: it may have been created a moment ago by another container. One read of the
+                        // file settles it, so a real mission is never answered "unknown".
+                        ?? LoadFresh().FirstOrDefault(m => m.MissionId == missionId && OwnedBy(m, tenant));
+            return found is null ? null : Copy(found);
+        }
     }
 
     /// <summary>
@@ -132,13 +178,13 @@ public sealed class MissionStore
         var wanted = MissionStates.Normalize(state);
         lock (_lock)
         {
-            var mine = LoadAll().Where(m => OwnedBy(m, tenant));
+            var mine = HeldSet().Where(m => OwnedBy(m, tenant));
             if (wanted is not null)
                 mine = mine.Where(m => string.Equals(
                     MissionStates.Normalize(m.State) ?? MissionStates.Active, wanted, StringComparison.Ordinal));
             else if (!includeEnded)
                 mine = mine.Where(m => m.IsActive);
-            return mine.OrderBy(m => m.CreatedAt).ToList();
+            return mine.OrderBy(m => m.CreatedAt).Select(Copy).ToList();
         }
     }
 
@@ -156,7 +202,7 @@ public sealed class MissionStore
                       $"cleared={trimmed.Length == 0}");
         lock (_lock)
         {
-            var missions = LoadAll();
+            var missions = LoadFresh();
             var mission = missions.FirstOrDefault(m => m.MissionId == missionId && OwnedBy(m, tenant));
             if (mission is null)
                 return null;
@@ -190,7 +236,7 @@ public sealed class MissionStore
                       $"name=\"{trimmed}\"");
         lock (_lock)
         {
-            var missions = LoadAll();
+            var missions = LoadFresh();
             var mission = missions.FirstOrDefault(m => m.MissionId == missionId && OwnedBy(m, tenant));
             if (mission is null)
                 return null;
@@ -227,7 +273,7 @@ public sealed class MissionStore
                       $"state={normalized}");
         lock (_lock)
         {
-            var missions = LoadAll();
+            var missions = LoadFresh();
             var mission = missions.FirstOrDefault(m => m.MissionId == missionId && OwnedBy(m, tenant));
             if (mission is null)
                 return null;
@@ -272,7 +318,7 @@ public sealed class MissionStore
 
         lock (_lock)
         {
-            var missions = LoadAll();
+            var missions = LoadFresh();
             var filled = 0;
             foreach (var mission in missions)
             {
@@ -308,7 +354,7 @@ public sealed class MissionStore
         FileLog.Write($"[MissionStore] Delete: tenant={tenant.ToLogString()} mission={missionId}");
         lock (_lock)
         {
-            var missions = LoadAll();
+            var missions = LoadFresh();
             var removed = missions.RemoveAll(m => m.MissionId == missionId && OwnedBy(m, tenant)) > 0;
             if (removed)
                 SaveAll(missions);
@@ -340,6 +386,42 @@ public sealed class MissionStore
             throw new ArgumentException("A MissionStore call needs a valid tenant.", nameof(tenant));
     }
 
+    /// <summary>The set reads are served from: the held copy while it is younger than the refresh interval,
+    /// otherwise a fresh read of the file, which then becomes the held copy. Call under _lock.</summary>
+    private List<Mission> HeldSet()
+    {
+        var now = _utcNow();
+        if (_held is null || now - _heldAtUtc >= _refreshAfter)
+        {
+            LoadFresh();
+            FileLog.Write($"[MissionStore] held copy refreshed from the file: {_held!.Count} mission(s)");
+        }
+        return _held!;
+    }
+
+    /// <summary>Read the file and make what it holds the held copy, so no read the store has paid for is thrown
+    /// away. Returns the freshly read list itself, for a write to change and save. Call under _lock.</summary>
+    private List<Mission> LoadFresh()
+    {
+        var missions = LoadAll();
+        _held = missions.Select(Copy).ToList();
+        _heldAtUtc = _utcNow();
+        return missions;
+    }
+
+    /// <summary>A separate record with the same values, so the held set and a caller never share one.</summary>
+    private static Mission Copy(Mission m) => new()
+    {
+        MissionId = m.MissionId,
+        MissionName = m.MissionName,
+        Why = m.Why,
+        WhyUpdatedAt = m.WhyUpdatedAt,
+        State = m.State,
+        StateChangedAt = m.StateChangedAt,
+        CreatedAt = m.CreatedAt,
+        TenantId = m.TenantId,
+    };
+
     /// <summary>Read the full set from disk. An absent file is an empty set; a corrupt file fails loudly.</summary>
     private List<Mission> LoadAll()
     {
@@ -365,6 +447,10 @@ public sealed class MissionStore
 
         var serialized = JsonSerializer.Serialize(missions, JsonOptions);
         File.WriteAllText(FilePath, serialized);
+        // What was just written is what the file holds, so reads can be served from it straight away. Copies:
+        // the caller still holds and returns the records in its own list.
+        _held = missions.Select(Copy).ToList();
+        _heldAtUtc = _utcNow();
         FileLog.Write($"[MissionStore] SaveAll: saved {missions.Count} mission(s)");
     }
 }
