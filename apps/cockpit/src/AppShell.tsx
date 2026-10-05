@@ -318,7 +318,10 @@ function ShellFrame() {
 
   // Who is signed in, and Sign out, wherever the person cannot reach the Account page: a pages-only team, the chooser,
   // and a team that could not be opened (review finding F3, delta review D6).
+  // Not drawn in a collapsed rail (only "could not be opened" can be collapsed); the role is shown only in a pages-only
+  // team, the one place a team is on screen.
   const signOutFoot = teamPages !== null || team.choosing || (team.resolving && team.status === "error");
+  const pagesTeam = teamPages === null ? null : team.current;
 
   return (
     <StopSessionProvider>
@@ -358,8 +361,8 @@ function ShellFrame() {
               <NavList items={NAV_FOOT} pathname={location.pathname} className="nav-list-foot" collapsed={collapsed} />
             )}
           </div>
-          {signOutFoot ? (
-            <TeamPagesFoot role={teamPages !== null ? team.current?.role ?? null : null} />
+          {signOutFoot && !collapsed ? (
+            <TeamPagesFoot role={pagesTeam?.role ?? null} />
           ) : (
             !collapsed && <div className="rail-foot">Cockpit (React)</div>
           )}
@@ -367,7 +370,7 @@ function ShellFrame() {
 
         <main className="main-pane" aria-label="Main">
           {team.resolving && team.status === "error" ? (
-            <TeamUnreadable error={team.error} onOwnAccount={() => team.choose(null)} />
+            <TeamUnreadable error={team.error} onOwnAccount={team.openOwnAccountForThisLoad} />
           ) : team.resolving ? (
             <LoadingState message="Loading your team..." />
           ) : team.choosing ? (

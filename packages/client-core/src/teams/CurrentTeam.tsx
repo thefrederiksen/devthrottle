@@ -9,8 +9,9 @@
 // READ `resolving` BEFORE TREATING A NULL `current` AS "THE OWN ACCOUNT" (review finding F3). While the Gateway has
 // not yet confirmed a team this browser remembers - the first read is in flight, or it failed - `current` is null
 // but the person may well be on a team. A page that shows one team at a time shows a loading state (or `error`)
-// while `resolving` is true, rather than flashing the person's own data. `resolving` is never true for a person who
-// has never picked a team, so they see no change.
+// while `resolving` is true, rather than flashing the person's own data. `resolving` is true only while this browser
+// remembers a TEAM - one the person picked, or the Gateway's last start answer naming one. A browser that remembers no
+// team, or the own account, never waits, so a person with no team sees no change.
 //
 // THE READ RECOVERS BY ITSELF (review finding F1). The teams are read once per page load; a failed read is asked again
 // after 15 seconds, then 30, then every 60 until it succeeds - never a tight loop - so a Gateway that was restarting
@@ -57,8 +58,9 @@ export interface CurrentTeamState {
   teams: TeamSummary[];
   /** The team on screen, or null for the person's own account. See `resolving`. */
   current: TeamSummary | null;
-  /** True while the Gateway has not yet confirmed a team this browser remembers, or - for a browser with nothing
-   *  remembered - has not yet said where to start. While true, a null `current` does NOT mean the own account. */
+  /** True while the Gateway has not yet confirmed the team this browser remembers (picked, or its own last start
+   *  answer naming a team). Never true for a browser that remembers no team or the own account: that draws the own
+   *  account at once. While true, a null `current` does NOT mean the own account. */
   resolving: boolean;
   /** True when the Gateway's answer for a browser that has never chosen is the team chooser (S11): the person has
    *  several teams and no computer on their own account, so they pick. `current` is null meanwhile. */
@@ -68,6 +70,10 @@ export interface CurrentTeamState {
   /** Put a team on screen by its id, or the person's own account with null, and answer the team now on screen. An id
    *  not in `teams` is refused. */
   choose: (teamId: string | null) => TeamSummary | null;
+  /** Put the own account on screen for THIS page load only, remembering nothing: the way out of a team that could not
+   *  be opened (round 3 review, R3). Stored as a pick, one click during a Gateway restart would pin the browser to the
+   *  whole Cockpit for good; unstored, the next load tries the remembered team again. */
+  openOwnAccountForThisLoad: () => void;
 }
 
 const CurrentTeamContext = createContext<CurrentTeamState | null>(null);
@@ -238,6 +244,9 @@ export function CurrentTeamProvider({
     [loaded.teams],
   );
 
+  // A pick held in memory only: nothing replaces it during this load, and nothing of it reaches storage.
+  const openOwnAccountForThisLoad = useCallback(() => setChoice({ kind: "own", picked: true }), []);
+
   const value = useMemo<CurrentTeamState>(() => {
     const ready = loaded.status === "ready";
     const effective = !isPick(choice) && ready ? fromStart(loaded.start) : choice;
@@ -246,8 +255,17 @@ export function CurrentTeamProvider({
     // account, never waits (delta review D1).
     const resolving = choice.kind === "team" && (loaded.status === "loading" || loaded.status === "error");
     const choosing = ready && !isPick(choice) && loaded.start?.where === "choose";
-    return { status: loaded.status, teams: loaded.teams, current, resolving, choosing, error: loaded.error, choose };
-  }, [loaded, choice, choose]);
+    return {
+      status: loaded.status,
+      teams: loaded.teams,
+      current,
+      resolving,
+      choosing,
+      error: loaded.error,
+      choose,
+      openOwnAccountForThisLoad,
+    };
+  }, [loaded, choice, choose, openOwnAccountForThisLoad]);
 
   return <CurrentTeamContext.Provider value={value}>{children}</CurrentTeamContext.Provider>;
 }

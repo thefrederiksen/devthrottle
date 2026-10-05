@@ -8,9 +8,14 @@ import { NotFound } from "../../panes/NotFound";
 // a Gateway with Teams dark - the address is the ordinary "Page not found", exactly as before Teams.
 //
 // The list is the Gateway's (`current.app.pages`, rule 7): this route never decides from the role who may open it.
+//
+// WHILE THE LIST OF TEAMS IS STILL BEING READ, THE ANSWER HERE IS NOT YET KNOWN (round 3 review, R1). A browser that
+// remembers no team draws the own account at once, so a Collaborator opening a mailed link to one of these pages in a
+// fresh browser would otherwise see "Page not found" until the Gateway's start arrives. Only these three addresses
+// wait, so nobody else is touched.
 export function TeamPageRoute({ pageId, children }: { pageId: string; children: ReactNode }) {
-  const { current, resolving } = useCurrentTeam();
-  if (resolving) return <LoadingState message="Loading your team..." />;
+  const { current, resolving, status } = useCurrentTeam();
+  if (resolving || status === "loading") return <LoadingState message="Loading your team..." />;
   if (current === null || !current.app.pages.some((p) => p.id === pageId)) return <NotFound />;
   return <>{children}</>;
 }

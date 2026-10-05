@@ -279,4 +279,18 @@ describe("CurrentTeam", () => {
     spy.mockRestore();
     expect(screen.queryByText("anything")).toBeNull();
   });
+
+  // Round 3 review, R3: the way out of a team that could not be opened is for this load only.
+  it("OpenOwnAccountForThisLoad_PutsTheOwnAccountOnScreen_AndRemembersNothing", async () => {
+    window.localStorage.setItem("devthrottle.currentTeam.account-a", "gateway:team-a");
+    mount(() => Promise.reject(new Error("Gateway restarting")));
+    await waitFor(() => expect(seen!.status).toBe("error"));
+    expect(seen!.resolving).toBe(true);
+
+    act(() => seen!.openOwnAccountForThisLoad());
+
+    expect(seen!.resolving).toBe(false);
+    expect(seen!.current).toBeNull();
+    expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("gateway:team-a");
+  });
 });

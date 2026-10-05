@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, cleanup, screen, fireEvent, within, waitFor } from "@testing-library/react";
+import { act, render, cleanup, screen, fireEvent, within, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation, useRoutes } from "react-router-dom";
 import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 
@@ -53,9 +53,12 @@ const myTeams = vi.hoisted(() => ({
   teams: [] as unknown[],
   start: { where: "own-account" } as unknown,
   failure: null as Error | null,
+  // While set, the read has not answered yet: the test releases it.
+  held: null as Promise<void> | null,
 }));
 vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
   getMyTeams: vi.fn(async () => {
+    if (myTeams.held !== null) await myTeams.held;
     if (myTeams.failure !== null) throw myTeams.failure;
     return { kind: "teams", teams: myTeams.teams, start: myTeams.start };
   }),
@@ -146,6 +149,7 @@ describe("The Collaborator's app", () => {
     myTeams.teams = [COLLABORATOR_TEAM, DEVELOPER_TEAM];
     myTeams.start = { where: "own-account" };
     myTeams.failure = null;
+    myTeams.held = null;
     reads.keepWarm = [];
     vi.clearAllMocks();
     resetFactorySwitchCache();
@@ -263,8 +267,9 @@ describe("The Collaborator's app", () => {
     expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
     expect(document.querySelector(".nav-list-foot")).not.toBeNull();
     expect(screen.queryByTestId("team-switcher")).toBeNull();
+    // A team page address waits for the list of teams (round 3 review, R1), then is the ordinary "Page not found".
     renderAt("/requests");
-    expect(screen.getAllByText("Page not found").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Page not found")).length).toBeGreaterThan(0);
   });
 
   it("RememberedTeam_TeamsCannotBeRead_DrawsNoPageAndOffersTheOwnAccount", async () => {
@@ -280,6 +285,8 @@ describe("The Collaborator's app", () => {
 
     expect(await screen.findByText("sessions page")).toBeTruthy();
     expect(railLabels()[0]).toBe("Fleet Manager");
+    // For this load only (round 3 review, R3): the remembered team is kept, so the next load tries it again.
+    expect(window.localStorage.getItem(currentTeamStorageKey())).toBe(COLLABORATOR_TEAM.id);
   });
 
   // ---- Review findings F1-F4 -------------------------------------------------------------------------------------
@@ -424,5 +431,38 @@ describe("The Collaborator's app", () => {
     const foot = screen.getByTestId("team-pages-foot");
     expect(foot.textContent).toContain("mike@example.com");
     expect(within(foot).getByRole("button", { name: "Sign out" })).toBeTruthy();
+  });
+
+  // ---- Round 3 review, R1 and R7 ----------------------------------------------------------------------------------
+
+  it("FirstArrival_AMailedLinkToReports_NeverShowsPageNotFound_AndStaysOnReports", async () => {
+    myTeams.teams = [COLLABORATOR_TEAM];
+    myTeams.start = { where: "team", teamId: COLLABORATOR_TEAM.id };
+    let release: () => void = () => {};
+    myTeams.held = new Promise<void>((r) => (release = r));
+    renderAt("/reports");
+
+    // The list of teams is still being read: the page waits instead of saying it does not exist.
+    expect(screen.queryByText("Page not found")).toBeNull();
+    expect(screen.getByText("Loading your team...")).toBeTruthy();
+
+    await act(async () => release());
+
+    // The Gateway's start opens the team, and the person stays on the page the link named - not moved to Questions.
+    expect(await screen.findByTestId("team-page-reports")).toBeTruthy();
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    expect(screen.getByTestId("where").textContent).toBe("/reports");
+    expect(screen.queryByText("Page not found")).toBeNull();
+  });
+
+  it("TeamCouldNotBeOpened_InACollapsedRail_DrawsNoSignOutFoot", async () => {
+    window.localStorage.setItem("cockpit.railCollapsed", "true");
+    myTeams.failure = new Error("Gateway restarting");
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/questions");
+
+    await screen.findByTestId("team-unreadable");
+    expect(document.querySelector(".shell-rail-collapsed")).not.toBeNull();
+    expect(screen.queryByTestId("team-pages-foot")).toBeNull();
   });
 });
