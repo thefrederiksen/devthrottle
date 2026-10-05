@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   acceptRequest,
@@ -163,7 +164,7 @@ export function RequestsView({ teamId }: { teamId: string }) {
       {loadError !== null && <ErrorBanner message={loadError} onRetry={() => void load()} />}
       {loadError === null && requests === null && <LoadingState message="Loading your requests..." />}
       {requests !== null && requests.length === 0 && (
-        <EmptyState message="You have not sent a request yet. What you send appears here, with everything that happens to it." />
+        <EmptyState message="No requests from you yet. What you send appears here, with everything that happens to it." />
       )}
       {requests !== null && requests.map((r) => (
         <RequestCard key={r.id} request={r} showSender={false} busy={false} />
@@ -231,4 +232,11 @@ export function TeamRequestsView({ teamId }: { teamId: string }) {
       ))}
     </div>
   );
+}
+
+/** The Owner and Managers' list at /team/{teamId}/requests. The team comes from the address, as on the Team page and
+ *  the invite form; whether the reader may see the list is the Gateway's answer, shown as it gives it. */
+export function TeamRequestsRoute() {
+  const { teamId = "" } = useParams<{ teamId: string }>();
+  return <TeamRequestsView teamId={teamId} />;
 }

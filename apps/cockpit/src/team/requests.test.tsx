@@ -104,7 +104,7 @@ describe("the sender's Requests page", () => {
     client.sendRequest.mockResolvedValue(request());
 
     render(<RequestsView teamId={TEAM} />);
-    await screen.findByText(/You have not sent a request yet/);
+    await screen.findByText(/No requests from you yet/);
     const send = screen.getByRole("button", { name: "Send request" }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
 
@@ -121,7 +121,7 @@ describe("the sender's Requests page", () => {
     client.sendRequest.mockRejectedValue(refusal(400, "A request can be at most 4000 characters. This one is 4001."));
 
     render(<RequestsView teamId={TEAM} />);
-    await screen.findByText(/You have not sent a request yet/);
+    await screen.findByText(/No requests from you yet/);
     fireEvent.change(screen.getByLabelText(/What would you like/), { target: { value: "x" } });
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
 

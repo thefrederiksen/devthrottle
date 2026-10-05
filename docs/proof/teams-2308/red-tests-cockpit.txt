@@ -17,3 +17,16 @@ MUTATION C2: Not doing this can be sent with an empty reason
       Tests  1 failed | 7 passed (8)
 restored:
 ?? docs/proof/teams-2308/red-tests-cockpit.txt
+
+--- After plugging into #2306's slot (2026-10-05) ---
+MUTATION C3: the /requests slot draws the Requests page for the wrong team
+ apps/cockpit/src/teams/collaborator/RequestsPage.tsx: teamId={current.id} -> teamId={current.name}
+   FAILED: The Collaborator's app > Page_Collaborator_Requests_IsTheRequestsPageForTheTeamOnScreen
+   AssertionError: expected [ 'DevThrottle' ] to deeply equal [ 'team-dt' ]
+      Tests  1 failed | 33 skipped (34)
+restored: source copied back; the full run below is green.
+MUTATION C4: the Owner and Managers' list is not at /team/{teamId}/requests
+ apps/cockpit/src/routes.tsx: "/team/:teamId/requests" -> "/team/:teamId/requests-moved"
+   FAILED: team routes > Route_TeamRequests_OpensTheOwnerAndManagersListForTheTeamInTheAddress
+   TestingLibraryElementError: Unable to find an element with the text: Nobody on the team has sent a request yet.
+restored: source copied back; the full run below is green.
