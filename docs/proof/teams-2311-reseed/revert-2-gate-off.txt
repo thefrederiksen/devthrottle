@@ -1,0 +1,6 @@
+  Failed CcDirector.Avalonia.Tests.Teams.DirectorKeysBeforeRosterTests.PushTurnsAsync_BeforeThisConnectionsKeysAreSent_IsRefusedAndNothingIsSent [5 ms]
+  Failed CcDirector.Avalonia.Tests.Teams.DirectorKeysBeforeRosterTests.NotifyDelta_AfterTheConnectionIsLostAndBack_IsHeldBackUntilThatConnectionsReseed [3 ms]
+  Failed CcDirector.Avalonia.Tests.Teams.DirectorKeysBeforeRosterTests.NotifyDelta_BeforeThisConnectionsKeysAreSent_IsHeldBackAndNothingIsSent [< 1 ms]
+Total tests: 13
+     Passed: 10
+     Failed: 3
