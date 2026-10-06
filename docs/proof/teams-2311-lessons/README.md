@@ -193,3 +193,58 @@ a clean rebuild followed.
 | Gateway.UnitTests, half B | 5,343 passed, 8 skipped, 0 failed (`gateway-unit-b-fl-f1.txt`) |
 | Gateway.Tests, every class under `Teams/`, in two complementary halves (`Teams.HostedTeam*`, then the rest) | 89 + 44 = 133 passed, 0 failed (`gateway-tests-teams-a-fl-f1.txt`, `gateway-tests-teams-b-fl-f1.txt`) |
 | Gateway.Tests, every `FleetManager*` class and `StreamCommandTests` | 112 passed, 1 skipped (the PostgreSQL proof that runs only under `-Parked`), 0 failed (`gateway-tests-fleetmanager-stream-fl-f1.txt`) |
+
+## FL-F3: the Bob-only delivery attempt is driven and awaited (review round 2)
+
+**The defect in the test.** The FL-F1 host test booked a delivery with `OnEventQueued`. That waits the three-second
+batch window on a background task. The test then waited three seconds for an absence and added Alice's row, so nothing
+proved the attempt happened while Bob's row was the only one. With the wiring removed, a late attempt could choose
+Alice's row by hash order, and the test would pass.
+
+**The fix in the test.** While Bob's Director's row is the ONLY row for Alice's marked id (asserted just before), the
+test calls the service's own `DeliverToAsync` and awaits it. This is the same method the batch window and the reconcile
+call, through the production wiring. The test asserts all of these:
+- The attempt answered `NotOwnDirector`. This is a new result, returned only by the WITHHELD branch, which logs the
+  WITHHELD line (`FleetManagerEventService.cs`).
+- Bob's Director received no marked event.
+- The marked event is still open.
+
+If a reconcile happens to be delivering at that moment, the attempt answers `AlreadyDelivering`, and the test makes it
+again once that one has finished, so the answer checked is always this attempt's own. Then Alice's Director lists the
+session. Her Director's arrival may book a delivery of its own, so the next driven attempt answers `Delivered`, or
+`NothingOwed` when that one came first. Either way the test asserts that nothing is owed any more, that Alice's
+Director received the marked event with the lessons, and that Bob's never did.
+
+**Red check.** The host wiring was removed, exactly as in the FL-F1 red (`isSessionOfDirector:` at
+`GatewayHost.cs:3713-3720`). The full class was run, then the file restored with an empty diff and the binaries rebuilt.
+- RED at line 169, the Bob-only step: `Expected: NotOwnDirector, Actual: Delivered`. The attempt typed the marked event
+  into Bob's Director.
+- With one row there is no order to depend on, so this fails the same way on every hash order and every interleaving.
+- The other three host tests stay green. See `red-events-flf3.txt`.
+
+**Gates on 0162ced8c.**
+
+| Gate | Result |
+|---|---|
+| Default `test-local.ps1` | all projects exited zero, 3,677 tests |
+| Gateway.UnitTests, half A | 4,073 passed, 0 failed |
+| Gateway.UnitTests, half B | 5,342 passed, 1 failed |
+| Gateway.Tests, `Teams.HostedTeam*` | 89 passed |
+
+- **The one unit failure** in half B is `HeldDeliveryDriverTests.TheTickDrivesANewlyHeldDelivery_WhileTheStartUpPassIsStillWorkingThroughItsOwn`
+  ("Sequence contains more than one matching element"). This pull request does not touch that code. The class passed
+  29 of 29 in three separate runs on its own, so it is a timing flake under the full parallel run.
+- **See below** for the rest of the Gateway.Tests runs.
+
+## FL-F2: moved to the follow-up pull request
+
+Dev-report delivery picks the Director with its own `PushedSessions.TryLocate` (`GatewayHost.cs:6470-6479`). The Tech
+Lead's ruling moves it to the follow-up pull request, branch `teams/2311-session-director-one-rule`. That is the root
+fix: in a team, every "which Director holds session X" lookup answers through the one rule at one point.
+
+**Not run locally on 0162ced8c.** Gateway.Tests for the other `Teams/` classes (not `HostedTeam*`), and every
+`FleetManager*` class and `StreamCommandTests`, did not run here. The machine-wide Gateway test lock was held by
+session 35ca0a83 (Factories Screen, test host 14904) from 14:52 UTC; two waits of over nine minutes each timed out. The
+lock was never touched. On the Tech Lead's instruction the head was pushed without waiting: CI runs those classes
+without the machine lock. On d9408cb6e, one commit before FL-F3's test change, those same classes passed: 133 Teams
+and 112 FleetManager plus stream.
