@@ -33,7 +33,7 @@ export function FactoryAgentPageView() {
   return (
     <div className="fa-page" data-testid="factory-agent-page">
       <nav className="fa-crumbs">
-        <Link to="/factory-agents">Factory Agents</Link> / <Link to={page.factoryHref}>{page.factoryTitle}</Link> /
+        <Link to="/factories">Factories</Link> / <Link to={page.factoryHref}>{page.factoryTitle}</Link> /
       </nav>
       <header className="fa-agent-head">
         <h1 className="ui-page-title">

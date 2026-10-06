@@ -200,12 +200,12 @@ public sealed class FactoryAgentsViewRouteTests
         Assert.Contains($"by session {h.SessionId}", view.SourceText);
         var desk = view.Nodes.Single(n => n.Id == "front-desk");
         Assert.Equal("IDLE", desk.StatusWord);
-        Assert.Equal($"/factory-agents/{factory}/front-desk", desk.Href);
+        Assert.Equal($"/factories/{factory}/agents/front-desk", desk.Href);
         Assert.Contains(desk.Spec, r => r.Label == "Inputs" && r.Text == "mail-threads");
         Assert.Equal("dashed", Assert.Single(view.Edges).Line);
 
         var factories = await GetAsync<FactoriesViewDto>(h.Owner, "gateway/factory-agents/factories");
-        Assert.Equal($"/factory-agents/{factory}", factories.Factories.Single(c => c.Id == factory).MapHref);
+        Assert.Equal($"/factories/{factory}", factories.Factories.Single(c => c.Id == factory).MapHref);
 
         // A broken map is refused whole with the reason, and the last good one stays.
         map.Edges[0].To = "nobody";

@@ -241,7 +241,7 @@ public sealed class FactoryMapTests
         var scout = view.Nodes.Single(n => n.Id == "scout");
         Assert.Equal("FAULT", scout.StatusWord);
         Assert.Equal(FactoryTone.Red, scout.Tone);
-        Assert.Equal("/factory-agents/website-business/scout", scout.Href);
+        Assert.Equal("/factories/website-business/agents/scout", scout.Href);
         Assert.Equal("Status", scout.Spec[0].Label);
         Assert.Equal("Inputs", scout.Spec[^1].Label);          // the factory's own rows follow the live ones
         var planned = view.Nodes.Single(n => n.Id == "bookkeeper");

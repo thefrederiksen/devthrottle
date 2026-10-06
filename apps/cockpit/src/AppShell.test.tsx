@@ -197,9 +197,9 @@ describe("Cockpit left rail", () => {
     ]);
   });
 
-  // Website Business Factory: Factory Agents sits after Fleet Map and before History - only while the Gateway's
+  // Factories (once "Factory Agents") sits after Fleet Map and before History - only while the Gateway's
   // factoryAgents.enabled switch is on. Off, the rail is exactly what it was.
-  it("shows Factory Agents after Fleet Map and before History when the Gateway says the area is on", async () => {
+  it("shows Factories after Fleet Map and before History when the Gateway says the area is on", async () => {
     factory.enabled = true;
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -207,12 +207,12 @@ describe("Cockpit left rail", () => {
       </MemoryRouter>,
     );
 
-    await waitFor(() => expect(railLabels()).toContain("Factory Agents"));
-    expect(railLabels().slice(0, 5)).toEqual(["Fleet Manager", "Sessions", "Fleet Map", "Factory Agents", "History"]);
-    expect(screen.getByRole("link", { name: /Factory Agents/ }).getAttribute("href")).toBe("/factory-agents");
+    await waitFor(() => expect(railLabels()).toContain("Factories"));
+    expect(railLabels().slice(0, 5)).toEqual(["Fleet Manager", "Sessions", "Fleet Map", "Factories", "History"]);
+    expect(screen.getByRole("link", { name: /Factories/ }).getAttribute("href")).toBe("/factories");
   });
 
-  it("has no Factory Agents item when the Gateway says the area is off", async () => {
+  it("has no Factories item when the Gateway says the area is off", async () => {
     factory.enabled = false;
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -221,7 +221,7 @@ describe("Cockpit left rail", () => {
     );
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(railLabels()).not.toContain("Factory Agents");
+    expect(railLabels()).not.toContain("Factories");
   });
 
   // Teams must change nothing for a person who never joins one: no switcher, and the rail exactly as it was.

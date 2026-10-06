@@ -1,0 +1,231 @@
+// The Factories screen (Factories screen mission, phase D): the typed, same-origin client the Cockpit's Factories
+// pages read - the list of factories, one factory's page, its Seats tab, and the Talk button.
+//
+// CRITICAL RULE 7 - THE CLIENT IS DUMB. These types mirror src/CcDirector.Gateway.Contracts/FactoriesScreenDtos.cs
+// (the views, folded by FactoriesScreenFold) and the Talk answer in FactoryRegistryDtos.cs. Every word, tone and order
+// arrives finished; a page renders it verbatim and never counts, sorts or decides what a status means.
+import { authHeaders, GatewayError } from "../api/client";
+import type { FactoryTab, FactoryTone, FactoryWaitingItem } from "./factoryAgentsClient";
+
+/** What a Talk button starts: the Cockpit sends the two ids back and never works out which agent a button means. */
+export interface FactoryTalkTarget {
+  /** "Talk to Nora Hale", "Talk to the CEO", or "Talk" on a seat row. */
+  label: string;
+  /** What the button says while the talk is being started: "Starting the talk with Nora Hale...". */
+  busyLabel: string;
+  factoryId: string;
+  seatId: string;
+}
+
+export interface FactoryListRow {
+  id: string;
+  title: string;
+  /** Exactly one of FAILING, NEEDS YOU, PAUSED, RUNNING. */
+  statusWord: string;
+  statusTone: FactoryTone;
+  statusReason: string;
+  /** "1 question", "2 decisions", or "-". */
+  waitingText: string;
+  href: string;
+  talk: FactoryTalkTarget | null;
+  /** "No CEO" when talk is null. */
+  noCeoText: string | null;
+}
+
+export interface FactoriesListView {
+  title: string;
+  subtitle: string;
+  /** Factories, Activity, Reports. */
+  tabs: FactoryTab[];
+  /** "Factory", "Waiting on you", "Status". */
+  columns: string[];
+  /** Worst first, as the Gateway sorted them. */
+  rows: FactoryListRow[];
+  footerText: string | null;
+  emptyText: string | null;
+  truncatedText: string | null;
+}
+
+export interface FactoryGoalCard {
+  heading: string;
+  text: string | null;
+  note: string | null;
+  emptyText: string | null;
+}
+
+export interface FactoryGoalNumberCard {
+  heading: string;
+  valueText: string | null;
+  asOfText: string | null;
+  linkHref: string | null;
+  linkLabel: string | null;
+  emptyText: string | null;
+}
+
+export interface FactoryPageWaiting {
+  heading: string;
+  items: FactoryWaitingItem[];
+  emptyText: string | null;
+}
+
+export interface FactoryCeoLatest {
+  heading: string;
+  lines: string[];
+  emptyText: string | null;
+  allLabel: string | null;
+  allHref: string | null;
+}
+
+export interface FactoryLastTalk {
+  heading: string;
+  text: string;
+}
+
+export interface FactoryPageView {
+  id: string;
+  title: string;
+  /** "Factories / WarmForward". */
+  crumb: string;
+  crumbHref: string;
+  statusWord: string;
+  statusTone: FactoryTone;
+  statusReason: string;
+  /** "CEO Nora Hale" or "No CEO". */
+  ceoText: string;
+  /** "4 seats". */
+  seatCountText: string;
+  /** "runs on SOREN_NORTH". */
+  computerText: string;
+  /** "change - coming": a label, never a control. */
+  computerChangeText: string;
+  talk: FactoryTalkTarget | null;
+  /** Overview, Seats (n), Activity, Reports, Memory, Documents. */
+  tabs: FactoryTab[];
+  goal: FactoryGoalCard;
+  goalNumber: FactoryGoalNumberCard;
+  waiting: FactoryPageWaiting;
+  ceoLatest: FactoryCeoLatest;
+  lastTalk: FactoryLastTalk;
+  /** What the Documents tab says: the definitions are not on the Gateway yet. */
+  documentsText: string;
+  truncatedText: string | null;
+}
+
+export interface FactorySeatRow {
+  seatId: string;
+  name: string;
+  role: string;
+  whenText: string;
+  lastRunText: string;
+  lastRunTone: FactoryTone;
+  computerText: string;
+  /** "change - coming": a label, never a control. */
+  computerChangeText: string;
+  talk: FactoryTalkTarget;
+}
+
+export interface FactorySeatsView {
+  factoryId: string;
+  title: string;
+  /** "Factories / WarmForward / Seats". */
+  crumb: string;
+  /** "Seat", "When it runs", "Last run", "Computer". */
+  columns: string[];
+  rows: FactorySeatRow[];
+  note: string;
+}
+
+/** The Gateway's answer to a Talk: the top-level session it started, and where the Cockpit opens it. */
+export interface FactoryTalkStarted {
+  sessionId: string;
+  sessionName: string;
+  /** "/session/<id>". */
+  href: string;
+  factory: string;
+  seat: string;
+  computer: string;
+  directorId: string;
+}
+
+const PREFIX = "/gateway/factories";
+const TALK_PREFIX = "/gateway/factory-agents/factories";
+
+const NOT_SERVED =
+  "This Gateway does not serve the Factories screen - it answered with a web page instead of data. Upgrade or redeploy the Gateway.";
+
+// A 2XX is not proof the Gateway understood the request: a Gateway from before this screen answers unknown paths with
+// the app's own HTML shell. Every answer is asserted to be JSON. A refusal keeps the Gateway's own sentence.
+function assertJson(res: Response): void {
+  const type = (res.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
+  if (type !== "application/json") throw new GatewayError(502, NOT_SERVED);
+}
+
+async function getJson<T>(path: string, what: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(path, { method: "GET", headers: { Accept: "application/json", ...authHeaders() }, signal });
+  if (!res.ok) throw await GatewayError.from(res, what);
+  assertJson(res);
+  return (await res.json()) as T;
+}
+
+/**
+ * The sentence a refused Talk shows. The Talk route refuses with `{ error }`; the session create behind it can
+ * refuse with a problem-details body (`{ title, detail }`, e.g. a Director that is not connected), and some bodies
+ * carry both an error and a detail. Every sentence the Gateway wrote is shown - none is dropped for another.
+ */
+export function talkRefusalReason(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const b = body as { error?: unknown; title?: unknown; detail?: unknown };
+  const error = typeof b.error === "string" && b.error.trim().length > 0 ? b.error.trim() : undefined;
+  const detail = typeof b.detail === "string" && b.detail.trim().length > 0 ? b.detail.trim() : undefined;
+  const title = typeof b.title === "string" && b.title.trim().length > 0 ? b.title.trim() : undefined;
+  const head = error ?? title;
+  if (head !== undefined && detail !== undefined && head !== detail) return `${terminated(head)} ${terminated(detail)}`;
+  return head ?? detail;
+}
+
+function terminated(sentence: string): string {
+  return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
+}
+
+export function getFactoriesList(signal?: AbortSignal): Promise<FactoriesListView> {
+  return getJson<FactoriesListView>(PREFIX, "load the factories", signal);
+}
+
+export function getFactoryPage(factory: string, signal?: AbortSignal): Promise<FactoryPageView> {
+  return getJson<FactoryPageView>(`${PREFIX}/${encodeURIComponent(factory)}`, "load this factory", signal);
+}
+
+export function getFactorySeats(factory: string, signal?: AbortSignal): Promise<FactorySeatsView> {
+  return getJson<FactorySeatsView>(`${PREFIX}/${encodeURIComponent(factory)}/seats`, "load this factory's seats", signal);
+}
+
+/**
+ * Press Talk: the Gateway starts a new top-level session owned by the person who pressed it, seated as that seat.
+ * A refusal (no Director on the seat's computer, an unknown seat, the switch off) throws a GatewayError carrying the
+ * Gateway's own sentence.
+ */
+export async function startFactoryTalk(target: FactoryTalkTarget, signal?: AbortSignal): Promise<FactoryTalkStarted> {
+  const path = `${TALK_PREFIX}/${encodeURIComponent(target.factoryId)}/seats/${encodeURIComponent(target.seatId)}/talk`;
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let parsed: unknown = undefined;
+    try {
+      parsed = text.length > 0 ? JSON.parse(text) : undefined;
+    } catch {
+      parsed = undefined;
+    }
+    const reason =
+      talkRefusalReason(parsed) ??
+      (parsed === undefined && text.length > 0 && text.length <= 300 && !text.trimStart().startsWith("<")
+        ? text.trim()
+        : undefined);
+    throw new GatewayError(res.status, reason ?? `Could not start the talk (error ${res.status}).`, { reason });
+  }
+  assertJson(res);
+  return (await res.json()) as FactoryTalkStarted;
+}

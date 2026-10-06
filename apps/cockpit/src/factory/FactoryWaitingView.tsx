@@ -36,7 +36,7 @@ export function FactoryWaitingView() {
   return (
     <div className="fa-page" data-testid="factory-waiting-page">
       <nav className="fa-crumbs">
-        <Link to="/factory-agents">Factory Agents</Link> /
+        <Link to="/factories">Factories</Link> /
       </nav>
       <PageHeader title={view.title} subtitle={view.summary} />
       {view.truncatedText !== null && <div className="fa-warn">{view.truncatedText}</div>}
@@ -53,7 +53,7 @@ export function FactoryWaitingView() {
   );
 }
 
-function WaitingItem({ item, onHandled }: { item: FactoryWaitingItem; onHandled: () => void }) {
+export function WaitingItem({ item, onHandled }: { item: FactoryWaitingItem; onHandled: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (

@@ -13,6 +13,10 @@ public sealed class FactoryTalkDto
 {
     /// <summary>The button's words: "Talk to Nora Hale", "Talk to the CEO", or "Talk" on a seat row.</summary>
     public string Label { get; set; } = "";
+
+    /// <summary>What the button says while the talk is being started: "Starting the talk with Nora Hale...".</summary>
+    public string BusyLabel { get; set; } = "";
+
     public string FactoryId { get; set; } = "";
     public string SeatId { get; set; } = "";
 }

@@ -16,7 +16,7 @@
 export type NavIconName =
   | "fleet-manager"
   | "fleet-map"
-  | "factory-agents"
+  | "factories"
   | "sessions"
   | "history"
   | "directors"
@@ -72,8 +72,8 @@ const PAINT: Record<NavIconName, JSX.Element> = {
   ),
   // A clock winding back: what was worked on. The counter-clockwise arrow keeps it distinct from
   // the plain circles (network, about, help) elsewhere in the rail.
-  // A factory: a saw-tooth roof over a floor - the factories the factory agents work in.
-  "factory-agents": (
+  // A factory: a saw-tooth roof over a floor - the Factories area.
+  factories: (
     <>
       <path d="M3 21V10l5 3V10l5 3V10l5 3V4h3v17z" />
       <path d="M7 17h2" />

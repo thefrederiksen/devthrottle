@@ -1,4 +1,4 @@
-/* The Factory Agents area (Website Business Factory, product track). Colours are the palette tokens in
+/* The Factories area (once Factory Agents; Website Business Factory, product track). Colours are the palette tokens in
    styles.css only. A "tone" arrives from the Gateway; .fa-tone-* is the one place it becomes a colour. */
 
 .fa-page {
@@ -35,14 +35,12 @@
   border-bottom-color: var(--accent);
 }
 
-.fa-tab-body,
-.fa-cards {
+.fa-tab-body {
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 
-.fa-card,
 .fa-panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -53,7 +51,6 @@
   gap: 10px;
 }
 
-.fa-card-head,
 .fa-agent-head {
   display: flex;
   justify-content: space-between;
@@ -62,24 +59,13 @@
   flex-wrap: wrap;
 }
 
-.fa-card-title {
-  font-size: 16px;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.fa-card-sub,
 .fa-dim,
-.fa-window-note,
 .fa-window-label,
 .fa-subject {
   color: var(--text-dim);
   font-size: 12px;
 }
 
-.fa-card-actions,
 .fa-agent-actions,
 .fa-toolbar,
 .fa-inline-action {
@@ -391,8 +377,8 @@
   font-size: 11px;
 }
 
-/* The factory map (issue #3383). The tone class sets the colour once, through currentColor; the shapes and lines
-   read it. Positions, words and tones are the Gateway's; nothing here decides anything. */
+/* Two columns, a list on the left and the open item on the right: the Memory tab. (Named for the factory map, issue
+   #3383, which the Factories screen replaced.) */
 .fa-map-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -407,156 +393,8 @@
     grid-template-columns: 1fr;
   }
 }
-.fa-map-frame {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-}
-.fa-map {
-  display: block;
-  width: 100%;
-  min-width: 560px;
-  height: auto;
-  font-family: inherit;
-}
-.fa-map-node {
-  cursor: pointer;
-  color: var(--border);
-}
-.fa-map-node rect,
-.fa-map-node ellipse {
-  fill: var(--surface-2);
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-.fa-map-node:focus {
-  outline: none;
-}
-.fa-map-node:focus rect,
-.fa-map-node:focus ellipse,
-.fa-map-selected rect,
-.fa-map-selected ellipse {
-  stroke: var(--accent);
-  stroke-width: 3;
-}
-.fa-map-dashed rect {
-  stroke-dasharray: 5 4;
-  fill: transparent;
-}
-.fa-map-node.fa-tone-ok,
-.fa-map-node.fa-tone-working {
-  color: var(--ok);
-}
-.fa-map-node.fa-tone-red {
-  color: var(--attention);
-}
-.fa-map-node.fa-tone-red rect {
-  fill: var(--needsyou-bg);
-}
-.fa-map-node.fa-tone-amber {
-  color: var(--warn);
-}
-.fa-map-node.fa-tone-paused {
-  color: var(--pin-mark-border);
-}
-.fa-map-node.fa-tone-paused rect {
-  fill: var(--needsyou-fyi-bg);
-}
-.fa-map-title {
-  fill: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-}
-.fa-map-line {
-  fill: var(--text-dim);
-  font-size: 10px;
-}
-.fa-map-status {
-  fill: currentColor;
-  font-size: 10px;
-  font-weight: 600;
-}
-.fa-map-node.fa-tone-idle .fa-map-status,
-.fa-map-node.fa-tone-grey .fa-map-status {
-  fill: var(--text-dim);
-}
-.fa-map-edge {
-  color: var(--text-dim);
-}
-.fa-map-edge path {
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-.fa-map-edge polygon {
-  fill: currentColor;
-}
-.fa-map-edge.fa-tone-ok {
-  color: var(--ok);
-}
-.fa-map-edge.fa-tone-red {
-  color: var(--attention);
-}
-.fa-map-edge.fa-tone-amber {
-  color: var(--warn);
-}
-.fa-map-edge.fa-tone-grey {
-  color: var(--border);
-}
-.fa-map-line-dashed path {
-  stroke-dasharray: 5 4;
-}
-.fa-map-line-dotted path {
-  stroke-dasharray: 1 4;
-  stroke-linecap: round;
-}
-.fa-map-edge-label {
-  fill: currentColor;
-  font-size: 9.5px;
-}
-.fa-map-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-  list-style: none;
-  padding: 0;
-  margin: 10px 0 4px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-.fa-map-legend li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.fa-map-side {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
-  background: var(--surface-2);
-  font-size: 13px;
-}
-.fa-map-side-title {
-  margin: 0 0 8px;
-  font-size: 15px;
-}
-.fa-map-spec {
-  margin: 0 0 10px;
-}
-.fa-map-spec dt {
-  font-weight: 600;
-  margin-top: 8px;
-}
-.fa-map-spec dd {
-  margin: 2px 0 0;
-  color: var(--text-dim);
-}
-.fa-map-link {
-  text-decoration: none;
-}
-
 /* The Memory tab (Factory Memory mission, phase 3b): the notes on the left, the open note on the right. The note
-   side is wider than the map's spec column because it holds the note's text and its editor. */
+   side is wider than an ordinary side column because it holds the note's text and its editor. */
 .fa-memory-head {
   justify-content: space-between;
 }
@@ -664,4 +502,261 @@
   flex-wrap: wrap;
   margin-bottom: 6px;
   font-size: 13px;
+}
+
+/* The Factories screen (Factories screen mission): the list, a factory's page and its Seats tab. */
+.fa-scroll {
+  overflow-x: auto;
+}
+
+.fa-flist {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.fa-flist-head,
+.fa-flist-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) 120px minmax(160px, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+}
+
+.fa-flist-head {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--border);
+}
+
+.fa-flist-row {
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fa-flist-row + .fa-flist-row {
+  border-top: 1px solid var(--border);
+}
+
+.fa-flist-row:hover {
+  background: var(--surface-2);
+}
+
+.fa-flist-head > *,
+.fa-flist-row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.fa-flist-name a {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.fa-flist-waiting {
+  color: var(--text-dim);
+}
+
+.fa-flist-talk {
+  justify-self: end;
+}
+
+.fa-talk {
+  cursor: auto;
+}
+
+.fa-factory-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fa-factory-head .ui-page-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+}
+
+.fa-factory-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 4px;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* "change - coming": a label, visibly not a control - no border, no pointer, no underline. */
+.fa-coming {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-style: italic;
+  cursor: default;
+}
+
+a.fa-tab {
+  text-decoration: none;
+}
+
+.fa-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.fa-overview > * {
+  min-width: 0;
+}
+
+.fa-goal-text,
+.fa-goal-value {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.fa-goal-value {
+  font-weight: 600;
+}
+
+.fa-overview p {
+  margin: 0;
+}
+
+.fa-lines {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.fa-seat-name {
+  font-weight: 600;
+}
+
+.fa-seat-talk {
+  text-align: right;
+}
+
+.fa-lastrun.fa-tone-ok {
+  color: var(--ok-text);
+}
+
+.fa-lastrun.fa-tone-red {
+  color: var(--danger-text);
+}
+
+.fa-lastrun.fa-tone-amber {
+  color: var(--warn);
+}
+
+.fa-lastrun.fa-tone-blue {
+  color: var(--accent-text);
+}
+
+.fa-lastrun.fa-tone-grey,
+.fa-lastrun.fa-tone-neutral {
+  color: var(--text-dim);
+}
+
+/* The seats keep their columns readable; on a narrow screen the table scrolls inside its own frame (.fa-scroll). */
+.fa-seats {
+  min-width: 600px;
+}
+
+/* Phone width (mockup 4): the list's rows become cards - name and status on top, then what is waiting, then Talk -
+   and nothing scrolls sideways at 390px. The page's tabs wrap; its tables scroll inside their own frame. */
+@media (max-width: 640px) {
+  .fa-flist {
+    background: transparent;
+    border: none;
+    gap: 8px;
+  }
+  .fa-flist-head {
+    display: none;
+  }
+  .fa-flist-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "name status"
+      "waiting waiting"
+      "talk talk";
+    gap: 6px 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .fa-flist-row + .fa-flist-row {
+    border-top: 1px solid var(--border);
+  }
+  .fa-flist-name {
+    grid-area: name;
+  }
+  .fa-flist-status {
+    grid-area: status;
+  }
+  .fa-flist-waiting {
+    grid-area: waiting;
+  }
+  .fa-flist-talk {
+    grid-area: talk;
+    justify-self: stretch;
+  }
+  .fa-flist-talk .fa-talk {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .fa-tabs {
+    flex-wrap: wrap;
+  }
+  .fa-tab {
+    padding: 8px 10px;
+  }
+  .fa-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fa-error {
+    overflow-wrap: anywhere;
+  }
+  /* The Seats tab: each seat a card - name and role, when it runs, last run, computer, then Talk. */
+  .fa-seats,
+  .fa-seats tbody,
+  .fa-seats tr,
+  .fa-seats td {
+    display: block;
+    min-width: 0;
+  }
+  .fa-seats thead {
+    display: none;
+  }
+  .fa-seats tr {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+  }
+  .fa-seats td {
+    border: none;
+    padding: 2px 0;
+    overflow-wrap: anywhere;
+  }
+  .fa-seats .fa-seat-talk {
+    text-align: left;
+    padding-top: 6px;
+  }
 }
