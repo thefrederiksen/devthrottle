@@ -109,7 +109,7 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
 
         // A lesson is kept: Alice's Director is sent the new block, Bob's nothing.
         _gateway.FleetPreferencesForTests.AddLesson(_team, "lesson two", "mistake two", _alice, confirmed: true, DateTime.UtcNow);
-        await _gateway.FleetManagerLessonsStamp.LessonsChanged(_team);
+        await LessonsChangedOnARoute();
         Assert.NotNull(await WaitForLessons(_seenByAlice, "lesson two"));
         Assert.Null(await WaitForLessons(_seenByBob, null, seconds: 3));
 
@@ -133,7 +133,7 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
 
         // A lesson is kept: Alice's Director is sent the new block, Bob's nothing.
         _gateway.FleetPreferencesForTests.AddLesson(_team, "lesson two", "mistake two", _alice, confirmed: true, DateTime.UtcNow);
-        await _gateway.FleetManagerLessonsStamp.LessonsChanged(_team);
+        await LessonsChangedOnARoute();
         Assert.NotNull(await WaitForLessons(_seenByAlice, "lesson two"));
         Assert.Null(await WaitForLessons(_seenByBob, null, seconds: 3));
 
@@ -160,6 +160,14 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
         await director.PushSnapshotAsync(Row(sessionId));
 
         Assert.NotNull(await WaitForLessons(seen, "personal lesson", sessionId: sessionId));
+    }
+
+    /// <summary>A lesson route calls <c>LessonsChanged</c> inside the caller's tenant scope, which the team rule's
+    /// stored-record read needs; the test calls it the same way.</summary>
+    private async Task LessonsChangedOnARoute()
+    {
+        using var scope = _gateway.TenantBoundaryForTests.EnterScope(_team);
+        await _gateway.FleetManagerLessonsStamp.LessonsChanged(_team);
     }
 
     private async Task ReconnectBob()
