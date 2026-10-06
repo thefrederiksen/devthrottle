@@ -362,7 +362,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         File.WriteAllText(Path.Combine(leftover, "SKILL.md"), "# STALE INSTALLER COPY\n");
 
         var placement = SkillDirectoryInstaller.InstallFor(
-            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp);
+            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp, Personal);
 
         // The fleet copy is now reachable...
         Assert.True(placement.IsComplete);
@@ -386,7 +386,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Directory.CreateDirectory(Store);
         SkillDirectoryInstaller.Materialize(Store, Bundle(id: "demo-skill"));
         SkillDirectoryInstaller.InstallFor(
-            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp);
+            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp, Personal);
 
         // The owner now writes their OWN skill of that name, in the same single-file shape.
         var link = Path.Combine(LinkRoot, "demo-skill");
@@ -395,7 +395,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         File.WriteAllText(Path.Combine(link, "SKILL.md"), "# WRITTEN BY THE OWNER\n");
 
         var placement = SkillDirectoryInstaller.InstallFor(
-            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp);
+            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp, Personal);
 
         Assert.Equal("# WRITTEN BY THE OWNER\n", File.ReadAllText(Path.Combine(link, "SKILL.md")));
         Assert.Single(placement.Problems);
@@ -416,7 +416,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         File.WriteAllText(Path.Combine(mine, "references", "notes.md"), "mine\n");
 
         SkillDirectoryInstaller.InstallFor(
-            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp);
+            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp, Personal);
 
         Assert.Equal("# MINE\n", File.ReadAllText(Path.Combine(mine, "SKILL.md")));
         Assert.False(Directory.Exists(SkillDirectoryInstaller.SupersededRootFor(LinkRoot)));
@@ -479,7 +479,11 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
     /// of whoever is running it.</summary>
     private SkillPlacement Install() =>
         SkillDirectoryInstaller.InstallFor(
-            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp);
+            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp, Personal);
+
+    /// <summary>The library these tests install from, given explicitly so no test reads the Gateway
+    /// configuration of whoever is running it.</summary>
+    private static readonly SkillSource Personal = SkillSource.On("https://gateway.test", teamId: null);
 
     /// <summary>The one-time reclaim's record, per test, so one test's migration never silences
     /// another's - and so no test writes the real stamp into the developer's own storage.</summary>

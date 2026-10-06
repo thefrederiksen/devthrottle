@@ -11,6 +11,10 @@ public enum SkillPlacementFault
 
     /// <summary>The link into the agent's own directory could not be created.</summary>
     LinkFailed,
+
+    /// <summary>Another Director's library installed a skill of the same name and keeps it: the person's
+    /// own account, or a team that installed it first (devthrottle_internal#2311). Ours was not installed.</summary>
+    HeldByAnotherSource,
 }
 
 /// <summary>One skill that should have reached the agent and did not.</summary>
@@ -68,11 +72,16 @@ public sealed record SkillPlacement(
 
         var shadowed = Problems.Where(p => p.Fault == SkillPlacementFault.Shadowed).ToList();
         var failed = Problems.Where(p => p.Fault == SkillPlacementFault.LinkFailed).ToList();
+        var held = Problems.Where(p => p.Fault == SkillPlacementFault.HeldByAnotherSource).ToList();
         var parts = new List<string>();
         if (shadowed.Count > 0)
             parts.Add($"{shadowed.Count} blocked by a directory DevThrottle did not write " +
                       $"({string.Join(", ", shadowed.Select(p => p.SkillId))}) in {shadowed[0].Target} - " +
                       "rename or remove it and start a new session");
+        if (held.Count > 0)
+            parts.Add($"{held.Count} kept by another Director's library under the same name " +
+                      $"({string.Join(", ", held.Select(p => p.SkillId))}) in {held[0].Target} - " +
+                      "the person's own account wins a name, and between teams the first installed keeps it");
         if (failed.Count > 0)
             parts.Add($"{failed.Count} could not be linked ({string.Join(", ", failed.Select(p => p.SkillId))})");
 

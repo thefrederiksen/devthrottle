@@ -1,0 +1,35 @@
+﻿RIG D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig  (2026-10-06T09:31:12.9393113-04:00)
+ports 7811 and 7812: nothing listening (checked with Get-NetTCPConnection)
+USERPROFILE=D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home HOME=D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home LOCALAPPDATA=D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local APPDATA=D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+CC_* in this process: 0
+
+######## Scenario 1: the personal Director starts first
+---- before either Director
+  home\.agents\skills
+    my-own-skill   folder no marker                    written by hand
+    old-personal   folder old marker, no source        installed by the current release
+  home\.claude\skills
+    my-own-skill   folder no marker                    written by hand
+    old-personal   link   old marker, no source        installed by the current release
+==== 1.1 personal Director
+[1.1 personal Director] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  FAIL home as .NET resolves it = C:\Users\soren
+REFUSED: home as .NET resolves it is not inside the rig (C:\Users\soren). Nothing was read or written.
+powershell : 1.1 personal Director exited 2
+At line:1 char:388
++ ... | Out-Null; powershell -NoProfile -ExecutionPolicy Bypass -File docs\ ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (1.1 personal Director exited 2:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+At D:\ReposFred\devthrottle-teams-2311-skills\docs\proof\teams-2311-skills\rig\run-live-proof.ps1:108 char:32
++     if ($LASTEXITCODE -ne 0) { throw "$label exited $LASTEXITCODE" }
++                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (1.1 personal Director exited 2:String) [], RuntimeException
+    + FullyQualifiedErrorId : 1.1 personal Director exited 2
+ 

@@ -208,10 +208,14 @@ public sealed class SkillPlacementStore
 
         row.Status = "broken";
         var shadowed = problems.Where(p => p.Fault == "Shadowed").Select(p => p.SkillId).ToList();
+        var heldElsewhere = problems.Where(p => p.Fault == "HeldByAnotherSource").Select(p => p.SkillId).ToList();
         var detail = shadowed.Count > 0
             ? $"blocked by a directory DevThrottle did not write ({string.Join(", ", shadowed)}) in " +
               $"{problems.First(p => p.Fault == "Shadowed").Target}"
-            : "could not be linked";
+            : heldElsewhere.Count > 0
+                ? $"kept by another Director's library under the same name ({string.Join(", ", heldElsewhere)}) in " +
+                  $"{problems.First(p => p.Fault == "HeldByAnotherSource").Target}"
+                : "could not be linked";
         row.Message = $"Only {e.Reachable} of {e.Held} skill(s) reached {e.AgentKind} on {e.MachineName} - {detail}.";
         return row;
     }

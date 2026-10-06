@@ -52,6 +52,9 @@ public sealed record SkillBundle(
 ///     carries a marker file, and only marked entries are ever overwritten or removed. A name already
 ///     taken by one of the owner's own skills is left exactly as it is - and logged, because silently
 ///     declining to install is the kind of thing that has to be findable later.
+///     The marker also names WHICH library installed the folder (<see cref="SkillSource"/>), because
+///     every Director on the computer shares these folders: a Director replaces or removes only what
+///     its own library installed, and the person's own account wins a name over a team.
 ///  2. Reconcile, never add. What is installed equals what the Gateway currently serves.
 ///  3. An unreachable Gateway does not stop a session launching. It launches with whatever the last
 ///     refresh materialized, and a refresh that fails says so rather than pretending.
@@ -119,9 +122,11 @@ public static class SkillDirectoryInstaller
     /// <paramref name="kind"/> implies. Exists so tests exercise this method rather than a copy of it -
     /// the real paths live under the running user's home directory, and a test that wrote there would
     /// scatter skills through the developer's own agent configuration.</param>
+    /// <param name="sourceOverride">The library this Director installs from, INSTEAD of the one its own
+    /// configuration names (<see cref="SkillSource.ForThisDirector"/>). Exists for the same reason.</param>
     public static SkillPlacement InstallFor(
         AgentKind kind, string? storeRoot = null, SkillInstallPaths? pathsOverride = null,
-        string? reclaimStampPath = null)
+        string? reclaimStampPath = null, SkillSource? sourceOverride = null)
     {
         var store = storeRoot ?? StoreRoot();
         var paths = pathsOverride ?? SkillInstallTargets.For(kind);
@@ -139,6 +144,16 @@ public static class SkillDirectoryInstaller
             return new SkillPlacement(kind, 0, 0, problems, StoreMissing: true, AgentHasNoSkillsDirectory: false);
         }
 
+        // WHO is installing. The folders are shared by every Director on this computer, so what this one
+        // may replace or remove is decided by who installed it, never by the marker alone (#2311 F7).
+        var source = sourceOverride ?? SkillSource.ForThisDirector();
+        if (source is null)
+        {
+            FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, no Gateway is configured, so there " +
+                          "is no library to install from - nothing installed and nothing removed");
+            return new SkillPlacement(kind, 0, 0, problems, StoreMissing: true, AgentHasNoSkillsDirectory: false);
+        }
+
         var held = Directory.GetDirectories(store)
             .Where(d => File.Exists(Path.Combine(d, MarkerFileName)))
             .ToList();
@@ -146,7 +161,7 @@ public static class SkillDirectoryInstaller
         // The copy is reconciled BEFORE the links, and the order is load-bearing: a link is created
         // only for a skill that is already present in the shared directory, so no link is ever made
         // pointing at something that is not there.
-        var materialized = ReconcileCopies(held, paths.SharedRoot, problems);
+        var materialized = ReconcileCopies(held, paths.SharedRoot, source, problems);
         if (paths.LinkRoot is null)
         {
             var shared = new SkillPlacement(
@@ -158,7 +173,7 @@ public static class SkillDirectoryInstaller
         }
 
         ReclaimRetiredInstallerCopies(materialized, paths.LinkRoot, reclaimStampPath ?? DefaultReclaimStampPath());
-        var linked = ReconcileLinks(paths.SharedRoot, materialized, paths.LinkRoot, problems);
+        var linked = ReconcileLinks(paths.SharedRoot, materialized, paths.LinkRoot, source, problems);
         var result = new SkillPlacement(
             kind, held.Count, linked, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
         FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, materialized={materialized.Count} " +
@@ -279,44 +294,35 @@ public static class SkillDirectoryInstaller
 
     /// <summary>
     /// Reflect the store into the shared directory - the ONE real copy every agent reads, directly or
-    /// through a link. Returns the skill names that are actually ours in there afterwards, which is
-    /// what may be linked: a name the owner already used is not ours to link either.
+    /// through a link. Returns the skill names that are this source's in there afterwards, which is what
+    /// may be linked: a name the owner already used, or another source keeps, is not ours to link either.
     /// </summary>
     private static List<string> ReconcileCopies(
-        IReadOnlyList<string> held, string sharedRoot, List<SkillPlacementProblem> problems)
+        IReadOnlyList<string> held, string sharedRoot, SkillSource source, List<SkillPlacementProblem> problems)
     {
         Directory.CreateDirectory(sharedRoot);
         var wanted = new HashSet<string>(held.Select(d => Path.GetFileName(d)!), StringComparer.OrdinalIgnoreCase);
 
-        // Remove OURS that the store no longer holds. Anything without our marker is somebody else's
-        // skill and is not ours to delete.
+        // Remove what THIS SOURCE installed and no longer holds. A folder without our marker is somebody
+        // else's skill; a folder another source installed is that source's to withdraw, not ours.
         foreach (var existing in Directory.GetDirectories(sharedRoot))
         {
             var name = Path.GetFileName(existing)!;
-            if (!File.Exists(Path.Combine(existing, MarkerFileName)))
+            if (wanted.Contains(name) || Decide(existing, source) != Claim.Mine)
                 continue;
-            if (!wanted.Contains(name))
-            {
-                Directory.Delete(existing, recursive: true);
-                FileLog.Write($"[SkillDirectoryInstaller] Removed withdrawn skill '{name}' from {sharedRoot}");
-            }
+            Directory.Delete(existing, recursive: true);
+            FileLog.Write($"[SkillDirectoryInstaller] Removed withdrawn skill '{name}' from {sharedRoot}");
         }
 
         var ours = new List<string>();
-        foreach (var source in held)
+        foreach (var storeCopy in held)
         {
-            var name = Path.GetFileName(source)!;
+            var name = Path.GetFileName(storeCopy)!;
             var destination = Path.Combine(sharedRoot, name);
-            if (Directory.Exists(destination) && !File.Exists(Path.Combine(destination, MarkerFileName)))
-            {
-                // The owner's own skill of the same name. It wins, and the fact that it did is
-                // recorded - a skill quietly not installed is the kind of absence nobody finds.
-                FileLog.Write($"[SkillDirectoryInstaller] '{name}' already exists in {sharedRoot} and was not " +
-                              "installed by DevThrottle - leaving it alone; the machine's own skill wins");
-                problems.Add(new SkillPlacementProblem(name, sharedRoot, SkillPlacementFault.Shadowed));
+            if (Directory.Exists(destination) && !MayWrite(destination, name, sharedRoot, source, problems))
                 continue;
-            }
-            CopyTree(source, destination);
+            CopyTree(storeCopy, destination);
+            StampSource(destination, source);
             ours.Add(name);
         }
         return ours;
@@ -328,7 +334,8 @@ public static class SkillDirectoryInstaller
     /// write - only named entries inside it. Returns how many links the agent can now follow.
     /// </summary>
     private static int ReconcileLinks(
-        string sharedRoot, IReadOnlyList<string> names, string linkRoot, List<SkillPlacementProblem> problems)
+        string sharedRoot, IReadOnlyList<string> names, string linkRoot, SkillSource source,
+        List<SkillPlacementProblem> problems)
     {
         Directory.CreateDirectory(linkRoot);
         var wanted = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
@@ -336,7 +343,7 @@ public static class SkillDirectoryInstaller
         foreach (var existing in Directory.GetDirectories(linkRoot))
         {
             var name = Path.GetFileName(existing)!;
-            if (wanted.Contains(name) || !IsOurs(existing, sharedRoot))
+            if (wanted.Contains(name) || !IsWithdrawnByThisSource(existing, sharedRoot, source))
                 continue;
             RemoveOurs(existing);
             FileLog.Write($"[SkillDirectoryInstaller] Removed withdrawn skill '{name}' from {linkRoot}");
@@ -346,18 +353,16 @@ public static class SkillDirectoryInstaller
         foreach (var name in names)
         {
             var destination = Path.Combine(linkRoot, name);
-            if (Directory.Exists(destination))
+            if (Directory.Exists(destination) || IsLink(destination))
             {
-                if (!IsOurs(destination, sharedRoot))
-                {
-                    FileLog.Write($"[SkillDirectoryInstaller] '{name}' already exists in {linkRoot} and was not " +
-                                  "installed by DevThrottle - leaving it alone; the machine's own skill wins");
-                    problems.Add(new SkillPlacementProblem(name, linkRoot, SkillPlacementFault.Shadowed));
+                // A link into the shared directory points at the one copy, which this source has just
+                // made its own - so the link is ours to rebuild whoever made it. A real folder here is a
+                // copy from the scheme that preceded links, and follows the same rule as the shared copy.
+                if (!IsLinkInto(destination, sharedRoot)
+                    && !MayWrite(destination, name, linkRoot, source, problems))
                     continue;
-                }
-                // Ours: either a link from a previous launch or a full copy from the scheme that
-                // preceded links. Rebuilt rather than inspected, because a link is cheap to make and a
-                // link believed to point somewhere it does not is the failure that has no symptom.
+                // Rebuilt rather than inspected, because a link is cheap to make and a link believed to
+                // point somewhere it does not is the failure that has no symptom.
                 RemoveOurs(destination);
             }
 
@@ -379,17 +384,126 @@ public static class SkillDirectoryInstaller
         return linked;
     }
 
-    /// <summary>An entry is ours if our marker is reachable through it - which holds for a live link
-    /// and for a copy left by the previous scheme - or if it is a link pointing into our shared
-    /// directory, which is how a link whose target has already gone is still recognised as ours.</summary>
-    private static bool IsOurs(string path, string sharedRoot)
+    /// <summary>What this source may do with a folder that occupies a name.</summary>
+    private enum Claim
     {
-        if (File.Exists(Path.Combine(path, MarkerFileName)))
-            return true;
+        /// <summary>No marker: a skill DevThrottle did not write. Never touched.</summary>
+        NotOurs,
+
+        /// <summary>This source installed it. Refreshed while held, removed when withdrawn.</summary>
+        Mine,
+
+        /// <summary>Another source installed it and this one outranks it: the person's own account over
+        /// a team. Overwritten while held, never removed when withdrawn.</summary>
+        TakeOver,
+
+        /// <summary>Another source installed it and keeps it. Never touched.</summary>
+        Yield,
+    }
+
+    /// <summary>
+    /// THE RULE (devthrottle_internal#2311, live proof F7). A source replaces or removes only what it
+    /// installed itself. On a name clash the person's own personal account wins: it takes a name from a
+    /// team, and a team never takes one from it. Between two sources of equal rank - two teams, or the
+    /// personal account on two different Gateways - the FIRST one installed keeps the name, because the
+    /// later one finds it already stamped by someone else and yields.
+    ///
+    /// A marker with no source was written before sources were recorded, by a Director that had no teams,
+    /// so it is the personal account's: a team never takes or removes it, and the personal account takes it
+    /// over by re-stamping it. It is never REMOVED by anyone, because which personal library wrote it is
+    /// not recorded - a withdrawal that guessed would be deleting the person's skills on a guess. The cost
+    /// is that a skill withdrawn in the same moment as this upgrade can stay on disk; a stale extra skill is
+    /// recoverable, a deleted one is not.
+    /// </summary>
+    private static Claim Decide(string folder, SkillSource source)
+    {
+        var marker = Path.Combine(folder, MarkerFileName);
+        if (!File.Exists(marker))
+            return Claim.NotOurs;
+        var stamp = SkillSource.ReadStamp(File.ReadAllLines(marker));
+        if (stamp is not null && source.Wrote(stamp))
+            return Claim.Mine;
+        if (stamp is null)
+            return source.IsPersonal ? Claim.TakeOver : Claim.Yield;
+        return source.IsPersonal && !stamp.IsPersonal ? Claim.TakeOver : Claim.Yield;
+    }
+
+    /// <summary>
+    /// Whether this source may replace the folder already at <paramref name="name"/>. When it may not, the
+    /// reason is logged and recorded as a placement problem - a skill quietly not installed is the kind of
+    /// absence nobody finds.
+    /// </summary>
+    private static bool MayWrite(
+        string folder, string name, string root, SkillSource source, List<SkillPlacementProblem> problems)
+    {
+        switch (Decide(folder, source))
+        {
+            case Claim.Mine:
+                return true;
+            case Claim.TakeOver:
+                FileLog.Write($"[SkillDirectoryInstaller] '{name}' in {root} was installed by {WhoInstalled(folder)}; " +
+                              $"{source.Describe()} is the person's own and takes the name");
+                return true;
+            case Claim.Yield:
+                FileLog.Write($"[SkillDirectoryInstaller] '{name}' already exists in {root}, installed by " +
+                              $"{WhoInstalled(folder)} - leaving it alone; {source.Describe()} does not take it");
+                problems.Add(new SkillPlacementProblem(name, root, SkillPlacementFault.HeldByAnotherSource));
+                return false;
+            default:
+                // The owner's own skill of the same name. It wins, and the fact that it did is recorded.
+                FileLog.Write($"[SkillDirectoryInstaller] '{name}' already exists in {root} and was not " +
+                              "installed by DevThrottle - leaving it alone; the machine's own skill wins");
+                problems.Add(new SkillPlacementProblem(name, root, SkillPlacementFault.Shadowed));
+                return false;
+        }
+    }
+
+    private static string WhoInstalled(string folder) =>
+        SkillSource.ReadStamp(File.ReadAllLines(Path.Combine(folder, MarkerFileName)))?.Describe()
+        ?? "the personal account (recorded before sources were)";
+
+    /// <summary>Write the installing source into the copy's marker, after the store's own lines (id,
+    /// version, content hash), so the folder says who may replace or remove it.</summary>
+    private static void StampSource(string skillDirectory, SkillSource source)
+    {
+        var marker = Path.Combine(skillDirectory, MarkerFileName);
+        var storeLines = File.ReadAllLines(marker)
+            .Where(l => !l.StartsWith(SkillSource.GatewayKey, StringComparison.Ordinal)
+                        && !l.StartsWith(SkillSource.AccountKey, StringComparison.Ordinal))
+            .Take(3);
+        File.WriteAllText(marker, string.Join("\n", storeLines) + "\n" + source.MarkerLines());
+    }
+
+    /// <summary>
+    /// An entry in an agent's own directory that this source should remove because it no longer holds the
+    /// skill: a link to a shared copy this source installed, a copy from the scheme before links that this
+    /// source installed, or a link whose shared copy is already gone - it reads as nothing to every agent,
+    /// and whoever still holds that skill makes the link again with the copy.
+    /// </summary>
+    private static bool IsWithdrawnByThisSource(string entry, string sharedRoot, SkillSource source)
+    {
+        var target = LinkTargetInside(entry, sharedRoot);
+        if (target is not null)
+            return !Directory.Exists(target) || Decide(target, source) == Claim.Mine;
+        return !IsLink(entry) && Decide(entry, source) == Claim.Mine;
+    }
+
+    private static bool IsLink(string path) =>
+        new DirectoryInfo(path).LinkTarget is not null;
+
+    /// <summary>A link pointing into our shared directory - how a link is recognised as one of ours even
+    /// when its target has already gone.</summary>
+    private static bool IsLinkInto(string path, string sharedRoot) => LinkTargetInside(path, sharedRoot) is not null;
+
+    /// <summary>Where <paramref name="path"/> points, when it is a link into our shared directory.</summary>
+    private static string? LinkTargetInside(string path, string sharedRoot)
+    {
         var target = new DirectoryInfo(path).ResolveLinkTarget(returnFinalTarget: false)?.FullName;
         return target is not null
                && target.StartsWith(Path.GetFullPath(sharedRoot) + Path.DirectorySeparatorChar,
-                                    StringComparison.OrdinalIgnoreCase);
+                                    StringComparison.OrdinalIgnoreCase)
+            ? target
+            : null;
     }
 
     /// <summary>Delete one of our entries. A link is removed as a link, so what it points at survives -

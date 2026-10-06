@@ -82,6 +82,32 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_skill_kept_by_another_Directors_library_says_so_and_not_could_not_be_linked()
+    {
+        // Two Directors on one computer share its skill folders (devthrottle_internal#2311). When a team
+        // Director yields a name to the person's own library, the sentence must say THAT - "could not be
+        // linked" would send somebody hunting for a broken link that does not exist.
+        var store = NewStore();
+        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        {
+            Report(held: 2, reachable: 1, problems: new[]
+            {
+                new SkillPlacementProblemDto
+                {
+                    SkillId = "fleet-comms", Target = @"C:\Users\x\.agents\skills", Fault = "HeldByAnotherSource",
+                },
+            }),
+        }, T0);
+
+        var row = Assert.Single(store.ReadAll(Alice).Rows);
+
+        Assert.Equal("broken", row.Status);
+        Assert.Contains("kept by another Director's library", row.Message);
+        Assert.Contains("fleet-comms", row.Message);
+        Assert.DoesNotContain("could not be linked", row.Message);
+    }
+
+    [Fact]
     public void A_healthy_machine_is_ok_and_does_not_raise_the_badge()
     {
         var store = NewStore();

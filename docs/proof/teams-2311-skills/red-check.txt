@@ -1,0 +1,30 @@
+RED CHECK - 2026-10-06T13:12:18Z - HEAD ecd6c9f30 with this mutation:
+diff --git a/src/CcDirector.Core/Skills/SkillDirectoryInstaller.cs b/src/CcDirector.Core/Skills/SkillDirectoryInstaller.cs
+index 9048f7ea6..043d3b62b 100644
+--- a/src/CcDirector.Core/Skills/SkillDirectoryInstaller.cs
++++ b/src/CcDirector.Core/Skills/SkillDirectoryInstaller.cs
+@@ -420,6 +420,8 @@ public static class SkillDirectoryInstaller
+         var marker = Path.Combine(folder, MarkerFileName);
+         if (!File.Exists(marker))
+             return Claim.NotOurs;
++        return Claim.Mine; // RED CHECK: today's rule restored - any marker is ours
++#pragma warning disable CS0162
+         var stamp = SkillSource.ReadStamp(File.ReadAllLines(marker));
+         if (stamp is not null && source.Wrote(stamp))
+             return Claim.Mine;
+
+dotnet test (full build) --filter FullyQualifiedName~CcDirector.Core.Tests.Skills
+Test run for D:\ReposFred\devthrottle-teams-2311-skills\src\CcDirector.Core.Tests\bin\Debug\net10.0\CcDirector.Core.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:02.74]     CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.The_personal_account_on_another_Gateway_is_another_source [FAIL]
+[xUnit.net 00:00:02.97]     CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.The_personal_account_wins_a_name_even_when_the_team_installed_it_first [FAIL]
+[xUnit.net 00:00:03.35]     CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.Two_sources_never_remove_each_others_skills_in_any_order_and_repeatedly [FAIL]
+[xUnit.net 00:00:03.65]     CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.A_withdrawal_removes_only_the_withdrawing_sources_own_skills [FAIL]
+[xUnit.net 00:00:03.76]     CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.A_marker_written_before_sources_were_recorded_belongs_to_the_personal_account [FAIL]
+[xUnit.net 00:00:04.04]     CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.Between_two_teams_the_first_installed_keeps_the_name_until_it_withdraws_it [FAIL]
+
+Failed!  - Failed:     6, Passed:    42, Skipped:     0, Total:    48, Duration: 2 s - CcDirector.Core.Tests.dll (net10.0)
+
+The main test's failure message under today's rule (--no-build on the SAME mutated binary just built above):
+  Error Message:
+   'mine-one' is missing from the shared folder after team team-a on https://gateway.test installed
