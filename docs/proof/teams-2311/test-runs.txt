@@ -386,3 +386,18 @@ Details in step2-team-bill.md.
                                                              Actual (Forbidden, "person_only"). Restored, diff empty.
       clean rebuild after: Passed 8 of 8.
     Rebased onto origin/main 060cdc0bf (#3568, a test-only change to the PostgreSQL proof), no conflict.
+
+33. Rebased onto origin/main 21189035e (#3561-#3566 Fleet Manager lessons, #3570 release). One conflict: the DirectorHub
+    constructor - main's fleetManagerLessons and this branch's teamOwnership; both parameters and both field
+    assignments kept. The hub is built by dependency injection, and the host registers both
+    (AddSingleton(TeamCallerOwnership), AddSingleton(FleetManagerLessonsStamp)).
+    The question asked: does FleetManagerLessonsObserver take anything keyed by a session id from a hub call? YES.
+    DirectorHub.PushDelta calls _fleetManagerLessons.Observe(tenant, directorId, session.SessionId); Observe compares
+    the id to the account's marked Fleet Manager session and, on a match, StampAsync(tenant, directorId, marked) sends
+    the account's confirmed lessons block (set-fleet-manager-lessons) to the PUSHING Director and records it as that
+    session's Director. So in a team, a colleague's Director that pushes a delta carrying the marked session's id is
+    sent the lessons block. Refresh and the reconnect path also choose the Director by directorOf =
+    PushedSessions.TryLocateIgnoringFreshness(tenant, sid), whichever Director the roster finds holding the id.
+    NOT FIXED - reported to the Tech Lead first, as asked.
+    Gateway.UnitTests filtered (DirectorHub, Teams namespace, FleetManagerLessons): Passed 1242, Skipped 5, 0 failed.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,616 tests.
