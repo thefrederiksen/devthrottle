@@ -97,6 +97,10 @@ public sealed class LauncherMacInstaller
         if (!File.Exists(launcherBinary))
             return Fail(steps, $"Launcher binary not present at {launcherBinary}; the file placement must run first.");
 
+        // launchd refuses a launcher whose folder or log files belong to root, before it runs a line (#3411).
+        if (EnsureOwnedByUser(steps) is { } ownershipFailure)
+            return Fail(steps, ownershipFailure);
+
         // 0 means "no process to expect": on the launchd branch launchd owns the process and its id
         // is never learned here.
         var startedPid = 0;
@@ -236,6 +240,16 @@ public sealed class LauncherMacInstaller
             steps.Add($"could NOT re-register the launch agent: {ex.Message}");
         }
     }
+
+    /// <summary>
+    /// The install folder and the launch agent property list must belong to the user, or launchd refuses
+    /// the launcher with "78: EX_CONFIG" and an empty stderr. The setup wizard (which offers the repair
+    /// prompt) and the command line check this before they write anything; this is the last guard before
+    /// launchd is asked to start the launcher, so it reports and never prompts.
+    /// </summary>
+    private string? EnsureOwnedByUser(List<string> steps) =>
+        MacFileOwnership.EnsureOwnedByUser(new MacFileOwnership.CommandRunner(_runCommand),
+            MacFileOwnership.InstallTargets(_layout, _launchAgentPlistPath), offerPrompt: false, steps.Add);
 
     /// <summary>
     /// Which process is launchd running for our label? Parsed from launchctl print, whose output
@@ -393,6 +407,13 @@ public sealed class LauncherMacInstaller
             }
         }
 
+        // launchd opens the log files as the user before it starts the program: a root-owned one is refused
+        // with the same "78: EX_CONFIG" and empty stderr as a refused program (#3411).
+        string[] owned = [_layout.LocalRoot, _layout.LogsDir, LauncherLogDir,
+            Path.Combine(LauncherLogDir, "launchd-stdout.log"), Path.Combine(LauncherLogDir, "launchd-stderr.log"),
+            Path.GetDirectoryName(binary)!, binary, _launchAgentPlistPath];
+        Check("ls -ld (who owns the files launchd opens)", "/bin/ls",
+            "-ld " + string.Join(' ', owned.Where(p => File.Exists(p) || Directory.Exists(p)).Select(p => $"\"{p}\"")));
         Check("xattr -l (quarantine flag)", "/usr/bin/xattr", $"-l \"{binary}\"");
         Check("codesign -dv (signature)", "/usr/bin/codesign", $"-dv --verbose=2 \"{binary}\"");
 

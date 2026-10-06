@@ -69,6 +69,9 @@ public class LauncherMacInstallerTests : IDisposable
             runCommand: (exe, args) => exe switch
             {
                 "/usr/bin/id" => (0, "501"),
+                // Every install file belongs to the user: the ownership check must answer, not be skipped.
+                "/usr/bin/stat" => (0, string.Join('\n', Enumerable.Repeat("501", args.Count(c => c == '"') / 2))),
+                "/usr/bin/find" => (0, ""),
                 "/bin/launchctl" when args.StartsWith("print", StringComparison.Ordinal) => (0, crashed),
                 _ => (0, ""),
             },

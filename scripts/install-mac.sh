@@ -25,6 +25,17 @@
 # -E makes the ERR trap below fire inside functions too.
 set -Eeuo pipefail
 
+# Never as root. macOS keeps HOME under sudo, so everything below would be created in the user's own
+# Library owned by root - and launchd then refuses to start DevThrottle with "78: EX_CONFIG" (#3411).
+# Checked before anything is written, so a refused run leaves nothing behind.
+if [[ "$(id -u)" -eq 0 ]]; then
+    printf 'ERROR: Do not run the DevThrottle installer with sudo. It installs into your own user folder,\n' >&2
+    printf 'and files created as root there stop macOS from starting DevThrottle.\n' >&2
+    printf 'Run the same command again without sudo:\n\n' >&2
+    printf '  curl -fsSL https://raw.githubusercontent.com/thefrederiksen/devthrottle/main/scripts/install-mac.sh | bash\n' >&2
+    exit 1
+fi
+
 REPO="${DEVTHROTTLE_REPO:-thefrederiksen/devthrottle}"
 ASSET="devthrottle-setup-mac-arm64.zip"
 MANIFEST="release-manifest.json"
@@ -33,6 +44,74 @@ DESTINATION_DIR="$HOME/Applications"
 BASE_URL="https://github.com/$REPO/releases/latest/download"
 
 GATEWAY_URL="${DEVTHROTTLE_HOSTED_GATEWAY_URL:-https://gateway.devthrottle.com}"
+
+# An earlier run with sudo leaves DevThrottle's files owned by root in the user's own Library. Every write
+# below would then fail, and launchd refuses to start the launcher ("78: EX_CONFIG", #3411). Hand them back
+# before anything is written. sudo asks for the password on the terminal even when this script is piped.
+# Ours, checked and repaired all the way down.
+TREE_CANDIDATES=("$HOME/Library/Application Support/cc-director" "$DESTINATION_DIR/$APP_NAME"
+                 "$DESTINATION_DIR/Director.app" "$DESTINATION_DIR/CC Director.app"
+                 "$HOME/Library/LaunchAgents/com.devthrottle.cc-launcher.plist"
+                 "$HOME/.zshrc" "$HOME/.bash_profile")
+# Shared parents a sudo run may have created: only the folder itself, never what other apps keep in it.
+# Replacing anything inside a folder needs the folder to be writable, so a root-owned parent blocks on its own.
+FOLDER_CANDIDATES=("$DESTINATION_DIR" "$HOME/Library/LaunchAgents" "$HOME/.local" "$HOME/.local/bin")
+
+# Sets NOT_OWNED to the paths the user does not own. Returns nonzero when the check itself failed: find exits 1
+# when it cannot descend into a root-owned folder but still lists that folder, so only a failure with nothing
+# listed is a check that did not happen - and that must never read as "all owned". The filter is plain shell,
+# so it has no failure of its own that could erase a path find reported. What exists is looked up on every
+# check: a root-owned parent the user cannot open hides its children until the parent is repaired.
+NOT_OWNED=""
+find_not_owned() { # paths and expression...
+    local out code=0 line found=""
+    out="$(find "$@" 2>&1)" || code=$?
+    while IFS= read -r line; do
+        if [[ -n "$line" && "$line" != find:* ]]; then found+="$line"$'\n'; fi
+    done <<<"$out"
+    if [[ $code -ne 0 && -z "$found" ]]; then
+        printf 'ERROR: could not check who owns the DevThrottle files: %s\n' "$out" >&2
+        return 1
+    fi
+    NOT_OWNED+="$found"
+}
+check_owned() {
+    local p trees=() folders=()
+    for p in "${TREE_CANDIDATES[@]}"; do if [[ -e "$p" ]]; then trees+=("$p"); fi; done
+    for p in "${FOLDER_CANDIDATES[@]}"; do if [[ -d "$p" ]]; then folders+=("$p"); fi; done
+    NOT_OWNED=""
+    # The folders themselves are read with stat: macOS find will not report a folder the user cannot open.
+    for p in "${folders[@]+"${folders[@]}"}"; do
+        local owner
+        if ! owner="$(stat -f %u "$p" 2>&1)"; then
+            printf 'ERROR: could not check who owns %s: %s\n' "$p" "$owner" >&2
+            return 1
+        fi
+        if [[ "$owner" != "$(id -u)" ]]; then NOT_OWNED+="$p"$'\n'; fi
+    done
+    if [[ ${#trees[@]} -gt 0 ]]; then find_not_owned "${trees[@]}" ! -user "$(id -u)" -print || return 1; fi
+}
+# Parents first, then every named tree whether or not it was visible: the loop runs as root, which can see
+# inside a folder the user cannot. A named path that does not exist is skipped (chown refuses one even with -f);
+# a real chown failure still fails. The owner is passed as $0, expanded here, before sudo.
+CHOWN_FOLDERS='for p in "$@"; do if [ -e "$p" ]; then /usr/sbin/chown "$0" "$p" || exit 1; fi; done'
+CHOWN_TREES='for p in "$@"; do if [ -e "$p" ]; then /usr/sbin/chown -R "$0" "$p" || exit 1; fi; done'
+repair_owned() {
+    sudo /bin/sh -c "$CHOWN_FOLDERS" "$(id -u):$(id -g)" "${FOLDER_CANDIDATES[@]}" || return 1
+    sudo /bin/sh -c "$CHOWN_TREES" "$(id -u):$(id -g)" "${TREE_CANDIDATES[@]}" || return 1
+}
+check_owned || exit 1
+if [[ -n "$NOT_OWNED" ]]; then
+    printf 'Some DevThrottle files belong to another user, usually because an earlier install was run with sudo.\n'
+    printf 'macOS will not start DevThrottle until they belong to you again. Enter your Mac password to repair them.\n'
+    if ! repair_owned || ! check_owned || [[ -n "$NOT_OWNED" ]]; then
+        printf 'ERROR: the files could not be repaired. Run this, then run the install again:\n\n' >&2
+        printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_FOLDERS" >&2; printf ' %q' "${FOLDER_CANDIDATES[@]}" >&2; printf '\n' >&2
+        printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_TREES" >&2; printf ' %q' "${TREE_CANDIDATES[@]}" >&2; printf '\n' >&2
+        exit 1
+    fi
+    printf 'Repaired.\n'
+fi
 
 # Every line this script prints also goes to a log file the user (and support) can find, next to the
 # setup wizard's own logs. Writing it is best effort: a log that cannot be written must not stop the install.

@@ -8,6 +8,32 @@ public static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // On macOS the install is per-user: run as root it fills the user's own Library with root-owned
+        // files, and launchd then refuses to start the launcher (#3411). Refused before anything is written.
+        if (OperatingSystem.IsMacOS() && Environment.IsPrivilegedProcess)
+        {
+            Console.Error.WriteLine($"Error: {CcDirector.Setup.Engine.MacFileOwnership.RefuseRootMessage}");
+            Environment.Exit(1);
+        }
+
+        // Before the setup log is opened: it lives in the install folder, and a root-owned install folder
+        // fails that first write - and every placement after it - long before the launcher step (#3411).
+        if (OperatingSystem.IsMacOS())
+        {
+            var ownership = CcDirector.Setup.Engine.MacFileOwnership.EnsureOwnedByUser(
+                CcDirector.Setup.Engine.MacFileOwnership.DefaultRunner,
+                CcDirector.Setup.Engine.MacFileOwnership.InstallTargets(
+                    CcDirector.Setup.Engine.InstallLayout.Default(),
+                    CcDirector.Setup.Engine.LauncherLaunchdAutostart.PlistPath),
+                offerPrompt: true, _ => { });
+            if (ownership is not null)
+            {
+                Console.Error.WriteLine($"Error: {ownership}");
+                CcDirector.Setup.Engine.MacFileOwnership.ShowAlert("DevThrottle Setup cannot continue", ownership);
+                Environment.Exit(1);
+            }
+        }
+
         // A local directory acting as a full release (release-manifest.json + asset files), the
         // same override the setup command line offers. Lets the wizard run a complete install with
         // no network - hermetic testing of a not-yet-published release on real hardware. The
