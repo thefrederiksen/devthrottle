@@ -58,7 +58,7 @@ How it is proved:
 | Api/SessionConversationEndpoint.cs:59, 60 | `TryLocate`, `TryLocateIgnoringFreshness` | session conversation |
 | Api/SessionWsProxyEndpoints.cs:71, 85, 101, 125, 180 | `TryLocate` | terminal websocket proxy |
 | Api/GatewayWingmanVoiceEndpoint.cs:219 | `TryLocate` | voice activity read |
-| GatewayHost.cs:2035 | `TryLocateIgnoringFreshness` | Fleet Manager lessons `directorOf` (#3583 replaces it; see below) |
+| GatewayHost.cs:3363 (`FleetManagerDirectorOf`, #3583) | `TryLocateIgnoringFreshness` | Fleet Manager lessons `directorOf`: the store's answer first; #3583's team branch then re-asks the same `ClaimOf` (`IsTeamSessionOfDirector`) over the listers and the key row, so it can only agree or add the key row's Director |
 | GatewayHost.cs:2374 | `TryLocate` | locate delegate |
 | GatewayHost.cs:2811 | `TryLocate` | ambient locate |
 | GatewayHost.cs:2883, 2908, 3030 | `TryLocate` | per-session sends from the host |
@@ -80,17 +80,14 @@ How it is proved:
 | Fleet/FleetManagerHandOverService.cs:162 | any row with the id owned by the caller | the holder's row only |
 | Api/GatewayEndpoints.cs:6110 (`LastKnownSession`, used by GatewayHost.cs:2287, 5041, 5088, 5104, 5115, 5157, 5170, 5193, Api/FleetManagerEndpoints.cs:924, FleetManagerPage/Walkthrough endpoints, FleetManagerWalkthroughFold.cs:122) | first Director's row with the id | first holder's row |
 | Fleet/FleetManagerEventService.cs:563-565 (`ReportedAliveElsewhere`, review OR-F2) | any other Director's live row of the id kept a worker's death from being recorded | only the holder's row counts as alive elsewhere; a colleague's listing never suppresses the death |
+| Fleet/FleetManagerEventService.cs:934 (`DeliverOnceAsync`, review OR-F1) | first roster row of the marked Fleet Manager (#3583 had narrowed it with its own `isSessionOfDirector` delegate, `IsTeamSessionOfDirector`) | the first row with the id that `_env.IsHoldersRow` - the store's single point; #3583's delegate is removed. Only Bob lists it: withheld (`NotOwnDirector`), the event stays owed - **the marked event** |
+| Fleet/FleetManagerLessonsObserver.cs:138 via GatewayHost.cs:2046 (#3583, on a push) | `IsTeamSessionOfDirector` | `PushedSessions.IsHoldersRow` - the same single point, so a push from a Director that only lists the marked id never stamps the lessons |
 | Wingman/GatewayTurnVerdictEnvironment.cs:252-256 (`ReadSessionState`) | session row from `SnapshotFresh`, first match | rows of that id kept only if `IsHoldersRow`; other rows unchanged |
 
 The environments the Fleet Manager services read through gained `IsHoldersRow` (`Api/FleetManagerPlacementEndpoints.cs:258`,
-`Api/FleetManagerHandOverEndpoints.cs:145`, `Fleet/FleetManagerEventService.cs` `GatewayFleetManagerEventEnvironment`, all `Pushed.IsHoldersRow`); the test fakes answer `true`, as outside a team.
+`Api/FleetManagerHandOverEndpoints.cs:145`, `Fleet/FleetManagerEventService.cs` `GatewayFleetManagerEventEnvironment`, all `Pushed.IsHoldersRow`); the test fakes answer `true`, as outside a team. The event environment's `IsHoldersRow` enters the account's scope first (it runs on a background task), as #3583's delegate did.
 
-### Pending #3583 (open, same area)
-
-| File:line | Lookup | Plan |
-|---|---|---|
-| Fleet/FleetManagerEventService.cs:925 | first roster row of the marked Fleet Manager - **the marked event** (review OR-F1) | #3583 adds an `isSessionOfDirector` filter here; when it merges, rebase and point that filter at `PushedSessions.IsHoldersRow` |
-| GatewayHost.cs:2035 | lessons `directorOf` | #3583 replaces it with `FleetManagerDirectorOf`; reconcile with the store's answer on rebase |
+#3583 (merged as bcccb6ffe) is rebased under this branch; both of its team checks now go through the single point (rows above).
 
 ### Not per-session (whole fleet, one Director, a name, or the rule's own input)
 
@@ -131,7 +128,12 @@ first row again; nothing in code forbids it. The guard is the per-session method
   Bob's Director receives nothing in both phases and Alice's receives it in the second. A fifth (OR-F2): Alice's
   Director removes a worker of her Fleet Manager while Bob's still lists it alive (Bob's row then the only row,
   asserted) - the death is recorded, addressed to and owed to Alice's Fleet Manager. Its DELIVERY into the Fleet
-  Manager is the marked-session selection (OR-F1, after #3583) and needs a Director that declares the idle check.
+  Manager is the marked-session selection, the sixth (OR-F1): Alice's session is the team's marked Fleet Manager and a
+  marked event is owed; Bob's row the ONLY row (asserted) - the delivery is withheld (`NotOwnDirector`), Bob's Director
+  is typed nothing and the event stays owed; then Alice's Director lists it Idle - the event is typed into hers, never
+  Bob's. #3583's own `HostedTeamFleetManagerLessonsTests` run alongside it unchanged.
+- **Unit** - `FleetManagerEventServiceTests` FL-F1 pair now drives the selection through a holder rule on the real
+  store (`UseHolderRule`) instead of #3583's delegate.
 
 ## Runs
 
@@ -155,3 +157,5 @@ and passes alone. This change does not touch it or anything it reads.
 | Same bypass, over the wire, commit 98ac7a4cb | `Streaming/PushedSessionStore.cs:148` | all 5 host tests red, each at its Bob-only assertion: typed prompt line 132 (sent to Bob, not held), held prompt line 162 (Bob asked), dev report line 188 (note typed into Bob's Director), retirement close line 215 (`kill` sent to Bob), worker death line 259 (no death recorded: Bob's listing kept it alive) | `red-host-single-point-bypassed.txt` |
 
 After each red run the mutation was restored with `git checkout`, the tree confirmed clean, and the projects rebuilt.
+| Focused host run after the rebase and OR-F1: `HostedTeamSessionDirectorOneRuleTests` + `HostedTeamFleetManagerLessonsTests`, commit e4dc6ada3 | 10 passed, 0 failed | `gateway-tests-or-f1-green.txt` |
+| Red check for OR-F1 (line 934 bypassed to take the first row) | PENDING: drive C: was full (0 bytes) from about 14:27 on 6 Oct 2026, and the attempted run failed in Gateway setup writing a file, before any assertion - not counted | - |
