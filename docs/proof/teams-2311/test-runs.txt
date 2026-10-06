@@ -455,3 +455,27 @@ Details in step2-team-bill.md.
     entitlement_unknown), nothing revoked. No defect (b), so no code change.
     Gateway.UnitTests filtered (TeamBillOnTheRequestPathTests, OneTeamBillReaderTests, TeamEntitlementTests): Passed 66 of 66.
     .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
+
+37. CI 37422608704 on 2191f0f16: HostedTeamReportsTests.Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire got
+    403 team_action_refused for the session's own key reading GET sessions/{sid}/dev-reports. Answer: (b), a DEFECT.
+    TeamCallerOwnership.Whose, for any {sid} route, asked the ROSTER first (DirectorsHoldingSession): no holder -> Unknown
+    -> the gate refuses; the session's key row was read only later, inside the stored-conversation check. A keyed but
+    unlisted session is a real state: #3558 sends every key before any session id, and the key rows are in the Gateway
+    database while the roster is in memory, so after a Gateway restart every team session's own key was refused its own
+    reports until its Director reconnected and re-listed it. (A personal tenant never asks this.) Registration is not
+    racy: DirectorHub.RegisterSessionKey is synchronous and writes the row before the hub call returns.
+    Fix commit eb23c4297: the {sid} branch takes the session's Director from its KEY ROW when there is one (the record,
+    never taken over - the same order ClaimOf uses), and only without one from the sole roster holder; then the stored
+    conversation check as before. So a keyed session is its owner's unlisted, and still its owner's while a colleague
+    lists the id; never the colleague's. A session with no key row is decided by the roster exactly as before.
+    Test: TeamDirectorTunnelTests.Whose_AKeyedSession_IsItsOwnersFromTheKeyRow_UnlistedOrListedByAColleague_AndNeverTheColleagues.
+      Red with the key row taken out of the read: Failed 1 of 1239 (Teams namespace), Expected Callers, Actual Unknown.
+      Restored, diff empty.
+    Gateway.UnitTests filtered (Teams namespace, DirectorHub, DevReport): Passed 1446, Skipped 6, 0 failed.
+    Gateway.Tests, the lock FREE: every class under Teams/ (which includes HostedTeamReportsTests,
+    HostedTeamColleagueSessionWiringTests and TeamPersonStampHostTests), on a clean build: Passed 129 of 129, 0 failed -
+    HostedTeamBillOverTheWire 7, HostedTeamColleagueSessionWiring 3, HostedTeamDirectorKeyDark 2, HostedTeamDirectorKey 4,
+    HostedTeamEndpoints 7, HostedTeamInvitationEndpoints 9, HostedTeamLibrary 21, HostedTeamPageEndpoints 4,
+    HostedTeamReports 12, HostedTeamRequestEndpoints 8, HostedTeamsDarkCockpit 1, HostedTeamsDark 7, TeamEndpointWalk 37,
+    TeamMentorSwitchHost 5, TeamPersonStampHost 2.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
