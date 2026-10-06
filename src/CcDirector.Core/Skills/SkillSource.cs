@@ -72,6 +72,19 @@ public sealed record SkillSource(
         string.Equals(stamp.GatewayId, GatewayId, StringComparison.Ordinal)
         && string.Equals(stamp.TenantId, TenantId, StringComparison.Ordinal);
 
+    /// <summary>True when <paramref name="stamp"/> names exactly this source: the same Gateway, the same tenant and
+    /// the same kind of account.</summary>
+    public bool Is(SkillSourceStamp? stamp) =>
+        stamp is not null && Wrote(stamp) && string.Equals(stamp.TeamId, TeamId, StringComparison.Ordinal);
+
+    /// <summary>The source recorded in the marker of the skill folder <paramref name="skillDirectory"/>, or null
+    /// when it has no marker or its marker records no source.</summary>
+    public static SkillSourceStamp? RecordedIn(string skillDirectory)
+    {
+        var marker = Path.Combine(skillDirectory, SkillDirectoryInstaller.MarkerFileName);
+        return File.Exists(marker) ? ReadStamp(File.ReadAllLines(marker)) : null;
+    }
+
     /// <summary>Record which library the store at <paramref name="storeRoot"/> holds.</summary>
     public void WriteTo(string storeRoot)
     {
@@ -154,6 +167,9 @@ public sealed record SkillSourceStamp(string GatewayId, string TenantId, string?
 {
     /// <summary>True when the personal account installed it.</summary>
     public bool IsPersonal => TeamId is null;
+
+    /// <summary>The source this stamp names.</summary>
+    public SkillSource ToSource() => new(GatewayId, TenantId, TeamId);
 
     /// <summary>One line for a log or a placement message.</summary>
     public string Describe() =>

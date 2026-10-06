@@ -95,6 +95,36 @@ leftovers were moved aside now lives BESIDE the folder (`~/.claude/skills.devthr
 reads it. A Director that recorded it the old way, in its own storage, carries that over without moving anything. Not
 covered: a computer whose first upgraded Director never ran the migration at all still runs it once, as before.
 
+**A visible skill folder is never without its marker (review finding SK-F5).** The copy used to be rebuilt in place:
+delete the folder, create it empty, copy the files, stamp it. A Director killed anywhere in that left a folder at the
+skill's name with no marker or no stamp, which every Director after it read as the owner's own skill - `Shadowed`,
+never replaced, never removed. Now each copy is built and stamped in a staging folder, and only a complete folder is
+renamed to the skill's name; an old copy is first renamed aside, and deleted after (`SkillDirectoryInstaller.SwapIn`).
+A withdrawal renames the folder aside before deleting it (`Withdraw`), and so does the removal of a full copy left in
+`~/.claude/skills` by the scheme before links. A rename within one volume is one step, so the name always holds the
+old complete copy, nothing, or the new complete copy. Leftovers are recognised by their names
+(`<skill>.<random>.staging|old|withdrawn`) and removed under the folder lock at the start of the next reconcile; any
+other name found there is left alone.
+
+The staging folder is a SIBLING of each skills folder - `~/.agents/skills.devthrottle-staging` and
+`~/.claude/skills.devthrottle-staging` - not a folder inside it. The ruling said "beside the destination"; inside the
+skills folder a staging copy holds a `SKILL.md` in a folder every agent scans, and would be read as a skill under a
+mangled name for as long as it existed, which is exactly what the superseded folders once did. A sibling is on the
+same volume, so the swap is still a rename and never a copy, and it sits under the same lock.
+
+**The source travels with each skill's bytes (review finding SK-F6).** The store's marker now carries the same three
+source lines as a placed copy, written last with the bytes (`Materialize(store, bundle, source)`). Three things follow:
+
+- **The store refresh** treats a skill as already present only when it was fetched for the library the register names
+  now (`IsAlreadyMaterialized`), so the same version served by two libraries is fetched again for the second. When a
+  version cannot be read, a kept copy fetched for ANOTHER library leaves the store instead of being kept, and the log
+  says whose it was; a copy fetched for this library is kept, as before.
+- **Placement** reads each skill's own recorded source. A skill whose source is not the library's is not placed and is
+  recorded as `SourceMismatch`; whatever is in the folder under its name is left alone. Each placed copy is stamped
+  with its OWN recorded source, never relabelled.
+- **On upgrade**, every store marker lacks the source lines, so the first refresh fetches each skill once more. A
+  skill whose fetch fails then leaves the store and arrives on the next cycle that can read it.
+
 ## Tests
 
 First round. `src/CcDirector.Core.Tests/Skills/SkillSourceOwnershipTests.cs`, the real installer run twice over ONE pair
@@ -152,6 +182,30 @@ Committed first, then one line mutated per finding, a full build, the matching t
 | SK-F3 | the refresh records the ADDRESS it used as the Gateway's id | all three address changes, the two-front-doors test, and the record test - 5 red, each with `HeldByAnotherSource` where none belongs. |
 | SK-F4 | the migration record is this Director's own file again | the second-Director test: the second Director TRIES TO MOVE the person's `move-session` (the move fails only because the first move's backup has the same second-resolution name). The scripted run of this check produced no result line, so it was rerun by hand; the file says so. Its first rerun failed on the record assertion, not the harm, so the assertion was moved to the end of the test and the check run again. |
 
+### Review round 2 - the tests for SK-F5 and SK-F6
+
+| Finding | Tests |
+|---|---|
+| SK-F5 never without its marker | `SkillSwapTests`, with real junctions under `~/.claude/skills`. `A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one` - five steps (`copying`, `copied`, `staged`, `moved-aside`, `swapped`), each for a personal and a team source. `A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one` - four steps. Each kill throws from inside the reconcile; at EVERY step passed on the way, and after the kill, the folder at the skill's name is either absent or has its marker, its source stamp and its `SKILL.md`. The next reconcile reports no problem at all - no `Shadowed` - places the new version, and leaves the staging folder empty. `A_reconcile_killed_while_withdrawing_a_skill_leaves_no_half_deleted_folder_and_the_next_one_finishes`. `Nothing_is_ever_built_inside_a_skills_folder_and_a_staging_folder_name_this_code_did_not_make_is_kept`. |
+| SK-F6 the source per skill | `SkillSourceEstablishmentTests`, through the real store refresh. `A_Director_moved_from_a_team_to_the_personal_account_never_places_the_team_bytes_as_personal` - the ruling's case: team A, then the personal key, the same skill id, the personal version unreadable; the team's bytes stay labelled as the team's, and once readable the person's skill takes the name. `A_kept_skill_fetched_for_another_library_leaves_the_store_and_one_fetched_for_this_library_stays`. `The_same_version_of_a_skill_served_by_two_libraries_is_fetched_again_for_the_second`. `A_skill_in_the_store_recorded_for_another_library_is_never_placed` (also a skill with no recorded source). |
+
+### Review round 2 - the red checks - [red-check-review2.txt](red-check-review2.txt)
+
+Each puts the old behaviour back, builds, runs the tests, and restores the saved source; the diff after all six was
+compared byte for byte with the diff before them.
+
+| Finding | The old behaviour put back | Red |
+|---|---|---|
+| SK-F5 | the copy rebuilt in place at the skill's own name, nothing moved aside | all 9 kill tests. The kill never lands: the check at an earlier step fails first, with `'...\.agents\skills\new-one' is visible without its SKILL.md`. |
+| SK-F5 | leftovers in the staging folder never cleared | all 10 kill tests, on the empty-staging assertion. |
+| SK-F6, store | a failed read keeps whatever the store holds | the store test: the team's bytes are still in the store. |
+| SK-F6, placement | every held skill placed and stamped with the library's source | the placement test: nothing is refused. |
+| SK-F6, both | the two above together | those two, and the ruling's test: `the team's bytes are stamped as the person's own`. |
+| SK-F6, already present | a skill at the served version counts as present whoever it was fetched for | the same-version test: the person's own skill is refused. |
+
+With one layer put back, the ruling's own test stays green, because the other layer still holds: the two layers are
+tested separately for that reason.
+
 ### Runs
 
 | What | Result | File |
@@ -163,6 +217,9 @@ Committed first, then one line mutated per finding, a full build, the matching t
 | **Review round 1:** `.\scripts	est-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review1.txt](gate-default-review1.txt) |
 | **Review round 1:** `CcDirector.Gateway.UnitTests`, whole suite | 9412 passed, 0 failed, 14 skipped | [test-runs-review1.txt](test-runs-review1.txt) |
 | **Review round 1:** `CcDirector.Gateway.Tests`, the classes covering `/gateway/skills` (filtered, as ruled) | 36 passed, 0 failed | [test-runs-review1.txt](test-runs-review1.txt) |
+| **Review round 2:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 75 passed, 0 failed | [test-runs-review2.txt](test-runs-review2.txt) |
+| **Review round 2:** `.\scripts\test-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review2.txt](gate-default-review2.txt) |
+| **Review round 2:** the Gateway suites | not run: round 2 changes no Gateway code (`git diff 60f0e64c1 --stat` touches `src/CcDirector.Core` and its tests only) | - |
 
 The default gate's first run failed one test, `RetiredMessagingWordsTests`, because I was writing the gate's own
 output into this folder and the repository-wide scan could not open the locked file. Rerun with the output outside the
@@ -240,7 +297,17 @@ One run is not in the evidence. A first attempt of the full script was cut off a
 command (`Select-Object -First 80` ends the pipeline it reads from, which ended the script mid-step). It was rerun in
 full; the file above is that rerun.
 
+**Not rerun for review round 2.** Round 2 changes how a copy is written and removed, not what ends up in the two
+folders: every listing above would be the same. The staging folders are siblings of the two folders, outside what the
+rig lists.
+
 ### What this does not prove
+
+- **A kill by the operating system (review round 2).** The swap tests throw from inside the reconcile at each named
+  step; no process was killed. Between the steps the code relies on a rename within one volume being a single step.
+- **A rename refused because an agent holds a file open (review round 2).** On Windows a folder with an open file in it
+  may refuse to be renamed. That case was not tested; it fails the reconcile with an exception, as a refused delete did
+  before.
 
 - **The Director window's own call path.** No Director window was started. The installer and the store refresh are the
   real code, called as the Director calls them, but `SessionManager` launching a session, the Control API's timer, and

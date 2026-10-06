@@ -65,7 +65,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
             new SkillFileBytes("references/tracing.md", Encoding.UTF8.GetBytes("# Tracing\n"), false),
             new SkillFileBytes("assets/logo.png", raw, false),
             new SkillFileBytes("scripts/build.sh", Encoding.UTF8.GetBytes("echo hi\n"), true),
-        }));
+        }), Personal);
 
         // SKILL.md at the root and the files at their own paths - that IS the standard, and it is what
         // every agent this product supervises reads.
@@ -100,7 +100,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
     public void Installing_puts_the_skill_where_the_agent_looks_and_marks_it_as_ours()
     {
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle());
+        SkillDirectoryInstaller.Materialize(Store, Bundle(), Personal);
 
         var placement = Install();
 
@@ -118,7 +118,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // the entry in the agent's own directory is a LINK - a copy would read identically today and
         // diverge the first time one side is refreshed and the other is not.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle());
+        SkillDirectoryInstaller.Materialize(Store, Bundle(), Personal);
 
         Assert.Equal(1, Install().Reachable);
 
@@ -137,7 +137,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // Every session launch runs this. A link scheme that only works the first time would break on
         // the second session of the day, which is the launch nobody tests.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle());
+        SkillDirectoryInstaller.Materialize(Store, Bundle(), Personal);
 
         Install();
         Assert.Equal(1, Install().Reachable);
@@ -153,7 +153,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // replaced. Left alone they would be a second copy that never refreshes again - the exact drift
         // this change exists to remove - so an entry of ours that is not a link is rebuilt as one.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle());
+        SkillDirectoryInstaller.Materialize(Store, Bundle(), Personal);
         var stale = Path.Combine(LinkRoot, "demo-skill");
         Directory.CreateDirectory(stale);
         File.WriteAllText(Path.Combine(stale, "SKILL.md"), "# OLD COPY\n");
@@ -173,7 +173,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // silent data loss dressed up as a feature. It holds in BOTH directories: the shared one is
         // also a place the owner may keep skills of their own.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle());
+        SkillDirectoryInstaller.Materialize(Store, Bundle(), Personal);
 
         var mineShared = Path.Combine(Shared, "demo-skill");
         Directory.CreateDirectory(mineShared);
@@ -196,8 +196,8 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
     {
         // Reconcile, never add: a skill switched off on the Gateway must not keep working from disk.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "keeper"));
-        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "withdrawn"));
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "keeper"), Personal);
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "withdrawn"), Personal);
         Install();
         Assert.True(Directory.Exists(Path.Combine(Shared, "withdrawn")));
         Assert.True(Directory.Exists(Path.Combine(LinkRoot, "withdrawn")));
@@ -225,7 +225,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // empty the single copy every other agent family reads, and the only symptom would be those
         // agents quietly losing a skill they never had anything to do with.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "keeper"));
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "keeper"), Personal);
         Install();
 
         // 'keeper' stays in the store but the agent's link is reconciled away and back, which is what
@@ -244,14 +244,14 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         SkillDirectoryInstaller.Materialize(Store, Bundle(files: new[]
         {
             new SkillFileBytes("references/old.md", Encoding.UTF8.GetBytes("old"), false),
-        }));
+        }), Personal);
         Install();
         Assert.True(File.Exists(Path.Combine(LinkRoot, "demo-skill", "references", "old.md")));
 
         SkillDirectoryInstaller.Materialize(Store, Bundle(files: new[]
         {
             new SkillFileBytes("references/new.md", Encoding.UTF8.GetBytes("new"), false),
-        }));
+        }), Personal);
         Install();
 
         Assert.False(File.Exists(Path.Combine(Shared, "demo-skill", "references", "old.md")));
@@ -269,7 +269,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => SkillDirectoryInstaller.Materialize(Store, Bundle(files: new[]
         {
             new SkillFileBytes("../../escape.md", Encoding.UTF8.GetBytes("bad"), false),
-        })));
+        }), Personal));
     }
 
     [Fact]
@@ -289,7 +289,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
     public void An_agent_with_no_skills_directory_installs_nothing()
     {
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle());
+        SkillDirectoryInstaller.Materialize(Store, Bundle(), Personal);
 
         var placement = SkillDirectoryInstaller.InstallFor(AgentKind.RawCli, Store);
 
@@ -308,7 +308,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // was an agent reading a two-month-old copy. Everything looked healthy. A placement that falls
         // short has to be able to say so.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "keeper"));
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "keeper"), Personal);
 
         // The owner's own skill of the same name, with more than one file so the one-time reclaim
         // leaves it strictly alone.
@@ -339,7 +339,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
     public void A_complete_placement_says_nothing_is_wrong()
     {
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle());
+        SkillDirectoryInstaller.Materialize(Store, Bundle(), Personal);
 
         var placement = Install();
 
@@ -355,7 +355,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // ownership rule cannot tell it from a hand-written skill and refuses to replace it - which
         // left the central library unable to reach Claude Code on every machine that ever ran it.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "move-session"));
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "move-session"), Personal);
 
         var leftover = Path.Combine(LinkRoot, "move-session");
         Directory.CreateDirectory(leftover);
@@ -384,7 +384,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // puts there later wins the name for good - otherwise the reclaim is not a migration, it is a
         // standing licence to take names, and the promise that a machine's own skill wins is worthless.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "demo-skill"));
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "demo-skill"), Personal);
         SkillDirectoryInstaller.InstallFor(
             AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp, Personal);
 
@@ -409,7 +409,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // once per folder. With the record in each Director's own storage, a second Director - no record of its
         // own - migrated again and moved a skill the person wrote after the first migration.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "move-session"));
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "move-session"), Personal);
         var leftover = Path.Combine(LinkRoot, "move-session");
         Directory.CreateDirectory(leftover);
         File.WriteAllText(Path.Combine(leftover, "SKILL.md"), "# STALE INSTALLER COPY\n");
@@ -439,7 +439,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // A Director that migrated before the record moved beside the folder: its own record says so. The person's
         // fleet-comms, written since, is not moved, and the shared record now exists for every other Director.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "fleet-comms"));
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "fleet-comms"), Personal);
         File.WriteAllText(Stamp, LinkRoot + Environment.NewLine);
         var mine = Path.Combine(LinkRoot, "fleet-comms");
         Directory.CreateDirectory(mine);
@@ -458,7 +458,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         // Narrow on purpose: no marker, exactly one file, named SKILL.md. A directory with anything
         // else in it is somebody's real work and is never moved, migration or not.
         Directory.CreateDirectory(Store);
-        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "demo-skill"));
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "demo-skill"), Personal);
 
         var mine = Path.Combine(LinkRoot, "demo-skill");
         Directory.CreateDirectory(Path.Combine(mine, "references"));

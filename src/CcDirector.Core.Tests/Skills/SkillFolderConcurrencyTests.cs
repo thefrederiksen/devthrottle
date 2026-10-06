@@ -148,7 +148,7 @@ public sealed class SkillFolderConcurrencyTests : IDisposable
         {
             SkillDirectoryInstaller.Materialize(store, new SkillBundle(
                 name, 1, "hash-1", "A skill.", new[] { name }, $"# {name}\n\nfrom {source.Describe()}\n",
-                Array.Empty<SkillFileBytes>()));
+                Array.Empty<SkillFileBytes>()), source);
         }
     }
 }

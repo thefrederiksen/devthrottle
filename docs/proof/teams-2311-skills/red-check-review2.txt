@@ -1,0 +1,85 @@
+RED CHECKS, review round 2 - 2026-10-06T15:07:19.107702Z - built on 60f0e64c1 plus the round 2 change
+Each: mutate, full build, run the named tests, record, restore the saved source.
+
+====================================================================================================
+SK-F5: build in place - the copy is rebuilt at the skill's own name, as before, with no staging and no rename
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++        var staging = destination; // RED CHECK: build in place
++        if (false) // RED CHECK: nothing moved aside
++        Step("swapped", destination); // RED CHECK: no rename
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "copying") [64 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "staged") [21 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "swapped") [21 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "copied") [21 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "swapped") [201 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "copied") [111 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "copying") [163 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "staged") [110 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "moved-aside") [116 ms]
+first messages:
+     Assert.Throws() Failure: Exception type was not an exact match
+     Assert.Throws() Failure: Exception type was not an exact match
+     Assert.Throws() Failure: Exception type was not an exact match
+     Assert.Throws() Failure: Exception type was not an exact match
+
+====================================================================================================
+SK-F5: leftovers never cleared - what an interrupted reconcile left in the staging folder stays there
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++        if (true) // RED CHECK: never cleared
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "copying") [219 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "staged") [152 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "copied") [104 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "swapped") [246 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "copied") [298 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "copying") [209 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "staged") [342 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "moved-aside") [205 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_withdrawing_a_skill_leaves_no_half_deleted_folder_and_the_next_one_finishes [535 ms]
+first messages:
+     Assert.Empty() Failure: Collection was not empty
+     Assert.Empty() Failure: Collection was not empty
+     Assert.Empty() Failure: Collection was not empty
+     Assert.Empty() Failure: Collection was not empty
+
+====================================================================================================
+SK-F6 (store): a failed read keeps whatever the store holds, whichever library it was fetched for
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++                // RED CHECK: keep whatever is stored
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_kept_skill_fetched_for_another_library_leaves_the_store_and_one_fetched_for_this_library_stays [36 ms]
+first messages:
+     Assert.False() Failure
+
+====================================================================================================
+SK-F6 (placement): every held skill is placed and stamped with the library's source, its own record unread
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++            if (true) // RED CHECK: no per-skill source
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_skill_in_the_store_recorded_for_another_library_is_never_placed [296 ms]
+first messages:
+     Assert.Equal() Failure: Collections differ
+
+====================================================================================================
+SK-F6 (both layers): the store keeps another library's bytes AND placement stamps them with the library's source
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++                // RED CHECK: keep whatever is stored
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++            if (true) // RED CHECK: no per-skill source
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_kept_skill_fetched_for_another_library_leaves_the_store_and_one_fetched_for_this_library_stays [33 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_skill_in_the_store_recorded_for_another_library_is_never_placed [345 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_Director_moved_from_a_team_to_the_personal_account_never_places_the_team_bytes_as_personal [190 ms]
+first messages:
+     Assert.False() Failure
+     Assert.Equal() Failure: Collections differ
+     the team's bytes are stamped as the person's own
+
+====================================================================================================
+SK-F6 (already have it): a skill at the served version counts as present whichever library it was fetched for
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++        return true; // RED CHECK: the source is not compared
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_same_version_of_a_skill_served_by_two_libraries_is_fetched_again_for_the_second [460 ms]
+first messages:
+     Assert.Empty() Failure: Collection was not empty
+
+Every mutation restored from the saved source.
+
+THE FULL MESSAGE behind 'Exception type was not an exact match' in the first check, read from a rerun of that one mutation on the new-skill test:
+     Assert.Throws() Failure: Exception type was not an exact match | Expected: typeof(CcDirector.Core.Tests.Skills.SkillSwapTests+SimulatedKill) | Actual:   typeof(Xunit.Sdk.TrueException) | ---- 'C:\Users\soren\AppData\Local\Temp\skill-swap-fc8fec8b61df4e9187c0951306b361da\home\.agents\skills\new-one' is visible without its SKILL.md

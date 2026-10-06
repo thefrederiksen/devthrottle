@@ -92,6 +92,11 @@ public sealed class SkillStoreRefresh
         var store = StoreRoot();
         Directory.CreateDirectory(store);
 
+        // WHOSE library this is, exactly as the Gateway stated it for the key that fetched it. Every skill
+        // materialized below records it with its bytes (review finding SK-F6), and the store records it as a whole
+        // (SK-F2). Null when the Gateway does not say.
+        var source = SourceNamedBy(register.Source);
+
         int unchanged = 0, refreshed = 0;
         foreach (var row in wanted)
         {
@@ -100,7 +105,7 @@ public sealed class SkillStoreRefresh
             // store already holds exactly that, there is nothing to download and nothing to rewrite.
             // Until 22 September 2026 every enabled skill was fetched and its directory deleted and
             // rewritten on every cycle, sixty times an hour, whether or not anything had changed.
-            if (IsAlreadyMaterialized(store, row))
+            if (IsAlreadyMaterialized(store, row, source))
             {
                 unchanged++;
                 continue;
@@ -114,11 +119,17 @@ public sealed class SkillStoreRefresh
                 // Leave whatever is already materialized for this skill in place: a skill we could not
                 // read is not the same as a skill that was withdrawn, and replacing it with nothing
                 // would quietly remove a working capability because one request failed.
-                FileLog.Write($"[SkillStoreRefresh] could not read '{row.Id}' v{row.Version} - keeping what is already stored");
+                //
+                // UNLESS it was fetched for ANOTHER library (review finding SK-F6). A Director that moves from a
+                // team to the person's own account, or between Gateways, still holds the old library's bytes under
+                // the same names. Kept, they would be placed and stamped as the new library's - the team's skill
+                // wearing the person's ownership. Those bytes are not this library's to keep, so they leave the
+                // store; the skill arrives on the next cycle that can read it.
+                DropIfFetchedForAnotherLibrary(store, row.Id, row.Version, source);
                 continue;
             }
 
-            SkillDirectoryInstaller.Materialize(store, ToBundle(row.Id, detail));
+            SkillDirectoryInstaller.Materialize(store, ToBundle(row.Id, detail), source);
             refreshed++;
         }
 
@@ -135,15 +146,13 @@ public sealed class SkillStoreRefresh
             }
         }
 
-        // WHOSE library this is, exactly as the Gateway stated it for the key that fetched it, recorded WITH the
-        // store, so placement stamps the identity that fetched the library and never a separate local record that
-        // can be missing (devthrottle_internal#2311, review finding SK-F2). A Gateway that does not state it leaves
-        // NO record, and placement then changes nothing - it never guesses an owner.
-        var source = register.Source;
-        if (source is not null && !string.IsNullOrWhiteSpace(source.GatewayId) && !string.IsNullOrWhiteSpace(source.TenantId))
+        // The library's source, recorded WITH the store, so placement stamps the identity that fetched the library
+        // and never a separate local record that can be missing (devthrottle_internal#2311, review finding SK-F2).
+        // A Gateway that does not state it leaves NO record, and placement then changes nothing - it never guesses
+        // an owner.
+        if (source is not null)
         {
-            new SkillSource(source.GatewayId.Trim(), source.TenantId.Trim(),
-                string.IsNullOrWhiteSpace(source.TeamId) ? null : source.TeamId.Trim()).WriteTo(store);
+            source.WriteTo(store);
         }
         else
         {
@@ -158,13 +167,44 @@ public sealed class SkillStoreRefresh
         return wanted.Count;
     }
 
+    /// <summary>The source the register named, or null when it names none in full.</summary>
+    private static SkillSource? SourceNamedBy(RegisterSource? named) =>
+        named is not null && !string.IsNullOrWhiteSpace(named.GatewayId) && !string.IsNullOrWhiteSpace(named.TenantId)
+            ? new SkillSource(named.GatewayId.Trim(), named.TenantId.Trim(),
+                string.IsNullOrWhiteSpace(named.TeamId) ? null : named.TeamId.Trim())
+            : null;
+
+    /// <summary>After a failed read of <paramref name="id"/>: keep what the store holds for it when those bytes were
+    /// fetched for <paramref name="source"/>, and remove them when they were fetched for any other library.</summary>
+    private static void DropIfFetchedForAnotherLibrary(string store, string id, int version, SkillSource? source)
+    {
+        var directory = Path.Combine(store, id);
+        if (!Directory.Exists(directory))
+        {
+            FileLog.Write($"[SkillStoreRefresh] could not read '{id}' v{version} - nothing stored for it yet; it arrives on a later cycle");
+            return;
+        }
+        var recorded = SkillSource.RecordedIn(directory);
+        if (source is null ? recorded is null : source.Is(recorded))
+        {
+            FileLog.Write($"[SkillStoreRefresh] could not read '{id}' v{version} - keeping what is already stored");
+            return;
+        }
+        Directory.Delete(directory, recursive: true);
+        FileLog.Write($"[SkillStoreRefresh] could not read '{id}' v{version}, and what the store held for it was fetched for " +
+                      $"{recorded?.Describe() ?? "no recorded library"}, not for {source?.Describe() ?? "an unnamed library"} - " +
+                      "dropped from the store rather than placed as this library's; it arrives on a later cycle");
+    }
+
     /// <summary>
     /// True when the store already holds <paramref name="row"/>'s id at the served version, and at the
-    /// served content hash when the register states one. The marker is written LAST by
-    /// <see cref="SkillDirectoryInstaller.Materialize"/>, so its presence means the directory was
-    /// completed. A missing marker, a version that differs, or a hash that differs all mean "fetch".
+    /// served content hash when the register states one, fetched for <paramref name="source"/>. The marker is
+    /// written LAST by <see cref="SkillDirectoryInstaller.Materialize"/>, so its presence means the directory was
+    /// completed. A missing marker, a version that differs, a hash that differs, or bytes fetched for another
+    /// library all mean "fetch": the same version of the same id can be served by two libraries (review finding
+    /// SK-F6), and the bytes must carry the source they really came from.
     /// </summary>
-    internal static bool IsAlreadyMaterialized(string store, RegisterRow row)
+    internal static bool IsAlreadyMaterialized(string store, RegisterRow row, SkillSource? source)
     {
         var marker = Path.Combine(store, row.Id, SkillDirectoryInstaller.MarkerFileName);
         if (!File.Exists(marker))
@@ -193,7 +233,8 @@ public sealed class SkillStoreRefresh
             && !string.Equals(installedHash, row.ContentHash.Trim(), StringComparison.Ordinal))
             return false;
 
-        return true;
+        var recorded = SkillSource.ReadStamp(lines);
+        return source is null ? recorded is null : source.Is(recorded);
     }
 
     private static SkillBundle ToBundle(string id, VersionDetail detail)

@@ -164,7 +164,120 @@ public sealed class SkillSourceEstablishmentTests : IDisposable
         Assert.Contains("PERSONAL", File.ReadAllText(Path.Combine(LinkRoot, "mine-one", "SKILL.md")));
     }
 
+    // ---- SK-F6: the source travels with each skill's bytes ------------------------------------------------------
+
+    [Fact]
+    public async Task A_Director_moved_from_a_team_to_the_personal_account_never_places_the_team_bytes_as_personal()
+    {
+        // THE RULING'S CASE (review finding SK-F6). The Director served team A, then its key became the person's.
+        // Both libraries hold a skill called "both". The personal version cannot be read this cycle, so the store
+        // still holds the TEAM's bytes under that name. They must never be placed, or stamped, as the person's.
+        var gateway = new FakeGateway();
+        gateway.Account("team-key", "gw-1", "team-a", "team-a");
+        gateway.Account("person-key", "gw-1", "tenant-person", null);
+        gateway.Serve("team-key", "both", "TEAM");
+        gateway.Serve("person-key", "both", "PERSONAL");
+
+        await Refresh("director", gateway, "https://devthrottle.com", "team-key");
+        Assert.Empty(Install("director", TeamAFile).Problems);
+        Assert.Equal("team:team-a", AccountStampedOn(Path.Combine(Shared, "both")));
+
+        gateway.FailDetail("person-key", "both");
+        await Refresh("director", gateway, "https://devthrottle.com", "person-key");
+        Install("director", NoTeamFile);
+
+        var body = File.ReadAllText(Path.Combine(LinkRoot, "both", "SKILL.md"));
+        var account = AccountStampedOn(Path.Combine(Shared, "both"));
+        Assert.False(body.Contains("TEAM") && account == "personal", "the team's bytes are stamped as the person's own");
+        Assert.Contains("TEAM", body);                 // still the team's copy...
+        Assert.Equal("team:team-a", account);         // ...and still labelled as the team's
+
+        // Once the personal version can be read, the person's own skill takes the name, as it always does.
+        gateway.Recover("person-key", "both");
+        await Refresh("director", gateway, "https://devthrottle.com", "person-key");
+        Assert.Empty(Install("director", NoTeamFile).Problems);
+        Assert.Contains("PERSONAL", File.ReadAllText(Path.Combine(LinkRoot, "both", "SKILL.md")));
+        Assert.Equal("personal", AccountStampedOn(Path.Combine(Shared, "both")));
+    }
+
+    [Fact]
+    public async Task A_kept_skill_fetched_for_another_library_leaves_the_store_and_one_fetched_for_this_library_stays()
+    {
+        var gateway = new FakeGateway();
+        gateway.Account("team-key", "gw-1", "team-a", "team-a");
+        gateway.Account("person-key", "gw-1", "tenant-person", null);
+        gateway.Serve("team-key", "both", "TEAM");
+        gateway.Serve("person-key", "both", "PERSONAL");
+        gateway.Serve("person-key", "mine", "PERSONAL");
+
+        await Refresh("director", gateway, "https://devthrottle.com", "team-key");
+        gateway.FailDetail("person-key", "both");
+        await Refresh("director", gateway, "https://devthrottle.com", "person-key");
+
+        // The team's bytes are gone from the store - the person's skill arrives when it can be read.
+        Assert.False(Directory.Exists(Path.Combine(StoreOf("director"), "both")));
+
+        // A failed read of a skill this library already holds keeps it, exactly as before.
+        gateway.Serve("person-key", "mine", "PERSONAL-v2");
+        gateway.FailDetail("person-key", "mine");
+        await Refresh("director", gateway, "https://devthrottle.com", "person-key");
+        Assert.Contains("PERSONAL", File.ReadAllText(Path.Combine(StoreOf("director"), "mine", "SKILL.md")));
+    }
+
+    [Fact]
+    public async Task The_same_version_of_a_skill_served_by_two_libraries_is_fetched_again_for_the_second()
+    {
+        // The SAME bytes at the SAME version under both accounts: "already have it" must also mean "fetched for this
+        // library", or the store keeps the team's record and the person's own skill is refused for ever.
+        var gateway = new FakeGateway();
+        gateway.Account("team-key", "gw-1", "team-a", "team-a");
+        gateway.Account("person-key", "gw-1", "tenant-person", null);
+        gateway.Serve("team-key", "both", "SAME");
+        gateway.Serve("person-key", "both", "SAME");
+
+        await Refresh("director", gateway, "https://devthrottle.com", "team-key");
+        Install("director", TeamAFile);
+        await Refresh("director", gateway, "https://devthrottle.com", "person-key");
+
+        Assert.Empty(Install("director", NoTeamFile).Problems);
+        Assert.Equal("personal", AccountStampedOn(Path.Combine(Shared, "both")));
+    }
+
+    [Fact]
+    public void A_skill_in_the_store_recorded_for_another_library_is_never_placed()
+    {
+        // Where the bytes hit the disk: placement checks each skill's own recorded source as well, so a store
+        // that holds another library's bytes for any reason cannot put them out under this library's name.
+        var store = StoreOf("director");
+        Directory.CreateDirectory(store);
+        SkillDirectoryInstaller.Materialize(store, Bundle("both", "TEAM"), new SkillSource("gw-1", "team-a", "team-a"));
+        SkillDirectoryInstaller.Materialize(store, Bundle("unrecorded", "OLD"), null);
+        SkillDirectoryInstaller.Materialize(store, Bundle("mine", "PERSONAL"), PersonalSource);
+
+        var placement = SkillDirectoryInstaller.InstallFor(
+            AgentKind.ClaudeCode, store, new SkillInstallPaths(Shared, LinkRoot),
+            Path.Combine(_root, "director", "reclaimed.txt"), PersonalSource);
+
+        Assert.Equal(new[] { "both", "unrecorded" },
+            placement.Problems.Where(p => p.Fault == SkillPlacementFault.SourceMismatch).Select(p => p.SkillId).OrderBy(n => n));
+        Assert.False(Directory.Exists(Path.Combine(Shared, "both")));
+        Assert.False(Directory.Exists(Path.Combine(Shared, "unrecorded")));
+        Assert.Equal("personal", AccountStampedOn(Path.Combine(Shared, "mine")));
+    }
+
     // ---- helpers ---------------------------------------------------------------------------------------------
+
+    private static readonly SkillSource PersonalSource = new("gw-1", "tenant-person", null);
+
+    private static SkillBundle Bundle(string id, string body) =>
+        new(id, 1, "hash-" + body, "A skill.", new[] { id }, $"# {id}\n\n{body}\n", Array.Empty<SkillFileBytes>());
+
+    /// <summary>The account line of the source stamp on a placed skill folder.</summary>
+    private static string? AccountStampedOn(string folder) =>
+        File.ReadAllLines(Path.Combine(folder, SkillDirectoryInstaller.MarkerFileName))
+            .Where(l => l.StartsWith(SkillSource.AccountKey, StringComparison.Ordinal))
+            .Select(l => l[SkillSource.AccountKey.Length..])
+            .SingleOrDefault();
 
     private async Task Refresh(string director, FakeGateway gateway, string url, string key)
     {
@@ -182,6 +295,7 @@ public sealed class SkillSourceEstablishmentTests : IDisposable
     {
         private readonly Dictionary<string, (string GatewayId, string TenantId, string? TeamId)> _accounts = new();
         private readonly Dictionary<string, Dictionary<string, string>> _skills = new();
+        private readonly HashSet<(string Key, string Id)> _unreadable = new();
         public bool NamesTheSource { get; init; } = true;
         public HttpClient Client { get; }
 
@@ -195,6 +309,11 @@ public sealed class SkillSourceEstablishmentTests : IDisposable
 
         public void Serve(string key, string id, string body) => _skills[key][id] = body;
         public void Withdraw(string key, string id) => _skills[key].Remove(id);
+
+        /// <summary>The register still lists the skill, but reading its version fails - a request that failed,
+        /// not a skill that was withdrawn.</summary>
+        public void FailDetail(string key, string id) => _unreadable.Add((key, id));
+        public void Recover(string key, string id) => _unreadable.Remove((key, id));
 
         private HttpResponseMessage Respond(HttpRequestMessage request)
         {
@@ -211,6 +330,8 @@ public sealed class SkillSourceEstablishmentTests : IDisposable
                     : Json(new { skills = rows });
             }
             var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 5 && _unreadable.Contains((key, Uri.UnescapeDataString(parts[2]))))
+                return new HttpResponseMessage(HttpStatusCode.InternalServerError);
             if (parts.Length == 5 && library.TryGetValue(Uri.UnescapeDataString(parts[2]), out var body))
             {
                 return Json(new
