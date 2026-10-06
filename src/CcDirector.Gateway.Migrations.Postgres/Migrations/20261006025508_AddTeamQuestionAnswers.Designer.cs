@@ -473,6 +473,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(64)")
                         .UseCollation("C");
 
+                    b.Property<int?>("SourceVersion")
+                        .HasColumnType("integer");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -501,6 +504,11 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsUnique();
 
                     b.HasIndex("TenantId", "SessionId", "Status");
+
+                    b.HasIndex("TenantId", "ReportId", "AnswererSubject", "QuestionId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_dev_report_items_one_member_answer")
+                        .HasFilter("\"AnswererSubject\" IS NOT NULL AND \"Status\" <> 'refused'");
 
                     b.ToTable("dev_report_items", "gateway");
                 });

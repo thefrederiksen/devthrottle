@@ -8,7 +8,8 @@ namespace CcDirector.Gateway.Tests.Teams.Questions;
 /// <summary>
 /// A team member's answer in the two places the agent's conversation is written (devthrottle_internal#2307): the prompt
 /// (<see cref="DevReportPromptFold"/>) and the store (<see cref="DevReportStore"/>). Both refuse an item from a member
-/// that carries any words of the member's own, and both keep two people's answers apart.
+/// that carries any words of the member's own, and both keep two people's answers apart. The store takes a member's
+/// answer in one transaction that decides, in the database, the version held and that it is their only answer.
 /// </summary>
 public sealed class MemberAnswerDeliveryTests : IDisposable
 {
@@ -65,53 +66,174 @@ public sealed class MemberAnswerDeliveryTests : IDisposable
         Assert.Contains("never into a session", ex.Message);
     }
 
-    // ---- the store ------------------------------------------------------------------------------------------------
+    // ---- the store: a member's answer, taken in one transaction (review F2, F3, F4) ----------------------------------
+
+    /// <summary>A report Alice wrote, sent at version 1 to Mike and Nina - the recipient rows an answer is checked against.</summary>
+    private (DevReportStore Store, DevReportRecipients Recipients, CcDirector.Gateway.Data.Entities.DevReportEntity Report) Sent()
+    {
+        var db = _harness.Open();
+        var store = new DevReportStore(db);
+        var recipients = new DevReportRecipients(db);
+        var report = store.Publish(Team, "s1", @"C:\r.html", "<p>x</p>", "waiting-on-you", "R", Now, "sub-alice").Report;
+        Assert.True(recipients.Send(Team, report.Id, "sub-alice", ["sub-mike", "sub-nina"], 1, Now).Sent);
+        return (store, recipients, report);
+    }
+
+    private static MemberAnswerOutcome Answer(DevReportStore store, CcDirector.Gateway.Data.Entities.DevReportEntity report, string who, string id,
+        string option = "30", string words = "", int version = 1)
+        => store.AddMemberAnswer(Team, report, version, Choice(id, option), who, words, "sub-alice", "device", Now);
 
     [Theory]
     [InlineData("their words", "", DevReportItem.Answer)]
     [InlineData("", "their words", DevReportItem.Note)]
-    public void AddItems_AMembersItemCarryingWordsOfTheirOwn_IsRefused_AndNothingIsStored(string comment, string text, string kind)
+    public void AddMemberAnswer_AnItemCarryingWordsOfTheirOwn_IsRefused_AndNothingIsStored(string comment, string text, string kind)
     {
-        var store = new DevReportStore(_harness.Open());
-        var report = store.Publish(Team, "s1", @"C:\r.html", "<p>x</p>", "waiting-on-you", "R", Now, "sub-alice").Report;
+        var (store, _, report) = Sent();
 
-        Assert.Throws<ArgumentException>(() => store.AddItems(Team, report,
-            [Choice("a-1", comment: comment, text: text, kind: kind)], DevReportItemStates.HeldState, "device", Now, "sub-mike"));
+        Assert.Throws<ArgumentException>(() => store.AddMemberAnswer(Team, report, 1,
+            Choice("a-1", comment: comment, text: text, kind: kind), "sub-mike", "", "sub-alice", "device", Now));
         Assert.Empty(store.Items(Team, report.Id));
     }
 
     [Fact]
-    public void AddItems_ALaterAnswerReplacesOnlyTheSamePersonsWaitingOne_AndADeliveredOneCountsPerPerson()
+    public void AddMemberAnswer_TheChoiceIsHeld_WithTheVersionItWasGivenOn_AndTheWordsGoToThePersonInTheSameWrite()
     {
-        var store = new DevReportStore(_harness.Open());
-        var report = store.Publish(Team, "s1", @"C:\r.html", "<p>x</p>", "waiting-on-you", "R", Now, "sub-alice").Report;
+        var (store, _, report) = Sent();
 
-        store.AddItems(Team, report, [Choice("a-mike", "14")], DevReportItemStates.HeldState, "device", Now, "sub-mike");
-        store.AddItems(Team, report, [Choice("a-nina", "30")], DevReportItemStates.HeldState, "device", Now, "sub-nina");
+        Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-mike", words: "We trialled 14 days."));
+
+        var item = Assert.Single(store.Items(Team, report.Id));
+        Assert.Equal((DevReportItemStates.Held, "sub-mike", (int?)1, "", ""), (item.Status, item.AnswererSubject, item.SourceVersion, item.Comment, item.Text));
+        var comment = Assert.Single(new DevReportPersonComments(_harness.Open()).To(Team, report.Id, "sub-alice"));
+        Assert.Equal(("sub-mike", "We trialled 14 days.", "trial-length"), (comment.FromSubject, comment.Text, comment.QuestionId));
+    }
+
+    [Fact]
+    public void AddMemberAnswer_TwoPeople_EachHaveTheirOwn_AndTheOwnersAnswerIsUntouched()
+    {
+        var (store, _, report) = Sent();
         store.AddItems(Team, report, [Choice("a-owner", "14")], DevReportItemStates.HeldState, "device", Now);
+
+        Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-mike", "14"));
+        Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-nina", "a-nina", "30"));
+
         Assert.All(store.Items(Team, report.Id), i => Assert.Equal(DevReportItemStates.Held, i.Status));
-
-        store.AddItems(Team, report, [Choice("a-mike-2", "30")], DevReportItemStates.HeldState, "device", Now, "sub-mike");
-        var byId = store.Items(Team, report.Id).ToDictionary(i => i.ClientItemId);
-        Assert.Equal(DevReportItemStates.Replaced, byId["a-mike"].Status);
-        Assert.Equal(DevReportItemStates.Held, byId["a-nina"].Status);
-        Assert.Equal(DevReportItemStates.Held, byId["a-owner"].Status);
-
-        Assert.Equal(new[] { "a-mike-2" }, store.AnswersBy(Team, "sub-mike", [report.Id]).Values.Select(i => i.ClientItemId));
+        Assert.Equal(new[] { "a-mike" }, store.AnswersBy(Team, "sub-mike", [report.Id]).Values.Select(i => i.ClientItemId));
         Assert.False(store.HasDeliveredAnswer(Team, report.Id, "trial-length", "sub-nina"));
+    }
+
+    [Fact]
+    public void AddMemberAnswer_ASecondAnswerFromTheSamePerson_IsNotTaken_AndItsWordsAreNotStored()
+    {
+        var (store, _, report) = Sent();
+        Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-1", "14", "first words"));
+
+        Assert.Equal(MemberAnswerOutcome.AlreadyAnswered, Answer(store, report, "sub-mike", "a-2", "30", "second words"));
+
+        Assert.Equal("a-1", Assert.Single(store.Items(Team, report.Id)).ClientItemId);
+        Assert.Equal("first words", Assert.Single(new DevReportPersonComments(_harness.Open()).To(Team, report.Id, "sub-alice")).Text);
+    }
+
+    [Fact]
+    public void AddMemberAnswer_AfterTheirAnswerWasRefused_ThePersonMayAnswerAgain()
+    {
+        var (store, _, report) = Sent();
+        Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-1"));
+        Assert.Equal(1, store.RefuseWaiting(Team, "s1", DevReportItemStates.SessionEndedState));
+        Assert.Empty(store.AnswersBy(Team, "sub-mike", [report.Id]));
+
+        Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-2"));
+        Assert.Equal("a-2", Assert.Single(store.AnswersBy(Team, "sub-mike", [report.Id]).Values).ClientItemId);
+    }
+
+    [Fact]
+    public void AddMemberAnswer_AVersionThePersonDoesNotHold_IsNotTaken_AndNoWordsAreStored()
+    {
+        var (store, _, report) = Sent();
+
+        Assert.Equal(MemberAnswerOutcome.VersionNotHeld, Answer(store, report, "sub-mike", "a-1", words: "words", version: 2));
+        Assert.Equal(MemberAnswerOutcome.VersionNotHeld, Answer(store, report, "sub-stranger", "a-2", words: "words"));
+
+        Assert.Empty(store.Items(Team, report.Id));
+        Assert.Empty(new DevReportPersonComments(_harness.Open()).To(Team, report.Id, "sub-alice"));
+    }
+
+    /// <summary>REVIEW F3, THE INTERLEAVING. The route has read that Mike holds version 1; before the answer's transaction
+    /// begins, Alice sends version 2 to him (another request, or the other process during a deploy). The answer to version
+    /// 1 is not taken: the database, not the earlier read, decides which version he holds.</summary>
+    [Fact]
+    public void AddMemberAnswer_ANewerVersionSentBetweenTheReadAndTheWrite_IsNotTaken()
+    {
+        var (store, recipients, report) = Sent();
+        var publisher = new DevReportStore(_harness.Open());
+        publisher.Publish(Team, "s1", @"C:\r.html", "<p>y</p>", "waiting-on-you", "R2", Now, "sub-alice");
+        store.BeforeMemberAnswerWriteForTests = () =>
+            Assert.True(new DevReportRecipients(_harness.Open()).Send(Team, report.Id, "sub-alice", ["sub-mike"], 2, Now).Sent);
+
+        Assert.Equal(MemberAnswerOutcome.VersionNotHeld, Answer(store, report, "sub-mike", "a-1", words: "words"));
+
+        Assert.Empty(store.Items(Team, report.Id));
+        Assert.Empty(new DevReportPersonComments(_harness.Open()).To(Team, report.Id, "sub-alice"));
+        Assert.Equal(2, recipients.RowFor(Team, report.Id, "sub-mike")!.SentVersion);
+    }
+
+    /// <summary>REVIEW F2, THE INTERLEAVING. Two Gateway processes take the same person's answer at once: both checked
+    /// that nothing was answered, and the other one's answer commits between this one's check and its write. Only one is
+    /// taken, with only its words - no in-memory lock spans the two, so the database decides.</summary>
+    [Fact]
+    public void AddMemberAnswer_AnotherProcessTakesTheSamePersonsAnswerBetweenTheReadAndTheWrite_OnlyOneIsTaken()
+    {
+        var (store, _, report) = Sent();
+        var otherProcess = new DevReportStore(_harness.Open());
+        store.BeforeMemberAnswerWriteForTests = () =>
+            Assert.Equal(MemberAnswerOutcome.Stored, Answer(otherProcess, report, "sub-mike", "a-other", "14", "the other process's words"));
+
+        Assert.Equal(MemberAnswerOutcome.AlreadyAnswered, Answer(store, report, "sub-mike", "a-this", "30", "this process's words"));
+
+        Assert.Equal("a-other", Assert.Single(store.Items(Team, report.Id)).ClientItemId);
+        Assert.Equal("the other process's words", Assert.Single(new DevReportPersonComments(_harness.Open()).To(Team, report.Id, "sub-alice")).Text);
+    }
+
+    /// <summary>The database's own guarantee, beneath the transaction's check: a second not-refused answer by one person to
+    /// one question cannot be written at all, while a refused one does not stand in the way.</summary>
+    [Fact]
+    public void TheMemberAnswerIndex_RefusesASecondNotRefusedAnswerByOnePerson_AndIgnoresARefusedOne()
+    {
+        var (store, _, report) = Sent();
+        Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-1"));
+
+        CcDirector.Gateway.Data.Entities.DevReportItemEntity Row(string id, string status) => new()
+        {
+            TenantId = Team.Value, ReportId = report.Id, SessionId = "s1", ClientItemId = id, Kind = DevReportItem.Answer,
+            QuestionId = "trial-length", Status = status, StatusLabel = status, SenderKind = "device", SentAtUtc = Now,
+            AnswererSubject = "sub-mike", SourceVersion = 1,
+        };
+        using (var ctx = _harness.Open().CreateContext(Team))
+        {
+            ctx.DevReportItems.Add(Row("a-dup", DevReportItemStates.Held));
+            var ex = Assert.Throws<Microsoft.EntityFrameworkCore.DbUpdateException>(() => ctx.SaveChanges());
+            Assert.Contains("UNIQUE", ex.InnerException?.Message ?? "", StringComparison.OrdinalIgnoreCase);
+        }
+        using (var ctx = _harness.Open().CreateContext(Team))
+        {
+            ctx.DevReportItems.Add(Row("a-refused", DevReportItemStates.Refused));
+            ctx.SaveChanges();
+        }
+        Assert.Equal(2, store.Items(Team, report.Id).Count);
     }
 
     [Fact]
     public void AnswersBy_LeavesOutARefusedAnswer_SoTheQuestionStillWaits_AndHasDeliveredAnswerIsPerPerson()
     {
-        var store = new DevReportStore(_harness.Open());
-        var report = store.Publish(Team, "s1", @"C:\r.html", "<p>x</p>", "waiting-on-you", "R", Now, "sub-alice").Report;
-        store.AddItems(Team, report, [Choice("a-mike")], DevReportItemStates.HeldState, "device", Now, "sub-mike");
+        var (store, _, report) = Sent();
+        Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-mike", "a-mike"));
         Assert.Equal(1, store.RefuseWaiting(Team, "s1", DevReportItemStates.SessionEndedState));
-
         Assert.Empty(store.AnswersBy(Team, "sub-mike", [report.Id]));
 
-        store.AddItems(Team, report, [Choice("a-nina")], DevReportItemStates.DeliveredState, "device", Now, "sub-nina");
+        Assert.Equal(MemberAnswerOutcome.Stored, Answer(store, report, "sub-nina", "a-nina"));
+        var claim = Guid.NewGuid();
+        Assert.Single(store.ClaimWaiting(Team, "s1", claim, Now));
+        store.FinishClaim(Team, claim, DevReportItemStates.DeliveredState, Now);
         Assert.True(store.HasDeliveredAnswer(Team, report.Id, "trial-length", "sub-nina"));
         Assert.False(store.HasDeliveredAnswer(Team, report.Id, "trial-length", "sub-mike"));
         Assert.False(store.HasDeliveredAnswer(Team, report.Id, "trial-length"));

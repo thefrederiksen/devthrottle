@@ -163,7 +163,7 @@ internal static class TeamReportEndpoints
             }
         });
 
-        var reports = new TeamReports(store, recipients, comments, teams, access, questions: questions);
+        var reports = new TeamReports(store, recipients, comments, teams, access, questions);
 
         // ---------------------------------------------------------------- the recipient's routes
 
@@ -280,15 +280,16 @@ internal sealed class TeamReports
     private readonly DevReportPersonComments _comments;
     private readonly TeamRegistry _teams;
     private readonly TeamAccess _access;
-    private readonly TeamQuestions? _questions;
+    private readonly TeamQuestions _questions;
     private readonly Func<DateTime> _utcNow;
 
     /// <param name="questions">The questions in the reports sent to a person (devthrottle_internal#2307), for the line
-    /// that says how many wait on them. Null only where a test of the reports alone builds this.</param>
+    /// that says how many wait on them and the question beside a comment. Required (review F6): a Reports page built
+    /// without it would say nothing waits and lose what a comment is about, reading as true.</param>
     public TeamReports(DevReportStore store, DevReportRecipients recipients, DevReportPersonComments comments,
-        TeamRegistry teams, TeamAccess access, Func<DateTime>? utcNow = null, TeamQuestions? questions = null)
+        TeamRegistry teams, TeamAccess access, TeamQuestions questions, Func<DateTime>? utcNow = null)
     {
-        _questions = questions;
+        _questions = questions ?? throw new ArgumentNullException(nameof(questions));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _recipients = recipients ?? throw new ArgumentNullException(nameof(recipients));
         _comments = comments ?? throw new ArgumentNullException(nameof(comments));
@@ -305,7 +306,7 @@ internal sealed class TeamReports
         var team = Team(teamId);
         var names = Names(teamId, caller);
         var received = _recipients.SentTo(team, caller);
-        var waiting = _questions?.WaitingByReport(teamId, caller, received) ?? new Dictionary<Guid, int>();
+        var waiting = _questions.WaitingByReport(teamId, caller, received);
         var list = received.Select(r => Received(r, names, waiting)).ToList();
         FileLog.Write($"[TeamReports] SentToMe: team {team.ToLogString()} count={list.Count}");
         return Results.Json(new
@@ -335,9 +336,9 @@ internal sealed class TeamReports
         return Results.Json(new
         {
             report = Received(new DevReportReceived(row, held.Title, held.Status), names,
-                _questions?.WaitingByReport(teamId, caller, [new DevReportReceived(row, held.Title, held.Status)]) ?? new Dictionary<Guid, int>()),
+                _questions.WaitingByReport(teamId, caller, [new DevReportReceived(row, held.Title, held.Status)])),
             comments = _comments.From(team, report.Id, caller)
-                .Select(c => new { id = c.Id.ToString("D"), text = c.Text, atUtc = c.AtUtc, aboutLabel = _questions?.AboutLabelFor(team, c) })
+                .Select(c => new { id = c.Id.ToString("D"), text = c.Text, atUtc = c.AtUtc, aboutLabel = _questions.AboutLabelFor(team, c) })
                 .ToList(),
             canComment,
             commentsNote = canComment
@@ -618,7 +619,7 @@ internal sealed class TeamReports
                 atUtc = c.AtUtc,
                 // A comment written with an answer on the Questions page says which question and what was chosen
                 // (devthrottle_internal#2307); null for a comment on the whole report.
-                aboutLabel = _questions?.AboutLabelFor(team, c),
+                aboutLabel = _questions.AboutLabelFor(team, c),
             }).ToList(),
             commentsEmptyText = "No comments yet. When someone you sent this report to comments on it, it appears here.",
         };

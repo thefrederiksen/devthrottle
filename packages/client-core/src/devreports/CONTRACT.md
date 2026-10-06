@@ -84,7 +84,9 @@ the wrong shape. What stops a report acting for the owner is the host's policy i
   in it, which the check refuses anyway). At least two. **Every option in a question shares one `name`, and
   no radio outside that question uses it** - the browser lets only one radio of a name be checked, and that
   is what keeps one answer per question. The script also keeps at most one option of a question checked
-  itself, so the answer it queues is always the option the owner last picked. The option's label
+  itself, so the answer it queues is always the option the owner last picked. **Every option has a
+  `value` of its own** - not empty, not only spaces, and used by no other option in the question - because
+  an answer names its option by value (a radio with no value reads as `on` in a browser). The option's label
   is the text of its `<label>` (wrapping, or pointed at by `for=`); without a label, its `value`.
 - **The recommendation** is `data-recommended` on exactly one option. The script checks it when the page
   loads, so the recommendation is preselected.
@@ -93,8 +95,9 @@ the wrong shape. What stops a report acting for the owner is the host's policy i
 - **A comment box** is optional: a `<textarea data-dev-report-comment>` inside the question.
 - **The Queue button** is added by the script, one per question. An author never writes it.
 
-The shape check enforces: at least two options, exactly one `data-recommended`, one shared `name` per
-question used by no other radio, unique ids, no nesting, no option outside a question, and exactly one
+The shape check enforces: at least two options, exactly one `data-recommended`, a non-empty `value` on
+every option and no value used twice in one question, one shared `name` per question used by no other
+radio, unique ids, no nesting, no option outside a question, and exactly one
 no-questions element whose own text has words in it (a character reference such as `&nbsp;` alone is not
 words, and text after a block element that would close a `<p>` is not the paragraph's).
 

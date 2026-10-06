@@ -92,6 +92,29 @@ public sealed class TeamEndpointsTests : IDisposable
         Assert.Equal(JsonValueKind.Null, asDeveloper.GetProperty("elsewhere").ValueKind);
     }
 
+    /// <summary>S8's count beside Questions (devthrottle_internal#2307 review F8): the Gateway names, per team, where the
+    /// Cockpit reads it - the Questions route of THAT team - and no other page has one.</summary>
+    [Fact]
+    public async Task ListTeams_OnlyTheQuestionsPage_NamesWhereItsCountIsRead_InThatTeam()
+    {
+        var collab = _teams.CreateTeam(Bob, "DevThrottle").Team!;
+        _teams.AddMember(collab.TeamId, Alice, TeamRole.Collaborator);
+        var dev = _teams.CreateTeam(Bob, "Paul's project").Team!;
+        _teams.AddMember(dev.TeamId, Alice, TeamRole.Developer);
+
+        var (_, body) = await RenderAsync(TeamEndpoints.ListTeams(_teams, Alice, ownAccountHasADirector: false));
+
+        foreach (var team in body.GetProperty("teams").EnumerateArray())
+        {
+            var id = team.GetProperty("id").GetString()!;
+            var counts = team.GetProperty("app").GetProperty("pages").EnumerateArray()
+                .ToDictionary(p => p.GetProperty("id").GetString()!, p => p.GetProperty("countPath"));
+            Assert.Equal($"/teams/{id}/questions", counts["questions"].GetString());
+            Assert.Equal(JsonValueKind.Null, counts["requests"].ValueKind);
+            Assert.Equal(JsonValueKind.Null, counts["reports"].ValueKind);
+        }
+    }
+
     [Fact]
     public async Task CreateTeam_ValidName_Answers201WithTheCallerAsOwner()
     {

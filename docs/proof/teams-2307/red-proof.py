@@ -28,6 +28,9 @@ def vitest(project, path):
 
 
 PAGE = vitest("apps/cockpit", "src/teams/collaborator/questionsPage.test.tsx")
+SHELL = vitest("apps/cockpit", "src/teams/collaborator/collaboratorApp.test.tsx")
+SHAPE = ["dotnet", "test", "src/CcDirector.Gateway.UnitTests", "--filter", "FullyQualifiedName~DevReportShapeCheck", "-nologo"]
+TEAMS_WIRE = ["dotnet", "test", "src/CcDirector.Gateway.UnitTests", "--filter", "FullyQualifiedName~TeamEndpointsTests", "-nologo"]
 REPORTS_PAGE = vitest("apps/cockpit", "src/teams/collaborator/reportsPage.test.tsx")
 
 TQ = "src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs"
@@ -38,20 +41,23 @@ DELIVERY = "src/CcDirector.Gateway/DevReports/DevReportDelivery.cs"
 RULES = "src/CcDirector.Gateway/Teams/TeamEndpointRules.cs"
 QPAGE = "apps/cockpit/src/teams/collaborator/QuestionsPage.tsx"
 VIEWS = "apps/cockpit/src/teams/collaborator/TeamReportViews.tsx"
+SHAPECHECK = "src/CcDirector.Gateway/DevReports/DevReportShapeCheck.cs"
+TEAMAPP = "src/CcDirector.Gateway/Teams/TeamApp.cs"
+COUNTS = "apps/cockpit/src/teams/useTeamPageCounts.ts"
 
 MUTATIONS = {
     "comment-in-the-choice": {
         "rule": "The member's comment is never part of the item delivered to the session: the choice carries no words.",
         "file": TQ,
-        "old": "            var item = ChoiceItem(question, option);",
-        "new": "            var item = ChoiceItem(question, option) with { Comment = words };",
+        "old": "ChoiceItem(question, option), caller, words,",
+        "new": "ChoiceItem(question, option) with { Comment = words }, caller, words,",
         "runs": [UNIT],
     },
     "store-takes-member-words": {
         "rule": "The store refuses a member's item that carries any words of their own.",
         "file": STORE,
-        "old": "            if (items.Any(i => i.Kind != DevReportItem.Answer || i.Comment.Length > 0 || i.Text.Length > 0))",
-        "new": "            if (false)",
+        "old": "        if (item.Kind != DevReportItem.Answer || item.Comment.Length > 0 || item.Text.Length > 0)\n            throw new ArgumentException(\"A team member's item",
+        "new": "        if (false)\n            throw new ArgumentException(\"A team member's item",
         "runs": [UNIT],
     },
     "fold-takes-member-words": {
@@ -64,23 +70,23 @@ MUTATIONS = {
     "comment-to-the-session": {
         "rule": "The comment goes to the person who asked, never into the agent's conversation (here: written as a reply on the report).",
         "file": TQ,
-        "old": "            if (words.Length > 0)\n                _comments.Add(",
-        "new": "            if (words.Length > 0)\n                _store.AddReply(team, report.Id, words, _utcNow());\n            if (words.Length > 0)\n                _comments.Add(",
+        "old": "        // THE SEND: the one settle pass",
+        "new": "        if (words.Length > 0)\n            _store.AddReply(team, report.Id, words, _utcNow());\n        // THE SEND: the one settle pass",
         "runs": [UNIT],
     },
     "comment-to-the-team-session-over-the-wire": {
         "rule": "Over the wire, a live TEAM session never reads the member's comment (here: written as a reply on the report).",
         "file": TQ,
-        "old": "            if (words.Length > 0)\n                _comments.Add(",
-        "new": "            if (words.Length > 0)\n                _store.AddReply(team, report.Id, words, _utcNow());\n            if (words.Length > 0)\n                _comments.Add(",
+        "old": "        // THE SEND: the one settle pass",
+        "new": "        if (words.Length > 0)\n            _store.AddReply(team, report.Id, words, _utcNow());\n        // THE SEND: the one settle pass",
         "runs": [["dotnet", "test", "src/CcDirector.Gateway.Tests", "--filter",
                   "FullyQualifiedName~HostedTeamQuestionsTests.Issue2307_TeamKeyVariant", "-nologo"]],
     },
     "comment-not-to-the-person": {
         "rule": "The comment reaches the person who asked (their own report's page).",
-        "file": TQ,
-        "old": "            if (words.Length > 0)\n                _comments.Add(",
-        "new": "            if (words.Length < 0)\n                _comments.Add(",
+        "file": STORE,
+        "old": "            if (comment is not null)\n                ctx.DevReportComments.Add(comment);",
+        "new": "            if (comment is not null && comment.Text.Length < 0)\n                ctx.DevReportComments.Add(comment);",
         "runs": [UNIT],
     },
     "not-addressed-is-answered": {
@@ -98,17 +104,17 @@ MUTATIONS = {
         "runs": [UNIT],
     },
     "answered-twice": {
-        "rule": "A second answer from the same person to the same question is refused and not sent again.",
-        "file": TQ,
-        "old": "            if (_store.AnswersBy(team, caller, [report.Id]).ContainsKey((report.Id, question.Id)))",
-        "new": "            if (_store.AnswersBy(team, caller, [report.Id]).ContainsKey((report.Id, question.Id)) && caller.Length < 0)",
+        "rule": "A second answer from the same person to the same question is not taken - in the database, so two processes cannot both take one (review F2).",
+        "file": STORE,
+        "old": "            if (answered)\n            {",
+        "new": "            if (answered && answererSubject.Length < 0)\n            {",
         "runs": [UNIT],
     },
     "ended-session-not-checked": {
         "rule": "An answer to a session that has ended is refused with the Gateway's sentence, and nothing is stored.",
         "file": TQ,
-        "old": "            if (_delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended)\n            {",
-        "new": "            if (_delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended && caller.Length < 0)\n            {",
+        "old": "        if (_delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended)\n        {",
+        "new": "        if (_delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended && caller.Length < 0)\n        {",
         "runs": [UNIT],
     },
     "comment-to-an-author-who-cannot-read": {
@@ -119,17 +125,17 @@ MUTATIONS = {
         "runs": [UNIT],
     },
     "answers-replace-across-people": {
-        "rule": "A later answer replaces only the same person's waiting answer; two people's answers both reach the session.",
+        "rule": "One person's answer never stands in for another's: two people's answers are both taken and both reach the session.",
         "file": STORE,
-        "old": "           && string.Equals(row.AnswererSubject, answererSubject, StringComparison.Ordinal);",
-        "new": "           && true;",
+        "old": "                i.ReportId == report.Id && i.AnswererSubject == answererSubject && i.QuestionId == item.QuestionId",
+        "new": "                i.ReportId == report.Id && i.AnswererSubject != null && i.QuestionId == item.QuestionId",
         "runs": [UNIT],
     },
     "member-answer-said-to-be-the-owners": {
         "rule": "The session is told the answer came from a person the report was sent to, not from the owner.",
         "file": DELIVERY,
-        "old": "                    row.AnswererSubject is not null))",
-        "new": "                    false))",
+        "old": "                row.AnswererSubject is not null))",
+        "new": "                false))",
         "runs": [UNIT],
     },
     "viewer-answers-on": {
@@ -156,8 +162,8 @@ MUTATIONS = {
     "page-trims-the-words": {
         "rule": "The page sends the person's words exactly as typed.",
         "file": QPAGE,
-        "old": "      setShown(await answerQuestion(teamId, q, chosen, comment));",
-        "new": "      setShown(await answerQuestion(teamId, q, chosen, comment.trim()));",
+        "old": "      setSent(await answerQuestion(teamId, q, chosen, comment));",
+        "new": "      setSent(await answerQuestion(teamId, q, chosen, comment.trim()));",
         "runs": [PAGE],
     },
     "page-ignores-can-comment": {
@@ -181,6 +187,72 @@ MUTATIONS = {
         "new": "              {false && (",
         "runs": [REPORTS_PAGE],
     },
+    "f1-answer-named-as-the-newest-version": {
+        "rule": "Review F1: a member's answer is delivered as the version they were sent, by that version's title, never as the report's newest.",
+        "file": DELIVERY,
+        "old": "            foreach (var byVersion in group.GroupBy(i => i.SourceVersion ?? report.Version).OrderBy(g => g.Key))",
+        "new": "            foreach (var byVersion in group.GroupBy(i => report.Version).OrderBy(g => g.Key))",
+        "runs": [UNIT],
+    },
+    "f3-version-decided-before-the-write": {
+        "rule": "Review F3: whether the member still holds the version is decided in the answer's own write, so a newer send landing in between refuses it.",
+        "file": STORE,
+        "old": "                .Where(r => r.ReportId == report.Id && r.RecipientSubject == answererSubject && r.SentVersion == sentVersion)",
+        "new": "                .Where(r => r.ReportId == report.Id && r.RecipientSubject == answererSubject)",
+        "runs": [UNIT],
+    },
+    "f4-a-failed-send-fails-the-answer": {
+        "rule": "Review F4: the answer and the words are stored before the send; a send that fails loses neither, and the person is told the answer is taken.",
+        "file": TQ,
+        "old": "        catch (Exception ex)\n        {\n            FileLog.Write($\"[TeamQuestions] AnswerAsync: report={report.Id} the answer is stored; settling",
+        "new": "        catch (InvalidCastException ex)\n        {\n            FileLog.Write($\"[TeamQuestions] AnswerAsync: report={report.Id} the answer is stored; settling",
+        "runs": [UNIT],
+    },
+    "f5-publish-takes-an-option-with-no-value": {
+        "rule": "Review F5: publishing refuses a question whose option has no value of its own.",
+        "file": SHAPECHECK,
+        "old": "            if (noValue > 0)\n            {",
+        "new": "            if (noValue < 0)\n            {",
+        "runs": [SHAPE],
+    },
+    "f6-reports-without-questions": {
+        "rule": "Review F6: the Reports page is never built without its Questions collaborator.",
+        "file": TR,
+        "old": "        _questions = questions ?? throw new ArgumentNullException(nameof(questions));",
+        "new": "        _questions = questions!;",
+        "runs": [UNIT],
+    },
+    "f7-card-keeps-its-first-answer": {
+        "rule": "Review F7: a polled answer outranks the one the card was drawn with (the old card state, restored).",
+        "file": QPAGE,
+        "edits": [
+            ("  const [sent, setSent] = useState<TeamQuestion | null>(null);", "  const [sent, setSent] = useState<TeamQuestion | null>(question);"),
+            ("  const q = question.answer !== null ? question : (sent ?? question);", "  const q = sent !== null && sent.answer !== null ? sent : question;"),
+        ],
+        "runs": [PAGE],
+    },
+    "f7-card-key-without-version": {
+        "rule": "Review F7: a newer version of a question is a new card, so no choice or words carry over.",
+        "file": QPAGE,
+        "old": "  return `${q.reportId}/${q.version}/${q.questionId}`;",
+        "new": "  return `${q.reportId}/${q.questionId}`;",
+        "runs": [PAGE],
+    },
+    "f8-cockpit-builds-the-count-path": {
+        "rule": "Review F8: the count beside Questions is read only where the Gateway's page descriptor says.",
+        "file": COUNTS,
+        "old": "        void getPageCount(page.countPath!, controller.signal).then(",
+        "new": "        void getPageCount(`/teams/${team!.id}/questions`, controller.signal).then(",
+        "runs": [SHELL],
+    },
+    "f8-questions-names-no-count": {
+        "rule": "Review F8: the Gateway names where the Questions count is read, in the team on screen.",
+        "file": TEAMAPP,
+        "old": "TeamAction.AnswerQuestionsSendRequestsReadReports,\n            Api.TeamQuestionEndpoints.GroupPath),",
+        "new": "TeamAction.AnswerQuestionsSendRequestsReadReports),",
+        "runs": [TEAMS_WIRE],
+    },
+
 }
 
 
@@ -197,15 +269,18 @@ def main():
         sys.exit(f"ERROR: {m['file']} has uncommitted changes; commit them first, the restore would discard them")
     path = REPO / m["file"]
     source = path.read_text(encoding="utf-8")
-    old = m["old"].replace("\n", "\r\n") if "\r\n" in source and "\r\n" not in m["old"] else m["old"]
-    new = m["new"].replace("\n", "\r\n") if "\r\n" in source and "\r\n" not in m["new"] else m["new"]
-    if source.count(old) != 1:
-        sys.exit(f"ERROR: the mutation text for {name} is found {source.count(old)} times in {m['file']}, not once")
-
-    lines = [f"RED PROOF: {name}", f"Rule: {m['rule']}", f"File: {m['file']}", "", "Mutation - replaced:", m["old"],
-             "with:", m["new"] or "(nothing)", ""]
+    edits = m["edits"] if "edits" in m else [(m["old"], m["new"])]
+    mutated = source
+    lines = [f"RED PROOF: {name}", f"Rule: {m['rule']}", f"File: {m['file']}", ""]
+    for old, new in edits:
+        lines += ["Mutation - replaced:", old, "with:", new or "(nothing)", ""]
+        old = old.replace("\n", "\r\n") if "\r\n" in source and "\r\n" not in old else old
+        new = new.replace("\n", "\r\n") if "\r\n" in source and "\r\n" not in new else new
+        if mutated.count(old) != 1:
+            sys.exit(f"ERROR: the mutation text for {name} is found {mutated.count(old)} times in {m['file']}, not once")
+        mutated = mutated.replace(old, new)
     try:
-        path.write_text(source.replace(old, new), encoding="utf-8", newline="")
+        path.write_text(mutated, encoding="utf-8", newline="")
         for run in m["runs"]:
             cmd, cwd = (run["cmd"], run["cwd"]) if isinstance(run, dict) else (run, REPO)
             print(f"[run] {' '.join(cmd)}", flush=True)

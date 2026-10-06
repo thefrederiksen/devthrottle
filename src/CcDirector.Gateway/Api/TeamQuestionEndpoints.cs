@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
@@ -163,10 +162,6 @@ internal sealed class TeamQuestions
     private readonly DevReportDelivery _delivery;
     private readonly Func<DateTime> _utcNow;
 
-    // One answer at a time per person in a team, in this process, so two quick presses cannot both pass the
-    // already-answered check. Two Gateway processes during a deploy can still each take one (named in the proof README).
-    private readonly ConcurrentDictionary<(string Team, string Person), SemaphoreSlim> _answering = new();
-
     public TeamQuestions(DevReportStore store, DevReportRecipients recipients, DevReportPersonComments comments,
         TeamRegistry teams, TeamAccess access, DevReportDelivery delivery, Func<DateTime>? utcNow = null)
     {
@@ -258,42 +253,46 @@ internal sealed class TeamQuestions
             return Conflict("author_cannot_receive", CommentClosed);
         }
 
-        var gate = _answering.GetOrAdd((teamId, caller), _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct).ConfigureAwait(false);
+        if (_delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended)
+        {
+            FileLog.Write($"[TeamQuestions] AnswerAsync: report={report.Id} session has ended - REFUSED, nothing stored");
+            return Conflict("session_ended", SessionEnded);
+        }
+
+        // THE CHOICE AND THE WORDS, STORED TOGETHER IN ONE TRANSACTION that also decides, in the database, that the caller
+        // still holds this version and has not answered this question (review F2, F3, F4). The words go to the person who
+        // asked, by the person-only table; the choice is stored held, with no words in it.
+        var stored = _store.AddMemberAnswer(team, report, row.SentVersion, ChoiceItem(question, option), caller, words,
+            report.AuthorSubject ?? "", senderKind, _utcNow());
+        switch (stored)
+        {
+            case MemberAnswerOutcome.VersionNotHeld:
+                return Conflict("version_not_held", VersionNotHeld);
+            case MemberAnswerOutcome.AlreadyAnswered:
+                return Conflict("already_answered", AlreadyAnswered);
+            case MemberAnswerOutcome.Stored:
+                break;
+            default:
+                throw new InvalidOperationException($"An answer outcome this route does not know: {stored}");
+        }
+
+        // THE SEND: the one settle pass - held while the session works, delivered when it is idle, never twice. The answer
+        // and the words are already stored, so a send that fails here loses nothing: the delivery has recorded what became
+        // of the choice (held again, or sent and not confirmed), and the card below shows that state. The fault is logged
+        // and not repeated to the caller, who could do nothing with it - their answer IS taken.
         try
         {
-            if (_store.AnswersBy(team, caller, [report.Id]).ContainsKey((report.Id, question.Id)))
-                return Conflict("already_answered", AlreadyAnswered);
-            if (_delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended)
-            {
-                FileLog.Write($"[TeamQuestions] AnswerAsync: report={report.Id} session has ended - REFUSED, nothing stored");
-                return Conflict("session_ended", SessionEnded);
-            }
-
-            var item = ChoiceItem(question, option);
-            var updates = await _delivery.SendAsync(team, report, [item], senderKind, ct, caller).ConfigureAwait(false);
-            if (updates.Count != 1)
-                throw new InvalidOperationException($"The delivery answered {updates.Count} updates for one answer.");
-            var update = updates[0];
-            if (update.Status == DevReportItemStates.Refused)
-            {
-                FileLog.Write($"[TeamQuestions] AnswerAsync: report={report.Id} the delivery refused the answer ({update.StatusLabel}) - nothing stored");
-                return Conflict("answer_refused", update.StatusLabel);
-            }
-
-            // THE WORDS, TO THE PERSON WHO ASKED, by the person-only path.
-            if (words.Length > 0)
-                _comments.Add(team, report.Id, caller, report.AuthorSubject!, words, _utcNow(), question.Id);
-
-            var names = TeamReports.MemberNames(_teams, teamId, caller);
-            var card = Cards(teamId, caller, [new DevReportReceived(row, held.Title, held.Status)], names)
-                .Single(c => string.Equals(c.QuestionId, question.Id, StringComparison.Ordinal));
-            return Results.Json(new { question = Shape(card) });
+            await _delivery.SettleAsync(team, report.SessionId, ct).ConfigureAwait(false);
         }
-        finally
+        catch (Exception ex)
         {
-            gate.Release();
+            FileLog.Write($"[TeamQuestions] AnswerAsync: report={report.Id} the answer is stored; settling its session FAILED ({ex.GetType().Name}): {ex.Message}");
         }
+
+        var names = TeamReports.MemberNames(_teams, teamId, caller);
+        var card = Cards(teamId, caller, [new DevReportReceived(row, held.Title, held.Status)], names)
+            .Single(c => string.Equals(c.QuestionId, question.Id, StringComparison.Ordinal));
+        return Results.Json(new { question = Shape(card) });
     }
 
     /// <summary>

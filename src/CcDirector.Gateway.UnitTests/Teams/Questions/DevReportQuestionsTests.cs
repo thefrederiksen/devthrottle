@@ -49,29 +49,37 @@ public sealed class DevReportQuestionsTests
     [InlineData("<div data-dev-report-question=\"q\"><label><input type=\"radio\" name=\"q\" value=\"a\" data-recommended> A</label></div>")] // one option
     [InlineData("<div data-dev-report-question=\"q\"><label><input type=\"radio\" name=\"q\" value=\"a\"> A</label><label><input type=\"radio\" name=\"q\" value=\"b\"> B</label></div>")] // none recommended
     [InlineData("<div data-dev-report-question=\"q\"><label><input type=\"radio\" name=\"q\" value=\"a\" data-recommended> A</label><label><input type=\"radio\" name=\"q\" value=\"a\"> B</label></div>")] // one value twice
+    [InlineData("<div data-dev-report-question=\"q\"><label><input type=\"radio\" name=\"q\" data-recommended> A</label><label><input type=\"radio\" name=\"q\" value=\"b\"> B</label></div>")] // no value
+    [InlineData("<div data-dev-report-question=\"q\"><label><input type=\"radio\" name=\"q\" value=\"  \" data-recommended> A</label><label><input type=\"radio\" name=\"q\" value=\"b\"> B</label></div>")] // a value of spaces
     [InlineData("<div data-dev-report-question=\"bad id\">" + TwoOptions + "</div>")] // an id the shape check refuses
     [InlineData("<div data-dev-report-question=\"outer\"><div data-dev-report-question=\"q\">" + TwoOptions + "</div></div>")] // nested
-    public void Read_AQuestionTheShapeCheckWouldRefuse_IsNotOffered(string questions)
+    public void Read_AQuestionTheShapeCheckRefuses_IsAFault_NeverADroppedQuestion(string questions)
     {
-        Assert.Empty(DevReportQuestions.Read(Report(questions)));
+        var ex = Assert.Throws<InvalidOperationException>(() => DevReportQuestions.Read(Report(questions)));
+        Assert.Contains("breaks the question rules", ex.Message);
     }
 
     [Fact]
-    public void Read_AQuestionOutsideTheQuestionsSection_OrInAReportWithNoneSaysSo_IsNotOffered()
+    public void Read_AReportThatSaysItHasNoQuestions_HasNone()
     {
-        Assert.Empty(DevReportQuestions.Read(
+        Assert.Empty(DevReportQuestions.Read(Report("<p data-dev-report-no-questions>No questions.</p>")));
+    }
+
+    [Fact]
+    public void Read_AQuestionOutsideTheQuestionsSection_OrNoQuestionsSection_IsAFault()
+    {
+        Assert.Throws<InvalidOperationException>(() => DevReportQuestions.Read(
             "<section data-dev-report=\"questions\"><p data-dev-report-no-questions>No questions.</p></section>" +
             $"<section data-dev-report=\"detail\"><div data-dev-report-question=\"q\">{TwoOptions}</div></section>"));
-        Assert.Empty(DevReportQuestions.Read("<p>no sections at all</p>"));
+        Assert.Throws<InvalidOperationException>(() => DevReportQuestions.Read("<p>no sections at all</p>"));
     }
 
     [Fact]
-    public void Read_AnIdUsedTwice_OffersOnlyTheFirst()
+    public void Read_AnIdUsedTwice_IsAFault()
     {
         var two = TwoOptions.Replace("name=\"q\"", "name=\"q2\"", StringComparison.Ordinal);
-        var q = Assert.Single(DevReportQuestions.Read(Report(
+        Assert.Throws<InvalidOperationException>(() => DevReportQuestions.Read(Report(
             $"<div data-dev-report-question=\"q\" data-dev-report-question-text=\"First\">{TwoOptions}</div>" +
             $"<div data-dev-report-question=\"q\" data-dev-report-question-text=\"Second\">{two}</div>")));
-        Assert.Equal("First", q.Text);
     }
 }

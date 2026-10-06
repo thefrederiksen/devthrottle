@@ -34,9 +34,12 @@ internal sealed record DevReportQuestion(string Id, string Text, IReadOnlyList<D
 /// <c>data-dev-report-question-text</c>, then the first heading, then the id; an option's label from its <c>&lt;label&gt;</c>
 /// (wrapping, or pointed at by <c>for=</c>), then its value; whitespace collapsed to single spaces.
 ///
-/// Only a question a reader could answer is returned: inside the questions section, with a valid id used once, not
-/// nested, with at least two options and exactly one recommended. A published report passed the shape check, which
-/// demands all of that, so a question left out here is one that check would refuse - it is logged, never offered.
+/// A QUESTION IS NEVER DROPPED (review F5). A published version passed the shape check, which demands exactly one
+/// questions section, every question inside it, a valid id used once, no nesting, at least two options, exactly one
+/// recommended, and every option a value of its own - non-empty and used once in the question. A stored version that
+/// breaks any of that is a fault in the record, not a question to leave out: it is refused with an
+/// <see cref="InvalidOperationException"/> naming what is wrong, so the reader is never shown a report quietly missing
+/// a question it was asked.
 /// </summary>
 internal static class DevReportQuestions
 {
@@ -47,7 +50,9 @@ internal static class DevReportQuestions
     // The note-taking script's QUOTE_LENGTH: an option label is read to this many characters, as the script reads it.
     private const int LabelLength = 240;
 
-    /// <summary>The answerable questions in <paramref name="html"/>, in document order.</summary>
+    /// <summary>The questions in <paramref name="html"/>, a stored published version, in document order.</summary>
+    /// <exception cref="InvalidOperationException">The version breaks a question rule the shape check enforces at
+    /// publish.</exception>
     public static IReadOnlyList<DevReportQuestion> Read(string html)
     {
         ArgumentNullException.ThrowIfNull(html);
@@ -56,11 +61,11 @@ internal static class DevReportQuestions
 
         var sections = document.QuerySelectorAll("[data-dev-report=\"questions\"]").ToList();
         if (sections.Count != 1)
-        {
-            FileLog.Write($"[DevReportQuestions] Read: {sections.Count} questions sections - none offered");
-            return [];
-        }
+            throw Broken($"it has {sections.Count} questions sections, not one");
         var section = sections[0];
+        var outside = document.QuerySelectorAll("[data-dev-report-question]").FirstOrDefault(q => !section.Contains(q));
+        if (outside is not null)
+            throw Broken($"the question \"{outside.GetAttribute("data-dev-report-question")}\" is outside the questions section");
 
         var result = new List<DevReportQuestion>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -70,27 +75,29 @@ internal static class DevReportQuestions
             if (!QuestionId.IsMatch(id) || !seen.Add(id)
                 || q.ParentElement?.Closest("[data-dev-report-question]") is not null
                 || q.QuerySelector("[data-dev-report-question]") is not null)
-            {
-                FileLog.Write($"[DevReportQuestions] Read: question \"{id}\" has an id or nesting the shape check refuses - not offered");
-                continue;
-            }
+                throw Broken($"the question \"{id}\" has an id that is not allowed or used twice, or is nested");
 
             var options = q.QuerySelectorAll("input")
                 .Where(r => string.Equals((r.GetAttribute("type") ?? "").Trim(), "radio", StringComparison.OrdinalIgnoreCase)
                             && r.ParentElement?.Closest("[data-dev-report-question]") == q)
                 .Select(r => new DevReportQuestionOption(r.GetAttribute("value") ?? "", OptionLabel(document, r), r.HasAttribute("data-recommended")))
                 .ToList();
-            if (options.Count < 2 || options.Count(o => o.Recommended) != 1
+            if (options.Count < 2 || options.Count(o => o.Recommended) != 1)
+                throw Broken($"the question \"{id}\" has {options.Count} option(s) and {options.Count(o => o.Recommended)} recommended");
+            if (options.Any(o => o.Value.Trim().Length == 0)
                 || options.Select(o => o.Value).Distinct(StringComparer.Ordinal).Count() != options.Count)
-            {
-                FileLog.Write($"[DevReportQuestions] Read: question \"{id}\" has {options.Count} option(s), " +
-                              $"{options.Count(o => o.Recommended)} recommended, or two options with one value - not offered");
-                continue;
-            }
+                throw Broken($"the question \"{id}\" has an option with no value, or two options with one value");
             result.Add(new DevReportQuestion(id, QuestionText(q, id), options));
         }
         FileLog.Write($"[DevReportQuestions] Read: {result.Count} question(s)");
         return result;
+    }
+
+    private static InvalidOperationException Broken(string what)
+    {
+        FileLog.Write($"[DevReportQuestions] Read FAILED: a stored version breaks the question rules: {what}");
+        return new InvalidOperationException(
+            $"A stored dev report version breaks the question rules the publish check enforces: {what}. Nothing is offered from it.");
     }
 
     private static string QuestionText(IElement q, string id)

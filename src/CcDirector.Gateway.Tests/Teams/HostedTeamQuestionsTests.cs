@@ -37,11 +37,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// person-facing step after that is over the wire; with no Director holding the session that asked, a member's answer is
 /// HELD for it.
 ///
-/// A PERSONAL ACCOUNT'S LIVE SESSION TOO. <see cref="Issue2307_AMembersAnswer_ReachesALiveSessionOnTheTunnel_AndTheirCommentNever"/>
-/// runs the same delivery for a session on a personal account's Director - the item the answer route builds
-/// (<see cref="TeamQuestions.ChoiceItem"/>), the settle pass and a real turn end - with the member's comment stored exactly
-/// as the route stores it. The unit tests (TeamQuestionsTests) drive the same delivery through the answer route's own
-/// class.
+/// The unit tests (TeamQuestionsTests) drive the same delivery through the answer route's own class.
 ///
 /// PARKED SUITE. Gateway.Tests serializes machine-wide and does not run in the default gate.
 /// </summary>
@@ -243,75 +239,6 @@ public sealed class HostedTeamQuestionsTests : IAsyncLifetime
         Assert.Empty(await Waiting(_mikeKey));
         var (_, sent) = await Call(HttpMethod.Get, $"teams/{_team}/reports/sent-to-me", _mikeKey);
         Assert.Equal(JsonValueKind.Null, Json(sent).GetProperty("reports")[0].GetProperty("questionsLabel").ValueKind);
-    }
-
-    [Fact]
-    public async Task Issue2307_AMembersAnswer_ReachesALiveSessionOnTheTunnel_AndTheirCommentNever()
-    {
-        // A live session on a personal account's Director on the tunnel, its report published through the real route with
-        // its own session key.
-        const string directorId = "director-alice-home";
-        var sessionId = Guid.NewGuid().ToString("D");
-        var sessionKey = GatewaySessionKey.Mint();
-        Assert.True(_gateway.SessionKeys.Register(_aliceHome, directorId, sessionId, GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
-        var commands = new ConcurrentQueue<string>();
-        await using var director = await FakeTunnelDirector.StartAsync(_gateway, _aliceKey, directorId, "M-alice", cmd =>
-        {
-            // EVERY command toward the Director is recorded whole, whatever its verb.
-            commands.Enqueue(cmd.Verb + " " + cmd.SessionId + " " + cmd.PayloadJson);
-            return cmd.Verb == "prompt"
-                ? FakeTunnelDirector.Ok(new PromptResponse { Accepted = true, SentAt = DateTime.UtcNow, ActivityState = "Working" })
-                : DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"not served in this test: {cmd.Verb}");
-        });
-        await director.PushDeltaAsync(new SessionDto { SessionId = sessionId, Name = "alice", ActivityState = "Working", LastActivityAt = DateTime.UtcNow });
-        var (published, publishedText) = await Call(HttpMethod.Post, $"sessions/{sessionId}/dev-reports", sessionKey,
-            new { key = @"C:\work\live.html", html = Html() });
-        Assert.Equal(HttpStatusCode.OK, published);
-        var reportId = Guid.Parse(Json(publishedText).GetProperty("report").GetProperty("id").GetString()!);
-        var report = _gateway.DevReportsForTest.Get(_aliceHome, reportId)!;
-
-        // Mike's answer exactly as the answer route makes it: the choice item through the one delivery, the words through the
-        // person-only path.
-        var marker = "MARKER-2307-LIVE-" + Guid.NewGuid().ToString("N");
-        var question = Assert.Single(DevReportQuestions.Read(Html()));
-        var updates = await _gateway.DevReportDeliveryForTest.SendAsync(_aliceHome, report,
-            [TeamQuestions.ChoiceItem(question, question.Option("30")!)], "device", CancellationToken.None, _mike);
-        Assert.Equal(DevReportItemStates.Held, Assert.Single(updates).Status);
-        _gateway.DevReportCommentsForTest.Add(_aliceHome, reportId, _mike, _alice, marker, DateTime.UtcNow, question.Id);
-
-        // The settle pass while it works, then the turn end through the push that carries it.
-        await _gateway.DevReportDeliveryForTest.SettleAsync(_aliceHome, sessionId, CancellationToken.None);
-        // Held while it works: no prompt yet. (The Gateway sends the Director other verbs about the session meanwhile -
-        // its role and display state - which is why every command, whatever its verb, is checked for the words below.)
-        Assert.DoesNotContain(commands, c => c.StartsWith("prompt ", StringComparison.Ordinal));
-        await director.PushDeltaAsync(new SessionDto { SessionId = sessionId, Name = "alice", ActivityState = "WaitingForInput", LastActivityAt = DateTime.UtcNow });
-        var deadline = DateTime.UtcNow.AddSeconds(20);
-        while (!commands.Any(c => c.StartsWith("prompt ", StringComparison.Ordinal)))
-        {
-            if (DateTime.UtcNow > deadline) Assert.Fail("The member's choice never reached the session - the harness would prove nothing.");
-            await Task.Delay(50);
-        }
-        await Task.Delay(1500); // anything else that would be sent has had its chance
-        await _gateway.DevReportDeliveryForTest.SettleAsync(_aliceHome, sessionId, CancellationToken.None);
-
-        _out.WriteLine($"{commands.Count} command(s) reached the Director.");
-        var prompt = Assert.Single(commands, c => c.StartsWith("prompt ", StringComparison.Ordinal));
-        Assert.Contains(sessionId, prompt);
-        // POSITIVE CONTROL: the choice IS what the session received.
-        Assert.Contains("A person this report was sent to answered your dev report", prompt);
-        Assert.Contains("30 days", prompt);
-        Assert.All(commands, c => Assert.DoesNotContain(marker, c));
-
-        // Every read the session's own key can make.
-        foreach (var path in new[] { $"sessions/{sessionId}/dev-reports", $"sessions/{sessionId}/dev-reports/{reportId}" })
-        {
-            var (status, text) = await Call(HttpMethod.Get, path, sessionKey);
-            Assert.Equal(HttpStatusCode.OK, status);
-            Assert.DoesNotContain(marker, text);
-        }
-        Assert.DoesNotContain(marker, (await Call(HttpMethod.Get, $"dev-reports/{reportId}", _aliceKey)).Text);
-        // The words are there to be read by the person who asked.
-        Assert.Equal(marker, Assert.Single(_gateway.DevReportCommentsForTest.To(_aliceHome, reportId, _alice)).Text);
     }
 
     // ---- refusals and isolation ------------------------------------------------------------------------------------

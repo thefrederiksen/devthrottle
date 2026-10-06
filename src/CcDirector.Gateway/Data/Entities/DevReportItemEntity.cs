@@ -75,4 +75,12 @@ public sealed class DevReportItemEntity : GatewayMintedKeyEntity
     /// a session (<see cref="DevReports.DevReportPersonComments"/>). Personally identifying: never logged.
     /// </summary>
     public string? AnswererSubject { get; set; }
+
+    /// <summary>
+    /// For a team member's answer, the report VERSION it was given on - the version the member was sent and read the
+    /// question from (devthrottle_internal#2307 review F1). The prompt names this version and its title, not the report's
+    /// newest, so a session is never told an answer was given on a version its answerer never saw. Null for the account
+    /// owner's own notes and answers, which are given on the report's newest version.
+    /// </summary>
+    public int? SourceVersion { get; set; }
 }

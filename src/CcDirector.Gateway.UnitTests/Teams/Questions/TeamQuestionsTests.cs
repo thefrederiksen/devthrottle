@@ -51,6 +51,9 @@ public sealed class TeamQuestionsTests : IDisposable
     private readonly ConcurrentQueue<string> _commands = new();
     private readonly ConcurrentQueue<PromptRequest> _prompts = new();
 
+    /// <summary>When set, the Director's end of the tunnel throws this once a command has reached it.</summary>
+    private Exception? _sendThrows;
+
     public TeamQuestionsTests()
     {
         var db = _harness.Open();
@@ -75,7 +78,7 @@ public sealed class TeamQuestionsTests : IDisposable
             _lifetime.Token,
             () => Now);
         _questions = new TeamQuestions(_store, _recipients, _comments, _teams, _access, _delivery, () => Now);
-        _reports = new TeamReports(_store, _recipients, _comments, _teams, _access, () => Now, _questions);
+        _reports = new TeamReports(_store, _recipients, _comments, _teams, _access, _questions, () => Now);
 
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         _tenant = new TenantId(_team);
@@ -93,6 +96,7 @@ public sealed class TeamQuestionsTests : IDisposable
     private Task<DirectorCommandResult?> SendAsync(string directorId, DirectorCommand command, CancellationToken ct)
     {
         _commands.Enqueue(command.Verb + " " + command.SessionId + " " + command.PayloadJson);
+        if (_sendThrows is not null) throw _sendThrows;
         if (command.Verb == "prompt")
             _prompts.Enqueue(JsonSerializer.Deserialize<PromptRequest>(command.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!);
         return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(
@@ -392,6 +396,57 @@ public sealed class TeamQuestionsTests : IDisposable
     }
 
     // ---- what the page reads -----------------------------------------------------------------------------------------
+
+    /// <summary>REVIEW F1. Mike was sent version 1; Alice then published version 2 and did not send it to him. His answer
+    /// is to version 1's question, and the session is told so - version 1, by version 1's title - never that he answered
+    /// a version he has not seen.</summary>
+    [Fact]
+    public async Task AnswerAsync_AnAnswerToTheVersionSent_IsDeliveredAsThatVersion_NotTheReportsNewest()
+    {
+        var sid = Guid.NewGuid().ToString("D");
+        const string key = @"C:\work\pricing-versions.html";
+        var report = _store.Publish(_tenant, sid, key, Html(), "waiting-on-you", "Pricing", Now, Alice).Report;
+        Assert.True(_recipients.Send(_tenant, report.Id, Alice, [Mike], 1, Now).Sent);
+        Assert.Equal(2, _store.Publish(_tenant, sid, key, Html().Replace("<h1>Pricing</h1>", "<h1>Pricing, revised</h1>"),
+            "waiting-on-you", "Pricing, revised", Now, Alice).Report.Version);
+        _reach[sid] = DevReportSessionReach.Idle;
+
+        var (status, _) = await AnswerAsync(Mike, report.Id, "30");
+
+        Assert.Equal(200, status);
+        var prompt = Assert.Single(_prompts).Text;
+        Assert.Contains("A person this report was sent to answered your dev report \"Pricing\" (version 1, file", prompt);
+        Assert.DoesNotContain("version 2", prompt);
+        Assert.DoesNotContain("Pricing, revised", prompt);
+        Assert.Equal(1, Assert.Single(_store.Items(_tenant, report.Id)).SourceVersion);
+    }
+
+    /// <summary>REVIEW F4. The send to the session throws once it has started. The answer and the words were stored
+    /// together before it, so nothing is lost: the words are the author's to read, the choice is recorded as sent and not
+    /// confirmed, the person is told their answer is taken, and a second press neither stores nor sends it again.</summary>
+    [Fact]
+    public async Task AnswerAsync_TheSendFailsOnceStarted_TheWordsStillReachThePerson_AndTheChoiceIsNeverSentTwice()
+    {
+        var (report, sid) = Report(Mike);
+        _reach[sid] = DevReportSessionReach.Idle;
+        _sendThrows = new IOException("the tunnel dropped mid-send");
+
+        var (status, body) = await AnswerAsync(Mike, report, "30", "We trialled 14 days.");
+
+        Assert.Equal(200, status);
+        Assert.Equal(DevReportItemStates.UnconfirmedState.Label,
+            body.GetProperty("question").GetProperty("answer").GetProperty("statusLabel").GetString());
+        Assert.Equal("We trialled 14 days.", Assert.Single(_comments.To(_tenant, report, Alice)).Text);
+
+        _sendThrows = null;
+        var (again, againBody) = await AnswerAsync(Mike, report, "14", "Second words.");
+        Assert.Equal(409, again);
+        Assert.Equal(TeamQuestions.AlreadyAnswered, againBody.GetProperty("error").GetString());
+        Assert.Equal(0, await _delivery.SettleAsync(_tenant, sid, CancellationToken.None));
+        Assert.Single(_commands);
+        Assert.Single(_store.Items(_tenant, report));
+        Assert.Single(_comments.To(_tenant, report, Alice));
+    }
 
     [Fact]
     public async Task List_AnAnsweredQuestion_MovesToAnswered_WithTheChoiceItsStateAndTheWordsReadBackToTheirWriterOnly()

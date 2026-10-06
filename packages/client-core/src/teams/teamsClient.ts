@@ -32,6 +32,9 @@ export interface TeamAppPage {
   id: string;
   label: string;
   path: string;
+  /** Where the number waiting on this person for this page is read (devthrottle_internal#2307 review F8: the count
+   *  beside Questions), or null for a page with no count. The Gateway names it; the Cockpit never builds one. */
+  countPath: string | null;
 }
 
 /** The Gateway's page verdict for one person in one team: the whole Cockpit, or only some pages. */
@@ -146,10 +149,15 @@ function readApp(raw: unknown): TeamApp {
   if (typeof a.full !== "boolean" || !Array.isArray(a.pages)) throw new GatewayError(502, UNREADABLE_APP);
   const pages = a.pages.map((p: unknown) => {
     const page = (p ?? {}) as Partial<Record<keyof TeamAppPage, unknown>>;
-    if (typeof page.id !== "string" || typeof page.label !== "string" || typeof page.path !== "string") {
+    if (
+      typeof page.id !== "string" ||
+      typeof page.label !== "string" ||
+      typeof page.path !== "string" ||
+      !(page.countPath === null || typeof page.countPath === "string")
+    ) {
       throw new GatewayError(502, UNREADABLE_APP);
     }
-    return { id: page.id, label: page.label, path: page.path };
+    return { id: page.id, label: page.label, path: page.path, countPath: page.countPath };
   });
   if (a.full) return { full: true, pages, landing: null, elsewhere: null };
   // A limited app must say where it opens and what every other address says; without both it cannot be drawn.
@@ -157,4 +165,22 @@ function readApp(raw: unknown): TeamApp {
     throw new GatewayError(502, UNREADABLE_APP);
   }
   return { full: false, pages, landing: a.landing, elsewhere: a.elsewhere };
+}
+
+/**
+ * The number waiting on this person for a team page - read from the `countPath` the Gateway named on that page, whose
+ * answer carries the Gateway's own `count` (devthrottle_internal#2307 review F8). Throws a GatewayError when the read
+ * fails or the answer has no count.
+ */
+export async function getPageCount(countPath: string, signal?: AbortSignal): Promise<number> {
+  const res = await gatewayFetch(countPath, { headers: { ...authHeaders(), Accept: "application/json" }, signal }, { timeoutMs: TEAMS_READ_TIMEOUT_MS });
+  if (!res.ok) throw await GatewayError.from(res, "read how many wait on you");
+  if (contentType(res) !== "application/json") {
+    throw new GatewayError(502, `The Gateway answered a page count with ${contentType(res) || "an unlabelled body"} instead of a count.`);
+  }
+  const body = (await res.json()) as { count?: unknown };
+  if (typeof body.count !== "number" || !Number.isInteger(body.count) || body.count < 0) {
+    throw new GatewayError(502, "The Gateway's answer for a page count had no count in it.");
+  }
+  return body.count;
 }

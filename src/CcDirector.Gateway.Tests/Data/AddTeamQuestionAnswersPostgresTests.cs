@@ -11,9 +11,10 @@ namespace CcDirector.Gateway.Tests.Data;
 /// <summary>
 /// The PostgreSQL half of a team member's answers on their Questions page (devthrottle_internal#2307):
 /// <c>AddTeamQuestionAnswers</c> applies to a real PostgreSQL database right after <c>AddDevReportSharing</c>, adds the
-/// nullable <c>dev_report_items.AnswererSubject</c> (byte-ordinal "C", with its index) and
-/// <c>dev_report_comments.QuestionId</c> without touching an existing item, and its Down removes both again - the reversal
-/// the pull request names.
+/// nullable <c>dev_report_items.AnswererSubject</c> (byte-ordinal "C", with its index), <c>dev_report_items.SourceVersion</c>
+/// and <c>dev_report_comments.QuestionId</c> without touching an existing item, with the unique index that allows one person
+/// one not-refused answer to a question (review F2) - which this proves refuses a second one on PostgreSQL - and its Down
+/// removes all of it again: the reversal the pull request names.
 ///
 /// GATING. Like the other PostgreSQL proofs, gated on <c>CC_GATEWAY_TEST_PG_CONNECTION</c>, which the parked run sets to
 /// a throwaway database it builds and destroys. It reports SKIPPED when unset. Skipped is not passed.
@@ -57,12 +58,21 @@ public sealed class AddTeamQuestionAnswersPostgresTests
 
     private static string ColumnsPresent() => Scalar("""
         SELECT count(*) FROM information_schema.columns
-        WHERE table_schema = 'gateway' AND ((table_name = 'dev_report_items' AND column_name = 'AnswererSubject')
+        WHERE table_schema = 'gateway' AND ((table_name = 'dev_report_items' AND column_name IN ('AnswererSubject', 'SourceVersion'))
                                          OR (table_name = 'dev_report_comments' AND column_name = 'QuestionId'))
         """)!;
 
+    /// <summary>Mike's answer to one question, in the state given.</summary>
+    private static string Member(string clientItemId, string status) => $"""
+        INSERT INTO gateway.dev_report_items ("Id", tenant_id, "ReportId", "SessionId", "ClientItemId", "Kind", "Text", "QuestionId",
+            "Question", "OptionValue", "OptionLabel", "Comment", "Status", "StatusLabel", "Sequence", "SenderKind", "SentAtUtc",
+            "AnswererSubject", "SourceVersion")
+        VALUES ('{Guid.NewGuid():D}', 'team-1', '7a000000-0000-4000-8000-000000000009', 's-1', '{clientItemId}', 'answer', '', 'deploy',
+            'When?', 'tonight', 'Tonight', '', '{status}', 'x', 2, 'device', TIMESTAMPTZ '2026-10-06 10:00:00Z', 'sub-mike', 1);
+        """;
+
     [RequiresPostgresFact]
-    public void AddTeamQuestionAnswers_AppliesOnPostgres_LeavesOldItemsAlone_AndItsDownRemovesBothColumns()
+    public void AddTeamQuestionAnswers_AppliesOnPostgres_LeavesOldItemsAlone_RefusesASecondAnswer_AndItsDownRemovesItAll()
     {
         PostgresProofDatabase.GuardThrowawayDatabase();
         using (var ctx = NewContext())
@@ -89,15 +99,21 @@ public sealed class AddTeamQuestionAnswersPostgresTests
             ctx.GetService<IMigrator>().Migrate(MigrationUnderTest);
             Assert.Equal(MigrationUnderTest, ctx.Database.GetAppliedMigrations().Last());
         }
-        Assert.Equal("2", ColumnsPresent());
+        Assert.Equal("3", ColumnsPresent());
         Assert.Equal("null", Scalar("""SELECT coalesce("AnswererSubject", 'null') FROM gateway.dev_report_items WHERE "ClientItemId" = 'a-old'"""));
         Assert.Equal("C", Scalar("""
             SELECT collation_name FROM information_schema.columns
             WHERE table_schema = 'gateway' AND table_name = 'dev_report_items' AND column_name = 'AnswererSubject'
             """));
         Assert.Equal("1", Scalar("""SELECT count(*) FROM pg_indexes WHERE schemaname = 'gateway' AND indexname = 'IX_dev_report_items_tenant_id_AnswererSubject'"""));
+        // One answer per person per question, in the database: a second one not refused cannot be written; a refused one can.
+        Scalar(Member("a-m1", "held"));
+        var duplicate = Assert.Throws<PostgresException>(() => Scalar(Member("a-m2", "delivered")));
+        Assert.Equal((PostgresErrorCodes.UniqueViolation, "IX_dev_report_items_one_member_answer"), (duplicate.SqlState, duplicate.ConstraintName));
+        Scalar(Member("a-m3", "refused"));
+        Scalar("""DELETE FROM gateway.dev_report_items WHERE "AnswererSubject" IS NOT NULL""");
 
-        // The reversal: back to AddDevReportSharing removes both columns, and the old answer survives with its words.
+        // The reversal: back to AddDevReportSharing removes the columns and the index, and the old answer survives with its words.
         using (var ctx = NewContext())
         {
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
@@ -108,6 +124,6 @@ public sealed class AddTeamQuestionAnswersPostgresTests
 
         using (var ctx = NewContext())
             ctx.Database.Migrate();
-        Assert.Equal("2", ColumnsPresent());
+        Assert.Equal("3", ColumnsPresent());
     }
 }

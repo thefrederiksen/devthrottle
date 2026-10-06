@@ -42,6 +42,23 @@ internal sealed class DevReportPersonComments
     public DevReportCommentEntity Add(TenantId team, Guid reportId, string fromSubject, string toSubject, string text, DateTime nowUtc,
         string? questionId = null)
     {
+        var row = NewRow(team, reportId, fromSubject, toSubject, text, nowUtc, questionId);
+        using var ctx = _db.CreateContext(team);
+        ctx.DevReportComments.Add(row);
+        ctx.SaveChanges();
+        FileLog.Write($"[DevReportPersonComments] Add: tenant={team.ToLogString()} report={reportId} comment={row.Id} chars={text.Length}");
+        return row;
+    }
+
+    /// <summary>
+    /// A comment row, checked, not yet stored - the one place a comment's rules are applied, so the comment that comes
+    /// with an answer (<see cref="DevReportStore.AddMemberAnswer"/>, stored in the answer's own transaction) is held to
+    /// exactly the rules of <see cref="Add"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException">The text is empty, only whitespace, or longer than <see cref="MaxLength"/>.</exception>
+    internal static DevReportCommentEntity NewRow(TenantId team, Guid reportId, string fromSubject, string toSubject, string text,
+        DateTime nowUtc, string? questionId)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(fromSubject);
         ArgumentException.ThrowIfNullOrWhiteSpace(toSubject);
         ArgumentNullException.ThrowIfNull(text);
@@ -49,9 +66,7 @@ internal sealed class DevReportPersonComments
             throw new ArgumentException("A comment has words in it.", nameof(text));
         if (text.Length > MaxLength)
             throw new ArgumentException($"A comment is at most {MaxLength} characters; this one is {text.Length}.", nameof(text));
-
-        using var ctx = _db.CreateContext(team);
-        var row = new DevReportCommentEntity
+        return new DevReportCommentEntity
         {
             TenantId = team.Value,
             ReportId = reportId,
@@ -61,10 +76,6 @@ internal sealed class DevReportPersonComments
             AtUtc = nowUtc,
             QuestionId = questionId,
         };
-        ctx.DevReportComments.Add(row);
-        ctx.SaveChanges();
-        FileLog.Write($"[DevReportPersonComments] Add: tenant={team.ToLogString()} report={reportId} comment={row.Id} chars={text.Length}");
-        return row;
     }
 
     /// <summary>The comments on the report that go to <paramref name="toSubject"/>, oldest first - the author's read.</summary>

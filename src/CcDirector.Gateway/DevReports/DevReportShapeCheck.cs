@@ -374,6 +374,21 @@ internal static class DevReportShapeCheck
                 errors.Add($"The question \"{Label(q)}\" has {recommended} recommended options. Mark " +
                            "exactly one option with data-recommended.");
             }
+            // An answer names its option by value, so every option needs a value of its own (review F5): with none the
+            // browser reads "on" while the Gateway reads nothing, and two options with one value cannot be told apart.
+            var noValue = own.Count(r => (r.GetAttribute("value") ?? "").Trim().Length == 0);
+            if (noValue > 0)
+            {
+                errors.Add($"The question \"{Label(q)}\" has {noValue} option(s) with no value. Give every option a " +
+                           "value=\"...\" of its own - it is what an answer names.");
+            }
+            var repeated = own.Select(r => r.GetAttribute("value") ?? "").Where(v => v.Trim().Length > 0)
+                .GroupBy(v => v, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+            foreach (var value in repeated)
+            {
+                errors.Add($"The question \"{Label(q)}\" has more than one option with the value \"{value}\". Give every " +
+                           "option in a question a different value.");
+            }
             CheckRadioGroup(q, own, ownersByName, errors);
         }
     }

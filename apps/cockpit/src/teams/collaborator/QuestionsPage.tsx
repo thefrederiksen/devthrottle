@@ -55,7 +55,7 @@ function QuestionsView({ teamId }: { teamId: string }) {
       {questions !== null && questions.waiting.length > 0 && (
         <ul className="team-question-list" data-testid="team-questions-waiting">
           {questions.waiting.map((q) => (
-            <li key={`${q.reportId}/${q.questionId}`}>
+            <li key={cardKey(q)}>
               <QuestionCard teamId={teamId} question={q} onAnswered={reload} />
             </li>
           ))}
@@ -66,7 +66,7 @@ function QuestionsView({ teamId }: { teamId: string }) {
           <h2 className="team-reports-heading">{questions.answeredHeading}</h2>
           <ul className="team-question-list">
             {questions.answered.map((q) => (
-              <li key={`${q.reportId}/${q.questionId}`}>
+              <li key={cardKey(q)}>
                 <QuestionCard teamId={teamId} question={q} onAnswered={reload} />
               </li>
             ))}
@@ -77,21 +77,30 @@ function QuestionsView({ teamId }: { teamId: string }) {
   );
 }
 
+// A card is one question IN ONE VERSION (review F7): when a newer version of the report is sent, its card is a new one,
+// so a choice or words left on the older version never carry over to options that may have changed.
+function cardKey(q: TeamQuestion): string {
+  return `${q.reportId}/${q.version}/${q.questionId}`;
+}
+
 function QuestionCard({ teamId, question, onAnswered }: { teamId: string; question: TeamQuestion; onAnswered: () => void }) {
   const recommended = question.options.find((o) => o.recommended)?.value ?? "";
   const [chosen, setChosen] = useState(recommended);
   const [comment, setComment] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [shown, setShown] = useState<TeamQuestion>(question);
-  const q = shown.answer === null ? question : shown;
+  const [sent, setSent] = useState<TeamQuestion | null>(null);
+  // WHAT THE GATEWAY SAID LAST WINS (review F7, rule 7). A polled question that carries an answer is the newest word on
+  // it - a held answer becomes delivered there - so it outranks the answer this card was given when it was sent. That
+  // answer is shown only until a poll brings the question back answered.
+  const q = question.answer !== null ? question : (sent ?? question);
   const name = `q-${q.reportId}-${q.questionId}`;
 
   const send = useCallback(async () => {
     setSending(true);
     setSendError(null);
     try {
-      setShown(await answerQuestion(teamId, q, chosen, comment));
+      setSent(await answerQuestion(teamId, q, chosen, comment));
       setComment("");
       onAnswered();
     } catch (err) {

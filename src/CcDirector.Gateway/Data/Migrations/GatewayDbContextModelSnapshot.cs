@@ -454,6 +454,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("SourceVersion")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -482,6 +485,11 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsUnique();
 
                     b.HasIndex("TenantId", "SessionId", "Status");
+
+                    b.HasIndex("TenantId", "ReportId", "AnswererSubject", "QuestionId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_dev_report_items_one_member_answer")
+                        .HasFilter("\"AnswererSubject\" IS NOT NULL AND \"Status\" <> 'refused'");
 
                     b.ToTable("dev_report_items", (string)null);
                 });

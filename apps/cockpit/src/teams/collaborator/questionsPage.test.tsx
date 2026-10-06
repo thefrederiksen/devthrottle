@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { TeamQuestion, TeamQuestions } from "@devthrottle/client-core/teams/teamQuestionsClient";
 
@@ -12,6 +12,26 @@ import type { TeamQuestion, TeamQuestions } from "@devthrottle/client-core/teams
 vi.mock("@devthrottle/client-core/teams/CurrentTeam", () => ({
   useCurrentTeam: () => ({ current: { id: "team-dt", name: "DevThrottle", role: "Collaborator" } }),
 }));
+
+// The poll, fired by hand: the page reads once on mount as before, and a test can read again at the moment it chooses.
+const polling = vi.hoisted(() => ({ refresh: null as null | ((signal: AbortSignal) => unknown) }));
+vi.mock("@devthrottle/client-core/polling/useVisiblePolling", async () => {
+  const react = await import("react");
+  return {
+    useVisiblePolling: (refresh: (signal: AbortSignal) => unknown) => {
+      polling.refresh = refresh;
+      react.useEffect(() => {
+        void refresh(new AbortController().signal);
+      }, [refresh]);
+    },
+  };
+});
+
+async function poll() {
+  await act(async () => {
+    await polling.refresh!(new AbortController().signal);
+  });
+}
 
 const client = vi.hoisted(() => ({
   questions: null as unknown,
@@ -201,6 +221,44 @@ describe("nothing waiting, and what was answered", () => {
     expect(words.textContent).toContain("Odd your words went to soren~w");
     expect(words.textContent).toContain("My own words, as typed");
     expect(within(answered).queryByTestId("team-question-option")).toBeNull();
+  });
+
+  it("Poll_AHeldAnswerThatBecomesDelivered_ShowsTheGatewaysNewState", async () => {
+    client.questions = { ...LIST, count: 0, waiting: [], answered: [ANSWERED] };
+    renderPage();
+    expect((await screen.findByTestId("team-question-status")).textContent).toBe("Odd held for the agent~h");
+
+    const delivered = { ...ANSWERED, answer: { ...ANSWERED.answer!, statusLabel: "Odd delivered to the agent~d" } };
+    client.questions = { ...LIST, count: 0, waiting: [], answered: [delivered] };
+    await poll();
+
+    expect(screen.getByTestId("team-question-status").textContent).toBe("Odd delivered to the agent~d");
+  });
+
+  it("Poll_ANewerVersionOfTheQuestion_StartsAFreshCard_NoChoiceOrWordsCarriedOver", async () => {
+    renderPage();
+    const before = (await screen.findAllByTestId("team-question-option")) as HTMLInputElement[];
+    fireEvent.click(before[1]);
+    fireEvent.change(screen.getByTestId("team-question-comment"), { target: { value: "words for version 2" } });
+
+    const v3: TeamQuestion = {
+      ...WAITING,
+      version: 3,
+      options: [
+        { value: "7", label: "Odd seven~o", recommended: true },
+        { value: "14", label: "Odd fourteen~o", recommended: false },
+      ],
+    };
+    client.questions = { ...LIST, waiting: [v3] };
+    await poll();
+
+    const after = screen.getAllByTestId("team-question-option") as HTMLInputElement[];
+    expect(after.map((o) => [o.value, o.checked])).toEqual([["7", true], ["14", false]]);
+    expect((screen.getByTestId("team-question-comment") as HTMLTextAreaElement).value).toBe("");
+    fireEvent.click(screen.getByTestId("team-question-send"));
+    await waitFor(() => expect(answerQuestion).toHaveBeenCalledTimes(1));
+    const [, q, option, comment] = vi.mocked(answerQuestion).mock.calls[0];
+    expect([q.version, option, comment]).toEqual([3, "7", ""]);
   });
 
   it("List_AFailedRead_SaysWhy", async () => {

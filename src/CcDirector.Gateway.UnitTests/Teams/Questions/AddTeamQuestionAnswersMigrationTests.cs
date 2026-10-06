@@ -9,9 +9,10 @@ namespace CcDirector.Gateway.Tests.Teams.Questions;
 
 /// <summary>
 /// The SQLite half of a team member's answers on their Questions page (devthrottle_internal#2307): the migration applies
-/// right after the dev report sharing one, adds exactly the two nullable columns - who answered an item, and which
-/// question a comment is about - leaves an owner's existing answer and an existing comment alone, and its Down removes
-/// both columns again: the reversal the pull request names. The PostgreSQL half is
+/// right after the dev report sharing one, adds exactly three nullable columns - who answered an item, the version they
+/// answered, and which question a comment is about - and the unique index that allows one person one answer to a
+/// question that was not refused (review F2); leaves an owner's existing answer and an existing comment alone; and its
+/// Down removes all of it again: the reversal the pull request names. The PostgreSQL half is
 /// <c>AddTeamQuestionAnswersPostgresTests</c> in the Gateway suite.
 /// </summary>
 public sealed class AddTeamQuestionAnswersMigrationTests
@@ -20,7 +21,7 @@ public sealed class AddTeamQuestionAnswersMigrationTests
     private const string MigrationUnderTest = "20261006025431_AddTeamQuestionAnswers";
 
     [Fact]
-    public void AddTeamQuestionAnswers_UpThenDown_AddsAndRemovesTheTwoColumns_AndKeepsOldItemsAndComments()
+    public void AddTeamQuestionAnswers_UpThenDown_AddsAndRemovesTheColumnsAndTheIndex_AndKeepsOldItemsAndComments()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
         connection.Open();
@@ -41,21 +42,39 @@ public sealed class AddTeamQuestionAnswersMigrationTests
                 'sub-alice', 'an old comment', '2026-10-05 10:00:00');
             """);
         Assert.DoesNotContain("AnswererSubject", Columns(connection, "dev_report_items"));
+        Assert.DoesNotContain("SourceVersion", Columns(connection, "dev_report_items"));
         Assert.DoesNotContain("QuestionId", Columns(connection, "dev_report_comments"));
 
         migrator.Migrate(MigrationUnderTest);
         Assert.Contains("AnswererSubject", Columns(connection, "dev_report_items"));
+        Assert.Contains("SourceVersion", Columns(connection, "dev_report_items"));
         Assert.Contains("QuestionId", Columns(connection, "dev_report_comments"));
         Assert.Equal("null", Scalar(connection, """SELECT IFNULL("AnswererSubject", 'null') FROM "dev_report_items" WHERE "ClientItemId" = 'a-old'"""));
         Assert.Equal("null", Scalar(connection, """SELECT IFNULL("QuestionId", 'null') FROM "dev_report_comments" WHERE "Text" = 'an old comment'"""));
         Assert.Equal("1", Scalar(connection, """SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_dev_report_items_tenant_id_AnswererSubject'"""));
+        // One answer per person per question, in the database: a second one not refused cannot be written; a refused one can.
+        Execute(connection, Member("a-m1", "held"));
+        Assert.Throws<SqliteException>(() => Execute(connection, Member("a-m2", "delivered")));
+        Execute(connection, Member("a-m3", "refused"));
+        Execute(connection, """DELETE FROM "dev_report_items" WHERE "AnswererSubject" IS NOT NULL""");
 
         migrator.Migrate(MigrationBefore);
         Assert.DoesNotContain("AnswererSubject", Columns(connection, "dev_report_items"));
+        Assert.DoesNotContain("SourceVersion", Columns(connection, "dev_report_items"));
+        Assert.Equal("0", Scalar(connection, """SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_dev_report_items_one_member_answer'"""));
         Assert.DoesNotContain("QuestionId", Columns(connection, "dev_report_comments"));
         Assert.Equal("owner words", Scalar(connection, """SELECT "Comment" FROM "dev_report_items" WHERE "ClientItemId" = 'a-old'"""));
         Assert.Equal("1", Scalar(connection, """SELECT count(*) FROM "dev_report_comments" WHERE "Text" = 'an old comment'"""));
     }
+
+    /// <summary>Mike's answer to one question, in the state given.</summary>
+    private static string Member(string clientItemId, string status) => $"""
+        INSERT INTO "dev_report_items" ("Id", "tenant_id", "ReportId", "SessionId", "ClientItemId", "Kind", "Text", "QuestionId",
+            "Question", "OptionValue", "OptionLabel", "Comment", "Status", "StatusLabel", "Sequence", "SenderKind", "SentAtUtc",
+            "AnswererSubject", "SourceVersion")
+        VALUES ('{Guid.NewGuid():D}', 'team-1', '7a000000-0000-4000-8000-000000000009', 's-1', '{clientItemId}', 'answer', '', 'deploy',
+            'When?', 'tonight', 'Tonight', '', '{status}', 'x', 2, 'device', '2026-10-06 10:00:00', 'sub-mike', 1);
+        """;
 
     private static void Execute(SqliteConnection connection, string sql)
     {

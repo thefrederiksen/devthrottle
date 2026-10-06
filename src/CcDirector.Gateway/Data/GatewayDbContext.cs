@@ -31,6 +31,10 @@ namespace CcDirector.Gateway.Data;
 /// </summary>
 public sealed class GatewayDbContext : DbContext
 {
+    /// <summary>The unique index that allows one team member at most one answer to a question that was not refused
+    /// (devthrottle_internal#2307 review F2). A duplicate insert fails on it by this name.</summary>
+    public const string MemberAnswerIndexName = "IX_dev_report_items_one_member_answer";
+
     /// <summary>
     /// The tenant the current unit of work is scoped to (the raw <see cref="Core.Tenancy.TenantId.Value"/>).
     /// Set by the store from the ambient tenant context before every read or write; the global query filter
@@ -893,6 +897,13 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.Status });
             // A team member's Questions page: the answers they gave (devthrottle_internal#2307).
             b.HasIndex(e => new { e.TenantId, e.AnswererSubject });
+            // AT MOST ONE ANSWER PER PERSON PER QUESTION, in the database (devthrottle_internal#2307 review F2): a team
+            // member's answer that was not refused is unique on (report, answerer, question), so two Gateway processes
+            // cannot both take one. A refused answer never reached the session and leaves the question open again.
+            b.HasIndex(e => new { e.TenantId, e.ReportId, e.AnswererSubject, e.QuestionId })
+                .IsUnique()
+                .HasDatabaseName(MemberAnswerIndexName)
+                .HasFilter($"\"AnswererSubject\" IS NOT NULL AND \"Status\" <> '{CcDirector.Gateway.DevReports.DevReportItemStates.Refused}'");
         });
 
         modelBuilder.Entity<DevReportReplyEntity>(b =>

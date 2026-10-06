@@ -37,7 +37,9 @@ internal static class DevReportPromptFold
     /// team member gave it on their Questions page rather than the account owner (devthrottle_internal#2307).</summary>
     internal sealed record FoldItem(DevReportItem Item, bool ChangesDeliveredAnswer, bool FromTeamMember = false);
 
-    /// <summary>One report's block: its id, key (the file), title, latest version, and its items in send order.</summary>
+    /// <summary>One report's block: its id, key (the file), the title and number of the version its items were given on
+    /// (the newest for the owner's own items; for a team member's answer, the version they were sent), and its items in
+    /// send order.</summary>
     internal sealed record FoldReport(Guid ReportId, string Key, string Title, int Version, IReadOnlyList<FoldItem> Items);
 
     private const string MarkerName = "owner-text-";
