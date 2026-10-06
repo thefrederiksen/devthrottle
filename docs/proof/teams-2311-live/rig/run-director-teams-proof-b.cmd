@@ -10,6 +10,11 @@ set "CC_COCKPIT_MANAGED="
 REM CC_VAULT_PATH is set at user level on this computer to the owner's vault, and it wins over CC_DIRECTOR_ROOT:
 REM left in place, the process opens the owner's engine database. Cleared here (review finding L-F1).
 set "CC_VAULT_PATH="
+REM No root setting moves these per-user folders, so environment alone cannot isolate them; a run here reaches:
+REM   %USERPROFILE%\.agents\skills and %USERPROFILE%\.claude\skills - the skill installer adds and REMOVES skills there (F7)
+REM   %USERPROFILE%\.claude - including its backups folder, which the backup cleaner scans
+REM   the agent's per-user transcript folder (under %USERPROFILE%\.claude\projects) for every session started
+REM   the owner's installed tools, found through the user PATH
 set "DEVTHROTTLE_JWT_PUBLIC_KEY_SET={"keys": [{"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": "teams-2311-liveproof", "x": "5ogG37FJwJIJpTT-liljmWg6qAJ3VgL2hM5USanCRl0", "y": "cdtQ3orO5-hTDR6fLs1e-MFe5Tw91TPgoLcnyWpWbrc"}]}"
 set "DEVTHROTTLE_API_URL=http://127.0.0.1:7952/website-stub"
 set "DEVTHROTTLE_REFRESH_URL=http://127.0.0.1:7952/refresh-stub"

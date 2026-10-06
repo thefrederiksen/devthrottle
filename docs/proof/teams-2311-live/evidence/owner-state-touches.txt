@@ -60,6 +60,16 @@ Each line is prefixed with its line number in that log.
 -- B
 649:2026-10-06 07:56:18.566 [SkillDirectoryInstaller] InstallFor: kind=ClaudeCode, materialized=12 at C:\Users\soren\.agents\skills, linked=12/12 into C:\Users\soren\.claude\skills
 
+-- Afterwards (read only, no log; from the folders themselves)
+The owner's Directors rewrite these folders on their own schedule, so a folder's creation time is its LATEST rewrite,
+not the moment it came back:
+  first look after the run: all six present again in both folders, created 08:26
+  08:34:32 to 08:34:35 (second look): all six present again in both folders, created again then
+So the six were missing from 07:56:04 until 08:26 at the latest; the exact time they came back was not established.
+The Tech Lead then checked, read only: all 18 managed skills in both folders are byte-identical in body to what the
+production Gateway serves (`cc-devthrottle skill get`; the only difference is the console's rendering of a middle dot).
+Nothing to restore.
+
 == 4. Tool checks: the owner's installed tools from the user PATH, and cc-vault stats against the owner's vault
    (smoke arguments from src/CcDirector.Core/Tools/tools-manifest.json: cc-vault stats, cc-devthrottle actions --json,
     cc-secrets/cc-worktrees/cc-ship --help, cc-html/cc-pdf/cc-word --themes)

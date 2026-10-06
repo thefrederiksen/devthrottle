@@ -52,11 +52,14 @@ wrote their transcripts under the agent's own per-user folder (two folders named
   folder. That cleaner can delete files it judges corrupt; the only line either wrote is the "Starting periodic scan" line, so no
   deletion is logged.
 - **Skills removed from the owner's skill folders** (section 3). The skill installer works on the per-user
-  skill folders (`~/.agents/skills` and the agent's own skill folder), not per instance. Connected to this
-  Gateway, which serves fewer skills than production, Director A removed six skills from both folders at 07:56:04 (`browsers`, `demo-mode`, `director-restart`,
-  `hormozi-playbook`, `notebook-reviewer`, `remote-desktop`), and both Directors rewrote the twelve it serves. I checked
-  afterwards, reading only: all six were back, reinstalled at 08:26 by one of the owner's Directors, so they were missing
-  for about half an hour. Finding F7.
+  `~/.agents/skills` and `~/.claude/skills`, not per instance. Connected to this Gateway, which serves 12 skills, Director
+  A removed six from both folders at 07:56:04 (`browsers`, `demo-mode`, `director-restart`, `hormozi-playbook`,
+  `notebook-reviewer`, `remote-desktop`), and both Directors rewrote the 12 from the local Gateway (07:56:05 and
+  07:56:18). An owner Director put the six back: my first read-only look after the run found all six present,
+  created at 08:26, so they were missing for about 30 minutes at most. The owner's Directors rewrite these folders regularly (a
+  second look found them created again at 08:34), so the exact moment they came back was not established. The Tech Lead
+  then checked, read only: all 18 managed skills in both folders are byte-identical in body to what the production
+  Gateway serves. Nothing to restore. Finding F7.
 - **The owner's installed tools and vault** (section 4). Before its own tools were built, Director A's tool check ran
   `cc-vault stats` four times from the owner's installed copy on the user `PATH`, and its fleet check ran the owner's
   installed `cc-devthrottle` twice. `cc-vault stats` ran nine times in all (Director A six, Director B three), every one
@@ -289,11 +292,14 @@ These do not stop any step of the proof, and nothing was changed for them. Each 
   marks the other's running jobs failed. Each Director sets `CC_DIRECTOR_ROOT` to its own instance home, so two instances
   share the database only when `CC_VAULT_PATH` is set - as it is on this computer, where a personal Director and a team
   Director would therefore share it. In this run no job ran.
-- **F7 - a Director removes skills from the folders every Director and agent on the computer uses.** Seen live. The
-  skill installer writes the per-user skill folders (`~/.agents/skills` and the agent's own), not the instance home, and removes
-  whatever the Gateway it is connected to does not serve. A Director on another Gateway - a team's, on the same computer as
-  a personal one - therefore takes away the other Director's skills until that one reinstalls them. Here Director A
-  removed six (see "Side effects on the owner's per-user state").
+- **F7 - two Directors on one computer fight over the person's skill folders.** Seen live, and read in the code. The
+  skill folders are per user, not per instance or root: `SkillInstallTargets.For` builds them from the user profile,
+  `~/.agents/skills` and `~/.claude/skills` (`src/CcDirector.Core/Skills/SkillInstallTargets.cs` lines 53-61). Each
+  Director installs its own Gateway's set and removes every managed skill its set withdraws, from the shared folder
+  (`src/CcDirector.Core/Skills/SkillDirectoryInstaller.cs` lines 293-302, `ReconcileCopies`) and from the agent's links
+  (same file, lines 336-342, `ReconcileLinks`). So a team Director and a personal Director on one computer - or any two
+  Directors on different Gateways or tenants - keep replacing each other's skills, and a team's set removes the
+  person's own. Here Director A, on a Gateway serving 12, removed six of the owner's.
 - **Not a product finding - members show "An account with no email recorded".** That is this rig: Alice and Bob were
   added as rows and never had a personal account on this Gateway, so it has no address for them. A person who accepts a
   real invitation does.
@@ -338,7 +344,9 @@ windows.
 **Do not run it as it was run.** The launch files now clear `CC_VAULT_PATH`. The user-level `CC_*` variables on this
 computer were two: `CC_VAULT_PATH`, cleared because it names the owner's vault and wins over `CC_DIRECTOR_ROOT`; and
 `CC_COCKPIT_MANAGED`, which names no path and was already cleared. Check the list again before a run
-(`[Environment]::GetEnvironmentVariables('User')`). Three things a variable cannot keep apart, so a run again still
-reaches them: the per-user skill folders (F7), the agent's per-user backup folder the backup cleaner scans, and the
-owner's installed tools on the user `PATH` - unless the launch file also takes the owner's `cc-director` folders off
-`PATH`, which these do not.
+(`[Environment]::GetEnvironmentVariables('User')`). No root setting moves the per-user folders, so a variable cannot
+keep these apart and a run again still reaches them (the launch files say so too): `~/.agents/skills` and
+`~/.claude/skills`, where the skill installer adds and removes skills (F7); `~/.claude`, including the backups folder
+the backup cleaner scans; the agent's per-user transcript folder, for every session started; and the owner's installed
+tools on the user `PATH` - unless the launch file also takes the owner's `cc-director` folders off `PATH`, which these
+do not.
