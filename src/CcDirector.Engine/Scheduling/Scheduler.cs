@@ -98,6 +98,10 @@ public sealed class Scheduler : IDisposable
                 // only at start. Runs of live owners are never touched.
                 _db.CleanupOrphanedRuns();
 
+                // This Director's own runs whose killed command was not seen to exit: release each
+                // claim once its command is proven gone, so the job does not stay held forever.
+                _executor.ReleaseConfirmedStops();
+
                 // Candidates only: each one runs here only if this Director wins its claim.
                 var dueJobs = _db.GetDueJobs();
                 foreach (var job in dueJobs)

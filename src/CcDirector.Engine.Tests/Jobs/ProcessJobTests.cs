@@ -73,6 +73,34 @@ public sealed class ProcessJobTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled()
+    {
+        var slow = OperatingSystem.IsWindows() ? "ping -n 30 127.0.0.1 >nul" : "sleep 30";
+        int? childPid = null;
+        DateTime childStarted = default;
+        var job = new ProcessJob("unrecorded", slow, Path.GetTempPath(), 120, (pid, started) =>
+        {
+            childPid = pid;
+            childStarted = started;
+            throw new IOException("simulated: the database write failed");
+        });
+
+        Exception? thrown = null;
+        try { await job.ExecuteAsync(CancellationToken.None); }
+        catch (Exception ex) { thrown = ex; }
+
+        Assert.NotNull(thrown);
+        Assert.NotNull(childPid);
+        var command = new CcDirector.Engine.Storage.EngineRunOwner("test", Environment.MachineName, childPid.Value, childStarted);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (CcDirector.Engine.Storage.ProcessOwnerLiveness.Probe(command) != CcDirector.Engine.Storage.OwnerLiveness.Gone
+               && sw.Elapsed < TimeSpan.FromSeconds(3))
+            await Task.Delay(100);
+        Assert.True(CcDirector.Engine.Storage.ProcessOwnerLiveness.Probe(command) == CcDirector.Engine.Storage.OwnerLiveness.Gone,
+            "the command whose record failed was left running");
+    }
+
+    [Fact]
     public void ShellFor_UsesTheShellOfThisOperatingSystem()
     {
         var info = ProcessJob.ShellFor("echo hi");

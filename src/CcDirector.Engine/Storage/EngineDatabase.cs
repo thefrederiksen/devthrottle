@@ -45,6 +45,9 @@ public sealed class EngineDatabase
     /// <summary>The Director process this instance stamps on the runs it starts.</summary>
     public EngineRunOwner Owner => _owner;
 
+    /// <summary>Whether a process (a Director, or a command one started) is still running, by this database's probe.</summary>
+    public OwnerLiveness ProbeOwner(EngineRunOwner process) => _probeOwner(process);
+
     private SqliteConnection CreateConnection()
     {
         var conn = new SqliteConnection(_connectionString);

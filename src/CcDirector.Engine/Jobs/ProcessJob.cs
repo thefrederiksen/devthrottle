@@ -41,7 +41,20 @@ public sealed class ProcessJob : IJob
         using var process = new Process { StartInfo = startInfo };
 
         process.Start();
-        _onStarted?.Invoke(process.Id, process.StartTime.ToUniversalTime());
+        DateTime? startedAtUtc = null;
+        try
+        {
+            startedAtUtc = process.StartTime.ToUniversalTime();
+            _onStarted?.Invoke(process.Id, startedAtUtc.Value);
+        }
+        catch (Exception ex)
+        {
+            // The command could not be recorded, so nobody else could ever prove it gone. It must
+            // not run unrecorded: kill it, and say whether it was seen to exit.
+            var stopped = KillAndConfirm(process);
+            FileLog.Write($"[ProcessJob] Recording the started command FAILED, killed it: name={Name}, pid={process.Id}, stopped={stopped}, error={ex.Message}");
+            throw new CommandNotRecordedException(Name, process.Id, startedAtUtc, stopped, ex);
+        }
         var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
