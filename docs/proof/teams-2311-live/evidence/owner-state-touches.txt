@@ -1,4 +1,4 @@
-Every path outside .liveproof-rig that a test process read, wrote, executed or watched, as far as the three preserved
+Every path outside .liveproof-rig that a test process read, opened, wrote, executed or watched, as far as the three preserved
 logs show it. Found by listing every drive path in each log that is not under .liveproof-rig, grouped by the component
 that logged it, then reading each group. What a process did without logging a path is not in this list (see the end).
 Log A = .liveproof-rig/director-root/instances/teams-proof-a/logs/director/director-2026-10-06-48192.log
@@ -23,12 +23,15 @@ WATCHED
   C:\Users\soren\.claude\projects\...\<session>.jsonl - each Director watched its own session's transcript
     A 2527-2528 (work-a session e7febcc2), B 731-732 (work-b session b8347f3a).
 
-WROTE
+OPENED - write-capable statements ran, 0 rows changed, no write shown
   C:\Users\soren\AppData\Local\cc-director\vault\engine.db - the owner's engine database (detail section 1)
-    A 66-82, B 80-106: opened; ran the schema check (creates tables only if missing) and two write-capable cleanups,
-    CleanupOrphanedRuns (changed 0 rows) and CleanupOldRuns (purged 0). No existing row is shown to have changed and
-    no job ran. InitializeNextRuns writes only for a job whose next_run is empty and then logs "Initialized next_run
-    for ..." (src/CcDirector.Engine/Scheduling/Scheduler.cs lines 70-83); neither log has that line.
+    A 66-82, B 80-106: opened; ran the schema check (creates tables only if missing) and two cleanups that can write,
+    CleanupOrphanedRuns (changed 0 rows) and CleanupOldRuns (purged 0). InitializeNextRuns writes only for a job whose
+    next_run is empty and then logs "Initialized next_run for ..." (src/CcDirector.Engine/Scheduling/Scheduler.cs lines
+    70-83); neither log has that line. No job ran. The logs show no change to the file or to any row; whether the
+    schema check or the connection itself changed the file on disk was not checked.
+
+WROTE
   C:\Users\soren\.agents\skills and C:\Users\soren\.claude\skills - the per-user skill folders (detail section 3)
     A 2422-2433: six skills removed from each. A 2434, B 649: the 12 served by the local Gateway written to the first
     and linked into the second.
@@ -44,6 +47,8 @@ WROTE
     22.0 MB and 64.4 MB; the address downloaded from is not logged). The folder no longer exists.
 
 EXECUTED
+  D:\ReposFred\devthrottle-teams-2311-liveproof\scripts\local-build\cc-director5.exe and cc-director6.exe - the proof
+    worktree, outside the rig: the running Director images (A 138, 149; B 153, 164), started by the scheduled tasks.
   The owner's installed agent tools, a version run on each - A 723-755
     C:\Users\soren\.local\bin\claude.EXE (ok), D:\Tools\Pi\pi.exe (timed out),
     C:\Users\soren\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE (ok), C:\Users\soren\AppData\Roaming\npm\gemini.CMD
@@ -63,6 +68,10 @@ EXECUTED
   git, in 19 of the owner's repositories (detail section 5) - read-only commands.
 
 READ
+  D:\ReposFred\devthrottle-teams-2311-liveproof\scripts\local-build\cc-director5.exe and cc-director6.exe - read as the
+    sources of the standby copies (A 159, B 171).
+  D:\ReposFred\devthrottle-teams-2311-liveproof\scripts\local-build\appsettings.json - read and copied to standby\
+    (A 156).
   Code roots - A 819-846: probed nine candidate folders (C:\Users\soren\source\repos, C:\project, C:\Repos, D:\Dev,
     D:\project, D:\ReposFred, D:\ReposMindzie, D:\ReposOther, D:\ReposProcess) and found 78 repositories under five
     of them (D:\Dev 1, D:\ReposFred 31, D:\ReposMindzie 16, D:\ReposOther 15, D:\ReposProcess 15). A 833-875: the five

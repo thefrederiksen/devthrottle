@@ -39,7 +39,7 @@ clear `CC_VAULT_PATH` (see "To run it again"); the rig was not run again.
 database, Supabase, Stripe. No email was sent: invitations were not used, and the seat sync after the removal logged
 `NOTIFY_OWNER_SERVICE_TOKEN is not set on this Gateway - the seat sync was NOT called`.
 
-**Side effects on the machine.** The full list - every path outside the rig that a test process read, wrote,
+**Side effects on the machine.** The full list - every path outside the rig that a test process read, opened, wrote,
 executed or watched, as far as the logs show, grouped that way with line references - is the inventory at the top of
 [evidence/owner-state-touches.txt](evidence/owner-state-touches.txt). Beyond what follows here it includes: both
 Directors watched every folder on `C:\` and `D:\` for files named `nul`, with authority to delete them (finding F8) -
@@ -313,10 +313,13 @@ These do not stop any step of the proof, and nothing was changed for them. Each 
   the code. Even with `CC_DIRECTOR_ROOT` pinned and an explicit instance:
   - it watches every fixed drive, every folder, for files named `nul` and deletes them
     (`src/CcDirector.Core/Utilities/NulFileWatcher.cs` lines 49 and 62-68 for the watchers, 80-114 for the delete);
-  - its first-run wizard looks for code folders in the person's home folder and at the root of every fixed drive, and
-    enrolls and rescans what it finds (`src/CcDirector.Core/Onboarding/CodeFolderScout.cs` lines 46-108 and 196-215);
-  - it runs the person's installed agents - a version command on each found
-    (`src/CcDirector.Core/Settings/ToolDetectionService.cs` lines 93-127), and the chosen one for every session;
+  - its first-run wizard looks for code folders in the person's home folder and at the root of every fixed drive
+    (`src/CcDirector.Core/Onboarding/CodeFolderScout.cs` lines 46-108 and 196-215), enrolls each one it finds as a code
+    root without asking (`src/CcDirector.Avalonia/FirstRunWizardDialog.axaml.cs` lines 1151-1171 and 1332-1355), and
+    starts a rescan of their repositories (same file, lines 1252-1264);
+  - it runs the person's installed agents: the wizard runs a version command on every agent it found (same file, lines
+    643-667, calling `src/CcDirector.Core/Settings/ToolDetectionService.cs` lines 93-127), and every session launches the
+    chosen agent's installed executable (`src/CcDirector.Core/Sessions/SessionManager.cs` lines 1080-1101);
   - it writes the person's per-user skill folders (F7), and its sessions write the agent's per-user transcripts.
 - **Not a product finding - members show "An account with no email recorded".** That is this rig: Alice and Bob were
   added as rows and never had a personal account on this Gateway, so it has no address for them. A person who accepts a
