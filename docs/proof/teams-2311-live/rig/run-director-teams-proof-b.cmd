@@ -10,11 +10,17 @@ set "CC_COCKPIT_MANAGED="
 REM CC_VAULT_PATH is set at user level on this computer to the owner's vault, and it wins over CC_DIRECTOR_ROOT:
 REM left in place, the process opens the owner's engine database. Cleared here (review finding L-F1).
 set "CC_VAULT_PATH="
-REM No root setting moves these per-user folders, so environment alone cannot isolate them; a run here reaches:
-REM   %USERPROFILE%\.agents\skills and %USERPROFILE%\.claude\skills - the skill installer adds and REMOVES skills there (F7)
-REM   %USERPROFILE%\.claude - including its backups folder, which the backup cleaner scans
-REM   the agent's per-user transcript folder (under %USERPROFILE%\.claude\projects) for every session started
-REM   the owner's installed tools, found through the user PATH
+REM NOT ISOLATED. No variable and no root setting keeps a Director from the rest of the computer (finding F8).
+REM Even with every CC_* variable cleared, a run on the owner's computer still:
+REM   watches every folder of every fixed drive and deletes files named nul
+REM   looks through %USERPROFILE% and the drive roots for code folders, enrolls them and runs git in their repositories
+REM   runs the owner's installed agent tools (a version check on each) and the installed agent for every session
+REM   writes %USERPROFILE%\.agents\skills and %USERPROFILE%\.claude\skills, adding and REMOVING skills (F7)
+REM   writes the agent's per-user transcripts under %USERPROFILE%\.claude\projects
+REM   scans %USERPROFILE%\.claude\backups with a cleaner that can delete
+REM   runs the owner's installed command line tools found through the user PATH
+REM   opens the owner's default browser for each sign-in, and writes scripts\local-build\standby beside the slot
+REM Run the next one on a clean machine or as a separate Windows user.
 set "DEVTHROTTLE_JWT_PUBLIC_KEY_SET={"keys": [{"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": "teams-2311-liveproof", "x": "5ogG37FJwJIJpTT-liljmWg6qAJ3VgL2hM5USanCRl0", "y": "cdtQ3orO5-hTDR6fLs1e-MFe5Tw91TPgoLcnyWpWbrc"}]}"
 set "DEVTHROTTLE_API_URL=http://127.0.0.1:7952/website-stub"
 set "DEVTHROTTLE_REFRESH_URL=http://127.0.0.1:7952/refresh-stub"

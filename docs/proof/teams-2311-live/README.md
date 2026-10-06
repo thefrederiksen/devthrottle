@@ -22,25 +22,34 @@ request is served on); the per-session narration answer that also reads it needs
 Each process was started by its own scheduled task (`teams-2311-liveproof-*`), as a visible window, because a Director
 started from an agent's console loses its sessions. The launch files are in `rig/`.
 
-**The isolation was not complete: both test Directors opened and wrote the owner's engine database.** The user-level
+**The isolation was not complete: both test Directors opened the owner's engine database and ran write-capable
+statements on it.** The user-level
 variable `CC_VAULT_PATH` on this computer names the owner's vault, `%LOCALAPPDATA%\cc-director\vault`, and the storage
 code takes it ahead of `CC_DIRECTOR_ROOT` (`CcStorage.Vault()`), so both processes opened
 `%LOCALAPPDATA%\cc-director\vault\engine.db` instead of one in their own instance home. I saw the variable before the
-launch and did not clear it. On that database each Director ran the schema check (creates tables only if missing),
-marked interrupted runs as failed (0 marked), recomputed the next run time of every enabled job, and purged runs older
-than 30 days (0 purged by each). Each ran the owner's
-scheduler while it was up - Director A 07:48:07 to 08:02:52, Director B 07:53:21 to 08:02:55 - and no job run is logged
-by either. Every log line is in [evidence/owner-state-touches.txt](evidence/owner-state-touches.txt), section 1. The
-launch files in `rig/` now clear `CC_VAULT_PATH` (see "To run it again"); the rig was not run again.
+launch and did not clear it. On that database each Director ran the schema check (creates tables only if missing)
+and two cleanups that can write: marking interrupted runs as failed (0 rows changed) and purging runs older than 30
+days (0 purged). Each also started the owner's scheduler - Director A 07:48:07 to 08:02:52, Director B 07:53:21 to
+08:02:55 - whose start writes a next run time only for a job that has none, and logs it when it does; neither log has
+that line. So no existing row is shown to have changed, and no job ran. Every log line is in
+[evidence/owner-state-touches.txt](evidence/owner-state-touches.txt), detail section 1. The launch files in `rig/` now
+clear `CC_VAULT_PATH` (see "To run it again"); the rig was not run again.
 
 **Never touched:** the owner's Directors and instances and their keys, the production Gateway, any production
 database, Supabase, Stripe. No email was sent: invitations were not used, and the seat sync after the removal logged
 `NOTIFY_OWNER_SERVICE_TOKEN is not set on this Gateway - the seat sync was NOT called`.
 
-**Side effects on the machine, all named:** each sign-in opened its hand-back page as a tab in the owner's default
-browser (three tabs on `127.0.0.1`, left open - they are the owner's browser). The first-run wizard's browser step,
-clicked by mistake, started a Chrome with its profile inside the rig on debugging port 9310; it was closed within a
-minute. The wizard's screenshot step pointed Director A at the owner's screenshots folder, so Director A's Screenshots
+**Side effects on the machine.** The full list - every path outside the rig that a test process read, wrote,
+executed or watched, as far as the logs show, grouped that way with line references - is the inventory at the top of
+[evidence/owner-state-touches.txt](evidence/owner-state-touches.txt). Beyond what follows here it includes: both
+Directors watched every folder on `C:\` and `D:\` for files named `nul`, with authority to delete them (finding F8) -
+Director A saw one, in another worktree, and by the code did not delete it; both wrote `scripts\local-build\standby\` in this worktree, outside the rig; Director A probed nine code folders, found
+78 of the owner's repositories and rescanned five folders three more times; and Director A ran a version check on
+seven of the owner's installed agent tools, and both started the owner's installed agent for their sessions.
+
+Each sign-in opened its hand-back page as a tab in the owner's default browser (three tabs on `127.0.0.1`, left open - they are the owner's browser). The first-run wizard's browser step,
+clicked by mistake, started a Chrome with its profile inside the rig on debugging port 9310 and opened Google's sign-in page in
+it twice; it was closed within a minute. The wizard's screenshot step pointed Director A at the owner's screenshots folder, so Director A's Screenshots
 panel listed them; that panel is covered in the two pictures where it showed. The two agent sessions started in step 3
 wrote their transcripts under the agent's own per-user folder (two folders named after `.liveproof-rig\work-a` and
 `work-b`); nothing was typed into either session.
@@ -48,10 +57,10 @@ wrote their transcripts under the agent's own per-user folder (two folders named
 **Side effects on the owner's per-user state, found in the logs after the run** (all in
 [evidence/owner-state-touches.txt](evidence/owner-state-touches.txt)):
 
-- **Backup cleaner** (section 2). Each Director started its periodic scan of the owner's per-user agent backup
+- **Backup cleaner** (detail section 2). Each Director started its periodic scan of the owner's per-user agent backup
   folder. That cleaner can delete files it judges corrupt; the only line either wrote is the "Starting periodic scan" line, so no
   deletion is logged.
-- **Skills removed from the owner's skill folders** (section 3). The skill installer works on the per-user
+- **Skills removed from the owner's skill folders** (detail section 3). The skill installer works on the per-user
   `~/.agents/skills` and `~/.claude/skills`, not per instance. Connected to this Gateway, which serves 12 skills, Director
   A removed six from both folders at 07:56:04 (`browsers`, `demo-mode`, `director-restart`, `hormozi-playbook`,
   `notebook-reviewer`, `remote-desktop`), and both Directors rewrote the 12 from the local Gateway (07:56:05 and
@@ -60,11 +69,11 @@ wrote their transcripts under the agent's own per-user folder (two folders named
   second look found them created again at 08:34), so the exact moment they came back was not established. The Tech Lead
   then checked, read only: all 18 managed skills in both folders are byte-identical in body to what the production
   Gateway serves. Nothing to restore. Finding F7.
-- **The owner's installed tools and vault** (section 4). Before its own tools were built, Director A's tool check ran
+- **The owner's installed tools and vault** (detail section 4). Before its own tools were built, Director A's tool check ran
   `cc-vault stats` four times from the owner's installed copy on the user `PATH`, and its fleet check ran the owner's
   installed `cc-devthrottle` twice. `cc-vault stats` ran nine times in all (Director A six, Director B three), every one
   of them against the owner's vault through `CC_VAULT_PATH`.
-- **Read-only git in 19 of the owner's repositories** (section 5). After the wizard's code step, Director A's source
+- **Read-only git in 19 of the owner's repositories** (detail section 5). After the wizard's code step, Director A's source
   control view ran `status`, `log`, `rev-parse`, `rev-list`, `config --get`, `for-each-ref`, `merge-base`,
   `worktree list` and similar - no fetch, push, prune, checkout or commit. `git status` can refresh a repository's index
   file; whether it did was not checked.
@@ -300,6 +309,15 @@ These do not stop any step of the proof, and nothing was changed for them. Each 
   (same file, lines 336-342, `ReconcileLinks`). So a team Director and a personal Director on one computer - or any two
   Directors on different Gateways or tenants - keep replacing each other's skills, and a team's set removes the
   person's own. Here Director A, on a Gateway serving 12, removed six of the owner's.
+- **F8 - a non-default test instance is not isolated from the person's machine by its root.** Seen live, and read in
+  the code. Even with `CC_DIRECTOR_ROOT` pinned and an explicit instance:
+  - it watches every fixed drive, every folder, for files named `nul` and deletes them
+    (`src/CcDirector.Core/Utilities/NulFileWatcher.cs` lines 49 and 62-68 for the watchers, 80-114 for the delete);
+  - its first-run wizard looks for code folders in the person's home folder and at the root of every fixed drive, and
+    enrolls and rescans what it finds (`src/CcDirector.Core/Onboarding/CodeFolderScout.cs` lines 46-108 and 196-215);
+  - it runs the person's installed agents - a version command on each found
+    (`src/CcDirector.Core/Settings/ToolDetectionService.cs` lines 93-127), and the chosen one for every session;
+  - it writes the person's per-user skill folders (F7), and its sessions write the agent's per-user transcripts.
 - **Not a product finding - members show "An account with no email recorded".** That is this rig: Alice and Bob were
   added as rows and never had a personal account on this Gateway, so it has no address for them. A person who accepts a
   real invitation does.
@@ -328,8 +346,9 @@ These do not stop any step of the proof, and nothing was changed for them. Each 
   panel path rests on Director B's log (step 1) and the result on its main window
   ([1g](screens/1g-director-b-main-window-team-b-chip.png)).
 - **That the owner's state was left alone.** See the top: the run opened the owner's engine database and reached other
-  per-user state. The counts logged were zero and the skills came back, but this run cannot certify the owner's state
-  untouched.
+  per-user state, listed in the inventory in `evidence/owner-state-touches.txt`. The engine database cleanups changed
+  0 rows and the skills came back, but this run cannot certify the owner's state untouched, and the inventory holds only
+  what the logs name.
 
 ## To run it again
 
@@ -341,12 +360,21 @@ launch file from its own scheduled task. `rig\gw.py` makes and records the HTTP 
 (`PrintWindow`) and drives (UI Automation, or a posted click where a control has no automation pattern) the Director
 windows.
 
-**Do not run it as it was run.** The launch files now clear `CC_VAULT_PATH`. The user-level `CC_*` variables on this
+**A run on the owner's computer is NOT isolated, even with these launch files. Run the next one on a clean machine or
+as a separate Windows user.** The launch files now clear `CC_VAULT_PATH`. The user-level `CC_*` variables on this
 computer were two: `CC_VAULT_PATH`, cleared because it names the owner's vault and wins over `CC_DIRECTOR_ROOT`; and
-`CC_COCKPIT_MANAGED`, which names no path and was already cleared. Check the list again before a run
-(`[Environment]::GetEnvironmentVariables('User')`). No root setting moves the per-user folders, so a variable cannot
-keep these apart and a run again still reaches them (the launch files say so too): `~/.agents/skills` and
-`~/.claude/skills`, where the skill installer adds and removes skills (F7); `~/.claude`, including the backups folder
-the backup cleaner scans; the agent's per-user transcript folder, for every session started; and the owner's installed
-tools on the user `PATH` - unless the launch file also takes the owner's `cc-director` folders off `PATH`, which these
-do not.
+`CC_COCKPIT_MANAGED`, which names no path and was already cleared. But no variable and no root setting stops the rest
+(finding F8; the launch files say so too). A run again, with every `CC_*` variable cleared, still:
+
+- installs watchers over every folder of every fixed drive that delete files named `nul`;
+- looks through the owner's home folder and drive roots for code folders, enrolls them and reads their repositories
+  with git;
+- runs the owner's installed agent tools, a version check on each, and the owner's installed agent for every session;
+- writes the owner's per-user skill folders, `~/.agents/skills` and `~/.claude/skills`, adding and removing skills (F7),
+  and the agent's per-user transcripts under `~/.claude`;
+- scans the backups folder under `~/.claude` with a cleaner that can delete;
+- runs the owner's installed command line tools from the user `PATH`;
+- opens the owner's default browser for each sign-in;
+- writes `scripts\local-build\standby\` beside the slot it runs from.
+
+This pull request does not try to engineer those away.
