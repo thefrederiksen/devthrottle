@@ -12,4 +12,7 @@ public sealed class RunRecord
     public string? Stderr { get; set; }
     public bool TimedOut { get; set; }
     public double? DurationSeconds { get; set; }
+
+    /// <summary>The Director process that started this run; null on a run recorded before owners were kept.</summary>
+    public EngineRunOwner? Owner { get; set; }
 }

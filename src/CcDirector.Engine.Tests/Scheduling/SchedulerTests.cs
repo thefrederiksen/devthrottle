@@ -25,12 +25,17 @@ public sealed class SchedulerTests : IDisposable
     [Fact]
     public async Task Start_CleansUpOrphanedRuns()
     {
-        // Create an orphaned run (no EndedAt)
-        var jobId = _db.AddJob(new JobRecord { Name = "orphan", Cron = "0 0 31 2 *", Command = "echo test" });
-        _db.CreateRun(new RunRecord { JobId = jobId, JobName = "orphan", StartedAt = DateTime.UtcNow.AddMinutes(-30) });
+        // An orphaned run (no EndedAt) left by a previous launch whose process is gone.
+        var previousLaunch = new EngineRunOwner("director-a", Environment.MachineName, 4242, DateTime.UtcNow.AddHours(-1));
+        var before = new EngineDatabase(_dbPath, previousLaunch, _ => OwnerLiveness.Running);
+        var jobId = before.AddJob(new JobRecord { Name = "orphan", Cron = "0 0 31 2 *", Command = "echo test" });
+        before.CreateRun(new RunRecord { JobId = jobId, JobName = "orphan", StartedAt = DateTime.UtcNow.AddMinutes(-1) });
 
-        var executor = new JobExecutor(_db);
-        using var scheduler = new Scheduler(_db, executor, checkIntervalSeconds: 3600, runRetentionDays: 30);
+        var db = new EngineDatabase(_dbPath,
+            new EngineRunOwner("director-a", Environment.MachineName, 5151, DateTime.UtcNow),
+            owner => owner.ProcessId == 4242 ? OwnerLiveness.Gone : OwnerLiveness.Running);
+        var executor = new JobExecutor(db);
+        using var scheduler = new Scheduler(db, executor, checkIntervalSeconds: 3600, runRetentionDays: 30);
         scheduler.Start();
         await scheduler.StopAsync(5);
 

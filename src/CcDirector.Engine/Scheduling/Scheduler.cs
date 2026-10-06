@@ -93,6 +93,12 @@ public sealed class Scheduler : IDisposable
             {
                 RunPurgeIfNeeded();
 
+                // Another Director on the same engine.db may have died mid-run; its unfinished run
+                // would hold that job's claim until something fails it, so look every tick, not
+                // only at start. Runs of live owners are never touched.
+                _db.CleanupOrphanedRuns();
+
+                // Candidates only: each one runs here only if this Director wins its claim.
                 var dueJobs = _db.GetDueJobs();
                 foreach (var job in dueJobs)
                 {
@@ -135,9 +141,13 @@ public sealed class Scheduler : IDisposable
 
         try
         {
+            var claimed = _executor.TryClaim(job);
+            if (claimed is null)
+                return;
+
             RaiseEvent(new EngineEvent(EngineEventType.JobStarted, JobName: job.Name));
 
-            var run = await _executor.ExecuteJobAsync(job, ct);
+            var run = await _executor.ExecuteClaimedAsync(job, claimed, ct);
 
             var eventType = run.TimedOut ? EngineEventType.JobTimeout
                 : run.ExitCode == 0 ? EngineEventType.JobCompleted

@@ -19,4 +19,9 @@
     <ProjectReference Include="..\CcDirector.Engine\CcDirector.Engine.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- engine.db written by the engine before run owners were kept; opened by the migration tests. -->
+    <None Include="Fixtures\engine-e8f673ab9.db" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
