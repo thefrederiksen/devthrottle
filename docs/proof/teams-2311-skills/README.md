@@ -323,6 +323,13 @@ Five older assertions that a withdrawn skill's entry in the agent's folder was G
 | SK-F15 | a link in the shared folder is judged by its target's marker | the shared-folder test: placement tries to move the person's link aside (`Access to the path 'keeper' is denied`). |
 | SK-F14 | only the last part of a path is followed | the linked-parent test: nothing is refused. |
 
+### Review round 7 - SK-F21 and SK-F22
+
+| Finding | Tests | Red check - [red-check-review7.txt](red-check-review7.txt) |
+|---|---|---|
+| SK-F21 anything at a wanted name in the shared folder that is not a real directory | `SkillRound7SharedRootCollisionTests`: `A_plain_file_at_a_wanted_name_is_left_untouched_and_the_other_skills_are_placed` and `A_dangling_link_at_a_wanted_name_is_left_untouched_and_the_other_skills_are_placed` - the entry left exactly as it is, the two other skills placed and linked, one `Shadowed` naming the skill and the shared folder, nothing linked to the person's entry, no staging envelope left. The dangling link is a real FILE symbolic link (this machine has Developer Mode); on Windows a dangling junction or directory link already carries the directory attribute and already reached the ownership check, so a file link is the one that shows the hole here. On Linux and macOS the same code path is taken by any dangling link; not executed there. | the guard removed: both tests throw the escaped `IOException` ("Cannot create ... because a file or directory with the same name already exists") from `Directory.Move` in `SwapIn`. |
+| SK-F22 the unsafe-folder sentence | Gateway: `SkillPlacementStoreTests.A_skills_folder_linked_to_nowhere_from_a_current_Director_names_the_skills_folder_as_unresolved` (new) and `A_staging_folder_inside_a_skills_folder_says_so_and_not_could_not_be_linked` (updated); the older Directors' `FolderLinkUnresolved` test unchanged. Director: the same wording in `SkillPlacement.Describe`, pinned in `SkillSwapTests.A_skills_folder_linked_to_nowhere_changes_nothing_and_says_why`. | the round 6 Gateway sentence put back: the two new or updated tests fail; the older Directors' test passes against both. |
+
 ### Runs
 
 | What | Result | File |
@@ -348,6 +355,9 @@ Five older assertions that a withdrawn skill's entry in the agent's folder was G
 | **Review round 4:** `CcDirector.Gateway.UnitTests`, whole suite | 9414 passed, 0 failed, 14 skipped | [test-runs-review4.txt](test-runs-review4.txt) |
 | **Review round 4:** `CcDirector.Gateway.Tests`, filtered as before | **NOT RUN** again: another session's run held the suite's machine-wide lock; mine waited about nine minutes and was stopped. Round 4 changes no Gateway route; its Gateway change is one sentence, covered by the unit test above. | [test-runs-review4.txt](test-runs-review4.txt) |
 | **Review round 3:** `CcDirector.Gateway.Tests`, filtered as before | **NOT RUN**: the suite's machine-wide lock was held by another session's run for over an hour; my run waited about five minutes and was stopped. Round 3 changes no Gateway route; its Gateway change is one sentence, covered by the unit test above. | [test-runs-review3.txt](test-runs-review3.txt) |
+| **Review round 7:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 104 passed, 0 failed | [test-runs-review7.txt](test-runs-review7.txt) |
+| **Review round 7:** `.\scripts\test-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review7.txt](gate-default-review7.txt) |
+| **Review round 7:** `CcDirector.Gateway.UnitTests`, whole suite (one Gateway sentence changed) | 9518 passed, **3 failed**, 14 skipped: the three `VerbAnswersWhenStarvedTests`, which starve the processor on purpose and time out at 30 seconds, on a loaded machine. That class alone on the same binary: 3 of 3. Nothing here touches it. | [test-runs-review7.txt](test-runs-review7.txt) |
 
 The default gate's first run failed one test, `RetiredMessagingWordsTests`, because I was writing the gate's own
 output into this folder and the repository-wide scan could not open the locked file. Rerun with the output outside the

@@ -1,0 +1,36 @@
+RED CHECKS, review round 7 - 2026-10-06T19:27:11Z - built on 680782fbd (the round 7 change, committed before any mutation)
+Each: mutate the source, full build, run the named tests, record, restore from the commit (git checkout in a finally).
+
+====================================================================================================
+SK-F21: the round 6 shared-root loop put back - the 'not a real directory' guard before SwapIn removed
+-            if (IsLink(destination) || File.Exists(destination)) { ...Shadowed...; continue; }
+  Failed CcDirector.Core.Tests.Skills.SkillRound7SharedRootCollisionTests.A_dangling_link_at_a_wanted_name_is_left_untouched_and_the_other_skills_are_placed [149 ms]
+  Error Message:
+   System.IO.IOException : Cannot create 'C:\Users\soren\AppData\Local\Temp\skill-round7-4dbee751573047568550a2179e44cd7e\home\.agents\skills\blocked' because a file or directory with the same name already exists.
+  Failed CcDirector.Core.Tests.Skills.SkillRound7SharedRootCollisionTests.A_plain_file_at_a_wanted_name_is_left_untouched_and_the_other_skills_are_placed [56 ms]
+  Error Message:
+   System.IO.IOException : Cannot create 'C:\Users\soren\AppData\Local\Temp\skill-round7-7d4b97aa3104449b9bdc795a454cc6c7\home\.agents\skills\blocked' because a file or directory with the same name already exists.
+Total tests: 2
+     Failed: 2
+
+====================================================================================================
+SK-F22: the round 6 Gateway sentence put back (git checkout HEAD~1 -- src/CcDirector.Gateway/Skills/SkillPlacementStore.cs)
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_Director_that_never_reached_the_Gateway_is_stale_not_broken [9 s]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_machine_where_nothing_landed_is_reported_as_broken_with_a_usable_sentence [262 ms]
+  Failed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_staging_folder_inside_a_skills_folder_says_so_and_not_could_not_be_linked [185 ms]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_skills_folder_linked_to_nowhere_says_so_and_not_could_not_be_linked [133 ms]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_fixed_machine_stops_being_reported_as_broken [139 ms]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.One_account_cannot_read_or_overwrite_another_accounts_machine [194 ms]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_skill_kept_by_another_Directors_library_says_so_and_not_could_not_be_linked [157 ms]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.Broken_rows_sort_above_healthy_ones [190 ms]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_push_without_a_director_is_refused [197 ms]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.The_same_agent_named_twice_in_one_push_is_a_producer_bug_and_is_refused [168 ms]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_malformed_report_rejects_the_WHOLE_push [133 ms]
+  Passed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_healthy_machine_is_ok_and_does_not_raise_the_badge [153 ms]
+  Failed CcDirector.Gateway.Tests.SkillPlacementStoreTests.A_skills_folder_linked_to_nowhere_from_a_current_Director_names_the_skills_folder_as_unresolved [141 ms]
+Total tests: 13
+     Passed: 11
+     Failed: 2
+The older Directors' FolderLinkUnresolved test (A_skills_folder_linked_to_nowhere_says_so_and_not_could_not_be_linked) passes against both sentences: it is unchanged.
+
+After both: git status clean; Core skill tests rebuilt and rerun on the restored source (test-runs-review7.txt).

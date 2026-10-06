@@ -1,0 +1,25 @@
+Waiting. No parked suite is in this run, so nothing here queues for the machine-wide lock.
+  PASS  CcDirector.Core.UnitTests  Passed!  - Failed:     0, Passed:  1232, Skipped:     0, Total:  1232, Duration: 1 
+  PASS  CcDirector.Avalonia.Tests  Passed!  - Failed:     0, Passed:   908, Skipped:     0, Total:   908, Duration: 1 
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:   102, Skipped:     0, Total:   102, Duration: 44 s 
+  PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    88, Skipped:     0, Total:    88, Duration: 
+  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   197, Skipped:     0, Total:   197, Duration: 18 
+  PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:    82, Skipped:     0, Total:    82, 
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   310, Skipped:     0, Total:   310, Duration: 13 
+  PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: 4 s 
+  PASS  cc-director-setup-engine.Tests  Passed!  - Failed:     0, Passed:   708, Skipped:     0, Total:   708, 
+  PASS  cc-director-setup-cli.Tests  Passed!  - Failed:     0, Passed:    59, Skipped:     0, Total:    59, Duration: 
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=1232   executed=1232
+  CcDirector.Avalonia.Tests                outcome=Completed    total=908    executed=908
+  CcDirector.Engine.Tests                  outcome=Completed    total=102    executed=102
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=708    executed=708
+  cc-director-setup-cli.Tests              outcome=Completed    total=59     executed=59
+COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
+Run '.\scripts	est-local.ps1 -Parked' before merging, or say in the pull request why not.
+RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
