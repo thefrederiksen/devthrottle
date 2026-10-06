@@ -1,0 +1,36 @@
+Test run for D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:09.02]     CcDirector.Gateway.Tests.Teams.TeamSessionHolderRuleTests.Store_InATeam_NeverAnswersAColleaguesDirector_ForAKeyedSessionOnlyTheColleagueLists [FAIL]
+[xUnit.net 00:00:09.35]     CcDirector.Gateway.Tests.Teams.TeamSessionHolderRuleTests.Store_RefusesASecondRule_AndARuleThatNamesADirectorNotListingTheSession [FAIL]
+  Failed CcDirector.Gateway.Tests.Teams.TeamSessionHolderRuleTests.Store_InATeam_NeverAnswersAColleaguesDirector_ForAKeyedSessionOnlyTheColleagueLists [380 ms]
+  Error Message:
+   Assert.Null() Failure: Value of type 'Nullable<ValueTuple<string, SessionDto>>' has a value
+Expected: null
+Actual:   Tuple ("director-bob", SessionDto { ActivityState = "", Agent = "", AgentToolDisplay = "", AssessedState = null, AutoDismiss = False, ··· })
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.TeamSessionHolderRuleTests.Store_InATeam_NeverAnswersAColleaguesDirector_ForAKeyedSessionOnlyTheColleagueLists() in D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway.UnitTests\Teams\TeamSessionHolderRuleTests.cs:line 179
+   at System.RuntimeMethodHandle.InvokeMethod(ObjectHandleOnStack target, Void** arguments, ObjectHandleOnStack sig, BOOL isConstructor, ObjectHandleOnStack result)
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Failed CcDirector.Gateway.Tests.Teams.TeamSessionHolderRuleTests.Store_RefusesASecondRule_AndARuleThatNamesADirectorNotListingTheSession [334 ms]
+  Error Message:
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.InvalidOperationException)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.TeamSessionHolderRuleTests.Store_RefusesASecondRule_AndARuleThatNamesADirectorNotListingTheSession() in D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway.UnitTests\Teams\TeamSessionHolderRuleTests.cs:line 234
+   at System.RuntimeMethodHandle.InvokeMethod(ObjectHandleOnStack target, Void** arguments, ObjectHandleOnStack sig, BOOL isConstructor, ObjectHandleOnStack result)
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[xUnit.net 00:00:11.49]     CcDirector.Gateway.Tests.Teams.TeamSessionHolderRuleTests.Store_InATeam_AnswersTheOwnersDirector_WhenItListsTheSessionToo [FAIL]
+  Failed CcDirector.Gateway.Tests.Teams.TeamSessionHolderRuleTests.Store_InATeam_AnswersTheOwnersDirector_WhenItListsTheSessionToo [750 ms]
+  Error Message:
+   Assert.False() Failure
+Expected: False
+Actual:   True
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.TeamSessionHolderRuleTests.Store_InATeam_AnswersTheOwnersDirector_WhenItListsTheSessionToo() in D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway.UnitTests\Teams\TeamSessionHolderRuleTests.cs:line 197
+   at System.RuntimeMethodHandle.InvokeMethod(ObjectHandleOnStack target, Void** arguments, ObjectHandleOnStack sig, BOOL isConstructor, ObjectHandleOnStack result)
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+
+Failed!  - Failed:     3, Passed:   197, Skipped:     0, Total:   200, Duration: 26 s - CcDirector.Gateway.UnitTests.dll (net10.0)

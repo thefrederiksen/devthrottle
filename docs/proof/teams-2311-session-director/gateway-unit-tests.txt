@@ -1,0 +1,47 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2311-onerule\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:48.99]     CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:00:53.85]     CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [SKIP]
+  Skipped CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [1 ms]
+[xUnit.net 00:01:56.79]     CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:02:02.56]     CcDirector.Gateway.Tests.Teams.Mentor.TeamMentorProofRig.WriteOneTeamWeek_AndDumpTheStoredRows [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.Mentor.TeamMentorProofRig.WriteOneTeamWeek_AndDumpTheStoredRows [1 ms]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_that_omits_the_tenant_is_refused [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_only_whitespace_is_refused [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_row_whose_tenant_is_a_spelling_production_mints_is_still_stored [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_empty_is_refused [SKIP]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_that_omits_the_tenant_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_only_whitespace_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_row_whose_tenant_is_a_spelling_production_mints_is_still_stored [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_empty_is_refused [1 ms]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant [SKIP]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant [1 ms]
+[xUnit.net 00:02:49.37]     CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [SKIP]
+  Skipped CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [1 ms]
+[xUnit.net 00:05:04.89]     CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:05:11.42]     CcDirector.Gateway.Tests.Teams.TeamReportsProofRig.ServeTheTeamReportsPage_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamReportsProofRig.ServeTheTeamReportsPage_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:05:27.12]     CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [1 ms]
+
+Passed!  - Failed:     0, Passed:  9525, Skipped:    14, Total:  9539, Duration: 7 m 14 s - CcDirector.Gateway.UnitTests.dll (net10.0)

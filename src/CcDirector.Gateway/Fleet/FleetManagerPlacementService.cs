@@ -16,6 +16,11 @@ internal interface IFleetManagerPlacementEnvironment
     /// <summary>The account's fresh roster, with the Director each session is on.</summary>
     IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant);
 
+    /// <summary>Whether the row a Director pushed for a session is THAT session's row - the session store's one answer to
+    /// which Director holds it (<see cref="Streaming.PushedSessionStore.IsHoldersRow"/>). In a team a colleague's Director
+    /// can list the session's id too, and is never the one closed (devthrottle_internal#2311).</summary>
+    bool IsHoldersRow(TenantId tenant, string directorId, string sessionId);
+
     /// <summary>The agents a running Director offers, or null when they cannot be read.</summary>
     Task<IReadOnlyList<AgentChoiceDto>?> AgentsOfferedAsync(TenantId tenant, string directorId, CancellationToken ct);
 
@@ -716,7 +721,7 @@ internal sealed class FleetManagerPlacementService : IDisposable
                 if (cleared is not { } byGateway || !SameId(byGateway.SessionId, replaces))
                     return Abandon(tenant, $"the mark on {replaces} was removed by hand while {successorId} waited; "
                                            + "nobody is marked by the replacement and nothing is closed");
-                if (IsGone(Find(_env.Roster(tenant), successorId).Session))
+                if (IsGone(Find(tenant, _env.Roster(tenant), successorId).Session))
                     return Abandon(tenant, $"the new Fleet Manager {successorId} ended before it took over; nobody is marked");
                 return Promote(tenant, successorId, $"the Gateway unmarked {replaces} ({byGateway.Reason})");
             }
@@ -732,10 +737,10 @@ internal sealed class FleetManagerPlacementService : IDisposable
                                        + $"not marked and {oldId} is left alone");
 
             var roster = _env.Roster(tenant);
-            if (IsGone(Find(roster, successorId).Session))
+            if (IsGone(Find(tenant, roster, successorId).Session))
                 return Abandon(tenant, $"the new Fleet Manager {successorId} ended before it took over; {oldId} stays the Fleet Manager");
 
-            var old = Find(roster, oldId);
+            var old = Find(tenant, roster, oldId);
             if (old.Session is null)
                 return Wait(idleSeen, $"{oldId} is not in this account's current roster (its Director is not reporting); it is not closed and stays marked");
             if (FleetManagerSessions.IsGone(old.Session))
@@ -813,9 +818,12 @@ internal sealed class FleetManagerPlacementService : IDisposable
         => Refuse(409, $"A restart or a move is already under way: the new Fleet Manager (session {successorId}) takes over "
                        + "once the one running now has finished its turn and closed. Wait for that, then try again.");
 
-    private static (string DirectorId, SessionDto? Session) Find(IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string id)
+    /// <summary>One session's row out of the whole roster: the first row for its id that is the HOLDER's row
+    /// (<see cref="IFleetManagerPlacementEnvironment.IsHoldersRow"/>). Outside a team every row is, so this is the first
+    /// row as before; in a team a colleague's Director that lists the id is never the row found - so never closed.</summary>
+    private (string DirectorId, SessionDto? Session) Find(TenantId tenant, IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string id)
     {
-        var hit = roster.FirstOrDefault(r => SameId(r.Session.SessionId, id));
+        var hit = roster.FirstOrDefault(r => SameId(r.Session.SessionId, id) && _env.IsHoldersRow(tenant, r.DirectorId, r.Session.SessionId));
         return (hit.DirectorId, hit.Session);
     }
 

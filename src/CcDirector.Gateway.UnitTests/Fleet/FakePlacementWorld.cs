@@ -47,6 +47,12 @@ internal sealed class FakePlacementWorld : IFleetManagerPlacementEnvironment
 
     IReadOnlyList<(string DirectorId, SessionDto Session)> IFleetManagerPlacementEnvironment.Roster(TenantId tenant) => Roster.ToList();
 
+    /// <summary>Which (directorId, sessionId) rows are the session's own; null takes every row, as outside a team.</summary>
+    public Func<string, string, bool>? HoldersRow { get; set; }
+
+    bool IFleetManagerPlacementEnvironment.IsHoldersRow(TenantId tenant, string directorId, string sessionId)
+        => HoldersRow?.Invoke(directorId, sessionId) ?? true;
+
     public Task<IReadOnlyList<AgentChoiceDto>?> AgentsOfferedAsync(TenantId tenant, string directorId, CancellationToken ct)
     {
         AgentListAskedOf.Add(directorId);

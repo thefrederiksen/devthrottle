@@ -1,0 +1,24 @@
+Test run for D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.68]   Discovering: CcDirector.Gateway.Tests
+2026-10-06 14:23:08 pid 78740: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+2026-10-06 14:23:08 pid 78740: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+[xUnit.net 00:00:02.13]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:02.15]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_APersonalTenant_TheOneDirectorListingTheMarkedSession_IsSentTheLessons [2 s]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_BothDirectorsListAlicesMarkedSession_OnlyAlicesDirectorIsSentTheLessons_OnAPushALessonsChangeAndAReconnect [9 s]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs [427 ms]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DirectorOf_OnlyBobsDirectorListsAlicesKeyedMarkedSession_TheLessonsGoToAlicesDirector_NeverBobs [9 s]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.ADevReportsNote_IsNeverDeliveredToAColleaguesDirector_AndIsDeliveredToTheOwners [678 ms]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.AHeldTypedPrompt_IsNeverAskedOfAColleaguesDirector_AndIsAskedOfTheOwners [546 ms]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.TheMarkedFleetManagerEvent_IsNeverTypedIntoAColleaguesDirector_AndIsTypedIntoTheOwners [228 ms]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.TheFleetManagersRetirementClose_IsNeverSentToAColleaguesDirector_AndIsSentToTheOwners [20 s]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.ATypedPrompt_NeverReachesAColleaguesDirectorThatListsTheSession_AndReachesTheOwners [257 ms]
+[xUnit.net 00:02:32.68]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.AWorkersDeath_IsRecordedForItsFleetManager_WhileOnlyAColleaguesDirectorStillListsIt [2 s]
+
+Test Run Successful.
+Total tests: 10
+     Passed: 10
+ Total time: 2.5647 Minutes
