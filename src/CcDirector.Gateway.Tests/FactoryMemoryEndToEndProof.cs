@@ -158,7 +158,7 @@ public sealed class FactoryMemoryEndToEndProof : IAsyncLifetime
         _gateway.Registry.Upsert(new DirectorRegistrationRequest
         {
             DirectorId = DirectorId, TailnetEndpoint = "", MachineName = "proof-mac", Pid = Environment.ProcessId,
-            Version = "factory-memory-proof", StartedAt = DateTime.UtcNow,
+            Version = "2.16.0-factory-memory-proof", StartedAt = DateTime.UtcNow,
         });
         _stream = new GatewayStreamClient(new GatewayConfig { Url = url, Token = Token, StreamMode = true },
             DirectorId, "factory-memory-proof",

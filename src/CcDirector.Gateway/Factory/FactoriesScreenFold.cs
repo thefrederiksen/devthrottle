@@ -159,7 +159,7 @@ public static class FactoriesScreenFold
                     .Select(r => FactoryAgentsFold.WaitingItem(r, zone)).ToList(),
                 EmptyText = open.Count == 0 ? "Nothing is waiting on you." : null,
             },
-            CeoLatest = CeoLatest(factory, ceo, input.Activity),
+            CeoLatest = CeoLatest(factory, ceo, input),
             LastTalk = LastTalk(factory, input.Talks, zone, now),
             DocumentsText = DocumentsText,
             TruncatedText = Truncated(input.Activity),
@@ -204,21 +204,24 @@ public static class FactoriesScreenFold
         };
     }
 
-    private static FactoryCeoLatestDto CeoLatest(RegisteredFactoryDto f, RegisteredFactorySeatDto? ceo, FactoryFoldInputs a)
+    private static FactoryCeoLatestDto CeoLatest(RegisteredFactoryDto f, RegisteredFactorySeatDto? ceo, FactoriesScreenInputs input)
     {
+        var a = input.Activity;
         var dto = new FactoryCeoLatestDto { Heading = "Latest from the CEO" };
         if (ceo is null)
         {
             dto.EmptyText = "This factory has no CEO.";
             return dto;
         }
+        var clock = SeatClock(SchedulesOf(ceo, input.Schedules), a.Zone);
+        if (clock.ZoneName is not null) dto.Heading += $" ({clock.ZoneName} time)";
         var lines = a.WindowRows
             .Where(r => SameId(r.Factory, f.Factory) && SameId(r.FactoryAgent, ceo.Id)
                         && r.Outcome is not FactoryActivityOutcome.Started and not FactoryActivityOutcome.NothingToDo
                             and not FactoryActivityOutcome.Paused and not FactoryActivityOutcome.Skipped)
             .OrderByDescending(r => r.OccurredUtc)
             .Take(CeoLines)
-            .Select(r => $"{When(r.OccurredUtc, a.Zone, a.NowUtc, capital: true)} - {r.What}")
+            .Select(r => $"{clock.When(r.OccurredUtc, a.NowUtc, capital: true, named: false)} - {r.What}")
             .ToList();
         dto.Lines = lines;
         dto.EmptyText = lines.Count == 0 ? $"Nothing from {ceo.Name} {WindowPhrase(a.Window)}." : null;
@@ -264,7 +267,8 @@ public static class FactoriesScreenFold
     {
         var a = input.Activity;
         var schedules = SchedulesOf(seat, input.Schedules);
-        var (lastText, lastTone) = LastRun(f, seat, schedules, a);
+        var clock = SeatClock(schedules, a.Zone);
+        var (lastText, lastTone) = LastRun(f, seat, schedules, a, clock);
         return new FactorySeatRowDto
         {
             SeatId = seat.Id,
@@ -295,7 +299,7 @@ public static class FactoriesScreenFold
     /// what that session's rows came to. "Not run yet" when neither has anything.
     /// </summary>
     private static (string Text, string Tone) LastRun(RegisteredFactoryDto f, RegisteredFactorySeatDto seat,
-        IReadOnlyList<CronJobDto> schedules, FactoryFoldInputs a)
+        IReadOnlyList<CronJobDto> schedules, FactoryFoldInputs a, Clock clock)
     {
         var rows = a.WindowRows.Where(r => SameId(r.Factory, f.Factory) && SameId(r.FactoryAgent, seat.Id)).ToList();
         var started = rows.Where(r => r.Outcome == FactoryActivityOutcome.Started).OrderByDescending(r => r.OccurredUtc).FirstOrDefault();
@@ -306,13 +310,13 @@ public static class FactoriesScreenFold
         // A firing newer than the newest start the record holds: that firing is the last run.
         if (fired is not null && (started is null || fired.LastFiredUtc!.Value > started.OccurredUtc.AddMinutes(5)))
         {
-            var when = When(fired.LastFiredUtc!.Value, a.Zone, a.NowUtc, capital: true);
+            var when = clock.When(fired.LastFiredUtc!.Value, a.NowUtc, capital: true);
             return fired.LastStatus is { } st && ScheduleFailedStatuses.Contains(st)
                 ? ($"{when} - did not start", FactoryTone.Red)
                 : ($"{when} - started", FactoryTone.Blue);
         }
 
-        var at = When(started!.OccurredUtc, a.Zone, a.NowUtc, capital: true);
+        var at = clock.When(started!.OccurredUtc, a.NowUtc, capital: true);
         var after = started.SessionId is null
             ? new List<FactoryActivityDto>()
             : rows.Where(r => r.SessionId == started.SessionId && r.Outcome != FactoryActivityOutcome.Started).ToList();
@@ -349,7 +353,7 @@ public static class FactoriesScreenFold
             .OrderByDescending(r => r.OccurredUtc).FirstOrDefault();
         if (failedRow is not null)
             return new(0, StatusFailing, FactoryTone.Red,
-                $"A run of {SeatName(f, failedRow.FactoryAgent)} failed {When(failedRow.OccurredUtc, a.Zone, a.NowUtc, capital: false)}: {failedRow.What}");
+                $"A run of {SeatName(f, failedRow.FactoryAgent)} failed {SeatClockOf(f, failedRow.FactoryAgent, input.Schedules, a.Zone).When(failedRow.OccurredUtc, a.NowUtc, capital: false)}: {failedRow.What}");
 
         var seatSchedules = f.Seats.SelectMany(s => SchedulesOf(s, input.Schedules).Select(j => (Seat: s, Job: j))).ToList();
         var notStarted = seatSchedules
@@ -357,7 +361,7 @@ public static class FactoriesScreenFold
             .OrderByDescending(x => x.Job.LastFiredUtc).FirstOrDefault();
         if (notStarted.Job is not null)
             return new(0, StatusFailing, FactoryTone.Red,
-                $"The schedule for {notStarted.Seat.Name} could not start its run {When(notStarted.Job.LastFiredUtc!.Value, a.Zone, a.NowUtc, capital: false)}.");
+                $"The schedule for {notStarted.Seat.Name} could not start its run {SeatClock(new[] { notStarted.Job }, a.Zone).When(notStarted.Job.LastFiredUtc!.Value, a.NowUtc, capital: false)}.");
 
         var waiting = open.Where(r => SameId(r.Factory, f.Factory)).ToList();
         if (waiting.Count > 0)
@@ -419,6 +423,45 @@ public static class FactoriesScreenFold
 
     private static string SeatName(RegisteredFactoryDto f, string seatId) =>
         f.Seats.FirstOrDefault(s => SameId(s.Id, seatId))?.Name ?? FactoryAgentsFold.Humanize(seatId);
+
+    /// <summary>
+    /// The zone one seat's times are told in, and its name when it is not the account's (live QA, 6 Oct 2026). A seat
+    /// runs by its schedule's clock, and its schedule is shown in that clock ("Daily 06:15 (America/Toronto)") - so
+    /// the run times beside it are too. Before this the schedule said 06:15 Toronto and the run beside it said 10:16,
+    /// the UTC time of the same run, and the seat read as four hours late.
+    ///
+    /// Why the schedule's zone and not the account's for the whole row: a schedule is a wall-clock time in its own
+    /// zone, and converting it to another zone is a different hour twice a year, so "Daily 10:15" would be wrong
+    /// half the time. A run time converts exactly. A seat whose schedules disagree on a zone has no single clock;
+    /// its schedules each name their own and its times are the account's.
+    /// </summary>
+    internal readonly record struct Clock(TimeZoneInfo Zone, string? ZoneName)
+    {
+        /// <summary><see cref="FactoriesScreenFold.When"/> in this clock, naming the zone when it is not the
+        /// account's - unless the caller has already named it once for a whole block.</summary>
+        public string When(DateTime utc, DateTime nowUtc, bool capital, bool named = true)
+        {
+            var text = FactoriesScreenFold.When(utc, Zone, nowUtc, capital);
+            return named && ZoneName is not null ? $"{text} ({ZoneName})" : text;
+        }
+    }
+
+    internal static Clock SeatClock(IReadOnlyList<CronJobDto> schedules, TimeZoneInfo accountZone)
+    {
+        var ids = schedules.Select(j => j.TimeZoneId?.Trim()).Where(id => !string.IsNullOrEmpty(id))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (ids.Count != 1) return new Clock(accountZone, null);
+        // A schedule's zone is checked when it is saved (CronSchedule.Validate), so an id that does not resolve here
+        // is a schedule this Gateway cannot run either; it is shown in the account's clock, and its own row names it.
+        if (!TimeZoneInfo.TryFindSystemTimeZoneById(ids[0]!, out var zone)) return new Clock(accountZone, null);
+        var same = string.Equals(zone.Id, accountZone.Id, StringComparison.OrdinalIgnoreCase) || zone.HasSameRules(accountZone);
+        return new Clock(zone, same ? null : ids[0]);
+    }
+
+    private static Clock SeatClockOf(RegisteredFactoryDto f, string seatId, IReadOnlyList<CronJobDto> all, TimeZoneInfo accountZone) =>
+        f.Seats.FirstOrDefault(s => SameId(s.Id, seatId)) is { } seat
+            ? SeatClock(SchedulesOf(seat, all), accountZone)
+            : new Clock(accountZone, null);
 
     private static List<CronJobDto> SchedulesOf(RegisteredFactorySeatDto seat, IReadOnlyList<CronJobDto> all) =>
         all.Where(j => seat.Schedules.Contains(j.Id, StringComparer.Ordinal)).ToList();

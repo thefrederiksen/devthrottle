@@ -171,6 +171,59 @@ internal static class SpawnFactory
         return true;
     }
 
+    /// <summary>The first Director release that reads <see cref="NewSessionRequest.Factory"/> on a create, stamps it
+    /// on the session and pushes it back (Factory Memory mission, phase 1, first shipped in v2.13.0).</summary>
+    internal static readonly Version FirstDirectorThatCarriesAFactory = new(2, 13, 0);
+
+    /// <summary>
+    /// The refusal for a create that names a factory and is going to a Director too old to carry one, or null when
+    /// the create may go. Live QA, 6 Oct 2026: a talk was sent to a v2.12.0 Director with its factory set, the
+    /// Director had no such field and dropped it without a word, and the session started in no factory - so it could
+    /// neither read nor write the factory's memory, and nothing on any screen said why. A factory is a fact the
+    /// session is born with and can never be given later, so the create is refused before it leaves, with a sentence
+    /// that says which Director and what to do, rather than started outside its factory.
+    ///
+    /// A Director whose version cannot be read is refused too: whether it carries a factory cannot be told, and a
+    /// session started on a guess could not be put back into its factory afterwards.
+    /// </summary>
+    internal static string? DirectorCannotCarry(NewSessionRequest req, DirectorDto director)
+    {
+        if (req?.Factory is null || director is null) return null;
+        var version = ReleaseOf(director.Version);
+        if (version is not null && version >= FirstDirectorThatCarriesAFactory) return null;
+
+        var name = string.IsNullOrWhiteSpace(director.MachineName) ? director.DirectorId : director.MachineName;
+        var shown = string.IsNullOrWhiteSpace(director.Version) ? "a version it does not report" : $"version {director.Version.Trim()}";
+        FileLog.Write($"[SpawnFactory] REFUSED a create in factory '{req.Factory}' to Director {director.DirectorId} on {name}: {shown} is older than {FirstDirectorThatCarriesAFactory}");
+        return $"The Director on {name} is {shown}, which cannot put a session into a factory, so no session was started " +
+               $"in '{req.Factory}'. Update this Director to {FirstDirectorThatCarriesAFactory.ToString(3)} or later and try again.";
+    }
+
+    /// <summary>
+    /// <see cref="DirectorCannotCarry(NewSessionRequest, DirectorDto)"/> for a door that knows the Director only by id
+    /// (the machine door, which learns it from the resolver). A door with no way to read the Director, or an id the
+    /// account does not hold, is refused for a create in a factory: what it cannot read it cannot vouch for.
+    /// </summary>
+    internal static string? DirectorCannotCarry(NewSessionRequest req, string directorId, Func<string, DirectorDto?>? directorOf)
+    {
+        if (req?.Factory is null) return null;
+        if (directorOf?.Invoke(directorId) is { } director) return DirectorCannotCarry(req, director);
+        FileLog.Write($"[SpawnFactory] REFUSED a create in factory '{req.Factory}' to Director {directorId}: its version cannot be read here");
+        return $"The Gateway cannot read which version Director {directorId} is, so it cannot tell whether that Director can " +
+               $"put a session into a factory, and no session was started in '{req.Factory}'.";
+    }
+
+    // "2.12.0", "v2.16.0", "2.16.0-rc1", "2.16.0+68fd9d7" -> the release; anything else -> null.
+    private static Version? ReleaseOf(string? reported)
+    {
+        var t = (reported ?? "").Trim();
+        if (t.StartsWith('v') || t.StartsWith('V')) t = t[1..];
+        var cut = t.IndexOfAny(new[] { '-', '+' });
+        if (cut >= 0) t = t[..cut];
+        if (!Version.TryParse(t, out var v)) return null;
+        return new Version(v.Major, v.Minor, Math.Max(v.Build, 0));
+    }
+
     /// <summary>
     /// WHICH FACTORY A HANDOVER'S TARGET IS BORN INTO: the source's, when the handover was asked for by a
     /// PERSON or by the SOURCE SESSION ITSELF, and otherwise none.
