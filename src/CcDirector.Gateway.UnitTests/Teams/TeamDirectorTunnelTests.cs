@@ -563,6 +563,34 @@ public sealed class TeamDirectorTunnelTests : IDisposable
 
     /// <summary>Register a session key for <paramref name="sessionId"/> over a Director's own tunnel, as a stock Director
     /// does when it creates the session, before the agent starts.</summary>
+    /// <summary>
+    /// #3552, the second #2309 reports test. A session's own routes are its owner's from its KEY ROW, not only from the
+    /// roster: the Director registers the key before it lists the session (#3558), and after a Gateway restart the roster
+    /// is empty until the Director reconnects while the key row is still in the database. Before the fix the gate answered
+    /// such a session Unknown - so its own key was refused its own reports (403 team_action_refused) - because it asked the
+    /// roster first. Now the key row decides, as ClaimOf does: the owner's, keyed and unlisted; still the owner's while a
+    /// colleague lists the id; never the colleague's.
+    /// </summary>
+    [Fact]
+    public void Whose_AKeyedSession_IsItsOwnersFromTheKeyRow_UnlistedOrListedByAColleague_AndNeverTheColleagues()
+    {
+        var bob = Hello(_teamA, Bob, "director-bob");
+        RegisterSessionKey(bob, "session-keyed");
+
+        // Keyed, not listed by anyone: the owner's, a colleague's not.
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-keyed"));
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-keyed"));
+
+        // A colleague's Director lists the id: still the owner's, still not the colleague's.
+        var alice = Hello(_teamA, Alice, "director-alice");
+        alice.Hub.PushSnapshot(1, new[] { new SessionDto { SessionId = "session-keyed" } });
+        Assert.Equal(TeamOwnership.Callers, Whose(_teamA, Bob, "session-keyed"));
+        Assert.Equal(TeamOwnership.SomeoneElses, Whose(_teamA, Alice, "session-keyed"));
+
+        // A session with no key row is still decided by the roster alone: unlisted is nobody's.
+        Assert.Equal(TeamOwnership.Unknown, Whose(_teamA, Bob, "session-never-keyed"));
+    }
+
     private static void RegisterSessionKey(Connected director, string sessionId) =>
         director.Hub.RegisterSessionKey(new SessionKeyRegistration
         {

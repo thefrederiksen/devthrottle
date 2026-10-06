@@ -22,8 +22,10 @@ namespace CcDirector.Gateway.Teams;
 /// from the device registry. The Director id in Hello is client-written, but inside a team it cannot be another
 /// member's: their id is their key's enrolled id, which a different person's key is refused under.</item>
 /// <item>A session - any route naming one by <c>{sid}</c>: <c>/sessions/{sid}/...</c>, its transcript, its prompts - is
-/// the caller's own only when EXACTLY ONE Director in the tenant holds that id in its roster and that Director is the
-/// caller's. The session ids in a roster are client-written: the roster accepts any id from any Director, so two
+/// the caller's own when its KEY ROW names a Director of the caller's (the durable record, written by the session's own
+/// Director before the session is listed, and never taken over), or, for a session with no key row, only when EXACTLY
+/// ONE Director in the tenant holds that id in its roster and that Director is the caller's. The session ids in a roster
+/// are client-written: the roster accepts any id from any Director, so two
 /// Directors holding one id is not a session anyone can be said to own, and it is answered Unknown and refused - never
 /// the first one found. The roster itself does not refuse the duplicate: a roster that kept the first writer would let a
 /// Director that pushed a colleague's id first hide the colleague's own session from them.
@@ -112,25 +114,35 @@ public sealed class TeamCallerOwnership
             return OwnerOfReport(tenant, routeValue("reportId"), callerSubject);
 
         // Any route that names a session by {sid} - the session family, its transcript, its prompts - touches that one
-        // session. It is someone's only when exactly one Director in the tenant holds it.
+        // session. Whose Director it is comes from the one rule ClaimOf uses: the session's KEY ROW when there is one -
+        // the durable record, written by its own Director before the session is listed (#3558), and never taken over -
+        // and only without one, the one Director in the tenant that holds it. A keyed session is therefore its owner's
+        // even while no Director lists it (between its key and its listing, or after a Gateway restart until its
+        // Director reconnects) and while a colleague lists its id too (#3552 review, the second #2309 reports test).
+        // The stored conversation is then checked as before.
         var sessionId = routeValue("sid");
         if (!string.IsNullOrWhiteSpace(sessionId))
         {
-            var holders = _sessions.DirectorsHoldingSession(tenant, sessionId);
-            if (holders.Count == 0)
+            var director = SessionKeyDirectorOf(tenant, sessionId);
+            if (director is null)
             {
-                FileLog.Write($"[TeamCallerOwnership] Whose: session {sessionId} is not known in tenant {tenant.ToLogString()} - unknown");
-                return TeamOwnership.Unknown;
+                var holders = _sessions.DirectorsHoldingSession(tenant, sessionId);
+                if (holders.Count == 0)
+                {
+                    FileLog.Write($"[TeamCallerOwnership] Whose: session {sessionId} has no key row and is not known in tenant {tenant.ToLogString()} - unknown");
+                    return TeamOwnership.Unknown;
+                }
+                if (holders.Count > 1)
+                {
+                    FileLog.Write($"[TeamCallerOwnership] Whose: session {sessionId} has no key row and is held by {holders.Count} Directors in tenant {tenant.ToLogString()} - unknown");
+                    return TeamOwnership.Unknown;
+                }
+                director = holders[0];
             }
-            if (holders.Count > 1)
-            {
-                FileLog.Write($"[TeamCallerOwnership] Whose: session {sessionId} is held by {holders.Count} Directors in tenant {tenant.ToLogString()} - unknown");
-                return TeamOwnership.Unknown;
-            }
-            var live = OwnerOfDirector(tenant, holders[0], callerSubject, "session");
+            var live = OwnerOfDirector(tenant, director, callerSubject, "session");
             if (live != TeamOwnership.Callers)
                 return live;
-            return OwnerOfStoredConversation(tenant, sessionId, holders[0], callerSubject);
+            return OwnerOfStoredConversation(tenant, sessionId, director, callerSubject);
         }
 
         return TeamOwnership.Unknown;
