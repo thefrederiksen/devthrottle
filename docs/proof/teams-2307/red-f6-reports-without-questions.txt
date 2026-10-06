@@ -1,0 +1,19 @@
+RED PROOF: f6-reports-without-questions
+Rule: Review F6: the Reports page is never built without its Questions collaborator.
+File: src/CcDirector.Gateway/Api/TeamReportEndpoints.cs
+
+Mutation - replaced:
+        _questions = questions ?? throw new ArgumentNullException(nameof(questions));
+with:
+        _questions = questions!;
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.TeamReports_NullDependencies_Throw [252 ms]
+   Assert.Throws() Failure: No exception was thrown
+Expected: typeof(System.ArgumentNullException)
+Failed!  - Failed:     1, Passed:   106, Skipped:     0, Total:   107, Duration: 21 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.

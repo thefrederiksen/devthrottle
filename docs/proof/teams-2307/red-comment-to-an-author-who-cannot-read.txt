@@ -11,10 +11,10 @@ Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedNam
 Exit code: 1
 Output (the lines that say what failed):
   CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
-  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_WhenTheAskerCanNoLongerReadComments_AWordedAnswerIsRefused_AndAChoiceAloneStillGoes [256 ms]
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_WhenTheAskerCanNoLongerReadComments_AWordedAnswerIsRefused_AndAChoiceAloneStillGoes [228 ms]
    Assert.Equal() Failure: Values differ
 Expected: 409
 Actual:   200
-Failed!  - Failed:     1, Passed:    91, Skipped:     0, Total:    92, Duration: 18 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+Failed!  - Failed:     1, Passed:   106, Skipped:     0, Total:   107, Duration: 21 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
-Restored from the committed tree afterwards; git diff on the file is empty.
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

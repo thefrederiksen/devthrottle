@@ -15,4 +15,4 @@ Output (the lines that say what failed):
 ??????? Failed Tests 1 ???????
  FAIL  src/teams/collaborator/reportsPage.test.tsx > a report sent to you > Open_QuestionsWaitOnTheReader_TheGatewaysLineLinksToTheQuestionsPage
 
-Restored from the committed tree afterwards; git diff on the file is empty.
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

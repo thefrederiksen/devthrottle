@@ -1,0 +1,23 @@
+RED PROOF: f8-cockpit-builds-the-count-path
+Rule: Review F8: the count beside Questions is read only where the Gateway's page descriptor says.
+File: apps/cockpit/src/teams/useTeamPageCounts.ts
+
+Mutation - replaced:
+        void getPageCount(page.countPath!, controller.signal).then(
+with:
+        void getPageCount(`/teams/${team!.id}/questions`, controller.signal).then(
+
+Command: npx vitest run src/teams/collaborator/collaboratorApp.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ Test Files  1 failed (1)
+      Tests  2 failed | 40 passed (42)
+??????? Failed Tests 2 ???????
+ FAIL  src/teams/collaborator/collaboratorApp.test.tsx > The Collaborator's app > Count_TheGatewaysCount_ShowsBesideQuestions_ReadFromThePathTheGatewayNamed
+AssertionError: expected Set{ '/teams/team-dt/questions' } to deeply equal Set{ '/teams/team-dt/questions?odd-c?' }
+- Expected
+ FAIL  src/teams/collaborator/collaboratorApp.test.tsx > The Collaborator's app > Count_AWholeAppTeam_ShowsTheCountBesideItsQuestionsToo
+AssertionError: expected Set{ '/teams/team-paul/questions' } to deeply equal Set{ '/teams/team-paul/questions?odd?' }
+- Expected
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

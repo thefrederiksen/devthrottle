@@ -248,8 +248,7 @@ MUTATIONS = {
     "f8-rail-count-stale-after-an-answer": {
         "rule": "Review F8: the count beside Questions is read again the moment an answer is sent, so the rail never disagrees with the page.",
         "file": QPAGE,
-        "old": "      refreshTeamPageCounts();
-",
+        "old": "      refreshTeamPageCounts();\n",
         "new": "",
         "runs": [PAGE],
     },
@@ -288,6 +287,7 @@ def main():
         if mutated.count(old) != 1:
             sys.exit(f"ERROR: the mutation text for {name} is found {mutated.count(old)} times in {m['file']}, not once")
         mutated = mutated.replace(old, new)
+    not_a_result = None
     try:
         path.write_text(mutated, encoding="utf-8", newline="")
         for run in m["runs"]:
@@ -304,12 +304,18 @@ def main():
             lines += keep[:120]
             lines.append("")
             print(f"[exit] {result.returncode}", flush=True)
+            # A run the Gateway test lock refused, or whose test host died, exits non-zero with no test having run.
+            # That is not a red: refuse to record it, and keep whatever record was there.
+            if "[gateway-test-lock]" in out or "Test host process crashed" in out:
+                not_a_result = f"NOT A RESULT: {' '.join(cmd)} ran no test (the Gateway test lock refused it, or the test host died)"
     finally:
         # The exact bytes read before the mutation, written back without git: a restore that needs the index can be
         # stopped by another process holding its lock, and then the mutation would outlive the run.
         path.write_bytes(original)
     if subprocess.run(["git", "diff", "--quiet", "--", m["file"]], cwd=REPO).returncode != 0:
         sys.exit(f"ERROR: {m['file']} was not restored")
+    if not_a_result is not None:
+        sys.exit(f"ERROR: {not_a_result}; red-{name}.txt is left as it was")
     lines.append("Restored afterwards to the bytes read before the mutation; git diff on the file is empty.")
     (OUT / f"red-{name}.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines[-30:]))

@@ -1,0 +1,25 @@
+RED PROOF: f7-card-keeps-its-first-answer
+Rule: Review F7: a polled answer outranks the one the card was drawn with (the old card state, restored).
+File: apps/cockpit/src/teams/collaborator/QuestionsPage.tsx
+
+Mutation - replaced:
+  const [sent, setSent] = useState<TeamQuestion | null>(null);
+with:
+  const [sent, setSent] = useState<TeamQuestion | null>(question);
+
+Mutation - replaced:
+  const q = question.answer !== null ? question : (sent ?? question);
+with:
+  const q = sent !== null && sent.answer !== null ? sent : question;
+
+Command: npx vitest run src/teams/collaborator/questionsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > nothing waiting, and what was answered > Poll_AHeldAnswerThatBecomesDelivered_ShowsTheGatewaysNewState
+AssertionError: expected 'Odd held for the agent~h' to be 'Odd delivered to the agent~d' // Object.is equality
+Expected: "Odd delivered to the agent~d"
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

@@ -1,0 +1,18 @@
+RED PROOF: f1-answer-named-as-the-newest-version
+Rule: Review F1: a member's answer is delivered as the version they were sent, by that version's title, never as the report's newest.
+File: src/CcDirector.Gateway/DevReports/DevReportDelivery.cs
+
+Mutation - replaced:
+            foreach (var byVersion in group.GroupBy(i => i.SourceVersion ?? report.Version).OrderBy(g => g.Key))
+with:
+            foreach (var byVersion in group.GroupBy(i => report.Version).OrderBy(g => g.Key))
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_AnAnswerToTheVersionSent_IsDeliveredAsThatVersion_NotTheReportsNewest [169 ms]
+   Assert.Contains() Failure: Sub-string not found
+Failed!  - Failed:     1, Passed:   106, Skipped:     0, Total:   107, Duration: 13 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.

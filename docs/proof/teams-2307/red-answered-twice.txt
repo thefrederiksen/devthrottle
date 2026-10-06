@@ -1,20 +1,22 @@
 RED PROOF: answered-twice
-Rule: A second answer from the same person to the same question is refused and not sent again.
-File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
+Rule: A second answer from the same person to the same question is not taken - in the database, so two processes cannot both take one (review F2).
+File: src/CcDirector.Gateway/DevReports/DevReportStore.cs
 
 Mutation - replaced:
-            if (_store.AnswersBy(team, caller, [report.Id]).ContainsKey((report.Id, question.Id)))
+            if (answered)
+            {
 with:
-            if (_store.AnswersBy(team, caller, [report.Id]).ContainsKey((report.Id, question.Id)) && caller.Length < 0)
+            if (answered && answererSubject.Length < 0)
+            {
 
 Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
 Exit code: 1
 Output (the lines that say what failed):
   CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
-  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_ASecondAnswerFromTheSamePerson_IsRefused_AndNotSentAgain [402 ms]
-   Assert.Equal() Failure: Values differ
-Expected: 409
-Actual:   200
-Failed!  - Failed:     1, Passed:    91, Skipped:     0, Total:    92, Duration: 13 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddMemberAnswer_AnotherProcessTakesTheSamePersonsAnswerBetweenTheReadAndTheWrite_OnlyOneIsTaken [775 ms]
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_ASecondAnswerFromTheSamePerson_IsRefused_AndNotSentAgain [490 ms]
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddMemberAnswer_ASecondAnswerFromTheSamePerson_IsNotTaken_AndItsWordsAreNotStored [372 ms]
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_TheSendFailsOnceStarted_TheWordsStillReachThePerson_AndTheChoiceIsNeverSentTwice [369 ms]
+Failed!  - Failed:     4, Passed:   103, Skipped:     0, Total:   107, Duration: 19 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
 Restored from the committed tree afterwards; git diff on the file is empty.

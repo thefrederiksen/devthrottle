@@ -11,8 +11,8 @@ Command: npx vitest run src/teams/collaborator/questionsPage.test.tsx
 Exit code: 1
 Output (the lines that say what failed):
  Test Files  1 failed (1)
-      Tests  4 failed | 6 passed (10)
-??????? Failed Tests 4 ???????
+      Tests  5 failed | 7 passed (12)
+??????? Failed Tests 5 ???????
  FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Card_TheRecommendedOptionIsPicked_UntilThePersonPicksAnother
 AssertionError: expected [ false, false ] to deeply equal [ true, false ]
 - Expected
@@ -22,5 +22,8 @@ AssertionError: expected "spy" to be called 1 times, but got 0 times
  FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Card_TheGatewaySaysNoComment_OffersNoBox_AndSaysWhy
 AssertionError: expected true to be false // Object.is equality
 - Expected
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > nothing waiting, and what was answered > Poll_ANewerVersionOfTheQuestion_StartsAFreshCard_NoChoiceOrWordsCarriedOver
+AssertionError: expected [ [ '7', false ], [ '14', false ] ] to deeply equal [ [ '7', true ], [ '14', false ] ]
+- Expected
 
-Restored from the committed tree afterwards; git diff on the file is empty.
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

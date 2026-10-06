@@ -1,26 +1,24 @@
 RED PROOF: answers-replace-across-people
-Rule: A later answer replaces only the same person's waiting answer; two people's answers both reach the session.
+Rule: One person's answer never stands in for another's: two people's answers are both taken and both reach the session.
 File: src/CcDirector.Gateway/DevReports/DevReportStore.cs
 
 Mutation - replaced:
-           && string.Equals(row.AnswererSubject, answererSubject, StringComparison.Ordinal);
+                i.ReportId == report.Id && i.AnswererSubject == answererSubject && i.QuestionId == item.QuestionId
 with:
-           && true;
+                i.ReportId == report.Id && i.AnswererSubject != null && i.QuestionId == item.QuestionId
 
 Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
 Exit code: 1
 Output (the lines that say what failed):
   CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
-  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddItems_ALaterAnswerReplacesOnlyTheSamePersonsWaitingOne_AndADeliveredOneCountsPerPerson [383 ms]
-   Assert.All() Failure: 2 out of 3 items in the collection did not pass.
-     Error: Assert.Equal() Failure: Strings differ
-            Expected: "held"
-            Actual:   "replaced"
-     Error: Assert.Equal() Failure: Strings differ
-            Expected: "held"
-            Actual:   "replaced"
-  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_TwoPeopleAnswerTheSameQuestionWhileTheSessionWorks_NeitherReplacesTheOther_AndBothReachIt [294 ms]
-   Assert.Contains() Failure: Sub-string not found
-Failed!  - Failed:     2, Passed:    90, Skipped:     0, Total:    92, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_TwoPeopleAnswerTheSameQuestionWhileTheSessionWorks_NeitherReplacesTheOther_AndBothReachIt [284 ms]
+   Assert.Equal() Failure: Values differ
+Expected: 200
+Actual:   409
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddMemberAnswer_TwoPeople_EachHaveTheirOwn_AndTheOwnersAnswerIsUntouched [250 ms]
+   Assert.Equal() Failure: Values differ
+Expected: Stored
+Actual:   AlreadyAnswered
+Failed!  - Failed:     2, Passed:   105, Skipped:     0, Total:   107, Duration: 20 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
-Restored from the committed tree afterwards; git diff on the file is empty.
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

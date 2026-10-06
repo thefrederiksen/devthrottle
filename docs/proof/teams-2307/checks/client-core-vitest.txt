@@ -1,439 +1,447 @@
 
- RUN  v2.1.8 D:/ReposFred/devthrottle-teams-2307/packages/client-core
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.8 [39m[90mD:/ReposFred/devthrottle-teams-2307/packages/client-core[39m
 
- ✓ src/voice/voiceRowState.test.ts (18 tests) 7ms
- ✓ src/history/lineage.test.ts (20 tests) 12ms
- ✓ src/auth/accountStore.test.ts (24 tests) 14ms
- ✓ src/stats/statsClient.test.ts (21 tests) 70ms
- ✓ src/speech/localSpeech.test.ts (20 tests) 20ms
- ✓ src/sessions/ordering.test.ts (38 tests) 38ms
-stderr | src/dictation/recorder.test.ts > MicRecorder.snapshotFlushed > resolves via the backstop when the flush is never delivered, with what has arrived
-[MicRecorder] snapshotFlushed: no flush within 500ms; snapshotting what has arrived
+ [32m✓[39m src/voice/voiceRowState.test.ts [2m([22m[2m18 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m src/sessions/ordering.test.ts [2m([22m[2m38 tests[22m[2m)[22m[90m 41[2mms[22m[39m
+ [32m✓[39m src/history/lineage.test.ts [2m([22m[2m20 tests[22m[2m)[22m[90m 15[2mms[22m[39m
+[90mstderr[2m | src/dictation/recorder.test.ts[2m > [22m[2mMicRecorder.snapshotFlushed[2m > [22m[2mresolves via the backstop when the flush is never delivered, with what has arrived
+[22m[39m[MicRecorder] snapshotFlushed: no flush within 500ms; snapshotting what has arrived
 
-stderr | src/dictation/recorder.test.ts > MicRecorder.snapshotFlushed > resolves with what has arrived when requestData throws (a concurrent stop)
-[MicRecorder] snapshotFlushed: requestData failed: The MediaRecorder is in an invalid state.
+[90mstderr[2m | src/dictation/recorder.test.ts[2m > [22m[2mMicRecorder.snapshotFlushed[2m > [22m[2mresolves with what has arrived when requestData throws (a concurrent stop)
+[22m[39m[MicRecorder] snapshotFlushed: requestData failed: The MediaRecorder is in an invalid state.
 
- ✓ src/dictation/transcriptionAccuracy.test.ts (31 tests) 19ms
- ✓ src/sessions/tree.test.ts (17 tests) 14ms
- ✓ src/api/stopSession.test.ts (12 tests) 11ms
- ✓ src/recorder/ingestUpload.test.ts (12 tests) 84ms
- ✓ src/auth/enrollCallback.test.ts (9 tests) 13ms
- ✓ src/api/dictationSendTimeAndDelivering.test.ts (13 tests) 19ms
- ✓ src/teams/teamsClient.test.ts (16 tests) 30ms
- ✓ src/teams/teamLibraryClient.test.ts (16 tests) 32ms
- ✓ src/teams/mentorClient.test.ts (41 tests) 45ms
- ✓ src/terminal/stream.test.ts (10 tests) 15ms
- ✓ src/terminal/interactive.test.ts (20 tests) 28ms
-stderr | src/dictation/recorder.test.ts > MicRecorder.stop > stops and returns the clip even when the tail flush throws
-[MicRecorder] stop: tail flush failed: The MediaRecorder is in an invalid state.
+ [32m✓[39m src/auth/accountStore.test.ts [2m([22m[2m24 tests[22m[2m)[22m[90m 18[2mms[22m[39m
+ [32m✓[39m src/dictation/transcriptionAccuracy.test.ts [2m([22m[2m31 tests[22m[2m)[22m[90m 20[2mms[22m[39m
+ [32m✓[39m src/stats/statsClient.test.ts [2m([22m[2m21 tests[22m[2m)[22m[90m 70[2mms[22m[39m
+ [32m✓[39m src/speech/localSpeech.test.ts [2m([22m[2m20 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/terminal/stream.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 15[2mms[22m[39m
+ [32m✓[39m src/api/stopSession.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/sessions/tree.test.ts [2m([22m[2m17 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/terminal/interactive.test.ts [2m([22m[2m20 tests[22m[2m)[22m[90m 31[2mms[22m[39m
+ [32m✓[39m src/recorder/ingestUpload.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 82[2mms[22m[39m
+ [32m✓[39m src/auth/enrollCallback.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/api/dictationSendTimeAndDelivering.test.ts [2m([22m[2m13 tests[22m[2m)[22m[90m 20[2mms[22m[39m
+ [32m✓[39m src/teams/teamLibraryClient.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 35[2mms[22m[39m
+ [32m✓[39m src/teams/teamsClient.test.ts [2m([22m[2m19 tests[22m[2m)[22m[90m 38[2mms[22m[39m
+ [32m✓[39m src/teams/mentorClient.test.ts [2m([22m[2m41 tests[22m[2m)[22m[90m 44[2mms[22m[39m
+ [32m✓[39m src/api/errorReporting.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m✓[39m src/fleet/rosterClockFields.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 28[2mms[22m[39m
+ [32m✓[39m src/fleet/rosterRetention.test.ts [2m([22m[2m24 tests[22m[2m)[22m[90m 18[2mms[22m[39m
+ [32m✓[39m src/auth/enrollRequest.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mthe empty-capture gate (an empty recording must never enter the durable queue)[2m > [22m[2ma recording WITH audio is untouched by the gate
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/recorder.test.ts > MicRecorder.stop > does not ask for a flush when the recorder is no longer recording
-[MicRecorder] stop: the recorder was already inactive; returning the chunks it delivered
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mbackgroundTranscribeAndSend[2m > [22m[2mpersists the audio to the durable store BEFORE any network work
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/recorder.test.ts > MicRecorder.stop tail > returns the delivered chunks when the recorder goes inactive on its own during the tail
-[MicRecorder] stop: the recorder was already inactive; returning the chunks it delivered
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mbackgroundTranscribeAndSend[2m > [22m[2mremoves the durable copy on a terminal submitted outcome (the queue does not accumulate)
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
- ✓ src/dictation/recorder.test.ts (27 tests) 818ms
- ✓ src/api/errorReporting.test.ts (14 tests) 19ms
- ✓ src/fleet/rosterClockFields.test.ts (11 tests) 27ms
- ✓ src/auth/enrollRequest.test.ts (15 tests) 11ms
- ✓ src/history/historyLinks.test.ts (44 tests) 17ms
- ✓ src/auth/accountIsolation.test.ts (10 tests) 13ms
- ✓ src/fleet/rosterRetention.test.ts (24 tests) 18ms
- ✓ src/api/dictationUnreadableRecord.test.ts (6 tests) 17ms
- ✓ src/api/client.test.ts (11 tests) 15ms
- ✓ src/api/newSession.test.ts (6 tests) 20ms
- ✓ src/voice/rowVoiceInputs.test.ts (7 tests) 7ms
- ✓ src/push/enablePush.test.ts (9 tests) 15ms
- ✓ src/api/enroll.test.ts (8 tests) 10ms
- ✓ src/teams/teamFleetMapClient.test.ts (15 tests) 31ms
- ✓ src/stats/statsClient.contract.test.ts (8 tests) 67ms
- ✓ src/polling/pollingStore.test.ts (7 tests) 97ms
- ✓ src/api/dictationOutcomeRead.test.ts (12 tests) 19ms
- ✓ src/speech/oneSpeechPath.test.ts (3 tests) 313ms
- ✓ src/teams/teamReportsClient.test.ts (14 tests) 30ms
- ✓ src/dictation/micQuality.test.ts (27 tests) 2084ms
- ✓ src/settings/tabs.test.ts (16 tests) 14ms
- ✓ src/factory/factoryMemoryClient.test.ts (7 tests) 22ms
-stderr | src/dictation/backgroundSend.test.ts > the empty-capture gate (an empty recording must never enter the durable queue) > a recording WITH audio is untouched by the gate
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mbackgroundTranscribeAndSend[2m > [22m[2mkeeps the audio and publishes a held, retryable status on a non-terminal outcome - never deletes it
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > persists the audio to the durable store BEFORE any network work
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mbackgroundTranscribeAndSend[2m > [22m[2mpasses resumed=false on the very first immediate send
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > removes the durable copy on a terminal submitted outcome (the queue does not accumulate)
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mbackgroundTranscribeAndSend[2m > [22m[2mfails loudly (no silent one-shot) when durable storage is unavailable
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > keeps the audio and publishes a held, retryable status on a non-terminal outcome - never deletes it
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mparking permanently-failed clips (#1184)[2m > [22m[2mparks on a permanent outcome: persists the parked reason, keeps the audio, shows the saved-and-retryable message, and STOPS the auto-loop
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > passes resumed=false on the very first immediate send
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mparking permanently-failed clips (#1184)[2m > [22m[2man EMPTY recording parks with its own honest sentence, not the too-long one
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > backgroundTranscribeAndSend > fails loudly (no silent one-shot) when durable storage is unavailable
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mparking permanently-failed clips (#1184)[2m > [22m[2ma transient failure still auto-retries and is never parked (no regression)
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > parking permanently-failed clips (#1184) > parks on a permanent outcome: persists the parked reason, keeps the audio, shows the saved-and-retryable message, and STOPS the auto-loop
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2ma terminal outcome that did NOT submit is never silent (#1590)[2m > [22m[2ma moved-on drop stays VISIBLE, carries the transcript back, and never auto-clears
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > parking permanently-failed clips (#1184) > an EMPTY recording parks with its own honest sentence, not the too-long one
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2ma terminal outcome that did NOT submit is never silent (#1590)[2m > [22m[2ma moved-on drop persists the words durably so they survive a reload
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > parking permanently-failed clips (#1184) > a transient failure still auto-retries and is never parked (no regression)
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2ma terminal outcome that did NOT submit is never silent (#1590)[2m > [22m[2ma drop BEFORE transcription keeps the audio and offers a retry instead of words
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > a moved-on drop stays VISIBLE, carries the transcript back, and never auto-clears
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2ma terminal outcome that did NOT submit is never silent (#1590)[2m > [22m[2man empty clip says nothing was heard, visibly and dismissibly, with nothing to retry
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > a moved-on drop persists the words durably so they survive a reload
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2ma terminal outcome that did NOT submit is never silent (#1590)[2m > [22m[2man ABANDONED outcome stays silent - the user did that on purpose
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > a drop BEFORE transcription keeps the audio and offers a retry instead of words
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2ma terminal outcome that did NOT submit is never silent (#1590)[2m > [22m[2ma delivered turn still shows done and drops the audio (no regression)
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > an empty clip says nothing was heard, visibly and dismissibly, with nothing to retry
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mthe Send time rides every complete call (voice delivery, #3398)[2m > [22m[2mthe first attempt carries the Send press time, not the moment the record was saved
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > an ABANDONED outcome stays silent - the user did that on purpose
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mthe Send time rides every complete call (voice delivery, #3398)[2m > [22m[2ma resumed retry carries the SAME Send time as the first attempt
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > a terminal outcome that did NOT submit is never silent (#1590) > a delivered turn still shows done and drops the audio (no regression)
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mthe Send time rides every complete call (voice delivery, #3398)[2m > [22m[2ma fresh Send never writes a byte baseline to the durable record
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > the Send time rides every complete call (voice delivery, #3398) > the first attempt carries the Send press time, not the moment the record was saved
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mstill delivering (a 202 from the Gateway, voice delivery #3398)[2m > [22m[2mkeeps the copy, shows Still delivering (not a failure, no fresh-id retry), and never completes it again
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > the Send time rides every complete call (voice delivery, #3398) > a resumed retry carries the SAME Send time as the first attempt
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mstill delivering (a 202 from the Gateway, voice delivery #3398)[2m > [22m[2ma 202 followed by a delivered outcome ends in done with the copy deleted
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > the Send time rides every complete call (voice delivery, #3398) > a fresh Send never writes a byte baseline to the durable record
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mthe not-sent wording follows the Gateway's reason (voice delivery, #3398)[2m > [22m[2mtoo old: keeps the copy, shows the words and Send anyway, with the age wording
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > still delivering (a 202 from the Gateway, voice delivery #3398) > keeps the copy, shows Still delivering (not a failure, no fresh-id retry), and never completes it again
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mthe not-sent wording follows the Gateway's reason (voice delivery, #3398)[2m > [22m[2msession exited: the ended-session label with the words, and no Send anyway (QA F4, phase 5)
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > still delivering (a 202 from the Gateway, voice delivery #3398) > a 202 followed by a delivered outcome ends in done with the copy deleted
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mthe not-sent wording follows the Gateway's reason (voice delivery, #3398)[2m > [22m[2msession exited with no words: the ended-session label that points at the saved recording
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > the not-sent wording follows the Gateway's reason (voice delivery, #3398) > too old: keeps the copy, shows the words and Send anyway, with the age wording
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mthe not-sent wording follows the Gateway's reason (voice delivery, #3398)[2m > [22m[2mno reason: the generic wording, without the words moved on
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > the not-sent wording follows the Gateway's reason (voice delivery, #3398) > session exited: the ended-session label with the words, and no Send anyway (QA F4, phase 5)
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mthe not-sent wording follows the Gateway's reason (voice delivery, #3398)[2m > [22m[2mtoo old with no words: the recording is kept for a fresh-id retry, with the age wording
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > the not-sent wording follows the Gateway's reason (voice delivery, #3398) > session exited with no words: the ended-session label that points at the saved recording
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mcould not confirm it arrived (phase 2, change 1)[2m > [22m[2mC1: keeps the copy, shows the words with the label, offers no Send anyway, and never retries
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > the not-sent wording follows the Gateway's reason (voice delivery, #3398) > no reason: the generic wording, without the words moved on
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mcould not confirm it arrived (phase 2, change 1)[2m > [22m[2mC1: too old with the Gateway's offer still offers Send anyway
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
-stderr | src/dictation/backgroundSend.test.ts > the not-sent wording follows the Gateway's reason (voice delivery, #3398) > too old with no words: the recording is kept for a fresh-id retry, with the age wording
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
-
-stderr | src/dictation/backgroundSend.test.ts > could not confirm it arrived (phase 2, change 1) > C1: keeps the copy, shows the words with the label, offers no Send anyway, and never retries
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
-
-stderr | src/dictation/backgroundSend.test.ts > could not confirm it arrived (phase 2, change 1) > C1: too old with the Gateway's offer still offers Send anyway
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
-
-stderr | src/dictation/backgroundSend.test.ts > could not confirm it arrived (phase 2, change 1) > C1: nothing can send an unconfirmed recording - not Send anyway, not a fresh-id Retry, not Upload now
-[backgroundSend] Send anyway refused for id-unconfirmed-guard: the Gateway did not offer it
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mcould not confirm it arrived (phase 2, change 1)[2m > [22m[2mC1: nothing can send an unconfirmed recording - not Send anyway, not a fresh-id Retry, not Upload now
+[22m[39m[backgroundSend] Send anyway refused for id-unconfirmed-guard: the Gateway did not offer it
 [backgroundSend] Retry refused for id-unconfirmed-guard: the Gateway did not offer it
 [backgroundSend] Retry refused for id-unconfirmed-guard: the Gateway did not offer it
 
-stderr | src/dictation/backgroundSend.test.ts > could not confirm it arrived (phase 2, change 1) > C1: a shown-back answer without the Gateway's offer keeps the copy and is logged with the upload id
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
+[90mstderr[2m | src/dictation/backgroundSend.test.ts[2m > [22m[2mcould not confirm it arrived (phase 2, change 1)[2m > [22m[2mC1: a shown-back answer without the Gateway's offer keeps the copy and is logged with the upload id
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): window is not defined
 
- ✓ src/dictation/backgroundSend.test.ts (68 tests) 156ms
- ✓ src/sessions/supervision.test.ts (17 tests) 12ms
- ✓ src/sessions/tree.agreement.test.ts (64 tests) 41ms
- ✓ src/api/dictationDedupe.test.ts (4 tests) 10ms
- ✓ src/api/transcriptionFailureMessage.test.ts (14 tests) 8ms
- ✓ src/api/dictationEmptyAudio.test.ts (3 tests) 10ms
- ✓ src/api/promptOutcomeRead.test.ts (11 tests) 20ms
- ✓ src/api/voiceModeAll.test.ts (7 tests) 12ms
- ✓ src/sessions/snoozeAction.test.ts (8 tests) 8ms
- ✓ src/history/myPromptsOnly.test.ts (9 tests) 10ms
- ✓ src/voice/queueTouch.test.ts (9 tests) 26ms
- ✓ src/dictation/composerProvenance.test.ts (9 tests) 10ms
- ✓ src/dictation/deviceIdentity.test.ts (10 tests) 7ms
- ✓ src/api/dictation402Copy.test.ts (5 tests) 11ms
- ✓ src/dictation/readyCue.test.ts (5 tests) 9ms
- ✓ src/sessions/delivery.test.ts (16 tests) 8ms
- ✓ src/history/fileTypes.test.ts (61 tests) 12ms
- ✓ src/api/handover.test.ts (5 tests) 13ms
- ✓ src/voice/reportClipPlaying.test.ts (5 tests) 60ms
- ✓ src/history/chatView.test.ts (9 tests) 34ms
- ✓ src/fleet/messageLinksClient.test.ts (7 tests) 10ms
- ✓ src/voice/voiceQueue.test.ts (5 tests) 6ms
- ✓ src/history/conversationTail.test.ts (7 tests) 91ms
- ✓ src/api/gatewayError.test.ts (8 tests) 7ms
- ✓ src/sessions/filter.test.ts (16 tests) 27ms
- ✓ src/api/dictationCaptureHealthForward.test.ts (2 tests) 10ms
- ✓ src/fleet/fleetClient.test.ts (10 tests) 12ms
- ✓ src/polling/clock.test.ts (4 tests) 6ms
- ✓ src/sessions/sessionColours.test.ts (10 tests) 9ms
- ✓ src/learning/learningClient.test.ts (5 tests) 11ms
- ✓ src/api/reasonBodyIsRead.test.ts (4 tests) 12ms
- ✓ src/api/gatewayFetchTimeout.test.ts (4 tests) 12ms
- ✓ src/dictation/dictionaryEdits.test.ts (10 tests) 7ms
- ✓ src/fleetmanager/walkthroughActions.test.ts (6 tests) 11ms
- ✓ src/settings/snoozeFormat.test.ts (16 tests) 10ms
- ✓ src/history/historyMarkdown.test.ts (10 tests) 30ms
- ✓ src/dictation/platform.test.ts (7 tests) 6ms
- ✓ src/sessions/wingmanNowWordsAreTheGateways.test.ts (19 tests) 8ms
- ✓ src/teams/requestsClient.test.ts (5 tests) 20ms
- ✓ src/settings/snoozeMenu.test.ts (10 tests) 10ms
- ✓ src/teams/invitationsClient.test.ts (4 tests) 14ms
- ✓ src/connection/health.test.ts (6 tests) 10ms
- ✓ src/dictation/pendingStore.test.ts (6 tests) 6ms
- ✓ src/recorder/uploadGate.test.ts (11 tests) 8ms
- ✓ src/sessions/model.test.ts (5 tests) 7ms
- ✓ src/dictation/qualityReport.test.ts (6 tests) 1274ms
-   ✓ measureDictationQuality > measures an ordinary dictation and reports the device it came from 320ms
-   ✓ measureDictationQuality > is JSON-safe even when a measurement is infinite 312ms
-   ✓ measureDictationQuality > copes with an unnamed microphone 302ms
- ✓ src/teams/teamQuestionsClient.test.ts (4 tests) 15ms
- ✓ src/sessions/stampedField.test.ts (4 tests) 7ms
- ✓ src/skills/skillsClient.test.ts (4 tests) 15ms
- ✓ src/dictation/status.test.ts (5 tests) 9ms
- ✓ src/dictation/captureHealth.test.ts (5 tests) 6ms
- ✓ src/sessions/changes.test.ts (10 tests) 7ms
- ✓ src/terminal/lineLinks.test.ts (5 tests) 10ms
- ✓ src/api/hold.test.ts (3 tests) 6ms
- ✓ src/recordings/recordingsClient.test.ts (5 tests) 10ms
- ✓ src/missions/missions.test.ts (6 tests) 13ms
- ✓ src/sessions/pinning.test.ts (5 tests) 7ms
- ✓ src/account/accountClient.test.ts (3 tests) 8ms
- ✓ src/teams/teamPageClient.test.ts (3 tests) 15ms
- ✓ src/transcription/transcriptionAnalysisClient.test.ts (4 tests) 5ms
- ✓ src/sessions/wingmanStops.test.ts (3 tests) 15ms
- ✓ src/dictation/wav.test.ts (4 tests) 6ms
- ✓ src/fleetmanager/handOverClient.test.ts (4 tests) 12ms
- ✓ src/fleet/directorEndpoint.test.ts (9 tests) 6ms
- ✓ src/sessions/screenshotGallery.test.ts (4 tests) 4ms
- ✓ src/push/register.test.ts (5 tests) 7ms
- ✓ src/fleet/reachability.test.ts (4 tests) 5ms
- ✓ src/fleet/settingsEditor.test.ts (6 tests) 5ms
- ✓ src/workflows/workflowsClient.test.ts (4 tests) 7ms
- ✓ src/fleetmanager/answerCard.test.ts (4 tests) 14ms
-stderr | src/errors/reportClientError.test.ts > client error report rate cap > admits up to the cap within one minute, then drops
-[client-errors] rate cap reached; further reports this minute stay local
+ [32m✓[39m src/dictation/backgroundSend.test.ts [2m([22m[2m68 tests[22m[2m)[22m[90m 118[2mms[22m[39m
+[90mstderr[2m | src/dictation/recorder.test.ts[2m > [22m[2mMicRecorder.stop[2m > [22m[2mstops and returns the clip even when the tail flush throws
+[22m[39m[MicRecorder] stop: tail flush failed: The MediaRecorder is in an invalid state.
 
-stderr | src/errors/reportClientError.test.ts > client error report rate cap > a new minute opens a fresh window
-[client-errors] rate cap reached; further reports this minute stay local
+[90mstderr[2m | src/dictation/recorder.test.ts[2m > [22m[2mMicRecorder.stop[2m > [22m[2mdoes not ask for a flush when the recorder is no longer recording
+[22m[39m[MicRecorder] stop: the recorder was already inactive; returning the chunks it delivered
 
-stderr | src/errors/reportClientError.test.ts > client error report rate cap > a render-loop burst cannot exceed the cap even across repeated calls
-[client-errors] rate cap reached; further reports this minute stay local
+[90mstderr[2m | src/dictation/recorder.test.ts[2m > [22m[2mMicRecorder.stop tail[2m > [22m[2mreturns the delivered chunks when the recorder goes inactive on its own during the tail
+[22m[39m[MicRecorder] stop: the recorder was already inactive; returning the chunks it delivered
 
- ✓ src/errors/reportClientError.test.ts (3 tests) 5ms
- ✓ src/recorder/segmentRecorder.test.ts (3 tests) 4ms
- ✓ src/dictation/recorderTimeout.test.ts (7 tests) 2109ms
-   ✓ startRecorderWithTimeout > says how long it waited, in seconds, so the message is actionable 2008ms
- ✓ src/devreports/frameHost.test.ts (17 tests) 91ms
-stderr | src/devreports/devReportNotes.test.ts > hosted, the app owns the conversation > draws no tray at all - no conversation, and no floating note controls over the report
-Error: Not implemented: window.scrollTo
+ [32m✓[39m src/dictation/recorder.test.ts [2m([22m[2m27 tests[22m[2m)[22m[33m 811[2mms[22m[39m
+ [32m✓[39m src/push/enablePush.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/api/newSession.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 21[2mms[22m[39m
+ [32m✓[39m src/history/historyLinks.test.ts [2m([22m[2m44 tests[22m[2m)[22m[90m 19[2mms[22m[39m
+ [32m✓[39m src/auth/accountIsolation.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/sessions/supervision.test.ts [2m([22m[2m17 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/settings/tabs.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/api/dictationUnreadableRecord.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/api/transcriptionFailureMessage.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/api/dictationEmptyAudio.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/api/client.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m✓[39m src/api/dictationOutcomeRead.test.ts [2m([22m[2m12 tests[22m[2m)[22m[90m 19[2mms[22m[39m
+ [32m✓[39m src/api/enroll.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/api/promptOutcomeRead.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 22[2mms[22m[39m
+ [32m✓[39m src/factory/factoryMemoryClient.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 20[2mms[22m[39m
+ [32m✓[39m src/voice/rowVoiceInputs.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m src/teams/teamFleetMapClient.test.ts [2m([22m[2m15 tests[22m[2m)[22m[90m 29[2mms[22m[39m
+ [32m✓[39m src/sessions/tree.agreement.test.ts [2m([22m[2m64 tests[22m[2m)[22m[90m 43[2mms[22m[39m
+ [32m✓[39m src/api/dictationDedupe.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/stats/statsClient.contract.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 64[2mms[22m[39m
+ [32m✓[39m src/dictation/micQuality.test.ts [2m([22m[2m27 tests[22m[2m)[22m[33m 1974[2mms[22m[39m
+ [32m✓[39m src/polling/pollingStore.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 105[2mms[22m[39m
+ [32m✓[39m src/teams/teamReportsClient.test.ts [2m([22m[2m14 tests[22m[2m)[22m[90m 30[2mms[22m[39m
+ [32m✓[39m src/sessions/snoozeAction.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m src/history/myPromptsOnly.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m src/voice/queueTouch.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 23[2mms[22m[39m
+ [32m✓[39m src/dictation/deviceIdentity.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/api/dictation402Copy.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m src/sessions/delivery.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/api/voiceModeAll.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/dictation/composerProvenance.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/dictation/readyCue.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/history/chatView.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 34[2mms[22m[39m
+ [32m✓[39m src/history/conversationTail.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 63[2mms[22m[39m
+ [32m✓[39m src/fleet/messageLinksClient.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m src/voice/voiceQueue.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/history/fileTypes.test.ts [2m([22m[2m61 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/api/handover.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/api/gatewayError.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/sessions/filter.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 26[2mms[22m[39m
+ [32m✓[39m src/voice/reportClipPlaying.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 69[2mms[22m[39m
+ [32m✓[39m src/speech/oneSpeechPath.test.ts [2m([22m[2m3 tests[22m[2m)[22m[33m 1773[2mms[22m[39m
+   [33m[2m✓[22m[39m the browser's one speech path[2m > [22mlets only the sanctioned sink reach the platform's speech engine [33m1027[2mms[22m[39m
+   [33m[2m✓[22m[39m the browser's one speech path[2m > [22mnever builds an utterance from a literal in product code [33m653[2mms[22m[39m
+ [32m✓[39m src/sessions/sessionColours.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m src/api/dictationCaptureHealthForward.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/fleet/fleetClient.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m src/history/historyMarkdown.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 34[2mms[22m[39m
+ [32m✓[39m src/api/reasonBodyIsRead.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m src/dictation/dictionaryEdits.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m src/settings/snoozeFormat.test.ts [2m([22m[2m16 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/polling/clock.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/settings/snoozeMenu.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/dictation/platform.test.ts [2m([22m[2m7 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m src/sessions/wingmanNowWordsAreTheGateways.test.ts [2m([22m[2m19 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/learning/learningClient.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m src/connection/health.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/api/gatewayFetchTimeout.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/fleetmanager/walkthroughActions.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/teams/invitationsClient.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 14[2mms[22m[39m
+ [32m✓[39m src/dictation/pendingStore.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/teams/requestsClient.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m✓[39m src/recorder/uploadGate.test.ts [2m([22m[2m11 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m src/dictation/qualityReport.test.ts [2m([22m[2m6 tests[22m[2m)[22m[33m 1247[2mms[22m[39m
+   [33m[2m✓[22m[39m measureDictationQuality[2m > [22mmeasures an ordinary dictation and reports the device it came from [33m361[2mms[22m[39m
+   [33m[2m✓[22m[39m measureDictationQuality[2m > [22mcopes with an unnamed microphone [33m302[2mms[22m[39m
+ [32m✓[39m src/sessions/stampedField.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m src/sessions/model.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m src/terminal/lineLinks.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m src/skills/skillsClient.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 15[2mms[22m[39m
+ [32m✓[39m src/teams/teamQuestionsClient.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 16[2mms[22m[39m
+ [32m✓[39m src/recordings/recordingsClient.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 10[2mms[22m[39m
+ [32m✓[39m src/api/hold.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/dictation/captureHealth.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m src/dictation/status.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m src/transcription/transcriptionAnalysisClient.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m src/missions/missions.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 11[2mms[22m[39m
+ [32m✓[39m src/sessions/pinning.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m src/sessions/changes.test.ts [2m([22m[2m10 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m src/fleetmanager/handOverClient.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 12[2mms[22m[39m
+ [32m✓[39m src/sessions/wingmanStops.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 17[2mms[22m[39m
+ [32m✓[39m src/account/accountClient.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/fleet/reachability.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m src/push/register.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/teams/teamPageClient.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/dictation/recorderTimeout.test.ts [2m([22m[2m7 tests[22m[2m)[22m[33m 2092[2mms[22m[39m
+   [33m[2m✓[22m[39m startRecorderWithTimeout[2m > [22msays how long it waited, in seconds, so the message is actionable [33m2008[2mms[22m[39m
+ [32m✓[39m src/sessions/screenshotGallery.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/dictation/wav.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+ [32m✓[39m src/fleet/directorEndpoint.test.ts [2m([22m[2m9 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m src/fleetmanager/answerCard.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 13[2mms[22m[39m
+ [32m✓[39m src/fleet/settingsEditor.test.ts [2m([22m[2m6 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+[90mstderr[2m | src/errors/reportClientError.test.ts[2m > [22m[2mclient error report rate cap[2m > [22m[2madmits up to the cap within one minute, then drops
+[22m[39m[client-errors] rate cap reached; further reports this minute stay local
+
+[90mstderr[2m | src/errors/reportClientError.test.ts[2m > [22m[2mclient error report rate cap[2m > [22m[2ma new minute opens a fresh window
+[22m[39m[client-errors] rate cap reached; further reports this minute stay local
+
+[90mstderr[2m | src/errors/reportClientError.test.ts[2m > [22m[2mclient error report rate cap[2m > [22m[2ma render-loop burst cannot exceed the cap even across repeated calls
+[22m[39m[client-errors] rate cap reached; further reports this minute stay local
+
+ [32m✓[39m src/errors/reportClientError.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m src/recorder/segmentRecorder.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 5[2mms[22m[39m
+ [32m✓[39m src/workflows/workflowsClient.test.ts [2m([22m[2m4 tests[22m[2m)[22m[90m 6[2mms[22m[39m
+[90mstderr[2m | src/devreports/devReportNotes.test.ts[2m > [22m[2mhosted, the app owns the conversation[2m > [22m[2mdraws no tray at all - no conversation, and no floating note controls over the report
+[22m[39mError: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
     at D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
     at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) [90mundefined[39m
 
-stderr | src/devreports/devReportNotes.test.ts > hosted, the app owns the conversation > is the RESTORE that takes Send away, not being framed: a framed page whose host never answers keeps it
-Error: Not implemented: window.scrollTo
+[90mstderr[2m | src/devreports/devReportNotes.test.ts[2m > [22m[2mhosted, the app owns the conversation[2m > [22m[2mis the RESTORE that takes Send away, not being framed: a framed page whose host never answers keeps it
+[22m[39mError: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
     at D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
     at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) [90mundefined[39m
 
-stderr | src/devreports/devReportNotes.test.ts > hosted, the app owns the conversation > tells the owner where the one Send is, in words true of either app and naming nothing internal
-Error: Not implemented: window.scrollTo
+[90mstderr[2m | src/devreports/devReportNotes.test.ts[2m > [22m[2mhosted, the app owns the conversation[2m > [22m[2mtells the owner where the one Send is, in words true of either app and naming nothing internal
+[22m[39mError: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
     at D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
     at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) [90mundefined[39m
 
-stderr | src/devreports/devReportNotes.test.ts > hosted, the app owns the conversation > hands the app the same state hosted as the page keeps unhosted - the panel still gets everything
-Error: Not implemented: window.scrollTo
+[90mstderr[2m | src/devreports/devReportNotes.test.ts[2m > [22m[2mhosted, the app owns the conversation[2m > [22m[2mhands the app the same state hosted as the page keeps unhosted - the panel still gets everything
+[22m[39mError: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
     at D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
     at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) [90mundefined[39m
 
-stderr | src/devreports/devReportNotes.test.ts > note-mode > arms picking when the app asks, and a click then opens the note box against what was clicked
-Error: Not implemented: window.scrollTo
+[90mstderr[2m | src/devreports/devReportNotes.test.ts[2m > [22m[2mnote-mode[2m > [22m[2marms picking when the app asks, and a click then opens the note box against what was clicked
+[22m[39mError: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
     at D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
     at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) [90mundefined[39m
 
-stderr | src/devreports/devReportNotes.test.ts > note-mode > cancels picking when the app asks
-Error: Not implemented: window.scrollTo
+[90mstderr[2m | src/devreports/devReportNotes.test.ts[2m > [22m[2mnote-mode[2m > [22m[2mcancels picking when the app asks
+[22m[39mError: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
     at D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
     at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) [90mundefined[39m
 
-stderr | src/devreports/devReportNotes.test.ts > note-mode > tells the app what the reader has selected, and notes it when the app asks
-Error: Not implemented: window.scrollTo
+ [32m✓[39m src/devreports/frameHost.test.ts [2m([22m[2m17 tests[22m[2m)[22m[90m 113[2mms[22m[39m
+[90mstderr[2m | src/devreports/devReportNotes.test.ts[2m > [22m[2mnote-mode[2m > [22m[2mtells the app what the reader has selected, and notes it when the app asks
+[22m[39mError: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
     at D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
     at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) [90mundefined[39m
 
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > after the Gateway acknowledged the complete (202), the client never drives the delivery again > timers far past the old cadence, the page becoming visible and the connection returning: no complete, no prompt - only reads
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > after the Gateway acknowledged the complete (202), the client never drives the delivery again > marks the record on disk as held by the Gateway, so a reload knows
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
- ✓ src/dictation/typedPromptDelivery.test.ts (28 tests) 118ms
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > after the Gateway acknowledged the complete (202), the client never drives the delivery again > reads on a modest timer while the page is visible, and not at all while it is hidden
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
- ✓ src/devreports/controller.test.ts (13 tests) 114ms
-stderr | src/devreports/devReportNotes.test.ts > note-mode > says where note-taking stands as soon as it is hosted, before anything is asked of it
-Error: Not implemented: window.scrollTo
+[90mstderr[2m | src/devreports/devReportNotes.test.ts[2m > [22m[2mnote-mode[2m > [22m[2msays where note-taking stands as soon as it is hosted, before anything is asked of it
+[22m[39mError: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
     at D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
     at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) [90mundefined[39m
 
-stderr | src/devreports/devReportNotes.test.ts > note-mode > ignores a note-mode message that is not one of the three modes
-Error: Not implemented: window.scrollTo
+[90mstderr[2m | src/devreports/devReportNotes.test.ts[2m > [22m[2mnote-mode[2m > [22m[2mignores a note-mode message that is not one of the three modes
+[22m[39mError: Not implemented: window.scrollTo
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
     at D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\Window.js:960:7
     at MessagePort.onHostMessage (eval at load (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\devreports\devReportNotes.test.ts:56:3), <anonymous>:1385:13)
     at MessagePort.eventHandler (node:internal/event_target:1111:12)
     at MessagePort.[nodejs.internal.kHybridDispatch] (node:internal/event_target:827:20)
-    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) undefined
+    at MessagePort.<anonymous> (node:internal/per_context/messageport:23:28) [90mundefined[39m
 
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 202: Still delivering, calm, with nothing that sends a second copy
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+ [32m✓[39m src/devreports/devReportNotes.test.ts [2m([22m[2m64 tests[22m[2m)[22m[33m 1708[2mms[22m[39m
+ [32m✓[39m src/sessions/WingmanNow.test.tsx [2m([22m[2m51 tests[22m[2m)[22m[33m 1429[2mms[22m[39m
+   [33m[2m✓[22m[39m Now - the live stop[2m > [22mdraws the everyday needs-you stop: the pill, when it stopped, the story, the agent's sentence and the needs card [33m477[2mms[22m[39m
+ [32m✓[39m src/devreports/controller.test.ts [2m([22m[2m13 tests[22m[2m)[22m[90m 114[2mms[22m[39m
+ [32m✓[39m src/dictation/typedPromptDelivery.test.ts [2m([22m[2m28 tests[22m[2m)[22m[90m 143[2mms[22m[39m
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mafter the Gateway acknowledged the complete (202), the client never drives the delivery again[2m > [22m[2mtimers far past the old cadence, the page becoming visible and the connection returning: no complete, no prompt - only reads
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 200 delivered: the copy is deleted and the send shows done
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mafter the Gateway acknowledged the complete (202), the client never drives the delivery again[2m > [22m[2mmarks the record on disk as held by the Gateway, so a reload knows
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 200 too old: the words and Send anyway, with the age wording, the copy kept
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mafter the Gateway acknowledged the complete (202), the client never drives the delivery again[2m > [22m[2mreads on a modest timer while the page is visible, and not at all while it is hidden
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 200 unconfirmed: the words, the label and Dismiss - no Send anyway, and nothing more is sent or read
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mrendering what /outcome says[2m > [22m[2m202: Still delivering, calm, with nothing that sends a second copy
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
- ✓ src/devreports/devReportNotes.test.ts (64 tests) 1394ms
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 200 session ended: the words, the ended-session label and Dismiss only - and it is final
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+ [32m✓[39m src/voice/useVoiceModeAll.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[90m 221[2mms[22m[39m
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mrendering what /outcome says[2m > [22m[2m200 delivered: the copy is deleted and the send shows done
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
 
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 200 session ended with no words: the ended-session label that points at the saved recording, Dismiss only
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > Dismiss on a session-ended record deletes the copy
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > rendering what /outcome says > 404 for a record the client marked as held: an error naming the upload id, the copy kept, nothing re-driven
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > before the Gateway owns it, the old retry is unchanged > a network error on the complete is retried as today
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > before the Gateway owns it, the old retry is unchanged > a 502 on the complete (the Gateway did not take it over) is retried as today
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > what the Gateway handed back (voice delivery phase 5, review round) > out of credits: the held strip with the Gateway's copy, Retry, and a later complete delivers once
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > what the Gateway handed back (voice delivery phase 5, review round) > a permanent failure: parked with Retry, and an explicit Retry re-drives it
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
-stderr | src/dictation/backgroundSendGatewayOwns.test.ts > what the Gateway handed back (voice delivery phase 5, review round) > an incomplete upload: the client resumes its own chunk upload and delivers
-[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
-
- ✓ src/dictation/backgroundSendGatewayOwns.test.ts (27 tests) 172ms
-stderr | src/settings/FleetManagerTab.test.tsx > the Fleet Manager tab > shows a loading line before the Gateway answers
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+[90mstderr[2m | src/settings/FleetManagerTab.test.tsx[2m > [22m[2mthe Fleet Manager tab[2m > [22m[2mshows a loading line before the Gateway answers
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/auth/accountsLayout.test.tsx (7 tests) 406ms
- ✓ src/voice/useVoiceModeAll.test.tsx (10 tests) 272ms
- ✓ src/sessions/wingmanNowWireSample.test.tsx (9 tests) 431ms
-   ✓ Now, rendered from the answer the Gateway actually sends > draws a needs-you answer with no option buttons, because the Gateway sends none 319ms
- ✓ src/restart/RestartRequestsPanel.test.tsx (10 tests) 502ms
- ✓ src/voice/voiceMenuGuard.test.tsx (7 tests) 81ms
- ✓ src/auth/AccountsPanel.test.tsx (15 tests) 865ms
- ✓ src/sessions/WingmanNow.test.tsx (51 tests) 1209ms
- ✓ src/sessions/WingmanErrorLine.test.tsx (11 tests) 567ms
- ✓ src/sessions/WingmanTab.test.tsx (9 tests) 1006ms
- ✓ src/sessions/VerdictPanel.test.tsx (21 tests) 1226ms
- ✓ src/sessions/wingmanTabViews.test.tsx (12 tests) 1392ms
-   ✓ the Wingman tab's views > opens on Now, fed by the Now route, with History beside it 536ms
- ✓ src/devreports/DevReportViews.test.tsx (11 tests) 467ms
-stderr | src/sessions/ColourLegend.test.tsx > ColourLegendPanel > says the read failed, and draws no colours, when the Gateway refuses
-[sessionColours] the colour legend could not be read GatewayError: boom
-    at Function.from (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\api\client.ts:433:12)
-    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:56:22) {
-  status: 500,
-  serverReason: 'boom',
-  code: undefined,
-  retryable: false
+ [32m✓[39m src/sessions/wingmanNowWireSample.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 394[2mms[22m[39m
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mrendering what /outcome says[2m > [22m[2m200 too old: the words and Send anyway, with the age wording, the copy kept
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mrendering what /outcome says[2m > [22m[2m200 unconfirmed: the words, the label and Dismiss - no Send anyway, and nothing more is sent or read
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mrendering what /outcome says[2m > [22m[2m200 session ended: the words, the ended-session label and Dismiss only - and it is final
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mrendering what /outcome says[2m > [22m[2m200 session ended with no words: the ended-session label that points at the saved recording, Dismiss only
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mrendering what /outcome says[2m > [22m[2mDismiss on a session-ended record deletes the copy
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mrendering what /outcome says[2m > [22m[2m404 for a record the client marked as held: an error naming the upload id, the copy kept, nothing re-driven
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mbefore the Gateway owns it, the old retry is unchanged[2m > [22m[2ma network error on the complete is retried as today
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mbefore the Gateway owns it, the old retry is unchanged[2m > [22m[2ma 502 on the complete (the Gateway did not take it over) is retried as today
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mwhat the Gateway handed back (voice delivery phase 5, review round)[2m > [22m[2mout of credits: the held strip with the Gateway's copy, Retry, and a later complete delivers once
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mwhat the Gateway handed back (voice delivery phase 5, review round)[2m > [22m[2ma permanent failure: parked with Retry, and an explicit Retry re-drives it
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+[90mstderr[2m | src/dictation/backgroundSendGatewayOwns.test.ts[2m > [22m[2mwhat the Gateway handed back (voice delivery phase 5, review round)[2m > [22m[2man incomplete upload: the client resumes its own chunk upload and delivers
+[22m[39m[backgroundSend] decode failed; uploading the raw recording unpadded (delivery is unaffected): blob.arrayBuffer is not a function
+
+ [32m✓[39m src/dictation/backgroundSendGatewayOwns.test.ts [2m([22m[2m27 tests[22m[2m)[22m[90m 170[2mms[22m[39m
+ [32m✓[39m src/voice/voiceMenuGuard.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[90m 111[2mms[22m[39m
+ [32m✓[39m src/restart/RestartRequestsPanel.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 481[2mms[22m[39m
+ [32m✓[39m src/auth/accountsLayout.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 692[2mms[22m[39m
+ [32m✓[39m src/sessions/WingmanErrorLine.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 553[2mms[22m[39m
+ [32m✓[39m src/auth/AccountsPanel.test.tsx [2m([22m[2m15 tests[22m[2m)[22m[33m 1028[2mms[22m[39m
+ [32m✓[39m src/devreports/DevReportViews.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 378[2mms[22m[39m
+[90mstderr[2m | src/sessions/ColourLegend.test.tsx[2m > [22m[2mColourLegendPanel[2m > [22m[2msays the read failed, and draws no colours, when the Gateway refuses
+[22m[39m[sessionColours] the colour legend could not be read GatewayError: boom
+    at Function.from [90m(D:\ReposFred\devthrottle-teams-2307\packages\client-core\[39msrc\api\client.ts:433:12[90m)[39m
+    at getSessionColourLegend [90m(D:\ReposFred\devthrottle-teams-2307\packages\client-core\[39msrc\sessions\sessionColours.ts:56:22[90m)[39m {
+  status: [33m500[39m,
+  serverReason: [32m'boom'[39m,
+  code: [90mundefined[39m,
+  retryable: [33mfalse[39m
 }
 
- ✓ src/settings/FleetManagerTab.test.tsx (14 tests) 1531ms
- ✓ src/sessions/ColourLegend.test.tsx (11 tests) 695ms
- ✓ src/devreports/exportReport.test.tsx (10 tests) 1050ms
-   ✓ Export HTML > saves the bytes the Gateway serves for the version on screen, unchanged 776ms
- ✓ src/teams/CurrentTeam.test.tsx (25 tests) 2408ms
-stderr | src/settings/SettingsTabs.test.tsx > the Settings tab strip > offers the four shared tabs on the phone
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+ [32m✓[39m src/sessions/ColourLegend.test.tsx [2m([22m[2m11 tests[22m[2m)[22m[33m 1217[2mms[22m[39m
+   [33m[2m✓[22m[39m ColourLegendButton[2m > [22mreads the legend from the Gateway and draws its words and pixels verbatim [33m456[2mms[22m[39m
+ [32m✓[39m src/sessions/WingmanTab.test.tsx [2m([22m[2m9 tests[22m[2m)[22m[33m 1155[2mms[22m[39m
+ [32m✓[39m src/devreports/exportReport.test.tsx [2m([22m[2m10 tests[22m[2m)[22m[33m 1013[2mms[22m[39m
+   [33m[2m✓[22m[39m Export HTML[2m > [22msaves the bytes the Gateway serves for the version on screen, unchanged [33m728[2mms[22m[39m
+ [32m✓[39m src/sessions/VerdictPanel.test.tsx [2m([22m[2m21 tests[22m[2m)[22m[33m 1483[2mms[22m[39m
+   [33m[2m✓[22m[39m the verdict panel[2m > [22mshows a current failed record as refused, with the Gateway's reason, never as superseded [33m350[2mms[22m[39m
+ [32m✓[39m src/settings/FleetManagerTab.test.tsx [2m([22m[2m14 tests[22m[2m)[22m[33m 1668[2mms[22m[39m
+   [33m[2m✓[22m[39m the Fleet Manager tab[2m > [22mrenders the Gateway's sentences as they were sent [33m308[2mms[22m[39m
+ [32m✓[39m src/sessions/wingmanTabViews.test.tsx [2m([22m[2m12 tests[22m[2m)[22m[33m 1390[2mms[22m[39m
+   [33m[2m✓[22m[39m the Wingman tab's views[2m > [22mopens on Now, fed by the Now route, with History beside it [33m442[2mms[22m[39m
+[90mstderr[2m | src/settings/SettingsTabs.test.tsx[2m > [22m[2mthe Settings tab strip[2m > [22m[2moffers the four shared tabs on the phone
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/sessions/wingmanDebugView.test.tsx (6 tests) 376ms
-stderr | src/settings/TurnVerdictCard.test.tsx > the Turn verdicts card > is on the Fleet Manager tab that both shells mount
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+ [32m✓[39m src/teams/CurrentTeam.test.tsx [2m([22m[2m25 tests[22m[2m)[22m[33m 2240[2mms[22m[39m
+[90mstderr[2m | src/settings/TurnVerdictCard.test.tsx[2m > [22m[2mthe Turn verdicts card[2m > [22m[2mis on the Fleet Manager tab that both shells mount
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/settings/TurnVerdictCard.test.tsx (8 tests) 661ms
- ✓ src/history/useSessionChatTail.test.tsx (5 tests) 118ms
- ✓ src/voice/voiceSwitchFailureIsVisible.test.tsx (3 tests) 79ms
- ✓ src/settings/SettingsTabs.test.tsx (20 tests) 1216ms
- ✓ src/voice/voiceColdEntryIsNotStale.test.tsx (2 tests) 34ms
- ✓ src/voice/clipUrlOutlivesTheListener.test.ts (2 tests) 10ms
-stderr | src/settings/MentorReportCard.test.tsx > the Mentor report card > is on the Notifications tab that both shells mount
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+ [32m✓[39m src/settings/TurnVerdictCard.test.tsx [2m([22m[2m8 tests[22m[2m)[22m[33m 859[2mms[22m[39m
+ [32m✓[39m src/history/useSessionChatTail.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[90m 153[2mms[22m[39m
+ [32m✓[39m src/sessions/wingmanDebugView.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[33m 474[2mms[22m[39m
+ [32m✓[39m src/voice/voiceSwitchFailureIsVisible.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 67[2mms[22m[39m
+ [32m✓[39m src/settings/SettingsTabs.test.tsx [2m([22m[2m20 tests[22m[2m)[22m[33m 1647[2mms[22m[39m
+ [32m✓[39m src/voice/clipUrlOutlivesTheListener.test.ts [2m([22m[2m2 tests[22m[2m)[22m[90m 8[2mms[22m[39m
+ [32m✓[39m src/dictation/dictationLiveAlarm.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[90m 180[2mms[22m[39m
+[90mstderr[2m | src/settings/MentorReportCard.test.tsx[2m > [22m[2mthe Mentor report card[2m > [22m[2mis on the Notifications tab that both shells mount
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/settings/MentorReportCard.test.tsx (7 tests) 626ms
- ✓ src/devreports/noteControls.test.tsx (6 tests) 165ms
- ✓ src/history/useSessionChat.test.tsx (5 tests) 96ms
- ✓ src/history/chatFilterPersistence.test.ts (5 tests) 6ms
- ✓ src/sessions/density.test.ts (8 tests) 8ms
- ✓ src/dictation/dictationLiveAlarm.test.tsx (5 tests) 217ms
- ✓ src/devreports/answersOffScript.test.ts (3 tests) 98ms
- ✓ src/devreports/DevReportLanding.test.tsx (3 tests) 195ms
-stderr | src/settings/DailyReportCard.test.tsx > the Daily report card > is on the Notifications tab that both shells mount
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+ [32m✓[39m src/voice/voiceColdEntryIsNotStale.test.tsx [2m([22m[2m2 tests[22m[2m)[22m[90m 84[2mms[22m[39m
+ [32m✓[39m src/settings/MentorReportCard.test.tsx [2m([22m[2m7 tests[22m[2m)[22m[33m 799[2mms[22m[39m
+   [33m[2m✓[22m[39m the Mentor report card[2m > [22mis on the Notifications tab that both shells mount [33m318[2mms[22m[39m
+ [32m✓[39m src/sessions/density.test.ts [2m([22m[2m8 tests[22m[2m)[22m[90m 9[2mms[22m[39m
+ [32m✓[39m src/history/chatFilterPersistence.test.ts [2m([22m[2m5 tests[22m[2m)[22m[90m 7[2mms[22m[39m
+ [32m✓[39m src/devreports/DevReportLanding.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[33m 335[2mms[22m[39m
+ [32m✓[39m src/devreports/noteControls.test.tsx [2m([22m[2m6 tests[22m[2m)[22m[90m 253[2mms[22m[39m
+ [32m✓[39m src/history/useSessionChat.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[90m 157[2mms[22m[39m
+ [32m✓[39m src/devreports/answersOffScript.test.ts [2m([22m[2m3 tests[22m[2m)[22m[90m 99[2mms[22m[39m
+ [32m✓[39m src/stats/ThrottleWindowSelector.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 561[2mms[22m[39m
+   [33m[2m✓[22m[39m ThrottleWindowSelector[2m > [22mrenders the served choices in the served order with the served labels, and marks the one in effect [33m400[2mms[22m[39m
+ [32m✓[39m src/dictation/dictationStripLayout.test.tsx [2m([22m[2m1 test[22m[2m)[22m[33m 385[2mms[22m[39m
+   [33m[2m✓[22m[39m the dropped strip, against the real stylesheet[2m > [22mcaps the quoted words and lets them scroll, so a long dictation cannot push the buttons off the screen [33m383[2mms[22m[39m
+[90mstderr[2m | src/settings/DailyReportCard.test.tsx[2m > [22m[2mthe Daily report card[2m > [22m[2mis on the Notifications tab that both shells mount
+[22m[39m⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/settings/DailyReportCard.test.tsx (5 tests) 489ms
- ✓ src/dictation/dictationStripLayout.test.tsx (1 test) 218ms
- ✓ src/stats/ThrottleWindowSelector.test.tsx (5 tests) 257ms
+ [32m✓[39m src/settings/DailyReportCard.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 939[2mms[22m[39m
+   [33m[2m✓[22m[39m the Daily report card[2m > [22mis on the Notifications tab that both shells mount [33m474[2mms[22m[39m
 
- Test Files  151 passed (151)
-      Tests  1788 passed (1788)
-   Start at  07:48:25
-   Duration  16.88s (transform 50.37s, setup 4.99s, collect 112.92s, tests 29.46s, environment 82.27s, prepare 40.66s)
+[2m Test Files [22m [1m[32m151 passed[39m[22m[90m (151)[39m
+[2m      Tests [22m [1m[32m1791 passed[39m[22m[90m (1791)[39m
+[2m   Start at [22m 11:49:48
+[2m   Duration [22m 19.56s[2m (transform 63.80s, setup 5.48s, collect 144.83s, tests 34.58s, environment 89.32s, prepare 42.38s)[22m
 

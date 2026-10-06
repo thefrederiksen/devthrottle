@@ -1,24 +1,32 @@
 RED PROOF: comment-not-to-the-person
 Rule: The comment reaches the person who asked (their own report's page).
-File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
+File: src/CcDirector.Gateway/DevReports/DevReportStore.cs
 
 Mutation - replaced:
-            if (words.Length > 0)
-                _comments.Add(
+            if (comment is not null)
+                ctx.DevReportComments.Add(comment);
 with:
-            if (words.Length < 0)
-                _comments.Add(
+            if (comment is not null && comment.Text.Length < 0)
+                ctx.DevReportComments.Add(comment);
 
 Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
 Exit code: 1
 Output (the lines that say what failed):
   CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
-  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.List_AnAnsweredQuestion_MovesToAnswered_WithTheChoiceItsStateAndTheWordsReadBackToTheirWriterOnly [468 ms]
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddMemberAnswer_AnotherProcessTakesTheSamePersonsAnswerBetweenTheReadAndTheWrite_OnlyOneIsTaken [858 ms]
+   Assert.Single() Failure: The collection was empty
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddMemberAnswer_TheChoiceIsHeld_WithTheVersionItWasGivenOn_AndTheWordsGoToThePersonInTheSameWrite [390 ms]
+   Assert.Single() Failure: The collection was empty
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddMemberAnswer_ASecondAnswerFromTheSamePerson_IsNotTaken_AndItsWordsAreNotStored [484 ms]
+   Assert.Single() Failure: The collection was empty
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_TheDeliveryFailsAfterTheAnswerIsTaken_TheWordsStillReachThePerson_AndTheChoiceGoesExactlyOnce [265 ms]
+   Assert.Single() Failure: The collection was empty
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.List_AnAnsweredQuestion_MovesToAnswered_WithTheChoiceItsStateAndTheWordsReadBackToTheirWriterOnly [195 ms]
    Assert.Equal() Failure: Strings differ
 Expected: "my words"
 Actual:   null
-  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.Issue2307_TheCollaboratorsComment_GoesToThePersonWhoAsked_AndIsNeverPlacedInAnySessionsInput [480 ms]
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.Issue2307_TheCollaboratorsComment_GoesToThePersonWhoAsked_AndIsNeverPlacedInAnySessionsInput [443 ms]
    Assert.Single() Failure: The collection was empty
-Failed!  - Failed:     2, Passed:    90, Skipped:     0, Total:    92, Duration: 17 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+Failed!  - Failed:     6, Passed:   101, Skipped:     0, Total:   107, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
-Restored from the committed tree afterwards; git diff on the file is empty.
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

@@ -1,0 +1,24 @@
+RED PROOF: f3-version-decided-before-the-write
+Rule: Review F3: whether the member still holds the version is decided in the answer's own write, so a newer send landing in between refuses it.
+File: src/CcDirector.Gateway/DevReports/DevReportStore.cs
+
+Mutation - replaced:
+                .Where(r => r.ReportId == report.Id && r.RecipientSubject == answererSubject && r.SentVersion == sentVersion)
+with:
+                .Where(r => r.ReportId == report.Id && r.RecipientSubject == answererSubject)
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddMemberAnswer_AVersionThePersonDoesNotHold_IsNotTaken_AndNoWordsAreStored [138 ms]
+   Assert.Equal() Failure: Values differ
+Expected: VersionNotHeld
+Actual:   Stored
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddMemberAnswer_ANewerVersionSentBetweenTheReadAndTheWrite_IsNotTaken [404 ms]
+   Assert.Equal() Failure: Values differ
+Expected: VersionNotHeld
+Actual:   Stored
+Failed!  - Failed:     2, Passed:   105, Skipped:     0, Total:   107, Duration: 22 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.

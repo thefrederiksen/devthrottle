@@ -13,10 +13,10 @@ Command: npx vitest run src/teams/collaborator/questionsPage.test.tsx
 Exit code: 1
 Output (the lines that say what failed):
  Test Files  1 failed (1)
-      Tests  1 failed | 9 passed (10)
+      Tests  1 failed | 11 passed (12)
 ??????? Failed Tests 1 ???????
  FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Card_TheGatewaySaysNoComment_OffersNoBox_AndSaysWhy
 AssertionError: expected <textarea ?(5)></textarea> to be null
 - Expected: 
 
-Restored from the committed tree afterwards; git diff on the file is empty.
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.
