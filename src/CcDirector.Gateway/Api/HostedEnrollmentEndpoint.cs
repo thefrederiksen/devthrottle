@@ -46,7 +46,7 @@ internal static class HostedEnrollmentEndpoint
 
     /// <summary>The outcome of <see cref="Enroll"/>, extracted so the enrollment logic is unit-tested without a
     /// web host. <see cref="Response"/> is set only on <see cref="Status"/> 200.</summary>
-    public sealed record EnrollResult(int Status, DeviceRegistrationResponse? Response, string Error);
+    public sealed record EnrollResult(int Status, DeviceRegistrationResponse? Response, string Error, string? Code = null);
 
     /// <param name="entitlements">
     /// The paid-entitlement gate. NULL means no gate - that is the self-host case, where there is no billing
@@ -110,6 +110,8 @@ internal static class HostedEnrollmentEndpoint
             }, statusCode: result.Status);
         }
 
+        if (result.Code is not null)
+            return Results.Json(new { error = result.Error, code = result.Code }, statusCode: result.Status);
         return Results.Json(new { error = result.Error }, statusCode: result.Status);
     }
 
@@ -130,6 +132,9 @@ internal static class HostedEnrollmentEndpoint
     {
         if (req is null || string.IsNullOrWhiteSpace(req.DeviceId))
             return new EnrollResult(StatusCodes.Status400BadRequest, null, "deviceId is required");
+        var badDeviceId = DeviceIdRefusal(req.DeviceId);
+        if (badDeviceId is not null)
+            return badDeviceId;
 
         if (bearer is null)
             return new EnrollResult(StatusCodes.Status401Unauthorized, null, "an account access token is required");
@@ -372,6 +377,22 @@ internal static class HostedEnrollmentEndpoint
     public const string MoveSomeoneElsesKeyRefusal =
         "That Director was set up by a different account, so it cannot be moved from yours. Sign in with the account that set it up.";
 
+    /// <summary>What setting a Director up for a team, or moving one into it, is told when another person in that team
+    /// already set a Director up under the same id (#3552 review, S2-F1).</summary>
+    public const string DirectorIdTakenInTeamRefusal =
+        "Another member of this team already holds this Director id in this team, so it cannot be set up for the team under your account. Nothing was changed. Ask the team's Owner, or set this computer up as a new Director.";
+
+    /// <summary>The machine-readable code beside <see cref="DirectorIdTakenInTeamRefusal"/>.</summary>
+    public const string DirectorIdTakenInTeamCode = "director_id_taken_in_team";
+
+    /// <summary>What setting a Director up, or moving one, is told when its device id holds a <c>|</c> or a control
+    /// character (#3552 review, S2-F5).</summary>
+    public const string DeviceIdNotAllowedRefusal =
+        "This device id cannot be used: it contains a '|' or a control character, which no Director id ever does. Nothing was changed.";
+
+    /// <summary>The machine-readable code beside <see cref="DeviceIdNotAllowedRefusal"/>.</summary>
+    public const string DeviceIdNotAllowedCode = "device_id_not_allowed";
+
     /// <summary>What a move is told when one Director id has more than one working key for this person - a state
     /// enrollment no longer leaves behind.</summary>
     public const string MoveAmbiguousRefusal =
@@ -417,6 +438,9 @@ internal static class HostedEnrollmentEndpoint
             return refusal!;
 
         var team = new TenantId(teamId);
+        var taken = DirectorIdTakenRefusal(team, subject, req.DeviceId, devices);
+        if (taken is not null)
+            return taken;
         var scopedDeviceId = TeamScopedDeviceId(teamId, subject, req.DeviceId);
         var left = LeaveOtherPlaces(subject, req.DeviceId, team, scopedDeviceId, SetUpAgainReason, devices, teams);
         if (left.Refusal is not null)
@@ -444,9 +468,8 @@ internal static class HostedEnrollmentEndpoint
     private static LeaveResult LeaveOtherPlaces(string subject, string directorId, TenantId to, string keepDeviceId,
         string reason, DeviceRegistry devices, TeamEnrollment teams)
     {
-        var leaving = devices.ActiveKeysOfDirector(directorId)
-            .Where(k => string.Equals(k.AccountSubject, subject, StringComparison.Ordinal)
-                        && k.TenantId is not null
+        var leaving = devices.ActiveKeysOfDirector(subject, directorId)
+            .Where(k => k.TenantId is not null
                         && new TenantId(k.TenantId) != to)
             .Select(k => new TenantId(k.TenantId!))
             .Distinct()
@@ -467,6 +490,37 @@ internal static class HostedEnrollmentEndpoint
             teams.Connections.AbortForDirector(place, directorId, reason);
         FileLog.Write($"[HostedEnrollment] LeaveOtherPlaces: director={directorId} left {leaving.Count} other tenant(s), revoked={revoked}");
         return new LeaveResult(null, revoked);
+    }
+
+    /// <summary>
+    /// THE ONE ANSWER to "is this Director id another person's in this team", asked alike by setting a Director up for
+    /// a team and by moving one into it (#3552 review, S2-F1). A Director id in a team belongs to one person for good:
+    /// refused 409 <see cref="DirectorIdTakenInTeamCode"/> when another person has any key row for that id in the team,
+    /// active or revoked. The same person setting the same id up again is unchanged. Null when allowed. No person or
+    /// email is logged.
+    /// </summary>
+    private static EnrollResult? DirectorIdTakenRefusal(TenantId team, string subject, string directorId, DeviceRegistry devices)
+    {
+        if (!devices.AnotherPersonHasHeldDirectorInTenant(team, subject, directorId))
+            return null;
+        FileLog.Write($"[HostedEnrollment] REFUSED: director={directorId.Trim()} is already another person's in team {team.ToLogString()} (no subject/email logged)");
+        return new EnrollResult(StatusCodes.Status409Conflict, null, DirectorIdTakenInTeamRefusal, DirectorIdTakenInTeamCode);
+    }
+
+    /// <summary>
+    /// A DEVICE ID WITH A BAR OR A CONTROL CHARACTER IN IT IS REFUSED, by setting a Director up and by a move alike
+    /// (#3552 review, S2-F5). The registry id is <c>&lt;namespace&gt;|&lt;device id&gt;</c>, and the Director a key may
+    /// say Hello as is read back as the part after the LAST bar - so a device id <c>x|&lt;a colleague's id&gt;</c> would be
+    /// stored as one id and read back as another. A Director's own id never holds either: it is a GUID, minted and
+    /// re-read by <c>DirectorIdentitySlot.LoadOrCreate</c> (a file that does not parse as a GUID is replaced with a new
+    /// one), and that is the id the desktop sends as its device id. Null when the id is allowed.
+    /// </summary>
+    internal static EnrollResult? DeviceIdRefusal(string deviceId)
+    {
+        if (!deviceId.Contains('|') && !deviceId.Any(char.IsControl))
+            return null;
+        FileLog.Write("[HostedEnrollment] REFUSED: the device id holds a '|' or a control character (the id is not logged)");
+        return new EnrollResult(StatusCodes.Status400BadRequest, null, DeviceIdNotAllowedRefusal, DeviceIdNotAllowedCode);
     }
 
     /// <summary>
@@ -551,6 +605,9 @@ internal static class HostedEnrollmentEndpoint
 
         if (req is null || string.IsNullOrWhiteSpace(req.DeviceId))
             return new EnrollResult(StatusCodes.Status400BadRequest, null, "deviceId is required");
+        var badDeviceId = DeviceIdRefusal(req.DeviceId);
+        if (badDeviceId is not null)
+            return badDeviceId;
         if (bearer is null)
             return new EnrollResult(StatusCodes.Status401Unauthorized, null, "an account access token is required");
         var validation = accountTokenValidator.ValidateForAuthorization(bearer);
@@ -564,11 +621,10 @@ internal static class HostedEnrollmentEndpoint
 
         // The Director's working key, by its own id. Only this person's counts; a working key of the same id issued to
         // someone else is the one case that says "not yours" rather than "no such Director".
-        var keys = devices.ActiveKeysOfDirector(directorId);
-        var mine = keys.Where(k => string.Equals(k.AccountSubject, subject, StringComparison.Ordinal)).ToList();
+        var mine = devices.ActiveKeysOfDirector(subject, directorId);
         if (mine.Count == 0)
         {
-            var someoneElses = keys.Count > 0;
+            var someoneElses = devices.AnotherPersonHasActiveKeyForDirector(subject, directorId);
             FileLog.Write($"[HostedEnrollment] Move REFUSED: director={directorId} has no working key of this account (another account's: {someoneElses})");
             return someoneElses
                 ? new EnrollResult(StatusCodes.Status403Forbidden, null, MoveSomeoneElsesKeyRefusal)
@@ -593,6 +649,9 @@ internal static class HostedEnrollmentEndpoint
             if (refusal is not null)
                 return refusal;
             to = new TenantId(teamId);
+            var taken = DirectorIdTakenRefusal(to, subject, directorId, devices);
+            if (taken is not null)
+                return taken;
             newDeviceId = TeamScopedDeviceId(teamId, subject, directorId);
         }
         else

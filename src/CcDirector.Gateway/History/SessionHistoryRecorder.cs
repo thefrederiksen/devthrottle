@@ -72,15 +72,27 @@ public sealed class SessionHistoryRecorder
     /// only while a tracked session has no person yet: production's answer is a database read.</summary>
     private readonly Func<TenantId, string, string?>? _personOf;
 
+    /// <summary>
+    /// Whether a Director's report about a session - a state, or a removal - may write that session's row, given
+    /// (tenant, sessionId, directorId, isRemoval) (#3552, after #3551). In a team any Director may list any session id,
+    /// so without it a colleague's Director that lists another person's session would write that person's row under its
+    /// own Director, stamp it with its own person if it came first (and so keep the real person's first prompt off it),
+    /// and end it by dropping the id. Production asks the one team rule, the same one the display push and the turn-end
+    /// watcher ask; outside a team it answers yes. Null takes every report, as before.
+    /// </summary>
+    private readonly Func<TenantId, string, string, bool, bool>? _acceptsReport;
+
     public SessionHistoryRecorder(SessionHistoryStore store,
         Func<TenantId, string, DirectorFacts>? directorFacts = null,
         KnownRepositoryStore? knownRepositories = null,
-        Func<TenantId, string, string?>? personOf = null)
+        Func<TenantId, string, string?>? personOf = null,
+        Func<TenantId, string, string, bool, bool>? acceptsReport = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _directorFacts = directorFacts;
         _knownRepositories = knownRepositories;
         _personOf = personOf;
+        _acceptsReport = acceptsReport;
     }
 
     /// <summary>The Director's machine and version, or Unknown. Never throws and never lets a
@@ -170,6 +182,13 @@ public sealed class SessionHistoryRecorder
     {
         try
         {
+            // In a team, only the session's own Director ends its row (#3552).
+            if (_acceptsReport is not null && !_acceptsReport(tenant, sessionId, directorId, true))
+            {
+                FileLog.Write($"[SessionHistoryRecorder] ObserveRemoval IGNORED: session {sessionId} is not director {directorId}'s");
+                return;
+            }
+
             // The roster set is not touched here (only ObserveSnapshot replaces it whole - see
             // Observe): the next snapshot's set-compare differs once and re-runs the idempotent
             // reconcile, which finds this row already ended.
@@ -240,6 +259,11 @@ public sealed class SessionHistoryRecorder
 
     private void ObserveCore(TenantId tenant, string directorId, SessionDto session, DateTime nowUtc)
     {
+        // In a team, a session's row is written only from its own Director (#3552). Asked before anything is tracked, so
+        // a refused report leaves no person, facts or last state behind for the owner's report to inherit.
+        if (_acceptsReport is not null && !_acceptsReport(tenant, session.SessionId, directorId, false))
+            return;
+
         var key = Key(tenant, session.SessionId);
         var tracked = _tracked.GetOrAdd(key, static _ => new TrackedSession());
         var person = tracked.Person ??= PersonFor(tenant, directorId);

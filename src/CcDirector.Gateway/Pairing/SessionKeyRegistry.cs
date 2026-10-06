@@ -282,6 +282,34 @@ public sealed class SessionKeyRegistry
     }
 
     /// <summary>
+    /// THE RECORD OF WHOSE A SESSION ID IS (#3552 review, S2-F6): the Director named on the session's key row in
+    /// <paramref name="tenant"/>, live, revoked or expired alike, or null when the session never registered a key there.
+    /// The row is written by the session's own Director when the session is created - before the agent starts, so before
+    /// anything of the session can be listed or pushed - it is never taken over by another Director id, and a revoked
+    /// row is kept and never revived. So unlike the roster and the stored turns, it does not depend on who pushed first.
+    /// Inside a team the ownership answer and the hub's first-rows rule read it here, and nowhere else. A database
+    /// failure is NOT answered as "no row": it throws, so the caller refuses rather than falling to a weaker rule.
+    /// </summary>
+    public string? DirectorOfSession(TenantId tenant, string sessionId)
+    {
+        if (!tenant.IsValid)
+            throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
+        if (string.IsNullOrWhiteSpace(sessionId))
+            throw new ArgumentException("sessionId is required", nameof(sessionId));
+
+        var id = sessionId.Trim();
+        using var ctx = _db.CreateUnscopedContext();
+        var director = ctx.SessionKeys
+            .AsNoTracking()
+            .Where(s => s.SessionId == id && s.TenantId == tenant.Value)
+            .Select(s => s.DirectorId)
+            .SingleOrDefault();
+        var named = string.IsNullOrWhiteSpace(director) ? null : director.Trim();
+        FileLog.Write($"[SessionKeyRegistry] DirectorOfSession: session={id} tenant={tenant.ToLogString()} director={named ?? "<no key row>"}");
+        return named;
+    }
+
+    /// <summary>
     /// End one session's key. Called when the session is reaped. The row is kept as a tombstone rather than
     /// deleted, so a re-registration that races the reap cannot revive the credential.
     /// </summary>

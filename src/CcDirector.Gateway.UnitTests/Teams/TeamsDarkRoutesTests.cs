@@ -47,6 +47,12 @@ public sealed class TeamsDarkRoutesTests
     [InlineData("GET", "Teams")]
     [InlineData("GET", "devices/enroll-hosted/teams")]
     [InlineData("POST", "devices/enroll-hosted/move")]
+    [InlineData("GET", "devices/enroll-hosted/teams/")]
+    [InlineData("POST", "devices/enroll-hosted/move/")]
+    [InlineData("POST", "team-invitations/open")]
+    [InlineData("POST", "team-invitations/accept")]
+    [InlineData("POST", "team-invitations/decline")]
+    [InlineData("GET", "team-invitations")]
     public async Task ATeamRoute_IsNotFound_EvenWhereAFallbackWouldAnswer200(string method, string path)
     {
         await using var app = await Host();
@@ -86,5 +92,17 @@ public sealed class TeamsDarkRoutesTests
         Assert.False(TeamsDarkRoutes.IsTeamPath("/"));
         Assert.False(TeamsDarkRoutes.IsTeamPath(HostedEnrollmentEndpoint.Path));
         Assert.False(TeamsDarkRoutes.IsTeamPath("/devices/enroll-hosted/teamsx"));
+        // #3530 review round 3: the invitation routes are team routes, and a trailing slash on an enrollment route is
+        // the same route - but nothing longer is.
+        Assert.True(TeamsDarkRoutes.IsTeamPath("/team-invitations/open"));
+        Assert.True(TeamsDarkRoutes.IsTeamPath("/Team-Invitations/accept"));
+        Assert.True(TeamsDarkRoutes.IsTeamPath("/team-invitations/decline"));
+        Assert.False(TeamsDarkRoutes.IsTeamPath("/team-invitationsx"));
+        Assert.True(TeamsDarkRoutes.IsTeamPath(HostedEnrollmentEndpoint.TeamsPath + "/"));
+        Assert.True(TeamsDarkRoutes.IsTeamPath(HostedEnrollmentEndpoint.MovePath + "/"));
+        Assert.True(TeamsDarkRoutes.IsTeamPath("/DEVICES/ENROLL-HOSTED/TEAMS/"));
+        Assert.False(TeamsDarkRoutes.IsTeamPath(HostedEnrollmentEndpoint.TeamsPath + "/x"));
+        Assert.False(TeamsDarkRoutes.IsTeamPath(HostedEnrollmentEndpoint.MovePath + "/x"));
+        Assert.False(TeamsDarkRoutes.IsTeamPath(HostedEnrollmentEndpoint.Path + "/"));
     }
 }

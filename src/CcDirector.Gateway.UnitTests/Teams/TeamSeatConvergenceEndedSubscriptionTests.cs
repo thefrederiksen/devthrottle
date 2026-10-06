@@ -259,11 +259,28 @@ public sealed class TeamSeatConvergenceEndedSubscriptionTests : IDisposable
     }
 
     [Fact]
-    public void ReadTeamBilledSeats_TeamWithABill_CarriesTheRowsFingerprint()
+    public void ReadTeamBill_TeamWithABill_CarriesTheRowsFingerprint()
     {
-        var read = new EntitlementRegistry(_db, requireLivemode: false).ReadTeamBilledSeats(_ended);
+        var read = new EntitlementRegistry(_db, requireLivemode: false).ReadTeamBill(_ended);
 
         Assert.Equal(EntitlementRegistry.TeamBillFingerprint(Row()), read.Fingerprint);
+    }
+
+    [Fact]
+    public void ReadTeamBill_OnAHostedGateway_ALiveRowCarriesItsFingerprint_AndATestModeRowIsNoBillWithNone()
+    {
+        // Decision D8 beside #3537: the one reader computes the fingerprint for every row it counts as a bill. On a
+        // hosted Gateway a test-mode row is no bill, so it has no fingerprint, and convergence answers NoBill for it.
+        var hosted = new EntitlementRegistry(_db, requireLivemode: true);
+        Assert.Equal(EntitlementRegistry.TeamBillFingerprint(Row()), hosted.ReadTeamBill(_ended).Fingerprint);
+
+        using (var ctx = _db.CreateUnscopedContext())
+            ctx.Database.ExecuteSqlRaw("UPDATE team_entitlements SET livemode = 0 WHERE team_id = {0}", _ended);
+        var testMode = hosted.ReadTeamBill(_ended);
+        Assert.True(testMode.Known);
+        Assert.False(testMode.HasBill);
+        Assert.Null(testMode.Fingerprint);
+        Assert.Equal(SeatSyncVerdict.NoBill, TeamSeatSync.Decide(testMode, gatewayPaidMembers: 2));
     }
 
     // ---- Helpers --------------------------------------------------------------------------------------------------

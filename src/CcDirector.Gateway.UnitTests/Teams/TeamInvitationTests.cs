@@ -230,7 +230,7 @@ public sealed class TeamInvitationTests : IDisposable
     [Fact]
     public void CreateInvitation_BillCannotBeRead_IsRefusedAsUnavailableAndStoresNothing()
     {
-        var teams = new TeamRegistry(_db, _tenants, () => _now, readTeamBill: _ => new TeamBilledSeats(false, false, null, null));
+        var teams = new TeamRegistry(_db, _tenants, () => _now, readTeamBill: _ => new TeamBill(false, false, null, null));
 
         var result = teams.CreateInvitation(_team, Owner, "a@x.example", TeamRole.Developer);
 
@@ -274,7 +274,7 @@ public sealed class TeamInvitationTests : IDisposable
     public void AcceptInvitation_BillCannotBeRead_IsUnavailable_AndNobodyJoins()
     {
         var token = TokenOf(Invite(Owner, "n@x.example", TeamRole.Developer));
-        var teams = new TeamRegistry(_db, _tenants, () => _now, readTeamBill: _ => new TeamBilledSeats(false, false, null, null));
+        var teams = new TeamRegistry(_db, _tenants, () => _now, readTeamBill: _ => new TeamBill(false, false, null, null));
 
         var accepted = teams.AcceptInvitation(token, Newcomer);
 

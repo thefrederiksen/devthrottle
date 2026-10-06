@@ -146,7 +146,7 @@ public sealed class OwnedSessionsAreNotReadTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => voice,
-            narrationPlan: _ => NarrationPlan.Allowed);
+            narrationPlan: (_, _) => NarrationPlan.Allowed);
         return (new TurnVerdictService(env), env, pushed);
     }
 

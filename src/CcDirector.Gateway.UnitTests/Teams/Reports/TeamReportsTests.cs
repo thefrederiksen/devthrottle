@@ -76,7 +76,7 @@ public sealed class TeamReportsTests : IDisposable
         _comments = new DevReportPersonComments(_db);
         var boundary = new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices);
         _ownership = new TeamCallerOwnership(_directors, _sessions, _devices, new CcDirector.Gateway.History.SessionTurnStore(_db), boundary,
-            reportAuthor: (tenant, id) => _store.Get(tenant, id)?.AuthorSubject);
+            new CcDirector.Gateway.Pairing.SessionKeyRegistry(_db, isHosted: true), reportAuthor: (tenant, id) => _store.Get(tenant, id)?.AuthorSubject);
         _gate = new TeamEndpointGate(_access, _teams, _tenants, boundary, _ownership);
         _reports = new TeamReports(_store, _recipients, _comments, _teams, _access, () => _now);
 
@@ -542,7 +542,7 @@ public sealed class TeamReportsTests : IDisposable
         Assert.Equal(TeamOwnership.Unknown, _ownership.Whose(_tenant, Alice, pattern, Values(("reportId", Guid.NewGuid().ToString("D")))));
         Assert.Equal(TeamOwnership.Unknown, _ownership.Whose(_tenant, Alice, pattern, Values(("reportId", "not-a-guid"))));
         var noReader = new TeamCallerOwnership(_directors, _sessions, _devices, new CcDirector.Gateway.History.SessionTurnStore(_db),
-            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices));
+            new HostedTenantBoundary(new AsyncLocalTenantContext(), _devices), new CcDirector.Gateway.Pairing.SessionKeyRegistry(_db, isHosted: true));
         Assert.Equal(TeamOwnership.Unknown, noReader.Whose(_tenant, Alice, pattern, Values(("reportId", alices.Id))));
     }
 

@@ -11,9 +11,10 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// it to a Collaborator, and the Collaborator commented on it, writes both browsers' keys to a file, and serves the built
 /// Cockpit until a stop file appears.
 ///
-/// The report is seeded through the store with its author recorded, exactly as the publish route records it, because a
-/// team session cannot publish over the wire yet (the access lease answers 402 for a team tenant; recorded in the pull
-/// request). Everything the browsers do after that - the list, opening, reading, the comments - goes over the wire.
+/// The report is seeded through the store with its author recorded, exactly as the publish route records it; the rig
+/// sets up no Director and no team bill, and a team session's publish over the wire is proven in Gateway.Tests
+/// (HostedTeamReportsTests). Everything the browsers do after that - the list, opening, reading, the comments - goes over
+/// the wire.
 ///
 /// SKIPPED unless <c>CC_TEAMS_2309_PROOF_RIG</c> names the directory to write <c>rig.json</c> into; the driver is
 /// <c>docs/proof/teams-2309/take-screenshots.py</c>. Nothing is emailed and the database is a scratch one deleted

@@ -120,6 +120,19 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     /// <summary>Tell the Gateway a session is over, through the hub method a Director really calls when it reaps one.</summary>
     public Task RevokeSessionKeyAsync(string sessionId) => _conn.InvokeAsync("RevokeSessionKey", sessionId);
 
+    /// <summary>Register a session's key, through the hub method a Director calls when it mints one (the hash only).
+    /// The hub refuses it by throwing, which surfaces here as an exception.</summary>
+    public Task RegisterSessionKeyAsync(string sessionId, string rawKey, DateTime expiresAtUtc) =>
+        _conn.InvokeAsync("RegisterSessionKey", new SessionKeyRegistration
+        {
+            SessionId = sessionId,
+            KeyHash = CcDirector.Core.Security.GatewaySessionKey.Hash(rawKey),
+            ExpiresAtUtc = expiresAtUtc,
+        });
+
+    /// <summary>Tell the Gateway one session is gone, through the hub method a Director calls for a single removal.</summary>
+    public Task RemoveSessionAsync(string sessionId) => _conn.InvokeAsync("RemoveSession", ++_sequence, sessionId);
+
     /// <summary>Replace the per-verb dispatcher (e.g. after arranging test state).</summary>
     public void OnCommand(Func<DirectorCommand, DirectorCommandResult> dispatch) => _dispatch = dispatch;
 

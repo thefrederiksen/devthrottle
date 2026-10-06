@@ -43,4 +43,18 @@ public static class NarrationPlanRule
             _ => NarrationPlan.Unknown,
         };
     }
+
+    /// <summary>
+    /// The answer for a session in a TEAM's tenant (devthrottle_internal#2311, Gateway step 2): its owner's, in that
+    /// team. A session that is nobody's (<paramref name="owner"/> null), a membership that could not be read
+    /// (<paramref name="decision"/> null), or an owner who is not a member is Unknown - no call is made and nothing is
+    /// said about a plan, because there is no one whose plan it could be. Otherwise the member's entitlement there:
+    /// the team tier includes the Wingman, the free tier does not.
+    /// </summary>
+    public static NarrationPlan DecideForTeamSession(string? owner, TeamTenantDecision? decision)
+    {
+        if (string.IsNullOrWhiteSpace(owner) || decision is not { IsMember: true, Entitlement: { } entitlement })
+            return NarrationPlan.Unknown;
+        return Decide(hosted: true, owner, entitlement);
+    }
 }

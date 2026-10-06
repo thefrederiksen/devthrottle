@@ -79,6 +79,16 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
 
         var (status, _) = await Send(_owner, "PUT", "gateway/fleet-manager", new { sessionId = _fleetManagerId });
         Assert.Equal(HttpStatusCode.OK, status);
+
+        // Issue #3559: the owner's mark now always stores a `marked` event, so the session marked by hand is given the
+        // lessons. That is the mark this setup makes, not what any test here is about - prove it is there, then close
+        // it, so every test starts from no events.
+        var marked = Assert.Single(Events());
+        Assert.Equal((FleetManagerEventStore.KindMarked, _fleetManagerId), (marked.Kind, marked.AddressedTo));
+        var closed = _gateway.FleetManagerEventStoreForTest!.Acknowledge(_tenant, new[] { Guid.Parse(marked.Id) }, all: false,
+            deliveredTo: null, DateTime.UtcNow);
+        Assert.Equal(FleetManagerEventAckStatus.Applied, closed.Status);
+        Assert.Empty(Events());
     }
 
     private async Task BootAsync()

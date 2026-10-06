@@ -1,0 +1,14 @@
+MUTATION: src/CcDirector.Core/Teams/TeamChoices.cs:96 '1 => teams[0],' -> '1 => null,' (the old rule: ask whenever any team is listed, i.e. old MustAsk choices.Count > 1)
+ src/CcDirector.Core/Teams/TeamChoices.cs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+  Failed CcDirector.Core.Tests.Teams.TeamChoicesTests.TakenWithoutAsking_OneTeam_ThatTeamNotAsked [4 ms]
+Failed!  - Failed:     1, Passed:    51, Skipped:     0, Total:    52, Duration: 53 ms - CcDirector.Core.UnitTests.dll (net10.0)
+  Failed CcDirector.Setup.Engine.Tests.HostedTeamEnrollRunnerTests.SignInChooseTeamAndEnrollHosted_Enroll403_ShowsTheGatewaysWordsAndStoresNothing [1 ms]
+  Failed CcDirector.Setup.Engine.Tests.HostedTeamEnrollRunnerTests.SignInChooseTeamAndEnrollHosted_OneTeamListed_NotAskedThatTeamsIdSentAndNamedForIt [< 1 ms]
+Failed!  - Failed:     2, Passed:    26, Skipped:     0, Total:    28, Duration: 349 ms - CcDirector.Setup.Engine.Tests.dll (net10.0)
+  Failed CcDirector.Avalonia.Tests.Teams.HostedTeamSetupTests.RunAsync_OneTeam_NotAskedNamedForTheTeamAndTeamRecorded [1 ms]
+Failed!  - Failed:     1, Passed:    30, Skipped:     0, Total:    31, Duration: 2 s - CcDirector.Avalonia.Tests.dll (net10.0)
+RESTORED:
+Passed!  - Failed:     0, Passed:    52, Skipped:     0, Total:    52, Duration: 76 ms - CcDirector.Core.UnitTests.dll (net10.0)
+Passed!  - Failed:     0, Passed:    28, Skipped:     0, Total:    28, Duration: 325 ms - CcDirector.Setup.Engine.Tests.dll (net10.0)
+Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31, Duration: 1 s - CcDirector.Avalonia.Tests.dll (net10.0)

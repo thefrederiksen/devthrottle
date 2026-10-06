@@ -1,0 +1,12 @@
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=1232   executed=1232
+  CcDirector.Avalonia.Tests                outcome=Completed    total=908    executed=908
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=677    executed=677
+  cc-director-setup-cli.Tests              outcome=Completed    total=35     executed=35
+RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.

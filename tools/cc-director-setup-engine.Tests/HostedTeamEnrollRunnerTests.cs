@@ -22,8 +22,9 @@ namespace CcDirector.Setup.Engine.Tests;
 /// What is proven:
 ///  - Signal missing or false: no teams call, nothing asked, the enrollment body is the pinned literal sent
 ///    before Teams, and no team is recorded.
-///  - Signal true: no team listed means nothing asked and the same literal body, personal recorded; teams listed
-///    means the offer is exactly the Gateway's teams plus personal and the chosen id is sent; any non-200 from
+///  - Signal true: no team listed means nothing asked and the same literal body, personal recorded; exactly one
+///    team means nothing asked and that team's id sent; two or more means the offer is exactly the Gateway's teams
+///    plus personal and the chosen id is sent; any non-200 from
 ///    the teams route - 404 and 401 included - is an error in the Gateway's words, and nothing is enrolled.
 ///  - An unreadable teams reply or a role that cannot run sessions is a failure result, not an exception.
 ///  - The move sends the device and the team; a 401 says to sign in again; a refusal comes back as it is.
@@ -218,10 +219,27 @@ public class HostedTeamEnrollRunnerTests
         Assert.Equal(new DirectorTeam("t-acme", "Acme"), result.Value.Team);
     }
 
+    // A person with one team is never asked to choose (devthrottle_internal#2311, Phases 2-3 review finding 1).
+    [Fact]
+    public async Task SignInChooseTeamAndEnrollHosted_OneTeamListed_NotAskedThatTeamsIdSentAndNamedForIt()
+    {
+        var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "developer", 5)))));
+
+        var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName, NeverAsked, CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        var body = JsonNode.Parse(Assert.Single(h.Requests, r => r.Path == "/devices/enroll-hosted").Body)!.AsObject();
+        Assert.Equal("t-dev", (string?)body["teamId"]);
+        Assert.Equal(new DirectorTeam("t-dev", "DevThrottle"), Assert.Single(h.Teams));
+        Assert.Equal(new DirectorTeam("t-dev", "DevThrottle"), result.Value!.Team);
+        Assert.Equal("SOREN_NORTH - DevThrottle", result.Value.DirectorName);
+    }
+
+    // Two teams, so the person is asked; choosing the personal account sends today's body.
     [Fact]
     public async Task SignInChooseTeamAndEnrollHosted_ChoosesPersonal_SendsTodaysBody()
     {
-        var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "manager", 4)))));
+        var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "manager", 4), ("t-acme", "Acme", "developer", 3)))));
 
         var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName,
             (q, _) => Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices.Single(c => c.IsPersonal), "Soren - home lab")),
@@ -235,7 +253,7 @@ public class HostedTeamEnrollRunnerTests
     [Fact]
     public async Task SignInChooseTeamAndEnrollHosted_QuestionCancelled_EnrollsAndStoresNothing()
     {
-        var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "owner", 5)))));
+        var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "owner", 5), ("t-acme", "Acme", "developer", 3)))));
 
         var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName,
             (_, _) => Task.FromResult<TeamAnswer?>(null), CancellationToken.None);
@@ -254,8 +272,7 @@ public class HostedTeamEnrollRunnerTests
             teams: () => Ok(TeamsReply(("t-dev", "DevThrottle", "developer", 5))),
             enroll: () => Json(HttpStatusCode.Forbidden, JsonSerializer.Serialize(new { error = refusal }))));
 
-        var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName,
-            (q, _) => Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[0], "SOREN_NORTH - DevThrottle")), CancellationToken.None);
+        var result = await h.Runner.SignInChooseTeamAndEnrollHostedAsync(DeviceId, MachineName, NeverAsked, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(refusal, result.ErrorMessage);

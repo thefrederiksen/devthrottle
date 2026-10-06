@@ -170,7 +170,6 @@ public sealed class TeamChoicesTests
         var only = Assert.Single(choices);
         Assert.True(only.IsPersonal);
         Assert.Equal("Just you", only.Detail);
-        Assert.False(TeamChoices.MustAsk(choices));
     }
 
     [Fact]
@@ -179,7 +178,40 @@ public sealed class TeamChoicesTests
         var choices = TeamChoices.Build(new[] { Team("t-b", "Beta", "manager", 2), Team("t-a", "Alpha", "developer", 1) });
 
         Assert.Equal(new string?[] { "t-b", "t-a", null }, choices.Select(c => c.TeamId));
-        Assert.True(TeamChoices.MustAsk(choices));
+    }
+
+    [Fact]
+    public void Build_OneTeam_StillOffersPersonalForTheMove()
+    {
+        // Screen D3 lists Build's choices: a move is the person's own choice, so Personal stays offered.
+        var choices = TeamChoices.Build(new[] { Team("t-a", "Alpha", "owner", 3) });
+
+        Assert.Equal(new string?[] { "t-a", null }, choices.Select(c => c.TeamId));
+    }
+
+    [Fact]
+    public void TakenWithoutAsking_NoTeams_ThePersonalAccount()
+    {
+        var taken = TeamChoices.TakenWithoutAsking(TeamChoices.Build(Array.Empty<HostedTeam>()));
+
+        Assert.NotNull(taken);
+        Assert.True(taken!.IsPersonal);
+    }
+
+    [Fact]
+    public void TakenWithoutAsking_OneTeam_ThatTeamNotAsked()
+    {
+        var taken = TeamChoices.TakenWithoutAsking(TeamChoices.Build(new[] { Team("t-a", "Alpha", "developer", 3) }));
+
+        Assert.Equal(new TeamChoice("t-a", "Alpha", "You are a Developer, 3 people"), taken);
+    }
+
+    [Fact]
+    public void TakenWithoutAsking_TwoTeams_NullSoThePersonIsAsked()
+    {
+        var taken = TeamChoices.TakenWithoutAsking(TeamChoices.Build(new[] { Team("t-b", "Beta", "manager", 2), Team("t-a", "Alpha", "developer", 1) }));
+
+        Assert.Null(taken);
     }
 
     [Theory]

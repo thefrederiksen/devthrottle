@@ -448,7 +448,7 @@ public sealed class CallACodeFirstTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
-            narrationPlan: _ => NarrationPlan.Allowed);
+            narrationPlan: (_, _) => NarrationPlan.Allowed);
 
         await env.AskJudgeAsync(Tenant, "judge", TimeSpan.FromSeconds(5), CancellationToken.None);
         await env.AskNarratorAsync(Tenant, "narrate", TimeSpan.FromSeconds(5), CancellationToken.None);
