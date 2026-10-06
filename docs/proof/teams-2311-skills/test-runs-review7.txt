@@ -114,3 +114,22 @@ Failed!  - Failed:     3, Passed:  9518, Skipped:    14, Total:  9535, Duration:
   Failed CcDirector.Gateway.Tests.VerbAnswersWhenStarvedTests.PromptVerb_DirectorStartedBelowNormalOnABusyMachine_AnswersInsideItsBudget [30 s]
 The three failures are VerbAnswersWhenStarvedTests, which deliberately starve the processor and time out at 30 s; the whole suite was running beside other sessions' work. Nothing in this pull request touches that class or what it calls. The class alone, same binary:
 Passed!  - Failed:     0, Passed:     3, Skipped:     0, Total:     3, Duration: 34 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+AFTER REBASING onto origin/main 656394653 (one commit: the Factories Talk button's Gateway side; touches no skill file) - 2026-10-06T19:33:30Z
+Core skill tests, full build:
+Passed!  - Failed:     0, Passed:   104, Skipped:     0, Total:   104, Duration: 39 s - CcDirector.Core.Tests.dll (net10.0)
+Gateway.UnitTests, the SkillPlacement classes only (the whole suite ran above, before the rebase):
+Passed!  - Failed:     0, Passed:    13, Skipped:     0, Total:    13, Duration: 12 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+Default gate:
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=1232   executed=1232
+  CcDirector.Avalonia.Tests                outcome=Completed    total=908    executed=908
+  CcDirector.Engine.Tests                  outcome=Completed    total=102    executed=102
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=708    executed=708
+  cc-director-setup-cli.Tests              outcome=Completed    total=59     executed=59
+RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.

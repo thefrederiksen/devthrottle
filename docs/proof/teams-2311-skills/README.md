@@ -358,6 +358,7 @@ Five older assertions that a withdrawn skill's entry in the agent's folder was G
 | **Review round 7:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 104 passed, 0 failed | [test-runs-review7.txt](test-runs-review7.txt) |
 | **Review round 7:** `.\scripts\test-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review7.txt](gate-default-review7.txt) |
 | **Review round 7:** `CcDirector.Gateway.UnitTests`, whole suite (one Gateway sentence changed) | 9518 passed, **3 failed**, 14 skipped: the three `VerbAnswersWhenStarvedTests`, which starve the processor on purpose and time out at 30 seconds, on a loaded machine. That class alone on the same binary: 3 of 3. Nothing here touches it. | [test-runs-review7.txt](test-runs-review7.txt) |
+| **Review round 7, after rebasing onto origin/main `656394653`:** Core skill tests, the default gate, and the Gateway `SkillPlacement` unit tests | 104 passed; all 10 suites `outcome=Completed`; 13 passed. The whole Gateway unit suite was not run again: the one new main commit touches no skill file. | [test-runs-review7.txt](test-runs-review7.txt) |
 
 The default gate's first run failed one test, `RetiredMessagingWordsTests`, because I was writing the gate's own
 output into this folder and the repository-wide scan could not open the locked file. Rerun with the output outside the
