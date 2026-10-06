@@ -51,8 +51,8 @@ public sealed class TeamQuestionsTests : IDisposable
     private readonly ConcurrentQueue<string> _commands = new();
     private readonly ConcurrentQueue<PromptRequest> _prompts = new();
 
-    /// <summary>When set, the Director's end of the tunnel throws this once a command has reached it.</summary>
-    private Exception? _sendThrows;
+    /// <summary>When set, the next read of a session's reach fails, once - a delivery that cannot run.</summary>
+    private bool _livenessFailsOnce;
 
     public TeamQuestionsTests()
     {
@@ -71,6 +71,11 @@ public sealed class TeamQuestionsTests : IDisposable
         _delivery = new DevReportDelivery(_store,
             (tenant, sid) =>
             {
+                if (_livenessFailsOnce)
+                {
+                    _livenessFailsOnce = false;
+                    throw new InvalidOperationException("the roster could not be read");
+                }
                 var reach = _reach.TryGetValue(sid, out var r) ? r : DevReportSessionReach.Busy;
                 return new DevReportSessionLiveness(reach, reach == DevReportSessionReach.Ended ? null : DirectorId, "test roster");
             },
@@ -96,7 +101,6 @@ public sealed class TeamQuestionsTests : IDisposable
     private Task<DirectorCommandResult?> SendAsync(string directorId, DirectorCommand command, CancellationToken ct)
     {
         _commands.Enqueue(command.Verb + " " + command.SessionId + " " + command.PayloadJson);
-        if (_sendThrows is not null) throw _sendThrows;
         if (command.Verb == "prompt")
             _prompts.Enqueue(JsonSerializer.Deserialize<PromptRequest>(command.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!);
         return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success(
@@ -421,29 +425,33 @@ public sealed class TeamQuestionsTests : IDisposable
         Assert.Equal(1, Assert.Single(_store.Items(_tenant, report.Id)).SourceVersion);
     }
 
-    /// <summary>REVIEW F4. The send to the session throws once it has started. The answer and the words were stored
-    /// together before it, so nothing is lost: the words are the author's to read, the choice is recorded as sent and not
-    /// confirmed, the person is told their answer is taken, and a second press neither stores nor sends it again.</summary>
+    /// <summary>REVIEW F4. The settle pass that would deliver the choice fails after the answer is taken (here: the
+    /// session's reach cannot be read). The answer and the words were stored together before it, so nothing is lost: the
+    /// words are the author's to read, the choice waits held, the person is told their answer is taken, a second press
+    /// neither stores nor sends anything, and the next settle pass delivers the choice exactly once.</summary>
     [Fact]
-    public async Task AnswerAsync_TheSendFailsOnceStarted_TheWordsStillReachThePerson_AndTheChoiceIsNeverSentTwice()
+    public async Task AnswerAsync_TheDeliveryFailsAfterTheAnswerIsTaken_TheWordsStillReachThePerson_AndTheChoiceGoesExactlyOnce()
     {
         var (report, sid) = Report(Mike);
         _reach[sid] = DevReportSessionReach.Idle;
-        _sendThrows = new IOException("the tunnel dropped mid-send");
+        _store.BeforeMemberAnswerWriteForTests = () => _livenessFailsOnce = true;
 
         var (status, body) = await AnswerAsync(Mike, report, "30", "We trialled 14 days.");
 
         Assert.Equal(200, status);
-        Assert.Equal(DevReportItemStates.UnconfirmedState.Label,
+        Assert.Equal(DevReportItemStates.HeldState.Label,
             body.GetProperty("question").GetProperty("answer").GetProperty("statusLabel").GetString());
+        Assert.Empty(_commands);
         Assert.Equal("We trialled 14 days.", Assert.Single(_comments.To(_tenant, report, Alice)).Text);
 
-        _sendThrows = null;
+        _store.BeforeMemberAnswerWriteForTests = null;
         var (again, againBody) = await AnswerAsync(Mike, report, "14", "Second words.");
         Assert.Equal(409, again);
         Assert.Equal(TeamQuestions.AlreadyAnswered, againBody.GetProperty("error").GetString());
+
+        Assert.Equal(1, await _delivery.SettleAsync(_tenant, sid, CancellationToken.None));
         Assert.Equal(0, await _delivery.SettleAsync(_tenant, sid, CancellationToken.None));
-        Assert.Single(_commands);
+        Assert.Contains("\"30 days\" (value \"30\")", Assert.Single(_prompts).Text);
         Assert.Single(_store.Items(_tenant, report));
         Assert.Single(_comments.To(_tenant, report, Alice));
     }
