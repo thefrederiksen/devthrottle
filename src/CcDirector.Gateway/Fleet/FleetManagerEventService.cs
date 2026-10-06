@@ -59,6 +59,11 @@ public interface IFleetManagerEventEnvironment
     /// <summary>The account's fresh pushed roster, with every role and owner answer resolved across the whole of it.</summary>
     IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant);
 
+    /// <summary>Whether the row a Director pushed for a session is THAT session's row - the session store's one answer to
+    /// which Director holds it (<see cref="Streaming.PushedSessionStore.IsHoldersRow"/>). In a team a colleague's Director
+    /// can list the session's id too, and its row says nothing about the session (devthrottle_internal#2311).</summary>
+    bool IsHoldersRow(TenantId tenant, string directorId, string sessionId);
+
     /// <summary>Whether one Director is connected and has said what it runs, and what that is.</summary>
     (FleetObservation Observation, IReadOnlyList<SessionDto> Sessions) DirectorFleet(TenantId tenant, string directorId);
 
@@ -563,11 +568,14 @@ public sealed class FleetManagerEventService : IDisposable
     }
 
     /// <summary>The Director other than <paramref name="exceptDirectorId"/> that reports this session alive in the fresh
-    /// roster, or null.</summary>
+    /// roster, or null. Only the HOLDER's row counts (devthrottle_internal#2311): in a team a colleague's Director that
+    /// lists the id is not the session running elsewhere, and never keeps its death from being recorded. Outside a team
+    /// every row is the holder's, as before.</summary>
     private string? ReportedAliveElsewhere(TenantId tenant, string sid, string exceptDirectorId)
     {
         foreach (var (directorId, row) in _env.Roster(tenant))
-            if (SameId(row.SessionId, sid) && !SameId(directorId, exceptDirectorId) && !IsExited(row))
+            if (SameId(row.SessionId, sid) && !SameId(directorId, exceptDirectorId) && !IsExited(row)
+                && _env.IsHoldersRow(tenant, directorId, row.SessionId))
                 return directorId;
         return null;
     }
@@ -1086,6 +1094,9 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
 
     public (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId)
         => _pushed.TryGetLastKnownSession(tenant, sessionId);
+
+    public bool IsHoldersRow(TenantId tenant, string directorId, string sessionId)
+        => _pushed.IsHoldersRow(tenant, directorId, sessionId);
 
     public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant)
     {

@@ -1806,6 +1806,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         public IReadOnlyCollection<string> PendingSuccessors(TenantId tenant) => _inner.PendingSuccessors(tenant);
         public (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId) => _inner.LastKnown(tenant, sessionId);
         public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant) => _inner.Roster(tenant);
+        public bool IsHoldersRow(TenantId tenant, string directorId, string sessionId) => _inner.IsHoldersRow(tenant, directorId, sessionId);
         public (FleetObservation Observation, IReadOnlyList<SessionDto> Sessions) DirectorFleet(TenantId tenant, string directorId)
             => _inner.DirectorFleet(tenant, directorId);
         public bool DirectorShutDown(TenantId tenant, string directorId) => _inner.DirectorShutDown(tenant, directorId);

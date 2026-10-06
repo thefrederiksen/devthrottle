@@ -224,6 +224,43 @@ public sealed class HostedTeamSessionDirectorOneRuleTests : IAsyncLifetime
         Assert.Empty(Seen(_seenByBob, "kill"));
     }
 
+    // ---- the Fleet Manager's death path (review round 1, OR-F2) ------------------------------------------------------
+
+    [Fact]
+    public async Task AWorkersDeath_IsRecordedForItsFleetManager_WhileOnlyAColleaguesDirectorStillListsIt()
+    {
+        // Alice's Fleet Manager, marked, and the session under test working for it - both on Alice's Director. Bob's
+        // Director lists the worker's id too, alive.
+        var fleetManager = Guid.NewGuid().ToString();
+        await _aliceDirector.RegisterSessionKeyAsync(fleetManager, GatewaySessionKey.Mint(), DateTime.UtcNow.AddHours(1));
+        _gateway.TenantSettingsResolver.SetFleetManagerSessionId(_team, fleetManager, DateTime.UtcNow);
+        var worker = Row(_sessionId, "Working");
+        worker.Name = "worker of the fleet manager";
+        worker.IsControlled = true;
+        worker.ControllerSessionId = fleetManager;
+        await _aliceDirector.PushSnapshotAsync(Row(fleetManager, "WaitingForInput"), worker);
+        await _bobDirector.PushSnapshotAsync(Row(_sessionId, "Working"));
+        _gateway.TurnEndWatcherForTest!.Observe(_team, _sessionId, "Working", AliceDirector);
+
+        // Alice's Director removes the worker. BOB'S ROW IS NOW THE ONLY ROW of the id, alive - asserted.
+        await _aliceDirector.RemoveSessionAsync(_sessionId);
+        Assert.Equal(new[] { BobDirector }, _gateway.PushedSessions.DirectorsHoldingSession(_team, _sessionId));
+        _gateway.TurnEndWatcherForTest!.ObserveRemoval(_team, _sessionId, AliceDirector);
+
+        // The death is recorded, addressed to Alice's Fleet Manager and owed to it: Bob's listing does not keep it alive.
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        FleetManagerEventDto? died = null;
+        while (died is null && DateTime.UtcNow < deadline)
+        {
+            died = _gateway.FleetManagerEventStoreForTest!.Unacknowledged(_team)
+                .FirstOrDefault(e => e.Kind == "died" && e.SessionId == _sessionId);
+            if (died is null) await Task.Delay(50);
+        }
+        Assert.NotNull(died);
+        Assert.Equal(fleetManager, died!.AddressedTo);
+        Assert.Contains(_gateway.FleetManagerEventStoreForTest!.Owed(_team, fleetManager, 10).Events, e => e.Id == died.Id);
+    }
+
     // ---- helpers ---------------------------------------------------------------------------------------------------
 
     private async Task AliceListsTheSession()
