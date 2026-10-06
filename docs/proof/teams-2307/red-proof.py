@@ -5,8 +5,8 @@ One foreground command per rule, from the repository root:
     python docs/proof/teams-2307/red-proof.py <name>
 
 Writes docs/proof/teams-2307/red-<name>.txt: the mutation, the command, and the test output. The source is restored in
-a `finally` from the committed tree (`git checkout -- <file>`), and the run fails loudly if the tree is not clean
-afterwards. Every run builds again (no --no-build), so a mutated binary can never stand in for the restored source.
+a `finally` by writing back the exact bytes read before the mutation (never through git, whose index lock another process
+may hold), and the run fails loudly if the file then differs from the committed tree. Every run builds again (no --no-build), so a mutated binary can never stand in for the restored source.
 The method is #2309's (docs/proof/teams-2309/red-proof.py).
 """
 
@@ -245,6 +245,14 @@ MUTATIONS = {
         "new": "        void getPageCount(`/teams/${team!.id}/questions`, controller.signal).then(",
         "runs": [SHELL],
     },
+    "f8-rail-count-stale-after-an-answer": {
+        "rule": "Review F8: the count beside Questions is read again the moment an answer is sent, so the rail never disagrees with the page.",
+        "file": QPAGE,
+        "old": "      refreshTeamPageCounts();
+",
+        "new": "",
+        "runs": [PAGE],
+    },
     "f8-questions-names-no-count": {
         "rule": "Review F8: the Gateway names where the Questions count is read, in the team on screen.",
         "file": TEAMAPP,
@@ -268,6 +276,7 @@ def main():
     if subprocess.run(["git", "diff", "--quiet", "--", m["file"]], cwd=REPO).returncode != 0:
         sys.exit(f"ERROR: {m['file']} has uncommitted changes; commit them first, the restore would discard them")
     path = REPO / m["file"]
+    original = path.read_bytes()
     source = path.read_text(encoding="utf-8")
     edits = m["edits"] if "edits" in m else [(m["old"], m["new"])]
     mutated = source
@@ -296,10 +305,12 @@ def main():
             lines.append("")
             print(f"[exit] {result.returncode}", flush=True)
     finally:
-        subprocess.run(["git", "checkout", "--", m["file"]], cwd=REPO, check=True)
+        # The exact bytes read before the mutation, written back without git: a restore that needs the index can be
+        # stopped by another process holding its lock, and then the mutation would outlive the run.
+        path.write_bytes(original)
     if subprocess.run(["git", "diff", "--quiet", "--", m["file"]], cwd=REPO).returncode != 0:
         sys.exit(f"ERROR: {m['file']} was not restored")
-    lines.append("Restored from the committed tree afterwards; git diff on the file is empty.")
+    lines.append("Restored afterwards to the bytes read before the mutation; git diff on the file is empty.")
     (OUT / f"red-{name}.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines[-30:]))
 

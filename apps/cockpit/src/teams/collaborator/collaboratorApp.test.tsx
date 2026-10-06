@@ -102,6 +102,7 @@ import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factory
 import { signOutAccount } from "@devthrottle/client-core/auth/accountActions";
 import { resetFactorySwitchCache } from "../../factory/useFactorySwitch";
 import { COCKPIT_ROUTES } from "../../routes";
+import { refreshTeamPageCounts } from "../useTeamPageCounts";
 
 const NOT_AVAILABLE = "This page is not available to Collaborators.";
 
@@ -349,6 +350,20 @@ describe("The Collaborator's app", () => {
     await waitFor(() => expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
     await waitFor(() => expect(railBadge("Questions")).toBe("2"));
     expect(new Set(pageCounts.asked)).toEqual(new Set(["/teams/team-paul/questions?odd-count"]));
+  });
+
+  it("Count_AfterAnAnswer_IsReadAgainAtOnce_SoTheRailNeverDisagreesWithThePage", async () => {
+    pageCounts.count = 1;
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/questions");
+    await waitFor(() => expect(railBadge("Questions")).toBe("1"));
+    const readsBefore = pageCounts.asked.length;
+
+    pageCounts.count = 0;
+    act(() => refreshTeamPageCounts());
+
+    await waitFor(() => expect(railBadge("Questions")).toBeNull());
+    expect(pageCounts.asked.length).toBe(readsBefore + 1);
   });
 
   it("Count_ZeroWaiting_ShowsNoCount", async () => {

@@ -46,7 +46,11 @@ vi.mock("@devthrottle/client-core/teams/teamQuestionsClient", () => ({
   }),
 }));
 
+// The rail's count beside Questions is read again after an answer (review F8): recorded here, proven in the shell's tests.
+vi.mock("../useTeamPageCounts", () => ({ refreshTeamPageCounts: vi.fn() }));
+
 import { GatewayError } from "@devthrottle/client-core/api/client";
+import { refreshTeamPageCounts } from "../useTeamPageCounts";
 import { answerQuestion, getMyQuestions } from "@devthrottle/client-core/teams/teamQuestionsClient";
 import { QuestionsPage } from "./QuestionsPage";
 
@@ -109,6 +113,7 @@ beforeEach(() => {
   client.answerError = null;
   vi.mocked(answerQuestion).mockClear();
   vi.mocked(getMyQuestions).mockClear();
+  vi.mocked(refreshTeamPageCounts).mockClear();
 });
 
 afterEach(() => cleanup());
@@ -158,6 +163,8 @@ describe("the questions waiting", () => {
     expect(answer.textContent).toContain("Odd you chose thirty~c");
     expect(within(answer).getByTestId("team-question-status").textContent).toBe("Odd held for the agent~h");
     expect(screen.queryByTestId("team-question-send")).toBeNull();
+    // The rail's count is read again at once, so it never says 1 beside a page that says none.
+    expect(refreshTeamPageCounts).toHaveBeenCalledTimes(1);
     // The page reads the Gateway again, so the lists are the Gateway's after an answer.
     await waitFor(() => expect(vi.mocked(getMyQuestions).mock.calls.length).toBeGreaterThanOrEqual(2));
   });

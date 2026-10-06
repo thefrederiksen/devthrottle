@@ -6,9 +6,17 @@ import { getPageCount, type TeamSummary } from "@devthrottle/client-core/teams/t
 // own `countPath`, or null - and the number is the Gateway's too, rendered verbatim (rule 7). The Cockpit never builds
 // a count path and never counts.
 //
-// Read every 45 seconds and again on every route change, like the Dictionary badge, so answering on Questions and
-// moving on updates it. No team on screen asks nothing.
+// Read every 45 seconds, again on every route change like the Dictionary badge, and again the moment a page changes
+// what waits on the person (an answer sent on Questions) - so the rail never says 1 beside a page that says none.
+// No team on screen asks nothing.
 export const TEAM_PAGE_COUNT_POLL_MS = 45_000;
+
+const STALE_EVENT = "devthrottle:team-page-counts-stale";
+
+/** Read every team page count again now: a page calls this once it has changed what waits on the person. */
+export function refreshTeamPageCounts(): void {
+  window.dispatchEvent(new Event(STALE_EVENT));
+}
 
 const NONE: Readonly<Record<string, number>> = {};
 
@@ -33,9 +41,11 @@ export function useTeamPageCounts(team: TeamSummary | null, pathname: string): R
     };
     poll();
     const id = window.setInterval(poll, TEAM_PAGE_COUNT_POLL_MS);
+    window.addEventListener(STALE_EVENT, poll);
     return () => {
       controller.abort();
       window.clearInterval(id);
+      window.removeEventListener(STALE_EVENT, poll);
     };
     // `counted` follows from `key`, and a route change is a reason to read again, so these two are the whole list.
   }, [key, pathname]);

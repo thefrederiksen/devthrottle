@@ -5,6 +5,7 @@ import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePo
 import { answerQuestion, getMyQuestions, type TeamQuestion, type TeamQuestions } from "@devthrottle/client-core/teams/teamQuestionsClient";
 import { Button, EmptyState, ErrorBanner, LoadingState, PageHeader } from "../../components";
 import { shortDate, TEAM_REPORTS_POLL_MS } from "./teamReportFormat";
+import { refreshTeamPageCounts } from "../useTeamPageCounts";
 import "../../team/team.css";
 import "./collaborator.css";
 
@@ -102,6 +103,8 @@ function QuestionCard({ teamId, question, onAnswered }: { teamId: string; questi
     try {
       setSent(await answerQuestion(teamId, q, chosen, comment));
       setComment("");
+      // The count beside Questions in the rail is read again at once, so it never disagrees with this page.
+      refreshTeamPageCounts();
       onAnswered();
     } catch (err) {
       setSendError(gatewayErrorMessage(err, "send your answer"));
