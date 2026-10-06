@@ -89,7 +89,8 @@ internal static class HostedTeamSetup
                 // Live proof F4: whether the name is the suggestion "<computer> - <team>" is recorded now, while it
                 // is known, so a later move can tell it from a name the person typed. Recorded only once the
                 // rename has happened, so the record never names a suggestion the Director does not carry.
-                var suggestion = chosenTeam is null ? null : DirectorNameSuggestion.IfSuggested(machineName, chosenTeam, name);
+                var suggestion = chosenTeam is null ? null
+                    : DirectorNameSuggestion.IfSuggested(machineName, chosenTeam, name, result.Value.DeviceKey);
                 recordSuggestion(suggestion);
                 FileLog.Write($"[HostedTeamSetup] RunAsync: Director renamed from screen D1 ({(suggestion is null ? "a name of the person's own" : "the suggested name")})");
             }

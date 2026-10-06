@@ -52,9 +52,13 @@ public sealed class HostedTeamSetupTests
             persist: (_, key) => log.Add("key:" + key),
             persistTeam: persistTeam);
 
-    // Records what setup says about the name (live proof F4): the suggestion it carries, or none.
+    // Records what setup says about the name (live proof F4): the suggestion it carries, or none - and which key it is
+    // tied to (review RM-F8): the one the Gateway just issued, "team-key", by its fingerprint.
     private static Action<DirectorNameSuggestion?> Suggest(List<string> log) =>
-        s => log.Add("suggestion:" + (s is null ? "none" : s.TeamId + "|" + s.MachineName + "|" + s.Name));
+        s => log.Add("suggestion:" + (s is null ? "none" : s.TeamId + "|" + KeyNamed(s.KeyFingerprint) + "|" + s.MachineName + "|" + s.Name));
+
+    private static string KeyNamed(string fingerprint) =>
+        fingerprint == DeviceKeyFingerprint.Of("team-key") ? "team-key" : "another key";
 
     private static Func<TeamQuestion, Task<TeamAnswer?>> Choose(int index, string name) =>
         q => Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[index], name));
@@ -71,7 +75,7 @@ public sealed class HostedTeamSetupTests
         Assert.Equal("team-key", result.Value!.DeviceKey);
         // The team is recorded last: that write redraws the title bar, and the name must already be saved.
         Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - DevThrottle",
-            "suggestion:t-dev|SOREN_NORTH|SOREN_NORTH - DevThrottle", "team:t-dev for team-key" }, log);
+            "suggestion:t-dev|team-key|SOREN_NORTH|SOREN_NORTH - DevThrottle", "team:t-dev for team-key" }, log);
     }
 
     // Live proof F4: the person typed a name of their own on D1, so no suggestion is recorded and a move never renames it.
@@ -111,7 +115,7 @@ public sealed class HostedTeamSetupTests
             name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
-        Assert.Contains("suggestion:t-acme|SOREN_NORTH|SOREN_NORTH - Acme", log);
+        Assert.Contains("suggestion:t-acme|team-key|SOREN_NORTH|SOREN_NORTH - Acme", log);
     }
 
     // A person with one team is never asked (devthrottle_internal#2311): D1 is not shown, and the Director takes
@@ -127,7 +131,7 @@ public sealed class HostedTeamSetupTests
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - DevThrottle",
-            "suggestion:t-dev|SOREN_NORTH|SOREN_NORTH - DevThrottle", "team:t-dev" }, log);
+            "suggestion:t-dev|team-key|SOREN_NORTH|SOREN_NORTH - DevThrottle", "team:t-dev" }, log);
     }
 
     [AvaloniaFact]

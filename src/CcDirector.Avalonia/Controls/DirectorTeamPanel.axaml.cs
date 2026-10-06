@@ -24,8 +24,8 @@ namespace CcDirector.Avalonia.Controls;
 /// <param name="PersistKey">Stores the new device key after a move.</param>
 /// <param name="PersistTeam">Stores the new team after a move; this is what redraws the title bar.</param>
 /// <param name="Reapply">Makes the running Gateway connection use the new key; null when there is none.</param>
-/// <param name="FollowName">Renames this Director for its new team when its name is still the suggested one; null to
-/// leave its name alone.</param>
+/// <param name="FollowName">Renames this Director for its new team when its name is still the suggested one, given the
+/// Gateway's answer to the move, and says what happened; null to leave its name alone.</param>
 internal sealed record DirectorTeamPanelDeps(
     IDirectorTeamService Service,
     Func<int> RunningSessions,
@@ -36,7 +36,7 @@ internal sealed record DirectorTeamPanelDeps(
     Action<string> PersistKey,
     Action<DirectorTeam, string> PersistTeam,
     Func<Task>? Reapply,
-    Func<DirectorTeam, string?>? FollowName = null);
+    Func<DirectorTeam, DirectorMoveAnswer, NameAfterMoveOutcome>? FollowName = null);
 
 /// <summary>
 /// Screen D3 (devthrottle_internal#2311): "This Director works for &lt;team&gt;", the other teams, and
@@ -100,8 +100,9 @@ public partial class DirectorTeamPanel : UserControl
             // Live proof F4: a name that is still the suggestion "<computer> - <old team>" follows the move.
             new DirectorNameFollower(
                 () => NamedInstanceRegistry.Get(InstanceContext.Slug)?.DisplayName,
-                // The team being left: the move records the new team only after the name step (review RM-F5).
-                () => DirectorTeamStore.Load()?.TeamId,
+                // The key being left: the move stores the new key only after the name step (review RM-F8). The team
+                // being left is the Gateway's answer, never the local team file.
+                () => GatewayConfig.Load().Token,
                 name => NamedInstanceRegistry.Rename(InstanceContext.Slug, name),
                 DirectorNameSuggestionStore.Load,
                 DirectorNameSuggestionStore.Save).FollowMove);

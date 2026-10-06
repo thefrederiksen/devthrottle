@@ -265,13 +265,13 @@ public sealed class DirectorTeamMoverTests
     private sealed class FakeService : IDirectorTeamService
     {
         public List<(string DirectorId, string? TeamId)> Moves { get; } = new();
-        public OperationResult<string> Answer { get; set; } = OperationResult<string>.Ok("new-key");
+        public OperationResult<DirectorMoveAnswer> Answer { get; set; } = OperationResult<DirectorMoveAnswer>.Ok(new DirectorMoveAnswer("new-key", null));
         public Action? DuringMove { get; set; }
 
         public Task<OperationResult<HostedTeamsAnswer>> ListTeamsAsync(CancellationToken ct) =>
             Task.FromResult(OperationResult<HostedTeamsAnswer>.Ok(new HostedTeamsAnswer(true, Array.Empty<HostedTeam>())));
 
-        public Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
+        public Task<OperationResult<DirectorMoveAnswer>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
         {
             Moves.Add((directorId, teamId));
             DuringMove?.Invoke();
@@ -348,7 +348,7 @@ public sealed class DirectorTeamMoverTests
     [Fact]
     public async Task MoveAsync_GatewayRefuses_ReturnsItsWordsAndStoresNothing()
     {
-        var service = new FakeService { Answer = OperationResult<string>.Fail("This Director still has a session registered.") };
+        var service = new FakeService { Answer = OperationResult<DirectorMoveAnswer>.Fail("This Director still has a session registered.") };
         var holds = new Holds();
         var mover = new DirectorTeamMover(service, holds.Take,
             (_, _) => throw new InvalidOperationException("must not store"), _ => throw new InvalidOperationException("must not store"), null);
@@ -410,7 +410,7 @@ public sealed class DirectorTeamMoverTests
     [Fact]
     public async Task MoveAsync_GatewaySentNoKey_SaysTheMoveHappenedAndTheKeyDidNotArrive()
     {
-        var service = new FakeService { Answer = OperationResult<string>.Ok("") };
+        var service = new FakeService { Answer = OperationResult<DirectorMoveAnswer>.Ok(new DirectorMoveAnswer("", null)) };
         var stored = new List<string>();
         var mover = new DirectorTeamMover(service, new Holds().Take, (_, _) => stored.Add("team"), _ => stored.Add("key"), null);
 
@@ -526,10 +526,10 @@ public sealed class SessionCreationHoldTests : IDisposable
     {
         public Task<OperationResult<HostedTeamsAnswer>> ListTeamsAsync(CancellationToken ct) => throw new NotSupportedException();
 
-        public Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
+        public Task<OperationResult<DirectorMoveAnswer>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
         {
             start();
-            return Task.FromResult(OperationResult<string>.Ok("new-key"));
+            return Task.FromResult(OperationResult<DirectorMoveAnswer>.Ok(new DirectorMoveAnswer("new-key", null)));
         }
     }
 }

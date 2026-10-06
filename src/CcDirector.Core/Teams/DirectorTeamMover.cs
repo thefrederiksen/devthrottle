@@ -15,10 +15,21 @@ public interface IDirectorTeamService
     /// <summary>
     /// Move the Director whose own id is <paramref name="directorId"/> to <paramref name="teamId"/> (null = the
     /// personal account). The Gateway finds that Director's working key on the signed-in account, refuses while it
-    /// has a session registered, and on success revokes that key and returns the new one.
+    /// has a session registered, and on success revokes that key and returns the new one, with where the revoked key
+    /// was working.
     /// </summary>
-    Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct);
+    Task<OperationResult<DirectorMoveAnswer>> MoveAsync(string directorId, string? teamId, CancellationToken ct);
 }
+
+/// <summary>
+/// The Gateway's yes to a move: the new device key (empty when its reply carried none), and where the key it revoked
+/// was working (review RM-F8). <paramref name="MovedFrom"/> is null when the Gateway did not say - one older than the
+/// answer - and the Director then knows nothing about what it left.
+/// </summary>
+public sealed record DirectorMoveAnswer(string DeviceKey, DirectorMovedFrom? MovedFrom);
+
+/// <summary>Where the key a move revoked was working, as the Gateway said: a team, or null for the personal account.</summary>
+public sealed record DirectorMovedFrom(string? TeamId);
 
 /// <summary>
 /// Changes the team this Director works for (screen D3) - only with every session closed, so no session ever
@@ -42,7 +53,7 @@ public sealed class DirectorTeamMover
     private readonly Action<DirectorTeam, string> _persistTeam;
     private readonly Action<string> _persistKey;
     private readonly Func<Task>? _reapply;
-    private readonly Func<DirectorTeam, string?>? _followName;
+    private readonly Func<DirectorTeam, DirectorMoveAnswer, NameAfterMoveOutcome>? _followName;
 
     /// <param name="service">The Gateway's move route.</param>
     /// <param name="holdSessionCreation">Holds new sessions with the given reason, reporting how many there are.</param>
@@ -51,14 +62,14 @@ public sealed class DirectorTeamMover
     /// <param name="persistKey">Stores the new device key for this Director.</param>
     /// <param name="reapply">Switches the running Gateway connection to the new key; null when there is none.</param>
     /// <param name="followName">Renames the Director for the new team when its name is still the one the team question
-    /// suggested (live proof F4), returning the new name or null when the name stays; null to leave names alone.</param>
+    /// suggested (live proof F4), given the Gateway's answer, and says what happened; null to leave names alone.</param>
     public DirectorTeamMover(
         IDirectorTeamService service,
         Func<string, SessionCreationHold> holdSessionCreation,
         Action<DirectorTeam, string> persistTeam,
         Action<string> persistKey,
         Func<Task>? reapply,
-        Func<DirectorTeam, string?>? followName = null)
+        Func<DirectorTeam, DirectorMoveAnswer, NameAfterMoveOutcome>? followName = null)
     {
         _followName = followName;
         _service = service ?? throw new ArgumentNullException(nameof(service));
@@ -112,6 +123,16 @@ public sealed class DirectorTeamMover
         $"Its name is now \"{newName}\", but this computer could not record that it is the suggested name ({error}), " +
         "so its name will not change on later moves.";
 
+    /// <summary>What happened to the old suggestion record when it could not be removed, said beside the move's result
+    /// (review RM-F8): it is tied to a key the Director no longer holds, so it renames nothing.</summary>
+    public static string OldRecordNotRemovedNote(string error) =>
+        $"This computer could not remove the record of its old suggested name ({error}); that record is tied to a key " +
+        "this Director no longer uses, so it will not rename it.";
+
+    /// <summary>The words for a move that happened in full but whose old suggestion record could not be removed.</summary>
+    public static string MovedButOldRecordNotRemoved(string teamName, string error) =>
+        $"This Director now works for {teamName} and is connected. {OldRecordNotRemovedNote(error)}";
+
     /// <summary>The words for a move whose name followed, but whose suggestion record could not be saved.</summary>
     public static string MovedRenamedButWillNotFollow(string teamName, string newName, string error) =>
         $"This Director now works for {teamName} and is connected, and its name is now \"{newName}\", but this computer " +
@@ -142,18 +163,20 @@ public sealed class DirectorTeamMover
             return OperationResult<DirectorTeam>.Fail(refusal);
         }
 
-        var moved = await _service.MoveAsync(directorId, target.TeamId, ct).ConfigureAwait(false);
-        if (!moved.Success)
+        var answered = await _service.MoveAsync(directorId, target.TeamId, ct).ConfigureAwait(false);
+        if (!answered.Success)
         {
-            FileLog.Write($"[DirectorTeamMover] MoveAsync: the Gateway refused: {moved.ErrorMessage}");
-            return OperationResult<DirectorTeam>.Fail(moved.ErrorMessage ?? "The Gateway refused the move.");
+            FileLog.Write($"[DirectorTeamMover] MoveAsync: the Gateway refused: {answered.ErrorMessage}");
+            return OperationResult<DirectorTeam>.Fail(answered.ErrorMessage ?? "The Gateway refused the move.");
         }
+        var answer = answered.Value ?? throw new InvalidOperationException("The Gateway accepted the move but its answer is missing.");
+        var newKey = answer.DeviceKey;
 
         // From here on the Gateway has moved the Director and revoked its old key. A local failure is caught so
         // the person is told THAT, rather than "the move failed" (finding F4) - which is why this service method
         // catches, against the usual entry-points-only rule.
         var team = target.ToTeam();
-        if (string.IsNullOrWhiteSpace(moved.Value))
+        if (string.IsNullOrWhiteSpace(newKey))
         {
             FileLog.Write("[DirectorTeamMover] MoveAsync: the Gateway accepted the move but sent no key");
             return OperationResult<DirectorTeam>.Fail(MovedButKeyNotSaved(team.Name, "the Gateway sent no new key"));
@@ -163,13 +186,16 @@ public sealed class DirectorTeamMover
         // new name and the new chip together, and the re-apply below sends the new name to the Fleet Map in its Hello.
         // A name that cannot follow does not undo the move; the person is told once the move is finished.
         string? renameError = null;
+        string? oldRecordError = null;
         NameChangedButNotRecordedException? renamedButNotRecorded = null;
         if (_followName is not null)
         {
             try
             {
-                var renamed = _followName(team);
-                FileLog.Write($"[DirectorTeamMover] MoveAsync: name {(renamed is null ? "kept" : "followed the move")}");
+                var outcome = _followName(team, answer);
+                oldRecordError = outcome.OldRecordNotRemoved;
+                FileLog.Write($"[DirectorTeamMover] MoveAsync: name {(outcome.NewName is null ? "kept" : "followed the move")}" +
+                              (oldRecordError is null ? "" : ", the old suggestion record NOT removed"));
             }
             catch (NameChangedButNotRecordedException ex)
             {
@@ -183,17 +209,20 @@ public sealed class DirectorTeamMover
             }
         }
 
-        // Every failure is reported (review RM-F7): a later step that also fails carries what happened to the name.
+        // Every failure is reported (review RM-F7): a later step that also fails carries what happened to the name, and
+        // an old suggestion record that could not be removed is said too (review RM-F8).
         var nameNote = renamedButNotRecorded is not null
             ? NameChangedWillNotFollowNote(renamedButNotRecorded.NewName,
                 renamedButNotRecorded.InnerException?.Message ?? renamedButNotRecorded.Message)
             : renameError is not null ? NameNotChangedNote(renameError) : null;
+        var notes = string.Join(" ", new[] { nameNote, oldRecordError is null ? null : OldRecordNotRemovedNote(oldRecordError) }
+            .Where(n => n is not null));
         OperationResult<DirectorTeam> Failed(string message) =>
-            OperationResult<DirectorTeam>.Fail(nameNote is null ? message : message + " " + nameNote);
+            OperationResult<DirectorTeam>.Fail(notes.Length == 0 ? message : message + " " + notes);
 
         try
         {
-            _persistTeam(team, moved.Value);
+            _persistTeam(team, newKey);
         }
         catch (Exception ex)
         {
@@ -203,7 +232,7 @@ public sealed class DirectorTeamMover
 
         try
         {
-            _persistKey(moved.Value);
+            _persistKey(newKey);
         }
         catch (Exception ex)
         {
@@ -229,6 +258,8 @@ public sealed class DirectorTeamMover
         if (renamedButNotRecorded is not null)
             return OperationResult<DirectorTeam>.Fail(MovedRenamedButWillNotFollow(
                 team.Name, renamedButNotRecorded.NewName, renamedButNotRecorded.InnerException?.Message ?? renamedButNotRecorded.Message));
+        if (oldRecordError is not null)
+            return OperationResult<DirectorTeam>.Fail(MovedButOldRecordNotRemoved(team.Name, oldRecordError));
 
         FileLog.Write("[DirectorTeamMover] MoveAsync: moved; team and new device key stored, connection re-applied");
         return OperationResult<DirectorTeam>.Ok(team);

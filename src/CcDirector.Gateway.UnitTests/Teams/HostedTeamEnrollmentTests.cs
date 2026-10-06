@@ -335,6 +335,28 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
         Assert.Equal(new DeviceDisplay("Laptop", "windows", "workstation"), _devices.DisplayOfDevice(moved.DeviceId));
     }
 
+    // Review RM-F8: the move says where the key it revoked was working - the team, or null for the person's own
+    // account - so a Director's name follows only out of the team it was really in. Enrollment says nothing of the kind.
+    [Fact]
+    public void Move_SaysWhereTheKeyItRevokedWasWorking_TeamOrPersonal_AndEnrollmentDoesNot()
+    {
+        var enrolled = Enroll(Owner, "director-o", _team);
+        Assert.Null(enrolled.Response!.MovedFrom);
+
+        var home = Move(Owner, "director-o", null);
+        Assert.Equal(200, home.Status);
+        Assert.Equal(_team, home.Response!.MovedFrom!.TeamId);
+
+        var back = Move(Owner, "director-o", _collaboratorTeam);
+        Assert.Equal(200, back.Status);
+        Assert.NotNull(back.Response!.MovedFrom);
+        Assert.Null(back.Response.MovedFrom!.TeamId);
+
+        var onward = Move(Owner, "director-o", _team);
+        Assert.Equal(200, onward.Status);
+        Assert.Equal(_collaboratorTeam, onward.Response!.MovedFrom!.TeamId);
+    }
+
     [Fact]
     public void Move_BackToThePersonsOwnAccount_RunsThePersonalGate()
     {

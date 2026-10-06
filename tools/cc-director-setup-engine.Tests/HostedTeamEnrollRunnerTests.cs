@@ -325,7 +325,9 @@ public class HostedTeamEnrollRunnerTests
         var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, "t-dev", CancellationToken.None);
 
         Assert.True(moved.Success, moved.ErrorMessage);
-        Assert.Equal("moved-key", moved.Value);
+        Assert.Equal("moved-key", moved.Value!.DeviceKey);
+        // A Gateway older than the answer says nothing about what it left, and nothing is made up (review RM-F8).
+        Assert.Null(moved.Value.MovedFrom);
         var move = Assert.Single(h.Requests, r => r.Path == "/devices/enroll-hosted/move");
         Assert.Equal("POST", move.Method);
         Assert.Equal(AccountToken, move.Bearer);
@@ -421,7 +423,24 @@ public class HostedTeamEnrollRunnerTests
         var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, "t-dev", CancellationToken.None);
 
         Assert.True(moved.Success);
-        Assert.Equal("", moved.Value);
+        Assert.Equal("", moved.Value!.DeviceKey);
+    }
+
+    // Review RM-F8: where the revoked key was working is passed on exactly as the Gateway said it - a team, or the
+    // person's own account.
+    [Theory]
+    [InlineData("{\"deviceKey\":\"moved-key\",\"movedFrom\":{\"teamId\":\"t-old\"}}", "t-old")]
+    [InlineData("{\"deviceKey\":\"moved-key\",\"movedFrom\":{\"teamId\":null}}", null)]
+    [InlineData("{\"deviceKey\":\"moved-key\",\"movedFrom\":{}}", null)]
+    public async Task MoveHostedDirector_GatewaySaysWhatItLeft_IsPassedOn(string reply, string? leftTeamId)
+    {
+        var h = Build(Gateway(TeamsHealth, teams: () => Ok(TeamsReply()), move: () => Ok(reply)));
+
+        await h.Runner.SignInAndListHostedTeamsAsync(CancellationToken.None);
+        var moved = await h.Runner.MoveHostedDirectorAsync(DeviceId, "t-dev", CancellationToken.None);
+
+        Assert.True(moved.Success, moved.ErrorMessage);
+        Assert.Equal(new DirectorMovedFrom(leftTeamId), moved.Value!.MovedFrom);
     }
 
     [Fact]

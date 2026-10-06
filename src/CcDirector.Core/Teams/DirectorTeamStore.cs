@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
@@ -105,12 +103,7 @@ public static class DirectorTeamStore
     }
 
     // A one-way fingerprint of a device key: enough to tell two keys apart, useless for using either.
-    private static string Fingerprint(string deviceKey)
-    {
-        if (string.IsNullOrEmpty(deviceKey))
-            throw new ArgumentException("deviceKey is required", nameof(deviceKey));
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(deviceKey)));
-    }
+    private static string Fingerprint(string deviceKey) => DeviceKeyFingerprint.Of(deviceKey);
 
     /// <summary>Forget this Director's team - its Gateway has no teams, or it was disconnected.</summary>
     public static void Clear()
