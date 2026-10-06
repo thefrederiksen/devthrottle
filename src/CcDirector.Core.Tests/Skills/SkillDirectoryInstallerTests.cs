@@ -403,6 +403,56 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
     }
 
     [Fact]
+    public void A_second_Director_never_moves_the_persons_own_folder_after_the_first_one_migrated()
+    {
+        // Review finding SK-F4. The folder is the USER's and every Director reconciles it, so "once" has to mean
+        // once per folder. With the record in each Director's own storage, a second Director - no record of its
+        // own - migrated again and moved a skill the person wrote after the first migration.
+        Directory.CreateDirectory(Store);
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "move-session"));
+        var leftover = Path.Combine(LinkRoot, "move-session");
+        Directory.CreateDirectory(leftover);
+        File.WriteAllText(Path.Combine(leftover, "SKILL.md"), "# STALE INSTALLER COPY\n");
+        SkillDirectoryInstaller.InstallFor(
+            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot), Stamp, Personal);
+
+        // The person replaces the link with their own move-session, in the retired installer's exact shape.
+        Directory.Delete(leftover, recursive: false);
+        Directory.CreateDirectory(leftover);
+        File.WriteAllText(Path.Combine(leftover, "SKILL.md"), "# WRITTEN BY THE PERSON\n");
+
+        // A SECOND Director - its own storage, so its own (absent) old-style record.
+        var placement = SkillDirectoryInstaller.InstallFor(
+            AgentKind.ClaudeCode, Store, new SkillInstallPaths(Shared, LinkRoot),
+            Path.Combine(_root, "second-director-reclaimed.txt"), Personal);
+
+        Assert.Equal("# WRITTEN BY THE PERSON\n", File.ReadAllText(Path.Combine(leftover, "SKILL.md")));
+        Assert.Equal(0, (int)(File.GetAttributes(leftover) & FileAttributes.ReparsePoint));
+        Assert.Single(Directory.GetDirectories(SkillDirectoryInstaller.SupersededRootFor(LinkRoot)));
+        Assert.Equal(SkillPlacementFault.Shadowed, Assert.Single(placement.Problems).Fault);
+        Assert.True(File.Exists(SkillDirectoryInstaller.ReclaimRecordFor(LinkRoot)));
+    }
+
+    [Fact]
+    public void A_migration_recorded_the_old_way_is_carried_over_and_moves_nothing()
+    {
+        // A Director that migrated before the record moved beside the folder: its own record says so. The person's
+        // fleet-comms, written since, is not moved, and the shared record now exists for every other Director.
+        Directory.CreateDirectory(Store);
+        SkillDirectoryInstaller.Materialize(Store, Bundle(id: "fleet-comms"));
+        File.WriteAllText(Stamp, LinkRoot + Environment.NewLine);
+        var mine = Path.Combine(LinkRoot, "fleet-comms");
+        Directory.CreateDirectory(mine);
+        File.WriteAllText(Path.Combine(mine, "SKILL.md"), "# WRITTEN BY THE PERSON\n");
+
+        Install();
+
+        Assert.Equal("# WRITTEN BY THE PERSON\n", File.ReadAllText(Path.Combine(mine, "SKILL.md")));
+        Assert.False(Directory.Exists(SkillDirectoryInstaller.SupersededRootFor(LinkRoot)));
+        Assert.True(File.Exists(SkillDirectoryInstaller.ReclaimRecordFor(LinkRoot)));
+    }
+
+    [Fact]
     public void The_reclaim_leaves_anything_that_is_not_the_retired_installers_shape()
     {
         // Narrow on purpose: no marker, exactly one file, named SKILL.md. A directory with anything
@@ -483,7 +533,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
 
     /// <summary>The library these tests install from, given explicitly so no test reads the Gateway
     /// configuration of whoever is running it.</summary>
-    private static readonly SkillSource Personal = SkillSource.On("https://gateway.test", teamId: null);
+    private static readonly SkillSource Personal = new("gateway-test", "tenant-test", TeamId: null);
 
     /// <summary>The one-time reclaim's record, per test, so one test's migration never silences
     /// another's - and so no test writes the real stamp into the developer's own storage.</summary>

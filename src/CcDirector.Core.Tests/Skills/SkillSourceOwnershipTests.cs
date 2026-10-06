@@ -21,13 +21,13 @@ public sealed class SkillSourceOwnershipTests : IDisposable
         Path.GetTempPath(), "skill-source-tests-" + Guid.NewGuid().ToString("N"));
 
     /// <summary>The person's own personal account, on the hosted Gateway.</summary>
-    private static readonly SkillSource Personal = SkillSource.On("https://gateway.test", teamId: null);
+    private static readonly SkillSource Personal = new("gateway-1", "tenant-person", TeamId: null);
 
     /// <summary>A team, on the same Gateway.</summary>
-    private static readonly SkillSource TeamA = SkillSource.On("https://gateway.test", "team-a");
+    private static readonly SkillSource TeamA = new("gateway-1", "team-a", "team-a");
 
     /// <summary>A second team.</summary>
-    private static readonly SkillSource TeamB = SkillSource.On("https://gateway.test", "team-b");
+    private static readonly SkillSource TeamB = new("gateway-1", "team-b", "team-b");
 
     /// <summary>Stands in for <c>~/.agents/skills</c>, shared by every Director on the computer.</summary>
     private string Shared => Path.Combine(_root, "home", ".agents", "skills");
@@ -37,8 +37,7 @@ public sealed class SkillSourceOwnershipTests : IDisposable
 
     /// <summary>Each Director has its OWN store, in its own storage home.</summary>
     private string StoreOf(SkillSource source) =>
-        Path.Combine(_root, "director-" + new string((source.GatewayUrl + "-" + (source.TeamId ?? "personal"))
-            .Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray()), "skills", "installed");
+        Path.Combine(_root, "director-" + source.GatewayId + "-" + source.TenantId, "skills", "installed");
 
     public void Dispose()
     {
@@ -234,31 +233,12 @@ public sealed class SkillSourceOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void A_source_recognises_its_own_stamp_under_any_address_it_knows_its_Gateway_by()
-    {
-        // A self-hosted Gateway is reachable by machine name, Tailscale and local network address (#1233),
-        // and the active one can change. A Director that stopped recognising its own skills after that would
-        // never refresh or withdraw them again.
-        var byName = new SkillSource("http://gateway-box:7878", null, new[] { "http://gateway-box:7878", "http://100.64.0.5:7878" });
-        var byTailscale = new SkillSource("http://100.64.0.5:7878", null, new[] { "http://100.64.0.5:7878", "http://gateway-box:7878" });
-        Holds(byName, "mine-one", "mine-two");
-        Install(byName);
-
-        Holds(byTailscale, "mine-two");
-        var placement = Install(byTailscale);
-
-        Assert.Empty(placement.Problems);
-        Assert.False(Directory.Exists(Path.Combine(Shared, "mine-one")));
-        Assert.True(File.Exists(Path.Combine(LinkRoot, "mine-two", "SKILL.md")));
-    }
-
-    [Fact]
     public void The_personal_account_on_another_Gateway_is_another_source()
     {
-        // The F7 rig exactly: the person's own Directors on the hosted Gateway, and a test Director on its
-        // own Gateway - both "personal". Neither may remove the other's skills.
-        var hosted = SkillSource.On("https://hosted.test", null);
-        var testGateway = SkillSource.On("http://localhost:7999", null);
+        // The F7 rig exactly: the person's own Directors on the hosted Gateway, and a test Director on its own
+        // Gateway - both personal accounts, on two different Gateways. Neither may remove the other's skills.
+        var hosted = new SkillSource("hosted-gateway", "tenant-person", null);
+        var testGateway = new SkillSource("test-gateway", "local", null);
         Holds(hosted, "mine-one", "both");
         Holds(testGateway, "rig-one", "both");
 
@@ -268,17 +248,44 @@ public sealed class SkillSourceOwnershipTests : IDisposable
 
         foreach (var name in new[] { "mine-one", "rig-one", "both" })
             Assert.True(File.Exists(Path.Combine(LinkRoot, name, "SKILL.md")), $"'{name}' was removed");
-        Assert.Contains("on https://hosted.test", Body("both"));
+        Assert.Contains("on Gateway hosted-gateway", Body("both"));
     }
 
     [Fact]
-    public void A_stamp_with_no_source_lines_reads_as_unrecorded_and_a_team_stamp_reads_back()
+    public void A_stamp_reads_back_and_one_without_a_Gateway_id_reads_as_unrecorded()
     {
         Assert.Null(SkillSource.ReadStamp(new[] { "demo", "3", "hash" }));
-        Assert.Equal(new SkillSourceStamp("https://gateway.test", null),
-            SkillSource.ReadStamp(new[] { "demo", "3", "hash", "gateway=https://Gateway.test/", "account=personal" }));
-        Assert.Equal(new SkillSourceStamp("https://gateway.test", "team-a"),
-            SkillSource.ReadStamp(new[] { "demo", "3", "hash", "gateway=https://gateway.test", "account=team:team-a" }));
+        // The form an earlier head of this change wrote - the Gateway named by ADDRESS. Not an identity, so it
+        // reads like the old three-line marker.
+        Assert.Null(SkillSource.ReadStamp(new[] { "demo", "3", "hash", "gateway=https://gateway.test", "account=personal" }));
+        Assert.Equal(new SkillSourceStamp("gateway-1", "tenant-person", null),
+            SkillSource.ReadStamp(new[] { "demo", "3", "hash", "gateway-id=gateway-1", "tenant=tenant-person", "account=personal" }));
+        Assert.Equal(new SkillSourceStamp("gateway-1", "team-a", "team-a"),
+            SkillSource.ReadStamp(new[] { "demo", "3", "hash", "gateway-id=gateway-1", "tenant=team-a", "account=team:team-a" }));
+    }
+
+    [Fact]
+    public void A_stamp_naming_the_Gateway_by_address_is_taken_over_by_the_personal_account_and_never_removed()
+    {
+        // The upgrade from this change's earlier head (review finding SK-F3): those stamps named the Gateway by
+        // address. They are treated exactly like the old three-line marker.
+        var copy = Path.Combine(Shared, "url-stamped");
+        Directory.CreateDirectory(copy);
+        File.WriteAllText(Path.Combine(copy, "SKILL.md"), "# URL STAMPED\n");
+        File.WriteAllText(Path.Combine(copy, SkillDirectoryInstaller.MarkerFileName),
+            "url-stamped\n1\nh\ngateway=https://gateway.test\naccount=personal\n");
+
+        Holds(TeamA, "team-one", "url-stamped");
+        Assert.Contains(Install(TeamA).Problems, p => p.SkillId == "url-stamped" && p.Fault == SkillPlacementFault.HeldByAnotherSource);
+        Holds(Personal, "mine-one");
+        Install(Personal);
+        Assert.Equal("# URL STAMPED\n", File.ReadAllText(Path.Combine(copy, "SKILL.md")));
+
+        Holds(Personal, "mine-one", "url-stamped");
+        Install(Personal);
+        var marker = File.ReadAllText(Path.Combine(copy, SkillDirectoryInstaller.MarkerFileName));
+        Assert.Contains("gateway-id=gateway-1", marker);
+        Assert.DoesNotContain("gateway=https", marker);
     }
 
     /// <summary>Make <paramref name="source"/>'s Director store hold exactly <paramref name="names"/>, the

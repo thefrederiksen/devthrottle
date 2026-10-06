@@ -135,6 +135,24 @@ public sealed class SkillStoreRefresh
             }
         }
 
+        // WHOSE library this is, exactly as the Gateway stated it for the key that fetched it, recorded WITH the
+        // store, so placement stamps the identity that fetched the library and never a separate local record that
+        // can be missing (devthrottle_internal#2311, review finding SK-F2). A Gateway that does not state it leaves
+        // NO record, and placement then changes nothing - it never guesses an owner.
+        var source = register.Source;
+        if (source is not null && !string.IsNullOrWhiteSpace(source.GatewayId) && !string.IsNullOrWhiteSpace(source.TenantId))
+        {
+            new SkillSource(source.GatewayId.Trim(), source.TenantId.Trim(),
+                string.IsNullOrWhiteSpace(source.TeamId) ? null : source.TeamId.Trim()).WriteTo(store);
+        }
+        else
+        {
+            SkillSource.ClearAt(store);
+            FileLog.Write("[SkillStoreRefresh] RefreshAsync: the register does not say which account these skills " +
+                          "belong to (a Gateway older than the source stamp) - no source recorded, so placement will " +
+                          "change nothing until the Gateway is updated");
+        }
+
         FileLog.Write($"[SkillStoreRefresh] RefreshAsync: store now holds {wanted.Count} skills " +
                       $"({unchanged} already at the served version, {refreshed} downloaded)");
         return wanted.Count;
@@ -259,6 +277,16 @@ public sealed class SkillStoreRefresh
     private sealed class RegisterResponse
     {
         [JsonPropertyName("skills")] public List<RegisterRow>? Skills { get; set; }
+
+        /// <summary>Which library this is, for the caller's key. Absent on a Gateway older than the rule.</summary>
+        [JsonPropertyName("source")] public RegisterSource? Source { get; set; }
+    }
+
+    private sealed class RegisterSource
+    {
+        [JsonPropertyName("gatewayId")] public string? GatewayId { get; set; }
+        [JsonPropertyName("tenantId")] public string? TenantId { get; set; }
+        [JsonPropertyName("teamId")] public string? TeamId { get; set; }
     }
 
     internal sealed class RegisterRow

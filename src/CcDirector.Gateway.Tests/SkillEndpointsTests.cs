@@ -57,6 +57,23 @@ public sealed class SkillEndpointsTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// The register says WHICH library it is for the caller's key (devthrottle_internal#2311, SK-F2/SK-F3): this
+    /// Gateway's stable id and the tenant, and no team on a self-hosted Gateway. A Director stamps every skill it
+    /// installs with this, so it must be over the wire and must not change between reads.
+    /// </summary>
+    [Fact]
+    public async Task The_register_names_the_library_source_and_it_does_not_change()
+    {
+        var first = (await _http.GetFromJsonAsync<JsonObject>("gateway/skills"))!["source"]!;
+        var second = (await _http.GetFromJsonAsync<JsonObject>("gateway/skills"))!["source"]!;
+
+        Assert.False(string.IsNullOrWhiteSpace((string?)first["gatewayId"]));
+        Assert.Equal("local", (string?)first["tenantId"]);
+        Assert.Null((string?)first["teamId"]);
+        Assert.Equal((string?)first["gatewayId"], (string?)second["gatewayId"]);
+    }
+
+    /// <summary>
     /// Every shipped skill reaches the register and comes back in the order it is seeded in.
     ///
     /// The expectation is READ FROM THE SEED SOURCE rather than typed out here. The seed list is the

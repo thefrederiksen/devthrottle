@@ -1,126 +1,169 @@
-using CcDirector.Core.Configuration;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CcDirector.Core.Teams;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Skills;
 
 /// <summary>
-/// WHICH library a skill on disk came from: the Gateway it was served by and the account on that Gateway -
-/// the person's own personal account, or one team (devthrottle_internal#2311).
+/// WHICH library a skill on disk came from: the Gateway that served it, by that Gateway's own stable id, and the
+/// tenant on it - the person's own personal account, or one team (devthrottle_internal#2311).
 ///
 /// WHY THE INSTALLED SKILL HAS TO SAY THIS. The skill folders are per USER, not per Director
 /// (<see cref="SkillInstallTargets.For"/>): every Director on the computer writes into the same
 /// <c>~/.agents/skills</c> and <c>~/.claude/skills</c>. The marker used to say only "DevThrottle installed
 /// this", so a Director reconciling its own library deleted every marked folder its library did not hold -
-/// including the ones another Director had put there. Observed live (#2311 live proof, finding F7): two test
-/// Directors on a Gateway serving a different skill set removed six of the person's skills, and the person's
-/// own Directors put them back about half an hour later, back and forth forever.
+/// including the ones another Director had put there (#2311 live proof, finding F7).
 ///
-/// WHY THE GATEWAY AND THE ACCOUNT, AND NOT THE DIRECTOR. One person's two Directors on the same personal
-/// account are served the same library and must SHARE their folders - a Director id would make them fight
-/// exactly as before. The account alone is not enough either: a personal account on a test Gateway is a
-/// different library from the personal account on the hosted one, and that is precisely the F7 case. So the
-/// identity is the pair. A self-hosted Gateway is reachable at several addresses (machine name, Tailscale,
-/// local network - issue #1233), so a Director recognises its OWN stamp under any address its configuration
-/// lists, and stamps the active one.
+/// WHY THE GATEWAY'S ID AND THE TENANT, AND NOT THE DIRECTOR OR THE ADDRESS. One person's two Directors on the
+/// same account are served the same library and must SHARE their folders - a Director id would make them fight.
+/// The tenant alone is not enough: every self-hosted Gateway's tenant is the same constant, so two self-hosted
+/// Gateways would look like one library. And the address is not an identity at all: a move to TLS, a new domain
+/// or a changed address is the same Gateway (review finding SK-F3). So the identity is the Gateway's stable id
+/// plus the tenant, both as the GATEWAY stated them for this Director's key.
+///
+/// WHERE IT COMES FROM. The skills register answers it alongside the list, for the key that fetched the list,
+/// and <see cref="SkillStoreRefresh"/> records it WITH the store it materialized (<see cref="RecordFileName"/>).
+/// So the source stamped on disk is the identity that fetched the library - never a separate local record that
+/// can be missing (review finding SK-F2). See <see cref="Establish"/> for when placement refuses.
 /// </summary>
-/// <param name="GatewayUrl">The Gateway address stamped on what this source installs, normalized.</param>
-/// <param name="TeamId">The team on that Gateway, or null for the person's own personal account.</param>
-/// <param name="KnownGatewayUrls">Every address this Director knows its Gateway by, normalized; includes
-/// <paramref name="GatewayUrl"/>.</param>
-public sealed record SkillSource(string GatewayUrl, string? TeamId, IReadOnlyList<string> KnownGatewayUrls)
+/// <param name="GatewayId">The serving Gateway's stable id.</param>
+/// <param name="TenantId">The tenant the library belongs to.</param>
+/// <param name="TeamId">The team, when the tenant is a team; null for the person's own personal account.</param>
+public sealed record SkillSource(
+    [property: JsonPropertyName("gatewayId")] string GatewayId,
+    [property: JsonPropertyName("tenantId")] string TenantId,
+    [property: JsonPropertyName("teamId")] string? TeamId)
 {
-    /// <summary>The marker line that names the Gateway.</summary>
-    public const string GatewayKey = "gateway=";
+    /// <summary>The file beside the store's skills that records which library the store holds.</summary>
+    public const string RecordFileName = ".library-source.json";
 
-    /// <summary>The marker line that names the account: <c>personal</c> or <c>team:&lt;id&gt;</c>.</summary>
+    /// <summary>The marker line that names the Gateway.</summary>
+    public const string GatewayIdKey = "gateway-id=";
+
+    /// <summary>The marker line that names the tenant.</summary>
+    public const string TenantKey = "tenant=";
+
+    /// <summary>The marker line that names the kind of account: <c>personal</c> or <c>team:&lt;id&gt;</c>.</summary>
     public const string AccountKey = "account=";
+
+    /// <summary>Marker lines written by earlier forms of the source stamp, removed when a folder is re-stamped.</summary>
+    internal static readonly string[] RetiredKeys = { "gateway=" };
 
     private const string PersonalAccount = "personal";
     private const string TeamPrefix = "team:";
 
+    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
+
     /// <summary>True when this is the person's own personal account, which wins every name clash.</summary>
+    [JsonIgnore]
     public bool IsPersonal => TeamId is null;
 
-    /// <summary>A source on one Gateway address.</summary>
-    public static SkillSource On(string gatewayUrl, string? teamId)
-    {
-        var url = Normalize(gatewayUrl);
-        return new SkillSource(url, string.IsNullOrWhiteSpace(teamId) ? null : teamId.Trim(), new[] { url });
-    }
-
-    /// <summary>
-    /// The source THIS Director installs from: its own Gateway configuration and its own team file, both in
-    /// its own storage home. Null when no Gateway is configured - there is then no library to install from.
-    /// No team file means the personal account, because every enrollment that writes no file binds it
-    /// (see <see cref="DirectorTeamStore"/>).
-    /// </summary>
-    public static SkillSource? ForThisDirector()
-    {
-        var config = GatewayConfig.Load();
-        var urls = config.CandidateUrls.Where(u => !string.IsNullOrWhiteSpace(u)).Select(Normalize).Distinct().ToList();
-        if (urls.Count == 0)
-        {
-            FileLog.Write("[SkillSource] ForThisDirector: no gateway.url configured - no skill source");
-            return null;
-        }
-        var team = DirectorTeamStore.Load();
-        var source = new SkillSource(urls[0], team?.TeamId, urls);
-        FileLog.Write($"[SkillSource] ForThisDirector: {source.Describe()}");
-        return source;
-    }
-
-    /// <summary>The two marker lines this source appends to what it installs.</summary>
+    /// <summary>The marker lines this source appends to what it installs.</summary>
     public string MarkerLines() =>
-        $"{GatewayKey}{GatewayUrl}\n{AccountKey}{(IsPersonal ? PersonalAccount : TeamPrefix + TeamId)}\n";
+        $"{GatewayIdKey}{GatewayId}\n{TenantKey}{TenantId}\n{AccountKey}{(IsPersonal ? PersonalAccount : TeamPrefix + TeamId)}\n";
 
     /// <summary>One line for a log or a placement message.</summary>
     public string Describe() =>
-        $"{(IsPersonal ? "the personal account" : "team " + TeamId)} on {GatewayUrl}";
+        $"{(IsPersonal ? "the personal account" : "team " + TeamId)} (tenant {TenantId}) on Gateway {GatewayId}";
 
-    /// <summary>True when <paramref name="stamp"/> was written by this source, under any of its addresses.</summary>
+    /// <summary>True when <paramref name="stamp"/> was written by this source.</summary>
     public bool Wrote(SkillSourceStamp stamp) =>
-        KnownGatewayUrls.Contains(stamp.GatewayUrl, StringComparer.OrdinalIgnoreCase)
-        && string.Equals(stamp.TeamId, TeamId, StringComparison.Ordinal);
+        string.Equals(stamp.GatewayId, GatewayId, StringComparison.Ordinal)
+        && string.Equals(stamp.TenantId, TenantId, StringComparison.Ordinal);
+
+    /// <summary>Record which library the store at <paramref name="storeRoot"/> holds.</summary>
+    public void WriteTo(string storeRoot)
+    {
+        Directory.CreateDirectory(storeRoot);
+        var path = Path.Combine(storeRoot, RecordFileName);
+        var temp = path + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(this, Json));
+        File.Move(temp, path, overwrite: true);
+    }
+
+    /// <summary>Forget which library the store holds - the Gateway did not say.</summary>
+    public static void ClearAt(string storeRoot)
+    {
+        var path = Path.Combine(storeRoot, RecordFileName);
+        if (File.Exists(path))
+            File.Delete(path);
+    }
 
     /// <summary>
-    /// Read who installed a marked folder from its marker's lines. Null when the marker carries no source -
-    /// one written before sources were recorded, which <see cref="SkillDirectoryInstaller"/> treats as the
-    /// personal account's.
+    /// The source placement may install as, or why there is none. It is the record the store refresh wrote from
+    /// the Gateway's own answer, and it must AGREE with the team this Director is set up for
+    /// (<paramref name="configuredTeam"/>; null - no team file - means the person's own account).
+    ///
+    /// FAIL CLOSED. No record means the Gateway did not say whose library this is (a Gateway older than this
+    /// rule), and disagreement means the library was fetched for one account while this Director believes it
+    /// works for another - the partial-enrollment state where the team key was saved and the team file was not
+    /// (review finding SK-F2). Either way placement must not guess an owner: it changes nothing.
+    /// </summary>
+    public static SkillSourceEstablished Establish(string storeRoot, DirectorTeam? configuredTeam)
+    {
+        var path = Path.Combine(storeRoot, RecordFileName);
+        if (!File.Exists(path))
+            return SkillSourceEstablished.Refused(SkillPlacementFault.SourceUnknown,
+                $"no library source is recorded at {path} - the Gateway did not say which account these skills belong to");
+
+        var recorded = JsonSerializer.Deserialize<SkillSource>(File.ReadAllText(path))
+            ?? throw new InvalidDataException($"The library source record {path} is empty.");
+        if (string.IsNullOrWhiteSpace(recorded.GatewayId) || string.IsNullOrWhiteSpace(recorded.TenantId))
+            throw new InvalidDataException($"The library source record {path} names no Gateway or no tenant.");
+
+        var configuredTeamId = configuredTeam?.TeamId;
+        if (!string.Equals(recorded.TeamId, configuredTeamId, StringComparison.Ordinal))
+            return SkillSourceEstablished.Refused(SkillPlacementFault.SourceMismatch,
+                $"the skills were fetched for {recorded.Describe()}, but this Director is set up for " +
+                $"{(configuredTeamId is null ? "the personal account" : "team " + configuredTeamId)}");
+
+        return SkillSourceEstablished.As(recorded);
+    }
+
+    /// <summary>
+    /// Read who installed a marked folder from its marker's lines. Null when the marker carries no source in this
+    /// form - one written before sources were recorded, or by an earlier form that named the Gateway by address -
+    /// which <see cref="SkillDirectoryInstaller"/> treats as the personal account's.
     /// </summary>
     public static SkillSourceStamp? ReadStamp(IReadOnlyList<string> markerLines)
     {
-        string? gateway = null, account = null;
+        string? gatewayId = null, tenant = null, account = null;
         foreach (var raw in markerLines)
         {
             var line = raw.Trim();
-            if (line.StartsWith(GatewayKey, StringComparison.Ordinal))
-                gateway = line[GatewayKey.Length..];
+            if (line.StartsWith(GatewayIdKey, StringComparison.Ordinal))
+                gatewayId = line[GatewayIdKey.Length..];
+            else if (line.StartsWith(TenantKey, StringComparison.Ordinal))
+                tenant = line[TenantKey.Length..];
             else if (line.StartsWith(AccountKey, StringComparison.Ordinal))
                 account = line[AccountKey.Length..];
         }
-        if (gateway is null || account is null)
+        if (string.IsNullOrEmpty(gatewayId) || string.IsNullOrEmpty(tenant) || account is null)
             return null;
-        if (account == PersonalAccount)
-            return new SkillSourceStamp(Normalize(gateway), null);
-        // Anything else is a team. An account spelled some way this code does not know is therefore never
-        // mistaken for the person's own, and never for this source - so it is only ever kept, not deleted.
-        return new SkillSourceStamp(Normalize(gateway),
-            account.StartsWith(TeamPrefix, StringComparison.Ordinal) ? account[TeamPrefix.Length..] : account);
+        // Anything but "personal" is a team. An account spelled some way this code does not know is therefore
+        // never mistaken for the person's own - so it is only ever kept, never taken over by a team.
+        return new SkillSourceStamp(gatewayId, tenant, account == PersonalAccount
+            ? null
+            : account.StartsWith(TeamPrefix, StringComparison.Ordinal) ? account[TeamPrefix.Length..] : account);
     }
-
-    /// <summary>An address compared the way a person means it: no trailing slash, no case difference.</summary>
-    public static string Normalize(string url) => url.Trim().TrimEnd('/').ToLowerInvariant();
 }
 
 /// <summary>The source recorded on one installed skill folder.</summary>
-/// <param name="GatewayUrl">The Gateway address it was stamped with, normalized.</param>
-/// <param name="TeamId">The team, or null for the personal account.</param>
-public sealed record SkillSourceStamp(string GatewayUrl, string? TeamId)
+public sealed record SkillSourceStamp(string GatewayId, string TenantId, string? TeamId)
 {
     /// <summary>True when the personal account installed it.</summary>
     public bool IsPersonal => TeamId is null;
 
     /// <summary>One line for a log or a placement message.</summary>
-    public string Describe() => $"{(IsPersonal ? "the personal account" : "team " + TeamId)} on {GatewayUrl}";
+    public string Describe() =>
+        $"{(IsPersonal ? "the personal account" : "team " + TeamId)} (tenant {TenantId}) on Gateway {GatewayId}";
+}
+
+/// <summary>The outcome of <see cref="SkillSource.Establish"/>: a source to install as, or why there is none.</summary>
+public sealed record SkillSourceEstablished(SkillSource? Source, SkillPlacementFault? Refusal, string Reason)
+{
+    public static SkillSourceEstablished As(SkillSource source) => new(source, null, "");
+
+    public static SkillSourceEstablished Refused(SkillPlacementFault why, string reason) => new(null, why, reason);
 }

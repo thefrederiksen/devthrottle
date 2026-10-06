@@ -11,7 +11,8 @@ public sealed class SkillPlacementProblemDto
     public string Target { get; set; } = "";
 
     /// <summary>"Shadowed" (a directory DevThrottle did not write occupies the name), "HeldByAnotherSource"
-    /// (another Director's library installed the name and keeps it) or "LinkFailed".</summary>
+    /// (another Director's library installed the name and keeps it), "FolderBusy", "SourceUnknown", "SourceMismatch"
+    /// (placement changed nothing - see SkillPlacementFault in the Director) or "LinkFailed".</summary>
     public string Fault { get; set; } = "";
 }
 

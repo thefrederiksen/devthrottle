@@ -38,9 +38,11 @@ $directors = @{
 }
 
 function Write-Library($personal, $team) {
+    # Each stub Gateway names its library on the register, as the real one does: its own Gateway id, the tenant,
+    # and the team when the tenant is one.
     $lib = @{
-        'personal-key' = @{ skills = $personal }
-        'team-key'     = @{ skills = $team }
+        'personal-key' = @{ skills = $personal; gatewayId = 'rig-gateway-7811'; tenantId = 'tenant-person'; teamId = $null }
+        'team-key'     = @{ skills = $team;     gatewayId = 'rig-gateway-7812'; tenantId = 'team-a';        teamId = 'team-a' }
     }
     $lib | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $rig 'gateways.json')
 }
@@ -90,12 +92,14 @@ function Show-Folders($title) {
             $marker = Join-Path $entry.FullName '.devthrottle-skill'
             $owner = if (-not (Test-Path $marker)) { 'no marker' }
                      else {
-                         $acct = (Get-Content $marker | Where-Object { $_ -like 'account=*' })
-                         if ($acct) { $acct } else { 'old marker, no source' }
+                         $lines = Get-Content $marker
+                         $acct = ($lines | Where-Object { $_ -like 'account=*' })
+                         $gw = ($lines | Where-Object { $_ -like 'gateway-id=*' })
+                         if ($acct -and $gw) { "$acct $($gw.Substring(11))" } else { 'old marker, no source' }
                      }
             $skillMd = Join-Path $entry.FullName 'SKILL.md'
             $body = if (Test-Path $skillMd) { (Get-Content $skillMd | Where-Object { $_.Trim() } | Select-Object -Last 1) } else { '(unreadable)' }
-            "    {0,-14} {1,-6} {2,-28} {3}" -f $entry.Name, $kind, $owner, $body
+            "    {0,-14} {1,-6} {2,-45} {3}" -f $entry.Name, $kind, $owner, $body
         }
     }
 }
@@ -140,6 +144,11 @@ Invoke-Director T '1.5 team Director, after its Gateway withdrew team-style'
 $personal2 = $personalSkills.Clone(); $personal2.Remove('demo-mode')
 Write-Library $personal2 $team2
 Invoke-Director P '1.6 personal Director, after its Gateway withdrew demo-mode'
+# The partial enrollment (review finding SK-F2): the team key and Gateway address are saved, the team file is not.
+$teamFile = Join-Path $directors.T.Root 'config\director\gateway-team.json'
+Move-Item $teamFile "$teamFile.aside"
+Invoke-Director T '1.7 team Director with its team file missing - must change nothing'
+Move-Item "$teamFile.aside" $teamFile
 
 "`n######## Scenario 2: the team Director starts first"
 New-Rig

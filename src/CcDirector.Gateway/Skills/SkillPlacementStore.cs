@@ -215,7 +215,13 @@ public sealed class SkillPlacementStore
             : heldElsewhere.Count > 0
                 ? $"kept by another Director's library under the same name ({string.Join(", ", heldElsewhere)}) in " +
                   $"{problems.First(p => p.Fault == "HeldByAnotherSource").Target}"
-                : "could not be linked";
+                : problems.Any(p => p.Fault == "SourceUnknown")
+                    ? "nothing was placed because this Gateway does not say which account its skills belong to - update the Gateway"
+                    : problems.Any(p => p.Fault == "SourceMismatch")
+                        ? "nothing was placed because the skills were fetched for a different account than the Director is set up for"
+                        : problems.Any(p => p.Fault == "FolderBusy")
+                            ? "nothing was placed because another Director was placing skills in the same folder at that moment"
+                            : "could not be linked";
         row.Message = $"Only {e.Reachable} of {e.Held} skill(s) reached {e.AgentKind} on {e.MachineName} - {detail}.";
         return row;
     }

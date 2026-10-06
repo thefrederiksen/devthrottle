@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Storage;
+using CcDirector.Core.Teams;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Core.Skills;
@@ -122,11 +123,17 @@ public static class SkillDirectoryInstaller
     /// <paramref name="kind"/> implies. Exists so tests exercise this method rather than a copy of it -
     /// the real paths live under the running user's home directory, and a test that wrote there would
     /// scatter skills through the developer's own agent configuration.</param>
-    /// <param name="sourceOverride">The library this Director installs from, INSTEAD of the one its own
-    /// configuration names (<see cref="SkillSource.ForThisDirector"/>). Exists for the same reason.</param>
+    /// <param name="sourceOverride">The library to install as, INSTEAD of the one the store's own record names
+    /// (<see cref="SkillSource.Establish"/>). For the ownership tests, which are about what one source may do to
+    /// another's folders, not about where the source comes from.</param>
+    /// <param name="configuredTeam">Reads the team this Director is set up for, INSTEAD of its own team file
+    /// (<see cref="DirectorTeamStore.Load"/>). Exists so tests never read the running user's configuration.</param>
+    /// <param name="folderLockWait">How long to wait for another Director to finish with the same folders,
+    /// INSTEAD of <see cref="FolderLockWait"/>. Exists so a test of the timeout does not wait ten seconds.</param>
     public static SkillPlacement InstallFor(
         AgentKind kind, string? storeRoot = null, SkillInstallPaths? pathsOverride = null,
-        string? reclaimStampPath = null, SkillSource? sourceOverride = null)
+        string? reclaimStampPath = null, SkillSource? sourceOverride = null,
+        Func<DirectorTeam?>? configuredTeam = null, TimeSpan? folderLockWait = null)
     {
         var store = storeRoot ?? StoreRoot();
         var paths = pathsOverride ?? SkillInstallTargets.For(kind);
@@ -144,19 +151,47 @@ public static class SkillDirectoryInstaller
             return new SkillPlacement(kind, 0, 0, problems, StoreMissing: true, AgentHasNoSkillsDirectory: false);
         }
 
-        // WHO is installing. The folders are shared by every Director on this computer, so what this one
-        // may replace or remove is decided by who installed it, never by the marker alone (#2311 F7).
-        var source = sourceOverride ?? SkillSource.ForThisDirector();
-        if (source is null)
-        {
-            FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, no Gateway is configured, so there " +
-                          "is no library to install from - nothing installed and nothing removed");
-            return new SkillPlacement(kind, 0, 0, problems, StoreMissing: true, AgentHasNoSkillsDirectory: false);
-        }
-
         var held = Directory.GetDirectories(store)
             .Where(d => File.Exists(Path.Combine(d, MarkerFileName)))
             .ToList();
+
+        // WHO is installing. The folders are shared by every Director on this computer, so what this one may
+        // replace or remove is decided by who installed it, never by the marker alone (#2311 F7). The source is
+        // the one the Gateway named when it served this store; with none, or one that disagrees with this
+        // Director's team, nothing is touched (review finding SK-F2).
+        var source = sourceOverride;
+        if (source is null)
+        {
+            var established = SkillSource.Establish(store, (configuredTeam ?? DirectorTeamStore.Load)());
+            if (established.Source is null)
+            {
+                foreach (var skill in held)
+                    problems.Add(new SkillPlacementProblem(Path.GetFileName(skill), paths.SharedRoot, established.Refusal!.Value));
+                var refused = new SkillPlacement(kind, held.Count, 0, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
+                FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, {established.Reason} - " +
+                              "nothing installed and nothing removed");
+                LogIfIncomplete(refused);
+                return refused;
+            }
+            source = established.Source;
+        }
+
+        // ONE critical section for the shared folders, held from the first ownership read to the last change
+        // (review finding SK-F1). Every Director on the computer takes the same lock, so no other Director can
+        // re-stamp a folder between this one deciding it may change it and changing it. A Director that cannot
+        // have the lock in time changes nothing and says so - it never proceeds unlocked.
+        using var folderLock = SharedSkillFolderLock.TryAcquire(
+            new[] { paths.SharedRoot, paths.LinkRoot }.OfType<string>(), folderLockWait ?? FolderLockWait);
+        if (folderLock is null)
+        {
+            foreach (var skill in held)
+                problems.Add(new SkillPlacementProblem(Path.GetFileName(skill), paths.SharedRoot, SkillPlacementFault.FolderBusy));
+            var busy = new SkillPlacement(kind, held.Count, 0, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
+            FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, another Director held {paths.SharedRoot} " +
+                          $"for more than {(folderLockWait ?? FolderLockWait).TotalSeconds:0.#}s - nothing installed and nothing removed");
+            LogIfIncomplete(busy);
+            return busy;
+        }
 
         // The copy is reconciled BEFORE the links, and the order is load-bearing: a link is created
         // only for a skill that is already present in the shared directory, so no link is ever made
@@ -194,7 +229,12 @@ public static class SkillDirectoryInstaller
         SkillPlacementLog.Record(placement);
     }
 
-    /// <summary>Where the record lives that the one-time reclaim has already run for a directory.</summary>
+    /// <summary>How long a reconciliation waits for another Director to finish with the same folders. A
+    /// reconciliation takes well under a second; this is on the session launch path, so it is short.</summary>
+    private static readonly TimeSpan FolderLockWait = TimeSpan.FromSeconds(10);
+
+    /// <summary>Where THIS Director recorded, before the record moved beside the folder, that the one-time
+    /// reclaim had run. Read only, so a folder this Director already migrated is never migrated again.</summary>
     private static string DefaultReclaimStampPath() =>
         Path.Combine(CcStorage.Root(), "skills", "reclaimed-retired-installer.txt");
 
@@ -211,8 +251,15 @@ public static class SkillDirectoryInstaller
     ///
     /// NOTHING IS DELETED. The directory is RENAMED aside with a timestamp, so an owner who really did
     /// write their own skill of that name loses nothing and can put it back. It runs once per
-    /// directory, recorded in a stamp file, so the "a machine's own skill wins" rule applies unchanged
-    /// from then on - a leftover is a one-off migration, not a standing licence to take names.
+    /// directory, so the "a machine's own skill wins" rule applies unchanged from then on - a leftover is a
+    /// one-off migration, not a standing licence to take names.
+    ///
+    /// ONCE PER DIRECTORY, NOT ONCE PER DIRECTOR (review finding SK-F4). The directory belongs to the user and
+    /// every Director on the computer reconciles it, so the record that the migration ran lives BESIDE the
+    /// directory (<see cref="ReclaimRecordFor"/>), where every Director reads it. It used to live in each
+    /// Director's own storage, so a second Director, with no record of its own, would migrate again and move a
+    /// skill the person wrote after the first migration. A Director that recorded the migration the old way
+    /// carries its record over to the shared one without moving anything.
     ///
     /// The test is deliberately narrow on BOTH axes. The NAME must be one of the three the retired
     /// installer ever wrote - that list is a closed historical fact, so this can never take a name it
@@ -220,10 +267,18 @@ public static class SkillDirectoryInstaller
     /// SKILL.md. Anything else is somebody's real work and is not touched, migration or not.
     /// </summary>
     private static void ReclaimRetiredInstallerCopies(
-        IReadOnlyList<string> names, string linkRoot, string stampPath)
+        IReadOnlyList<string> names, string linkRoot, string legacyStampPath)
     {
-        if (HasReclaimed(linkRoot, stampPath))
+        var record = ReclaimRecordFor(linkRoot);
+        if (File.Exists(record))
             return;
+        if (HasReclaimedTheOldWay(linkRoot, legacyStampPath))
+        {
+            RecordReclaimed(record);
+            FileLog.Write($"[SkillDirectoryInstaller] the one-time reclaim of {linkRoot} was recorded by this Director " +
+                          $"before the record moved beside the folder - carried over to {record}, nothing moved");
+            return;
+        }
 
         foreach (var name in names)
         {
@@ -247,7 +302,7 @@ public static class SkillDirectoryInstaller
                           "deleted - and the fleet skill is now linked in its place.");
         }
 
-        RecordReclaimed(linkRoot, stampPath);
+        RecordReclaimed(record);
     }
 
     /// <summary>
@@ -282,14 +337,22 @@ public static class SkillDirectoryInstaller
                && string.Equals(Path.GetFileName(files[0]), "SKILL.md", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool HasReclaimed(string linkRoot, string stampPath) =>
-        File.Exists(stampPath)
-        && File.ReadAllLines(stampPath).Any(l => string.Equals(l.Trim(), linkRoot, StringComparison.OrdinalIgnoreCase));
-
-    private static void RecordReclaimed(string linkRoot, string stampPath)
+    /// <summary>The record that the one-time reclaim has run for <paramref name="linkRoot"/>: a file beside it,
+    /// never inside it. <c>~/.claude/skills</c> has <c>~/.claude/skills.devthrottle-reclaimed</c>.</summary>
+    public static string ReclaimRecordFor(string linkRoot)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(stampPath)!);
-        File.AppendAllText(stampPath, linkRoot + Environment.NewLine);
+        var trimmed = Path.GetFullPath(linkRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return Path.Combine(Path.GetDirectoryName(trimmed)!, Path.GetFileName(trimmed) + ".devthrottle-reclaimed");
+    }
+
+    private static bool HasReclaimedTheOldWay(string linkRoot, string legacyStampPath) =>
+        File.Exists(legacyStampPath)
+        && File.ReadAllLines(legacyStampPath).Any(l => string.Equals(l.Trim(), linkRoot, StringComparison.OrdinalIgnoreCase));
+
+    private static void RecordReclaimed(string record)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(record)!);
+        File.WriteAllText(record, $"The one-time reclaim of the retired installer's copies ran here at {DateTime.UtcNow:o}.{Environment.NewLine}");
     }
 
     /// <summary>
@@ -467,9 +530,10 @@ public static class SkillDirectoryInstaller
     private static void StampSource(string skillDirectory, SkillSource source)
     {
         var marker = Path.Combine(skillDirectory, MarkerFileName);
+        var sourceKeys = new[] { SkillSource.GatewayIdKey, SkillSource.TenantKey, SkillSource.AccountKey }
+            .Concat(SkillSource.RetiredKeys).ToArray();
         var storeLines = File.ReadAllLines(marker)
-            .Where(l => !l.StartsWith(SkillSource.GatewayKey, StringComparison.Ordinal)
-                        && !l.StartsWith(SkillSource.AccountKey, StringComparison.Ordinal))
+            .Where(l => !sourceKeys.Any(k => l.StartsWith(k, StringComparison.Ordinal)))
             .Take(3);
         File.WriteAllText(marker, string.Join("\n", storeLines) + "\n" + source.MarkerLines());
     }

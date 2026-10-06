@@ -52,7 +52,12 @@ internal static class SkillEndpoints
     /// serve a team's library when mounted under <c>/teams/{teamId}/skills</c> with the team's tenant entered
     /// (<see cref="TeamLibraryEndpoints"/>, devthrottle_internal#2304) - one set of handlers, never a copy.
     /// </summary>
-    public static void Map(IEndpointRouteBuilder app, SkillStore store, string root = DefaultRoot)
+    /// <param name="source">WHICH library the list is, for the caller's own key: this Gateway's stable id, the
+    /// tenant and, when the tenant is a team, the team. A Director stamps every skill it installs with it, so two
+    /// Directors on one computer can tell their skills apart (devthrottle_internal#2311, SK-F2/SK-F3). Given on
+    /// the Director's own mount only; the team library mount is for editing and leaves it out.</param>
+    public static void Map(IEndpointRouteBuilder app, SkillStore store, string root = DefaultRoot,
+        Func<SkillLibrarySource>? source = null)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(store);
@@ -64,7 +69,10 @@ internal static class SkillEndpoints
             FileLog.Write($"[SkillEndpoints] list skills: count={skills.Count}");
             // Every Director reads this once a minute and it changes only when someone edits it, so the answer is
             // tagged and an unchanged one is sent as 304 with no body (Money Saver, night traffic). See ConditionalJson.
-            return ConditionalJson.Serve(ctx, new { skills });
+            // The source is part of the answer, so it is part of the tag: a key moved to another team is a new answer.
+            return source is null
+                ? ConditionalJson.Serve(ctx, new { skills })
+                : ConditionalJson.Serve(ctx, new { skills, source = source() });
         });
 
         app.MapGet(root + "/{id}", (string id) =>

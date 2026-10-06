@@ -1,0 +1,122 @@
+RED CHECKS, review round 1 - 2026-10-06T14:23:47.703720Z - HEAD 6feb86fdd
+Each: mutate one line, full build, run the named tests, record, restore with git checkout.
+
+====================================================================================================
+SK-F1: no lock - TryAcquire hands back an empty lock without waiting
+diff --git a/src/CcDirector.Core/Skills/SharedSkillFolderLock.cs b/src/CcDirector.Core/Skills/SharedSkillFolderLock.cs
+index 976fa8b33..4e0d047cf 100644
+--- a/src/CcDirector.Core/Skills/SharedSkillFolderLock.cs
++++ b/src/CcDirector.Core/Skills/SharedSkillFolderLock.cs
+@@ -39,6 +39,8 @@ public sealed class SharedSkillFolderLock : IDisposable
+     /// </summary>
+     public static SharedSkillFolderLock? TryAcquire(IEnumerable<string> folders, TimeSpan wait)
+     {
++        return new SharedSkillFolderLock(new List<Mutex>()); // RED CHECK: no lock
++#pragma warning disable CS0162
+         var names = folders.Select(NameFor).Distinct(StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal).ToList();
+         var deadline = DateTime.UtcNow + wait;
+         var held = new List<Mutex>();
+warning: in the working copy of 'src/CcDirector.Core/Skills/SharedSkillFolderLock.cs', LF will be replaced by CRLF the next time Git touches it
+
+  Failed CcDirector.Core.Tests.Skills.SkillFolderConcurrencyTests.A_Director_that_cannot_have_the_folder_in_time_changes_nothing_and_says_so [88 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillFolderConcurrencyTests.A_withdrawal_racing_a_takeover_never_deletes_or_overwrites_the_other_sources_folder [3 s]
+first messages:
+     a Director without the lock removed a folder
+     271 failure(s) in 150 rounds; first: round 0: 'both' is gone - the team's withdrawal deleted the person's folder | round 1: an installer threw FileNotFoundException: Could not find file 'C:\Users\soren\AppData\Local\Temp\skill-folder-race-45169a2652f64858b6ddacd672a7de12\home\.agents\skills\both\.devthrottle-skill'. | round 1: 'both' is gone - the team's withdrawal deleted the person's folder | ro
+
+====================================================================================================
+SK-F2: no agreement check - the recorded source is used whatever this Director's team file says
+diff --git a/src/CcDirector.Core/Skills/SkillSource.cs b/src/CcDirector.Core/Skills/SkillSource.cs
+index 0dea4dc26..d69a0a0ae 100644
+--- a/src/CcDirector.Core/Skills/SkillSource.cs
++++ b/src/CcDirector.Core/Skills/SkillSource.cs
+@@ -113,7 +113,8 @@ public sealed record SkillSource(
+             throw new InvalidDataException($"The library source record {path} names no Gateway or no tenant.");
+ 
+         var configuredTeamId = configuredTeam?.TeamId;
+-        if (!string.Equals(recorded.TeamId, configuredTeamId, StringComparison.Ordinal))
++        if (false) // RED CHECK: no agreement check
++#pragma warning disable CS0162
+             return SkillSourceEstablished.Refused(SkillPlacementFault.SourceMismatch,
+                 $"the skills were fetched for {recorded.Describe()}, but this Director is set up for " +
+                 $"{(configuredTeamId is null ? "the personal account" : "team " + configuredTeamId)}");
+warning: in the working copy of 'src/CcDirector.Core/Skills/SkillSource.cs', LF will be replaced by CRLF the next time Git touches it
+
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_team_key_saved_without_its_team_record_removes_and_overwrites_nothing [202 ms]
+first messages:
+     Assert.All() Failure: 1 out of 1 items in the collection did not pass.
+
+====================================================================================================
+SK-F3: identity by address - the refresh records the address it used as the Gateway's id
+diff --git a/src/CcDirector.Core/Skills/SkillStoreRefresh.cs b/src/CcDirector.Core/Skills/SkillStoreRefresh.cs
+index 69923e63d..947d36392 100644
+--- a/src/CcDirector.Core/Skills/SkillStoreRefresh.cs
++++ b/src/CcDirector.Core/Skills/SkillStoreRefresh.cs
+@@ -142,7 +142,7 @@ public sealed class SkillStoreRefresh
+         var source = register.Source;
+         if (source is not null && !string.IsNullOrWhiteSpace(source.GatewayId) && !string.IsNullOrWhiteSpace(source.TenantId))
+         {
+-            new SkillSource(source.GatewayId.Trim(), source.TenantId.Trim(),
++            new SkillSource(baseUrl /* RED CHECK: the address as the identity */, source.TenantId.Trim(),
+                 string.IsNullOrWhiteSpace(source.TeamId) ? null : source.TeamId.Trim()).WriteTo(store);
+         }
+         else
+
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_same_account_keeps_owning_its_skills_when_its_Gateway_address_changes(before: "https://devthrottle.mycompany.com", after: "https://devthrottle.com") [336 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_same_account_keeps_owning_its_skills_when_its_Gateway_address_changes(before: "http://gateway.example.com", after: "https://gateway.example.com") [317 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_same_account_keeps_owning_its_skills_when_its_Gateway_address_changes(before: "http://192.168.1.20:7878", after: "http://gateway-box.tailnet:7878") [388 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.Two_Directors_of_one_account_at_two_front_doors_share_its_skills_and_another_account_does_not [85 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_refresh_records_the_source_the_Gateway_named_for_the_key [19 ms]
+first messages:
+     Assert.Empty() Failure: Collection was not empty
+     Assert.Empty() Failure: Collection was not empty
+     Assert.Empty() Failure: Collection was not empty
+     Assert.Empty() Failure: Collection was not empty
+
+====================================================================================================
+SK-F4: once per Director - the migration record is this Director's own file, as before
+diff --git a/src/CcDirector.Core/Skills/SkillDirectoryInstaller.cs b/src/CcDirector.Core/Skills/SkillDirectoryInstaller.cs
+index df1f1b961..052201cff 100644
+--- a/src/CcDirector.Core/Skills/SkillDirectoryInstaller.cs
++++ b/src/CcDirector.Core/Skills/SkillDirectoryInstaller.cs
+@@ -269,7 +269,7 @@ public static class SkillDirectoryInstaller
+     private static void ReclaimRetiredInstallerCopies(
+         IReadOnlyList<string> names, string linkRoot, string legacyStampPath)
+     {
+-        var record = ReclaimRecordFor(linkRoot);
++        var record = legacyStampPath; // RED CHECK: the record per Director
+         if (File.Exists(record))
+             return;
+         if (HasReclaimedTheOldWay(linkRoot, legacyStampPath))
+
+  Failed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_migration_recorded_the_old_way_is_carried_over_and_moves_nothing [17 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_second_Director_never_moves_the_persons_own_folder_after_the_first_one_migrated [49 ms]
+first messages:
+     Assert.True() Failure
+     Assert.True() Failure
+
+All four restored with git checkout; source matches HEAD.
+
+SK-F4, rerun by hand: the scripted run above produced no result line at all, so it is not counted. Same mutation, full build, same filter:
+  Failed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_migration_recorded_the_old_way_is_carried_over_and_moves_nothing [10 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_second_Director_never_moves_the_persons_own_folder_after_the_first_one_migrated [57 ms]
+Total tests: 22
+     Passed: 20
+     Failed: 2
+  Error Message:
+   Assert.True() Failure
+Restored with git checkout; git diff on src empty: yes
+
+SK-F4 again, after moving the record assertion to the END of the second-Director test so the harm is checked first (HEAD 2b4628627). Same mutation, full build:
+  Failed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_migration_recorded_the_old_way_is_carried_over_and_moves_nothing [13 ms]
+  Error Message:
+   Assert.True() Failure
+  Failed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_second_Director_never_moves_the_persons_own_folder_after_the_first_one_migrated [72 ms]
+  Error Message:
+   System.IO.IOException : Cannot create 'C:\Users\soren\AppData\Local\Temp\skill-install-tests-e453a796120d4664b8d39004e245e4a4\agent-own-superseded-by-devthrottle\move-session-20261006-102601' because a file or directory with the same name already exists.
+Total tests: 22
+     Passed: 20
+     Failed: 2
+ Total time: 3.0936 Seconds
+Reading: the second Director, with no record of its own, TRIED TO MOVE the person's move-session - the move failed only because the first move's backup has the same second-resolution name. The carried-over test fails on its record assertion: under this mutation the old record and the new one are the same file, so its harm assertions cannot fail.
+Restored with git checkout; git diff on src empty: yes

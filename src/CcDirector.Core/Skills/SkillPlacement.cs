@@ -15,6 +15,18 @@ public enum SkillPlacementFault
     /// <summary>Another Director's library installed a skill of the same name and keeps it: the person's
     /// own account, or a team that installed it first (devthrottle_internal#2311). Ours was not installed.</summary>
     HeldByAnotherSource,
+
+    /// <summary>Another Director was placing skills in the same folders and did not finish within the wait,
+    /// so this placement changed nothing (review finding SK-F1). The next session start tries again.</summary>
+    FolderBusy,
+
+    /// <summary>The Gateway did not say which account its skills belong to (a Gateway older than the rule that
+    /// stamps each skill with its source), so this Director changed nothing. Updating the Gateway fixes it.</summary>
+    SourceUnknown,
+
+    /// <summary>The skills were fetched for a different account than the one this Director is set up for - for
+    /// instance a team key saved without its team record - so this Director changed nothing.</summary>
+    SourceMismatch,
 }
 
 /// <summary>One skill that should have reached the agent and did not.</summary>
@@ -73,6 +85,9 @@ public sealed record SkillPlacement(
         var shadowed = Problems.Where(p => p.Fault == SkillPlacementFault.Shadowed).ToList();
         var failed = Problems.Where(p => p.Fault == SkillPlacementFault.LinkFailed).ToList();
         var held = Problems.Where(p => p.Fault == SkillPlacementFault.HeldByAnotherSource).ToList();
+        var busy = Problems.Where(p => p.Fault == SkillPlacementFault.FolderBusy).ToList();
+        var unknown = Problems.Where(p => p.Fault == SkillPlacementFault.SourceUnknown).ToList();
+        var mismatch = Problems.Where(p => p.Fault == SkillPlacementFault.SourceMismatch).ToList();
         var parts = new List<string>();
         if (shadowed.Count > 0)
             parts.Add($"{shadowed.Count} blocked by a directory DevThrottle did not write " +
@@ -82,6 +97,15 @@ public sealed record SkillPlacement(
             parts.Add($"{held.Count} kept by another Director's library under the same name " +
                       $"({string.Join(", ", held.Select(p => p.SkillId))}) in {held[0].Target} - " +
                       "the person's own account wins a name, and between teams the first installed keeps it");
+        if (busy.Count > 0)
+            parts.Add($"{busy.Count} not placed because another Director was placing skills in {busy[0].Target} " +
+                      "at the same moment - nothing was changed; start a new session to place them");
+        if (unknown.Count > 0)
+            parts.Add($"{unknown.Count} not placed because the Gateway does not say which account its skills belong " +
+                      "to - nothing was changed; the Gateway must be updated");
+        if (mismatch.Count > 0)
+            parts.Add($"{mismatch.Count} not placed because they were fetched for a different account than this " +
+                      "Director is set up for - nothing was changed; check the Director's team in Settings");
         if (failed.Count > 0)
             parts.Add($"{failed.Count} could not be linked ({string.Join(", ", failed.Select(p => p.SkillId))})");
 

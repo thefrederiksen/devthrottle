@@ -121,6 +121,11 @@ static int Refuse(string why, List<string>? lines = null)
 sealed class StubLibrary
 {
     public Dictionary<string, string> Skills { get; set; } = new();
+
+    /// <summary>Which library this is, as a Gateway names it on the register (review findings SK-F2, SK-F3).</summary>
+    public string GatewayId { get; set; } = "";
+    public string TenantId { get; set; } = "";
+    public string? TeamId { get; set; }
 }
 
 /// <summary>
@@ -165,7 +170,11 @@ sealed class StubGateway : IDisposable
             var rest = path["/gateway/skills".Length..].Trim('/');
             if (rest.Length == 0)
             {
-                body = new { skills = library.Skills.Select(s => new { id = s.Key, version = 1, enabled = true, contentHash = Hash(s.Value) }) };
+                body = new
+                {
+                    skills = library.Skills.Select(s => new { id = s.Key, version = 1, enabled = true, contentHash = Hash(s.Value) }),
+                    source = new { gatewayId = library.GatewayId, tenantId = library.TenantId, teamId = library.TeamId },
+                };
             }
             else
             {
