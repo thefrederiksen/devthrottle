@@ -32,6 +32,11 @@ public enum SkillPlacementFault
     /// is nowhere known to be on the same volume to build a copy, and this Director changed nothing (review finding
     /// SK-F9). Repairing or removing the link fixes it.</summary>
     FolderLinkUnresolved,
+
+    /// <summary>The folder where copies are built is inside a skills folder agents read, or already exists and was
+    /// not made by this installer, so this Director changed nothing (review finding SK-F11). Moving the link or the
+    /// folder fixes it.</summary>
+    StagingFolderUnsafe,
 }
 
 /// <summary>One skill that should have reached the agent and did not.</summary>
@@ -94,6 +99,7 @@ public sealed record SkillPlacement(
         var unknown = Problems.Where(p => p.Fault == SkillPlacementFault.SourceUnknown).ToList();
         var mismatch = Problems.Where(p => p.Fault == SkillPlacementFault.SourceMismatch).ToList();
         var unresolved = Problems.Where(p => p.Fault == SkillPlacementFault.FolderLinkUnresolved).ToList();
+        var unsafeStaging = Problems.Where(p => p.Fault == SkillPlacementFault.StagingFolderUnsafe).ToList();
         var parts = new List<string>();
         if (shadowed.Count > 0)
             parts.Add($"{shadowed.Count} blocked by a directory DevThrottle did not write " +
@@ -115,6 +121,10 @@ public sealed record SkillPlacement(
         if (unresolved.Count > 0)
             parts.Add($"{unresolved.Count} not placed because {unresolved[0].Target} is a link whose target cannot be " +
                       "found - nothing was changed; repair or remove the link");
+        if (unsafeStaging.Count > 0)
+            parts.Add($"{unsafeStaging.Count} not placed because the folder where copies are built, {unsafeStaging[0].Target}, " +
+                      "is inside a skills folder agents read or was not made by DevThrottle - nothing was changed; move " +
+                      "the link or the folder");
         if (failed.Count > 0)
             parts.Add($"{failed.Count} could not be linked ({string.Join(", ", failed.Select(p => p.SkillId))})");
 

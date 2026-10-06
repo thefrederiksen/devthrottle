@@ -132,6 +132,31 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_staging_folder_inside_a_skills_folder_says_so_and_not_could_not_be_linked()
+    {
+        // The folder where copies are built would be inside a folder agents read (review finding SK-F11): the
+        // Director changed nothing, and the sentence must say where and why.
+        var store = NewStore();
+        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        {
+            Report(held: 1, reachable: 0, problems: new[]
+            {
+                new SkillPlacementProblemDto
+                {
+                    SkillId = "fleet-comms", Target = @"C:\Users\x\.agents\skills\claude-root.devthrottle-staging",
+                    Fault = "StagingFolderUnsafe",
+                },
+            }),
+        }, T0);
+
+        var row = Assert.Single(store.ReadAll(Alice).Rows);
+
+        Assert.Equal("broken", row.Status);
+        Assert.Contains(@"C:\Users\x\.agents\skills\claude-root.devthrottle-staging, is inside a skills folder", row.Message);
+        Assert.DoesNotContain("could not be linked", row.Message);
+    }
+
+    [Fact]
     public void A_healthy_machine_is_ok_and_does_not_raise_the_badge()
     {
         var store = NewStore();

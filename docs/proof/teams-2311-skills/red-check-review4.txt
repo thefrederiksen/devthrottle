@@ -1,0 +1,30 @@
+RED CHECKS, review round 4 - 2026-10-06T16:27:28.174756Z - built on 37092f2fb plus the round 4 change
+Each: mutate, full build, run the named tests, record, restore the saved source.
+
+====================================================================================================
+SK-F10: the old rule - a link into the shared folder is removed when its target is gone or is this source's, record or not
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++        if (entry is null) // RED CHECK: the address is enough
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_persons_dangling_link_into_the_shared_folder_survives_a_launch_and_works_again_when_its_target_returns [256 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_link_made_before_the_record_existed_is_left_alone_when_its_skill_is_withdrawn [248 ms]
+first messages:
+     the person's dangling link was deleted by a launch
+     a link with no record of who made it was removed
+
+====================================================================================================
+SK-F11: no inside check - a staging root inside a folder agents read is used
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++                continue; // RED CHECK: inside is fine
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.An_agent_folder_linked_into_the_shared_folder_places_nothing_and_touches_nothing [161 ms]
+first messages:
+     Assert.Single() Failure: The collection was empty
+
+====================================================================================================
+SK-F11: no ownership check - an existing staging root is used whoever made it
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++                : null; // RED CHECK: anybody's folder will do
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_folder_already_at_the_staging_name_that_the_installer_did_not_make_is_left_untouched [143 ms]
+first messages:
+     Assert.Single() Failure: The collection was empty
+
+Every mutation restored from the saved source.

@@ -147,6 +147,25 @@ goes beside the link's final target, not beside the link's own spelling. If the 
 of a drive, nothing is changed and every skill is reported as the new fault `FolderLinkUnresolved`, with its own
 sentence on the Director and on the Gateway's placement page.
 
+**A link is changed or removed only with proof this installer made it (review finding SK-F10).** Where a link points
+is not evidence: a person's `~/.claude/skills/hand-made` pointing at `~/.agents/skills/hand-made` looks exactly like
+one of ours, and when its target was briefly gone the old rule deleted it. Every link the installer makes is now
+written into a record kept beside the shared folder (`~/.agents/skills.devthrottle-links.json`: the link, its target,
+and the library it was made for), only under the folder lock (`SkillLinkRecord`). A link is withdrawn only when the
+record has it for THIS library, it still points where the record says, and what it points at is not another library's
+copy now. A link the record does not know is never removed or rebuilt, whatever its target; one already pointing at the
+right copy is counted as reaching the agent and left as it is, and one pointing elsewhere is reported as `Shadowed`.
+Links made before this change are not in the record, so they are left alone when their skill is withdrawn. When the
+person's account takes a name over from a team, the installer's own link to that copy is recorded as the person's.
+
+**Staging is never inside a folder agents read, and never in a folder we did not make (review finding SK-F11).**
+Every agent family's skills folder, as written and as resolved through a link, is a scanned root (a test passes its
+own folders and reads no real profile). If a staging root would be equal to or inside any of them - for instance
+`~/.claude/skills` linked to `~/.agents/skills/claude-root` - or already exists without the installer's marker, or is
+itself a link, placement changes nothing, before creating anything, and reports `StagingFolderUnsafe` with its own
+sentence on the Director and the Gateway. A new staging root is built under a temporary name with its marker already in
+it and renamed into place, so a staging root without the marker is never one of ours.
+
 ## Tests
 
 First round. `src/CcDirector.Core.Tests/Skills/SkillSourceOwnershipTests.cs`, the real installer run twice over ONE pair
@@ -244,6 +263,23 @@ tested separately for that reason.
 | SK-F8 | cleanup trusts the name alone | the three right-shaped foreign folders: their contents are gone. The fourth, with a name of the wrong shape, survives either way. |
 | SK-F9 | the link is not followed | both link tests: the staging root is beside the link, and a link to nowhere is not refused. Both folders in the test are on one volume, so the red shows the WHERE, not a cross-volume move failing. |
 
+### Review round 4 - the tests for SK-F10 and SK-F11
+
+`SkillLinkAndStagingOwnershipTests`, with real junctions on temporary folders (symbolic links on other systems):
+
+| Finding | Tests |
+|---|---|
+| SK-F10 links | `A_persons_dangling_link_into_the_shared_folder_survives_a_launch_and_works_again_when_its_target_returns` (the review's case). `Our_own_recorded_link_is_still_withdrawn_and_leaves_the_record`. `A_link_made_before_the_record_existed_is_left_alone_when_its_skill_is_withdrawn`. `Our_link_that_the_person_pointed_somewhere_else_is_left_alone`. |
+| SK-F11 staging | `An_agent_folder_linked_into_the_shared_folder_places_nothing_and_touches_nothing` (`~/.claude/skills` linked into `~/.agents/skills/claude-root`: one `StagingFolderUnsafe`, nothing new in the shared folder, nothing in the linked folder, no staging root created). `A_folder_already_at_the_staging_name_that_the_installer_did_not_make_is_left_untouched` - even a folder inside it carrying the installer's per-folder marker survives. `A_staging_root_the_installer_makes_carries_its_marker_and_is_used_again`. Gateway: `SkillPlacementStoreTests.A_staging_folder_inside_a_skills_folder_says_so_and_not_could_not_be_linked`. |
+
+### Review round 4 - the red checks - [red-check-review4.txt](red-check-review4.txt)
+
+| Finding | The old behaviour put back | Red |
+|---|---|---|
+| SK-F10 | a link into the shared folder is removed when its target is gone or is this source's, record or not | the dangling-link test (`the person's dangling link was deleted by a launch`) and the before-the-record test. |
+| SK-F11 | no inside check | the linked-into-the-shared-folder test: nothing is refused. |
+| SK-F11 | an existing staging root is used whoever made it | the existing-folder test: nothing is refused. |
+
 ### Runs
 
 | What | Result | File |
@@ -261,6 +297,10 @@ tested separately for that reason.
 | **Review round 3:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 84 passed, 0 failed | [test-runs-review3.txt](test-runs-review3.txt) |
 | **Review round 3:** `.\scripts\test-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review3.txt](gate-default-review3.txt) |
 | **Review round 3:** `CcDirector.Gateway.UnitTests`, whole suite (the placement message changed) | first run 9412 passed, **1 failed**: `DirectorHubTests.Hello_WithNothingStoredForThisDirector_SaysSo_RatherThanStayingSilent`, `SQLite Error 14: unable to open database file` at a temporary path named for another test (`ccd-catalog-name-...`). Its class alone: 30 of 30, three times. Second whole run: 9413 passed, 0 failed. | [test-runs-review3.txt](test-runs-review3.txt) |
+| **Review round 4:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 91 passed, 0 failed | [test-runs-review4.txt](test-runs-review4.txt) |
+| **Review round 4:** `.\scripts\test-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review4.txt](gate-default-review4.txt) |
+| **Review round 4:** `CcDirector.Gateway.UnitTests`, whole suite | 9414 passed, 0 failed, 14 skipped | [test-runs-review4.txt](test-runs-review4.txt) |
+| **Review round 4:** `CcDirector.Gateway.Tests`, filtered as before | **NOT RUN** again: another session's run held the suite's machine-wide lock; mine waited about nine minutes and was stopped. Round 4 changes no Gateway route; its Gateway change is one sentence, covered by the unit test above. | [test-runs-review4.txt](test-runs-review4.txt) |
 | **Review round 3:** `CcDirector.Gateway.Tests`, filtered as before | **NOT RUN**: the suite's machine-wide lock was held by another session's run for over an hour; my run waited about five minutes and was stopped. Round 3 changes no Gateway route; its Gateway change is one sentence, covered by the unit test above. | [test-runs-review3.txt](test-runs-review3.txt) |
 
 The default gate's first run failed one test, `RetiredMessagingWordsTests`, because I was writing the gate's own
@@ -339,8 +379,9 @@ One run is not in the evidence. A first attempt of the full script was cut off a
 command (`Select-Object -First 80` ends the pipeline it reads from, which ended the script mid-step). It was rerun in
 full; the file above is that rerun.
 
-**Not rerun for review rounds 2 and 3.** Round 3 adds locks, the staging marker and link resolution; none of
-it changes what ends up in the two folders, and the rig's folders are not links.
+**Not rerun for review rounds 2, 3 and 4.** Round 3 adds locks, the staging marker and link resolution; round 4
+adds the link record and the staging checks. None of it changes what ends up in the two folders, and the rig's
+folders are not links. The record file and the marked staging roots now appear beside the two folders.
 
 **Round 2 note.** Round 2 changes how a copy is written and removed, not what ends up in the two
 folders: every listing above would be the same. The staging folders are siblings of the two folders, outside what the
