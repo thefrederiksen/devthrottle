@@ -126,9 +126,11 @@ public sealed class HostedTeamSessionDirectorOneRuleTests : IAsyncLifetime
     [Fact]
     public async Task ATypedPrompt_NeverReachesAColleaguesDirectorThatListsTheSession_AndReachesTheOwners()
     {
-        // ONLY BOB'S ROW: refused as not located, and Bob's Director is sent nothing.
-        var (refused, _) = await PostPrompt("only bob lists it");
-        Assert.False(IsSuccess(refused), $"the prompt was answered {(int)refused} while only a colleague's Director lists the session");
+        // ONLY BOB'S ROW: nobody holds the session, so the prompt is HELD waiting for its Director - never sent - and
+        // Bob's Director is sent nothing.
+        var (held, heldBody) = await PostPrompt("only bob lists it");
+        Assert.Equal(HttpStatusCode.Accepted, held);
+        Assert.Equal("waiting-for-director", heldBody.GetProperty("directorState").GetString());
         Assert.Empty(Seen(_seenByBob, "prompt"));
 
         // ALICE'S DIRECTOR LISTS IT TOO: the prompt reaches her Director, and still never Bob's.
@@ -155,14 +157,14 @@ public sealed class HostedTeamSessionDirectorOneRuleTests : IAsyncLifetime
         // ONLY BOB'S ROW: Alice's Director stops listing the session. The driver locates nobody and asks nobody.
         await _aliceDirector.PushSnapshotAsync();
         Assert.Equal(new[] { BobDirector }, _gateway.PushedSessions.DirectorsHoldingSession(_team, _sessionId));
-        var held = await _gateway.TypedPromptDriver.DriveOnceAsync(_team, store, deliveryId, TypedPromptDecisions.DriveTick);
+        var held = await DriveAsync(store, deliveryId);
         Assert.Equal(TypedDriveResult.Held, held);
         Assert.Empty(Seen(_seenByBob, DeliveryStateRequest.Verb));
         Assert.Empty(Seen(_seenByBob, "prompt"));
 
         // ALICE'S DIRECTOR LISTS IT AGAIN: the driver asks HER Director what became of it, and never Bob's.
         await AliceListsTheSession();
-        await _gateway.TypedPromptDriver.DriveOnceAsync(_team, store, deliveryId, TypedPromptDecisions.DriveTick);
+        await DriveAsync(store, deliveryId);
         Assert.Single(Seen(_seenByAlice, DeliveryStateRequest.Verb));
         Assert.Empty(Seen(_seenByBob, DeliveryStateRequest.Verb));
         Assert.Empty(Seen(_seenByBob, "prompt"));
@@ -230,6 +232,14 @@ public sealed class HostedTeamSessionDirectorOneRuleTests : IAsyncLifetime
         Assert.Equal(2, _gateway.PushedSessions.DirectorsHoldingSession(_team, _sessionId).Count);
     }
 
+    /// <summary>One drive of a held typed prompt, inside the team's scope - where the Gateway's own driver runs it (its
+    /// per-tenant pass). A hosted Gateway sends nothing down a tunnel with no account in scope.</summary>
+    private async Task<TypedDriveResult> DriveAsync(TypedPromptStore store, string deliveryId)
+    {
+        using var scope = _gateway.TenantBoundaryForTests.EnterScope(_team);
+        return await _gateway.TypedPromptDriver.DriveOnceAsync(_team, store, deliveryId, TypedPromptDecisions.DriveTick);
+    }
+
     private DirectorCommandResult AliceAnswers(DirectorCommand cmd)
     {
         if (cmd.Verb == "prompt" && _alicePrompt is { } played)
@@ -244,8 +254,6 @@ public sealed class HostedTeamSessionDirectorOneRuleTests : IAsyncLifetime
 
     private DirectorCommand[] Seen(ConcurrentQueue<DirectorCommand> seen, string verb) =>
         seen.Where(c => c.Verb == verb && c.SessionId == _sessionId).ToArray();
-
-    private static bool IsSuccess(HttpStatusCode status) => (int)status is >= 200 and < 300;
 
     private async Task<(HttpStatusCode Status, JsonElement Body)> PostPrompt(string text)
     {
