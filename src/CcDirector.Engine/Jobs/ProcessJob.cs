@@ -8,15 +8,25 @@ public sealed class ProcessJob : IJob
     private readonly string _command;
     private readonly string? _workingDir;
     private readonly int _timeoutSeconds;
+    private readonly Action<int, DateTime>? _onStarted;
+
+    /// <summary>How long a killed command's process may take to exit before it counts as not proven stopped.</summary>
+    internal static readonly TimeSpan KillWait = TimeSpan.FromSeconds(10);
 
     public string Name { get; }
 
-    public ProcessJob(string name, string command, string? workingDir = null, int timeoutSeconds = 300)
+    /// <param name="onStarted">
+    /// Called with the command process's id and start time (UTC) as soon as it starts, so the caller
+    /// can record which process it must prove stopped before it lets anyone run the command again.
+    /// </param>
+    public ProcessJob(string name, string command, string? workingDir = null, int timeoutSeconds = 300,
+        Action<int, DateTime>? onStarted = null)
     {
         Name = name;
         _command = command;
         _workingDir = workingDir;
         _timeoutSeconds = timeoutSeconds;
+        _onStarted = onStarted;
     }
 
     public async Task<JobResult> ExecuteAsync(CancellationToken cancellationToken)
@@ -31,6 +41,7 @@ public sealed class ProcessJob : IJob
         using var process = new Process { StartInfo = startInfo };
 
         process.Start();
+        _onStarted?.Invoke(process.Id, process.StartTime.ToUniversalTime());
         var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
@@ -44,11 +55,21 @@ public sealed class ProcessJob : IJob
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             FileLog.Write($"[ProcessJob] Timeout after {_timeoutSeconds}s: name={Name}");
-            KillProcess(process);
+            var stopped = KillAndConfirm(process);
             var stdout = await ReadSafe(stdoutTask);
             var stderr = await ReadSafe(stderrTask);
-            return new JobResult(false, stdout, $"Timed out after {_timeoutSeconds} seconds. {stderr}", TimedOut: true,
-                ErrorOutput: stderr);
+            var error = stopped
+                ? $"Timed out after {_timeoutSeconds} seconds. {stderr}"
+                : $"Timed out after {_timeoutSeconds} seconds and the process did not exit after it was killed. {stderr}";
+            return new JobResult(false, stdout, error, TimedOut: true, ErrorOutput: stderr, ProcessStopped: stopped);
+        }
+        catch (OperationCanceledException)
+        {
+            // The caller cancelled (a shutdown). The command must not outlive it: a command left
+            // running while its run is ended would let another Director start it a second time.
+            var stopped = KillAndConfirm(process);
+            FileLog.Write($"[ProcessJob] Cancelled: name={Name}, processTreeStopped={stopped}");
+            throw new JobCancelledException(Name, stopped, cancellationToken);
         }
 
         var finalStdout = await ReadSafe(stdoutTask);
@@ -95,8 +116,11 @@ public sealed class ProcessJob : IJob
         return startInfo;
     }
 
-    // Kill may race with natural exit -- InvalidOperationException is expected
-    private static void KillProcess(Process process)
+    /// <summary>
+    /// Kills the command's whole process tree and returns whether the command process is then seen to
+    /// exit within <see cref="KillWait"/>. False means it cannot be proven stopped.
+    /// </summary>
+    private static bool KillAndConfirm(Process process)
     {
         try
         {
@@ -106,6 +130,8 @@ public sealed class ProcessJob : IJob
         {
             // Process already exited before kill -- expected race condition
         }
+
+        return process.WaitForExit(KillWait);
     }
 
     // Stream reads may fail when process is killed -- expected after timeout

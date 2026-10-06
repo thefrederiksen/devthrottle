@@ -15,4 +15,13 @@ public sealed class RunRecord
 
     /// <summary>The Director process that started this run; null on a run recorded before owners were kept.</summary>
     public EngineRunOwner? Owner { get; set; }
+
+    /// <summary>The timeout this run was claimed with; editing the job later does not change it.</summary>
+    public int? TimeoutSeconds { get; set; }
+
+    /// <summary>The command process this run started, once it started.</summary>
+    public int? ChildProcessId { get; set; }
+
+    /// <summary>A result its owner reported after the claim had already been released; kept, never applied.</summary>
+    public string? LateCompletion { get; set; }
 }

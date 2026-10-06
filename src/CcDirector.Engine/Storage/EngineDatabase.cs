@@ -140,18 +140,27 @@ public sealed class EngineDatabase
         FileLog.Write("[EngineDatabase] InitializeSchema: complete");
     }
 
-    private static readonly (string Name, string Type)[] RunOwnerColumns =
+    private static readonly (string Name, string Type)[] RunClaimColumns =
     [
+        // The Director process that claimed the run.
         ("owner_director", "TEXT"),
         ("owner_machine", "TEXT"),
         ("owner_pid", "INTEGER"),
         ("owner_process_started", "TEXT"),
+        // The timeout the run was claimed with; the job's own timeout may be edited while it runs.
+        ("run_timeout_seconds", "INTEGER"),
+        // The command process the run started, which must be proven gone before the claim is released.
+        ("child_pid", "INTEGER"),
+        ("child_process_started", "TEXT"),
+        // A result reported by an owner whose claim had already been released; kept, never applied.
+        ("late_completion", "TEXT"),
     ];
 
     /// <summary>
-    /// Forward migration: adds the run owner columns to a runs table made before owners were kept.
+    /// Forward migration: adds the run claim columns to a runs table made before they existed.
     /// Taken under a write lock, so two Directors opening one old file at once cannot both add them.
-    /// Old rows keep null owners and are judged only by the abandoned-run rule.
+    /// Old rows keep null owners and are judged only by the abandoned-run rule, against the timeout
+    /// their job had when the database was migrated (the best record there is of what they ran with).
     /// </summary>
     private void MigrateRunOwnerColumns()
     {
@@ -169,7 +178,7 @@ public sealed class EngineDatabase
         }
 
         var added = new List<string>();
-        foreach (var (name, type) in RunOwnerColumns)
+        foreach (var (name, type) in RunClaimColumns)
         {
             if (existing.Contains(name)) continue;
 
@@ -178,6 +187,17 @@ public sealed class EngineDatabase
             alter.CommandText = $"ALTER TABLE runs ADD COLUMN {name} {type}";
             alter.ExecuteNonQuery();
             added.Add(name);
+        }
+
+        if (added.Contains("run_timeout_seconds"))
+        {
+            using var backfill = conn.CreateCommand();
+            backfill.Transaction = tx;
+            backfill.CommandText = """
+                UPDATE runs SET run_timeout_seconds = (SELECT timeout_seconds FROM jobs WHERE jobs.id = runs.job_id)
+                WHERE run_timeout_seconds IS NULL
+                """;
+            backfill.ExecuteNonQuery();
         }
 
         tx.Commit();
@@ -372,12 +392,13 @@ public sealed class EngineDatabase
         // other connection can claim between our check and our insert.
         using var tx = conn.BeginTransaction(deferred: false);
 
-        string? jobName;
+        string jobName;
+        int timeoutSeconds;
         using (var check = conn.CreateCommand())
         {
             check.Transaction = tx;
             check.CommandText = """
-                SELECT name FROM jobs
+                SELECT name, timeout_seconds FROM jobs
                 WHERE id = @id
                   AND enabled = 1
                   AND next_run IS NOT NULL
@@ -386,13 +407,15 @@ public sealed class EngineDatabase
                 """;
             check.Parameters.AddWithValue("@id", jobId);
             check.Parameters.AddWithValue("@now", nowUtc.ToString("o"));
-            jobName = check.ExecuteScalar() as string;
-        }
-
-        if (jobName is null)
-        {
-            tx.Rollback();
-            return null;
+            using var reader = check.ExecuteReader();
+            if (!reader.Read())
+            {
+                reader.Close();
+                tx.Rollback();
+                return null;
+            }
+            jobName = reader.GetString(0);
+            timeoutSeconds = reader.GetInt32(1);
         }
 
         int runId;
@@ -406,30 +429,83 @@ public sealed class EngineDatabase
 
         tx.Commit();
 
-        FileLog.Write($"[EngineDatabase] TryClaimRun: claimed job={jobName}, run={runId}, pid={_owner.ProcessId}");
-        return new RunRecord { Id = runId, JobId = jobId, JobName = jobName, StartedAt = nowUtc, Owner = _owner };
+        FileLog.Write($"[EngineDatabase] TryClaimRun: claimed job={jobName}, run={runId}, pid={_owner.ProcessId}, timeout={timeoutSeconds}s");
+        return new RunRecord
+        {
+            Id = runId, JobId = jobId, JobName = jobName, StartedAt = nowUtc, Owner = _owner, TimeoutSeconds = timeoutSeconds
+        };
+    }
+
+    /// <summary>Records the command process a run started, which must be proven gone before its claim is released.</summary>
+    public void RecordRunChild(int runId, int processId, DateTime processStartedAtUtc)
+    {
+        FileLog.Write($"[EngineDatabase] RecordRunChild: run={runId}, childPid={processId}");
+
+        using var conn = CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE runs SET child_pid = @pid, child_process_started = @started WHERE id = @id AND ended_at IS NULL";
+        cmd.Parameters.AddWithValue("@id", runId);
+        cmd.Parameters.AddWithValue("@pid", processId);
+        cmd.Parameters.AddWithValue("@started", processStartedAtUtc.ToString("o"));
+        cmd.ExecuteNonQuery();
     }
 
     /// <summary>
     /// Records a run's result and the job's next due time in one transaction. They must land
     /// together: between them the job would have no unfinished run and a past next_run, and another
     /// Director would claim the occurrence that just ran.
+    /// Fenced: it applies only while the run is still this Director's open claim. When the claim was
+    /// released meanwhile (another Director proved this one gone), the result is kept as a late
+    /// completion and neither the run's verdict nor the schedule changes. Returns whether it applied.
     /// </summary>
-    public void CompleteRun(RunRecord run, DateTime? nextRun)
+    public bool CompleteRun(RunRecord run, DateTime? nextRun) => EndOwnRun(run, moveSchedule: true, nextRun);
+
+    /// <summary>
+    /// Ends this Director's run without moving the schedule, so the occurrence is due again (a
+    /// cancelled run whose command was proven stopped). Fenced like <see cref="CompleteRun"/>.
+    /// </summary>
+    public bool EndRunKeepingSchedule(RunRecord run) => EndOwnRun(run, moveSchedule: false, nextRun: null);
+
+    private bool EndOwnRun(RunRecord run, bool moveSchedule, DateTime? nextRun)
     {
         using var conn = CreateConnection();
         using var tx = conn.BeginTransaction(deferred: false);
 
+        int applied;
         using (var update = conn.CreateCommand())
         {
             update.Transaction = tx;
-            update.CommandText = UpdateRunSql;
+            update.CommandText = UpdateRunSql + """
+                  AND ended_at IS NULL
+                  AND owner_machine = @ownerMachine
+                  AND owner_pid = @ownerPid
+                  AND owner_process_started = @ownerStarted
+                """;
             AddUpdateRunParameters(update, run);
-            update.ExecuteNonQuery();
+            update.Parameters.AddWithValue("@ownerMachine", _owner.Machine);
+            update.Parameters.AddWithValue("@ownerPid", _owner.ProcessId);
+            update.Parameters.AddWithValue("@ownerStarted", _owner.ProcessStartedAtUtc.ToString("o"));
+            applied = update.ExecuteNonQuery();
         }
 
-        using (var next = conn.CreateCommand())
+        if (applied == 0)
         {
+            using var late = conn.CreateCommand();
+            late.Transaction = tx;
+            late.CommandText = "UPDATE runs SET late_completion = @late WHERE id = @id";
+            late.Parameters.AddWithValue("@id", run.Id);
+            late.Parameters.AddWithValue("@late",
+                $"{DateTime.UtcNow:o} exit={run.ExitCode?.ToString() ?? "none"} timedOut={run.TimedOut} {run.Stderr}".Trim());
+            late.ExecuteNonQuery();
+            tx.Commit();
+
+            FileLog.Write($"[EngineDatabase] EndOwnRun: run={run.Id} was no longer this Director's open claim; result kept as late, schedule unchanged");
+            return false;
+        }
+
+        if (moveSchedule)
+        {
+            using var next = conn.CreateCommand();
             next.Transaction = tx;
             next.CommandText = "UPDATE jobs SET next_run = @nextRun WHERE id = @id";
             next.Parameters.AddWithValue("@id", run.JobId);
@@ -438,11 +514,13 @@ public sealed class EngineDatabase
         }
 
         tx.Commit();
+        return true;
     }
 
     private const string InsertRunSql = """
-        INSERT INTO runs (job_id, job_name, started_at, owner_director, owner_machine, owner_pid, owner_process_started)
-        VALUES (@jobId, @jobName, @startedAt, @ownerDirector, @ownerMachine, @ownerPid, @ownerStarted);
+        INSERT INTO runs (job_id, job_name, started_at, owner_director, owner_machine, owner_pid, owner_process_started, run_timeout_seconds)
+        VALUES (@jobId, @jobName, @startedAt, @ownerDirector, @ownerMachine, @ownerPid, @ownerStarted,
+                (SELECT timeout_seconds FROM jobs WHERE id = @jobId));
         SELECT last_insert_rowid();
         """;
 
@@ -528,34 +606,41 @@ public sealed class EngineDatabase
     public int CleanupOrphanedRuns() => CleanupOrphanedRuns(DateTime.UtcNow);
 
     /// <summary>
-    /// Fails the unfinished runs that provably nobody is running, and leaves every other one alone -
-    /// another live Director's run in progress above all. A run is failed when either:
-    /// its owner is a process on this machine that is gone (no process has that id, or the one that
-    /// does started at another time) - which is how this Director's own runs from a previous launch
-    /// go; or it has been open longer than its job's timeout plus <see cref="AbandonedRunGrace"/>,
-    /// which no executor allows. A run whose owner is running or undecidable (another machine, a
-    /// process we may not inspect, a run recorded before owners were kept) is kept until it ages out.
+    /// Fails the unfinished runs that provably nobody is running, and leaves every other one alone.
+    /// For each unfinished run, by its owner (the Director process that claimed it):
+    /// <list type="bullet">
+    /// <item>This process, or an owner the probe shows RUNNING: kept, always. A live owner is never
+    /// aged out by another Director; its own executor ends the run at the run's timeout.</item>
+    /// <item>An owner proven GONE (no process with its id, or one that started at another time): failed
+    /// only when its command process is ALSO proven gone, or it never recorded one. A command that
+    /// outlived its Director keeps the claim until it ends.</item>
+    /// <item>An owner that cannot be decided (another machine, a process we may not inspect, a run
+    /// recorded before owners were kept): failed once open longer than the timeout STORED ON THE RUN
+    /// plus <see cref="AbandonedRunGrace"/>, never by the job's current, editable timeout.</item>
+    /// </list>
     /// </summary>
     public int CleanupOrphanedRuns(DateTime nowUtc)
     {
-        var open = new List<(int Id, DateTime StartedAt, int TimeoutSeconds, EngineRunOwner? Owner)>();
+        var open = new List<OpenRun>();
         using (var conn = CreateConnection())
         using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT runs.id, runs.started_at, jobs.timeout_seconds,
-                       runs.owner_director, runs.owner_machine, runs.owner_pid, runs.owner_process_started
-                FROM runs JOIN jobs ON jobs.id = runs.job_id
-                WHERE runs.ended_at IS NULL
+                SELECT id, started_at, run_timeout_seconds, child_pid, child_process_started,
+                       owner_director, owner_machine, owner_pid, owner_process_started
+                FROM runs
+                WHERE ended_at IS NULL
                 """;
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                open.Add((
+                open.Add(new OpenRun(
                     reader.GetInt32(0),
                     DateTime.Parse(reader.GetString(1), null, System.Globalization.DateTimeStyles.AdjustToUniversal),
-                    reader.GetInt32(2),
-                    ReadOwner(reader, 3)));
+                    reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                    reader.IsDBNull(3) ? null : reader.GetInt32(3),
+                    reader.IsDBNull(4) ? null : DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.AdjustToUniversal),
+                    ReadOwner(reader, 5)));
             }
         }
 
@@ -565,12 +650,7 @@ public sealed class EngineDatabase
         var count = 0;
         foreach (var run in open)
         {
-            string? reason = null;
-            if (run.Owner is not null && !IsThisProcess(run.Owner) && _probeOwner(run.Owner) == OwnerLiveness.Gone)
-                reason = InterruptedRunMessage;
-            else if (nowUtc - run.StartedAt > TimeSpan.FromSeconds(run.TimeoutSeconds) + AbandonedRunGrace)
-                reason = AbandonedRunMessage;
-
+            var reason = DecideOrphan(run, nowUtc);
             if (reason is null) continue;
 
             using var conn = CreateConnection();
@@ -592,6 +672,37 @@ public sealed class EngineDatabase
 
         FileLog.Write($"[EngineDatabase] CleanupOrphanedRuns: open={open.Count}, failed={count}, kept={open.Count - count}");
         return count;
+    }
+
+    private sealed record OpenRun(
+        int Id, DateTime StartedAt, int? TimeoutSeconds, int? ChildPid, DateTime? ChildStartedAt, EngineRunOwner? Owner);
+
+    /// <summary>The reason to fail this unfinished run, or null to keep it. See <see cref="CleanupOrphanedRuns(DateTime)"/>.</summary>
+    private string? DecideOrphan(OpenRun run, DateTime nowUtc)
+    {
+        if (run.Owner is not null && IsThisProcess(run.Owner))
+            return null;
+
+        var owner = run.Owner is null ? OwnerLiveness.Unknown : _probeOwner(run.Owner);
+        switch (owner)
+        {
+            case OwnerLiveness.Running:
+                return null;
+
+            case OwnerLiveness.Gone:
+                if (run.ChildPid is null)
+                    return InterruptedRunMessage;
+                // The command ran on the owner's machine; it is judged by the same id-plus-start proof.
+                var child = run.Owner! with { ProcessId = run.ChildPid.Value, ProcessStartedAtUtc = run.ChildStartedAt!.Value };
+                return _probeOwner(child) == OwnerLiveness.Gone ? InterruptedRunMessage : null;
+
+            default:
+                if (run.TimeoutSeconds is null)
+                    return null;
+                return nowUtc - run.StartedAt > TimeSpan.FromSeconds(run.TimeoutSeconds.Value) + AbandonedRunGrace
+                    ? AbandonedRunMessage
+                    : null;
+        }
     }
 
     private bool IsThisProcess(EngineRunOwner owner) =>
@@ -647,7 +758,10 @@ public sealed class EngineDatabase
             Stderr = reader.IsDBNull(reader.GetOrdinal("stderr")) ? null : reader.GetString(reader.GetOrdinal("stderr")),
             TimedOut = reader.GetInt32(reader.GetOrdinal("timed_out")) == 1,
             DurationSeconds = reader.IsDBNull(reader.GetOrdinal("duration_seconds")) ? null : reader.GetDouble(reader.GetOrdinal("duration_seconds")),
-            Owner = ReadOwner(reader, reader.GetOrdinal("owner_director"))
+            Owner = ReadOwner(reader, reader.GetOrdinal("owner_director")),
+            TimeoutSeconds = reader.IsDBNull(reader.GetOrdinal("run_timeout_seconds")) ? null : reader.GetInt32(reader.GetOrdinal("run_timeout_seconds")),
+            ChildProcessId = reader.IsDBNull(reader.GetOrdinal("child_pid")) ? null : reader.GetInt32(reader.GetOrdinal("child_pid")),
+            LateCompletion = reader.IsDBNull(reader.GetOrdinal("late_completion")) ? null : reader.GetString(reader.GetOrdinal("late_completion"))
         };
     }
 
