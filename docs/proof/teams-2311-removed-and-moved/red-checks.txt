@@ -35,10 +35,10 @@
    tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~GatewayKeyRefusalTests
    verdict: RED (caught)
    Failed!  - Failed:     4, Passed:     8, Skipped:     0, Total:    12, Duration: 159 ms - CcDirector.Core.UnitTests.dll (net10.0)
-   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"···) [1 ms]
-   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"···) [< 1 ms]
-   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"···) [< 1 ms]
-   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"···) [< 1 ms]
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"...) [1 ms]
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"...) [< 1 ms]
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"...) [< 1 ms]
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"...) [< 1 ms]
 
 == F4: a move never renames (today)
    mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
