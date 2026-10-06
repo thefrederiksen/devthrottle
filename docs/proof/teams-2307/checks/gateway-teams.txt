@@ -1,4 +1,4 @@
-﻿Starting a throwaway PostgreSQL for this run (instance run7d414ea6, port 50583)...
+﻿Starting a throwaway PostgreSQL for this run (instance run2dd05ee1, port 59134)...
 PostgreSQL ready. It is destroyed when this run ends.
 Building once, then running 1 test project(s)...
 
@@ -6,19 +6,19 @@ Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:24.35
+Time Elapsed 00:00:09.63
   started CcDirector.Gateway.Tests
 
 Waiting. The Gateway suite serializes machine-wide, so it may queue behind another run;
 that is not a hang - it prints its holder every 30s into its log.
 
-  PASS  CcDirector.Gateway.Tests  Passed!  - Failed:     0, Passed:   153, Skipped:     0, Total:   153, Duration: 12 
-m 7 s - CcDirector.Gateway.Tests.dll (net10.0)
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed:     0, Passed:   152, Skipped:     0, Total:   152, Duration: 10 
+m 58 s - CcDirector.Gateway.Tests.dll (net10.0)
 
 TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
-  CcDirector.Gateway.Tests                 outcome=Completed    total=153    executed=153
+  CcDirector.Gateway.Tests                 outcome=Completed    total=152    executed=152
 
-TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-fcdd141c
+TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-f8e2855a
 
 RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
 This is the gate - you do not need to wait for GitHub CI to merge.

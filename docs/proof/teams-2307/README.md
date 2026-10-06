@@ -68,9 +68,9 @@ PostgreSQL database.
 | Check | Result |
 |---|---|
 | `.\scripts\test-local.ps1` (the default gate) | 10 of 10 suites Completed |
-| `-Gateway -Filter "FullyQualifiedName~Teams"` | OWED on the review round 1 head; see note 3 |
-| `-Gateway -Filter "FullyQualifiedName~DevReport"` | OWED on the review round 1 head; see note 3 |
-| `-Gateway -Filter "FullyQualifiedName~Postgres\|FullyQualifiedName~Migration"` | OWED on the review round 1 head; see note 3 |
+| `-Gateway -Filter "FullyQualifiedName~Teams"` | 152 of 152 executed, Completed; see note 3 |
+| `-Gateway -Filter "FullyQualifiedName~DevReport"` | 37 of 37 executed, Completed |
+| `-Gateway -Filter "FullyQualifiedName~Postgres\|FullyQualifiedName~Migration"` | 55 of 59 executed, Completed; see note 1 |
 | `dotnet test src\CcDirector.Gateway.UnitTests` with the Teams, DevReport, Migration and BootSmoke filter | 1,537 passed, 8 skipped; see note 2 |
 | Cockpit vitest | 81 files, 814 tests passed |
 | client-core vitest | 151 files, 1,791 tests passed |
@@ -80,10 +80,10 @@ PostgreSQL database.
    skipped before this change too.
 2. The skipped tests in the unit run are the proof rigs, which run only when asked. One of them is this change's
    screenshot rig.
-3. The Gateway test lock was held from 14:52 UTC by process 14904 of session 35ca0a83 ("Factories Screen - Developer -
-   Gateway registry and views"), and was still held at 16:16 UTC. One run of this change waited the full 45 minutes and
-   was refused with no test executed, which is not a result. The files in `checks/` for these three runs are from the
-   head before review round 1 (2651ad85c) and are kept only as that. These runs will be made when the lock frees.
+3. One fewer than before review round 1 (153): the personal-tenant live test was removed, as the tests section says.
+
+The first attempt at these runs waited the full 45 minutes behind another session's test lock and was refused with no test
+executed. That is not a result, and it is not counted. The runs above were made once the lock was free.
 
 The Gateway run was split into these filters to keep each under ten minutes, as in #2309.
 
@@ -145,10 +145,9 @@ The Gateway run was split into these filters to keep each under ten minutes, as 
 ## Red records
 
 Each record breaks one rule on purpose, runs the tests that guard it, and restores the committed source. To repeat one,
-run `python docs/proof/teams-2307/red-proof.py <name>`. Every record below went red. The
-`comment-to-the-team-session-over-the-wire` record is from the head before review round 1: its rerun on the new code was
-refused by the Gateway test lock (note 3). The script now refuses to record a run the lock refused, or whose test host
-died, and leaves the earlier record in place.
+run `python docs/proof/teams-2307/red-proof.py <name>`. Every record below went red, on the
+review round 1 code. The script refuses to record a run the Gateway test lock refused, or whose test host died, and leaves
+the earlier record in place: one attempt this round was refused that way and wrote a false red, which was thrown away.
 
 | Record | Rule broken | Tests red |
 |---|---|---|
