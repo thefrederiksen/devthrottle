@@ -11,7 +11,14 @@ last sections. Scope: a database file on this machine. A file shared over a netw
 - **The exception, stated plainly:** after an ambiguous end - a Director killed, or the machine losing
   power - a job may run again, as it does today with one Director. That is at-least-once, never
   concurrently: the rerun waits until the earlier command process is proven gone.
+- **The second exception, stated plainly (round 3):** an overlap is possible ONLY for a command whose
+  identity was lost (its process id or start time was never recorded) and that is still running past
+  its own timeout plus five minutes. Such a run is released at that deadline, never earlier.
+- **No job is held forever:** a run whose command cannot be proven gone ends at its deadline (the timeout
+  stored on the run plus five minutes) at the latest. A RECORDED command that the operating system shows
+  still running keeps its claim for as long as it runs (see the round 3 note on this reading).
 - A file shared across machines over a network folder is out of scope.
+- Every decision about an open run is made from the database, never from memory that can be lost.
 
 ## What was wrong (code at e8f673ab9)
 
@@ -221,11 +228,77 @@ was stopped because `CcDirector.Core.UnitTests` passed the two-minute ceiling
 67 seconds in the round-0 gate, and the immediate rerun was green. The trigger runner's 9 tests pass
 again (`trigger-runner-tests.txt`).
 
-**What round 2 does NOT cover.** The watch list is in memory. If the Director exits while a run is
-watched, the next start's cleanup takes over: owner gone, so the run is released when the RECORDED
-command is proven gone - or, when the record had failed, at once, because nothing identifies that
-command. A command whose start time could not even be read cannot be watched; its claim is held until
-the Director exits.
+**Superseded by round 3.** The in-memory watch list described in this section was removed in round 3,
+because it could be lost (EN-F6, EN-F7); the rule below replaces it.
+
+## Review round 3: every decision about an open run comes from the database (EN-F6, EN-F7)
+
+**EN-F6 - a dead Director's unrecorded command lost its claim at once.** The command's identity lived
+only in the dead Director's memory, so another Director saw "owner gone, no command" and released it
+while the command could still run. **EN-F7 - the only revisit could be lost while the owner lived.** An
+engine restarted in the same process got an empty watch list, and its own runs were never re-examined;
+a command whose start time could not be read was never watched at all.
+
+**The rule now (Tech Lead ruling, round 3).** The watch list is gone. The executor keeps in memory ONLY
+which jobs it is claiming or executing right now. Every tick, `CleanupOrphanedRuns(now, jobInFlightHere)`
+reads every open run from the database and decides:
+
+| Run | Decision |
+|---|---|
+| Owned by this process, job being executed here | kept |
+| Owned by this process, NOT being executed here (a killed command not seen to exit, or a run left by an engine restarted in this process) | judged by its command, below |
+| Another owner, probed RUNNING | kept - never aged out |
+| Another owner, probed GONE | judged by its command, below |
+| Owner undecidable, or none recorded | ended at its deadline |
+
+Judged by its command, from the row:
+
+| Command on the row | Decision |
+|---|---|
+| Recorded, probed GONE | ended at once |
+| Recorded, probed RUNNING | kept while it runs |
+| Recorded, undecidable | ended at its deadline |
+| Not recorded, but the starting mark is set (identity lost) | ended at its deadline, never earlier |
+| Not recorded and no starting mark (it never started) | ended at once |
+
+The deadline is the run's started time plus the timeout STORED on the run plus five minutes. Ending a run
+here never moves `next_run`, so the occurrence runs again. The **starting mark** (`command_starting_at`,
+a new column, added by the same forward migration) is written just BEFORE the command process starts.
+That is what separates "this run never started a command" (released at once, as before - so a Director
+that dies between claiming and starting does not hold the job for its whole timeout) from "a command may
+be running and we lost who it is" (held to the deadline). If the mark cannot be written, the command is
+not started.
+
+**A reading I took, for the Tech Lead.** The ruling says both "a command that cannot be proven gone is
+released at its deadline" and "every open run ends by its deadline plus the margin at the latest". A
+RECORDED command that the operating system positively shows still running past its deadline is not
+"cannot be proven gone" - it is proven alive - and the round 1 ruling says a surviving child keeps the
+claim. I kept it held while it runs, so the only overlap remains the lost-identity case the ruling
+names. If the intent was a hard ceiling for that case too, it is a one-line change in `DecideByCommand`.
+
+Tests (`DatabaseDecidesOpenRunsTests.cs`):
+- `EngineRestartedInALiveProcess_UnconfirmedStop_IsReleasedWhenTheCommandExits` - a first engine's
+  command is reported killed but not seen to exit (a real process that runs about three more seconds);
+  a second database, executor and scheduler are started in the same live process. While the command
+  lives the run stays open and nothing runs; after it exits a tick releases it and the job runs again.
+- `RecordFailed_OwnerThenGone_NoSecondStartBeforeTheDeadlinePlusMargin_AStartAfterIt` and
+  `StartTimeUnreadable_OwnerThenGone_...` - the record write fails (or the start time is unreadable) and
+  the kill is not confirmed; the owner is then gone. Another Director cannot end or claim it now, nor
+  five seconds before the deadline; five seconds after, it ends it and can claim.
+- `StartTimeUnreadable_OwnerStillLive_TheOwnerItselfReleasesItAtTheDeadlinePlusMargin` - the same, judged
+  by the live owner itself, which is not executing it any more.
+- `OwnerGone_CommandNeverStarted_IsReleasedAtOnce` - no starting mark: released immediately.
+
+Red on the reviewed head b369273b4 (`red-review3-on-b369273b4.txt`): the restart test ("the restarted
+engine never released the claim after the command exited") and both owner-gone deadline tests fail. The
+never-started test passes there too, as it should - it guards behaviour kept from before. The
+owner-still-live test calls the new cleanup overload, so it was left out of that run (noted in the file).
+
+Engine tests: 97 of 97; the round 2 and round 3 timing tests passed three runs in a row. Default gate
+(`test-local-default.txt`): every suite Completed, first attempt. Trigger runner: 9 of 9.
+
+**What round 3 does NOT cover.** The overlap named in the contract: a command whose identity was lost
+and that is still running past its deadline. A Director whose clock is badly wrong judges deadlines by it.
 
 ## CC_VAULT_PATH - not changed here
 
