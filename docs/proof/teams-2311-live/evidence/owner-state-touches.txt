@@ -1,0 +1,242 @@
+Every path outside .liveproof-rig that a test process read, opened, wrote, executed or watched, as far as the three preserved
+logs show it. Found by listing every drive path in each log that is not under .liveproof-rig, grouped by the component
+that logged it, then reading each group. What a process did without logging a path is not in this list (see the end).
+Log A = .liveproof-rig/director-root/instances/teams-proof-a/logs/director/director-2026-10-06-48192.log
+Log B = .liveproof-rig/director-root/instances/teams-proof-b/logs/director/director-2026-10-06-40304.log
+Log G = .liveproof-rig/gateway-root/logs/director/director-2026-10-06-17748.log
+"A 66" means log A, line 66.
+
+======================================================================================================================
+INVENTORY
+======================================================================================================================
+
+WATCHED
+  C:\ and D:\, every folder, recursively - a NUL file watcher with authority to delete what it sees
+    A 55-57, B 69-71: "Starting NUL file watcher for drives: C:\, D:\", "Watching drive: C:\", "Watching drive: D:\".
+    Code: src/CcDirector.Core/Utilities/NulFileWatcher.cs lines 62-68 (FileSystemWatcher on the drive, filter NUL,
+    IncludeSubdirectories = true) and 80-114 (on a match it calls TryDeleteNulFile, which calls File.Delete).
+    A 1057, 07:51:44: "NUL file detected by watcher: D:\ReposFred\devthrottle-teams-2311-gw2\nul" - a file in another
+    worktree on this computer. Neither log has a "Deleted NUL file" or "Failed to delete NUL file" line. By the code,
+    no line at all means TryDeleteNulFile found the file already gone and returned false, so this process did not
+    delete it. The Tech Lead checked: the file no longer exists. Which process removed it is not known - the owner's
+    own Directors run the same watcher.
+  C:\Users\soren\.claude\projects\...\<session>.jsonl - each Director watched its own session's transcript
+    A 2527-2528 (work-a session e7febcc2), B 731-732 (work-b session b8347f3a).
+
+OPENED - write-capable statements ran, 0 rows changed, no write shown
+  C:\Users\soren\AppData\Local\cc-director\vault\engine.db - the owner's engine database (detail section 1)
+    A 66-82, B 80-106: opened; ran the schema check (creates tables only if missing) and two cleanups that can write,
+    CleanupOrphanedRuns (changed 0 rows) and CleanupOldRuns (purged 0). InitializeNextRuns writes only for a job whose
+    next_run is empty and then logs "Initialized next_run for ..." (src/CcDirector.Engine/Scheduling/Scheduler.cs lines
+    70-83); neither log has that line. No job ran. The logs show no change to the file or to any row; whether the
+    schema check or the connection itself changed the file on disk was not checked.
+
+WROTE
+  C:\Users\soren\.agents\skills and C:\Users\soren\.claude\skills - the per-user skill folders (detail section 3)
+    A 2422-2433: six skills removed from each. A 2434, B 649: the 12 served by the local Gateway written to the first
+    and linked into the second.
+  D:\ReposFred\devthrottle-teams-2311-liveproof\scripts\local-build\standby\ - the proof worktree, outside the rig
+    A 149-162: copied appsettings.json into standby\ (A 156) and created standby\cc-director5.exe (A 159, 162).
+    B 164-172: created standby\cc-director6.exe (B 171-172). The three files are still there (ignored by git).
+  C:\Users\soren\.claude\projects\D--ReposFred-devthrottle-teams-2311-liveproof--liveproof-rig-work-a\ and ...-work-b\
+    The two agent sessions' transcripts, written by the agent processes the Directors started (A 2528, B 732).
+  The owner's default browser - three sign-in hand-back tabs on 127.0.0.1 (no path logged; README "Side effects").
+  The user's Temp folder - A 369-462: pip installed 96 wheels from
+    C:\Users\soren\AppData\Local\Temp\cc-pytools-0cda5a6acba14ddeaf644cd3ada8c85f\wheelhouse. The log names the
+    folder only as pip read it, so its writing is inferred from the two bundle downloads before it (A 243 and 254,
+    22.0 MB and 64.4 MB; the address downloaded from is not logged). The folder no longer exists.
+
+EXECUTED
+  D:\ReposFred\devthrottle-teams-2311-liveproof\scripts\local-build\cc-director5.exe and cc-director6.exe - the proof
+    worktree, outside the rig: the running Director images (A 138, 149; B 153, 164), started by the scheduled tasks.
+  The owner's installed agent tools, a version run on each - A 723-755
+    C:\Users\soren\.local\bin\claude.EXE (ok), D:\Tools\Pi\pi.exe (timed out),
+    C:\Users\soren\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE (ok), C:\Users\soren\AppData\Roaming\npm\gemini.CMD
+    (ok), C:\Users\soren\AppData\Roaming\npm\opencode.CMD (ok), C:\Users\soren\.grok\bin\grok.EXE (ok),
+    C:\Users\soren\AppData\Roaming\npm\copilot.CMD (ok). Found first at A 176-210 and B 184-441 (B found them;
+    no version run is logged in B).
+  The owner's installed agent executable, one session each - C:\Users\soren\.local\bin\claude.EXE
+    A 2408, 2435-2437 and B 635, 650-652, run as the owner's Windows user with that user's per-user agent settings.
+    Nothing was typed into either session.
+  The owner's installed command line tools on the user PATH (detail section 4)
+    A 211-505: while "0 built", the tool checks ran the twelve tools found on PATH - the owner's installed copies -
+    including cc-vault stats four times (A 257, 311, 359, 505).
+    A 1715, 4118: the fleet check ran C:\Users\soren\AppData\Local\cc-director\bin\cc-devthrottle.CMD.
+    cc-vault stats ran nine times in all (A six, B three), every one against the owner's vault through CC_VAULT_PATH.
+  C:\Program Files\Google\Chrome\Application\chrome.exe - A 1027-1055: the wizard's browser step started Chrome
+    (profile inside the rig, port 9310) and opened https://accounts.google.com/ in it twice (A 1033, 1054).
+  git, in 19 of the owner's repositories (detail section 5) - read-only commands.
+
+READ
+  D:\ReposFred\devthrottle-teams-2311-liveproof\scripts\local-build\cc-director5.exe and cc-director6.exe - read as the
+    sources of the standby copies (A 159, B 171).
+  D:\ReposFred\devthrottle-teams-2311-liveproof\scripts\local-build\appsettings.json - read and copied to standby\
+    (A 156).
+  Code roots - A 819-846: probed nine candidate folders (C:\Users\soren\source\repos, C:\project, C:\Repos, D:\Dev,
+    D:\project, D:\ReposFred, D:\ReposMindzie, D:\ReposOther, D:\ReposProcess) and found 78 repositories under five
+    of them (D:\Dev 1, D:\ReposFred 31, D:\ReposMindzie 16, D:\ReposOther 15, D:\ReposProcess 15). A 833-875: the five
+    enrolled as code roots (saved in the instance home). A 881-885, 1612-1620, 2701-2705: the five rescanned three
+    more times. Then git in 19 of the repositories (detail section 5).
+  D:\Personal\OneDrive\Pictures\Screenshots - A 889 (found), A 936 and 4054: listed in Director A's Screenshots panel.
+  C:\Users\soren\.claude\backups - A 58, B 72: the backup cleaner's periodic scan (detail section 2).
+  C:\Users\soren\AppData\Local\cc-director and its bin - B 27-28: the tool path check compared against it and left it
+    alone ("The saved path was not touched").
+  D:\ReposFred\devthrottle-teams-2311-liveproof\src\CcDirector.Gateway\bin\Debug\net10.0\wwwroot\mobile and \c -
+    G 129-130: the Gateway served its own built pages from the proof worktree's build output.
+  Log G names no other path outside the rig.
+
+NOT IN THIS LIST
+  Anything a process did without writing a path to its log: files the agent processes read at start, what each
+  installed tool read when run, and registry or network access. The scheduled tasks and the processes I started are
+  named in the README ("Stopped at the end").
+
+======================================================================================================================
+DETAIL - the log lines behind the inventory
+======================================================================================================================
+
+Each line is prefixed with its line number in that log.
+
+== 1. The owner's engine database (CC_VAULT_PATH, set at user level, wins over CC_DIRECTOR_ROOT)
+   Opened, schema check, two cleanups that changed 0 rows. The "calculating next_run" line is the start of
+   InitializeNextRuns; it writes only for a job with no next_run and logs "Initialized next_run for ..." when
+   it does - no such line below, so no next_run was written.
+-- A
+66:2026-10-06 07:48:07.854 [EngineDatabase] Creating: path=C:\Users\soren\AppData\Local\cc-director\vault\engine.db
+67:2026-10-06 07:48:07.856 [EngineDatabase] InitializeSchema: creating tables if needed
+68:2026-10-06 07:48:07.928 [EngineDatabase] InitializeSchema: complete
+69:2026-10-06 07:48:07.932 [Scheduler] Starting
+70:2026-10-06 07:48:07.932 [EngineDatabase] CleanupOrphanedRuns: marking interrupted runs as failed
+71:2026-10-06 07:48:07.933 [EngineDatabase] CleanupOrphanedRuns: marked 0 runs as failed
+72:2026-10-06 07:48:07.934 [Scheduler] InitializeNextRuns: calculating next_run for enabled jobs
+73:2026-10-06 07:48:07.935 [Scheduler] Started
+80:2026-10-06 07:48:07.948 [Scheduler] Loop started
+81:2026-10-06 07:48:07.949 [EngineDatabase] CleanupOldRuns: purging runs older than 30 days
+82:2026-10-06 07:48:07.955 [EngineDatabase] CleanupOldRuns: purged 0 runs
+4158:2026-10-06 08:02:52.731 [Scheduler] Stopping
+4159:2026-10-06 08:02:52.731 [Scheduler] Loop ended
+4160:2026-10-06 08:02:52.732 [Scheduler] Stopped
+-- B
+80:2026-10-06 07:53:20.938 [EngineDatabase] Creating: path=C:\Users\soren\AppData\Local\cc-director\vault\engine.db
+81:2026-10-06 07:53:20.960 [EngineDatabase] InitializeSchema: creating tables if needed
+82:2026-10-06 07:53:21.016 [EngineDatabase] InitializeSchema: complete
+83:2026-10-06 07:53:21.019 [Scheduler] Starting
+84:2026-10-06 07:53:21.019 [EngineDatabase] CleanupOrphanedRuns: marking interrupted runs as failed
+85:2026-10-06 07:53:21.020 [EngineDatabase] CleanupOrphanedRuns: marked 0 runs as failed
+86:2026-10-06 07:53:21.020 [Scheduler] InitializeNextRuns: calculating next_run for enabled jobs
+87:2026-10-06 07:53:21.021 [Scheduler] Started
+89:2026-10-06 07:53:21.022 [Scheduler] Loop started
+93:2026-10-06 07:53:21.023 [EngineDatabase] CleanupOldRuns: purging runs older than 30 days
+106:2026-10-06 07:53:21.028 [EngineDatabase] CleanupOldRuns: purged 0 runs
+1131:2026-10-06 08:02:55.842 [Scheduler] Stopping
+1132:2026-10-06 08:02:55.843 [Scheduler] Loop ended
+1133:2026-10-06 08:02:55.844 [Scheduler] Stopped
+   Scheduled job runs logged: A 0, B 0
+
+== 2. The backup cleaner over the owner's per-user agent backup folder (every line it wrote)
+-- A
+58:2026-10-06 07:48:07.845 [CcDirector] [BackupCleaner] Starting periodic scan of C:\Users\soren\.claude\backups (interval=60s)
+-- B
+72:2026-10-06 07:53:20.928 [CcDirector] [BackupCleaner] Starting periodic scan of C:\Users\soren\.claude\backups (interval=60s)
+
+== 3. The owner's managed skill folders (machine-wide per user, not per instance)
+-- A
+2422:2026-10-06 07:56:04.053 [SkillDirectoryInstaller] Removed withdrawn skill 'browsers' from C:\Users\soren\.agents\skills
+2423:2026-10-06 07:56:04.055 [SkillDirectoryInstaller] Removed withdrawn skill 'demo-mode' from C:\Users\soren\.agents\skills
+2424:2026-10-06 07:56:04.056 [SkillDirectoryInstaller] Removed withdrawn skill 'director-restart' from C:\Users\soren\.agents\skills
+2425:2026-10-06 07:56:04.057 [SkillDirectoryInstaller] Removed withdrawn skill 'hormozi-playbook' from C:\Users\soren\.agents\skills
+2426:2026-10-06 07:56:04.058 [SkillDirectoryInstaller] Removed withdrawn skill 'notebook-reviewer' from C:\Users\soren\.agents\skills
+2427:2026-10-06 07:56:04.059 [SkillDirectoryInstaller] Removed withdrawn skill 'remote-desktop' from C:\Users\soren\.agents\skills
+2428:2026-10-06 07:56:04.112 [SkillDirectoryInstaller] Removed withdrawn skill 'browsers' from C:\Users\soren\.claude\skills
+2429:2026-10-06 07:56:04.112 [SkillDirectoryInstaller] Removed withdrawn skill 'demo-mode' from C:\Users\soren\.claude\skills
+2430:2026-10-06 07:56:04.113 [SkillDirectoryInstaller] Removed withdrawn skill 'director-restart' from C:\Users\soren\.claude\skills
+2431:2026-10-06 07:56:04.113 [SkillDirectoryInstaller] Removed withdrawn skill 'hormozi-playbook' from C:\Users\soren\.claude\skills
+2432:2026-10-06 07:56:04.114 [SkillDirectoryInstaller] Removed withdrawn skill 'notebook-reviewer' from C:\Users\soren\.claude\skills
+2433:2026-10-06 07:56:04.115 [SkillDirectoryInstaller] Removed withdrawn skill 'remote-desktop' from C:\Users\soren\.claude\skills
+2434:2026-10-06 07:56:05.882 [SkillDirectoryInstaller] InstallFor: kind=ClaudeCode, materialized=12 at C:\Users\soren\.agents\skills, linked=12/12 into C:\Users\soren\.claude\skills
+-- B
+649:2026-10-06 07:56:18.566 [SkillDirectoryInstaller] InstallFor: kind=ClaudeCode, materialized=12 at C:\Users\soren\.agents\skills, linked=12/12 into C:\Users\soren\.claude\skills
+
+-- Afterwards (read only, no log; from the folders themselves)
+The owner's Directors rewrite these folders on their own schedule, so a folder's creation time is its LATEST rewrite,
+not the moment it came back:
+  first look after the run: all six present again in both folders, created 08:26
+  08:34:32 to 08:34:35 (second look): all six present again in both folders, created again then
+So the six were missing from 07:56:04 until 08:26 at the latest; the exact time they came back was not established.
+The Tech Lead then checked, read only: all 18 managed skills in both folders are byte-identical in body to what the
+production Gateway serves (`cc-devthrottle skill get`; the only difference is the console's rendering of a middle dot).
+Nothing to restore.
+
+== 4. Tool checks: the owner's installed tools from the user PATH, and cc-vault stats against the owner's vault
+   (smoke arguments from src/CcDirector.Core/Tools/tools-manifest.json: cc-vault stats, cc-devthrottle actions --json,
+    cc-secrets/cc-worktrees/cc-ship --help, cc-html/cc-pdf/cc-word --themes)
+-- A
+211:2026-10-06 07:48:10.580 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+225:2026-10-06 07:48:10.921 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+257:2026-10-06 07:48:13.793 [ToolTestRunner] RunTest: cc-vault [Smoke]
+284:2026-10-06 07:48:42.508 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+311:2026-10-06 07:48:43.791 [ToolTestRunner] RunTest: cc-vault [Smoke]
+331:2026-10-06 07:48:50.422 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+359:2026-10-06 07:48:51.506 [ToolTestRunner] RunTest: cc-vault [Smoke]
+477:2026-10-06 07:49:02.997 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+505:2026-10-06 07:49:04.068 [ToolTestRunner] RunTest: cc-vault [Smoke]
+808:2026-10-06 07:51:00.508 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+809:2026-10-06 07:51:00.618 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+1489:2026-10-06 07:52:52.329 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+1494:2026-10-06 07:52:52.465 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+1642:2026-10-06 07:53:12.059 [ToolTestRunner] RunTest: cc-vault [Smoke]
+1715:2026-10-06 07:53:22.048 [FleetToolReachability] cc-devthrottle at C:\Users\soren\AppData\Local\cc-director\bin\cc-devthrottle.CMD FAILED to reach the Gateway at http://127.0.0.1:7951: Error: could not read the fleet list: DevThrottle c
+1828:2026-10-06 07:53:31.656 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+3978:2026-10-06 08:01:25.395 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+4062:2026-10-06 08:02:09.290 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+4107:2026-10-06 08:02:15.010 [ToolTestRunner] RunTest: cc-vault [Smoke]
+4118:2026-10-06 08:02:18.256 [FleetToolReachability] cc-devthrottle at C:\Users\soren\AppData\Local\cc-director\bin\cc-devthrottle.CMD FAILED to reach the Gateway at http://127.0.0.1:7951: Error: could not read the fleet list: DevThrottle c
+4123:2026-10-06 08:02:20.189 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+-- B
+170:2026-10-06 07:53:26.386 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+231:2026-10-06 07:53:27.583 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+240:2026-10-06 07:53:27.827 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+268:2026-10-06 07:53:31.177 [ToolTestRunner] RunTest: cc-vault [Smoke]
+276:2026-10-06 07:53:34.120 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+313:2026-10-06 07:53:35.186 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+316:2026-10-06 07:53:35.188 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+343:2026-10-06 07:53:35.906 [ToolTestRunner] RunTest: cc-vault [Smoke]
+352:2026-10-06 07:53:37.062 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+444:2026-10-06 07:53:51.090 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+559:2026-10-06 07:55:17.250 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+591:2026-10-06 07:55:19.150 [ToolTestRunner] RunTest: cc-vault [Smoke]
+605:2026-10-06 07:55:21.917 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+
+== 5. Read-only git commands in the owner's repositories (Director A, after the wizard's code step)
+   repositories: 19
+     D:\Dev\CenterConsulting
+     D:\ReposFred\BanyaGame
+     D:\ReposFred\CenterConsulting
+     D:\ReposFred\agenteyes-app
+     D:\ReposFred\cc-ai-reddit
+     D:\ReposFred\cc-ai-video
+     D:\ReposFred\cc-ai-youtube
+     D:\ReposFred\cc-clickfunnels
+     D:\ReposFred\cc-consult
+     D:\ReposFred\cc-hnet
+     D:\ReposFred\cc-hostsaver
+     D:\ReposFred\cc-linkedin
+     D:\ReposFred\cc-renpho
+     D:\ReposFred\cc-software-survey
+     D:\ReposFred\cc-swimming
+     D:\ReposFred\cc-tools
+     D:\ReposFred\cc-warmboard
+     D:\ReposFred\compublox
+     D:\ReposFred\devthrottle
+   commands by kind (no fetch, pull, push, prune, checkout, commit or config write appears):
+    318   git status --porcelain
+    253   git rev-parse --git-path
+    253   git log -
+    117   git rev-list --left-right
+    117   git config --get-all
+    117   git config --get
+    117   git cherry origin
+    109   git for-each-ref --format
+     98   git merge-base --is-ancestor
+     60   git rev-parse --verify
+     57   git worktree list
+     57   git remote get-url

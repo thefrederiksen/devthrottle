@@ -1,0 +1,9 @@
+2026-10-06 08:01:43.202 [DeviceRegistry] RevokeOtherKeysOfDirector: director=16081887-799c-402d-a010-06bfc6daef5b revoked=1 (reason=director_moved_to_another_team)
+2026-10-06 08:01:43.203 [DirectorConnectionRegistry] AbortForDirector: aborted 1 live connection(s) of director=16081887-799c-402d-a010-06bfc6daef5b in tenant t#29fd7757 (reason=director_moved_to_another_team)
+2026-10-06 08:01:43.204 [HostedEnrollment] LeaveOtherPlaces: director=16081887-799c-402d-a010-06bfc6daef5b left 1 other tenant(s), revoked=1
+2026-10-06 08:01:43.403 [HostedEnrollment] Move: director=16081887-799c-402d-a010-06bfc6daef5b moved from tenant t#29fd7757 to t#016aeadc - the old key is revoked and its tunnel cut, a new key issued
+2026-10-06 08:01:43.404 [GatewayHost] POST /devices/enroll-hosted/move -> 200 (266ms) client=127.0.0.1 host=127.0.0.1:7951
+2026-10-06 08:01:43.476 [DirectorHub] Hello: director=16081887-799c-402d-a010-06bfc6daef5b bound to conn=8k5YlIyp (version=2.16.0, machine=SOREN_NORTH)
+2026-10-06 08:01:43.494 [KnownRepositoryStore] ObserveDiscovered: tenant=t#016aeadc machine=SOREN_NORTH director=16081887-799c-402d-a010-06bfc6daef5b found=18 inserted=18 removed=0 forgotten=0 collapsed=0 roots=5 worktrees=2 reconcile=True changed=Tr
+2026-10-06 08:01:53.499 [PushedRepositoryStore] repeated Hello from the current connection - sequence baseline kept: director=16081887-799c-402d-a010-06bfc6daef5b
+2026-10-06 08:01:53.500 [DirectorHub] Hello: director=16081887-799c-402d-a010-06bfc6daef5b bound to conn=8k5YlIyp (version=2.16.0, machine=SOREN_NORTH)

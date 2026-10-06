@@ -1,0 +1,44 @@
+Local Gateway database: .liveproof-rig/gateway-root/gateway.db, table device_credentials
+Team A = f96c8023-aa1f-49c5-850b-9945da11ed8f   Team B = 1a223ddf-1e2f-4b7c-bf5e-23bef903585a
+Director A id = 16081887-799c-402d-a010-06bfc6daef5b   Director B id = 977326fb-d7fe-482c-a867-c5f0d972e9c5
+
+{
+ "DeviceId": "424f40015cd241149b8345a39831734fab1a75a540f2030e37b1635ba0d4a5f0|olivia-browser",
+ "TenantId": "1ba5172b-e354-46f1-afca-3dae60b5cb7e (a personal tenant)",
+ "AccountSubject": "4b3a14b4-6714-4b04-8515-9d7ba91faf2d (owner)",
+ "Status": "active",
+ "MachineName": "Olivia browser",
+ "DeviceType": "browser",
+ "IssuedAtUtc": "2026-10-06 11:47:30.9606574",
+ "RevokedAtUtc": null,
+ "RevokedReason": null,
+ "KeyLast4": "cDM8"
+}
+{
+ "DeviceId": "cee45cd5c228fe0059a0464cafd096f02a01e4f757f5185f6a4ca93bbb2a3109|16081887-799c-402d-a010-06bfc6daef5b",
+ "TenantId": "f96c8023-aa1f-49c5-850b-9945da11ed8f (Team A)",
+ "AccountSubject": "7eaf551b-e4e8-4191-bfe5-2da2535a606a (alice)",
+ "Status": "active",
+ "MachineName": "SOREN_NORTH",
+ "DeviceType": "workstation",
+ "IssuedAtUtc": "2026-10-06 11:50:14.4567898",
+ "RevokedAtUtc": null,
+ "RevokedReason": null,
+ "KeyLast4": "rb0g"
+}
+{
+ "DeviceId": "45b28b545c78256764ea67bf7febaabd56b02fb1e002a3ebf1a08cb0a0c4d349|977326fb-d7fe-482c-a867-c5f0d972e9c5",
+ "TenantId": "1a223ddf-1e2f-4b7c-bf5e-23bef903585a (Team B)",
+ "AccountSubject": "f348c0ee-f406-4f06-a0c3-077b94eaf5c6 (bob)",
+ "Status": "active",
+ "MachineName": "SOREN_NORTH",
+ "DeviceType": "workstation",
+ "IssuedAtUtc": "2026-10-06 11:54:47.8829703",
+ "RevokedAtUtc": null,
+ "RevokedReason": null,
+ "KeyLast4": "_bf8"
+}
+
+The key each Director holds, in its own instance home (last four characters only):
+  teams-proof-a: director-root/instances/teams-proof-a/config/director/gateway-token.txt  ...rb0g  (length 43)
+  teams-proof-b: director-root/instances/teams-proof-b/config/director/gateway-token.txt  ..._bf8  (length 43)
