@@ -1,0 +1,13 @@
+MUTATION: removed the 'no unfinished run' condition from EngineDatabase.TryClaimRun
+warning: in the working copy of 'src/CcDirector.Engine/Storage/EngineDatabase.cs', LF will be replaced by CRLF the next time Git touches it
+ src/CcDirector.Engine/Storage/EngineDatabase.cs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+  Failed CcDirector.Engine.Tests.Scheduling.SharedEngineDatabaseTests.TwoSchedulers_OneFile_SameDueJob_RunsExactlyOncePerRound [3 s]
+   round 1: expected 1 runs in total, found 2
+  Failed CcDirector.Engine.Tests.Storage.EngineDatabaseSharedFileTests.Open_DatabaseMadeByThePreviousEngine_MigratesForwardAndKeepsItsRows [20 ms]
+   Assert.Null() Failure: Value is not null
+  Failed CcDirector.Engine.Tests.Storage.EngineDatabaseSharedFileTests.TryClaimRun_TwoDirectorsOneFile_ManyRounds_ExactlyOneClaimPerOccurrence [30 ms]
+   round 1: 2 Directors claimed the same occurrence
+  Failed CcDirector.Engine.Tests.Storage.EngineDatabaseSharedFileTests.CleanupOrphanedRuns_SecondDirectorStarting_FailsItsOwnStaleRunButNotTheFirstsLiveRun [14 ms]
+   Assert.Null() Failure: Value is not null
+Failed!  - Failed:     4, Passed:     8, Skipped:     0, Total:    12, Duration: 3 s - CcDirector.Engine.Tests.dll (net10.0)
