@@ -115,8 +115,9 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// <summary>The body of the Gateway's last 401 on this tunnel, which says why it refused the key.</summary>
     private readonly TunnelRefusalRecorder _refusals = new();
 
-    /// <summary>The team this Director recorded it works for, named when its key is refused; null when none.</summary>
-    private readonly Func<string?>? _teamName;
+    /// <summary>The team recorded for exactly the given key, named when that key is revoked; null when it is not known
+    /// for certain (review RM-F6).</summary>
+    private readonly Func<string, string?>? _teamNameForKey;
 
     /// <summary>Why the last terminal 401 refused the key, set by <see cref="TryConnectAsync"/> for the supervise loop.</summary>
     private GatewayKeyRefusal? _keyRefusal;
@@ -150,9 +151,9 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Action<GatewayCapabilities>? onHello = null,
         CcDirector.Core.Background.BackgroundJobs? jobs = null,
         Action? onNewConnection = null,
-        Func<string?>? teamName = null)
+        Func<string, string?>? teamNameForKey = null)
     {
-        _teamName = teamName;
+        _teamNameForKey = teamNameForKey;
         _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
         _onHello = onHello;
         _onNewConnection = onNewConnection;
@@ -540,9 +541,9 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         }
         catch (Exception ex) when (TerminalRefusalStatus(ex) is HttpStatusCode.Unauthorized)
         {
-            // Terminal ONLY on positive evidence (review RM-F1): the body must be the Gateway's own credential answer -
-            // revoked, revoked because the person left the team, or a key it does not know. A 401 with no body, a
-            // proxy's page or any other JSON is not proof the key is refused, so it is retried exactly as before.
+            // Terminal ONLY on positive evidence (reviews RM-F1, RM-F4): the body must be the Gateway's revoke answer in
+            // full - revoked, or revoked because the person left the team. A 401 with no body, a proxy's page, the
+            // generic "missing or invalid token" or any other JSON is not proof, so it is retried exactly as before.
             var refusal = GatewayKeyRefusal.FromUnauthorizedBody(_refusals.LastUnauthorizedBody, ReadTeamName());
             if (refusal is null)
             {
@@ -577,15 +578,16 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// The team this Director recorded, to name in a refusal. A label only: a provider that throws (an unreadable
-    /// team file) is logged and the refusal names no team, rather than taking the refusal itself down.
+    /// The team recorded for the very key this tunnel dialled with, to name in a refusal - null unless the team file was
+    /// saved for this key (review RM-F6). A label only: a provider that throws (an unreadable team file) is logged and
+    /// the refusal names no team, rather than taking the refusal itself down.
     /// </summary>
     private string? ReadTeamName()
     {
-        if (_teamName is null) return null;
+        if (_teamNameForKey is null) return null;
         try
         {
-            return _teamName();
+            return _teamNameForKey(_config.Token);
         }
         catch (Exception ex)
         {

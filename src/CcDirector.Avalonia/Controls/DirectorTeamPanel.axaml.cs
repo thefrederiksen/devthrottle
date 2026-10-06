@@ -34,7 +34,7 @@ internal sealed record DirectorTeamPanelDeps(
     Func<CancellationToken, Task<OperationResult<DirectorTeam?>>> ResolveTeam,
     Func<bool> ConnectedToAGateway,
     Action<string> PersistKey,
-    Action<DirectorTeam> PersistTeam,
+    Action<DirectorTeam, string> PersistTeam,
     Func<Task>? Reapply,
     Func<DirectorTeam, string?>? FollowName = null);
 
@@ -95,11 +95,13 @@ public partial class DirectorTeamPanel : UserControl
             ResolveThisDirectorsTeamAsync,
             () => GatewayConfig.Load().IsEnabled,
             key => GatewayCredentialStore.SaveEnrolledKey(HostedGateway.ResolveUrl(), key),
-            DirectorTeamStore.Save,
+            (team, key) => DirectorTeamStore.Save(team, key),
             app?.ControlApiHost is { } host ? host.ReapplyGatewayAsync : null,
             // Live proof F4: a name that is still the suggestion "<computer> - <old team>" follows the move.
             new DirectorNameFollower(
                 () => NamedInstanceRegistry.Get(InstanceContext.Slug)?.DisplayName,
+                // The team being left: the move records the new team only after the name step (review RM-F5).
+                () => DirectorTeamStore.Load()?.TeamId,
                 name => NamedInstanceRegistry.Rename(InstanceContext.Slug, name),
                 DirectorNameSuggestionStore.Load,
                 DirectorNameSuggestionStore.Save).FollowMove);

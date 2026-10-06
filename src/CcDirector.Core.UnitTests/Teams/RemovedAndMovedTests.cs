@@ -55,28 +55,22 @@ public sealed class GatewayKeyRefusalTests
         Assert.DoesNotContain("removed", refusal.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
-    // The Gateway's own answer for a key it does not know.
-    [Fact]
-    public void FromUnauthorizedBody_TheGatewaysUnknownKeyAnswer_IsAKeyNotAccepted()
-    {
-        var refusal = GatewayKeyRefusal.FromUnauthorizedBody("{\"error\":\"missing or invalid token\"}", "Team B")!;
-
-        Assert.Equal(GatewayKeyRefusalKind.KeyNotAccepted, refusal.Kind);
-        Assert.Equal("Key not accepted", refusal.ChipText);
-        Assert.DoesNotContain("removed", refusal.Summary, StringComparison.OrdinalIgnoreCase);
-    }
-
-    // Review RM-F1: a 401 that is not one of the Gateway's own credential answers is no evidence the key is refused -
-    // a proxy, an intermediary, an empty body - so there is no refusal and the tunnel keeps retrying.
+    // Review RM-F1 and RM-F4: only the Gateway's revoke answer IN FULL - error and code together - is a refusal. Anything
+    // a proxy, a load balancer or another service could send is no evidence, so there is no refusal and the tunnel keeps
+    // retrying: a code with no error, the generic "missing or invalid token", an empty or HTML body.
     [Theory]
+    [InlineData("{\"code\":\"device_credential_revoked\"}")]
+    [InlineData("{\"code\":\"device_credential_revoked\",\"reason\":\"team_member_removed\"}")]
+    [InlineData("{\"error\":\"device credential revoked\"}")]
+    [InlineData("{\"error\":\"device credential revoked\",\"code\":\"something_else\"}")]
+    [InlineData("{\"error\":\"missing or invalid token\"}")]
     [InlineData("{\"reason\":\"team_member_removed\"}")]
     [InlineData("{\"error\":\"unauthorized\"}")]
-    [InlineData("{\"error\":\"missing or invalid token\",\"code\":\"something_else\"}")]
     [InlineData("")]
     [InlineData(null)]
     [InlineData("<html>401 Unauthorized</html>")]
     [InlineData("[1,2]")]
-    public void FromUnauthorizedBody_NotTheGatewaysAnswer_IsNoRefusal(string? body)
+    public void FromUnauthorizedBody_NotTheGatewaysRevokeAnswerInFull_IsNoRefusal(string? body)
     {
         Assert.Null(GatewayKeyRefusal.FromUnauthorizedBody(body, "Team B"));
     }
@@ -101,7 +95,7 @@ public sealed class KeyRefusedStatusBoxTests
     public void Describe_KeyRefusedRemovedFromTeam_IsRedAndSaysRemovedWhereItSaidConnecting()
     {
         var refusal = GatewayKeyRefusal.FromUnauthorizedBody(
-            "{\"code\":\"device_credential_revoked\",\"reason\":\"team_member_removed\"}", "Team B")!;
+            "{\"error\":\"device credential revoked\",\"code\":\"device_credential_revoked\",\"reason\":\"team_member_removed\"}", "Team B")!;
 
         var content = GatewayStatusBoxPresenter.Describe(Inputs(GatewayConnectionVerification.KeyRefused, refusal), "gw.example", null);
 
@@ -116,7 +110,8 @@ public sealed class KeyRefusedStatusBoxTests
     [Fact]
     public void Describe_KeyRevokedForAnotherReason_SaysKeyRevoked()
     {
-        var refusal = GatewayKeyRefusal.FromUnauthorizedBody("{\"code\":\"device_credential_revoked\"}", "Team B")!;
+        var refusal = GatewayKeyRefusal.FromUnauthorizedBody(
+            "{\"error\":\"device credential revoked\",\"code\":\"device_credential_revoked\"}", "Team B")!;
 
         var content = GatewayStatusBoxPresenter.Describe(Inputs(GatewayConnectionVerification.KeyRefused, refusal), "gw.example", null);
 
@@ -144,13 +139,14 @@ public sealed class KeyRefusedStatusBoxTests
 
 /// <summary>
 /// Live proof F4 (devthrottle_internal#2311): a Director's name that is still the one the team question suggested,
-/// "&lt;computer&gt; - &lt;team&gt;", follows a move; a name the person typed never changes; a Director with no record
-/// keeps its name.
+/// "&lt;computer&gt; - &lt;team&gt;", follows a move out of THAT team; a name the person typed never changes; a Director
+/// with no record keeps its name; a personal Director is never renamed.
 /// </summary>
 public sealed class DirectorNameFollowsMoveTests : IDisposable
 {
     private static readonly DirectorTeam TeamA = new("t-a", "Team A");
     private static readonly DirectorTeam TeamB = new("t-b", "Team B");
+    private static readonly DirectorTeam TeamC = new("t-c", "Team C");
     private static readonly TeamChoice TeamBChoice = new("t-b", "Team B", "You are a Developer, 3 people");
 
     private readonly string _home = Path.Combine(Path.GetTempPath(), "dt-name-" + Guid.NewGuid().ToString("N"));
@@ -161,22 +157,24 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
             Directory.Delete(_home, recursive: true);
     }
 
+    private static DirectorNameSuggestion Suggested(DirectorTeam team) => DirectorNameSuggestion.For("SOREN_NORTH", team);
+
     // ---- the rule --------------------------------------------------------------------------------------------------
 
     [Fact]
-    public void Decide_NameIsTheRecordedSuggestion_FollowsToTheNewTeam()
+    public void Decide_NameIsTheRecordedSuggestion_LeavingThatTeam_FollowsToTheNewTeam()
     {
-        var decision = DirectorNameAfterMove.Decide("SOREN_NORTH - Team A", DirectorNameSuggestion.For("SOREN_NORTH", "Team A"), TeamB);
+        var decision = DirectorNameAfterMove.Decide("SOREN_NORTH - Team A", Suggested(TeamA), "t-a", TeamB);
 
         Assert.Equal("SOREN_NORTH - Team B", decision.NewName);
-        Assert.Equal(new DirectorNameSuggestion("SOREN_NORTH", "SOREN_NORTH - Team B"), decision.Record);
+        Assert.Equal(new DirectorNameSuggestion("t-b", "SOREN_NORTH", "SOREN_NORTH - Team B"), decision.Record);
     }
 
     // No record: a Director set up before this was recorded keeps its name even when it looks like a suggestion.
     [Fact]
     public void Decide_NoRecord_KeepsTheName()
     {
-        var decision = DirectorNameAfterMove.Decide("SOREN_NORTH - Team A", null, TeamB);
+        var decision = DirectorNameAfterMove.Decide("SOREN_NORTH - Team A", null, "t-a", TeamB);
 
         Assert.Null(decision.NewName);
         Assert.Null(decision.Record);
@@ -185,14 +183,25 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
     [Fact]
     public void Decide_RenamedSinceSetup_KeepsTheNameAndDropsTheRecord()
     {
-        var decision = DirectorNameAfterMove.Decide("Build box", DirectorNameSuggestion.For("SOREN_NORTH", "Team A"), TeamB);
+        var decision = DirectorNameAfterMove.Decide("Build box", Suggested(TeamA), "t-a", TeamB);
 
         Assert.Null(decision.NewName);
         Assert.Null(decision.Record);
     }
 
-    // Review RM-F2: the personal account is never recorded, even with its suggested name, so a personal Director is never
-    // renamed by a move.
+    // Review RM-F5: a record applies only to a move out of the team it was suggested for.
+    [Theory]
+    [InlineData(null)]
+    [InlineData("t-c")]
+    public void Decide_RecordForAnotherTeamThanTheOneBeingLeft_KeepsTheName(string? leavingTeamId)
+    {
+        var decision = DirectorNameAfterMove.Decide("SOREN_NORTH - Team A", Suggested(TeamA), leavingTeamId, TeamB);
+
+        Assert.Null(decision.NewName);
+        Assert.Null(decision.Record);
+    }
+
+    // Review RM-F2: the personal account is never recorded, even with its suggested name.
     [Fact]
     public void IfSuggested_PersonalWithItsSuggestedName_IsNull()
     {
@@ -202,19 +211,18 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
     [Fact]
     public void Decide_MoveToPersonal_KeepsTheNameAndDropsTheRecord()
     {
-        var decision = DirectorNameAfterMove.Decide("SOREN_NORTH - Team A", DirectorNameSuggestion.For("SOREN_NORTH", "Team A"),
-            DirectorTeam.Personal);
+        var decision = DirectorNameAfterMove.Decide("SOREN_NORTH - Team A", Suggested(TeamA), "t-a", DirectorTeam.Personal);
 
         Assert.Null(decision.NewName);
         Assert.Null(decision.Record);
     }
 
     [Fact]
-    public void IfSuggested_TypedName_IsNull_SuggestedName_IsTheSuggestion()
+    public void IfSuggested_TypedName_IsNull_SuggestedName_IsTheSuggestionForThatTeam()
     {
         Assert.Null(DirectorNameSuggestion.IfSuggested("SOREN_NORTH", TeamA, "Build box"));
         Assert.Null(DirectorNameSuggestion.IfSuggested("SOREN_NORTH", TeamA, "SOREN_NORTH - Team B"));
-        Assert.Equal(new DirectorNameSuggestion("SOREN_NORTH", "SOREN_NORTH - Team A"),
+        Assert.Equal(new DirectorNameSuggestion("t-a", "SOREN_NORTH", "SOREN_NORTH - Team A"),
             DirectorNameSuggestion.IfSuggested("SOREN_NORTH", TeamA, " SOREN_NORTH - Team A "));
     }
 
@@ -222,64 +230,74 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
     [Fact]
     public void SuggestDirectorName_IsTheRecordedSuggestionsName()
     {
-        Assert.Equal(DirectorNameSuggestion.For("SOREN_NORTH", "Team B").Name,
-            TeamChoices.SuggestDirectorName("SOREN_NORTH", TeamBChoice));
+        Assert.Equal(Suggested(TeamB).Name, TeamChoices.SuggestDirectorName("SOREN_NORTH", TeamBChoice));
     }
 
     // ---- the follower, over the real store -------------------------------------------------------------------------
 
-    private (DirectorNameFollower Follower, Func<string> Name) Follower(string startName)
+    private sealed class Director
     {
-        var name = startName;
-        var follower = new DirectorNameFollower(
-            () => name,
-            n => name = n,
-            () => DirectorNameSuggestionStore.LoadAt(_home),
-            s => DirectorNameSuggestionStore.SaveAt(_home, s));
-        return (follower, () => name);
+        public string Name { get; set; } = "";
+        public string? TeamId { get; set; }
+    }
+
+    // A follower over the real store, for a Director whose name and current team the test controls. A move is FollowMove
+    // and then the new team recorded, as the mover does it.
+    private DirectorNameFollower Follower(Director director, Action<DirectorNameSuggestion?>? save = null) => new(
+        () => director.Name,
+        () => director.TeamId,
+        n => director.Name = n,
+        () => DirectorNameSuggestionStore.LoadAt(_home),
+        save ?? (s => DirectorNameSuggestionStore.SaveAt(_home, s)));
+
+    private static string? Move(DirectorNameFollower follower, Director director, DirectorTeam to)
+    {
+        var renamed = follower.FollowMove(to);
+        director.TeamId = to.TeamId;
+        return renamed;
     }
 
     [Fact]
     public void FollowMove_SuggestedName_RenamesAndRecordsTheNewSuggestion()
     {
-        DirectorNameSuggestionStore.SaveAt(_home, DirectorNameSuggestion.For("SOREN_NORTH", "Team A"));
-        var (follower, name) = Follower("SOREN_NORTH - Team A");
+        DirectorNameSuggestionStore.SaveAt(_home, Suggested(TeamA));
+        var director = new Director { Name = "SOREN_NORTH - Team A", TeamId = "t-a" };
 
-        var renamed = follower.FollowMove(TeamB);
+        var renamed = Move(Follower(director), director, TeamB);
 
         Assert.Equal("SOREN_NORTH - Team B", renamed);
-        Assert.Equal("SOREN_NORTH - Team B", name());
-        Assert.Equal(new DirectorNameSuggestion("SOREN_NORTH", "SOREN_NORTH - Team B"), DirectorNameSuggestionStore.LoadAt(_home));
+        Assert.Equal("SOREN_NORTH - Team B", director.Name);
+        Assert.Equal(Suggested(TeamB), DirectorNameSuggestionStore.LoadAt(_home));
     }
 
     [Fact]
     public void FollowMove_TypedName_NeverChanges()
     {
         // Setup recorded nothing, because the person typed the name.
-        var (follower, name) = Follower("Build box");
+        var director = new Director { Name = "Build box", TeamId = "t-a" };
 
-        Assert.Null(follower.FollowMove(TeamB));
-        Assert.Equal("Build box", name());
+        Assert.Null(Move(Follower(director), director, TeamB));
+        Assert.Equal("Build box", director.Name);
         Assert.Null(DirectorNameSuggestionStore.LoadAt(_home));
     }
 
     [Fact]
     public void FollowMove_NoRecord_KeepsANameThatLooksLikeASuggestion()
     {
-        var (follower, name) = Follower("SOREN_NORTH - Team A");
+        var director = new Director { Name = "SOREN_NORTH - Team A", TeamId = "t-a" };
 
-        Assert.Null(follower.FollowMove(TeamB));
-        Assert.Equal("SOREN_NORTH - Team A", name());
+        Assert.Null(Move(Follower(director), director, TeamB));
+        Assert.Equal("SOREN_NORTH - Team A", director.Name);
     }
 
     [Fact]
     public void FollowMove_RenamedSinceSetup_KeepsTheNameAndRemovesTheRecord()
     {
-        DirectorNameSuggestionStore.SaveAt(_home, DirectorNameSuggestion.For("SOREN_NORTH", "Team A"));
-        var (follower, name) = Follower("Build box");
+        DirectorNameSuggestionStore.SaveAt(_home, Suggested(TeamA));
+        var director = new Director { Name = "Build box", TeamId = "t-a" };
 
-        Assert.Null(follower.FollowMove(TeamB));
-        Assert.Equal("Build box", name());
+        Assert.Null(Move(Follower(director), director, TeamB));
+        Assert.Equal("Build box", director.Name);
         Assert.Null(DirectorNameSuggestionStore.LoadAt(_home));
     }
 
@@ -290,10 +308,41 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
     {
         DirectorNameSuggestionStore.SaveAt(_home,
             DirectorNameSuggestion.IfSuggested("SOREN_NORTH", DirectorTeam.Personal, "SOREN_NORTH - Personal"));
-        var (follower, name) = Follower("SOREN_NORTH - Personal");
+        var director = new Director { Name = "SOREN_NORTH - Personal", TeamId = null };
 
-        Assert.Null(follower.FollowMove(TeamB));
-        Assert.Equal("SOREN_NORTH - Personal", name());
+        Assert.Null(Move(Follower(director), director, TeamB));
+        Assert.Equal("SOREN_NORTH - Personal", director.Name);
+    }
+
+    // Review RM-F5: Team A record, a move to Personal whose removal of the record FAILS, then Personal to Team B. The
+    // record survives but belongs to Team A, which this move is not leaving - so the name is unchanged.
+    [Fact]
+    public void TeamARecord_MovedToPersonalWithTheRemovalFailing_ThenToTeamB_NameUnchanged()
+    {
+        DirectorNameSuggestionStore.SaveAt(_home, Suggested(TeamA));
+        var director = new Director { Name = "SOREN_NORTH - Team A", TeamId = "t-a" };
+        var follower = Follower(director, s =>
+        {
+            if (s is null) throw new IOException("suggestion file locked");
+            DirectorNameSuggestionStore.SaveAt(_home, s);
+        });
+
+        Assert.Null(Move(follower, director, DirectorTeam.Personal));
+        Assert.Equal(Suggested(TeamA), DirectorNameSuggestionStore.LoadAt(_home));
+
+        Assert.Null(Move(follower, director, TeamB));
+        Assert.Equal("SOREN_NORTH - Team A", director.Name);
+    }
+
+    // Review RM-F5: a record written before records named their team is treated as no record.
+    [Fact]
+    public void SuggestionStore_RecordWithNoTeam_IsNoRecord()
+    {
+        var path = DirectorNameSuggestionStore.SuggestionFileAt(_home);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "{\"machineName\":\"SOREN_NORTH\",\"name\":\"SOREN_NORTH - Team A\"}");
+
+        Assert.Null(DirectorNameSuggestionStore.LoadAt(_home));
     }
 
     // Review RM-F3: the rename happened, then the new record could not be saved. The old record is removed (never left
@@ -301,53 +350,46 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
     [Fact]
     public void FollowMove_RecordCannotBeSavedAfterTheRename_RemovesTheOldRecordAndTheNextMoveKeepsTheName()
     {
-        DirectorNameSuggestionStore.SaveAt(_home, DirectorNameSuggestion.For("SOREN_NORTH", "Team A"));
-        var name = "SOREN_NORTH - Team A";
-        var follower = new DirectorNameFollower(
-            () => name,
-            n => name = n,
-            () => DirectorNameSuggestionStore.LoadAt(_home),
-            s =>
-            {
-                if (s is not null) throw new IOException("suggestion file locked");
-                DirectorNameSuggestionStore.SaveAt(_home, null);
-            });
+        DirectorNameSuggestionStore.SaveAt(_home, Suggested(TeamA));
+        var director = new Director { Name = "SOREN_NORTH - Team A", TeamId = "t-a" };
+        var follower = Follower(director, s =>
+        {
+            if (s is not null) throw new IOException("suggestion file locked");
+            DirectorNameSuggestionStore.SaveAt(_home, null);
+        });
 
         var thrown = Assert.Throws<NameChangedButNotRecordedException>(() => follower.FollowMove(TeamB));
+        director.TeamId = "t-b";
 
         Assert.Equal("SOREN_NORTH - Team B", thrown.NewName);
-        Assert.Equal("SOREN_NORTH - Team B", name);
+        Assert.Equal("SOREN_NORTH - Team B", director.Name);
         Assert.Null(DirectorNameSuggestionStore.LoadAt(_home));
 
-        Assert.Null(follower.FollowMove(new DirectorTeam("t-c", "Team C")));
-        Assert.Equal("SOREN_NORTH - Team B", name);
+        Assert.Null(Move(follower, director, TeamC));
+        Assert.Equal("SOREN_NORTH - Team B", director.Name);
     }
 
-    // If even the removal fails, the follower still reports the change; the stale record no longer matches the name, so
-    // the next move keeps the name.
+    // If even the removal fails, the follower still reports the change; the stale record belongs to Team A, which the
+    // next move does not leave, so that move keeps the name.
     [Fact]
     public void FollowMove_RecordCannotBeSavedOrRemoved_StillSaysTheNameChanged_AndTheNextMoveKeepsTheName()
     {
-        DirectorNameSuggestionStore.SaveAt(_home, DirectorNameSuggestion.For("SOREN_NORTH", "Team A"));
-        var name = "SOREN_NORTH - Team A";
+        DirectorNameSuggestionStore.SaveAt(_home, Suggested(TeamA));
+        var director = new Director { Name = "SOREN_NORTH - Team A", TeamId = "t-a" };
         var writable = false;
-        var follower = new DirectorNameFollower(
-            () => name,
-            n => name = n,
-            () => DirectorNameSuggestionStore.LoadAt(_home),
-            s =>
-            {
-                if (!writable) throw new IOException("disk gone");
-                DirectorNameSuggestionStore.SaveAt(_home, s);
-            });
+        var follower = Follower(director, s =>
+        {
+            if (!writable) throw new IOException("disk gone");
+            DirectorNameSuggestionStore.SaveAt(_home, s);
+        });
 
         Assert.Throws<NameChangedButNotRecordedException>(() => follower.FollowMove(TeamB));
-        Assert.Equal("SOREN_NORTH - Team B", name);
+        director.TeamId = "t-b";
+        Assert.Equal("SOREN_NORTH - Team B", director.Name);
 
         writable = true;
-        Assert.Null(follower.FollowMove(new DirectorTeam("t-c", "Team C")));
-        Assert.Equal("SOREN_NORTH - Team B", name);
-        Assert.Null(DirectorNameSuggestionStore.LoadAt(_home));
+        Assert.Null(Move(follower, director, TeamC));
+        Assert.Equal("SOREN_NORTH - Team B", director.Name);
     }
 
     [Fact]
@@ -355,7 +397,7 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
     {
         var path = DirectorNameSuggestionStore.SuggestionFileAt(_home);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, "{\"machineName\":\"\",\"name\":\"x\"}");
+        File.WriteAllText(path, "{\"teamId\":\"t-a\",\"machineName\":\"\",\"name\":\"x\"}");
 
         Assert.Throws<InvalidDataException>(() => DirectorNameSuggestionStore.LoadAt(_home));
     }
@@ -372,20 +414,20 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
     }
 
     // The name follows before the team is recorded (which redraws the title bar with name and chip together) and before
-    // the connection is re-applied (whose Hello carries the name to the Fleet Map).
+    // the connection is re-applied (whose Hello carries the name to the Fleet Map). The team is recorded with the new key.
     [Fact]
     public async Task MoveAsync_SuggestedName_RenamesBeforeTheTeamIsRecordedAndBeforeTheReconnect()
     {
         var log = new List<string>();
         var mover = new DirectorTeamMover(new MovingService(), r => new SessionCreationHold(0, () => { }),
-            t => log.Add("team:" + t.Name), k => log.Add("key"),
+            (t, key) => log.Add("team:" + t.Name + " for " + key), k => log.Add("key"),
             () => { log.Add("reapply"); return Task.CompletedTask; },
             t => { log.Add("name:" + t.Name); return "SOREN_NORTH - " + t.Name; });
 
         var result = await mover.MoveAsync("dir-1", TeamBChoice, CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
-        Assert.Equal(new[] { "name:Team B", "team:Team B", "key", "reapply" }, log);
+        Assert.Equal(new[] { "name:Team B", "team:Team B for new-key", "key", "reapply" }, log);
     }
 
     // Review RM-F3, at the move: the name changed but its record did not save - the move finishes and says exactly that.
@@ -394,7 +436,7 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
     {
         var log = new List<string>();
         var mover = new DirectorTeamMover(new MovingService(), r => new SessionCreationHold(0, () => { }),
-            t => log.Add("team"), k => log.Add("key"),
+            (t, _) => log.Add("team"), k => log.Add("key"),
             () => { log.Add("reapply"); return Task.CompletedTask; },
             _ => throw new NameChangedButNotRecordedException("SOREN_NORTH - Team B", new IOException("suggestion file locked")));
 
@@ -407,12 +449,59 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
         Assert.Equal(new[] { "team", "key", "reapply" }, log);
     }
 
+    // Review RM-F7: the suggestion save failed after the rename AND the team save failed - both are reported.
+    [Fact]
+    public async Task MoveAsync_NameRecordAndTeamSaveBothFail_BothAreReported()
+    {
+        var mover = new DirectorTeamMover(new MovingService(), r => new SessionCreationHold(0, () => { }),
+            (_, _) => throw new IOException("disk full"), _ => { }, null,
+            _ => throw new NameChangedButNotRecordedException("SOREN_NORTH - Team B", new IOException("suggestion file locked")));
+
+        var result = await mover.MoveAsync("dir-1", TeamBChoice, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(
+            DirectorTeamMover.MovedButTeamNotRecorded("Team B", "disk full") + " " +
+            DirectorTeamMover.NameChangedWillNotFollowNote("SOREN_NORTH - Team B", "suggestion file locked"),
+            result.ErrorMessage);
+    }
+
+    // Review RM-F7, the other later failures: each carries the name outcome too.
+    [Fact]
+    public async Task MoveAsync_NameNotChangedAndKeySaveFails_BothAreReported()
+    {
+        var mover = new DirectorTeamMover(new MovingService(), r => new SessionCreationHold(0, () => { }),
+            (_, _) => { }, _ => throw new UnauthorizedAccessException("file locked"), null,
+            _ => throw new IOException("registry locked"));
+
+        var result = await mover.MoveAsync("dir-1", TeamBChoice, CancellationToken.None);
+
+        Assert.Equal(
+            DirectorTeamMover.MovedButKeyNotSaved("Team B", "file locked") + " " + DirectorTeamMover.NameNotChangedNote("registry locked"),
+            result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task MoveAsync_NameChangedButNotRecordedAndReapplyFails_BothAreReported()
+    {
+        var mover = new DirectorTeamMover(new MovingService(), r => new SessionCreationHold(0, () => { }),
+            (_, _) => { }, _ => { }, () => throw new InvalidOperationException("stream down"),
+            _ => throw new NameChangedButNotRecordedException("SOREN_NORTH - Team B", new IOException("suggestion file locked")));
+
+        var result = await mover.MoveAsync("dir-1", TeamBChoice, CancellationToken.None);
+
+        Assert.Equal(
+            DirectorTeamMover.MovedButNotApplied("Team B", "stream down") + " " +
+            DirectorTeamMover.NameChangedWillNotFollowNote("SOREN_NORTH - Team B", "suggestion file locked"),
+            result.ErrorMessage);
+    }
+
     [Fact]
     public async Task MoveAsync_NameCannotFollow_TheMoveStillFinishesAndSaysSo()
     {
         var log = new List<string>();
         var mover = new DirectorTeamMover(new MovingService(), r => new SessionCreationHold(0, () => { }),
-            t => log.Add("team"), k => log.Add("key"),
+            (t, _) => log.Add("team"), k => log.Add("key"),
             () => { log.Add("reapply"); return Task.CompletedTask; },
             _ => throw new IOException("registry locked"));
 
@@ -421,5 +510,54 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
         Assert.False(result.Success);
         Assert.Equal(DirectorTeamMover.MovedButNotRenamed("Team B", "registry locked"), result.ErrorMessage);
         Assert.Equal(new[] { "team", "key", "reapply" }, log);
+    }
+}
+
+/// <summary>
+/// Review RM-F6: a removal names a team only when the recorded team was saved for the very key the Gateway refused.
+/// </summary>
+public sealed class TeamNameForKeyTests : IDisposable
+{
+    private readonly string _home = Path.Combine(Path.GetTempPath(), "dt-teamkey-" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_home))
+            Directory.Delete(_home, recursive: true);
+    }
+
+    [Fact]
+    public void TeamNameForKey_TeamSavedForThatKey_NamesIt()
+    {
+        DirectorTeamStore.SaveAt(_home, new DirectorTeam("t-b", "Team B"), "team-b-key");
+
+        Assert.Equal("Team B", DirectorTeamStore.TeamNameForKeyAt(_home, "team-b-key"));
+    }
+
+    // The Team B key was saved but writing the Team B team failed, so the Team A file - saved for the Team A key - is
+    // still there. A refusal of the Team B key must not name Team A.
+    [Fact]
+    public void TeamNameForKey_TeamFileLeftFromAnotherKey_NamesNoTeam()
+    {
+        DirectorTeamStore.SaveAt(_home, new DirectorTeam("t-a", "Team A"), "team-a-key");
+
+        Assert.Null(DirectorTeamStore.TeamNameForKeyAt(_home, "team-b-key"));
+    }
+
+    [Fact]
+    public void TeamNameForKey_TeamSavedWithNoKey_OrNothingSaved_NamesNoTeam()
+    {
+        Assert.Null(DirectorTeamStore.TeamNameForKeyAt(_home, "any-key"));
+        DirectorTeamStore.SaveAt(_home, new DirectorTeam("t-a", "Team A"));
+        Assert.Null(DirectorTeamStore.TeamNameForKeyAt(_home, "any-key"));
+    }
+
+    [Fact]
+    public void SaveAt_WithAKey_NeverWritesTheKey()
+    {
+        DirectorTeamStore.SaveAt(_home, new DirectorTeam("t-b", "Team B"), "team-b-secret-key");
+
+        Assert.DoesNotContain("team-b-secret-key", File.ReadAllText(DirectorTeamStore.TeamFileAt(_home)));
+        Assert.Equal(new DirectorTeam("t-b", "Team B"), DirectorTeamStore.LoadAt(_home));
     }
 }

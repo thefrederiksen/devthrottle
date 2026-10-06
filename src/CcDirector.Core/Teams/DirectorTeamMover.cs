@@ -39,14 +39,15 @@ public sealed class DirectorTeamMover
 {
     private readonly IDirectorTeamService _service;
     private readonly Func<string, SessionCreationHold> _holdSessionCreation;
-    private readonly Action<DirectorTeam> _persistTeam;
+    private readonly Action<DirectorTeam, string> _persistTeam;
     private readonly Action<string> _persistKey;
     private readonly Func<Task>? _reapply;
     private readonly Func<DirectorTeam, string?>? _followName;
 
     /// <param name="service">The Gateway's move route.</param>
     /// <param name="holdSessionCreation">Holds new sessions with the given reason, reporting how many there are.</param>
-    /// <param name="persistTeam">Stores the new team for this Director.</param>
+    /// <param name="persistTeam">Stores the new team for this Director, with the new key it is recorded for (only its
+    /// fingerprint is stored), so a later refusal of that key can name the team (review RM-F6).</param>
     /// <param name="persistKey">Stores the new device key for this Director.</param>
     /// <param name="reapply">Switches the running Gateway connection to the new key; null when there is none.</param>
     /// <param name="followName">Renames the Director for the new team when its name is still the one the team question
@@ -54,7 +55,7 @@ public sealed class DirectorTeamMover
     public DirectorTeamMover(
         IDirectorTeamService service,
         Func<string, SessionCreationHold> holdSessionCreation,
-        Action<DirectorTeam> persistTeam,
+        Action<DirectorTeam, string> persistTeam,
         Action<string> persistKey,
         Func<Task>? reapply,
         Func<DirectorTeam, string?>? followName = null)
@@ -101,6 +102,15 @@ public sealed class DirectorTeamMover
     public static string MovedButNotRenamed(string teamName, string error) =>
         $"This Director now works for {teamName} and is connected, but its name could not be changed to match ({error}). " +
         "Rename it from File, Rename this director.";
+
+    /// <summary>What happened to the name, said beside a later failure of the same move (review RM-F7).</summary>
+    public static string NameNotChangedNote(string error) =>
+        $"Its name could not be changed to match ({error}); rename it from File, Rename this director.";
+
+    /// <summary>What happened to the name when it changed but its record did not save, said beside a later failure.</summary>
+    public static string NameChangedWillNotFollowNote(string newName, string error) =>
+        $"Its name is now \"{newName}\", but this computer could not record that it is the suggested name ({error}), " +
+        "so its name will not change on later moves.";
 
     /// <summary>The words for a move whose name followed, but whose suggestion record could not be saved.</summary>
     public static string MovedRenamedButWillNotFollow(string teamName, string newName, string error) =>
@@ -173,14 +183,22 @@ public sealed class DirectorTeamMover
             }
         }
 
+        // Every failure is reported (review RM-F7): a later step that also fails carries what happened to the name.
+        var nameNote = renamedButNotRecorded is not null
+            ? NameChangedWillNotFollowNote(renamedButNotRecorded.NewName,
+                renamedButNotRecorded.InnerException?.Message ?? renamedButNotRecorded.Message)
+            : renameError is not null ? NameNotChangedNote(renameError) : null;
+        OperationResult<DirectorTeam> Failed(string message) =>
+            OperationResult<DirectorTeam>.Fail(nameNote is null ? message : message + " " + nameNote);
+
         try
         {
-            _persistTeam(team);
+            _persistTeam(team, moved.Value);
         }
         catch (Exception ex)
         {
             FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, team NOT recorded: {ex.Message}");
-            return OperationResult<DirectorTeam>.Fail(MovedButTeamNotRecorded(team.Name, ex.Message));
+            return Failed(MovedButTeamNotRecorded(team.Name, ex.Message));
         }
 
         try
@@ -190,7 +208,7 @@ public sealed class DirectorTeamMover
         catch (Exception ex)
         {
             FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, team recorded, key NOT saved: {ex.Message}");
-            return OperationResult<DirectorTeam>.Fail(MovedButKeyNotSaved(team.Name, ex.Message));
+            return Failed(MovedButKeyNotSaved(team.Name, ex.Message));
         }
 
         if (_reapply is not null)
@@ -202,7 +220,7 @@ public sealed class DirectorTeamMover
             catch (Exception ex)
             {
                 FileLog.Write($"[DirectorTeamMover] MoveAsync: moved and stored, re-apply FAILED: {ex.Message}");
-                return OperationResult<DirectorTeam>.Fail(MovedButNotApplied(team.Name, ex.Message));
+                return Failed(MovedButNotApplied(team.Name, ex.Message));
             }
         }
 

@@ -141,6 +141,6 @@ public static class TeamChoices
     {
         ArgumentNullException.ThrowIfNull(choice);
         // One builder for the suggestion, so the name a move follows (live proof F4) is the one this suggested.
-        return DirectorNameSuggestion.For(machineName, choice.Name).Name;
+        return DirectorNameSuggestion.NameFor(machineName, choice.Name);
     }
 }

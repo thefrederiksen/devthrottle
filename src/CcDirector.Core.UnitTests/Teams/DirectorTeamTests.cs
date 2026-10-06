@@ -302,7 +302,7 @@ public sealed class DirectorTeamMoverTests
         var service = new FakeService();
         var holds = new Holds { Running = 1 };
         var stored = new List<string>();
-        var mover = new DirectorTeamMover(service, holds.Take, t => stored.Add("team"), k => stored.Add("key"), null);
+        var mover = new DirectorTeamMover(service, holds.Take, (t, _) => stored.Add("team"), k => stored.Add("key"), null);
 
         var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
@@ -319,7 +319,7 @@ public sealed class DirectorTeamMoverTests
         var service = new FakeService();
         var holds = new Holds();
         var mover = new DirectorTeamMover(service, holds.Take,
-            team => holds.Log.Add($"team:{team.TeamId} held={holds.Held}"),
+            (team, _) => holds.Log.Add($"team:{team.TeamId} held={holds.Held}"),
             key => holds.Log.Add($"key:{key} held={holds.Held}"),
             () => { holds.Log.Add($"reapply held={holds.Held}"); return Task.CompletedTask; });
         service.DuringMove = () => holds.Log.Add($"gateway held={holds.Held}");
@@ -338,7 +338,7 @@ public sealed class DirectorTeamMoverTests
     public async Task MoveAsync_ToPersonal_SendsNullTeam()
     {
         var service = new FakeService();
-        var mover = new DirectorTeamMover(service, new Holds().Take, _ => { }, _ => { }, null);
+        var mover = new DirectorTeamMover(service, new Holds().Take, (_, _) => { }, _ => { }, null);
 
         await mover.MoveAsync("dir-1", new TeamChoice(null, "Personal", "Just you"), CancellationToken.None);
 
@@ -351,7 +351,7 @@ public sealed class DirectorTeamMoverTests
         var service = new FakeService { Answer = OperationResult<string>.Fail("This Director still has a session registered.") };
         var holds = new Holds();
         var mover = new DirectorTeamMover(service, holds.Take,
-            _ => throw new InvalidOperationException("must not store"), _ => throw new InvalidOperationException("must not store"), null);
+            (_, _) => throw new InvalidOperationException("must not store"), _ => throw new InvalidOperationException("must not store"), null);
 
         var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
@@ -365,7 +365,7 @@ public sealed class DirectorTeamMoverTests
     {
         var keys = new List<string>();
         var mover = new DirectorTeamMover(new FakeService(), new Holds().Take,
-            _ => throw new IOException("disk full"), keys.Add, null);
+            (_, _) => throw new IOException("disk full"), keys.Add, null);
 
         var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
@@ -383,7 +383,7 @@ public sealed class DirectorTeamMoverTests
         var teams = new List<DirectorTeam>();
         var reapplied = false;
         var mover = new DirectorTeamMover(new FakeService(), new Holds().Take,
-            teams.Add, _ => throw new UnauthorizedAccessException("file locked"), () => { reapplied = true; return Task.CompletedTask; });
+            (t, _) => teams.Add(t), _ => throw new UnauthorizedAccessException("file locked"), () => { reapplied = true; return Task.CompletedTask; });
 
         var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
@@ -397,7 +397,7 @@ public sealed class DirectorTeamMoverTests
     [Fact]
     public async Task MoveAsync_ReapplyFails_SaysEverythingIsStoredAndToRestart()
     {
-        var mover = new DirectorTeamMover(new FakeService(), new Holds().Take, _ => { }, _ => { },
+        var mover = new DirectorTeamMover(new FakeService(), new Holds().Take, (_, _) => { }, _ => { },
             () => throw new InvalidOperationException("stream down"));
 
         var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
@@ -412,7 +412,7 @@ public sealed class DirectorTeamMoverTests
     {
         var service = new FakeService { Answer = OperationResult<string>.Ok("") };
         var stored = new List<string>();
-        var mover = new DirectorTeamMover(service, new Holds().Take, _ => stored.Add("team"), _ => stored.Add("key"), null);
+        var mover = new DirectorTeamMover(service, new Holds().Take, (_, _) => stored.Add("team"), _ => stored.Add("key"), null);
 
         var result = await mover.MoveAsync("dir-1", DevThrottle, CancellationToken.None);
 
@@ -512,7 +512,7 @@ public sealed class SessionCreationHoldTests : IDisposable
         var service = new StartsASessionDuringTheMove(() =>
             startDuringMove = Record.Exception(() =>
                 sessions.CreateEmbeddedSession(_repo, null, new ScriptedAgentTerminal(AgentKind.ClaudeCode, "", _repo))));
-        var mover = new DirectorTeamMover(service, sessions.HoldSessionCreation, _ => { }, _ => { }, null);
+        var mover = new DirectorTeamMover(service, sessions.HoldSessionCreation, (_, _) => { }, _ => { }, null);
 
         var result = await mover.MoveAsync("dir-1", new TeamChoice("t-dev", "DevThrottle", ""), CancellationToken.None);
 

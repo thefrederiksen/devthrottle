@@ -60,7 +60,7 @@ internal static class HostedTeamSetup
         Func<TeamQuestion, Task<TeamAnswer?>> ask,
         Action<string> rename,
         Action<DirectorNameSuggestion?> recordSuggestion,
-        Action<DirectorTeam?> recordTeam,
+        Action<DirectorTeam?, string> recordTeam,
         string deviceId, string machineName, CancellationToken ct)
     {
         FileLog.Write($"[HostedTeamSetup] RunAsync: deviceId={deviceId}");
@@ -102,7 +102,8 @@ internal static class HostedTeamSetup
 
         try
         {
-            recordTeam(chosenTeam);
+            // Recorded with the key it was set up with, so a later refusal of that key can name the team (RM-F6).
+            recordTeam(chosenTeam, result.Value.DeviceKey);
         }
         catch (Exception ex)
         {
@@ -117,12 +118,12 @@ internal static class HostedTeamSetup
         return OperationResult<MobileEnrollmentResponse>.Ok(new MobileEnrollmentResponse { DeviceKey = result.Value.DeviceKey });
     }
 
-    private static void RecordTeamInThisHome(DirectorTeam? team)
+    private static void RecordTeamInThisHome(DirectorTeam? team, string deviceKey)
     {
         if (team is null)
             DirectorTeamStore.Clear();
         else
-            DirectorTeamStore.Save(team);
+            DirectorTeamStore.Save(team, deviceKey);
     }
 
     // Screen D1, on the UI thread whatever thread the engine called back on.

@@ -104,14 +104,19 @@ public sealed class RemovedDirectorTunnelTests
     }
 
     private static (GatewayStreamClient Client, GatewayConnectionMonitor Monitor) Dial(string url, string? teamName)
+        => Dial(url, "the-directors-key", _ => teamName);
+
+    // The tunnel asks for the team recorded for the very key it dialled with (review RM-F6).
+    private static (GatewayStreamClient Client, GatewayConnectionMonitor Monitor) Dial(string url, string key,
+        Func<string, string?> teamNameForKey)
     {
         var monitor = new GatewayConnectionMonitor();
         monitor.Reset(gatewayConfigured: true);
         var client = new GatewayStreamClient(
-            new GatewayConfig { Url = url, Token = "the-directors-key" },
+            new GatewayConfig { Url = url, Token = key },
             "director-1", "test", () => new List<SessionDto>(),
             monitor: monitor,
-            teamName: () => teamName);
+            teamNameForKey: teamNameForKey);
         client.Start();
         return (client, monitor);
     }
@@ -270,6 +275,87 @@ public sealed class RemovedDirectorTunnelTests
             $"the tunnel did not recover after an HTML 401; status={monitor.Status}, negotiates={front.Negotiates}");
         Assert.True(front.Negotiates >= 2);
         Assert.Null(monitor.KeyRefusal);
+    }
+
+    // Review RM-F4: the generic "missing or invalid token" is not Gateway-specific - any hop can send it - so it is not
+    // terminal: the tunnel keeps dialing and connects when the next attempt gets through.
+    [Fact]
+    public async Task Tunnel_GenericMissingOrInvalidTokenUnauthorized_KeepsRetrying_AndRecovers()
+    {
+        await using var front = new HubBehindAFlakyFront("{\"error\":\"missing or invalid token\"}", "application/json");
+        var (client, monitor) = Dial(await front.StartAsync(), "Team B");
+        await using var _ = client;
+
+        Assert.True(await WaitForAsync(() => monitor.Status == GatewayConnectionStatus.Connected, TimeSpan.FromSeconds(20)),
+            $"the tunnel did not recover after a generic 401; status={monitor.Status}, negotiates={front.Negotiates}");
+        Assert.True(front.Negotiates >= 2);
+        Assert.Null(monitor.KeyRefusal);
+    }
+
+    // Review RM-F4: a code-only revoke object is not the Gateway's revoke answer in full, so it is retried too.
+    [Fact]
+    public async Task Tunnel_CodeOnlyRevokeObject_KeepsRetrying_AndRecovers()
+    {
+        await using var front = new HubBehindAFlakyFront(
+            "{\"code\":\"device_credential_revoked\",\"reason\":\"team_member_removed\"}", "application/json");
+        var (client, monitor) = Dial(await front.StartAsync(), "Team B");
+        await using var _ = client;
+
+        Assert.True(await WaitForAsync(() => monitor.Status == GatewayConnectionStatus.Connected, TimeSpan.FromSeconds(20)),
+            $"the tunnel did not recover after a code-only 401; status={monitor.Status}, negotiates={front.Negotiates}");
+        Assert.Null(monitor.KeyRefusal);
+    }
+
+    // Review RM-F6: the Team B key was saved, but writing the Team B team failed, so the Team A file (saved for the Team A
+    // key) is still on disk. The Gateway removes the person from Team B: the message must not say Team A.
+    [Fact]
+    public async Task Tunnel_RemovalWithAStaleTeamFileFromAnotherKey_DoesNotNameThatTeam()
+    {
+        var home = Path.Combine(Path.GetTempPath(), "dt-stale-team-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CcDirector.Core.Teams.DirectorTeamStore.SaveAt(home, new CcDirector.Core.Teams.DirectorTeam("t-a", "Team A"), "team-a-key");
+            await using var gateway = new StandInGateway(401, RemovedBody);
+            var (client, monitor) = Dial(gateway.Url, "team-b-key",
+                key => CcDirector.Core.Teams.DirectorTeamStore.TeamNameForKeyAt(home, key));
+            await using var _ = client;
+
+            Assert.True(await WaitForAsync(() => monitor.Status == GatewayConnectionStatus.KeyRefused, TimeSpan.FromSeconds(20)),
+                $"the tunnel never stopped on the revoked key; status={monitor.Status}");
+
+            Assert.Equal(GatewayKeyRefusalKind.RemovedFromTeam, monitor.KeyRefusal!.Kind);
+            Assert.Equal("Removed from the team", monitor.KeyRefusal.ChipText);
+            Assert.StartsWith("This Director was removed from its team", monitor.FailureSummary);
+            Assert.DoesNotContain("Team A", monitor.FailureSummary!);
+        }
+        finally
+        {
+            if (Directory.Exists(home))
+                Directory.Delete(home, recursive: true);
+        }
+    }
+
+    // The same, the right way round: the team recorded for THIS key is named.
+    [Fact]
+    public async Task Tunnel_RemovalWithTheTeamRecordedForThisKey_NamesIt()
+    {
+        var home = Path.Combine(Path.GetTempPath(), "dt-team-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CcDirector.Core.Teams.DirectorTeamStore.SaveAt(home, new CcDirector.Core.Teams.DirectorTeam("t-b", "Team B"), "team-b-key");
+            await using var gateway = new StandInGateway(401, RemovedBody);
+            var (client, monitor) = Dial(gateway.Url, "team-b-key",
+                key => CcDirector.Core.Teams.DirectorTeamStore.TeamNameForKeyAt(home, key));
+            await using var _ = client;
+
+            Assert.True(await WaitForAsync(() => monitor.Status == GatewayConnectionStatus.KeyRefused, TimeSpan.FromSeconds(20)));
+            Assert.Equal("Removed from Team B", monitor.KeyRefusal!.ChipText);
+        }
+        finally
+        {
+            if (Directory.Exists(home))
+                Directory.Delete(home, recursive: true);
+        }
     }
 
     // The Gateway down behind a proxy is a network problem, not a refusal: still "Connecting...", still dialing.

@@ -307,7 +307,7 @@ public sealed class DirectorTeamScreensTests
                 if (rig!.KeySaveFails is { } e) throw e;
                 rig.Keys.Add(k);
             },
-            t => rig!.Teams.Add(t),
+            (t, _) => rig!.Teams.Add(t),
             () =>
             {
                 if (rig!.ReapplyFails is { } e) throw e;
