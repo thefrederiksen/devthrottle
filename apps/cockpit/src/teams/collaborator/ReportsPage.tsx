@@ -79,6 +79,11 @@ function ReportLists({ teamId, open }: { teamId: string; open: (kind: "report" |
                   <span className="team-report-row-meta">
                     From {r.from} <span aria-hidden="true">&middot;</span> <time dateTime={r.sentAtUtc}>{shortDate(r.sentAtUtc)}</time>
                   </span>
+                  {r.questionsLabel !== null && (
+                    <span className="team-report-row-questions" data-testid="team-report-questions-label">
+                      {r.questionsLabel}
+                    </span>
+                  )}
                 </span>
                 <span className={r.read ? "team-report-pill team-report-pill-read" : "team-report-pill team-report-pill-new"} data-testid="team-report-read">
                   {r.readLabel}

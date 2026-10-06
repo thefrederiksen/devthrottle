@@ -1,0 +1,20 @@
+RED PROOF: f7-card-key-without-version
+Rule: Review F7: a newer version of a question is a new card, so no choice or words carry over.
+File: apps/cockpit/src/teams/collaborator/QuestionsPage.tsx
+
+Mutation - replaced:
+  return `${q.reportId}/${q.version}/${q.questionId}`;
+with:
+  return `${q.reportId}/${q.questionId}`;
+
+Command: npx vitest run src/teams/collaborator/questionsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > nothing waiting, and what was answered > Poll_ANewerVersionOfTheQuestion_StartsAFreshCard_NoChoiceOrWordsCarriedOver
+AssertionError: expected [ [ '7', false ], [ '14', false ] ] to deeply equal [ [ '7', true ], [ '14', false ] ]
+- Expected
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

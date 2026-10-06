@@ -175,6 +175,20 @@ public sealed class DevReportShapeCheckTests
     public void Check_QuestionWithTwoRecommendations_Fails()
         => AssertFailsWith(Report(questionsBody: Question.Replace("value=\"no\"", "value=\"no\" data-recommended")), "has 2 recommended options");
 
+    // An answer names its option by value (devthrottle_internal#2307 review F5): a report breaking that is refused at
+    // publish, so the Gateway's reader and the browser can never disagree about an option.
+    [Theory]
+    [InlineData("value=\"no\"", "")]
+    [InlineData("value=\"no\"", "value=\"\"")]
+    [InlineData("value=\"no\"", "value=\"   \"")]
+    public void Check_AnOptionWithNoValue_Fails(string from, string to)
+        => AssertFailsWith(Report(questionsBody: Question.Replace(from, to)), "has 1 option(s) with no value");
+
+    [Fact]
+    public void Check_TwoOptionsWithOneValue_Fails()
+        => AssertFailsWith(Report(questionsBody: Question.Replace("value=\"no\"", "value=\"yes\"")),
+            "has more than one option with the value \"yes\"");
+
     [Fact]
     public void Check_DuplicateQuestionIds_Fails()
         => AssertFailsWith(Report(questionsBody: Question + Question), "\"rerun\" is used more than once");

@@ -210,8 +210,11 @@ public sealed class PostgresProviderProofTests
             //   dev_report_comments.FromSubject and ToSubject, dev_report_recipients.RecipientSubject and
             //   SentBySubject, and dev_reports.AuthorSubject. The person subjects are matched exactly - who wrote
             //   it, who it was sent to, whose comment goes to whom.
+            // - Who answered a question on their Questions page (devthrottle_internal#2307): dev_report_items.AnswererSubject,
+            //   matched exactly - a later answer replaces only the same person's.
             ("dev_report_comments", "FromSubject"),
             ("dev_report_comments", "ToSubject"),
+            ("dev_report_items", "AnswererSubject"),
             ("dev_report_items", "ClientItemId"),
             ("dev_report_items", "SessionId"),
             ("dev_report_recipients", "RecipientSubject"),

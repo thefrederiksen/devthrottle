@@ -1,0 +1,20 @@
+RED PROOF: comment-to-the-team-session-over-the-wire
+Rule: Over the wire, a live TEAM session never reads the member's comment (here: written as a reply on the report).
+File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
+
+Mutation - replaced:
+        // THE SEND: the one settle pass
+with:
+        if (words.Length > 0)
+            _store.AddReply(team, report.Id, words, _utcNow());
+        // THE SEND: the one settle pass
+
+Command: dotnet test src/CcDirector.Gateway.Tests --filter FullyQualifiedName~HostedTeamQuestionsTests.Issue2307_TeamKeyVariant -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.Tests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll
+  Failed CcDirector.Gateway.Tests.Teams.HostedTeamQuestionsTests.Issue2307_TeamKeyVariant_AMembersAnswer_ReachesALiveTeamSessionOverTheWire_AndTheirCommentNever [5 s]
+   Assert.DoesNotContain() Failure: Sub-string found
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 5 s - CcDirector.Gateway.Tests.dll (net10.0)
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

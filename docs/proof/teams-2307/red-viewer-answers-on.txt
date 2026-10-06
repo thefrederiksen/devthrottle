@@ -1,0 +1,26 @@
+RED PROOF: viewer-answers-on
+Rule: The Reports viewer's answer controls stay off: questions are answered on the Questions page (Tech Lead ruling).
+File: src/CcDirector.Gateway/Api/TeamReportEndpoints.cs
+
+Mutation - replaced:
+            // control here would be the R1 defect again. The page follows this flag and nothing else.
+            answersOpen = false,
+with:
+            // control here would be the R1 defect again. The page follows this flag and nothing else.
+            answersOpen = true,
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.SentToMe_ReportsSayHowManyQuestionsWaitOnTheReader_AndStopSayingSoOnceAnswered_WithAnswersStillOffInTheViewer [343 ms]
+   Assert.False() Failure
+Expected: False
+Actual:   True
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_F2_BothReadersAreToldByTheGateway_ThatTheReportsNotesAreOff [188 ms]
+   Assert.False() Failure
+Expected: False
+Actual:   True
+Failed!  - Failed:     2, Passed:   105, Skipped:     0, Total:   107, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

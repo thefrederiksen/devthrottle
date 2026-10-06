@@ -393,14 +393,22 @@ internal static class TeamEndpoints
         role = TeamRoles.Label(team.Role),
         memberCount = team.MemberCount,
         people = team.MemberCount == 1 ? "1 person" : $"{team.MemberCount} people",
-        app = DescribeApp(TeamApp.For(team.Role)),
+        app = DescribeApp(TeamApp.For(team.Role), team.TeamId),
     };
 
-    /// <summary>The page verdict on the wire.</summary>
-    internal static object DescribeApp(TeamAppVerdict app) => new
+    /// <summary>The page verdict on the wire. A page's <c>countPath</c> is where the Cockpit reads the number waiting on
+    /// the person for that page, in this team (null for a page with no count) - the Gateway names it; the Cockpit never
+    /// builds it.</summary>
+    internal static object DescribeApp(TeamAppVerdict app, string teamId) => new
     {
         full = app.FullApp,
-        pages = app.Pages.Select(p => new { id = p.Id, label = p.Label, path = p.Path }).ToList(),
+        pages = app.Pages.Select(p => new
+        {
+            id = p.Id,
+            label = p.Label,
+            path = p.Path,
+            countPath = p.CountRoute?.Replace("{teamId}", Uri.EscapeDataString(teamId), StringComparison.Ordinal),
+        }).ToList(),
         landing = app.Landing,
         elsewhere = app.Elsewhere,
     };

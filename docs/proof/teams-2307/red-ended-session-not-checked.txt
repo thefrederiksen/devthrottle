@@ -1,0 +1,19 @@
+RED PROOF: ended-session-not-checked
+Rule: An answer to a session that has ended is refused with the Gateway's sentence, and nothing is stored.
+File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
+
+Mutation - replaced:
+        if (_delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended)
+        {
+with:
+        if (_delivery.Liveness(team, report.SessionId).Reach == DevReportSessionReach.Ended && caller.Length < 0)
+        {
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_TheSessionHasEnded_IsRefused_NothingIsStored_AndTheQuestionNoLongerWaits [207 ms]
+Failed!  - Failed:     1, Passed:   106, Skipped:     0, Total:   107, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

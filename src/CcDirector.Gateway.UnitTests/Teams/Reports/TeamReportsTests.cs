@@ -52,6 +52,7 @@ public sealed class TeamReportsTests : IDisposable
     private readonly DevReportPersonComments _comments;
     private readonly TeamCallerOwnership _ownership;
     private readonly TeamEndpointGate _gate;
+    private readonly TeamQuestions _questions;
     private readonly TeamReports _reports;
     private readonly string _team;
     private readonly TenantId _tenant;
@@ -78,7 +79,13 @@ public sealed class TeamReportsTests : IDisposable
         _ownership = new TeamCallerOwnership(_directors, _sessions, _devices, new CcDirector.Gateway.History.SessionTurnStore(_db), boundary,
             new CcDirector.Gateway.Pairing.SessionKeyRegistry(_db, isHosted: true), reportAuthor: (tenant, id) => _store.Get(tenant, id)?.AuthorSubject);
         _gate = new TeamEndpointGate(_access, _teams, _tenants, boundary, _ownership);
-        _reports = new TeamReports(_store, _recipients, _comments, _teams, _access, () => _now);
+        // The real Questions collaborator (review F6): the Reports page is never built without it. No session is live
+        // here, so an answer is held.
+        var delivery = new DevReportDelivery(_store,
+            (_, _) => new DevReportSessionLiveness(DevReportSessionReach.Busy, null, "no session in these tests"),
+            (_, _) => null, CancellationToken.None, () => _now);
+        _questions = new TeamQuestions(_store, _recipients, _comments, _teams, _access, delivery, () => _now);
+        _reports = new TeamReports(_store, _recipients, _comments, _teams, _access, _questions, () => _now);
 
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         _tenant = new TenantId(_team);
@@ -104,10 +111,18 @@ public sealed class TeamReportsTests : IDisposable
         _directors.RegisterFromStream(directorId, "M", "u", "1.0", 1, DateTime.UtcNow, _tenant, directorId, "device:" + deviceId);
     }
 
+    /// <summary>A report in the shape the publish route accepts (one questions section, here saying there are none), its
+    /// detail carrying <paramref name="text"/> - the Reports page reads its questions, which publishing guarantees exist.</summary>
+    private static string Shaped(string text) =>
+        "<header data-dev-report=\"header\" data-dev-report-status=\"waiting-on-you\"><h1>T</h1></header>" +
+        "<section data-dev-report=\"summary\"><p>S</p></section>" +
+        "<section data-dev-report=\"questions\"><p data-dev-report-no-questions>No questions.</p></section>" +
+        $"<section data-dev-report=\"detail\"><p>{text}</p></section>";
+
     private DevReportEntityRef Publish(string author, string title = "Signup page rewrite", string? key = null, TenantId? tenant = null)
     {
         var report = _store.Publish(tenant ?? _tenant, Guid.NewGuid().ToString("D"), key ?? @"C:\work\" + Guid.NewGuid().ToString("N") + ".html",
-            "<p>bytes</p>", "waiting-on-you", title, _now, author).Report;
+            Shaped("bytes"), "waiting-on-you", title, _now, author).Report;
         return new DevReportEntityRef(report.Id.ToString("D"), report.Id);
     }
 
@@ -465,11 +480,13 @@ public sealed class TeamReportsTests : IDisposable
     [Fact]
     public void TeamReports_NullDependencies_Throw()
     {
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(null!, _recipients, _comments, _teams, _access));
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, null!, _comments, _teams, _access));
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, null!, _teams, _access));
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, null!, _access));
-        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, _teams, null!));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(null!, _recipients, _comments, _teams, _access, _questions));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, null!, _comments, _teams, _access, _questions));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, null!, _teams, _access, _questions));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, null!, _access, _questions));
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, _teams, null!, _questions));
+        // Review F6: no Reports page without its Questions collaborator.
+        Assert.Throws<ArgumentNullException>(() => new TeamReports(_store, _recipients, _comments, _teams, _access, null!));
         Assert.Throws<ArgumentNullException>(() => new DevReportRecipients(null!));
         Assert.Throws<ArgumentNullException>(() => new DevReportPersonComments(null!));
     }
@@ -613,6 +630,37 @@ public sealed class TeamReportsTests : IDisposable
         Assert.Equal((false, 404), await Run(Request("GET", TeamReportEndpoints.MineReportPattern, stranger, ("teamId", _team), ("reportId", alices.Id))));
     }
 
+    [Fact]
+    public async Task Gate_TheQuestionsRoutes_AreOpenToEveryRoleFromTheirOwnAccount_AndAStrangerIsToldThereIsNoSuchTeam()
+    {
+        // devthrottle_internal#2307: answering questions is the row every role has. Which questions a person may answer is
+        // narrowed by the endpoint - only those in a report sent to them (TeamQuestionsTests).
+        var alices = Publish(Alice);
+        const string answer = TeamQuestionEndpoints.GroupPath + "/{reportId}/{questionId}/answer";
+        foreach (var who in new[] { Owner, Alice, Mike })
+        {
+            var key = OwnAccountKey(who);
+            Assert.Equal((true, 200), await Run(Request("GET", TeamQuestionEndpoints.GroupPath, key, ("teamId", _team))));
+            Assert.Equal((true, 200), await Run(Request("POST", answer, key, ("teamId", _team), ("reportId", alices.Id), ("questionId", "q"))));
+        }
+        var stranger = OwnAccountKey(Stranger);
+        Assert.Equal((false, 404), await Run(Request("GET", TeamQuestionEndpoints.GroupPath, stranger, ("teamId", _team))));
+        Assert.Equal((false, 404), await Run(Request("POST", answer, stranger, ("teamId", _team), ("reportId", alices.Id), ("questionId", "q"))));
+    }
+
+    [Theory]
+    [InlineData("GET", TeamQuestionEndpoints.GroupPath)]
+    [InlineData("POST", TeamQuestionEndpoints.GroupPath + "/{reportId}/{questionId}/answer")]
+    public void Rules_EachQuestionsRoute_StatesAnsweringQuestions_ForTheWholeTeam_FromTheRoute(string method, string pattern)
+    {
+        var rule = TeamEndpointRules.Find(method, pattern);
+
+        Assert.NotNull(rule);
+        Assert.Equal(TeamAction.AnswerQuestionsSendRequestsReadReports, rule!.Action);
+        Assert.Equal(TeamTarget.Team, rule.Target);
+        Assert.Equal(TeamFrom.RouteTeamId, rule.TeamFrom);
+    }
+
     [Theory]
     [InlineData("GET", TeamReportEndpoints.SentToMePattern, TeamAction.AnswerQuestionsSendRequestsReadReports, TeamTarget.Team)]
     [InlineData("GET", TeamReportEndpoints.SentToMePattern + "/{reportId}/html", TeamAction.AnswerQuestionsSendRequestsReadReports, TeamTarget.Team)]
@@ -651,9 +699,9 @@ public sealed class TeamReportsTests : IDisposable
     {
         var sid = Guid.NewGuid().ToString("D");
         var key = @"C:\work\" + Guid.NewGuid().ToString("N") + ".html";
-        var report = _store.Publish(_tenant, sid, key, "<p>version one</p>", "waiting-on-you", "First title", _now, author).Report;
+        var report = _store.Publish(_tenant, sid, key, Shaped("version one"), "waiting-on-you", "First title", _now, author).Report;
         return (report.Id.ToString("D"), report.Id,
-            () => _store.Publish(_tenant, sid, key, "<p>version two</p>", "done", "Second title", _now.AddMinutes(30), author));
+            () => _store.Publish(_tenant, sid, key, Shaped("version two"), "done", "Second title", _now.AddMinutes(30), author));
     }
 
     private async Task<(int Status, string Body, string? Version)> Html(string caller, string reportId, int? version = null)
@@ -731,7 +779,7 @@ public sealed class TeamReportsTests : IDisposable
         report.PublishVersion2();
 
         // A later version is published: Mike still holds version 1 - its bytes, its title - and cannot ask for version 2.
-        Assert.Equal((200, "<p>version one</p>", "1"), await Html(Mike, report.Id));
+        Assert.Equal((200, Shaped("version one"), "1"), await Html(Mike, report.Id));
         Assert.Equal(404, (await Html(Mike, report.Id, 2)).Status);
         var (_, detail) = await Answer(_reports.SentToMeDetail(_team, Mike, report.Id));
         Assert.Equal(1, detail.GetProperty("report").GetProperty("version").GetInt32());
@@ -745,7 +793,7 @@ public sealed class TeamReportsTests : IDisposable
         Assert.Contains(mine.GetProperty("choices").EnumerateArray(), c => c.GetProperty("memberId").GetString() == MemberId(Mike));
         Assert.Equal(200, (await Answer(_reports.Send(_team, Alice, report.Id, new[] { MemberId(Mike) }, 2))).Status);
 
-        Assert.Equal((200, "<p>version two</p>", "2"), await Html(Mike, report.Id));
+        Assert.Equal((200, Shaped("version two"), "2"), await Html(Mike, report.Id));
         // Never an earlier one, once they hold a later one.
         var earlier = await Html(Mike, report.Id, 1);
         Assert.Equal(404, earlier.Status);

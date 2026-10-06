@@ -1,0 +1,20 @@
+RED PROOF: comment-to-an-author-who-cannot-read
+Rule: A worded answer is refused when the person who asked can no longer read comments in the team.
+File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
+
+Mutation - replaced:
+        if (words.Length > 0 && !TeamReports.AuthorCanReceive(_access, teamId, report))
+with:
+        if (words.Length > 0 && !TeamReports.AuthorCanReceive(_access, teamId, report) && words.Length < 0)
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_WhenTheAskerCanNoLongerReadComments_AWordedAnswerIsRefused_AndAChoiceAloneStillGoes [228 ms]
+   Assert.Equal() Failure: Values differ
+Expected: 409
+Actual:   200
+Failed!  - Failed:     1, Passed:   106, Skipped:     0, Total:   107, Duration: 21 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

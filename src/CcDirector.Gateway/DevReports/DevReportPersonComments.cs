@@ -15,7 +15,8 @@ namespace CcDirector.Gateway.DevReports;
 /// What keeps it from an agent is that nothing that talks to a session reads this table: <see cref="DevReportDelivery"/>,
 /// <see cref="DevReportPromptFold"/> and the session's own dev report routes read the agent's conversation
 /// (<c>dev_report_items</c> and <c>dev_report_replies</c>) and never this one. The Collaborator's Questions
-/// (devthrottle_internal#2307) sends an answer down this same path.
+/// (devthrottle_internal#2307) sends the comment that comes with an answer down this same path, with the question it is
+/// about; the answer's choice goes to the session, and its comment only here.
 ///
 /// Every operation takes the team's tenant and reads through a context scoped to it. The words are never logged.
 /// </summary>
@@ -35,8 +36,28 @@ internal sealed class DevReportPersonComments
     /// Store <paramref name="text"/>, written by <paramref name="fromSubject"/> on the report, for
     /// <paramref name="toSubject"/>. The text is kept exactly as written. Who may write to whom is decided before this.
     /// </summary>
+    /// <param name="questionId">The question the comment was written beside, when it came with an answer on the Questions
+    /// page (devthrottle_internal#2307); null for a comment on the whole report.</param>
     /// <exception cref="ArgumentException">The text is empty, only whitespace, or longer than <see cref="MaxLength"/>.</exception>
-    public DevReportCommentEntity Add(TenantId team, Guid reportId, string fromSubject, string toSubject, string text, DateTime nowUtc)
+    public DevReportCommentEntity Add(TenantId team, Guid reportId, string fromSubject, string toSubject, string text, DateTime nowUtc,
+        string? questionId = null)
+    {
+        var row = NewRow(team, reportId, fromSubject, toSubject, text, nowUtc, questionId);
+        using var ctx = _db.CreateContext(team);
+        ctx.DevReportComments.Add(row);
+        ctx.SaveChanges();
+        FileLog.Write($"[DevReportPersonComments] Add: tenant={team.ToLogString()} report={reportId} comment={row.Id} chars={text.Length}");
+        return row;
+    }
+
+    /// <summary>
+    /// A comment row, checked, not yet stored - the one place a comment's rules are applied, so the comment that comes
+    /// with an answer (<see cref="DevReportStore.AddMemberAnswer"/>, stored in the answer's own transaction) is held to
+    /// exactly the rules of <see cref="Add"/>.
+    /// </summary>
+    /// <exception cref="ArgumentException">The text is empty, only whitespace, or longer than <see cref="MaxLength"/>.</exception>
+    internal static DevReportCommentEntity NewRow(TenantId team, Guid reportId, string fromSubject, string toSubject, string text,
+        DateTime nowUtc, string? questionId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fromSubject);
         ArgumentException.ThrowIfNullOrWhiteSpace(toSubject);
@@ -45,9 +66,7 @@ internal sealed class DevReportPersonComments
             throw new ArgumentException("A comment has words in it.", nameof(text));
         if (text.Length > MaxLength)
             throw new ArgumentException($"A comment is at most {MaxLength} characters; this one is {text.Length}.", nameof(text));
-
-        using var ctx = _db.CreateContext(team);
-        var row = new DevReportCommentEntity
+        return new DevReportCommentEntity
         {
             TenantId = team.Value,
             ReportId = reportId,
@@ -55,11 +74,8 @@ internal sealed class DevReportPersonComments
             ToSubject = toSubject,
             Text = text,
             AtUtc = nowUtc,
+            QuestionId = questionId,
         };
-        ctx.DevReportComments.Add(row);
-        ctx.SaveChanges();
-        FileLog.Write($"[DevReportPersonComments] Add: tenant={team.ToLogString()} report={reportId} comment={row.Id} chars={text.Length}");
-        return row;
     }
 
     /// <summary>The comments on the report that go to <paramref name="toSubject"/>, oldest first - the author's read.</summary>

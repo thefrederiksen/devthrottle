@@ -117,9 +117,18 @@ internal static class TeamReportEndpoints
     internal const string ReadLabel = "Read";
     internal const string NewLabel = "New";
 
+    /// <summary>What the author sees for a person who has not opened the report.</summary>
+    internal const string NotReadLabel = "Not read yet";
+
+    /// <summary>What the author sees for a person who answered a question in the report on their Questions page and has
+    /// not opened the report itself (devthrottle_internal#2307, Tech Lead ruling): "Not read yet" beside that person's
+    /// comment read as a contradiction. The read mark itself is unchanged - answering is not reading.</summary>
+    internal const string AnsweredLabel = "Answered a question";
+
     /// <summary>Maps every route listed in the class comment.</summary>
     public static void Map(IEndpointRouteBuilder app, DevReportStore store, DevReportRecipients recipients,
-        DevReportPersonComments comments, TeamRegistry teams, TeamAccess access, HostedTenantBoundary boundary, TenantRegistry tenants)
+        DevReportPersonComments comments, TeamRegistry teams, TeamAccess access, HostedTenantBoundary boundary, TenantRegistry tenants,
+        TeamQuestions questions)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(store);
@@ -129,6 +138,7 @@ internal static class TeamReportEndpoints
         ArgumentNullException.ThrowIfNull(access);
         ArgumentNullException.ThrowIfNull(boundary);
         ArgumentNullException.ThrowIfNull(tenants);
+        ArgumentNullException.ThrowIfNull(questions);
 
         var group = app.MapGroup(GroupPath);
         group.AddEndpointFilter(async (filterCtx, next) =>
@@ -153,7 +163,7 @@ internal static class TeamReportEndpoints
             }
         });
 
-        var reports = new TeamReports(store, recipients, comments, teams, access);
+        var reports = new TeamReports(store, recipients, comments, teams, access, questions);
 
         // ---------------------------------------------------------------- the recipient's routes
 
@@ -197,10 +207,10 @@ internal static class TeamReportEndpoints
         FileLog.Write($"[TeamReportEndpoints] mapped {SentToMePattern} (list, one, html, read, comments) and {MinePattern} (list, one, html, recipients)");
     }
 
-    private const string CallerItemKey = "cc.teams.reports.caller";
+    internal const string CallerItemKey = "cc.teams.reports.caller";
 
     /// <summary>The person the filter admitted. Set on every request that reaches a route here.</summary>
-    private static string Caller(HttpContext ctx) =>
+    internal static string Caller(HttpContext ctx) =>
         ctx.Items.TryGetValue(CallerItemKey, out var value) && value is string subject && subject.Length > 0
             ? subject
             : throw new InvalidOperationException("A team report route ran without the caller its filter admits.");
@@ -226,7 +236,7 @@ internal static class TeamReportEndpoints
     }
 
     /// <summary>The request body as a JSON object.</summary>
-    private static async Task<(JsonElement? Value, IResult? Bad)> ReadObject(HttpContext ctx)
+    internal static async Task<(JsonElement? Value, IResult? Bad)> ReadObject(HttpContext ctx)
     {
         try
         {
@@ -250,7 +260,7 @@ internal static class TeamReportEndpoints
     }
 
     /// <summary>The report version the page was showing - required, because what is sent or marked read is that one.</summary>
-    private static (int Value, IResult? Bad) Version(JsonElement body)
+    internal static (int Value, IResult? Bad) Version(JsonElement body)
     {
         if (!body.TryGetProperty("version", out var v) || v.ValueKind != JsonValueKind.Number
             || !v.TryGetInt32(out var version) || version < 1)
@@ -270,11 +280,16 @@ internal sealed class TeamReports
     private readonly DevReportPersonComments _comments;
     private readonly TeamRegistry _teams;
     private readonly TeamAccess _access;
+    private readonly TeamQuestions _questions;
     private readonly Func<DateTime> _utcNow;
 
+    /// <param name="questions">The questions in the reports sent to a person (devthrottle_internal#2307), for the line
+    /// that says how many wait on them and the question beside a comment. Required (review F6): a Reports page built
+    /// without it would say nothing waits and lose what a comment is about, reading as true.</param>
     public TeamReports(DevReportStore store, DevReportRecipients recipients, DevReportPersonComments comments,
-        TeamRegistry teams, TeamAccess access, Func<DateTime>? utcNow = null)
+        TeamRegistry teams, TeamAccess access, TeamQuestions questions, Func<DateTime>? utcNow = null)
     {
+        _questions = questions ?? throw new ArgumentNullException(nameof(questions));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _recipients = recipients ?? throw new ArgumentNullException(nameof(recipients));
         _comments = comments ?? throw new ArgumentNullException(nameof(comments));
@@ -290,7 +305,9 @@ internal sealed class TeamReports
     {
         var team = Team(teamId);
         var names = Names(teamId, caller);
-        var list = _recipients.SentTo(team, caller).Select(r => Received(r, names)).ToList();
+        var received = _recipients.SentTo(team, caller);
+        var waiting = _questions.WaitingByReport(teamId, caller, received);
+        var list = received.Select(r => Received(r, names, waiting)).ToList();
         FileLog.Write($"[TeamReports] SentToMe: team {team.ToLogString()} count={list.Count}");
         return Results.Json(new
         {
@@ -318,16 +335,20 @@ internal sealed class TeamReports
         var canComment = AuthorCanReceive(teamId, report);
         return Results.Json(new
         {
-            report = Received(new DevReportReceived(row, held.Title, held.Status), names),
-            comments = _comments.From(team, report.Id, caller).Select(c => new { id = c.Id.ToString("D"), text = c.Text, atUtc = c.AtUtc }).ToList(),
+            report = Received(new DevReportReceived(row, held.Title, held.Status), names,
+                _questions.WaitingByReport(teamId, caller, [new DevReportReceived(row, held.Title, held.Status)])),
+            comments = _comments.From(team, report.Id, caller)
+                .Select(c => new { id = c.Id.ToString("D"), text = c.Text, atUtc = c.AtUtc, aboutLabel = _questions.AboutLabelFor(team, c) })
+                .ToList(),
             canComment,
             commentsNote = canComment
                 ? TeamReportEndpoints.CommentsGoTo(NameOf(report.AuthorSubject, names))
                 : TeamReportEndpoints.AuthorCannotReceive,
             notesOpen = false,
             // The report's own answer controls: off, so a reader cannot pick an answer that goes nowhere (round-3
-            // review R1). The Collaborator's Questions (devthrottle_internal#2307) turns this on for a question put to
-            // them; the page follows this flag and nothing else.
+            // review R1). A question put to this reader is answered on their Questions page (devthrottle_internal#2307),
+            // which the report's questionsLabel points to: the frame has no script to send an answer from, so a live
+            // control here would be the R1 defect again. The page follows this flag and nothing else.
             answersOpen = false,
         });
     }
@@ -355,7 +376,7 @@ internal sealed class TeamReports
     }
 
     /// <summary>The report and the caller's row on it, when it was sent to them; otherwise null.</summary>
-    private (DevReportEntity Report, DevReportRecipientEntity Row)? Sent(string teamId, string caller, string reportId)
+    internal (DevReportEntity Report, DevReportRecipientEntity Row)? Sent(string teamId, string caller, string reportId)
     {
         var team = Team(teamId);
         if (!Guid.TryParse(reportId, out var id) || _recipients.RowFor(team, id, caller) is not { } row
@@ -371,9 +392,13 @@ internal sealed class TeamReports
     /// Whether the report's author can still read comments on it here: a member of the team whose role opens their own
     /// reports - the same cell the author's routes are decided on (review F6).
     /// </summary>
-    private bool AuthorCanReceive(string teamId, DevReportEntity report) =>
+    private bool AuthorCanReceive(string teamId, DevReportEntity report) => AuthorCanReceive(_access, teamId, report);
+
+    /// <summary>The same rule for any caller holding the one permission check - the Questions page's comment box asks it
+    /// too, so a comment that comes with an answer goes only where a comment on the report could.</summary>
+    internal static bool AuthorCanReceive(TeamAccess access, string teamId, DevReportEntity report) =>
         !string.IsNullOrWhiteSpace(report.AuthorSubject)
-        && _access.Decide(teamId, report.AuthorSubject, TeamAction.RunSessionsOnOwnComputers).Allowed;
+        && access.Decide(teamId, report.AuthorSubject, TeamAction.RunSessionsOnOwnComputers).Allowed;
 
     /// <summary>
     /// The caller opened <paramref name="version"/> of a report sent to them. Marked read only when that is the version
@@ -412,7 +437,7 @@ internal sealed class TeamReports
         }
 
         var row = _comments.Add(Team(teamId), report.Id, caller, report.AuthorSubject, text, _utcNow());
-        return Results.Json(new { comment = new { id = row.Id.ToString("D"), text = row.Text, atUtc = row.AtUtc } });
+        return Results.Json(new { comment = new { id = row.Id.ToString("D"), text = row.Text, atUtc = row.AtUtc, aboutLabel = (string?)null } });
     }
 
     // ---------------------------------------------------------------- the author
@@ -539,6 +564,8 @@ internal sealed class TeamReports
         var names = members.ToDictionary(m => m.AccountSubject, TeamRegistry.DisplayName, StringComparer.Ordinal);
         var sent = _recipients.RecipientsOf(team, report.Id);
         var held = sent.ToDictionary(r => r.RecipientSubject, r => r.SentVersion, StringComparer.Ordinal);
+        var answered = sent.Where(r => r.ReadAtUtc is null && _store.AnswersBy(team, r.RecipientSubject, [report.Id]).Count > 0)
+            .Select(r => r.RecipientSubject).ToHashSet(StringComparer.Ordinal);
         return new
         {
             report = new
@@ -558,7 +585,9 @@ internal sealed class TeamReports
                 sentVersion = r.SentVersion,
                 versionLabel = r.SentVersion == report.Version ? null : $"Has version {r.SentVersion} of {report.Version}",
                 read = r.ReadAtUtc is not null,
-                readLabel = r.ReadAtUtc is null ? "Not read yet" : TeamReportEndpoints.ReadLabel,
+                readLabel = r.ReadAtUtc is not null ? TeamReportEndpoints.ReadLabel
+                    : answered.Contains(r.RecipientSubject) ? TeamReportEndpoints.AnsweredLabel
+                    : TeamReportEndpoints.NotReadLabel,
             }).ToList(),
             recipientsEmptyText = TeamReportEndpoints.NotSentYet,
             // Who it can go to now: a member other than the author who may read reports sent to them - asked of the one
@@ -588,13 +617,18 @@ internal sealed class TeamReports
                 from = NameOf(c.FromSubject, names),
                 text = c.Text,
                 atUtc = c.AtUtc,
+                // A comment written with an answer on the Questions page says which question and what was chosen
+                // (devthrottle_internal#2307); null for a comment on the whole report.
+                aboutLabel = _questions.AboutLabelFor(team, c),
             }).ToList(),
             commentsEmptyText = "No comments yet. When someone you sent this report to comments on it, it appears here.",
         };
     }
 
-    /// <summary>One report as its recipient sees it: the version they hold, its title and status.</summary>
-    private static object Received(DevReportReceived received, IReadOnlyDictionary<string, string> names) => new
+    /// <summary>One report as its recipient sees it: the version they hold, its title and status, and how many of its
+    /// questions wait on them (devthrottle_internal#2307; review F11).</summary>
+    private static object Received(DevReportReceived received, IReadOnlyDictionary<string, string> names,
+        IReadOnlyDictionary<Guid, int> waiting) => new
     {
         id = received.Row.ReportId.ToString("D"),
         title = received.Title,
@@ -604,6 +638,7 @@ internal sealed class TeamReports
         sentAtUtc = received.Row.SentAtUtc,
         read = received.Row.ReadAtUtc is not null,
         readLabel = received.Row.ReadAtUtc is null ? TeamReportEndpoints.NewLabel : TeamReportEndpoints.ReadLabel,
+        questionsLabel = TeamQuestions.WaitingLabel(waiting.TryGetValue(received.Row.ReportId, out var n) ? n : 0),
     };
 
     private IReadOnlyList<TeamMember> Members(string teamId, string caller)
@@ -614,10 +649,18 @@ internal sealed class TeamReports
         return result.Members;
     }
 
-    private IReadOnlyDictionary<string, string> Names(string teamId, string caller) =>
-        Members(teamId, caller).ToDictionary(m => m.AccountSubject, TeamRegistry.DisplayName, StringComparer.Ordinal);
+    private IReadOnlyDictionary<string, string> Names(string teamId, string caller) => MemberNames(_teams, teamId, caller);
 
-    private static string NameOf(string? subject, IReadOnlyDictionary<string, string> names) =>
+    /// <summary>Every member's name on screen, by account subject - from the member list the caller is in.</summary>
+    internal static IReadOnlyDictionary<string, string> MemberNames(TeamRegistry teams, string teamId, string caller)
+    {
+        var result = teams.ListMembers(teamId, caller);
+        if (result.Outcome != TeamMembersOutcome.Found)
+            throw new InvalidOperationException("A team report route ran for a caller who is not a member - the team gate was not run.");
+        return result.Members.ToDictionary(m => m.AccountSubject, TeamRegistry.DisplayName, StringComparer.Ordinal);
+    }
+
+    internal static string NameOf(string? subject, IReadOnlyDictionary<string, string> names) =>
         subject is not null && names.TryGetValue(subject, out var name) ? name : TeamReportEndpoints.FormerMember;
 
     private static TenantId Team(string teamId) => new(teamId);

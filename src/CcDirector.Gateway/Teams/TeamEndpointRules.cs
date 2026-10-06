@@ -146,6 +146,10 @@ public static class TeamEndpointRules
         // sent to them is not found, however it is asked for.
         new TeamEndpointRule(Api.TeamReportEndpoints.SentToMePattern, TeamMethods.Any, TeamAction.AnswerQuestionsSendRequestsReadReports,
             TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // The questions waiting on a member (devthrottle_internal#2307): reading them and answering by choice is the same
+        // row, every role. The endpoint answers only questions in a report sent to the caller.
+        new TeamEndpointRule(Api.TeamQuestionEndpoints.GroupPath, TeamMethods.Any, TeamAction.AnswerQuestionsSendRequestsReadReports,
+            TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         // The person's OWN reports in the team: the list is cut by the endpoint to the reports the caller wrote; one
         // report - reading it, its comments, sending it to members - is the caller's own only when they wrote it, and
         // touching another person's is watching their session, which no role may. A Collaborator runs no sessions, so

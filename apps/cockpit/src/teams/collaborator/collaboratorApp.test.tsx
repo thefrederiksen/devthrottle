@@ -50,6 +50,13 @@ vi.mock("@devthrottle/client-core/teams/teamReportsClient", async (importOrigina
   getReportsSentToMe: vi.fn(async () => ({ count: 0, reports: [], emptyText: "No reports sent to you yet.", showYourReports: false })),
   getReportSentToMe: vi.fn(async () => null),
 }));
+// The Questions page reads what waits on this person from the Gateway (devthrottle_internal#2307); here, nothing does.
+vi.mock("@devthrottle/client-core/teams/teamQuestionsClient", () => ({
+  getMyQuestions: vi.fn(async () => ({
+    count: 0, subtitle: "No questions waiting on you.", emptyText: "No questions waiting on you.", waiting: [], answered: [], answeredHeading: "Answered",
+  })),
+  answerQuestion: vi.fn(),
+}));
 
 // The whole app's pages. A page mounted when it must not be shows up as its own text, which the tests look for.
 vi.mock("../../fleetmanager/FleetManagerView", () => ({ FleetManagerView: () => <div>fleet manager page</div> }));
@@ -64,6 +71,10 @@ vi.mock("../../skills/SkillsView", () => ({ SkillsView: () => <div>skills page</
 vi.mock("../../settings/SettingsView", () => ({ SettingsView: () => <div>settings page</div> }));
 vi.mock("../../account/AccountView", () => ({ AccountView: () => <div>account page</div> }));
 
+// The count beside a team page (S8, devthrottle_internal#2307 review F8): every read is recorded by the path it asked,
+// and answers the count the test sets.
+const pageCounts = vi.hoisted(() => ({ count: 0, asked: [] as string[] }));
+
 const myTeams = vi.hoisted(() => ({
   teams: [] as unknown[],
   start: { where: "own-account" } as unknown,
@@ -77,6 +88,10 @@ vi.mock("@devthrottle/client-core/teams/teamsClient", () => ({
     if (myTeams.failure !== null) throw myTeams.failure;
     return { kind: "teams", teams: myTeams.teams, start: myTeams.start };
   }),
+  getPageCount: vi.fn(async (path: string) => {
+    pageCounts.asked.push(path);
+    return pageCounts.count;
+  }),
 }));
 
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
@@ -87,6 +102,7 @@ import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factory
 import { signOutAccount } from "@devthrottle/client-core/auth/accountActions";
 import { resetFactorySwitchCache } from "../../factory/useFactorySwitch";
 import { COCKPIT_ROUTES } from "../../routes";
+import { refreshTeamPageCounts } from "../useTeamPageCounts";
 
 const NOT_AVAILABLE = "This page is not available to Collaborators.";
 
@@ -99,9 +115,10 @@ const COLLABORATOR_TEAM: TeamSummary = {
   app: {
     full: false,
     pages: [
-      { id: "questions", label: "Questions", path: "/questions" },
-      { id: "requests", label: "Requests", path: "/requests" },
-      { id: "reports", label: "Reports", path: "/reports" },
+      // An odd count path, so a path the Cockpit built for itself would never match it.
+      { id: "questions", label: "Questions", path: "/questions", countPath: "/teams/team-dt/questions?odd-count" },
+      { id: "requests", label: "Requests", path: "/requests", countPath: null },
+      { id: "reports", label: "Reports", path: "/reports", countPath: null },
     ],
     landing: "/questions",
     elsewhere: NOT_AVAILABLE,
@@ -114,7 +131,12 @@ const DEVELOPER_TEAM: TeamSummary = {
   role: "Developer",
   memberCount: 2,
   people: "2 people",
-  app: { full: true, pages: COLLABORATOR_TEAM.app.pages, landing: null, elsewhere: null },
+  app: {
+    full: true,
+    pages: COLLABORATOR_TEAM.app.pages.map((p) => (p.id === "questions" ? { ...p, countPath: "/teams/team-paul/questions?odd-count" } : p)),
+    landing: null,
+    elsewhere: null,
+  },
 };
 
 function App() {
@@ -166,6 +188,8 @@ describe("The Collaborator's app", () => {
     myTeams.failure = null;
     myTeams.held = null;
     reads.keepWarm = [];
+    pageCounts.count = 0;
+    pageCounts.asked = [];
     vi.clearAllMocks();
     resetFactorySwitchCache();
     // The signed-in account, as a finished sign-in leaves it in this browser.
@@ -184,7 +208,7 @@ describe("The Collaborator's app", () => {
     expect(document.querySelectorAll(".nav-link")).toHaveLength(3);
     expect(document.querySelector(".nav-list-foot")).toBeNull();
     expect(screen.getByTestId("team-switcher")).toBeTruthy();
-    expect(screen.getByText("No questions waiting on you.")).toBeTruthy();
+    expect((await screen.findAllByText("No questions waiting on you.")).length).toBeGreaterThan(0);
   });
 
   it("Navigation_IsDrawnFromTheGatewaysVerdict_NotFromTheRoleName", async () => {
@@ -296,6 +320,70 @@ describe("The Collaborator's app", () => {
     await waitFor(() => expect(railLabels().at(-1)).toBe("Reports"));
     expect(railLabels()).not.toContain("Questions");
     expect(railLabels()).not.toContain("Requests");
+  });
+
+  // ---- the count beside a team page (S8, review F8) ------------------------------------------------------------------
+
+  function railBadge(label: string): string | null {
+    const link = screen.getByRole("link", { name: new RegExp(`^${label}`) });
+    return link.querySelector(".nav-badge")?.textContent ?? null;
+  }
+
+  it("Count_TheGatewaysCount_ShowsBesideQuestions_ReadFromThePathTheGatewayNamed", async () => {
+    pageCounts.count = 3;
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/questions");
+
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    await waitFor(() => expect(railBadge("Questions")).toBe("3"));
+    expect(railBadge("Requests")).toBeNull();
+    expect(railBadge("Reports")).toBeNull();
+    // Read only where the Gateway said, and never for a page with no count path.
+    expect(new Set(pageCounts.asked)).toEqual(new Set(["/teams/team-dt/questions?odd-count"]));
+  });
+
+  it("Count_AWholeAppTeam_ShowsTheCountBesideItsQuestionsToo", async () => {
+    pageCounts.count = 2;
+    rememberTeam(DEVELOPER_TEAM.id);
+    renderAt("/sessions");
+
+    await waitFor(() => expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
+    await waitFor(() => expect(railBadge("Questions")).toBe("2"));
+    expect(new Set(pageCounts.asked)).toEqual(new Set(["/teams/team-paul/questions?odd-count"]));
+  });
+
+  it("Count_AfterAnAnswer_IsReadAgainAtOnce_SoTheRailNeverDisagreesWithThePage", async () => {
+    pageCounts.count = 1;
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/questions");
+    await waitFor(() => expect(railBadge("Questions")).toBe("1"));
+    const readsBefore = pageCounts.asked.length;
+
+    pageCounts.count = 0;
+    act(() => refreshTeamPageCounts());
+
+    await waitFor(() => expect(railBadge("Questions")).toBeNull());
+    expect(pageCounts.asked.length).toBe(readsBefore + 1);
+  });
+
+  it("Count_ZeroWaiting_ShowsNoCount", async () => {
+    pageCounts.count = 0;
+    rememberTeam(COLLABORATOR_TEAM.id);
+    renderAt("/questions");
+
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    await waitFor(() => expect(pageCounts.asked.length).toBeGreaterThan(0));
+    expect(railBadge("Questions")).toBeNull();
+  });
+
+  it("Count_NoTeam_ReadsNoCount_AndTheRailIsUnchanged", async () => {
+    myTeams.teams = [];
+    pageCounts.count = 5;
+    renderAt("/sessions");
+
+    expect(await screen.findByText("sessions page")).toBeTruthy();
+    expect(pageCounts.asked).toEqual([]);
+    expect(document.querySelector(".nav-link .nav-badge")).toBeNull();
   });
 
   it("OwnAccount_TheRailListsNoTeamPages", async () => {

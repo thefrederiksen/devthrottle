@@ -1,0 +1,20 @@
+RED PROOF: f8-rail-count-stale-after-an-answer
+Rule: Review F8: the count beside Questions is read again the moment an answer is sent, so the rail never disagrees with the page.
+File: apps/cockpit/src/teams/collaborator/QuestionsPage.tsx
+
+Mutation - replaced:
+      refreshTeamPageCounts();
+
+with:
+(nothing)
+
+Command: npx vitest run src/teams/collaborator/questionsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Send_SendsTheChosenOptionAndTheWordsAsTyped_ForTheVersionShown_AndShowsWhatTheGatewayAnswered
+AssertionError: expected "spy" to be called 1 times, but got 0 times
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

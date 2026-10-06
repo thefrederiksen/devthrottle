@@ -270,9 +270,10 @@ internal sealed class DevReportStore
     }
 
     /// <summary>
-    /// Store NEW items (the caller has already excluded ids the report holds) in the given state, in send order,
-    /// and apply rule 2: a new answer REPLACES every answer to the same question in this report that is still
-    /// waiting to go - stored earlier or earlier in this same batch. Returns the stored rows in order.
+    /// Store the account owner's NEW items (the caller has already excluded ids the report holds) in the given state, in
+    /// send order, and apply rule 2: a new answer REPLACES every answer of the owner's to the same question in this report
+    /// that is still waiting to go - stored earlier or earlier in this same batch. A team member's answer is never stored
+    /// here: it goes through <see cref="AddMemberAnswer"/>. Returns the stored rows in order.
     /// </summary>
     public IReadOnlyList<DevReportItemEntity> AddItems(
         TenantId tenant, DevReportEntity report, IReadOnlyList<DevReportItem> items, DevReportItemStates.State state, string senderKind, DateTime nowUtc)
@@ -290,7 +291,7 @@ internal sealed class DevReportStore
                 if (item.Kind == DevReportItem.Answer)
                 {
                     // An earlier answer in this batch is not in the database yet, so it is replaced in memory.
-                    foreach (var earlier in added.Where(i => IsEarlierAnswer(i, item.QuestionId) && DevReportItemStates.IsWaiting(i.Status)))
+                    foreach (var earlier in added.Where(i => IsEarlierOwnersAnswer(i, item.QuestionId) && DevReportItemStates.IsWaiting(i.Status)))
                     {
                         earlier.Status = DevReportItemStates.ReplacedState.Status;
                         earlier.StatusLabel = DevReportItemStates.ReplacedState.Label;
@@ -300,7 +301,7 @@ internal sealed class DevReportStore
 
                     // A stored one is replaced only WHERE IT IS STILL WAITING, in the database: another Gateway process
                     // may have claimed it for a send since it was read, and an item that is going must not be relabelled.
-                    foreach (var earlier in existing.Where(i => IsEarlierAnswer(i, item.QuestionId)))
+                    foreach (var earlier in existing.Where(i => IsEarlierOwnersAnswer(i, item.QuestionId)))
                     {
                         var replaced = ctx.DevReportItems
                             .Where(i => i.Id == earlier.Id
@@ -343,6 +344,97 @@ internal sealed class DevReportStore
             return added;
         }
     }
+
+    /// <summary>
+    /// A TEAM MEMBER'S ANSWER, TAKEN IN ONE TRANSACTION (devthrottle_internal#2307, review F2, F3 and F4). Everything that
+    /// decides whether it is taken is decided in the database, at the moment of the write:
+    /// <list type="number">
+    /// <item>THE VERSION THEY HOLD. The first statement is a conditional write on the member's own recipient row,
+    /// <c>update dev_report_recipients set SentVersion = SentVersion where report, member and SentVersion = version</c>. It
+    /// matches nothing when a newer version was sent to them since the page read the question - from this process or the
+    /// other one during a deploy - and then nothing is written (<see cref="MemberAnswerOutcome.VersionNotHeld"/>). When it
+    /// matches it holds that row until the answer commits, so a send of a newer version waits behind it, and so does a
+    /// second answer by the same person to the same report.</item>
+    /// <item>ONE ANSWER. Under that hold, a not-refused answer by the same person to the same question means this one is
+    /// not taken (<see cref="MemberAnswerOutcome.AlreadyAnswered"/>). The unique index
+    /// <see cref="Data.GatewayDbContext.MemberAnswerIndexName"/> is the database's own guarantee of the same rule.</item>
+    /// <item>THE CHOICE AND THE WORDS TOGETHER. The answer is stored HELD, carrying the version it was given on and no words
+    /// of the member's own; the member's comment, when there is one, is stored for <paramref name="toSubject"/> through the
+    /// person-only table in the SAME transaction. Neither exists without the other, and both exist before anything is sent
+    /// to a session - the send is the delivery's settle pass afterwards, which never sends one item twice.</item>
+    /// </list>
+    /// </summary>
+    /// <exception cref="ArgumentException">The item is not an answer, carries words of the member's own, or the comment
+    /// breaks the comment rules.</exception>
+    public MemberAnswerOutcome AddMemberAnswer(TenantId team, DevReportEntity report, int sentVersion, DevReportItem item,
+        string answererSubject, string words, string toSubject, string senderKind, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentException.ThrowIfNullOrWhiteSpace(answererSubject);
+        ArgumentNullException.ThrowIfNull(words);
+        if (item.Kind != DevReportItem.Answer || item.Comment.Length > 0 || item.Text.Length > 0)
+            throw new ArgumentException("A team member's item is an answer with no words of their own: no note, no text, no comment.", nameof(item));
+        var comment = words.Length == 0
+            ? null
+            : DevReportPersonComments.NewRow(team, report.Id, answererSubject, toSubject, words, nowUtc, item.QuestionId);
+
+        BeforeMemberAnswerWriteForTests?.Invoke();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(team);
+            using var tx = ctx.Database.BeginTransaction();
+            var holds = ctx.DevReportRecipients
+                .Where(r => r.ReportId == report.Id && r.RecipientSubject == answererSubject && r.SentVersion == sentVersion)
+                .ExecuteUpdate(set => set.SetProperty(r => r.SentVersion, r => r.SentVersion));
+            if (holds != 1)
+            {
+                FileLog.Write($"[DevReportStore] AddMemberAnswer: report={report.Id} version={sentVersion} is not the version the member holds - nothing stored");
+                return MemberAnswerOutcome.VersionNotHeld;
+            }
+            var answered = ctx.DevReportItems.AsNoTracking().Any(i =>
+                i.ReportId == report.Id && i.AnswererSubject == answererSubject && i.QuestionId == item.QuestionId
+                && i.Status != DevReportItemStates.Refused);
+            if (answered)
+            {
+                FileLog.Write($"[DevReportStore] AddMemberAnswer: report={report.Id} question={item.QuestionId} already answered by this member - nothing stored");
+                return MemberAnswerOutcome.AlreadyAnswered;
+            }
+
+            var sequence = ctx.DevReportItems.AsNoTracking().Where(i => i.ReportId == report.Id).Max(i => (long?)i.Sequence) ?? 0;
+            var held = DevReportItemStates.HeldState;
+            ctx.DevReportItems.Add(new DevReportItemEntity
+            {
+                TenantId = team.Value,
+                ReportId = report.Id,
+                SessionId = report.SessionId,
+                ClientItemId = item.Id,
+                Kind = item.Kind,
+                QuestionId = item.QuestionId,
+                Question = item.Question,
+                OptionValue = item.OptionValue,
+                OptionLabel = item.OptionLabel,
+                Status = held.Status,
+                StatusLabel = held.Label,
+                Sequence = sequence + 1,
+                SenderKind = senderKind,
+                SentAtUtc = nowUtc,
+                AnswererSubject = answererSubject,
+                SourceVersion = sentVersion,
+            });
+            if (comment is not null)
+                ctx.DevReportComments.Add(comment);
+            ctx.SaveChanges();
+            tx.Commit();
+            FileLog.Write($"[DevReportStore] AddMemberAnswer: report={report.Id} question={item.QuestionId} version={sentVersion} " +
+                          $"stored held, comment={(comment is null ? "none" : "chars=" + words.Length)}");
+            return MemberAnswerOutcome.Stored;
+        }
+    }
+
+    /// <summary>Runs after the answer route has read the version and before the answer's transaction begins - so a test can
+    /// stand in for a newer send, or another process's answer, landing in between (review F2, F3). Null outside tests.</summary>
+    internal Action? BeforeMemberAnswerWriteForTests { get; set; }
 
     /// <summary>Every item of a session still waiting to go (queued or held), across all its reports, in the
     /// order the owner sent them.</summary>
@@ -446,8 +538,9 @@ internal sealed class DevReportStore
         return refused;
     }
 
-    private static bool IsEarlierAnswer(DevReportItemEntity row, string questionId)
-        => row.Kind == DevReportItem.Answer && string.Equals(row.QuestionId, questionId, StringComparison.Ordinal);
+    private static bool IsEarlierOwnersAnswer(DevReportItemEntity row, string questionId)
+        => row.Kind == DevReportItem.Answer && string.Equals(row.QuestionId, questionId, StringComparison.Ordinal)
+           && row.AnswererSubject is null;
 
     /// <summary>The sessions of the account that have any item not yet settled (queued, held or sending) - what the
     /// settle sweep visits.</summary>
@@ -464,12 +557,49 @@ internal sealed class DevReportStore
             .ToList();
     }
 
-    /// <summary>True when the report already delivered an answer to this question - so a newer answer is a change.</summary>
-    public bool HasDeliveredAnswer(TenantId tenant, Guid reportId, string questionId)
+    /// <summary>True when the report already delivered an answer to this question from the same person - the account
+    /// owner when <paramref name="answererSubject"/> is null, otherwise that team member - so a newer answer is a
+    /// change.</summary>
+    public bool HasDeliveredAnswer(TenantId tenant, Guid reportId, string questionId, string? answererSubject = null)
     {
         using var ctx = _db.CreateContext(tenant);
         return ctx.DevReportItems.AsNoTracking().Any(i =>
             i.ReportId == reportId && i.Kind == DevReportItem.Answer && i.QuestionId == questionId
+            && i.AnswererSubject == answererSubject
             && i.Status == DevReportItemStates.Delivered);
     }
+
+    /// <summary>
+    /// The answers <paramref name="answererSubject"/> gave on the given reports (devthrottle_internal#2307), one per
+    /// (report, question): the latest that was not refused, since a refused answer never reached the session and the
+    /// question is still waiting on them. With <paramref name="includeRefused"/>, a refused answer stands when there is
+    /// no other: what a comment given with it is about, for its author (delta review D1).
+    /// </summary>
+    public IReadOnlyDictionary<(Guid ReportId, string QuestionId), DevReportItemEntity> AnswersBy(
+        TenantId tenant, string answererSubject, IReadOnlyCollection<Guid> reportIds, bool includeRefused = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(answererSubject);
+        ArgumentNullException.ThrowIfNull(reportIds);
+        if (reportIds.Count == 0) return new Dictionary<(Guid, string), DevReportItemEntity>();
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.DevReportItems.AsNoTracking()
+            .Where(i => i.AnswererSubject == answererSubject && i.Kind == DevReportItem.Answer
+                        && reportIds.Contains(i.ReportId) && (includeRefused || i.Status != DevReportItemStates.Refused))
+            .ToList()
+            .GroupBy(i => (i.ReportId, i.QuestionId))
+            .ToDictionary(g => g.Key, g => g
+                .OrderBy(i => i.Status == DevReportItemStates.Refused)
+                .ThenByDescending(i => i.Sequence).First());
+    }
+}
+
+/// <summary>What <see cref="DevReportStore.AddMemberAnswer"/> did.</summary>
+internal enum MemberAnswerOutcome
+{
+    /// <summary>The answer is stored held, with the member's comment when there was one.</summary>
+    Stored,
+    /// <summary>The member holds a different version from the one answered; nothing was stored.</summary>
+    VersionNotHeld,
+    /// <summary>The member already has an answer to this question that was not refused; nothing was stored.</summary>
+    AlreadyAnswered,
 }

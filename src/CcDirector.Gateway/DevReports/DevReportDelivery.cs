@@ -382,15 +382,16 @@ internal sealed class DevReportDelivery
     private (string Text, PromptRequest Request) ComposePrompt(TenantId tenant, IReadOnlyList<DevReportItemEntity> open)
     {
         var reports = new List<DevReportPromptFold.FoldReport>();
+        // ONE BLOCK PER (report, version the items were given on) - review F1. The owner's own items are given on the
+        // report's newest version; a team member's answer on the version they were sent (SourceVersion), which may be
+        // older. The block names that version and ITS title, so the session is never told an answer was given on a
+        // version its answerer never saw.
         foreach (var group in open.GroupBy(i => i.ReportId))
         {
             var report = _store.Get(tenant, group.Key)
                 ?? throw new InvalidOperationException($"held items name report {group.Key}, which the account does not hold");
-            var foldItems = group
-                .Select(row => new DevReportPromptFold.FoldItem(ToItem(row),
-                    row.Kind == DevReportItem.Answer && _store.HasDeliveredAnswer(tenant, report.Id, row.QuestionId)))
-                .ToList();
-            reports.Add(new DevReportPromptFold.FoldReport(report.Id, report.Key, report.Title, report.Version, foldItems));
+            foreach (var byVersion in group.GroupBy(i => i.SourceVersion ?? report.Version).OrderBy(g => g.Key))
+                reports.Add(FoldBlock(tenant, report, byVersion.Key, byVersion.ToList()));
         }
 
         var text = DevReportPromptFold.Compose(reports, DevReportPromptFold.MintBoundary(reports));
@@ -409,6 +410,22 @@ internal sealed class DevReportDelivery
             },
         };
         return (text, request);
+    }
+
+    /// <summary>One report's block for the items given on <paramref name="version"/>: the report's own title when that is
+    /// its newest version, otherwise the title of the version the items were given on.</summary>
+    private DevReportPromptFold.FoldReport FoldBlock(TenantId tenant, DevReportEntity report, int version, IReadOnlyList<DevReportItemEntity> rows)
+    {
+        var title = version == report.Version
+            ? report.Title
+            : (_store.GetVersion(tenant, report.Id, version)
+               ?? throw new InvalidOperationException($"an answer names version {version} of report {report.Id}, which is not stored")).Title;
+        var foldItems = rows
+            .Select(row => new DevReportPromptFold.FoldItem(ToItem(row),
+                row.Kind == DevReportItem.Answer && _store.HasDeliveredAnswer(tenant, report.Id, row.QuestionId, row.AnswererSubject),
+                row.AnswererSubject is not null))
+            .ToList();
+        return new DevReportPromptFold.FoldReport(report.Id, report.Key, title, version, foldItems);
     }
 
     /// <summary>A session id in the one form reports are stored under: a GUID's canonical lower-case form, the

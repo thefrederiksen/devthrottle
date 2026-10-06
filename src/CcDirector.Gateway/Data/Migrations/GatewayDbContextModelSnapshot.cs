@@ -304,6 +304,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("QuestionId")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid>("ReportId")
                         .HasColumnType("TEXT");
 
@@ -389,6 +392,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("AnchorJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AnswererSubject")
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid?>("ClaimId")
                         .HasColumnType("TEXT");
 
@@ -448,6 +454,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("SourceVersion")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -470,10 +479,17 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.HasIndex("TenantId");
 
+                    b.HasIndex("TenantId", "AnswererSubject");
+
                     b.HasIndex("TenantId", "ReportId", "ClientItemId")
                         .IsUnique();
 
                     b.HasIndex("TenantId", "SessionId", "Status");
+
+                    b.HasIndex("TenantId", "ReportId", "AnswererSubject", "QuestionId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_dev_report_items_one_member_answer")
+                        .HasFilter("\"AnswererSubject\" IS NOT NULL AND \"Status\" <> 'refused'");
 
                     b.ToTable("dev_report_items", (string)null);
                 });

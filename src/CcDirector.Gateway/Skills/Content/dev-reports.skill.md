@@ -78,6 +78,8 @@ If you need a decision from the owner, put it here: he taps an option instead of
 
 - Each question has a unique id (letters, digits, `-`, `_`) and lives inside the questions section.
 - **At least two `<input type="radio">` options**, all sharing one `name` that no other question uses.
+- **Every option has its own `value`** - never empty, never the same as another option's in the question.
+  An answer names its option by value, so a report breaking this is refused at publish.
 - **Exactly one option carries `data-recommended`** - your recommendation, preselected for him. Always
   give one, and say why in the option's own words.
 - A `<textarea data-dev-report-comment>` is optional.

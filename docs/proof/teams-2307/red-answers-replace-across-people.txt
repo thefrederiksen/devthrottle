@@ -1,0 +1,24 @@
+RED PROOF: answers-replace-across-people
+Rule: One person's answer never stands in for another's: two people's answers are both taken and both reach the session.
+File: src/CcDirector.Gateway/DevReports/DevReportStore.cs
+
+Mutation - replaced:
+                i.ReportId == report.Id && i.AnswererSubject == answererSubject && i.QuestionId == item.QuestionId
+with:
+                i.ReportId == report.Id && i.AnswererSubject != null && i.QuestionId == item.QuestionId
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_TwoPeopleAnswerTheSameQuestionWhileTheSessionWorks_NeitherReplacesTheOther_AndBothReachIt [284 ms]
+   Assert.Equal() Failure: Values differ
+Expected: 200
+Actual:   409
+  Failed CcDirector.Gateway.Tests.Teams.Questions.MemberAnswerDeliveryTests.AddMemberAnswer_TwoPeople_EachHaveTheirOwn_AndTheOwnersAnswerIsUntouched [250 ms]
+   Assert.Equal() Failure: Values differ
+Expected: Stored
+Actual:   AlreadyAnswered
+Failed!  - Failed:     2, Passed:   105, Skipped:     0, Total:   107, Duration: 20 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

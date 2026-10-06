@@ -1,0 +1,20 @@
+RED PROOF: page-trims-the-words
+Rule: The page sends the person's words exactly as typed.
+File: apps/cockpit/src/teams/collaborator/QuestionsPage.tsx
+
+Mutation - replaced:
+      setSent(await answerQuestion(teamId, q, chosen, comment));
+with:
+      setSent(await answerQuestion(teamId, q, chosen, comment.trim()));
+
+Command: npx vitest run src/teams/collaborator/questionsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Send_SendsTheChosenOptionAndTheWordsAsTyped_ForTheVersionShown_AndShowsWhatTheGatewayAnswered
+AssertionError: expected 'We trialled 14 days.\nIt was short.' to be '  We trialled 14 days.\nIt was short.?' // Object.is equality
+- Expected
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

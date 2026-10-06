@@ -262,6 +262,28 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, ownResp.StatusCode);
     }
 
+    [Fact]
+    public async Task SwitchUnset_TheQuestionsRoutesAreAbsent_AndNoAnswerOrCommentIsStored()
+    {
+        // devthrottle_internal#2307. A real report with a real question in a real team, so each route has something to act
+        // on: if a route were mapped, the answer and its words would land.
+        Assert.DoesNotContain(MappedPatterns(), p => p.StartsWith(CcDirector.Gateway.Api.TeamQuestionEndpoints.GroupPath, StringComparison.Ordinal));
+        var team = _gateway.TeamRegistry.CreateTeam(_subject, "Dark questions").Team!.TeamId;
+        var collaborator = "sub-dark-q-" + Guid.NewGuid().ToString("N");
+        Assert.True(_gateway.TeamRegistry.AddMember(team, collaborator, CcDirector.Gateway.Teams.TeamRole.Collaborator).IsDone);
+        var tenant = new CcDirector.Core.Tenancy.TenantId(team);
+        var report = _gateway.DevReportsForTest.Publish(tenant, Guid.NewGuid().ToString("D"), "k",
+            HostedTeamQuestionsTests.Html(), "waiting-on-you", "Dark question", DateTime.UtcNow, _subject).Report;
+
+        await AssertAnsweredAsAPathThatDoesNotExist(HttpMethod.Get, $"teams/{team}/questions", new { });
+        await AssertAnsweredAsAPathThatDoesNotExist(HttpMethod.Post, $"teams/{team}/questions/{report.Id}/trial-length/answer",
+            new { version = 1, optionValue = "30", comment = "should not exist" });
+
+        Assert.Empty(_gateway.DevReportsForTest.Items(tenant, report.Id));
+        using (var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext())
+            Assert.Empty(ctx.DevReportComments.AsNoTracking().Where(c => c.ReportId == report.Id).ToList());
+    }
+
     private string[] MappedPatterns() => _gateway.MappedEndpoints.OfType<Microsoft.AspNetCore.Routing.RouteEndpoint>()
         .Select(e => CcDirector.Gateway.Teams.TeamEndpointRules.Normalize(e.RoutePattern.RawText)).ToArray();
 

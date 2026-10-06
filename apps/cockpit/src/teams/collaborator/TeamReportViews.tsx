@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { DevReportViewer } from "@devthrottle/client-core/devreports/DevReportViewer";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
@@ -155,6 +156,11 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
               <p className="team-report-from">
                 From {detail.report.from}
               </p>
+              {detail.report.questionsLabel !== null && (
+                <p className="team-report-note" data-testid="team-report-questions-waiting">
+                  <Link to="/questions">{detail.report.questionsLabel}</Link>
+                </p>
+              )}
               <p className="team-report-note" data-testid="team-report-comments-note">
                 {detail.commentsNote}
               </p>
@@ -163,6 +169,7 @@ export function ReceivedReportView({ teamId, reportId, onBack }: ViewProps) {
                 {detail.comments.map((c) => (
                   <li key={c.id} className="team-report-comment" data-testid="team-report-comment">
                     <time dateTime={c.atUtc}>{dateAndTime(c.atUtc)}</time>
+                    {c.aboutLabel !== null && <span className="team-report-comment-about">{c.aboutLabel}</span>}
                     <p>{c.text}</p>
                   </li>
                 ))}
@@ -278,6 +285,11 @@ export function OwnTeamReportView({ teamId, reportId, onBack }: ViewProps) {
                 {detail.comments.map((c) => (
                   <li key={c.id} className="team-report-comment" data-testid="team-report-comment-from-person">
                     <span className="team-report-comment-who">{c.from}</span> <time dateTime={c.atUtc}>{dateAndTime(c.atUtc)}</time>
+                    {c.aboutLabel !== null && (
+                      <span className="team-report-comment-about" data-testid="team-report-comment-about">
+                        {c.aboutLabel}
+                      </span>
+                    )}
                     <p>{c.text}</p>
                   </li>
                 ))}

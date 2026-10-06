@@ -1,8 +1,10 @@
 namespace CcDirector.Gateway.Teams;
 
 /// <summary>One page of the Cockpit that is ruled by a cell of the role table: its id, the name the navigation shows,
-/// its address, and the action that opens it.</summary>
-public sealed record TeamAppPage(string Id, string Label, string Path, TeamAction Action);
+/// its address, the action that opens it, and - for a page that counts what waits on the person - the route whose answer
+/// carries that count (with <c>{teamId}</c> in it), or null for a page with no count. The Cockpit shows the count beside
+/// the page's name in the navigation (S8, devthrottle_internal#2307 review F8); which page has one is decided here.</summary>
+public sealed record TeamAppPage(string Id, string Label, string Path, TeamAction Action, string? CountRoute = null);
 
 /// <summary>
 /// WHAT ONE PERSON'S COCKPIT IS IN ONE TEAM (devthrottle_internal#2306), as the Gateway's verdict - the Cockpit renders it
@@ -29,7 +31,8 @@ public static class TeamApp
     /// <summary>The role-ruled pages, in navigation order.</summary>
     public static readonly IReadOnlyList<TeamAppPage> Pages = new[]
     {
-        new TeamAppPage("questions", "Questions", "/questions", TeamAction.AnswerQuestionsSendRequestsReadReports),
+        new TeamAppPage("questions", "Questions", "/questions", TeamAction.AnswerQuestionsSendRequestsReadReports,
+            Api.TeamQuestionEndpoints.GroupPath),
         new TeamAppPage("requests", "Requests", "/requests", TeamAction.AnswerQuestionsSendRequestsReadReports),
         new TeamAppPage("reports", "Reports", "/reports", TeamAction.AnswerQuestionsSendRequestsReadReports),
     };

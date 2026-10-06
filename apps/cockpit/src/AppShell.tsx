@@ -11,6 +11,7 @@ import { useFactorySwitch } from "./factory/useFactorySwitch";
 import { CurrentTeamProvider, useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import type { TeamPagesApp, TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 import { TeamSwitcher } from "./teams/TeamSwitcher";
+import { useTeamPageCounts } from "./teams/useTeamPageCounts";
 import { isTeamPageAddress, TeamPagesOnly } from "./teams/collaborator/TeamPagesOnly";
 import { TeamPagesFoot } from "./teams/collaborator/TeamPagesFoot";
 import { TeamChooser } from "./teams/collaborator/TeamChooser";
@@ -168,9 +169,15 @@ const TEAM_PAGE_ICONS: Readonly<Record<string, NavIconName>> = {
   reports: "reports",
 };
 
-/** The rail of a Cockpit that is only the Gateway's pages: those, in the Gateway's order, and nothing else. */
-function teamPagesNav(app: Pick<TeamPagesApp, "pages">): NavItem[] {
-  return app.pages.map((page) => ({ to: page.path, label: page.label, icon: TEAM_PAGE_ICONS[page.id] }));
+/** The rail of a Cockpit that is only the Gateway's pages: those, in the Gateway's order, and nothing else - each with
+ *  the Gateway's count of what waits on the person there, for a page that has one (S8). */
+function teamPagesNav(app: Pick<TeamPagesApp, "pages">, counts: Readonly<Record<string, number>>): NavItem[] {
+  return app.pages.map((page) => {
+    const count = counts[page.id];
+    return count === undefined
+      ? { to: page.path, label: page.label, icon: TEAM_PAGE_ICONS[page.id] }
+      : { to: page.path, label: page.label, icon: TEAM_PAGE_ICONS[page.id], badge: count, badgeTitle: `${count} waiting on you` };
+  });
 }
 
 /** The team's verdict when it makes the Cockpit only some pages; null when it does not, or there is no team. */
@@ -237,6 +244,8 @@ function ShellFrame() {
   }, [location.pathname, wholeApp]);
 
   const waitingCount = useFleetManagerWaitingCount(location.pathname, wholeApp);
+  // The count beside a team page (S8): read from where the Gateway says, for the team on screen; none without a team.
+  const teamPageCounts = useTeamPageCounts(team.current, location.pathname);
 
   const [railCollapsed, setRailCollapsed] = useState(initialRailCollapsed);
   const toggleRail = () => {
@@ -261,7 +270,7 @@ function ShellFrame() {
   // ruling; #2306 review F12): a Developer reads and sends their team reports at /reports, and reaches it here rather
   // than by typing the address. Which pages, their names and order are the Gateway's verdict (rule 7); with no team on
   // screen there are none, so the own account's rail is exactly as it was.
-  const wholeAppTeamPages = team.current !== null && team.current.app.full ? teamPagesNav(team.current.app) : [];
+  const wholeAppTeamPages = team.current !== null && team.current.app.full ? teamPagesNav(team.current.app, teamPageCounts) : [];
   const fullNav = [...railItems, ...wholeAppTeamPages].map((item) =>
     item.to === "/dictionary"
       ? { ...item, badge: suggestCount }
@@ -281,7 +290,7 @@ function ShellFrame() {
   // page wait: drawing the whole app first would flash pages a Collaborator may not open. It never happens to a browser
   // that remembers no team, or the own account - so a Gateway with Teams dark, and a person with no team, never wait
   // (delta review D1).
-  const mainNav = team.resolving || team.choosing ? [] : teamPages !== null ? teamPagesNav(teamPages) : fullNav;
+  const mainNav = team.resolving || team.choosing ? [] : teamPages !== null ? teamPagesNav(teamPages, teamPageCounts) : fullNav;
   // A pages-only rail never collapses (review finding F4): three rows need no room back, and at phone width the bar
   // hides the collapse control - a remembered collapse would otherwise leave no switcher and no way back.
   // The chooser (S11) has no rail rows either, so it takes the same short rail: no collapse, and a bar at phone width.

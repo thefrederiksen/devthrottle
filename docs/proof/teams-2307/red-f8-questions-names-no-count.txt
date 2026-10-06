@@ -1,0 +1,21 @@
+RED PROOF: f8-questions-names-no-count
+Rule: Review F8: the Gateway names where the Questions count is read, in the team on screen.
+File: src/CcDirector.Gateway/Teams/TeamApp.cs
+
+Mutation - replaced:
+TeamAction.AnswerQuestionsSendRequestsReadReports,
+            Api.TeamQuestionEndpoints.GroupPath),
+with:
+TeamAction.AnswerQuestionsSendRequestsReadReports),
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~TeamEndpointsTests -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.TeamEndpointsTests.ListTeams_OnlyTheQuestionsPage_NamesWhereItsCountIsRead_InThatTeam [179 ms]
+   Assert.Equal() Failure: Strings differ
+Expected: "/teams/eee63512-97b2-41cf-b764-7605b4d541"???
+Actual:   null
+Failed!  - Failed:     1, Passed:    14, Skipped:     0, Total:    15, Duration: 7 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored from the committed tree afterwards; git diff on the file is empty.

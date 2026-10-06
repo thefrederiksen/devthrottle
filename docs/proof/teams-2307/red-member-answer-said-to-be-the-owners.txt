@@ -1,0 +1,20 @@
+RED PROOF: member-answer-said-to-be-the-owners
+Rule: The session is told the answer came from a person the report was sent to, not from the owner.
+File: src/CcDirector.Gateway/DevReports/DevReportDelivery.cs
+
+Mutation - replaced:
+                row.AnswererSubject is not null))
+with:
+                false))
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_AnAnswerToTheVersionSent_IsDeliveredAsThatVersion_NotTheReportsNewest [223 ms]
+   Assert.Contains() Failure: Sub-string not found
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.Issue2307_AnAnswerFromACollaborator_DeliversTheChosenOption_ToTheSessionThatAsked [196 ms]
+   Assert.Contains() Failure: Sub-string not found
+Failed!  - Failed:     2, Passed:   105, Skipped:     0, Total:   107, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

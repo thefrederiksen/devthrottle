@@ -1,0 +1,22 @@
+RED PROOF: page-ignores-can-comment
+Rule: The page offers a comment box only where the Gateway says so.
+File: apps/cockpit/src/teams/collaborator/QuestionsPage.tsx
+
+Mutation - replaced:
+          {q.canComment && (
+            <textarea
+with:
+          {(q.canComment || true) && (
+            <textarea
+
+Command: npx vitest run src/teams/collaborator/questionsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Card_TheGatewaySaysNoComment_OffersNoBox_AndSaysWhy
+AssertionError: expected <textarea ?(5)></textarea> to be null
+- Expected: 
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.
