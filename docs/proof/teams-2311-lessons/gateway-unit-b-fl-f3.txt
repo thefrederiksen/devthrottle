@@ -1,0 +1,30 @@
+Test run for D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:55.87]     CcDirector.Gateway.Tests.HeldDeliveryDriverTests.TheTickDrivesANewlyHeldDelivery_WhileTheStartUpPassIsStillWorkingThroughItsOwn [FAIL]
+  Failed CcDirector.Gateway.Tests.HeldDeliveryDriverTests.TheTickDrivesANewlyHeldDelivery_WhileTheStartUpPassIsStillWorkingThroughItsOwn [4 s]
+  Error Message:
+   System.InvalidOperationException : Sequence contains more than one matching element
+  Stack Trace:
+     at System.Linq.ThrowHelper.ThrowMoreThanOneMatchException()
+   at System.Linq.Enumerable.TryGetSingle[TSource](IEnumerable`1 source, Func`2 predicate, Boolean& found)
+   at System.Linq.Enumerable.Single[TSource](IEnumerable`1 source, Func`2 predicate)
+   at CcDirector.Gateway.Tests.HeldDeliveryDriverTests.TheTickDrivesANewlyHeldDelivery_WhileTheStartUpPassIsStillWorkingThroughItsOwn() in D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.UnitTests\HeldDeliveryDriverTests.cs:line 262
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:57.43]     CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [SKIP]
+  Skipped CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [1 ms]
+[xUnit.net 00:01:14.26]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_that_omits_the_tenant_is_refused [SKIP]
+[xUnit.net 00:01:14.26]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_only_whitespace_is_refused [SKIP]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_that_omits_the_tenant_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_only_whitespace_is_refused [1 ms]
+[xUnit.net 00:01:14.26]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_row_whose_tenant_is_a_spelling_production_mints_is_still_stored [SKIP]
+[xUnit.net 00:01:14.26]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused [SKIP]
+[xUnit.net 00:01:14.26]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_empty_is_refused [SKIP]
+[xUnit.net 00:01:14.26]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant [SKIP]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_row_whose_tenant_is_a_spelling_production_mints_is_still_stored [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_empty_is_refused [1 ms]
+  Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant [1 ms]
+[xUnit.net 00:01:45.88]     CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [SKIP]
+  Skipped CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [1 ms]
+
+Failed!  - Failed:     1, Passed:  5342, Skipped:     8, Total:  5351, Duration: 3 m 31 s - CcDirector.Gateway.UnitTests.dll (net10.0)

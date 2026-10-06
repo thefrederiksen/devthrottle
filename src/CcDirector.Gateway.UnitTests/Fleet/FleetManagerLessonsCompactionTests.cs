@@ -123,6 +123,7 @@ public sealed class FleetManagerLessonsCompactionTests : IDisposable
         public DirectorCommandStatus? Answer = DirectorCommandStatus.Ok;
         public DateTime Clock = new(2026, 10, 5, 12, 0, 0, DateTimeKind.Utc);
         public int MarkedReads;
+        public Func<TenantId, string, string, bool>? IsSessionOf;
         public readonly List<(string DirectorId, string SessionId, string? Lessons)> Sent = new();
 
         public FleetManagerLessonsObserver Observer() => new(
@@ -135,7 +136,7 @@ public sealed class FleetManagerLessonsCompactionTests : IDisposable
                 return Task.FromResult(Answer is null ? null
                     : Answer == DirectorCommandStatus.Ok ? DirectorCommandResult.Success()
                     : DirectorCommandResult.Fail(Answer.Value, "unknown verb"));
-            }, () => Clock);
+            }, () => Clock, IsSessionOf);
     }
 
     [Fact]
@@ -209,6 +210,61 @@ public sealed class FleetManagerLessonsCompactionTests : IDisposable
         await Task.WhenAll(reconnects);
         Assert.Equal(2, wire.Sent.Count);
         Assert.Equal(("dir-1", "fm-1", (string?)"[Fleet Manager lessons] one"), wire.Sent[1]);
+    }
+
+    // ---- devthrottle_internal#2311: only the marked session's OWN Director, never one that merely lists its id ---------
+
+    [Fact]
+    public async Task Observe_APushFromADirectorTheRuleSaysIsNotTheMarkedSessionsOwn_IsNeverStamped_AndTheOwnersPushIs()
+    {
+        var wire = new Wire { IsSessionOf = (_, directorId, sessionId) => directorId == "dir-1" && sessionId == "fm-1" };
+        var observer = wire.Observer();
+
+        await observer.Observe(Tenant, "dir-colleague", "fm-1");
+        Assert.Empty(wire.Sent);
+
+        await observer.Observe(Tenant, "dir-1", "fm-1");
+        Assert.Equal(new[] { ("dir-1", "fm-1", (string?)"[Fleet Manager lessons] one") }, wire.Sent);
+    }
+
+    [Fact]
+    public async Task Observe_WithNoRuleWired_StampsThePushingDirector_AsBefore()
+    {
+        var wire = new Wire();
+        await wire.Observer().Observe(Tenant, "dir-any", "fm-1");
+        Assert.Equal(new[] { ("dir-any", "fm-1", (string?)"[Fleet Manager lessons] one") }, wire.Sent);
+    }
+
+    [Fact]
+    public void OwnDirectorOf_TheRosterNamesAColleague_ReturnsTheDirectorTheRuleNames()
+    {
+        var own = FleetManagerLessonsObserver.OwnDirectorOf("dir-colleague", new[] { "dir-colleague", "dir-owner" },
+            keyed: null, isOwn: d => d == "dir-owner");
+        Assert.Equal("dir-owner", own);
+    }
+
+    [Fact]
+    public void OwnDirectorOf_OnlyTheKeyRowNamesTheOwner_ReturnsTheKeyRowsDirector()
+    {
+        var own = FleetManagerLessonsObserver.OwnDirectorOf("dir-colleague", new[] { "dir-colleague" },
+            keyed: "dir-owner", isOwn: d => d == "dir-owner");
+        Assert.Equal("dir-owner", own);
+    }
+
+    [Fact]
+    public void OwnDirectorOf_NoCandidateIsTheSessionsOwn_ReturnsNull()
+    {
+        var own = FleetManagerLessonsObserver.OwnDirectorOf("dir-colleague", new[] { "dir-colleague", "dir-other" },
+            keyed: null, isOwn: _ => false);
+        Assert.Null(own);
+    }
+
+    [Fact]
+    public void OwnDirectorOf_TheRostersOwnAnswerIsTheSessionsOwn_ReturnsIt_First()
+    {
+        var own = FleetManagerLessonsObserver.OwnDirectorOf("dir-owner", new[] { "dir-other", "dir-owner" },
+            keyed: "dir-other", isOwn: _ => true);
+        Assert.Equal("dir-owner", own);
     }
 
     [Fact]

@@ -1,0 +1,58 @@
+Test run for D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.29]   Discovering: CcDirector.Gateway.Tests
+2026-10-06 09:50:41 pid 46592: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+2026-10-06 09:50:41 pid 46592: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+[xUnit.net 00:00:01.11]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:01.12]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_APhoneAtATeamPage_GetsTheCockpit_NotTheMobileApp(page: "requests") [941 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_APhoneAtATeamPage_GetsTheCockpit_NotTheMobileApp(page: "questions") [946 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_APhoneAtATeamPage_GetsTheCockpit_NotTheMobileApp(page: "reports") [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2302Test3_NoRole_ReadsAnotherPersonsLiveSessionOrTranscript(role: Owner) [82 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2302Test3_NoRole_ReadsAnotherPersonsLiveSessionOrTranscript(role: Manager) [66 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2302Test3_NoRole_ReadsAnotherPersonsLiveSessionOrTranscript(role: Developer) [23 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2302Test3_NoRole_ReadsAnotherPersonsLiveSessionOrTranscript(role: Collaborator) [15 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_TheFleetMap_ACollaborator_GetsNoRoster [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_EveryRole_SeesTheMembersAndRoles(role: Collaborator) [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_EveryRole_SeesTheMembersAndRoles(role: Owner) [2 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_EveryRole_SeesTheMembersAndRoles(role: Manager) [3 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_EveryRole_SeesTheMembersAndRoles(role: Developer) [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Gate_IsTheSameOneTheHostInstalled_OverTheSameRegistry [8 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2302Test2_ACollaborator_EverySessionComputerMentorAndSkillsEndpoint_IsRefused [262 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_TheTeamListCarriesEachRolesPageVerdict(role: Owner, fullApp: True) [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_TheTeamListCarriesEachRolesPageVerdict(role: Developer, fullApp: True) [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_TheTeamListCarriesEachRolesPageVerdict(role: Collaborator, fullApp: False) [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_TheTeamListCarriesEachRolesPageVerdict(role: Manager, fullApp: True) [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.EveryEndpoint_InATeam_IsRefusedUnlessItStatesAnAction [7 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.NotAMember_EveryEndpoint_IsRefused [108 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_EachTeamPageAddress_IsServedTheCockpit(page: "questions") [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_EachTeamPageAddress_IsServedTheCockpit(page: "reports") [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_EachTeamPageAddress_IsServedTheCockpit(page: "requests") [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2302Test4_AManager_AnotherPersonsPrompts_IsRefusedOnEveryPromptEndpoint [6 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_ACollaboratorInTheTeam_EveryEndpointOutsideTheTeamRoutes_IsRefused [191 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_TheFleetMap_OwnerAndManager_SeeEveryDirectorOnTheTeam(role: Manager) [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_TheFleetMap_OwnerAndManager_SeeEveryDirectorOnTheTeam(role: Owner) [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_TheFleetMap_ADeveloper_SeesOnlyTheirOwnDirectorsOnThisTeam [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.EveryEndpointOfTheNamedFamilies_StatesAnAction [4 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_ACollaborator_EveryTeamRouteTheTableRefusesThem_Is403 [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_ACollaboratorInTheTeam_TheDataBehindEveryPageTheyCannotOpen_IsRefused [5 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_AKeyBoundToATeamsTenant_AuthenticatesForADeveloper_ButNotForACollaborator [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.EveryRule_StatesTheActionOfAtLeastOneRealEndpoint [56 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_SomeoneWhoIsNotAMember_IsToldThereIsNoSuchTeam [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.OverTheWire_TheFleetMap_SomeoneWhoIsNotAMember_IsToldThereIsNoSuchTeam [957 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_TheStart_FollowsTheCallersOwnDirector [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamEndpointWalkTests.Issue2306_OverTheWire_AKeyBoundToTheTeam_GetsNoDataBehindAnyPageACollaboratorCannotOpen [73 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamMentorSwitchHostTests.GatewayHost_TeamsDark_MentorSwitchSet_WithNoKey_StartsWithNoWriter [3 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamMentorSwitchHostTests.GatewayHost_Personal_MentorSwitchSet_KeyInTheEnvironmentOnly_Starts [4 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamMentorSwitchHostTests.GatewayHost_MentorSwitchSet_WithNoKeyForItsModel_RefusesToStart_NamingTheKeyAndWhereItComesFrom [55 ms]
+  Passed CcDirector.Gateway.Tests.Teams.TeamMentorSwitchHostTests.GatewayHost_TeamsReleased_MentorSwitchUnset_WithNoKey_StartsWithNoWriter [3 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamMentorSwitchHostTests.GatewayHost_TeamsReleased_MentorSwitchSet_HasAWriter [3 s]
+  Passed CcDirector.Gateway.Tests.Teams.TeamPersonStampHostTests.GatewayHost_TeamsReleased_APromptPushedIntoATeamIsStampedWithTheKeysPerson [4 s]
+[xUnit.net 00:04:32.36]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.TeamPersonStampHostTests.GatewayHost_TeamsReleased_ATeamSessionCarriesTheKeysPerson_AndAPersonalOneCarriesNone [4 s]
+
+Test Run Successful.
+Total tests: 44
+     Passed: 44
+ Total time: 4.5505 Minutes

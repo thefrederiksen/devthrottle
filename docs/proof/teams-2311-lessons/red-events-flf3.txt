@@ -1,0 +1,33 @@
+Test run for D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:01.55]   Discovering: CcDirector.Gateway.Tests
+2026-10-06 10:33:13 pid 4440: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+2026-10-06 10:33:13 pid 4440: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+[xUnit.net 00:00:02.69]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:02.70]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_APersonalTenant_TheOneDirectorListingTheMarkedSession_IsSentTheLessons [700 ms]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_BothDirectorsListAlicesMarkedSession_OnlyAlicesDirectorIsSentTheLessons_OnAPushALessonsChangeAndAReconnect [9 s]
+[xUnit.net 00:00:33.51]     CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs [FAIL]
+[xUnit.net 00:00:33.51]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:33.51]       Expected: NotOwnDirector
+[xUnit.net 00:00:33.51]       Actual:   Delivered
+[xUnit.net 00:00:33.51]       Stack Trace:
+[xUnit.net 00:00:33.51]         D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\Teams\HostedTeamFleetManagerLessonsTests.cs(169,0): at CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs()
+[xUnit.net 00:00:33.51]         --- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs [147 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: NotOwnDirector
+Actual:   Delivered
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs() in D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\Teams\HostedTeamFleetManagerLessonsTests.cs:line 169
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:46.78]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DirectorOf_OnlyBobsDirectorListsAlicesKeyedMarkedSession_TheLessonsGoToAlicesDirector_NeverBobs [9 s]
+
+Test Run Failed.
+Total tests: 4
+     Passed: 3
+     Failed: 1
+ Total time: 47.7378 Seconds
