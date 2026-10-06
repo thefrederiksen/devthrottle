@@ -197,7 +197,7 @@ public sealed class TeamEndpointGate
             routeValue,
             requestTenant,
             () => CallerSubject(requestTenant, device),
-            _ => Whose(ctx.Request.Method, requestTenant, device, pattern, routeValue));
+            rule => Whose(ctx.Request.Method, rule, requestTenant, device, pattern, routeValue));
 
         switch (verdict.Outcome)
         {
@@ -249,13 +249,25 @@ public sealed class TeamEndpointGate
     }
 
     /// <summary>Whose a request touches, asked only for a <see cref="TeamTarget.CallersOwn"/> rule in a team. Unknown
-    /// without a device key that names a person, or without an ownership answerer.</summary>
-    private TeamOwnership Whose(string method, TenantId? requestTenant, Pairing.DeviceCredentialIdentity? device, string? pattern,
-        Func<string, string?> routeValue)
+    /// without a device key that names a person, or without an ownership answerer.
+    ///
+    /// WHERE IT IS ANSWERED. A request with a key bound to a team's tenant touches that tenant. A
+    /// <c>/teams/{teamId}/...</c> route is called from the person's OWN account, so what it touches is in the team the
+    /// route names - a report the caller published in the team (devthrottle_internal#2309) - and it is answered there,
+    /// for the person behind the caller's own account. A route naming a tenant that is not a team is Unknown.</summary>
+    private TeamOwnership Whose(string method, TeamEndpointRule rule, TenantId? requestTenant, Pairing.DeviceCredentialIdentity? device,
+        string? pattern, Func<string, string?> routeValue)
     {
-        if (_ownership is null || requestTenant is not { } tenant || CallerSubject(tenant, device) is not { } subject)
+        if (_ownership is null || CallerSubject(requestTenant, device) is not { } subject)
             return TeamOwnership.Unknown;
-        return _ownership.Whose(tenant, subject, pattern, routeValue, method);
+
+        TenantId? scope = requestTenant;
+        if (rule.TeamFrom == TeamFrom.RouteTeamId)
+        {
+            var routeTeam = routeValue("teamId");
+            scope = string.IsNullOrWhiteSpace(routeTeam) || !_teams.IsTeam(new TenantId(routeTeam)) ? null : new TenantId(routeTeam);
+        }
+        return scope is { } tenant ? _ownership.Whose(tenant, subject, pattern, routeValue, method) : TeamOwnership.Unknown;
     }
 
     /// <summary>What a role whose cell is "only their own" is told on an endpoint that answers for the whole team.</summary>

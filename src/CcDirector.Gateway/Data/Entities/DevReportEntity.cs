@@ -31,4 +31,13 @@ public sealed class DevReportEntity : GatewayMintedKeyEntity
 
     /// <summary>When the latest version was published (UTC).</summary>
     public DateTime UpdatedAtUtc { get; set; }
+
+    /// <summary>
+    /// In a TEAM's tenant, the account subject of the person behind the session that first published the report: the
+    /// person the Director's key was issued to, read at publish through the one resolver
+    /// (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>, devthrottle_internal#2309). It is who may send the report to a
+    /// member of the team, and who a member's comment on it goes to. Null in a personal account's tenant, where the
+    /// account is the owner. Personally identifying: never logged.
+    /// </summary>
+    public string? AuthorSubject { get; set; }
 }

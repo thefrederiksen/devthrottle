@@ -300,10 +300,53 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("cron_runs", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportCommentEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FromSubject")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .UseCollation("C");
+
+                    b.Property<Guid>("ReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ToSubject")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .UseCollation("C");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ReportId", "AtUtc");
+
+                    b.ToTable("dev_report_comments", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportEntity", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("AuthorSubject")
+                        .HasColumnType("text")
+                        .UseCollation("C");
 
                     b.Property<string>("Key")
                         .IsRequired()
@@ -342,6 +385,8 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "AuthorSubject");
 
                     b.HasIndex("TenantId", "SessionId", "Key")
                         .IsUnique();
@@ -446,6 +491,50 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("TenantId", "SessionId", "Status");
 
                     b.ToTable("dev_report_items", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportRecipientEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecipientSubject")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .UseCollation("C");
+
+                    b.Property<Guid>("ReportId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("SentAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SentBySubject")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .UseCollation("C");
+
+                    b.Property<int>("SentVersion")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "RecipientSubject", "SentAtUtc");
+
+                    b.HasIndex("TenantId", "ReportId", "RecipientSubject")
+                        .IsUnique();
+
+                    b.ToTable("dev_report_recipients", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportReplyEntity", b =>

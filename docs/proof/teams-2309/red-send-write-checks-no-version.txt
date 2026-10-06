@@ -1,0 +1,48 @@
+RED PROOF: send-write-checks-no-version
+Rule: The newest-version check is the send's own conditional write, not a read before it (round-3 review R2).
+File: src/CcDirector.Gateway/DevReports/DevReportRecipients.cs
+
+Mutation - replaced:
+            .Where(r => r.Id == reportId && r.Version == version)
+
+with:
+            .Where(r => r.Id == reportId)
+
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2309\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  > @devthrottle/client-core@0.1.0 typecheck
+  > tsc --noEmit
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  > @devthrottle/cc-assistant@0.1.0 typecheck
+  > tsc --noEmit
+  > @devthrottle/cockpit@0.1.0 typecheck
+  > tsc --noEmit
+  > @devthrottle/mobile@0.1.0 typecheck
+  > tsc --noEmit
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Send_TheNewestVersion_MovesTheRowForwardAndMarksItUnread_AndAnOlderOneIsRefusedAndMovesNothing [357 ms]
+   Assert.False() Failure
+Expected: False
+Actual:   True
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_R2_APublishLandingBetweenTheRoutesCheckAndTheWrite_IsCaughtByTheWrite_AndNothingIsSent [126 ms]
+   Assert.Equal() Failure: Values differ
+Expected: 409
+Actual:   200
+Failed!  - Failed:     2, Passed:    48, Skipped:     0, Total:    50, Duration: 19 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+[xUnit.net 00:00:16.15]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Send_TheNewestVersion_MovesTheRowForwardAndMarksItUnread_AndAnOlderOneIsRefusedAndMovesNothing [FAIL]
+[xUnit.net 00:00:21.19]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Issue2309_R2_APublishLandingBetweenTheRoutesCheckAndTheWrite_IsCaughtByTheWrite_AndNothingIsSent [FAIL]
+
+Restored from the committed tree afterwards; git diff on the file is empty.

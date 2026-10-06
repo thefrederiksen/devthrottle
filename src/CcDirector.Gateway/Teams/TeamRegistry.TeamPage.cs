@@ -159,7 +159,7 @@ public sealed partial class TeamRegistry
         var isOwner = m.Role == TeamRole.Owner;
         var canChangeRole = mayChangeRoles && !isOwner;
         var canRemove = !isOwner && RemoveRefusal(teamId, caller, m.Role) is null;
-        var name = m.Email ?? "An account with no email recorded";
+        var name = DisplayName(m);
         return new TeamPageMember(
             TeamMemberIds.For(teamId, m.AccountSubject),
             name,
@@ -172,6 +172,14 @@ public sealed partial class TeamRegistry
             canChangeRole ? AssignableRoles.Select(TeamRoles.Label).ToList() : Array.Empty<string>(),
             canRemove,
             canRemove ? RemoveWarning(name, m.Role) : null);
+    }
+
+    /// <summary>What a member is called on every team screen: their email, or a plain sentence when none is recorded.
+    /// One place, so the Team page and a report's "from" (devthrottle_internal#2309) name a person the same way.</summary>
+    public static string DisplayName(TeamMember member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        return member.Email ?? "An account with no email recorded";
     }
 
     /// <summary>

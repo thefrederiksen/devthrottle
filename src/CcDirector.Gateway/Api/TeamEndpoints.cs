@@ -256,6 +256,11 @@ internal static class TeamEndpoints
         return false;
     }
 
+    /// <summary>A key whose tenant is not a person's own account - a team's own key, Director or session - is told this
+    /// by every team route that admits through ResolveCaller (devthrottle_internal#2309, review F4).</summary>
+    internal const string NotAPersonalAccountRefusal =
+        "DevThrottle cannot tell which person is making this request: the device is not signed in to a personal account. Teams are managed from a device signed in to your own account.";
+
     /// <summary>
     /// Who is asking. On hosted: the account subject behind the caller's device key, or a refusal. Off hosted: the
     /// self-hosted refusal. Internal so every branch is tested.
@@ -286,7 +291,7 @@ internal static class TeamEndpoints
         if (string.IsNullOrWhiteSpace(subject))
         {
             FileLog.Write($"[TeamEndpoints] ResolveCaller: DENIED - tenant {tenant.ToLogString()} is not a personal account, so the person asking is unknown");
-            return (null, Results.Json(new { error = "DevThrottle cannot tell which person is making this request: the device is not signed in to a personal account. Teams are managed from a device signed in to your own account." },
+            return (null, Results.Json(new { error = NotAPersonalAccountRefusal },
                 statusCode: StatusCodes.Status403Forbidden));
         }
 

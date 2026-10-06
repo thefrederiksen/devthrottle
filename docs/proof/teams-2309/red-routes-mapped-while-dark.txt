@@ -1,0 +1,37 @@
+RED PROOF: routes-mapped-while-dark
+Rule: The team report routes are absent while Teams is dark (CC_GATEWAY_TEAMS unset).
+File: src/CcDirector.Gateway/GatewayHost.cs
+
+Mutation - replaced:
+            TeamReportEndpoints.Map(_app, _devReports, _devReportRecipients, _devReportComments, TeamRegistry, TeamAccess,
+                _tenantBoundary, TenantRegistry);
+        }
+
+with:
+        }
+        TeamReportEndpoints.Map(_app, _devReports, _devReportRecipients, _devReportComments, TeamRegistry, TeamAccess,
+            _tenantBoundary, TenantRegistry);
+
+
+Command: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-local.ps1 -Gateway -Filter FullyQualifiedName~HostedTeamsDarkTests
+Exit code: 1
+Output (the lines that say what failed):
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     6, Passed:     0, Skipped:     0, Total:     6, Duration: 22 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=6      executed=6
+RESULT: FAILED in 1 project(s):
+  CcDirector.Gateway.Tests -> C:\Users\soren\AppData\Local\Temp\cc-test-local-4cb0551a\CcDirector.Gateway.Tests.log
+      Failed!  - Failed:     6, Passed:     0, Skipped:     0, Total:     6, Duration: 22 s - CcDirector.Gateway.Tests.dll (net10.0)
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamsDarkTests.SwitchUnset_EveryTeamRouteIsAbsent_AndNoTeamCanBeCreated
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamsDarkTests.SwitchUnset_EveryTeamPageRouteIsAbsent_AndNoRoleChangesAndNobodyIsRemoved
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamsDarkTests.SwitchUnset_TheTeamReportRoutesAreAbsent_AndNothingIsSentOrCommented_WhileTheOwnersReportRoutesStillAnswer
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamsDarkTests.SwitchUnset_TheTeamFleetMapRoute_IsNotOnTheRouteTable
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamsDarkTests.SwitchUnset_TheTeamLibraryRoutesAreAbsent_AndThePersonalLibraryStillAnswers
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamsDarkTests.SwitchUnset_EveryInvitationRouteIsAbsent_AndNothingIsInvitedOrJoined
+
+Restored from the committed tree afterwards; git diff on the file is empty.
+
+Why all six dark tests went red, not only the report one: each of them asserts that NO route under /teams is on the
+Gateway's route table while the switch is unset ("Assert.DoesNotContain() Failure: Filter matched in collection"), so a
+single team route mapped outside the switch fails every one. The report test then also checks the report routes answer
+404 and that nothing was sent or commented.

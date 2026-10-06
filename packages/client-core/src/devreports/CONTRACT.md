@@ -354,3 +354,20 @@ rules for display, visibility, opacity, position, transform, filter and clip-pat
 the interface by name. It does not stop everything a stylesheet can do to a page: a report can still lay
 something over the tray, or hide the whole page. That is a report that is broken for the owner to see, not
 one that acts for him.
+
+---
+
+## 5. Two readers, one viewer
+
+The owner is not the only reader any more. A report written in a team (devthrottle_internal#2309) can be sent to
+named members of that team, and they read it in the SAME viewer, through the same frame host, under every rule in
+section 4. What differs is where the bytes come from and what is offered around them:
+
+- **The data source.** `DevReportViewer` takes an `api` (a `DevReportApi`). The owner's is the default and reads
+  `/dev-reports`. A team member's reads `/teams/{teamId}/reports/sent-to-me/...`, which serves ONLY the version the
+  author sent them; the author reads their own team report through `/teams/{teamId}/reports/mine/...`.
+- **No notes for a team reader.** Notes and answers go into the agent's conversation, and a team reader has none to
+  send them into: their words go to the author PERSON as comments, through a separate route, never to an agent. So the
+  Gateway answers `notesOpen: false` for them, the page passes that to the viewer's `notes` prop, and the frame is
+  built with NO note-taking script at all - only the report's own markup runs, under the same sandbox and policy. No
+  note or answer control is drawn that could only be refused. The page never decides this itself.

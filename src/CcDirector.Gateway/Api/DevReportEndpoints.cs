@@ -53,9 +53,12 @@ internal static class DevReportEndpoints
     /// it and the report itself is measured after decoding.</summary>
     private const long PublishBodyLimitBytes = 128L * 1024 * 1024;
 
+    /// <param name="author">Who wrote a report published in a team's tenant (devthrottle_internal#2309): asked at every
+    /// publish, it records nothing for a personal account and refuses a team's session whose person cannot be named.</param>
     public static void Map(IEndpointRouteBuilder app, DevReportStore store, DevReportDelivery delivery, HostedTenantBoundary? boundary,
-        Func<TenantId, string, DevReportSessionNaming> naming)
+        Func<TenantId, string, DevReportSessionNaming> naming, DevReportAuthor author)
     {
+        ArgumentNullException.ThrowIfNull(author);
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(delivery);
         ArgumentNullException.ThrowIfNull(naming);
@@ -68,6 +71,12 @@ internal static class DevReportEndpoints
             FileLog.Write($"[DevReportEndpoints] POST /sessions/{sid}/dev-reports: identity={AuthMiddleware.IdentityKind(ctx)}");
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             if (OwnSession(ctx, sid) is not { } sessionId) return NotYourSession(ctx, sid);
+
+            // In a team's tenant the report is a PERSON's, and that person is named before anything is written; a
+            // session nobody can be named behind publishes nothing there. A personal account records no author.
+            var authorAnswer = author.Resolve(tenant, AuthMiddleware.CallingSession(ctx)!.DirectorId);
+            if (authorAnswer.Refused)
+                return Error(403, "report_author_unknown", DevReportAuthor.UnknownAuthorRefusal);
 
             var sizeFeature = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
             if (sizeFeature is { IsReadOnly: false }) sizeFeature.MaxRequestBodySize = PublishBodyLimitBytes;
@@ -131,7 +140,8 @@ internal static class DevReportEndpoints
             }
 
             var title = DevReportTitle.Read(html, key);
-            var (report, created) = store.Publish(tenant, sessionId, key, html, verdict.Status!, title, DateTime.UtcNow);
+            var (report, created) = DevReportAuthor.PublishAs(store, authorAnswer, tenant, sessionId, key, html, verdict.Status!, title,
+                DateTime.UtcNow);
             return Results.Json(new { report = Summary(store, delivery, naming, tenant, report), created });
         });
 
@@ -212,30 +222,7 @@ internal static class DevReportEndpoints
             if (RefuseSessionIdentity(ctx) is { } refused) return refused;
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             if (FindReport(store, tenant, reportId, sessionId: null) is not { } report) return ReportNotFound(reportId);
-
-            int? version = null;
-            var raw = ctx.Request.Query["version"].ToString();
-            if (raw.Length > 0)
-            {
-                if (!int.TryParse(raw, out var n) || n < 1)
-                    return Error(400, "bad_version", $"version \"{raw}\" is not a version number.");
-                version = n;
-            }
-            var stored = store.GetVersion(tenant, report.Id, version);
-            if (stored is null)
-                return Results.Json(new
-                {
-                    error = $"Report {report.Id} has no version {version}.",
-                    code = "version_not_found",
-                    latestVersion = report.Version,
-                }, statusCode: 404);
-
-            // Plain text on purpose: the host writes these bytes into the frame (CONTRACT.md section 4 rule 2).
-            // It is never served as a page, and nosniff says so to the browser rather than trusting it not to guess
-            // (phase 2 inspection, Low 4).
-            ctx.Response.Headers["X-Dev-Report-Version"] = stored.Version.ToString();
-            ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
-            return Results.Text(stored.Html, "text/plain; charset=utf-8", Encoding.UTF8);
+            return ServeHtml(store, tenant, report, ctx);
         });
 
         app.MapPost("/dev-reports/{reportId}/send", async (string reportId, HttpContext ctx, CancellationToken ct) =>
@@ -271,6 +258,48 @@ internal static class DevReportEndpoints
                 updates = updates.Select(u => new { id = u.Id, status = u.Status, statusLabel = u.StatusLabel }).ToList(),
             });
         });
+    }
+
+    /// <summary>
+    /// A report's bytes for a reader who may read every version - the owner here, and the author on their own team route
+    /// (<see cref="TeamReportEndpoints"/>, devthrottle_internal#2309). <c>?version=</c> picks a version; none is the latest.
+    /// A team member a report was sent to reads only the version sent, through <see cref="ServeVersion"/>.
+    /// </summary>
+    internal static IResult ServeHtml(DevReportStore store, TenantId tenant, DevReportEntity report, HttpContext ctx)
+    {
+        int? version = null;
+        var raw = ctx.Request.Query["version"].ToString();
+        if (raw.Length > 0)
+        {
+            if (!int.TryParse(raw, out var n) || n < 1)
+                return Error(400, "bad_version", $"version \"{raw}\" is not a version number.");
+            version = n;
+        }
+        return ServeVersion(store, tenant, report, version, ctx);
+    }
+
+    /// <summary>
+    /// The bytes of one version of a report - the latest when <paramref name="version"/> is null - as the frame host
+    /// takes them. The one place a report's html is written to a response: the owner's route, and a team member's route
+    /// that serves only the version they were sent (devthrottle_internal#2309), both come here.
+    /// </summary>
+    internal static IResult ServeVersion(DevReportStore store, TenantId tenant, DevReportEntity report, int? version, HttpContext ctx)
+    {
+        var stored = store.GetVersion(tenant, report.Id, version);
+        if (stored is null)
+            return Results.Json(new
+            {
+                error = $"Report {report.Id} has no version {version}.",
+                code = "version_not_found",
+                latestVersion = report.Version,
+            }, statusCode: 404);
+
+        // Plain text on purpose: the host writes these bytes into the frame (CONTRACT.md section 4 rule 2).
+        // It is never served as a page, and nosniff says so to the browser rather than trusting it not to guess
+        // (phase 2 inspection, Low 4).
+        ctx.Response.Headers["X-Dev-Report-Version"] = stored.Version.ToString();
+        ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        return Results.Text(stored.Html, "text/plain; charset=utf-8", Encoding.UTF8);
     }
 
     // ---------------------------------------------------------------- shapes

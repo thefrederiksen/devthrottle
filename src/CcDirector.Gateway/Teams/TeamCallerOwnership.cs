@@ -36,6 +36,10 @@ namespace CcDirector.Gateway.Teams;
 /// with the caller, from the calling key, so what the request writes can only ever be the caller's
 /// (devthrottle_internal#2305). Every other method on <c>/prompts</c> - reading, exporting, deleting - reaches the whole
 /// team's log and is Unknown, so it stays refused inside a team.</item>
+/// <item>A dev report the person published in the team (<c>/teams/{teamId}/reports/mine/{reportId}/...</c>,
+/// devthrottle_internal#2309) is its AUTHOR's: the person recorded on the report when it was published, who was read
+/// then through <see cref="OwnerOf"/>. A report this tenant does not hold, or one with no author recorded, is Unknown.
+/// The route is called from the person's own account, so the gate asks this in the team the route names.</item>
 /// </list>
 ///
 /// Anything else - a list across the whole team, a session or Director this Gateway does not know, one registered by
@@ -51,18 +55,23 @@ public sealed class TeamCallerOwnership
     private readonly DeviceRegistry _devices;
     private readonly SessionTurnStore _turns;
     private readonly HostedTenantBoundary _boundary;
+    private readonly Func<TenantId, Guid, string?>? _reportAuthor;
 
     /// <param name="turns">The stored conversations - the one store the Gateway serves them from.</param>
     /// <param name="boundary">Enters the team's tenant scope for the stored-conversation read, which is partitioned by
     /// it.</param>
+    /// <param name="reportAuthor">The author recorded on a dev report in a tenant, or null when the tenant holds no such
+    /// report or none was recorded (devthrottle_internal#2309). Null answers Unknown for every report route, which the
+    /// gate refuses.</param>
     public TeamCallerOwnership(DirectorRegistry directors, PushedSessionStore sessions, DeviceRegistry devices,
-        SessionTurnStore turns, HostedTenantBoundary boundary)
+        SessionTurnStore turns, HostedTenantBoundary boundary, Func<TenantId, Guid, string?>? reportAuthor = null)
     {
         _directors = directors ?? throw new ArgumentNullException(nameof(directors));
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
         _devices = devices ?? throw new ArgumentNullException(nameof(devices));
         _turns = turns ?? throw new ArgumentNullException(nameof(turns));
         _boundary = boundary ?? throw new ArgumentNullException(nameof(boundary));
+        _reportAuthor = reportAuthor;
     }
 
     /// <summary>
@@ -91,6 +100,9 @@ public sealed class TeamCallerOwnership
                 ? TeamOwnership.Unknown
                 : OwnerOfDirector(tenant, directorId, callerSubject, "director");
         }
+
+        if (IsUnder(pattern, Api.TeamReportEndpoints.MineReportPattern))
+            return OwnerOfReport(tenant, routeValue("reportId"), callerSubject);
 
         // Any route that names a session by {sid} - the session family, its transcript, its prompts - touches that one
         // session. It is someone's only when exactly one Director in the tenant holds it.
@@ -162,6 +174,28 @@ public sealed class TeamCallerOwnership
         if (owner is null)
             FileLog.Write($"[TeamCallerOwnership] OwnerOf: director={directorId} - its credential is revoked, bound to another tenant, or names nobody - nobody's");
         return owner;
+    }
+
+    /// <summary>The caller's own when the report's recorded author is the caller; someone else's when it is another
+    /// person; Unknown when there is no such report here, no author on it, or no way to read one.</summary>
+    private TeamOwnership OwnerOfReport(TenantId tenant, string? reportId, string callerSubject)
+    {
+        if (_reportAuthor is null || !Guid.TryParse(reportId, out var id))
+        {
+            FileLog.Write($"[TeamCallerOwnership] Whose: report {reportId} in tenant {tenant.ToLogString()} - not a report id, or no author reader - unknown");
+            return TeamOwnership.Unknown;
+        }
+
+        var author = _reportAuthor(tenant, id);
+        if (string.IsNullOrWhiteSpace(author))
+        {
+            FileLog.Write($"[TeamCallerOwnership] Whose: report {id} in tenant {tenant.ToLogString()} - no such report, or no author recorded - unknown");
+            return TeamOwnership.Unknown;
+        }
+
+        var mine = string.Equals(author, callerSubject, StringComparison.Ordinal);
+        FileLog.Write($"[TeamCallerOwnership] Whose: report {id} in tenant {tenant.ToLogString()} - {(mine ? "the caller's own" : "someone else's")}");
+        return mine ? TeamOwnership.Callers : TeamOwnership.SomeoneElses;
     }
 
     private TeamOwnership OwnerOfDirector(TenantId tenant, string directorId, string callerSubject, string what)

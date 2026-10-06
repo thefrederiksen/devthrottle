@@ -166,3 +166,222 @@
   font-size: 12.5px;
   color: var(--text-dim);
 }
+
+/* ---- REPORTS (screen S10, devthrottle_internal#2309) ---------------------------------------------------------------
+   The reports sent to this person, newest first, as rows: the title, "From <who> - <date>", and New or Read. Below, for
+   a person who runs sessions in the team, their own reports in the team. */
+.team-report-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.team-report-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  text-align: left;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.team-report-row:hover,
+.team-report-row:focus-visible {
+  border-color: var(--accent);
+}
+
+.team-report-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.team-report-row-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.team-report-row-meta {
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.team-report-pill {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+
+.team-report-pill-new {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.team-report-pill-read {
+  color: var(--text-dim);
+}
+
+.team-reports-own {
+  margin-top: 28px;
+}
+
+.team-reports-heading {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* One report open: the shared viewer fills the page, the reader's own panel beside it. */
+.team-report-open {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.team-report-open .dev-report-viewer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.team-report-side-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.team-report-side-heading {
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.team-report-from {
+  margin: 0;
+  font-weight: 600;
+}
+
+.team-report-note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.team-report-comments,
+.team-report-recipients {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.team-report-comment {
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.team-report-comment p {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 13.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.team-report-comment-who {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.team-report-recipient-read,
+.team-report-choice-role {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.team-report-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.team-report-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  resize: vertical;
+}
+
+.team-report-send {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.team-report-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+
+/* At phone width the panel goes under the report rather than beside it: 340 pixels beside a report leave the report
+   nothing. The report keeps a readable height and the page scrolls. */
+@media (max-width: 600px) {
+  .team-report-row {
+    align-items: flex-start;
+  }
+
+  .team-report-open {
+    height: auto;
+    overflow: visible;
+  }
+
+  .team-report-open .dev-report-viewer {
+    flex-direction: column;
+    height: auto;
+    overflow: visible;
+  }
+
+  .team-report-open .dev-report-viewer-main {
+    height: 70vh;
+    flex: 0 0 auto;
+  }
+
+  .team-report-open .team-report-side {
+    flex: 0 0 auto;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    overflow: visible;
+  }
+}

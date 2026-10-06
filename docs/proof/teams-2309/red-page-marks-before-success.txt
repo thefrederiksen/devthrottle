@@ -1,0 +1,28 @@
+RED PROOF: page-marks-before-success
+Rule: A version is marked read on the page only once the Gateway accepted the read (round-3 review R3).
+File: apps/cockpit/src/teams/collaborator/TeamReportViews.tsx
+
+Mutation - replaced:
+    markingVersion.current = version;
+    markReportRead(
+with:
+    markingVersion.current = version;
+    markedVersion.current = version;
+    markReportRead(
+
+Command: npx vitest run src/teams/collaborator/reportsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ ? src/teams/collaborator/reportsPage.test.tsx (27 tests | 1 failed) 1636ms
+   ? a report sent to you > Open_AReadThatFailed_IsTriedAgainForTheSameVersion_OnTheNextPoll_AndNotAfterItSucceeded 1046ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 26 passed (27)
+stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > a report sent to you > Open_AReadThatFailed_IsTriedAgainForTheSameVersion_OnTheNextPoll_AndNotAfterItSucceeded
+AssertionError: expected "spy" to be called 2 times, but got 1 times
+    271|     await waitFor(() => expect(screen.getByTestId("team-report-comment?
+    273|     await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(2?
+    274|     expect(vi.mocked(markReportRead).mock.calls.map((c) => c[2])).toEq?
+
+Restored from the committed tree afterwards; git diff on the file is empty.

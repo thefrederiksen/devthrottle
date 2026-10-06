@@ -1,0 +1,47 @@
+RED PROOF: non-member-skipped-silently
+Rule: Sending to someone who is not a member of the team is refused, and nothing is sent.
+File: src/CcDirector.Gateway/Api/TeamReportEndpoints.cs
+
+Mutation - replaced:
+            if (member is null)
+            {
+with:
+            if (member is null) continue;
+            if (member is null)
+            {
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2309\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Send_ToSomeoneWhoIsNotAMemberOfThisTeam_IsRefused_AndNothingIsSent [184 ms]
+   Assert.Equal() Failure: Values differ
+Expected: 400
+Actual:   200
+Failed!  - Failed:     1, Passed:    40, Skipped:     0, Total:    41, Duration: 16 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+[xUnit.net 00:00:15.07]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Send_ToSomeoneWhoIsNotAMemberOfThisTeam_IsRefused_AndNothingIsSent [FAIL]
+
+Command: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-local.ps1 -Gateway -Filter FullyQualifiedName~HostedTeamReportsTests
+Exit code: 1
+Output (the lines that say what failed):
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     1, Passed:     9, Skipped:     0, Total:    10, Duration: 1 m 12 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=10     executed=10
+RESULT: FAILED in 1 project(s):
+  CcDirector.Gateway.Tests -> C:\Users\soren\AppData\Local\Temp\cc-test-local-374d0d25\CcDirector.Gateway.Tests.log
+      Failed!  - Failed:     1, Passed:     9, Skipped:     0, Total:    10, Duration: 1 m 12 s - CcDirector.Gateway.Tests.dll (net10.0)
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_OverTheWire_SendingToSomeoneWhoIsNotAMember_IsRefused_AndNothingIsSent
+
+Restored from the committed tree afterwards; git diff on the file is empty.

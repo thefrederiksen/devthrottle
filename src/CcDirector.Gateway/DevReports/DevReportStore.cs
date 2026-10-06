@@ -40,8 +40,13 @@ internal sealed class DevReportStore
     /// Publish a report for a session: a new report when the key is new for that session, otherwise a new
     /// version of the existing one - even when the bytes are identical, because the owner asked for a reload.
     /// </summary>
+    /// <param name="authorSubject">In a team's tenant, the person behind the publishing session
+    /// (<see cref="DevReportAuthor"/>); null in a personal account's tenant. Recorded when the report is created and
+    /// never changed by a later version: the report is its first author's, and only a restore of that same seat can
+    /// publish to it again (<see cref="DevReportInheritance"/>).</param>
     public (DevReportEntity Report, bool Created) Publish(
-        TenantId tenant, string sessionId, string key, string html, string status, string title, DateTime nowUtc)
+        TenantId tenant, string sessionId, string key, string html, string status, string title, DateTime nowUtc,
+        string? authorSubject = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(sessionId);
         ArgumentException.ThrowIfNullOrEmpty(key);
@@ -58,12 +63,12 @@ internal sealed class DevReportStore
             // read "no report yet" and both insert; the unique index refuses the loser. Re-reading makes the second
             // attempt a new version of the report the other process wrote - the answer one process gives - instead of
             // a raw 500. A second failure is a fault and surfaces.
-            try { return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, bytes, hash, BeforePublishWriteForTests); }
+            try { return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, authorSubject, bytes, hash, BeforePublishWriteForTests); }
             catch (DbUpdateException ex)
             {
                 FileLog.Write($"[DevReportStore] Publish: sid={sessionId} key={key} lost a race with another writer " +
                               $"({ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
-                return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, bytes, hash, beforeWrite: null);
+                return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, authorSubject, bytes, hash, beforeWrite: null);
             }
         }
     }
@@ -74,7 +79,7 @@ internal sealed class DevReportStore
 
     private (DevReportEntity Report, bool Created) PublishOnce(
         TenantId tenant, string sessionId, string key, string html, string status, string title, DateTime nowUtc,
-        byte[] bytes, string hash, Action? beforeWrite)
+        string? authorSubject, byte[] bytes, string hash, Action? beforeWrite)
     {
         using var ctx = _db.CreateContext(tenant);
         using var tx = ctx.Database.BeginTransaction();
@@ -88,6 +93,7 @@ internal sealed class DevReportStore
                 SessionId = sessionId,
                 Key = key,
                 PublishedAtUtc = nowUtc,
+                AuthorSubject = authorSubject,
             };
             ctx.DevReports.Add(report);
         }
@@ -174,6 +180,20 @@ internal sealed class DevReportStore
         if (!string.IsNullOrEmpty(sessionId))
             query = query.Where(r => r.SessionId == sessionId);
         return query.ToList().OrderByDescending(r => r.UpdatedAtUtc).ThenBy(r => r.Key, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// The reports one person wrote in a team's tenant, newest update first (devthrottle_internal#2309). Read by the
+    /// author column and its index, so the author's Reports page grows with what they wrote, not with the team's history.
+    /// </summary>
+    public IReadOnlyList<DevReportEntity> ListByAuthor(TenantId tenant, string authorSubject)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(authorSubject);
+        using var ctx = _db.CreateContext(tenant);
+        var rows = ctx.DevReports.AsNoTracking().Where(r => r.AuthorSubject == authorSubject).ToList()
+            .OrderByDescending(r => r.UpdatedAtUtc).ThenBy(r => r.Key, StringComparer.Ordinal).ToList();
+        FileLog.Write($"[DevReportStore] ListByAuthor: tenant={tenant.ToLogString()} count={rows.Count}");
+        return rows;
     }
 
     /// <summary>One report, or null when the account has no report with that id.</summary>

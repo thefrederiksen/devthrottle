@@ -1,0 +1,3 @@
+apps/cockpit tsc=0
+packages/client-core tsc=0
+apps/mobile tsc=0

@@ -1,0 +1,24 @@
+RED PROOF: page-marks-once-per-open
+Rule: The page remembers the version it marked, so a version sent while the report is open is marked when shown (delta review D5).
+File: apps/cockpit/src/teams/collaborator/TeamReportViews.tsx
+
+Mutation - replaced:
+if (markedVersion.current === version || markingVersion.current === version) return;
+with:
+if (markedVersion.current !== null || markingVersion.current !== null) return;
+
+Command: npx vitest run src/teams/collaborator/reportsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ ? src/teams/collaborator/reportsPage.test.tsx (28 tests | 1 failed) 1597ms
+   ? a report sent to you > Open_AVersionSentWhileOpen_AfterTheOlderOneWasMarked_IsMarkedToo 1035ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 27 passed (28)
+stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > a report sent to you > Open_AVersionSentWhileOpen_AfterTheOlderOneWasMarked_IsMarkedToo
+AssertionError: expected "spy" to be called 2 times, but got 1 times
+    274|     await waitFor(() => expect(markReportRead).toHaveBeenCalledTimes(2?
+    275|     expect(vi.mocked(markReportRead).mock.calls.map((c) => c[2])).toEq?
+
+Restored from the committed tree afterwards; git diff on the file is empty.

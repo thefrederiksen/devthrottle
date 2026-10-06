@@ -201,11 +201,22 @@ public sealed class PostgresProviderProofTests
         var expected = new[]
         {
             ("account_trials", "subject"),
-            // The dev report natural keys (the dev reports mission). A report is found by (session, report
-            // file path) and an owner item by the page-minted id, both unique indexes matched for exact
-            // equality, so the two providers have to agree on what counts as the same key.
+            // Two groups of dev report columns, interleaved below because the list is sorted:
+            // - The dev report natural keys (the dev reports mission): dev_report_items.ClientItemId and
+            //   SessionId, and dev_reports.Key and SessionId. A report is found by (session, report file path)
+            //   and an owner item by the page-minted id, both unique indexes matched for exact equality, so the
+            //   two providers have to agree on what counts as the same key.
+            // - A report sent to a member of a team, and that member's comments (devthrottle_internal#2309):
+            //   dev_report_comments.FromSubject and ToSubject, dev_report_recipients.RecipientSubject and
+            //   SentBySubject, and dev_reports.AuthorSubject. The person subjects are matched exactly - who wrote
+            //   it, who it was sent to, whose comment goes to whom.
+            ("dev_report_comments", "FromSubject"),
+            ("dev_report_comments", "ToSubject"),
             ("dev_report_items", "ClientItemId"),
             ("dev_report_items", "SessionId"),
+            ("dev_report_recipients", "RecipientSubject"),
+            ("dev_report_recipients", "SentBySubject"),
+            ("dev_reports", "AuthorSubject"),
             ("dev_reports", "Key"),
             ("dev_reports", "SessionId"),
             ("device_credentials", "DeviceId"),

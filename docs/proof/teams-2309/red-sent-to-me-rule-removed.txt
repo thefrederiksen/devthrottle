@@ -1,0 +1,67 @@
+RED PROOF: sent-to-me-rule-removed
+Rule: The recipient's routes are declared in TeamEndpointRules, so the gate admits them; undeclared, it refuses.
+File: src/CcDirector.Gateway/Teams/TeamEndpointRules.cs
+
+Mutation - replaced:
+        new TeamEndpointRule(Api.TeamReportEndpoints.SentToMePattern, TeamMethods.Any, TeamAction.AnswerQuestionsSendRequestsReadReports,
+            TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+
+with:
+(nothing)
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2309\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2309\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Rules_EachReportRoute_StatesItsAction(method: "POST", pattern: "/teams/{teamId}/reports/sent-to-me/{reportId}/comm"???, action: AnswerQuestionsSendRequestsReadReports, target: Team) [6 s]
+   Assert.NotNull() Failure: Value is null
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Rules_EachReportRoute_StatesItsAction(method: "GET", pattern: "/teams/{teamId}/reports/sent-to-me", action: AnswerQuestionsSendRequestsReadReports, target: Team) [356 ms]
+   Assert.NotNull() Failure: Value is null
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Rules_EachReportRoute_StatesItsAction(method: "GET", pattern: "/teams/{teamId}/reports/sent-to-me/{reportId}/html", action: AnswerQuestionsSendRequestsReadReports, target: Team) [301 ms]
+   Assert.NotNull() Failure: Value is null
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Gate_ACollaborator_ReachesWhatWasSentToThem_ButHasNoReportsOfTheirOwn [400 ms]
+   Assert.Equal() Failure: Values differ
+Expected: Tuple (True, 200)
+Actual:   Tuple (False, 403)
+  Failed CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Gate_SomeoneWhoIsNotAMember_IsToldThereIsNoSuchTeam [318 ms]
+   Assert.Equal() Failure: Values differ
+Expected: Tuple (False, 404)
+Actual:   Tuple (False, 403)
+Failed!  - Failed:     5, Passed:    36, Skipped:     0, Total:    41, Duration: 18 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+[xUnit.net 00:00:09.39]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Rules_EachReportRoute_StatesItsAction(method: "POST", pattern: "/teams/{teamId}/reports/sent-to-me/{reportId}/comm"???, action: AnswerQuestionsSendRequestsReadReports, target: Team) [FAIL]
+[xUnit.net 00:00:09.74]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Rules_EachReportRoute_StatesItsAction(method: "GET", pattern: "/teams/{teamId}/reports/sent-to-me", action: AnswerQuestionsSendRequestsReadReports, target: Team) [FAIL]
+[xUnit.net 00:00:10.76]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Rules_EachReportRoute_StatesItsAction(method: "GET", pattern: "/teams/{teamId}/reports/sent-to-me/{reportId}/html", action: AnswerQuestionsSendRequestsReadReports, target: Team) [FAIL]
+[xUnit.net 00:00:18.45]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Gate_ACollaborator_ReachesWhatWasSentToThem_ButHasNoReportsOfTheirOwn [FAIL]
+[xUnit.net 00:00:19.43]     CcDirector.Gateway.Tests.Teams.Reports.TeamReportsTests.Gate_SomeoneWhoIsNotAMember_IsToldThereIsNoSuchTeam [FAIL]
+
+Command: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-local.ps1 -Gateway -Filter FullyQualifiedName~HostedTeamReportsTests
+Exit code: 1
+Output (the lines that say what failed):
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     8, Passed:     2, Skipped:     0, Total:    10, Duration: 1 m 9 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=10     executed=10
+RESULT: FAILED in 1 project(s):
+  CcDirector.Gateway.Tests -> C:\Users\soren\AppData\Local\Temp\cc-test-local-7cd63773\CcDirector.Gateway.Tests.log
+      Failed!  - Failed:     8, Passed:     2, Skipped:     0, Total:    10, Duration: 1 m 9 s - CcDirector.Gateway.Tests.dll (net10.0)
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_ASessionKey_IsRefusedEveryTeamReportRoute
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_PrivacyCheck_ADeveloperCannotReadAnotherDevelopersReports
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_TenantIsolation_AnotherTeam_SeesNothingOfThisOne
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_OverTheWire_AReportNotSentToACollaborator_IsRefused_OnTheListTheMetadataAndTheHtml
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_OverTheWire_SendingAReportYouDidNotWrite_IsRefusedByTheGate
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_OverTheWire_AReportSentToMike_AppearsForMike_AndForNoOtherCollaborator
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_OverTheWire_SendingToSomeoneWhoIsNotAMember_IsRefused_AndNothingIsSent
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire
+
+Restored from the committed tree afterwards; git diff on the file is empty.

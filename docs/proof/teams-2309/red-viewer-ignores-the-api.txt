@@ -1,0 +1,23 @@
+RED PROOF: viewer-ignores-the-api
+Rule: A team report opens in the ONE shared viewer, fed from the team's routes - never the owner's.
+File: packages/client-core/src/devreports/DevReportViewer.tsx
+
+Mutation - replaced:
+  const apiRef = useRef(api);
+with:
+  const apiRef = useRef(gatewayDevReportApi);
+
+Command: npx vitest run src/teams/collaborator/reportsPage.test.tsx
+Exit code: 1
+Output (the lines that say what failed):
+ ? src/teams/collaborator/reportsPage.test.tsx (17 tests | 1 failed) 532ms
+   ? a report sent to you > Open_StaysOnThePageAddress_AndUsesTheSharedViewerFedFromTheRecipientsRoute 80ms
+ Test Files  1 failed (1)
+      Tests  1 failed | 16 passed (17)
+stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
+??????? Failed Tests 1 ???????
+ FAIL  src/teams/collaborator/reportsPage.test.tsx > a report sent to you > Open_StaysOnThePageAddress_AndUsesTheSharedViewerFedFromTheRecipientsRoute
+AssertionError: expected '/dev-reports/r-new/html?version=3' to be '/teams/team-dt/reports/sent-to-me/r-n?' // Object.is equality
+Expected: "/teams/team-dt/reports/sent-to-me/r-new/html?version=3"
+
+Restored from the committed tree afterwards; git diff on the file is empty.

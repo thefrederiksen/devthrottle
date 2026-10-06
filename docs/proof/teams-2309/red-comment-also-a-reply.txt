@@ -1,0 +1,27 @@
+RED PROOF: comment-also-a-reply
+Rule: A comment is never readable with a session key: it is not written into the agent's conversation.
+File: src/CcDirector.Gateway/DevReports/DevReportPersonComments.cs
+
+Mutation - replaced:
+        ctx.DevReportComments.Add(row);
+        ctx.SaveChanges();
+
+with:
+        ctx.DevReportComments.Add(row);
+        ctx.DevReportReplies.Add(new DevReportReplyEntity { TenantId = team.Value, ReportId = reportId, Text = text, AtUtc = nowUtc });
+        ctx.SaveChanges();
+
+
+Command: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-local.ps1 -Gateway -Filter FullyQualifiedName~HostedTeamReportsTests
+Exit code: 1
+Output (the lines that say what failed):
+  FAIL  CcDirector.Gateway.Tests  Failed!  - Failed:     2, Passed:     8, Skipped:     0, Total:    10, Duration: 1 m 11 s - CcDirector.Gateway.Tests.dll (net10.0)
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Gateway.Tests                 outcome=Failed       total=10     executed=10
+RESULT: FAILED in 1 project(s):
+  CcDirector.Gateway.Tests -> C:\Users\soren\AppData\Local\Temp\cc-test-local-47d235e0\CcDirector.Gateway.Tests.log
+      Failed!  - Failed:     2, Passed:     8, Skipped:     0, Total:    10, Duration: 1 m 11 s - CcDirector.Gateway.Tests.dll (net10.0)
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire
+  Failed (from CcDirector.Gateway.Tests.trx): CcDirector.Gateway.Tests.Teams.HostedTeamReportsTests.Issue2309_ACommentNeverReachesTheSession_LiveSessionOnTheTunnel
+
+Restored from the committed tree afterwards; git diff on the file is empty.
