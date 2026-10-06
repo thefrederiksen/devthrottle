@@ -13,9 +13,9 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// <summary>
 /// The person stamp through the PRODUCTION wiring (devthrottle_internal#2305, review P2). The unit tests prove the
 /// recorder and the prompt endpoint each do the right thing with the delegates they are given; this proves the real
-/// <see cref="GatewayHost"/> gives them the right ones. A wire-level push is not possible here - a team key is answered
-/// 402 by the hosted access lease before it reaches a route - so the test drives the host's own recorder and the host's
-/// own caller lookup, which are exactly the objects the Director hub and <c>POST /prompts</c> are built with.
+/// <see cref="GatewayHost"/> gives them the right ones. It drives the host's own recorder and the host's own caller
+/// lookup, which are exactly the objects the Director hub and <c>POST /prompts</c> are built with; this class sets up no
+/// team bill, and a team key reaches a route only when the team's bill can be read (devthrottle_internal#2311 step 2).
 /// </summary>
 [Collection("GatewayHostedMode")]
 public sealed class TeamPersonStampHostTests
