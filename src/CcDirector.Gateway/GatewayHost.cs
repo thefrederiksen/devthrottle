@@ -2041,8 +2041,9 @@ public sealed class GatewayHost : IAsyncDisposable
             lessonsBlock: FleetManagerLessonsBlock,
             directorOf: FleetManagerDirectorOf,
             sendCommand: SendCommandAsync,
-            // In a team, only the marked session's own Director is stamped on a push (devthrottle_internal#2311).
-            isSessionOfDirector: (tenant, directorId, sid) => IsTeamSessionOfDirector(tenant, directorId, sid, isRemoval: false));
+            // In a team, only the Director that holds the marked session is stamped on a push: the store's one answer
+            // (devthrottle_internal#2311, OR-F1). Outside a team every row is the holder's.
+            isSessionOfDirector: PushedSessions.IsHoldersRow);
         // A Director drops every session's lessons when a new connection opens; its first snapshot is the moment to
         // stamp the marked Fleet Manager again. Off the pushing Director's call, which a handler must not block.
         PushedSessions.SessionsArrivedOnNewConnection += (tenant, directorId)
@@ -3720,14 +3721,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)),
             _fleetManagerDeliveryGate,
             // A marked event carries the account's confirmed lessons as they are when it is delivered (issue #3559).
-            lessons: FleetManagerLessonsBlock,
-            // In a team, an event is typed only into the row of the marked session's own Director (devthrottle_internal
-            // #2311, FL-F1). Asked in the tenant's scope: the rule reads the session's stored record.
-            isSessionOfDirector: (tenant, directorId, sid) =>
-            {
-                using var scope = _tenantBoundary.EnterScope(tenant);
-                return IsTeamSessionOfDirector(tenant, directorId, sid, isRemoval: false);
-            });
+            // In a team, an event is typed only into the holder's row: the environment's IsHoldersRow, the store's one
+            // answer (devthrottle_internal#2311, OR-F1).
+            lessons: FleetManagerLessonsBlock);
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.
         _fleetManagerEventSweep = new Fleet.FleetManagerEventSweep(_tenantBoundary, TenantRegistry, _tenantContext,

@@ -205,7 +205,6 @@ public sealed class FleetManagerEventService : IDisposable
     private readonly TimeSpan _batchWindow;
     private readonly FleetManagerDeliveryGate _deliveryGate;
     private readonly DateTime _startedAtUtc;
-    private readonly Func<TenantId, string, string, bool>? _isSessionOfDirector;
     private readonly Func<TenantId, string?>? _lessons;
     private readonly CancellationTokenSource _shutdown = new();
 
@@ -239,17 +238,10 @@ public sealed class FleetManagerEventService : IDisposable
     /// <param name="lessons">The account's confirmed lessons block as it is now (<see cref="FleetManagerLessons.Build"/>),
     /// read at the moment a <c>marked</c> event is delivered (issue #3559). Null in a test of delivery alone: then a
     /// marked event carries no lessons.</param>
-    /// <param name="isSessionOfDirector">Whether a session, given (tenant, directorId, sessionId), is that Director's own,
-    /// asked of every roster row that lists the marked Fleet Manager before an event is typed into it
-    /// (devthrottle_internal#2311, #3552 review: the Fleet Manager lessons, FL-F1). In a team any Director may list any
-    /// session id, so the first row for the marked id may be a colleague's Director; a marked event carries the confirmed
-    /// lessons. Production asks the one team rule; outside a team it answers yes. Null takes the first row, as before.</param>
     public FleetManagerEventService(FleetManagerEventStore store, IFleetManagerEventEnvironment environment,
-        FleetManagerDeliveryGate deliveryGate, TimeSpan? batchWindow = null, Func<TenantId, string?>? lessons = null,
-        Func<TenantId, string, string, bool>? isSessionOfDirector = null)
+        FleetManagerDeliveryGate deliveryGate, TimeSpan? batchWindow = null, Func<TenantId, string?>? lessons = null)
     {
         _lessons = lessons;
-        _isSessionOfDirector = isSessionOfDirector;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _env = environment ?? throw new ArgumentNullException(nameof(environment));
         _deliveryGate = deliveryGate ?? throw new ArgumentNullException(nameof(deliveryGate));
@@ -936,9 +928,10 @@ public sealed class FleetManagerEventService : IDisposable
 
         var marked = _env.MarkedFleetManager(tenant);
         var listed = _env.Roster(tenant).Where(r => SameId(r.Session.SessionId, fleetManagerSessionId)).ToList();
-        // Only the row of the session's OWN Director: a Director that merely lists its id is never typed into.
-        var fm = listed.FirstOrDefault(r => _isSessionOfDirector is null
-                                            || _isSessionOfDirector(tenant, r.DirectorId, r.Session.SessionId));
+        // Only the HOLDER'S row (devthrottle_internal#2311, OR-F1): the store's one answer for which Director holds the
+        // session. In a team a Director that merely lists its id is never typed into, and when the holder rule names
+        // nobody no row is - the event waits. Outside a team every row is the holder's, so this is the first row.
+        var fm = listed.FirstOrDefault(r => _env.IsHoldersRow(tenant, r.DirectorId, r.Session.SessionId));
         if (fm.Session is null && listed.Count > 0)
         {
             FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: WITHHELD - listed by " +
@@ -1096,7 +1089,12 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
         => _pushed.TryGetLastKnownSession(tenant, sessionId);
 
     public bool IsHoldersRow(TenantId tenant, string directorId, string sessionId)
-        => _pushed.IsHoldersRow(tenant, directorId, sessionId);
+    {
+        // In the account's scope: in a team the holder rule reads the session's stored records, and this runs on a
+        // background task with no scope of its own.
+        using var scope = _enterTenantScope?.Invoke(tenant);
+        return _pushed.IsHoldersRow(tenant, directorId, sessionId);
+    }
 
     public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant)
     {

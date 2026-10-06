@@ -1657,8 +1657,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     /// <paramref name="ownListsIt"/> is false only the colleague's Director lists the id.</summary>
     private async Task MarkedEventOwedWithAColleagueListingTheIdAsync(bool ownListsIt)
     {
-        _service = new FleetManagerEventService(_events, _env, _deliveryGate, lessons: _ => MarkedLessons,
-            isSessionOfDirector: (_, directorId, sid) => directorId == "dir-1" && sid == "fm-2");
+        // The store's one answer names dir-1 as fm-2's holder, and nobody when dir-1 does not list it.
+        _pushed.UseHolderRule(new HolderIs("fm-2", "dir-1"));
+        _service = new FleetManagerEventService(_events, _env, _deliveryGate, lessons: _ => MarkedLessons);
         // The colleague's Director lists the marked id, Idle - delivered to at once by a first-row choice, with no
         // reading waited for.
         _pushed.RegisterConnection(Tenant, "dir-colleague", "conn-colleague");
@@ -1694,6 +1695,15 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         Assert.Empty(_env.Sends);
         Assert.Equal("marked", Assert.Single(Open()).Kind);
+    }
+
+    /// <summary>A holder rule for one session: <paramref name="director"/> holds it when it lists it, otherwise nobody
+    /// does. Every other session keeps the first row.</summary>
+    private sealed class HolderIs(string sessionId, string director) : ISessionHolderRule
+    {
+        public bool Governs(TenantId tenant) => true;
+        public string? HolderOf(TenantId tenant, string session, IReadOnlyList<string> holders)
+            => session != sessionId ? holders[0] : holders.Contains(director) ? director : null;
     }
 
     /// <summary>The replacement moves the mark as production does: the mark, the waiting list and the one event

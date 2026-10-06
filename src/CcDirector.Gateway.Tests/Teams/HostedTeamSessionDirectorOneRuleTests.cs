@@ -35,8 +35,8 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// <item>Alice's Director lists the session too. Now it reaches Alice's Director - the PRESENCE that makes the absence on
 /// Bob's side mean something - and still never Bob's.</item>
 /// </list>
-/// Four paths: the typed prompt route, a held typed prompt the Gateway's driver drives, a dev report's delivery, and the
-/// Fleet Manager's retirement close.
+/// Six paths: the typed prompt route, a held typed prompt the Gateway's driver drives, a dev report's delivery, the
+/// Fleet Manager's retirement close, a worker's death (OR-F2) and the marked Fleet Manager event (OR-F1).
 ///
 /// PARKED SUITE. Gateway.Tests serializes machine-wide and does not run in the default gate.
 /// </summary>
@@ -261,7 +261,59 @@ public sealed class HostedTeamSessionDirectorOneRuleTests : IAsyncLifetime
         Assert.Contains(_gateway.FleetManagerEventStoreForTest!.Owed(_team, fleetManager, 10).Events, e => e.Id == died.Id);
     }
 
+    // ---- the marked Fleet Manager event (review round 1, OR-F1) -------------------------------------------------------
+
+    [Fact]
+    public async Task TheMarkedFleetManagerEvent_IsNeverTypedIntoAColleaguesDirector_AndIsTypedIntoTheOwners()
+    {
+        // Alice's session is the team's marked Fleet Manager and a marked event is owed to it. Both Directors say they
+        // check the session waits for a prompt before typing, as a current Director does, so nothing but the holder
+        // answer stands between the event and either Director. The rows are Idle, which is delivered to at once.
+        _gateway.TenantSettingsResolver.SetFleetManagerSessionId(_team, _sessionId, DateTime.UtcNow);
+        _gateway.TurnPushCapabilities.Record(_team, AliceDirector, pushesTurns: true, checksIdleBeforeTyping: true);
+        _gateway.TurnPushCapabilities.Record(_team, BobDirector, pushesTurns: true, checksIdleBeforeTyping: true);
+        // Alice's Director answers a prompt as a current one does: accepted, and the idle check was made.
+        _alicePrompt = _ => FakeTunnelDirector.Ok(new { ok = true, accepted = true, idleChecked = true });
+        Assert.NotNull(_gateway.FleetManagerEventStoreForTest!.RecordMarked(_team, _sessionId, DateTime.UtcNow));
+
+        // ONLY BOB'S ROW - asserted: the holder rule names nobody, so the attempt is WITHHELD (the only branch that
+        // answers NotOwnDirector), Bob's Director is typed nothing, and the event stays owed.
+        Assert.Equal(new[] { BobDirector }, _gateway.PushedSessions.DirectorsHoldingSession(_team, _sessionId));
+        Assert.Equal(Fleet.FleetManagerDeliveryResult.NotOwnDirector, await DeliverMarkedNowAsync());
+        Assert.DoesNotContain(_seenByBob, IsMarkedEvent);
+        Assert.Contains(_gateway.FleetManagerEventStoreForTest!.Owed(_team, _sessionId, 10).Events,
+            e => e.Kind == Fleet.FleetManagerEventStore.KindMarked);
+
+        // ALICE'S DIRECTOR LISTS IT, Idle: the event is typed into HER Director, and never Bob's. Her arrival may itself
+        // book the delivery, so the driven attempt finds it Delivered or, when that one came first, NothingOwed.
+        await _aliceDirector.PushSnapshotAsync(Row(_sessionId, "Idle"));
+        Assert.Equal(2, _gateway.PushedSessions.DirectorsHoldingSession(_team, _sessionId).Count);
+        Assert.Contains(await DeliverMarkedNowAsync(),
+            new[] { Fleet.FleetManagerDeliveryResult.Delivered, Fleet.FleetManagerDeliveryResult.NothingOwed });
+        Assert.Empty(_gateway.FleetManagerEventStoreForTest!.Owed(_team, _sessionId, 10).Events);
+        Assert.Contains(_seenByAlice, IsMarkedEvent);
+        Assert.DoesNotContain(_seenByBob, IsMarkedEvent);
+    }
+
     // ---- helpers ---------------------------------------------------------------------------------------------------
+
+    /// <summary>One delivery attempt to the marked session, awaited to its end. A reconcile already delivering answers
+    /// AlreadyDelivering; then the attempt is made again once it has finished, so the answer is this attempt's.</summary>
+    private async Task<Fleet.FleetManagerDeliveryResult> DeliverMarkedNowAsync()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (true)
+        {
+            var result = await _gateway.FleetManagerEventsForTest!.DeliverToAsync(_team, _sessionId);
+            if (result != Fleet.FleetManagerDeliveryResult.AlreadyDelivering || DateTime.UtcNow > deadline) return result;
+            await Task.Delay(50);
+        }
+    }
+
+    /// <summary>A prompt typed into the marked session that carries the marked event.</summary>
+    private bool IsMarkedEvent(DirectorCommand c) =>
+        c.SessionId == _sessionId && c.Verb == "prompt" && (c.PayloadJson ?? "").Contains("kind: marked", StringComparison.Ordinal);
+
 
     private async Task AliceListsTheSession()
     {

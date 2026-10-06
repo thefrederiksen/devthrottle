@@ -67,8 +67,9 @@ public sealed class FleetManagerLessonsObserver
     /// <param name="isSessionOfDirector">Whether a session, given (tenant, directorId, sessionId), is that Director's own,
     /// asked before a PUSH stamps the marked session down to the pushing Director (devthrottle_internal#2311, #3552
     /// review: the Fleet Manager lessons). In a team any Director may list any session id, so a colleague's Director
-    /// listing the marked id would otherwise be sent the lessons. Production asks the one team rule; outside a team it
-    /// answers yes. Null takes every push, as before.</param>
+    /// listing the marked id would otherwise be sent the lessons. Production asks the session store's one answer for which
+    /// Director holds a session (PushedSessionStore.IsHoldersRow, OR-F1); outside a team it answers yes. Null takes every
+    /// push, as before.</param>
     public FleetManagerLessonsObserver(Func<TenantId, string?> markedSessionId, Func<TenantId, string?> lessonsBlock,
         Func<TenantId, string, string?> directorOf,
         Func<string, DirectorCommand, CancellationToken, Task<DirectorCommandResult?>> sendCommand,
