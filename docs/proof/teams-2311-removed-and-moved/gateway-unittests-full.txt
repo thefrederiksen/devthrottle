@@ -1,0 +1,2 @@
+Gateway.UnitTests in full: dotnet test src\CcDirector.Gateway.UnitTests, commit cd27bbb22, 2026-10-06 (the Gateway changed, so the parked suite was run whole).
+Passed!  - Failed:     0, Passed:  9418, Skipped:    14, Total:  9432, Duration: 7 m 32 s - CcDirector.Gateway.UnitTests.dll (net10.0)
