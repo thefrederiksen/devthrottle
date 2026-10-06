@@ -114,4 +114,29 @@ public sealed class GatewayLaunchdAutostartTests
         Assert.NotEqual(LauncherLaunchdAutostart.Label, GatewayLaunchdAutostart.Label);
         Assert.NotEqual(LauncherLaunchdAutostart.PlistPath, GatewayLaunchdAutostart.PlistPath);
     }
+
+    [Fact]
+    public void MayReload_InsideItsOwnJob_IsFalse()
+    {
+        // launchd sets XPC_SERVICE_NAME to the job label in the job's processes. A bootout from
+        // there kills the caller before it can bootstrap, and the job is gone until the next
+        // login (product #3575).
+        Assert.False(GatewayLaunchdAutostart.MayReload(GatewayLaunchdAutostart.Label));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("application.com.apple.Terminal.12345")]
+    public void MayReload_OutsideTheJob_IsTrue(string? xpcServiceName)
+    {
+        Assert.True(GatewayLaunchdAutostart.MayReload(xpcServiceName));
+    }
+
+    [Fact]
+    public void MayReload_InsideTheOtherAgentsJob_IsTrue()
+    {
+        // Only its OWN job is the trap: a process in the other agent's job is not killed by this bootout.
+        Assert.True(GatewayLaunchdAutostart.MayReload(LauncherLaunchdAutostart.Label));
+    }
 }

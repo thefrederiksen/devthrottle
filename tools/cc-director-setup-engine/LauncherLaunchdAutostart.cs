@@ -106,6 +106,16 @@ public static class LauncherLaunchdAutostart
         // A changed definition must be re-bootstrapped: launchd caches the loaded plist.
         if (IsLoaded())
         {
+            // The launcher itself calls this at startup, from inside this very job. A bootout
+            // there kills the caller before it reaches bootstrap, and the job is gone until the
+            // next login (product #3575). Leave the loaded job alone; launchd reads the new
+            // definition at the next login or the next install.
+            if (!MayReload(Environment.GetEnvironmentVariable("XPC_SERVICE_NAME")))
+            {
+                EngineLog.Write("[LauncherLaunchdAutostart] EnsureRegistered: running inside the job - wrote new definition, not booting out");
+                return true;
+            }
+
             var (outExit, outText) = ProcessRunner.Run("/bin/launchctl", $"bootout gui/{UserId()}/{Label}");
             EngineLog.Write($"[LauncherLaunchdAutostart] bootout -> exit={outExit} {Trim(outText)}");
         }
@@ -118,6 +128,14 @@ public static class LauncherLaunchdAutostart
         EngineLog.Write("[LauncherLaunchdAutostart] EnsureRegistered: bootstrapped launch agent");
         return true;
     }
+
+    /// <summary>
+    /// Whether a process may boot out and re-bootstrap the job. launchd sets XPC_SERVICE_NAME to
+    /// the job's label in every process the job starts (and its children inherit it), so a match
+    /// means a bootout would kill the caller. Pure, for tests.
+    /// </summary>
+    internal static bool MayReload(string? xpcServiceName) =>
+        !string.Equals(xpcServiceName, Label, StringComparison.Ordinal);
 
     /// <summary>The registered command line (ProgramArguments joined), or null when the property list does not exist.</summary>
     public static string? Registered()
@@ -151,7 +169,13 @@ public static class LauncherLaunchdAutostart
         EngineLog.Write("[LauncherLaunchdAutostart] Unregister");
         var existed = File.Exists(PlistPath);
 
-        if (IsLoaded())
+        // The launcher's tray toggle calls this from inside the job, and a bootout there kills the caller
+        // (product #3575). Removing the plist is enough to stop the start at the next login.
+        var inJob = !MayReload(Environment.GetEnvironmentVariable("XPC_SERVICE_NAME"));
+        if (inJob)
+            EngineLog.Write("[LauncherLaunchdAutostart] Unregister: running inside the job - removing the plist, not booting out");
+
+        if (!inJob && IsLoaded())
         {
             var (exit, text) = ProcessRunner.Run("/bin/launchctl", $"bootout gui/{UserId()}/{Label}");
             EngineLog.Write($"[LauncherLaunchdAutostart] bootout -> exit={exit} {Trim(text)}");
