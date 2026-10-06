@@ -148,3 +148,28 @@ public sealed class GoalNumbersDto
     public int Count { get; set; }
     public List<GoalNumberDto> Posts { get; set; } = new();
 }
+
+/// <summary>
+/// The answer of <c>POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk</c> (Factories screen mission,
+/// phase C): the top-level session the owner's Talk button started, seated as that seat, and where the Cockpit opens it.
+/// </summary>
+public sealed class FactoryTalkDto
+{
+    /// <summary>The new session's id.</summary>
+    public string SessionId { get; set; } = "";
+
+    /// <summary>Its name: <c>&lt;Factory title&gt; - &lt;Seat name&gt; - talk with the owner</c>.</summary>
+    public string SessionName { get; set; } = "";
+
+    /// <summary>The Cockpit address that opens it (<c>/session/&lt;id&gt;</c>).</summary>
+    public string Href { get; set; } = "";
+
+    public string Factory { get; set; } = "";
+    public string Seat { get; set; } = "";
+
+    /// <summary>The computer it was started on: the seat's.</summary>
+    public string Computer { get; set; } = "";
+
+    /// <summary>The Director on that computer that started it.</summary>
+    public string DirectorId { get; set; } = "";
+}

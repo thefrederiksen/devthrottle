@@ -21,7 +21,7 @@ using Microsoft.AspNetCore.Routing;
 
 namespace CcDirector.Gateway.Api;
 
-internal static class GatewayEndpoints
+internal static partial class GatewayEndpoints
 {
     /// <summary>Why a session key may not raise a hand on another session's row.</summary>
     internal const string NeedsManagerNotYours =
@@ -4718,111 +4718,14 @@ internal static class GatewayEndpoints
             return Results.Content(sr.BodyJson ?? "{}", "application/json");
         });
 
+        // THE PERSON'S NEW SESSION DOOR. Its whole body is StartSessionOnDirectorAsync, so the Factories screen's Talk
+        // button starts its session down exactly this path rather than a copy of it (Factories screen mission, phase C).
+        var directorSpawnDoor = new DirectorSpawnDoor(tenantBoundary, registry, sessionFactoryOf, sendCommand,
+            missions, workflowRuns, workspaces);
         app.MapPost("/directors/{id}/sessions", async (HttpContext ctx, string id, NewSessionRequest req) =>
         {
-            if (!TryResolveOwnedDirector(ctx, tenantBoundary, registry, id, out var d, out var ownerErr)) return ownerErr;
-            if (req is null || string.IsNullOrWhiteSpace(req.RepoPath))
-                return Results.BadRequest(new { error = "repoPath is required" });
-
-            FileLog.Write($"[GatewayEndpoints] POST /directors/{id}/sessions: repo={req.RepoPath}, agent={req.Agent}");
-
-            // THE MISSION NAME AND THE WORKFLOW SEAT, resolved here exactly as the machine door resolves
-            // them (issue #2629). This is the door an unqualified `cc-devthrottle session spawn` uses, and
-            // it used to forward the create VERBATIM - so a mission-scoped spawn reached the Director
-            // carrying an id and no name, the Director read that as an old caller naming a mission in its
-            // own stale local store, and refused a mission that was real, active and listed. The seat was
-            // missing too, silently: a session in a mission with none of the conduct the mission pins.
-            //
-            // Both doors now call the SAME resolver, so neither can drift from the other again.
-            var spawnTenant = ResolveReadTenant(ctx, tenantBoundary);
-            if (spawnTenant is null)
-                return Results.Json(new { error = "no tenant is bound to this request" },
-                    statusCode: StatusCodes.Status403Forbidden);
-            var spawnRoute = $"POST /directors/{id}/sessions";
-
-            // WHO IS ASKING, and WHO WILL OWN THE RESULT (issue #2838). This door previously forwarded the
-            // body VERBATIM - no origin stamping of any kind - while the machine door stamped a person's
-            // device. It is also the door an unqualified `cc-devthrottle session spawn` uses, so the
-            // untrusted path was the common one.
-            if (!SpawnOrigin.TryEstablish(req, ctx, spawnRoute, out var originError))
-                return originError!;
-
-            // WHICH FACTORY the new session belongs to (Factory Memory mission, phase 1), settled from the same
-            // credential, in the same one place, for the same reason: this door is the one an unqualified
-            // `cc-devthrottle session spawn` uses, so it is the door a session would join a factory through.
-            if (!SpawnFactory.TryEstablish(req, ctx, spawnRoute, sessionFactoryOf, out var factoryError))
-                return factoryError!;
-
-            // A RESTORE'S CREATE (the Message Load mission, inspection 7, ruling 3) carries the token its Director
-            // stored on the workspace seat before sending it. Only a Director restores, so only a Director's
-            // credential may carry one - a claim from anyone else could mark a seat restored as a session of the
-            // caller's choosing.
-            var restoreClaim = req.RestoreClaim;
-            if (restoreClaim is not null)
-            {
-                if (!WorkspaceEndpoints.IsDirectorCredential(ctx))
-                {
-                    FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim from a caller that is not a Director");
-                    return Results.Json(new { error = "only a Director restoring a workspace may send a restore claim" },
-                        statusCode: StatusCodes.Status403Forbidden);
-                }
-                // The same binding as the mark route (inspection 11, ruling 1): the claim is sent by the Director the
-                // create is for, on the credential that Director said Hello on - not by another key of the account.
-                if (!registry.IsRegisteredByCredential(spawnTenant.Value, id, AuthMiddleware.RegisteringCredential(ctx)))
-                {
-                    FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim on a credential Director {id} is not connected on");
-                    return Results.Json(new { error = $"a restore claim is sent only by Director '{id}' itself, on the credential it is connected on" },
-                        statusCode: StatusCodes.Status403Forbidden);
-                }
-                if (workspaces is null)
-                    return Results.Json(new { error = "this Gateway has no workspace store, so a restore's create cannot be recorded and is not sent" },
-                        statusCode: StatusCodes.Status503ServiceUnavailable);
-            }
-
-            if (!SpawnMissionAndSeat.TryResolve(req, spawnTenant.Value, missions, workflowRuns, spawnRoute,
-                    out var seatRun, out var resolveError))
-                return resolveError!;
-
-            // Issue #1177 (Phase 1): create rides the target Director's stream. Tunnel-only: a null return
-            // means the Director is not connected, and a non-Ok stream result (validation/creation failure)
-            // collapses to 502 - both surface as the error below.
-            SessionDto? body;
-            string? err;
-            var streamResult = await DirectorCommandRouter.TrySendAsync(sendCommand, id, "create", "", req, CancellationToken.None);
-            if (streamResult is null)
-            {
-                body = null;
-                err = "director not connected to the tunnel";
-            }
-            else
-            {
-                body = streamResult.Ok ? DirectorCommandRouter.ReadBody<SessionDto>(streamResult) : null;
-                err = streamResult.Ok ? null : DirectorCommandRouter.DescribeFailure(streamResult);
-            }
-            if (body is null)
-                return Results.Problem(err ?? "failed", statusCode: StatusCodes.Status502BadGateway);
-
-            // The membership row governance reads, on the same terms as the machine door: recorded only
-            // when the Director's reply proves the seat landed, and never turned into an HTTP failure the
-            // caller would retry into a second session.
-            SpawnMissionAndSeat.RecordParticipant(seatRun, workflowRuns, req, body, d.MachineName ?? "", spawnRoute);
-
-            // The restore's record of this create, written HERE - in the process that performed it, after the
-            // Director confirmed it - so it does not depend on the answer reaching the restoring Director. Never
-            // turned into an HTTP failure: the session exists, and a failure would be retried into a second one.
-            if (restoreClaim is not null && workspaces is not null)
-            {
-                try
-                {
-                    workspaces.RecordRestoredByClaim(restoreClaim, id, body.SessionId, DateTime.UtcNow);
-                }
-                catch (Exception ex)
-                {
-                    FileLog.Write($"[GatewayEndpoints] {spawnRoute}: the restore of seat {restoreClaim.SeatSessionId} in workspace {restoreClaim.WorkspaceId} started {body.SessionId} but could NOT be recorded by its token: {ex.Message}");
-                }
-            }
-
-            return Results.Json(body, statusCode: 201);
+            var outcome = await StartSessionOnDirectorAsync(ctx, id, req, directorSpawnDoor);
+            return outcome.Session is { } started ? Results.Json(started, statusCode: 201) : outcome.Refusal!;
         });
 
         app.MapDelete("/directors/{id}/repos", async (HttpContext ctx, string id, string? path, CancellationToken ct) =>

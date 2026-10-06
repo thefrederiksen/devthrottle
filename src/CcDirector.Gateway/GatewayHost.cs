@@ -4862,6 +4862,19 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant)));
+        // The Talk button (Factories screen mission, phase C): a session seated as one seat, started down the same
+        // path a person's New Session takes, built from the same stores GatewayEndpoints.Map was handed above.
+        var talkSpawnDoor = new Api.DirectorSpawnDoor(_tenantBoundary, Registry, _sessionHistory.FactoryOf, SendCommandAsync,
+            Missions, _workflowRuns, _workspaces);
+        // Mapped OUTSIDE the gate's group on purpose: it asks the same switch question itself, after proving the owner
+        // is calling, so its switch-off refusal can carry a sentence (phase C review, finding 2).
+        Api.FactoryTalkEndpoints.Map(_app, FactoryAgentsSwitch,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            registry: FactoryRegistry,
+            listDirectors: tenant => Registry.ListDirectors(tenant),
+            schedule: (tenant, id) => _cronJobs.Get(tenant, id),
+            startOnDirector: (ctx, directorId, request) =>
+                GatewayEndpoints.StartSessionOnDirectorAsync(ctx, directorId, request, talkSpawnDoor));
         // Who the switch is on for: the administrator route that switches ONE account on or off, recording who and
         // why. Same admin service token as the turn-log switch; exact-match public in AuthMiddleware.
         Api.AdminFactoryAgentsEndpoint.Map(_app, FactoryAgentsSwitch, TenantRegistry);
