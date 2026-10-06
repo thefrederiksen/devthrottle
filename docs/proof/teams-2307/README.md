@@ -31,7 +31,7 @@ recommended, and an optional comment.
 
 ## The migration
 
-`AddTeamQuestionAnswers` exists in two forms, one for SQLite (`20261005203247`) and a PostgreSQL twin (`20261005203403`).
+`AddTeamQuestionAnswers` exists in two forms, one for SQLite (`20261006025431`) and a PostgreSQL twin (`20261006025508`).
 
 **What it adds:**
 - `dev_report_items.AnswererSubject`, nullable. It holds the team member who gave an answer. It is empty for the owner's

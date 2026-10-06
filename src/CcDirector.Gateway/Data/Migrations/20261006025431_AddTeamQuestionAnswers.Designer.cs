@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20261005203247_AddTeamQuestionAnswers")]
+    [Migration("20261006025431_AddTeamQuestionAnswers")]
     partial class AddTeamQuestionAnswers
     {
         /// <inheritdoc />
@@ -1020,6 +1020,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(16)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("LessonId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("TEXT");
 
@@ -1483,12 +1487,26 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("ConfirmedByOwnerAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("CreatedBy")
                         .IsRequired()
                         .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("preference");
+
+                    b.Property<string>("Mistake")
+                        .HasMaxLength(300)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TenantId")

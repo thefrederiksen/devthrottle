@@ -16,8 +16,8 @@ namespace CcDirector.Gateway.Tests.Teams.Questions;
 /// </summary>
 public sealed class AddTeamQuestionAnswersMigrationTests
 {
-    private const string MigrationBefore = "20261005170254_AddDevReportSharing";
-    private const string MigrationUnderTest = "20261005203247_AddTeamQuestionAnswers";
+    private const string MigrationBefore = "20261005234625_AddDevReportSharing";
+    private const string MigrationUnderTest = "20261006025431_AddTeamQuestionAnswers";
 
     [Fact]
     public void AddTeamQuestionAnswers_UpThenDown_AddsAndRemovesTheTwoColumns_AndKeepsOldItemsAndComments()

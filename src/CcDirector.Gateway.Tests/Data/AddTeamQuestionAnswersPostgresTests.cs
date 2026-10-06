@@ -21,8 +21,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class AddTeamQuestionAnswersPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20261005170330_AddDevReportSharing";
-    private const string MigrationUnderTest = "20261005203403_AddTeamQuestionAnswers";
+    private const string MigrationBefore = "20261005234644_AddDevReportSharing";
+    private const string MigrationUnderTest = "20261006025508_AddTeamQuestionAnswers";
 
     private sealed class RequiresPostgresFactAttribute : FactAttribute
     {
