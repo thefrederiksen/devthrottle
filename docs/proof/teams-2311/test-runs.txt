@@ -401,3 +401,20 @@ Details in step2-team-bill.md.
     NOT FIXED - reported to the Tech Lead first, as asked.
     Gateway.UnitTests filtered (DirectorHub, Teams namespace, FleetManagerLessons): Passed 1242, Skipped 5, 0 failed.
     .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,616 tests.
+
+34. Rebased onto origin/main d4a78d521 (#3557 team reports, #3578, #3574, #3576). Conflicts, both sides kept:
+    GatewayHost.cs - ONE TeamCallerOwnership, built after #3557's dev report stores with the session key registry AND
+    #3557's reportAuthor reader. TeamCallerOwnership.cs - both fields; the constructor takes SessionKeyRegistry
+    sessionKeys (required) then reportAuthor (optional); #3557's OwnerOfReport kept beside this branch's PersonOf and
+    PersonOfSession. TeamEndpointGate.cs - the private Whose takes #3557's rule (route-team scope) AND the session key
+    identity; CallerSubject gets the session. #3557's TeamReportsTests built TeamCallerOwnership without the registry;
+    both of its constructions now pass one.
+    The question asked: does #3557 read or write anything per session or per Director id in a team? Its one such read is
+    the publish author: POST /sessions/{sid}/dev-reports requires the calling session key's own session (OwnSession)
+    and names the author as OwnerOf(the calling session key's Director). In a team a session key is refused for
+    another Director's session (#3552 S2-F8), so a colleague cannot hold a key for another person's session id and
+    cannot publish under it. The team report routes go by the signed-in person (callerSubject), not by session. No
+    harm found; nothing changed in #3557's code.
+    Gateway.UnitTests filtered (Teams namespace incl. Teams.Reports, DirectorHub, DevReport, FleetManagerLessons):
+      Passed 1473, Skipped 6, 0 failed.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
