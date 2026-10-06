@@ -501,6 +501,20 @@ public static class SkillDirectoryInstaller
         {
             var name = Path.GetFileName(storeCopy)!;
             var destination = Path.Combine(sharedRoot, name);
+
+            // ANYTHING AT THE NAME THAT IS NOT A REAL DIRECTORY IS THE PERSON'S (review finding SK-F21). A plain file,
+            // or a link - dangling or not, to a file or a folder - is classified here, before SwapIn, because
+            // Directory.Exists answers false for a file and, on Linux and macOS, for a dangling link: the ownership
+            // check below would be skipped and SwapIn's rename would collide with the entry and throw out of the
+            // installer, abandoning every skill after this one and leaving no placement record. It is left exactly
+            // as it is and reported, and the reconcile goes on with the rest.
+            if (IsLink(destination) || File.Exists(destination))
+            {
+                FileLog.Write($"[SkillDirectoryInstaller] '{name}' in {sharedRoot} is a file or a link DevThrottle did not " +
+                              "make - left exactly as it is; the machine's own entry wins");
+                problems.Add(new SkillPlacementProblem(name, sharedRoot, SkillPlacementFault.Shadowed));
+                continue;
+            }
             if (Directory.Exists(destination) && !MayWrite(destination, name, sharedRoot, source, problems))
                 continue;
             SwapIn(storeCopy, destination, own, stagingRoot);

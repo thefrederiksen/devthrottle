@@ -12,7 +12,8 @@ public sealed class SkillPlacementProblemDto
 
     /// <summary>"Shadowed" (a directory DevThrottle did not write occupies the name), "HeldByAnotherSource"
     /// (another Director's library installed the name and keeps it), "FolderBusy", "SourceUnknown", "SourceMismatch",
-    /// "FolderLinkUnresolved", "StagingFolderUnsafe" (placement changed nothing - see SkillPlacementFault in the Director) or "LinkFailed".</summary>
+    /// "FolderLinkUnresolved" (sent only by older Directors; a current one reports that cause as "StagingFolderUnsafe"),
+    /// "StagingFolderUnsafe" (placement changed nothing - see SkillPlacementFault in the Director) or "LinkFailed".</summary>
     public string Fault { get; set; } = "";
 }
 

@@ -5,8 +5,9 @@ namespace CcDirector.Core.Skills;
 /// <summary>Why one skill the library holds did not reach the agent.</summary>
 public enum SkillPlacementFault
 {
-    /// <summary>A directory we did not write already occupies the name, so the machine's own skill
-    /// wins and ours was not installed.</summary>
+    /// <summary>A directory we did not write already occupies the name - or a plain file, or a link of any kind,
+    /// none of which this installer ever makes there (review finding SK-F21) - so the machine's own entry wins and
+    /// ours was not installed.</summary>
     Shadowed,
 
     /// <summary>The link into the agent's own directory could not be created.</summary>
@@ -120,9 +121,10 @@ public sealed record SkillPlacement(
             parts.Add($"{mismatch.Count} not placed because they were fetched for a different account than this " +
                       "Director is set up for - nothing was changed; check the Director's team in Settings");
         if (unsafeStaging.Count > 0)
-            parts.Add($"{unsafeStaging.Count} not placed because the folder where copies are built, {unsafeStaging[0].Target}, " +
-                      "is inside a skills folder agents read, was not made by DevThrottle, or is a link whose target cannot " +
-                      "be found - nothing was changed; move or repair the link or the folder");
+            parts.Add($"{unsafeStaging.Count} not placed because {unsafeStaging[0].Target} - the skills folder, or the " +
+                      "folder where copies are built - could not be resolved or is not safe to use: it is a link whose " +
+                      "target cannot be found, is inside a skills folder agents read, or was not made by DevThrottle - " +
+                      "nothing was changed; move or repair the link or the folder");
         if (failed.Count > 0)
             parts.Add($"{failed.Count} could not be linked ({string.Join(", ", failed.Select(p => p.SkillId))})");
 

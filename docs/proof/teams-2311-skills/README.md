@@ -144,8 +144,10 @@ AND its marker's first line is this installer's signature. Anything else is left
 **Copies are built on the volume the skills folder really lives on (review finding SK-F9).** When a skills root is a
 link - a junction or a symbolic link, both followed the same way (`DirectoryInfo.ResolveLinkTarget`) - the staging root
 goes beside the link's final target, not beside the link's own spelling. If the target does not exist, or is the top
-of a drive, nothing is changed and every skill is reported as the new fault `FolderLinkUnresolved`, with its own
-sentence on the Director and on the Gateway's placement page.
+of a drive, nothing is changed and every skill is reported as `StagingFolderUnsafe` with the unresolved folder as its
+target (round 6, SK-F20, folded the round 3 fault `FolderLinkUnresolved` into it; the Gateway still reads
+`FolderLinkUnresolved` from older Directors), with its own sentence on the Director and on the Gateway's placement page
+(round 7, SK-F22).
 
 **ROUND 5 REPLACES THE NEXT PARAGRAPH: the installer never deletes, moves or replaces a link (review findings
 SK-F12, SK-F13).** It only CREATES a link that is missing. Whatever link already sits at a name - one it made, one
@@ -271,7 +273,7 @@ tested separately for that reason.
 |---|---|
 | SK-F7 refresh racing placement | `SkillSourceEstablishmentTests`, the real refresh against the hermetic Gateway. `A_refresh_that_lands_while_placement_is_copying_never_gets_its_bytes_stamped_with_the_old_source` - 20 rounds alternating the account; on every round placement pauses right after reading a skill's source and starts a refresh to the OTHER account, giving it 300 ms to land before the copy. `Refresh_and_placement_racing_freely_for_many_rounds_never_relabel_a_librarys_bytes` - 60 rounds, three skills, a refresh and a placement released together. After every round, every placed copy carries the stamp of the library its bytes came from. |
 | SK-F8 only what it made | `SkillSwapTests`. `A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted` - four folders, three with names of exactly the right shape (the review's `backup.<32 hex>.old` among them), each with a marker file of the right NAME but not the installer's content, and somebody's file inside: all survive. `Every_folder_the_installer_makes_in_the_staging_folder_carries_its_marker_before_anything_else` - checked at every step, for a copy being built, an old copy and a withdrawn one. The kill tests now also check that the staging marker never reaches the skills folder. |
-| SK-F9 the real volume | `SkillSwapTests`, with a real junction on a temporary folder (a symbolic link on other systems). `A_skills_folder_that_is_a_link_has_its_copies_built_beside_the_folder_it_points_at` - placed, refreshed and withdrawn through the link; staging beside the target, none beside the link. `A_skills_folder_linked_to_nowhere_changes_nothing_and_says_why` - one `FolderLinkUnresolved`, the agent's folder never touched. Gateway: `SkillPlacementStoreTests.A_skills_folder_linked_to_nowhere_says_so_and_not_could_not_be_linked`. |
+| SK-F9 the real volume | `SkillSwapTests`, with a real junction on a temporary folder (a symbolic link on other systems). `A_skills_folder_that_is_a_link_has_its_copies_built_beside_the_folder_it_points_at` - placed, refreshed and withdrawn through the link; staging beside the target, none beside the link. `A_skills_folder_linked_to_nowhere_changes_nothing_and_says_why` - one `FolderLinkUnresolved` in round 3, `StagingFolderUnsafe` since round 6 (SK-F20), the agent's folder never touched. Gateway: `SkillPlacementStoreTests.A_skills_folder_linked_to_nowhere_says_so_and_not_could_not_be_linked`. |
 
 ### Review round 3 - the red checks - [red-check-review3.txt](red-check-review3.txt)
 

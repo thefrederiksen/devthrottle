@@ -152,7 +152,37 @@ public sealed class SkillPlacementStoreTests : IDisposable
         var row = Assert.Single(store.ReadAll(Alice).Rows);
 
         Assert.Equal("broken", row.Status);
-        Assert.Contains(@"C:\Users\x\.agents\skills\claude-root.devthrottle-staging, is inside a skills folder", row.Message);
+        Assert.Contains(@"C:\Users\x\.agents\skills\claude-root.devthrottle-staging - the skills folder, or the folder " +
+                        "where copies are built - could not be resolved or is not safe to use", row.Message);
+        Assert.Contains("is inside a skills folder agents read", row.Message);
+        Assert.DoesNotContain("could not be linked", row.Message);
+    }
+
+    [Fact]
+    public void A_skills_folder_linked_to_nowhere_from_a_current_Director_names_the_skills_folder_as_unresolved()
+    {
+        // Since review round 6 (SK-F20) a current Director reports a skills folder that is a link to nothing as
+        // StagingFolderUnsafe, with the skills folder itself as the target (review finding SK-F22). The sentence
+        // must not call that path the folder where copies are built.
+        var store = NewStore();
+        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        {
+            Report(held: 1, reachable: 0, problems: new[]
+            {
+                new SkillPlacementProblemDto
+                {
+                    SkillId = "fleet-comms", Target = @"C:\Users\x\.agents\skills", Fault = "StagingFolderUnsafe",
+                },
+            }),
+        }, T0);
+
+        var row = Assert.Single(store.ReadAll(Alice).Rows);
+
+        Assert.Equal("broken", row.Status);
+        Assert.Contains(@"because C:\Users\x\.agents\skills - the skills folder, or the folder where copies are built - " +
+                        "could not be resolved", row.Message);
+        Assert.Contains("a link whose target cannot be found", row.Message);
+        Assert.DoesNotContain(@"the folder where copies are built, C:", row.Message);
         Assert.DoesNotContain("could not be linked", row.Message);
     }
 

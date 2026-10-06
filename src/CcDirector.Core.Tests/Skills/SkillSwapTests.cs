@@ -223,6 +223,9 @@ public sealed class SkillSwapTests : IDisposable
         Assert.Equal(SkillPlacementFault.StagingFolderUnsafe, problem.Fault);
         Assert.Equal(Shared, problem.Target);
         Assert.Contains("is a link whose target cannot be found", placement.Describe());
+        // The target is the skills folder, not the staging folder (review finding SK-F22).
+        Assert.Contains($"{Shared} - the skills folder, or the folder where copies are built - could not be resolved",
+            placement.Describe());
         Assert.False(Directory.Exists(LinkRoot), "the agent's own folder was touched although nothing could be placed");
     }
 
