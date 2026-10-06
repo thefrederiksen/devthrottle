@@ -199,6 +199,20 @@ internal static class SpawnFactory
                $"in '{req.Factory}'. Update this Director to {FirstDirectorThatCarriesAFactory.ToString(3)} or later and try again.";
     }
 
+    /// <summary>
+    /// <see cref="DirectorCannotCarry(NewSessionRequest, DirectorDto)"/> for a door that knows the Director only by id
+    /// (the machine door, which learns it from the resolver). A door with no way to read the Director, or an id the
+    /// account does not hold, is refused for a create in a factory: what it cannot read it cannot vouch for.
+    /// </summary>
+    internal static string? DirectorCannotCarry(NewSessionRequest req, string directorId, Func<string, DirectorDto?>? directorOf)
+    {
+        if (req?.Factory is null) return null;
+        if (directorOf?.Invoke(directorId) is { } director) return DirectorCannotCarry(req, director);
+        FileLog.Write($"[SpawnFactory] REFUSED a create in factory '{req.Factory}' to Director {directorId}: its version cannot be read here");
+        return $"The Gateway cannot read which version Director {directorId} is, so it cannot tell whether that Director can " +
+               $"put a session into a factory, and no session was started in '{req.Factory}'.";
+    }
+
     // "2.12.0", "v2.16.0", "2.16.0-rc1", "2.16.0+68fd9d7" -> the release; anything else -> null.
     private static Version? ReleaseOf(string? reported)
     {

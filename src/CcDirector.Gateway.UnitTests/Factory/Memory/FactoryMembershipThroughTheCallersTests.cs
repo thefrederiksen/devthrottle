@@ -125,7 +125,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
     /// stands in for AuthMiddleware having verified a key: a session key is the <see cref="SessionHeader"/>, a
     /// person's device the <see cref="DeviceHeader"/>, and those two stashes are all the rule ever reads.
     /// </summary>
-    private async Task StartGatewayAsync()
+    private async Task StartGatewayAsync(string directorVersion = "2.16.0-test")
     {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -142,7 +142,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
         });
 
         _registry = new DirectorRegistry(Path.Combine(_dir, "instances"));
-        _registry.RegisterFromStream(DirectorId, Machine, "test", "2.16.0-test", pid: 1,
+        _registry.RegisterFromStream(DirectorId, Machine, "test", directorVersion, pid: 1,
             startedAt: DateTime.UtcNow, tenant: TenantId.Local);
 
         DirectorCommandRouter.SendDirectorCommandAsync send = (directorId, command, ct) =>
@@ -171,7 +171,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
         GatewayEndpoints.Map(app, _registry, version: "test", token: "test-token",
             tenantBoundary: boundary, sessionFactoryOf: _history.FactoryOf, sendCommand: send);
         MachineEndpoints.Map(app, new LauncherRegistry(), spawner, boundary: boundary,
-            sessionFactoryOf: _history.FactoryOf);
+            sessionFactoryOf: _history.FactoryOf, directors: _registry);
 
         var db = _db.Open();
         _schedules = new CronJobStore(db, Path.Combine(_dir, "jobs.json"));
@@ -253,6 +253,49 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
         Assert.NotNull(sent);
         Assert.Equal(TheFactory, sent!.Factory);
         Assert.Equal(caller.ToString(), sent.ParentSessionId);
+    }
+
+    // ---- a Director too old to carry a factory (live QA, 6 Oct 2026) ---------------------------------------------
+
+    [Theory]
+    [InlineData("machine")]
+    [InlineData("director")]
+    public async Task A_CHILD_IN_A_FACTORY_IS_REFUSED_409_WHEN_THE_DIRECTOR_IS_TOO_OLD_TO_CARRY_IT_AND_NOTHING_LEAVES(string door)
+    {
+        // A v2.12.0 Director has no factory field: sent this create it would drop the factory and start the child in
+        // no factory for life. Either door refuses before the create leaves - 409, the caller's to act on, never the
+        // machine door's 502 for a computer it could not reach. Take the check off either door and this goes red.
+        await StartGatewayAsync(directorVersion: "2.12.0");
+        var caller = Guid.NewGuid();
+        RecordRow(caller, TheFactory);
+
+        var response = await Send(HttpMethod.Post, DoorUrl(door), caller, ChildSpawn());
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Contains($"The Director on {Machine} is version 2.12.0", body);
+        Assert.Contains($"no session was started in '{TheFactory}'", body);
+        Assert.Contains("Update this Director to 2.13.0 or later", body);
+        Assert.Null(SawAt(door));
+    }
+
+    [Theory]
+    [InlineData("machine")]
+    [InlineData("director")]
+    public async Task A_CREATE_NAMING_NO_FACTORY_STILL_GOES_TO_A_DIRECTOR_TOO_OLD_TO_CARRY_ONE(string door)
+    {
+        // The refusal is about the factory and nothing else: a session in no factory starting a child on an old
+        // Director is exactly what worked before, and must keep working.
+        await StartGatewayAsync(directorVersion: "2.12.0");
+        var outsider = Guid.NewGuid();
+        RecordRow(outsider, factory: null);
+
+        var response = await Send(HttpMethod.Post, DoorUrl(door), outsider, ChildSpawn());
+
+        Assert.True(response.IsSuccessStatusCode, $"{door} door answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+        var sent = SawAt(door);
+        Assert.NotNull(sent);
+        Assert.Null(sent!.Factory);
     }
 
     [Theory]

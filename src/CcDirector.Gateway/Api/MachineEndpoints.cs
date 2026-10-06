@@ -475,7 +475,18 @@ internal static class MachineEndpoints
             if (!SpawnMissionAndSeat.TryResolve(req, tenant, missions, workflowRuns, route, out var seatRun, out var resolveError))
                 return resolveError!;
 
-            var (ok, dto, error, _) = await spawner.SpawnOnMachineAsync(machine, req, ct);
+            // AND THE DIRECTOR THE MACHINE RESOLVES TO MUST BE ABLE TO CARRY THE FACTORY (live QA, 6 Oct 2026). Which
+            // Director that is is known only once the spawner has resolved the machine, so the check rides in as the
+            // spawner's refusal hook and runs before the create is sent - the same check the Director door makes. A
+            // refusal is the caller's to act on (update that Director), so it answers 409, never the 502 of a machine
+            // that could not be reached.
+            string? tooOld = null;
+            Func<string, string?>? refuseDirector = req.Factory is null ? null : directorId =>
+                tooOld = SpawnFactory.DirectorCannotCarry(req, directorId, directors is null ? null : id => directors.Get(tenant, id));
+
+            var (ok, dto, error, _) = await spawner.SpawnOnMachineAsync(machine, req, ct, refuseDirector);
+            if (tooOld is not null)
+                return Results.Json(new { error = tooOld, machine }, statusCode: StatusCodes.Status409Conflict);
             if (!ok || dto is null)
             {
                 FileLog.Write($"[MachineEndpoints] POST /machines/{machine}/sessions FAILED: {error}");
