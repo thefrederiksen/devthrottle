@@ -42,19 +42,24 @@ public sealed class DirectorTeamMover
     private readonly Action<DirectorTeam> _persistTeam;
     private readonly Action<string> _persistKey;
     private readonly Func<Task>? _reapply;
+    private readonly Func<DirectorTeam, string?>? _followName;
 
     /// <param name="service">The Gateway's move route.</param>
     /// <param name="holdSessionCreation">Holds new sessions with the given reason, reporting how many there are.</param>
     /// <param name="persistTeam">Stores the new team for this Director.</param>
     /// <param name="persistKey">Stores the new device key for this Director.</param>
     /// <param name="reapply">Switches the running Gateway connection to the new key; null when there is none.</param>
+    /// <param name="followName">Renames the Director for the new team when its name is still the one the team question
+    /// suggested (live proof F4), returning the new name or null when the name stays; null to leave names alone.</param>
     public DirectorTeamMover(
         IDirectorTeamService service,
         Func<string, SessionCreationHold> holdSessionCreation,
         Action<DirectorTeam> persistTeam,
         Action<string> persistKey,
-        Func<Task>? reapply)
+        Func<Task>? reapply,
+        Func<DirectorTeam, string?>? followName = null)
     {
+        _followName = followName;
         _service = service ?? throw new ArgumentNullException(nameof(service));
         _holdSessionCreation = holdSessionCreation ?? throw new ArgumentNullException(nameof(holdSessionCreation));
         _persistTeam = persistTeam ?? throw new ArgumentNullException(nameof(persistTeam));
@@ -91,6 +96,11 @@ public sealed class DirectorTeamMover
     public static string MovedButNotApplied(string teamName, string error) =>
         $"This Director now works for {teamName} and its new key is saved, but the running connection could not " +
         $"switch to it ({error}). Restart the Director to finish.";
+
+    /// <summary>The words for a move that happened in full but whose suggested name could not follow it.</summary>
+    public static string MovedButNotRenamed(string teamName, string error) =>
+        $"This Director now works for {teamName} and is connected, but its name could not be changed to match ({error}). " +
+        "Rename it from File, Rename this director.";
 
     /// <summary>
     /// Move this Director to <paramref name="target"/>. Refused, with nothing sent and nothing stored, while any
@@ -134,6 +144,24 @@ public sealed class DirectorTeamMover
             return OperationResult<DirectorTeam>.Fail(MovedButKeyNotSaved(team.Name, "the Gateway sent no new key"));
         }
 
+        // The name follows BEFORE the team is recorded: recording the team redraws the title bar, which then shows the
+        // new name and the new chip together, and the re-apply below sends the new name to the Fleet Map in its Hello.
+        // A name that cannot follow does not undo the move; the person is told once the move is finished.
+        string? renameError = null;
+        if (_followName is not null)
+        {
+            try
+            {
+                var renamed = _followName(team);
+                FileLog.Write($"[DirectorTeamMover] MoveAsync: name {(renamed is null ? "kept" : "followed the move")}");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, name NOT changed: {ex.Message}");
+                renameError = ex.Message;
+            }
+        }
+
         try
         {
             _persistTeam(team);
@@ -166,6 +194,9 @@ public sealed class DirectorTeamMover
                 return OperationResult<DirectorTeam>.Fail(MovedButNotApplied(team.Name, ex.Message));
             }
         }
+
+        if (renameError is not null)
+            return OperationResult<DirectorTeam>.Fail(MovedButNotRenamed(team.Name, renameError));
 
         FileLog.Write("[DirectorTeamMover] MoveAsync: moved; team and new device key stored, connection re-applied");
         return OperationResult<DirectorTeam>.Ok(team);

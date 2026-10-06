@@ -36,6 +36,7 @@ internal static class HostedTeamSetup
             persistTeam => new GatewayAccountEnrollRunner(persistTeam: persistTeam),
             question => AskAsync(owner, question),
             name => NamedInstanceRegistry.Rename(InstanceContext.Slug, name),
+            DirectorNameSuggestionStore.Save,
             RecordTeamInThisHome,
             deviceId, machineName, ct);
     }
@@ -58,6 +59,7 @@ internal static class HostedTeamSetup
         Func<Action<DirectorTeam?>, GatewayAccountEnrollRunner> makeRunner,
         Func<TeamQuestion, Task<TeamAnswer?>> ask,
         Action<string> rename,
+        Action<DirectorNameSuggestion?> recordSuggestion,
         Action<DirectorTeam?> recordTeam,
         string deviceId, string machineName, CancellationToken ct)
     {
@@ -84,7 +86,12 @@ internal static class HostedTeamSetup
             try
             {
                 rename(name);
-                FileLog.Write("[HostedTeamSetup] RunAsync: Director renamed from screen D1");
+                // Live proof F4: whether the name is the suggestion "<computer> - <team>" is recorded now, while it
+                // is known, so a later move can tell it from a name the person typed. Recorded only once the
+                // rename has happened, so the record never names a suggestion the Director does not carry.
+                var suggestion = chosenTeam is null ? null : DirectorNameSuggestion.IfSuggested(machineName, chosenTeam, name);
+                recordSuggestion(suggestion);
+                FileLog.Write($"[HostedTeamSetup] RunAsync: Director renamed from screen D1 ({(suggestion is null ? "a name of the person's own" : "the suggested name")})");
             }
             catch (Exception ex)
             {

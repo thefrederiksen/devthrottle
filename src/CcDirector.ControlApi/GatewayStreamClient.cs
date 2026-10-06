@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.GatewayConnection;
 using CcDirector.Core.Machine;
 using CcDirector.Core.Network;
 using CcDirector.Core.Sessions;
@@ -111,6 +112,15 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// <summary>Reconnect backoff between long-outage restart attempts once auto-reconnect has given up.</summary>
     private static readonly TimeSpan RestartDelay = TimeSpan.FromSeconds(5);
 
+    /// <summary>The body of the Gateway's last 401 on this tunnel, which says why it refused the key.</summary>
+    private readonly TunnelRefusalRecorder _refusals = new();
+
+    /// <summary>The team this Director recorded it works for, named when its key is refused; null when none.</summary>
+    private readonly Func<string?>? _teamName;
+
+    /// <summary>Why the last terminal 401 refused the key, set by <see cref="TryConnectAsync"/> for the supervise loop.</summary>
+    private GatewayKeyRefusal? _keyRefusal;
+
     /// <param name="commandDispatcher">
     /// Issue #1177 (Phase 1): handler for commands the Gateway sends DOWN this stream. When null (or in
     /// Phase 1a callers that pre-date it), the Director declines any command with an Error result; the
@@ -139,8 +149,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Action<string>? onRevocationConfirmed = null,
         Action<GatewayCapabilities>? onHello = null,
         CcDirector.Core.Background.BackgroundJobs? jobs = null,
-        Action? onNewConnection = null)
+        Action? onNewConnection = null,
+        Func<string?>? teamName = null)
     {
+        _teamName = teamName;
         _jobs = jobs ?? CcDirector.Core.Background.BackgroundJobs.Default;
         _onHello = onHello;
         _onNewConnection = onNewConnection;
@@ -373,7 +385,8 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 // resolves to a link-local IPv6 address first, and the default connect hangs on it.
                 // The handler covers negotiate and the fallback transports; the websocket factory
                 // covers the websocket itself, which dials outside that handler by default.
-                options.HttpMessageHandlerFactory = _ => GatewayHttp.Handler();
+                // The refusal recorder reads the body of a refused negotiate, which says why the key was refused.
+                options.HttpMessageHandlerFactory = _ => _refusals.Wrap(GatewayHttp.Handler());
                 options.WebSocketFactory = async (context, cancellationToken) =>
                     await GatewayHttp.ConnectWebSocketAsync(context.Uri, token, cancellationToken);
             })
@@ -473,10 +486,18 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             }
             else if (outcome == ConnectOutcome.SubscriptionRequired)
             {
-                // The Gateway refused the device key (subscription lapsed / revoked). STOP - do not hammer a
+                // The Gateway refused the device key with 402 (subscription lapsed). STOP - do not hammer a
                 // locked door. The status names the fix (renew / re-enroll); a settings change or a fresh
                 // enrollment rebuilds this client and re-dials.
                 _monitor?.MarkSubscriptionRequired("This gateway needs an active subscription - renew your subscription or re-enroll this device.");
+                break;
+            }
+            else if (outcome == ConnectOutcome.KeyRefused)
+            {
+                // The Gateway refused the key with 401 - revoked, revoked because the person left the team, or not
+                // known. It will be refused again on every dial, so STOP and say why (devthrottle_internal#2311,
+                // live proof F3). Setting the Director up again rebuilds this client and re-dials.
+                _monitor?.MarkKeyRefused(_keyRefusal!);
                 break;
             }
             if (_disposed) break;
@@ -491,9 +512,12 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         Connected,
         /// <summary>A retryable failure (Gateway down, network blip) - keep re-dialing.</summary>
         Retry,
-        /// <summary>A TERMINAL refusal: the Gateway rejected the device key with 401/402 (the hosted
-        /// subscription lapsed or the device was revoked). Do NOT keep hammering - stop and surface it.</summary>
+        /// <summary>A TERMINAL refusal: the Gateway answered 402 (the hosted subscription lapsed). Do NOT keep
+        /// hammering - stop and surface it.</summary>
         SubscriptionRequired,
+        /// <summary>A TERMINAL refusal: the Gateway answered 401 - the key is revoked or not known.
+        /// <see cref="_keyRefusal"/> says which. Do NOT keep hammering - stop and surface it.</summary>
+        KeyRefused,
     }
 
     private async Task<ConnectOutcome> TryConnectAsync()
@@ -505,13 +529,21 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             FileLog.Write($"[GatewayStreamClient] connected to {_config.Url}");
             return ConnectOutcome.Connected;
         }
-        catch (Exception ex) when (IsSubscriptionRequired(ex))
+        catch (Exception ex) when (TerminalRefusalStatus(ex) is HttpStatusCode.PaymentRequired)
         {
-            // Terminal: the per-device key is no longer accepted (revoked / subscription lapsed). Re-dialing
-            // would just get refused again forever, so stop and let the connection status say why (the fix is
-            // to renew the subscription / re-enroll, which restarts the client).
-            FileLog.Write("[GatewayStreamClient] connect REFUSED (subscription required / device revoked) - stopping reconnect");
+            // Terminal: the hosted subscription lapsed. Re-dialing would just get refused again forever, so stop
+            // and let the connection status say why (the fix is to renew the subscription / re-enroll, which
+            // restarts the client).
+            FileLog.Write("[GatewayStreamClient] connect REFUSED (402, subscription required) - stopping reconnect");
             return ConnectOutcome.SubscriptionRequired;
+        }
+        catch (Exception ex) when (TerminalRefusalStatus(ex) is HttpStatusCode.Unauthorized)
+        {
+            // Terminal: the key is revoked or not known. The body of the refused negotiate says which; "removed
+            // from the team" only when the Gateway said so.
+            _keyRefusal = GatewayKeyRefusal.FromUnauthorizedBody(_refusals.LastUnauthorizedBody, ReadTeamName());
+            FileLog.Write($"[GatewayStreamClient] connect REFUSED (401, {_keyRefusal.Kind}) - stopping reconnect");
+            return ConnectOutcome.KeyRefused;
         }
         catch (Exception ex)
         {
@@ -521,19 +553,37 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// A tunnel-connect exception is a TERMINAL "subscription required" when the Gateway refused the device
-    /// key with 401 (credential revoked) or 402 (hosted subscription required). The key is a fixed per-device
-    /// credential, never refreshed, so a 401/402 means it is no longer valid - not a transient blip - and the
-    /// only fix is renewing the subscription or re-enrolling. Walks the inner-exception chain because SignalR
-    /// wraps the negotiate failure.
+    /// The status of a TERMINAL refusal in a tunnel-connect exception - 401 (the key is revoked or not known) or 402
+    /// (the hosted subscription lapsed) - or null for anything else, which is retried as a network problem. The key is
+    /// a fixed per-device credential, never refreshed, so a 401/402 means it is no longer valid - not a transient
+    /// blip - and the only fix is renewing the subscription or setting the Director up again. Walks the
+    /// inner-exception chain because SignalR wraps the negotiate failure.
     /// </summary>
-    private static bool IsSubscriptionRequired(Exception ex)
+    internal static HttpStatusCode? TerminalRefusalStatus(Exception ex)
     {
         for (Exception? e = ex; e is not null; e = e.InnerException)
             if (e is HttpRequestException hre
                 && hre.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.PaymentRequired)
-                return true;
-        return false;
+                return hre.StatusCode;
+        return null;
+    }
+
+    /// <summary>
+    /// The team this Director recorded, to name in a refusal. A label only: a provider that throws (an unreadable
+    /// team file) is logged and the refusal names no team, rather than taking the refusal itself down.
+    /// </summary>
+    private string? ReadTeamName()
+    {
+        if (_teamName is null) return null;
+        try
+        {
+            return _teamName();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayStreamClient] team-name provider FAILED (the refusal names no team): {ex.Message}");
+            return null;
+        }
     }
 
     private async Task WaitUntilClosedAsync()

@@ -287,7 +287,8 @@ public sealed class DirectorTeamScreensTests
         public Exception? KeySaveFails { get; set; }
     }
 
-    private static Rig BuildPanel(DirectorTeam? current, int running, FakeService? service = null, bool connected = true)
+    private static Rig BuildPanel(DirectorTeam? current, int running, FakeService? service = null, bool connected = true,
+        Func<DirectorTeam, string?>? followName = null)
     {
         service ??= new FakeService();
         Rig? rig = null;
@@ -312,7 +313,8 @@ public sealed class DirectorTeamScreensTests
                 if (rig!.ReapplyFails is { } e) throw e;
                 rig.Reapplied++;
                 return Task.CompletedTask;
-            });
+            },
+            followName);
         rig = new Rig { Panel = new DirectorTeamPanel(deps), Service = service, Running = running };
         return rig;
     }
@@ -361,6 +363,22 @@ public sealed class DirectorTeamScreensTests
         Assert.Equal(1, rig.Reapplied);
         Assert.Equal("This Director now works for DevThrottle.", rig.Panel.Status);
         Assert.Equal("DevThrottle", rig.Panel.CurrentTeamChip.Text);
+    }
+
+    // Live proof F4: the panel hands its name step to the move, so a suggested name follows the team the person chose.
+    [AvaloniaFact]
+    public async Task DirectorTeamPanel_Move_RunsTheNameStepForTheChosenTeam()
+    {
+        var named = new List<string>();
+        var rig = BuildPanel(DirectorTeam.Personal, running: 0,
+            followName: team => { named.Add(team.Name); return "SOREN_NORTH - " + team.Name; });
+        await rig.Panel.LoadCurrentAsync();
+        await rig.Panel.ListTeamsAsync();
+
+        await rig.Panel.MoveAsync();
+
+        Assert.Equal(new[] { "DevThrottle" }, named);
+        Assert.Equal("This Director now works for DevThrottle.", rig.Panel.Status);
     }
 
     [AvaloniaFact]

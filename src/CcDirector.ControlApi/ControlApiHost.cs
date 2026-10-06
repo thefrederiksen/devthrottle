@@ -1122,6 +1122,9 @@ public sealed class ControlApiHost : IAsyncDisposable
             // Gateway Cleanup mission (tunnel-only): the tunnel drives the desktop connectivity light directly -
             // connected = green (a live stream IS the proven two-way link), reconnecting = yellow.
             monitor: GatewayMonitor,
+            // devthrottle_internal#2311, live proof F3: when the Gateway refuses this Director's key because its
+            // person was removed from the team, the refusal names the team this Director recorded.
+            teamName: () => CcDirector.Core.Teams.DirectorTeamStore.Load()?.Name,
             // Repositories mission (#510 phase C): the repository/worktree snapshot rides the same
             // tunnel; null when this host knows nothing about repositories at all (tests, older
             // callers). The registry counts as knowing something (the one-repository-list mission,

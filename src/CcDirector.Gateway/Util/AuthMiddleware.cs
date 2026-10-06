@@ -117,6 +117,23 @@ internal static class AuthMiddleware
     public const string RaisedGrantItemKey = "cc.auth.RaisedGrant";
 
     /// <summary>
+    /// Request item set when the per-device key on this request is revoked BECAUSE ITS PERSON WAS REMOVED FROM THE
+    /// TEAM (devthrottle_internal#2311, live proof F3), holding that reason. The 401 then says so, so the Director
+    /// that holds the key can tell its person they left the team rather than show "Connecting..." for good. Only
+    /// that one reason is ever carried: any other revoke, or a second revoked key on the same request with another
+    /// reason, leaves this unset and the answer is today's body byte-for-byte.
+    /// </summary>
+    internal const string RevokedForTeamRemovalItemKey = "cc.auth.RevokedForTeamRemoval";
+
+    /// <summary>The 401 body for a revoked key, with no reason - every revoke but a removal from the team.</summary>
+    internal const string RevokedBody = "{\"error\":\"device credential revoked\",\"code\":\"device_credential_revoked\"}";
+
+    /// <summary>The 401 body for a key revoked because its person was removed from the team.</summary>
+    internal const string RevokedForTeamRemovalBody =
+        "{\"error\":\"device credential revoked\",\"code\":\"device_credential_revoked\",\"reason\":\""
+        + Teams.TeamMemberAccessRevoker.RemovedReason + "\"}";
+
+    /// <summary>
     /// The desktop Cockpit's sign-in route (issue #1088): the shared client-core enrollment screen a
     /// signed-out browser navigation is redirected to. Must match the route in apps/cockpit/src/main.tsx.
     /// </summary>
@@ -419,7 +436,7 @@ internal static class AuthMiddleware
         ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
         ctx.Response.ContentType = "application/json; charset=utf-8";
         await ctx.Response.WriteAsync(authentication == AuthenticationResultKind.RevokedCredential
-            ? "{\"error\":\"device credential revoked\",\"code\":\"device_credential_revoked\"}"
+            ? (ctx.Items.ContainsKey(RevokedForTeamRemovalItemKey) ? RevokedForTeamRemovalBody : RevokedBody)
             : "{\"error\":\"missing or invalid token\"}");
     }
 
@@ -546,6 +563,8 @@ internal static class AuthMiddleware
             return AuthenticationResultKind.UnknownCredential;
 
         var resolution = devices.ResolveCredential(credential);
+        if (resolution.Kind == DeviceCredentialResolutionKind.Revoked)
+            NoteRevokedReason(ctx, resolution.RevokedReason);
         return resolution.Kind switch
         {
             DeviceCredentialResolutionKind.Active when resolution.Identity is not null
@@ -554,6 +573,27 @@ internal static class AuthMiddleware
             DeviceCredentialResolutionKind.Unavailable => AuthenticationResultKind.RegistryUnavailable,
             _ => AuthenticationResultKind.UnknownCredential,
         };
+    }
+
+    // Set only while every revoked device key seen on this request was revoked for removal from the team.
+    private const string RevokedForOtherReasonItemKey = "cc.auth.RevokedForOtherReason";
+
+    /// <summary>
+    /// Record why a revoked device key on this request was revoked, for the 401 to say "removed from the team" -
+    /// and ONLY that. A request can carry more than one key (a Bearer and several cookies); the reason is said
+    /// only while every revoked one carries exactly <see cref="Teams.TeamMemberAccessRevoker.RemovedReason"/>, so
+    /// a revoke for anything else is never reported as a removal from the team.
+    /// </summary>
+    private static void NoteRevokedReason(HttpContext ctx, string? reason)
+    {
+        if (string.Equals(reason, Teams.TeamMemberAccessRevoker.RemovedReason, StringComparison.Ordinal)
+            && !ctx.Items.ContainsKey(RevokedForOtherReasonItemKey))
+        {
+            ctx.Items[RevokedForTeamRemovalItemKey] = reason;
+            return;
+        }
+        ctx.Items.Remove(RevokedForTeamRemovalItemKey);
+        ctx.Items[RevokedForOtherReasonItemKey] = true;
     }
 
     /// <summary>
