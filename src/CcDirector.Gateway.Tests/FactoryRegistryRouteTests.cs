@@ -63,7 +63,7 @@ public sealed class FactoryRegistryRouteTests
         }
     }
 
-    private static object Manifest(string factory) => new
+    private static object Manifest(string factory, string ceoName = "Nora Hale") => new
     {
         factory,
         title = "WarmForward",
@@ -75,7 +75,7 @@ public sealed class FactoryRegistryRouteTests
         goalApprovedOn = "2026-10-04",
         seats = new object[]
         {
-            new { id = "nora-hale", name = "Nora Hale", role = "CEO", briefFile = "agents/ceo.yaml", schedules = new[] { "cj_a721e6" } },
+            new { id = "nora-hale", name = ceoName, role = "CEO", briefFile = "agents/ceo.yaml", schedules = new[] { "cj_a721e6" } },
             new { id = "savings-engineer", name = "Savings Engineer", role = "Savings Engineer", briefFile = "agents/savings.yaml", schedules = Array.Empty<string>() },
         },
     };
@@ -175,14 +175,16 @@ public sealed class FactoryRegistryRouteTests
     {
         await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
         var factory = "f-" + Guid.NewGuid().ToString("N")[..12];
-        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory))).StatusCode);
+        // A CEO name no other test registers: two registered CEOs with one name read "Talk to the CEO".
+        var ceo = "Nora " + factory;
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory, ceo))).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await h.Owner.PostAsJsonAsync("gateway/factory/goal-numbers", Number(factory, by: "nora-hale"))).StatusCode);
 
         var list = await Send(h.Owner.GetAsync("gateway/factories"));
         Assert.True(list.Status == HttpStatusCode.OK, $"GET factories: {(int)list.Status} {list.Body}");
         var row = Assert.Single(JsonSerializer.Deserialize<FactoriesListViewDto>(list.Body, Web)!.Rows, r => r.Id == factory);
-        Assert.Equal("RUNNING", row.StatusWord);
-        Assert.Equal("Talk to Nora Hale", row.Talk!.Label);
+        Assert.Equal("PAUSED", row.StatusWord); // its one schedule id names no schedule, so nothing runs its seats
+        Assert.Equal("Talk to " + ceo, row.Talk!.Label);
 
         var page = await Send(h.Owner.GetAsync($"gateway/factories/{factory}"));
         Assert.True(page.Status == HttpStatusCode.OK, $"GET page: {(int)page.Status} {page.Body}");

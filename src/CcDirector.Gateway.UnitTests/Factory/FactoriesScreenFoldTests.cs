@@ -47,6 +47,9 @@ public sealed class FactoriesScreenFoldTests
         TimeZoneId = "UTC", LastFiredUtc = lastFired, LastStatus = lastStatus,
     };
 
+    /// <summary>One enabled schedule of the WarmForward CEO, so a factory is not PAUSED for want of one.</summary>
+    private static CronJobDto[] Running() => new[] { Job("cj_ceo", "15 6 * * *") };
+
     private static FactoriesScreenInputs Inputs(IReadOnlyList<RegisteredFactoryDto> registry,
         IReadOnlyList<FactoryActivityDto>? rows = null, IReadOnlyList<CronJobDto>? jobs = null,
         IReadOnlyList<FactoryTriggerFacts>? triggers = null, GoalNumberDto? number = null, IReadOnlyList<FactoryActivityDto>? talks = null)
@@ -70,14 +73,14 @@ public sealed class FactoriesScreenFoldTests
         var failing = Factory("mindzie-web", "mindzie Web", null, Seat("builder", "Builder", "Builder", "cj_b"));
         var needsYou = Factory("website", "Website Business", "malik", Seat("malik", "Malik Grant", "CEO"));
         var paused = Factory("tallyhand", "Tallyhand", "max", Seat("max", "Max Ridley", "CEO", "cj_t"));
-        var runningB = Factory("devthrottle", "DevThrottle", "ada", Seat("ada", "Ada Brennan", "CEO"));
-        var runningA = Factory("clickfunnels", "ClickFunnels", "hazel", Seat("hazel", "Hazel Morgan", "CEO"));
+        var runningB = Factory("devthrottle", "DevThrottle", "ada", Seat("ada", "Ada Brennan", "CEO", "cj_a"));
+        var runningA = Factory("clickfunnels", "ClickFunnels", "hazel", Seat("hazel", "Hazel Morgan", "CEO", "cj_h"));
         var rows = new[]
         {
             Row("mindzie-web", "builder", FactoryActivityOutcome.Failed, "Build broke.", Now.AddHours(-2)),
             Row("website", "malik", FactoryActivityOutcome.Asked, "Which domain?", Now.AddHours(-3)),
         };
-        var jobs = new[] { Job("cj_b", "0 6 * * *"), Job("cj_t", "0 6 * * *", enabled: false) };
+        var jobs = new[] { Job("cj_b", "0 6 * * *"), Job("cj_t", "0 6 * * *", enabled: false), Job("cj_a", "0 6 * * *"), Job("cj_h", "0 6 * * *") };
 
         var view = FactoriesScreenFold.List(Inputs(new[] { runningB, paused, runningA, needsYou, failing }, rows, jobs));
 
@@ -92,14 +95,24 @@ public sealed class FactoriesScreenFoldTests
     {
         var f = WarmForward();
         var rows = new[] { Row("warmforward", "nora-hale", FactoryActivityOutcome.Failed, "Broke.", Now.AddHours(-25)) };
-        Assert.Equal("RUNNING", FactoriesScreenFold.List(Inputs(new[] { f }, rows)).Rows[0].StatusWord);
+        Assert.Equal("RUNNING", FactoriesScreenFold.List(Inputs(new[] { f }, rows, jobs: Running())).Rows[0].StatusWord);
     }
 
     [Fact]
-    public void Status_AFailureByANonSeat_IsNotFailing()
+    public void Status_AFailureByANonSeat_IsFailing()
     {
+        // Ruling of 2026-10-06: ANY failed row of the factory, whoever wrote it.
         var rows = new[] { Row("warmforward", "owner-session", FactoryActivityOutcome.Failed, "Broke.", Now.AddHours(-1)) };
-        Assert.Equal("RUNNING", FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, rows)).Rows[0].StatusWord);
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, rows)).Rows[0];
+        Assert.Equal("FAILING", row.StatusWord);
+        Assert.Contains("Owner Session", row.StatusReason);
+    }
+
+    [Fact]
+    public void Status_AFailureOfAnotherFactory_IsNotFailing()
+    {
+        var rows = new[] { Row("tallyhand", "owner-session", FactoryActivityOutcome.Failed, "Broke.", Now.AddHours(-1)) };
+        Assert.Equal("RUNNING", FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, rows, jobs: Running())).Rows[0].StatusWord);
     }
 
     [Fact]
@@ -107,16 +120,23 @@ public sealed class FactoriesScreenFoldTests
     {
         var failed = Row("warmforward", "nora-hale", FactoryActivityOutcome.Failed, "Broke.", Now.AddHours(-2));
         var fix = Row("warmforward", "nora-hale", FactoryActivityOutcome.Done, "It was a test row.", Now.AddHours(-1), corrects: failed.Id);
-        Assert.Equal("RUNNING", FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, new[] { failed, fix })).Rows[0].StatusWord);
+        Assert.Equal("RUNNING", FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, new[] { failed, fix }, jobs: Running())).Rows[0].StatusWord);
     }
 
-    [Fact]
-    public void Status_ASeatsScheduleThatCouldNotStart_IsFailing_AndSaysWhich()
+    [Theory]
+    [InlineData("not-started", "FAILING")]
+    [InlineData("worklist-no-list", "FAILING")]
+    [InlineData("worklist-no-director", "FAILING")]
+    [InlineData("worklist-unknown", "FAILING")]
+    [InlineData("started", "RUNNING")]
+    [InlineData("worklist-empty", "RUNNING")]
+    [InlineData("worklist-machine-busy", "RUNNING")]
+    public void Status_ASeatsScheduleWhoseLastFiringFailed_IsFailing_AndSaysWhich(string lastStatus, string expected)
     {
-        var jobs = new[] { Job("cj_save", "0 5 * * *", lastFired: Now.AddHours(-5), lastStatus: "not-started") };
+        var jobs = new[] { Job("cj_save", "0 5 * * *", lastFired: Now.AddHours(-5), lastStatus: lastStatus) };
         var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs)).Rows[0];
-        Assert.Equal("FAILING", row.StatusWord);
-        Assert.Contains("Savings Engineer", row.StatusReason);
+        Assert.Equal(expected, row.StatusWord);
+        if (expected == "FAILING") Assert.Contains("Savings Engineer", row.StatusReason);
     }
 
     [Fact]
@@ -145,8 +165,13 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
-    public void Status_NothingScheduled_IsRunningNotPaused()
-        => Assert.Equal("RUNNING", FactoriesScreenFold.List(Inputs(new[] { WarmForward() })).Rows[0].StatusWord);
+    public void Status_NoScheduleAtAll_IsPaused_AndSaysSo()
+    {
+        // Ruling of 2026-10-06: a factory whose seats have no enabled schedule at all (Tallyhand) is PAUSED.
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() })).Rows[0];
+        Assert.Equal("PAUSED", row.StatusWord);
+        Assert.Equal("No schedule or trigger runs its seats.", row.StatusReason);
+    }
 
     // ---------- waiting on you ----------
 

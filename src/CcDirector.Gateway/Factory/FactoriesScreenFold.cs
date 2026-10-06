@@ -25,15 +25,18 @@ public sealed record FactoriesScreenInputs(
 /// and the Cockpit renders the words, tones and order it is handed.
 ///
 /// A factory's status is exactly one of four words, worst first (decision 5 of the plan):
-///   FAILING   - a run of one of its seats failed in the last 24 hours: a "failed" row by a seat that no row
-///               corrects, or a seat's schedule whose last firing could not start the session.
+///   FAILING   - something of it failed in the last 24 hours: ANY "failed" row of the factory that no row corrects,
+///               whoever wrote it, or a seat's schedule whose last firing failed (the engine records that as
+///               "not-started", or a work list that could not run).
 ///   NEEDS YOU - something it asked or escalated is waiting on the owner.
-///   PAUSED    - it has schedules or triggers for its seats and every one of them is off.
+///   PAUSED    - nothing runs its seats on its own: no seat schedule is on and no seat trigger is live. A factory
+///               with no schedule at all is PAUSED too.
 ///   RUNNING   - otherwise.
+/// (The two build rulings of 2026-10-06, PLAN.md "Decisions added during the build".)
 ///
-/// Only registry seats are seats. A row written by a session that is not a seat ("Owner Session") still counts
-/// toward what is waiting on the owner - it is the factory's question - but it never becomes a row on the Seats tab
-/// or a reason for FAILING.
+/// Only registry seats are seats. A row written by a session that is not a seat ("Owner Session") counts toward
+/// what is waiting on the owner and toward FAILING - both are the factory's - but it never becomes a row on the
+/// Seats tab.
 /// </summary>
 public static class FactoriesScreenFold
 {
@@ -50,6 +53,13 @@ public static class FactoriesScreenFold
 
     /// <summary>A schedule's last status when the firing could not start its session.</summary>
     public const string ScheduleNotStarted = "not-started";
+
+    /// <summary>The last statuses the schedule engine writes for a firing that failed. It never writes "failed": a
+    /// session that could not start is "not-started", and a work list that could not run says why.</summary>
+    public static readonly IReadOnlySet<string> ScheduleFailedStatuses = new HashSet<string>(StringComparer.Ordinal)
+    {
+        ScheduleNotStarted, "worklist-no-list", "worklist-no-director", "worklist-unknown",
+    };
 
     public const string ChangeComing = "change - coming";
 
@@ -291,7 +301,7 @@ public static class FactoriesScreenFold
         if (fired is not null && (started is null || fired.LastFiredUtc!.Value > started.OccurredUtc.AddMinutes(5)))
         {
             var when = When(fired.LastFiredUtc!.Value, a.Zone, a.NowUtc, capital: true);
-            return IsNotStarted(fired.LastStatus)
+            return fired.LastStatus is { } st && ScheduleFailedStatuses.Contains(st)
                 ? ($"{when} - did not start", FactoryTone.Red)
                 : ($"{when} - started", FactoryTone.Blue);
         }
@@ -328,7 +338,7 @@ public static class FactoriesScreenFold
         var corrected = FactoryAgentsFold.AllCorrections(a).Where(r => r.CorrectsId is not null).Select(r => r.CorrectsId!.Value).ToHashSet();
 
         var failedRow = a.WindowRows
-            .Where(r => SameId(r.Factory, f.Factory) && seatIds.Contains(r.FactoryAgent)
+            .Where(r => SameId(r.Factory, f.Factory)
                         && r.Outcome == FactoryActivityOutcome.Failed && r.OccurredUtc >= since && !corrected.Contains(r.Id))
             .OrderByDescending(r => r.OccurredUtc).FirstOrDefault();
         if (failedRow is not null)
@@ -337,7 +347,7 @@ public static class FactoriesScreenFold
 
         var seatSchedules = f.Seats.SelectMany(s => SchedulesOf(s, input.Schedules).Select(j => (Seat: s, Job: j))).ToList();
         var notStarted = seatSchedules
-            .Where(x => IsNotStarted(x.Job.LastStatus) && x.Job.LastFiredUtc is { } t && t >= since)
+            .Where(x => x.Job.LastStatus is { } st && ScheduleFailedStatuses.Contains(st) && x.Job.LastFiredUtc is { } t && t >= since)
             .OrderByDescending(x => x.Job.LastFiredUtc).FirstOrDefault();
         if (notStarted.Job is not null)
             return new(0, StatusFailing, FactoryTone.Red,
@@ -348,12 +358,13 @@ public static class FactoriesScreenFold
             return new(1, StatusNeedsYou, FactoryTone.Amber, $"{WaitingText(waiting)} waiting on you.");
 
         var triggers = a.Triggers.Where(t => SameId(t.Factory, f.Factory) && seatIds.Contains(t.FactoryAgent)).ToList();
-        var switches = seatSchedules.Count + triggers.Count;
-        if (switches > 0 && seatSchedules.All(x => !x.Job.Enabled) && triggers.All(t => t.Paused))
-            return new(2, StatusPaused, FactoryTone.Paused, "Every schedule and trigger of its seats is off.");
+        if (!seatSchedules.Any(x => x.Job.Enabled) && !triggers.Any(t => !t.Paused))
+            return new(2, StatusPaused, FactoryTone.Paused,
+                seatSchedules.Count + triggers.Count == 0
+                    ? "No schedule or trigger runs its seats."
+                    : "Every schedule and trigger of its seats is off.");
 
-        return new(3, StatusRunning, FactoryTone.Ok,
-            switches == 0 ? "Nothing failed and nothing is waiting on you. No schedule or trigger runs its seats." : "Nothing failed and nothing is waiting on you.");
+        return new(3, StatusRunning, FactoryTone.Ok, "Nothing failed and nothing is waiting on you.");
     }
 
     /// <summary>"1 question", "2 decisions", "1 question, 1 decision", or "-". An asked row is a question, an
@@ -403,9 +414,6 @@ public static class FactoriesScreenFold
 
     private static List<CronJobDto> SchedulesOf(RegisteredFactorySeatDto seat, IReadOnlyList<CronJobDto> all) =>
         all.Where(j => seat.Schedules.Contains(j.Id, StringComparer.Ordinal)).ToList();
-
-    private static bool IsNotStarted(string? lastStatus) =>
-        string.Equals(lastStatus, ScheduleNotStarted, StringComparison.Ordinal);
 
     private static List<FactoryActivityDto> OpenWaiting(FactoryFoldInputs a) =>
         FactoryAgentsFold.OpenWaiting(a.WaitingCandidates, FactoryAgentsFold.AllCorrections(a));
