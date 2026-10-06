@@ -38,7 +38,7 @@ public sealed partial class TeamRegistry
     private readonly TenantRegistry _tenants;
     private readonly Func<DateTime> _utcNow;
     private readonly TeamSeatSync? _seatSync;
-    private readonly Func<string, TeamBilledSeats> _readTeamBill;
+    private readonly Func<string, TeamBill> _readTeamBill;
     // "May this person do this in this team", asked of the one place that answers it (devthrottle_internal#2302).
     private readonly TeamAccess _access;
     private readonly object _writeLock = new();
@@ -64,13 +64,13 @@ public sealed partial class TeamRegistry
     /// <param name="readTeamBill">Reads a team's bill (team_entitlements) for the invitation bill gate. Defaults to
     /// the entitlement reader over this same database.</param>
     public TeamRegistry(GatewayDatabase db, TenantRegistry tenants, Func<DateTime>? utcNow = null,
-        TeamSeatSync? seatSync = null, Func<string, TeamBilledSeats>? readTeamBill = null)
+        TeamSeatSync? seatSync = null, Func<string, TeamBill>? readTeamBill = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _seatSync = seatSync;
-        _readTeamBill = readTeamBill ?? new EntitlementRegistry(db).ReadTeamBilledSeats;
+        _readTeamBill = readTeamBill ?? new EntitlementRegistry(db).ReadTeamBill;
         _access = new TeamAccess(this);
     }
 

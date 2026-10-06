@@ -231,6 +231,36 @@ public sealed class SessionTurnStore
         }
     }
 
+    /// <summary>
+    /// EVERY Director that ever wrote anything stored for the session, in ANY generation: the head's Director and the
+    /// Director of every turn row, distinct (ignoring letter case). Empty when nothing has been stored for the session.
+    /// Read in the ambient tenant scope, like every other read here.
+    ///
+    /// The current generation alone does not answer "may this Director write here" (devthrottle_internal#2311, Gateway
+    /// review round 2, R2-F1): a Director chooses the generation it pushes, so a later generation would leave a
+    /// colleague's earlier rows out of the question. The hub asks of all of them before it accepts a team's push.
+    /// </summary>
+    public IReadOnlyList<string> DirectorsOfAnyGeneration(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var head = ctx.SessionTurnHeads.AsNoTracking().FirstOrDefault(h => h.SessionId == sessionId);
+            var rows = ctx.SessionTurns.AsNoTracking()
+                .Where(t => t.SessionId == sessionId)
+                .Select(t => t.DirectorId)
+                .Distinct()
+                .ToList();
+            if (head is not null)
+                rows.Add(head.DirectorId);
+            return rows
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+    }
+
     /// <summary>The watermark of every session this Director has pushed, for its <c>Hello</c>.</summary>
     public IReadOnlyList<TurnWatermark> WatermarksFor(string directorId)
     {

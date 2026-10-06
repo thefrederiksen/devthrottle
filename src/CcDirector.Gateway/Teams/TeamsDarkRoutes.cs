@@ -18,13 +18,21 @@ namespace CcDirector.Gateway.Teams;
 public static class TeamsDarkRoutes
 {
     /// <summary>
-    /// Whether <paramref name="path"/> is a team route: <c>/teams</c> and everything under it, and the two team
-    /// enrollment routes. Whole segments only, ignoring letter case, as routing matches them - <c>/teamsx</c> is not one.
+    /// Whether <paramref name="path"/> is a team route: <c>/teams</c> and everything under it, <c>/team-invitations</c>
+    /// and everything under it (open, accept, decline), and the two team enrollment routes. Whole segments only,
+    /// ignoring letter case, as routing matches them - <c>/teamsx</c> is not one. The enrollment routes are matched with
+    /// nothing after them but a trailing slash, which routing treats as the same route, so neither spelling can fall
+    /// to the Cockpit page (#3530 review round 3, R3-F1 and R3-F2).
     /// </summary>
     public static bool IsTeamPath(PathString path) =>
         path.StartsWithSegments("/teams", StringComparison.OrdinalIgnoreCase)
-        || path.Equals(Api.HostedEnrollmentEndpoint.TeamsPath, StringComparison.OrdinalIgnoreCase)
-        || path.Equals(Api.HostedEnrollmentEndpoint.MovePath, StringComparison.OrdinalIgnoreCase);
+        || path.StartsWithSegments("/team-invitations", StringComparison.OrdinalIgnoreCase)
+        || IsExactly(path, Api.HostedEnrollmentEndpoint.TeamsPath)
+        || IsExactly(path, Api.HostedEnrollmentEndpoint.MovePath);
+
+    private static bool IsExactly(PathString path, string route) =>
+        path.StartsWithSegments(route, StringComparison.OrdinalIgnoreCase, out var rest)
+        && (!rest.HasValue || rest.Value == "/");
 
     /// <summary>Add the middleware. Called only where Teams is NOT released.</summary>
     public static void Use(WebApplication app)

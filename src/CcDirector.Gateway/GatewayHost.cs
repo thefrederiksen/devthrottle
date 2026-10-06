@@ -630,7 +630,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // reinstated Director's next knock is simply accepted. Idempotent, so a repeat call here is safe.
             if (GatewayHostedMode.IsHosted)
                 ReinstatedAtStartup = Tenancy.PreFreeTierKeyReinstatement.Run(
-                    Devices, TenantRegistry, EntitlementRegistry, DateTime.UtcNow);
+                    Devices, TenantRegistry, EntitlementRegistry, DateTime.UtcNow,
+                    teams: TeamsReleased ? TeamMemberEntitlement : null);
 
             _workLists.Initialize();
             _cronJobs.Initialize();
@@ -780,7 +781,8 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Whose what a team request touches, and the one answer to "whose Director is this" in a team
     /// (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>, devthrottle_internal#2311). One instance: the team gate asks it,
     /// and so does the team Fleet Map (devthrottle_internal#2312), and the prompt stamp and the session history's person
-    /// read it too (devthrottle_internal#2305), so the question has one copy.
+    /// read it too (devthrottle_internal#2305), and so does the hub before it accepts a team's turn push, so the question
+    /// has one copy.
     /// </summary>
     public Teams.TeamCallerOwnership TeamCallerOwnership { get; }
 
@@ -795,6 +797,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// only when Teams is released. Exposed so the hosted tests read the same store the routes write.
     /// </summary>
     public Teams.TeamRequestStore TeamRequests { get; }
+
+    /// <summary>A person's paid features inside a team: their membership and the team's bill (devthrottle_internal#2311,
+    /// Gateway step 2). Asked only where Teams is released.</summary>
+    public Teams.TeamMemberEntitlement TeamMemberEntitlement { get; }
 
     /// <summary>
     /// The retry net for the team seat sync (devthrottle_internal#2301): null except on a hosted Gateway with Teams
@@ -1809,21 +1815,26 @@ public sealed class GatewayHost : IAsyncDisposable
         {
             var seatSync = new Tenancy.TeamSeatSync(EntitlementRegistry, new Core.Account.TeamSeatSyncClient());
             TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, seatSync: seatSync,
-                readTeamBill: EntitlementRegistry.ReadTeamBilledSeats);
+                readTeamBill: EntitlementRegistry.ReadTeamBill);
             TeamSeatConvergence = new Teams.TeamSeatConvergence(_gatewayDb, seatSync);
         }
         else
         {
-            TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, readTeamBill: EntitlementRegistry.ReadTeamBilledSeats);
+            TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, readTeamBill: EntitlementRegistry.ReadTeamBill);
         }
         TeamInvitationMailer = new Teams.TeamInvitationMailer(new Core.Account.TeamInvitationMailClient());
+        // ONE answer to a person's paid features inside a team: their membership and the team's bill
+        // (devthrottle_internal#2311, Gateway step 2). Asked by the access lease, the narration plan and the start-up
+        // key reinstatement - and by each only where Teams is released, so a dark Gateway reads exactly as before.
+        TeamMemberEntitlement = new Teams.TeamMemberEntitlement(TeamRegistry, EntitlementRegistry);
         // MTR-15 cancellation cutoff, hosted-only. Reuses the SAME EntitlementRegistry as the enrollment gate
         // so the enrollment check and the ongoing check cannot drift. The revoker calls MTR-14B's tenant-wide
         // device tombstone; the lease is the O(1) hot-path check; the monitor is the 60s sweep.
         if (GatewayHostedMode.IsHosted)
         {
             _accessRevoker = new Tenancy.TenantAccessRevoker(Devices, _directorConnections);
-            _accessLeases = new Tenancy.HostedAccessLeaseService(EntitlementRegistry, TenantRegistry, _accessRevoker);
+            _accessLeases = new Tenancy.HostedAccessLeaseService(EntitlementRegistry, TenantRegistry, _accessRevoker,
+                teams: TeamsReleased ? TeamMemberEntitlement : null);
             _leaseMonitor = new Tenancy.EntitlementLeaseMonitor(_accessLeases);
             // TEST ONLY: a hosted gateway that is NOT a real hosted image (a test forcing hosted mode via env,
             // with no baked image marker) auto-provisions the entitlement production requires at the paid
@@ -1848,7 +1859,9 @@ public sealed class GatewayHost : IAsyncDisposable
         _devReports = new DevReports.DevReportStore(_gatewayDb);
         _devReportRecipients = new DevReports.DevReportRecipients(_gatewayDb);
         _devReportComments = new DevReports.DevReportPersonComments(_gatewayDb);
-        TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary,
+        // ONE answer to "whose Director is this" in a team, asked by the team gate and by the hub before it accepts a
+        // team's turn push (devthrottle_internal#2311).
+        TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary, SessionKeys,
             reportAuthor: (tenant, reportId) => _devReports.Get(tenant, reportId)?.AuthorSubject);
         TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
         TeamRequests = new Teams.TeamRequestStore(_gatewayDb, TeamRegistry);
@@ -2071,7 +2084,8 @@ public sealed class GatewayHost : IAsyncDisposable
             AmbientSnapshotConnected,
             sessions => _displayFold.Push(_tenantPass.Current, sessions, _turnVerdictRows),
             SendCommandAsync,
-            currentScopeKey: () => _tenantPass.Current?.Value);
+            currentScopeKey: () => _tenantPass.Current?.Value,
+            mayReceive: (directorId, sessionId) => IsTeamSessionOfDirector(_tenantPass.Current, directorId, sessionId, isRemoval: false));
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
         // (CcStorage.Root(), the same location the snooze and cron stores use). Loaded here so a Gateway
         // restart re-serves every WHY. Tests MUST pass an isolated path so they never touch the real store.
@@ -2398,7 +2412,9 @@ public sealed class GatewayHost : IAsyncDisposable
                                  : new History.DirectorFacts(d.MachineName, d.Version);
             },
             _knownRepositories,
-            personOf: TeamSessionPersonOf);
+            personOf: TeamSessionPersonOf,
+            // In a team, a session's history row is written and ended only by its own Director (#3552).
+            acceptsReport: (tenant, sid, directorId, isRemoval) => IsTeamSessionOfDirector(tenant, directorId, sid, isRemoval));
         // The one-repository-list mission, phase 2. The machine name comes from the Director REGISTRATION -
         // the same Registry.Get the read side's GET /directors/{id}/known-repositories resolves its machine
         // from - so the end that writes the rows and the end that reads them agree on one string. Writing
@@ -3318,17 +3334,39 @@ public sealed class GatewayHost : IAsyncDisposable
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
 
     /// <summary>
+    /// Whether a Director's report about a session, or a fold sent to it, belongs to that session (#3552 review, round
+    /// 4): in a team's tenant, <see cref="Teams.TeamCallerOwnership.AcceptsReport"/>, the one rule; in every other tenant,
+    /// and on a Gateway where Teams is dark, yes - unchanged. Asked by the turn-end watcher and by the display push, so a
+    /// Director that lists a colleague's session id neither drives that session's turns (the Wingman would read the wrong
+    /// screen and record it under the colleague's session) nor is sent what the Gateway knows about it.
+    /// </summary>
+    internal bool IsTeamSessionOfDirector(TenantId? tenant, string directorId, string sessionId, bool isRemoval)
+    {
+        if (tenant is not { IsValid: true } t || !TeamsReleased || !TeamMemberEntitlement.IsTeam(t))
+            return true;
+        return TeamCallerOwnership.AcceptsReport(t, directorId, sessionId, isRemoval);
+    }
+
+    /// <summary>
     /// Whether this account's plan includes the Wingman's narration: the account subject its tenant maps to, that
     /// subject's entitlement, and <see cref="Wingman.NarrationPlanRule"/> for the answer. A read that throws is a
     /// read that could not be made - Unknown, never "needs Pro", so a paying account is never told it must upgrade
     /// because the database hiccuped.
+    ///
+    /// IN A TEAM'S TENANT, where Teams is released (devthrottle_internal#2311, Gateway step 2): the person is the
+    /// session's owner (<see cref="Teams.TeamCallerOwnership.PersonOfSession"/>) and the answer is theirs in that team -
+    /// the team's bill and their role there (<see cref="Teams.TeamMemberEntitlement"/>), never their own plan. A session
+    /// that is nobody's, or whose owner is not a member, is Unknown: no call is made, and nothing is said about a plan.
     /// </summary>
-    private Wingman.NarrationPlan ResolveNarrationPlan(TenantId tenant)
+    internal Wingman.NarrationPlan ResolveNarrationPlan(TenantId tenant, string sid)
     {
         if (!GatewayHostedMode.IsHosted)
             return Wingman.NarrationPlanRule.Decide(hosted: false, subject: null, decision: null);
         try
         {
+            if (TeamsReleased && TeamMemberEntitlement.IsTeam(tenant))
+                return ResolveTeamNarrationPlan(tenant, sid);
+
             var subject = TenantRegistry.SubjectForTenant(tenant);
             var decision = string.IsNullOrWhiteSpace(subject) ? null : EntitlementRegistry.Evaluate(subject, DateTime.UtcNow);
             var plan = Wingman.NarrationPlanRule.Decide(hosted: true, subject, decision);
@@ -3340,6 +3378,16 @@ public sealed class GatewayHost : IAsyncDisposable
             FileLog.Write($"[GatewayHost] ResolveNarrationPlan FAILED: tenant={tenant.ToLogString()}: {ex.GetType().Name}: {ex.Message} - the plan is Unknown");
             return Wingman.NarrationPlan.Unknown;
         }
+    }
+
+    private Wingman.NarrationPlan ResolveTeamNarrationPlan(TenantId tenant, string sid)
+    {
+        var owner = TeamCallerOwnership.PersonOfSession(tenant, sid);
+        var decision = owner is null ? null : TeamMemberEntitlement.DecideOrUnknown(tenant, owner, DateTime.UtcNow);
+        var plan = Wingman.NarrationPlanRule.DecideForTeamSession(owner, decision);
+        FileLog.Write($"[GatewayHost] ResolveNarrationPlan: team {tenant.ToLogString()} session {sid} owner={(owner is null ? "nobody" : "known")} " +
+                      $"member={decision?.IsMember.ToString() ?? "not known"} tier={decision?.Entitlement?.Tier ?? "none"} plan={plan}");
+        return plan;
     }
 
     /// <summary>
@@ -3823,7 +3871,9 @@ public sealed class GatewayHost : IAsyncDisposable
             {
                 _fleetManagerEvents?.OnSessionRemoved(tenant, sid, directorId);
                 ReReadAboveAStop(tenant, sid);
-            });
+            },
+            // In a team, only the session's own Director moves its turn (#3552 review, round 4, question 2).
+            acceptsReport: (tenant, sid, directorId, isRemoval) => IsTeamSessionOfDirector(tenant, directorId, sid, isRemoval));
         // First tick = the startup catch-up sweep; then the 15s reconcile poll for
         // Directors that never push (file-discovered locals, old builds).
         _turnEndWatcher.Start();
@@ -3905,6 +3955,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(_discoveredRepositories);
         // The stored conversation (turn-push mission): DirectorHub.PushTurns writes it, Hello reads its watermarks.
         builder.Services.AddSingleton(_sessionTurns);
+        builder.Services.AddSingleton(TeamCallerOwnership);
         // Which Directors say they send conversations - recorded at Hello, read when Chat finds nothing stored.
         builder.Services.AddSingleton(_turnPushCapabilities);
         builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
@@ -4110,6 +4161,8 @@ public sealed class GatewayHost : IAsyncDisposable
             var requireToken = new AuthMiddleware.RequireToken
             {
                 Token = Token, Devices = Devices, Leases = _accessLeases, Boundary = _tenantBoundary, Sessions = SessionKeys,
+                // Who a request in a team's tenant is from, for the lease: the one resolver (devthrottle_internal#2311).
+                TeamPerson = TeamCallerOwnership.PersonOf,
                 // The Fleet Manager Improvement mission, phase 1: a raised session passes two refusals no other session
                 // key does, and each time it does is recorded first. The tenant asked about is the session key's own.
                 IsRaised = identity => RaisedSessions.IsRaised(identity.Tenant, identity.SessionId.ToString()),

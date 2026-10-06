@@ -111,7 +111,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             // Main's narration-plan parameter (pull request 3018). These tests are about which stops reach
             // the Fleet Manager, not about billing: this class judges stops, it does not narrate, so the plan
             // is the allowing one, as it is for the sibling verdict tests, and it never changes what they measure.
-            narrationPlan: _ => NarrationPlan.Allowed,
+            narrationPlan: (_, _) => NarrationPlan.Allowed,
             nowUtc: () => _now);
         _seat = new TurnVerdictService(verdictEnv);
 

@@ -215,15 +215,19 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
     }
 
     [Fact]
-    public void Enroll_TwoMembersPresentingTheSameDeviceId_GetTwoRows_NeitherTakesTheOthersOver()
+    public void Enroll_TwoMembersPresentingTheSameDeviceId_TheSecondIsRefused_AndNeitherTakesTheOthersOver()
     {
+        // #3552 review S2-F1: this used to give the second member a row of their own under the same id in the same
+        // team. A Director id in a team is now one person's, so the second member is refused and the first's row is
+        // untouched. In ANOTHER team the same id is the second member's to use.
         var owner = Enroll(Owner, "same-id", _team);
         var developer = Enroll(Developer, "same-id", _team);
 
         Assert.Equal(200, owner.Status);
-        Assert.Equal(200, developer.Status);
-        Assert.NotEqual(Active(owner.Response!.DeviceKey).DeviceId, Active(developer.Response!.DeviceKey).DeviceId);
-        Assert.Equal(Owner, Active(owner.Response.DeviceKey).AccountSubject);
+        Assert.Equal(409, developer.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DirectorIdTakenInTeamCode, developer.Code);
+        Assert.Equal(Owner, Active(owner.Response!.DeviceKey).AccountSubject);
+        Assert.Equal(200, Enroll(Developer, "same-id", _secondTeam).Status);
     }
 
     [Fact]
@@ -436,12 +440,46 @@ public sealed class HostedTeamEnrollmentTests : IDisposable
         Assert.Equal(DeviceCredentialResolutionKind.Revoked, _devices.ResolveCredential(otherTeamKey).Kind);
         Assert.Equal(_tenants.LookupBySubject(Owner)!.Value.Value, Active(personalKey).TenantId);
 
-        // Another Director of the same person, and the same Director id of another person, are untouched.
+        // Another Director of the same person is untouched. The same Director id of ANOTHER person in the same team is
+        // no longer allowed at all (#3552 review, S2-F1): the Owner once held "director-o" in this team - the key is
+        // revoked now - so the id is the Owner's there for good, and the Manager is refused. This test used to pin the
+        // opposite (two people, one Director id, one team); that was the defect.
         var sibling = Enroll(Owner, "director-sibling", _team).Response!.DeviceKey;
-        var managersOwn = Enroll(Manager, "director-o", _team).Response!.DeviceKey;
-        Enroll(Owner, "director-o", _team);
+        var managers = Enroll(Manager, "director-o", _team);
+        Assert.Equal(409, managers.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DirectorIdTakenInTeamCode, managers.Code);
+        Assert.Equal(HostedEnrollmentEndpoint.DirectorIdTakenInTeamRefusal, managers.Error);
+        // The same person setting the same id up again is today's behaviour.
+        var ownersAgain = Enroll(Owner, "director-o", _team);
+        Assert.Equal(200, ownersAgain.Status);
         Assert.Equal(_team, Active(sibling).TenantId);
-        Assert.Equal(_team, Active(managersOwn).TenantId);
+        Assert.Equal(_team, Active(ownersAgain.Response!.DeviceKey).TenantId);
+    }
+
+    [Fact]
+    public void EnrollOrMove_IntoATeam_UnderADirectorIdAnotherMemberHolds_IsRefused409_ActiveOrRevoked_AndNothingIsWritten()
+    {
+        // The Owner's Director is set up for the team.
+        var ownersKey = Enroll(Owner, "director-o", _team).Response!.DeviceKey;
+
+        // The Manager names the same id: refused, whether enrolling straight in or moving a personal Director in.
+        var enroll = Enroll(Manager, "director-o", _team);
+        Assert.Equal(409, enroll.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DirectorIdTakenInTeamCode, enroll.Code);
+        Assert.Equal(200, Enroll(Manager, "director-o", null).Status);
+        var move = Move(Manager, "director-o", _team);
+        Assert.Equal(409, move.Status);
+        Assert.Equal(HostedEnrollmentEndpoint.DirectorIdTakenInTeamCode, move.Code);
+
+        // The Owner's key is revoked (they left, or moved the Director away): still the Owner's id in the team.
+        Assert.Equal(200, Move(Owner, "director-o", null).Status);
+        Assert.Equal(DeviceCredentialResolutionKind.Revoked, _devices.ResolveCredential(ownersKey).Kind);
+        Assert.Equal(409, Enroll(Manager, "director-o", _team).Status);
+        Assert.Equal(409, Move(Manager, "director-o", _team).Status);
+
+        // Nothing of the Manager's was written into the team.
+        using var ctx = _db.CreateUnscopedContext();
+        Assert.False(ctx.DeviceCredentials.Any(d => d.TenantId == _team && d.AccountSubject == Manager));
     }
 
     [Fact]

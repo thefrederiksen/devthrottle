@@ -24,6 +24,10 @@ namespace CcDirector.Gateway.Tenancy;
 ///   * only a tenant whose account the entitlement read says may hold hosted capacity TODAY - asked through the
 ///     same <see cref="EntitlementRegistry"/> and <see cref="EntitlementScopes"/> the request path uses. A FAILED
 ///     read is not a yes: that tenant is left alone and considered again at the next start.
+///   * in a TEAM's tenant, where Teams is released (devthrottle_internal#2311, Gateway step 2): the same rule as the
+///     access lease, one PERSON at a time - a member of the team the team's rule entitles
+///     (<see cref="Teams.TeamMemberEntitlement"/>). A non-member, an Unknown answer, or a membership read that fails
+///     is not a yes. Never the person's own plan, and never the tenant's missing personal subject.
 /// </summary>
 public static class PreFreeTierKeyReinstatement
 {
@@ -37,7 +41,8 @@ public static class PreFreeTierKeyReinstatement
         Pairing.DeviceRegistry devices,
         TenantRegistry tenants,
         EntitlementRegistry entitlements,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        Teams.TeamMemberEntitlement? teams = null)
     {
         ArgumentNullException.ThrowIfNull(devices);
         ArgumentNullException.ThrowIfNull(tenants);
@@ -54,9 +59,19 @@ public static class PreFreeTierKeyReinstatement
                 var decision = entitlements.Evaluate(subject, nowUtc);
                 return decision.Outcome == EntitlementOutcome.Entitled
                        && EntitlementScopes.GrantsHostedGateway(decision.Tier);
-            });
+            },
+            isTeam: teams is null ? null : teams.IsTeam,
+            teamMemberMayHoldKeys: teams is null ? null : (tenant, person) => TeamMemberMayHoldKeys(teams, tenant, person, nowUtc));
 
         FileLog.Write($"[PreFreeTierKeyReinstatement] reinstated {reinstated} device credential(s) cancelled before the free tier");
         return reinstated;
+    }
+
+    /// <summary>The team rule for one person: a member the team's rule entitles to the hosted Gateway. A read that
+    /// fails is not a yes - that person's keys are left alone and considered again at the next start.</summary>
+    internal static bool TeamMemberMayHoldKeys(Teams.TeamMemberEntitlement teams, TenantId tenant, string person, DateTime nowUtc)
+    {
+        return teams.DecideOrUnknown(tenant, person, nowUtc) is { IsMember: true, Entitlement: { Outcome: EntitlementOutcome.Entitled } entitlement }
+               && EntitlementScopes.GrantsHostedGateway(entitlement.Tier);
     }
 }

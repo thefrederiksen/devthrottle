@@ -46,7 +46,7 @@ public sealed class TeamPageTests : IDisposable
         var seatSync = new TeamSeatSync(new EntitlementRegistry(_db, requireLivemode: false),
             new TeamSeatSyncClient(new HttpClient(_website), "https://website.test"), () => Token);
         _teams = new TeamRegistry(_db, _tenants, () => _now, seatSync,
-            readTeamBill: _ => new TeamBilledSeats(true, true, EntitlementRegistry.StatusActive, 4));
+            readTeamBill: _ => new TeamBill(true, true, EntitlementRegistry.StatusActive, 4));
 
         _tenants.MintOrLookupBySubject(Owner, "soren@acme.example");
         _tenants.MintOrLookupBySubject(Manager, "priya@acme.example");

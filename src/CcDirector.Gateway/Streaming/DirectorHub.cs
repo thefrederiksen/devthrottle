@@ -30,6 +30,8 @@ public sealed class DirectorHub : Hub
 {
     private const string DirectorIdItemKey = "cc.directorId";
     private const string TenantIdItemKey = "cc.tenantId";
+    // The person a TEAM key was issued to, recorded at Hello only for a team key (devthrottle_internal#2311).
+    private const string TeamKeyHolderItemKey = "cc.teamKeyHolder";
     /// <summary>Set on a connection once its turn watermarks have been handed to the Director.</summary>
     private const string TurnWatermarksHandedItemKey = "cc.turnWatermarksHanded";
 
@@ -78,9 +80,11 @@ public sealed class DirectorHub : Hub
         Wingman.VoiceAnswerObserver? voiceAnswers = null,
         Messaging.FleetMessageLinkStore? messageLinks = null,
         Messaging.FleetMessageLinkRecord? messageLinkRecord = null,
-        Fleet.FleetManagerLessonsObserver? fleetManagerLessons = null)
+        Fleet.FleetManagerLessonsObserver? fleetManagerLessons = null,
+        Teams.TeamCallerOwnership? teamOwnership = null)
     {
         _fleetManagerLessons = fleetManagerLessons;
+        _teamOwnership = teamOwnership;
         _voiceAnswers = voiceAnswers;
         // A link store with nowhere to record what it ends would end links silently; refused at construction.
         if (messageLinks is not null && messageLinkRecord is null)
@@ -149,6 +153,8 @@ public sealed class DirectorHub : Hub
     private readonly SessionStateObservationSink? _sessionState;
     /// <summary>The stored conversation (turn-push mission). Null only in tests that do not exercise it.</summary>
     private readonly History.SessionTurnStore? _sessionTurns;
+    // Whose a Director is inside a team (devthrottle_internal#2311): the one answer the team gate also asks.
+    private readonly Teams.TeamCallerOwnership? _teamOwnership;
     /// <summary>Which connected Directors send their conversations - learned here, from Hello.</summary>
     private readonly TurnPushCapabilityRegistry? _turnPushCapabilities;
     private readonly FleetManagerHomeCapabilityRegistry? _fleetManagerHomeCapabilities;
@@ -306,12 +312,23 @@ public sealed class DirectorHub : Hub
         // and any other id is refused here, before any state is written. Without this a member could say Hello under
         // a colleague's Director id while that Director was away, and be answered as its owner. A personal key is
         // unchanged: within one person's own account the rule below already holds.
+        //
+        // AND NO OTHER PERSON HOLDS THAT ID IN THE TEAM (#3552 review, S2-F5). Enrollment refuses a second person's row
+        // under a Director id, but a row written before that refusal existed would still let its key say Hello as the
+        // id. So a team key is also refused while ANOTHER person has an active row in the team enrolled for the same id.
+        // Both questions use the one comparison, DeviceCredentialIdentity.SameDirectorId.
         var device = AuthMiddleware.AuthenticatedDevice(Context.GetHttpContext());
-        if (device is { IsTeamKey: true }
-            && !string.Equals(device.EnrolledDirectorId, directorId, StringComparison.OrdinalIgnoreCase))
+        if (device is { IsTeamKey: true } && !device.IsEnrolledFor(directorId))
         {
             FileLog.Write($"[DirectorHub] Hello REJECTED (a team key may say Hello only for the Director it was set up for, "
                           + $"and {directorId} is not that Director): conn={Short(Context.ConnectionId)}");
+            Context.Abort();
+            return null;
+        }
+        if (device is { IsTeamKey: true } && IsAnotherPersonsDirectorInTeam(device, tenant, directorId))
+        {
+            FileLog.Write($"[DirectorHub] Hello REJECTED (in this team another person holds a working key set up for {directorId}; "
+                          + $"a Director id in a team is one person's): conn={Short(Context.ConnectionId)}");
             Context.Abort();
             return null;
         }
@@ -329,6 +346,8 @@ public sealed class DirectorHub : Hub
 
         Context.Items[DirectorIdItemKey] = directorId;
         Context.Items[TenantIdItemKey] = tenant;
+        if (device is { IsTeamKey: true })
+            Context.Items[TeamKeyHolderItemKey] = device.AccountSubject ?? "";
         _store.RegisterConnection(tenant, directorId, Context.ConnectionId);
         // The repository store follows the same ownership discipline: only this - the current -
         // connection may push repository snapshots from now on.
@@ -455,6 +474,18 @@ public sealed class DirectorHub : Hub
             return null;
         }
         using var tenantScope = EnterBoundTenantScope();
+        switch (TeamTurnPushRefusalFor(directorId, batch.SessionId))
+        {
+            case TeamTurnPushRefusal.AnotherPersonWroteIt:
+            case TeamTurnPushRefusal.AnotherDirectorsSession:
+                // Refused for good: the Director stops re-sending this generation, as for a malformed batch.
+                return null;
+            case TeamTurnPushRefusal.NotItsOnlyHolder:
+                // Refused for now: an answer on another generation makes the Director re-read at its next trigger, so
+                // a first push that arrived before its own roster entry, or while another Director also lists the id, is sent
+                // again rather than lost.
+                return new TurnWatermark { SessionId = batch.SessionId, Generation = "", Count = 0 };
+        }
         try
         {
             return _sessionTurns.Append(directorId, batch, DateTime.UtcNow);
@@ -463,6 +494,102 @@ public sealed class DirectorHub : Hub
         {
             FileLog.Write($"[DirectorHub] PushTurns REFUSED a malformed batch: director={directorId} session={batch.SessionId} seq={sequence}: {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// IN A TEAM, A SESSION KEY IS REGISTERED ONLY FOR A SESSION THAT IS NOT ANOTHER DIRECTOR'S (#3552 review, S2-F8).
+    /// The key row is the record of whose a session id is (S2-F6), and the first Director to write it keeps it, so it must
+    /// not be writable by a colleague's Director for an id it has learned. Refused when ANOTHER Director's roster in the
+    /// tenant lists the id while it has no key row yet, or when the id has stored rows written by another person's Director -
+    /// read through the same roster, key row and stored-writer readers the ownership answer and the turn push use. A
+    /// Director registering a key for an
+    /// id only its own roster lists is accepted: that is the honest reseed, which sends the roster and then the keys; and
+    /// a stock Director registers a new session's key before it lists the session at all. Null when allowed; otherwise
+    /// the reason. A personal key is never asked. Called with the session id already trimmed.
+    /// </summary>
+    private string? TeamSessionKeyRefusalFor(string directorId, TenantId tenant, string sessionId)
+    {
+        if (!Context.Items.TryGetValue(TeamKeyHolderItemKey, out var holder))
+            return null;
+        var person = holder as string;
+        if (string.IsNullOrEmpty(person) || _teamOwnership is null || _sessionTurns is null)
+            return "in a team, a session key cannot be checked on this Gateway (the person, the ownership answer or the turn store is missing)";
+
+        // THE ROSTER HALF ONLY WHILE NO KEY ROW EXISTS (#3552 review, S2-F12). Once a row exists the registry decides it:
+        // the Director it names refreshes it, any other is refused, and it is never revived. Asking the roster then as
+        // well refused only the honest refresh of a row that already named this Director, whenever a colleague listed
+        // the id - and the key ran out.
+        if (_teamOwnership.SessionKeyDirectorOf(tenant, sessionId) is null)
+        {
+            var holders = _store.DirectorsHoldingSession(tenant, sessionId);
+            if (holders.Any(h => !Pairing.DeviceCredentialIdentity.SameDirectorId(h, directorId)))
+                return $"in a team, session {sessionId} is listed by another Director, so this Director may not register its key";
+        }
+
+        IReadOnlyList<string> writers;
+        using (EnterBoundTenantScope())
+            writers = _sessionTurns.DirectorsOfAnyGeneration(sessionId);
+        if (_teamOwnership.WrittenByAnotherPerson(tenant, writers, directorId, person))
+            return $"in a team, session {sessionId} holds rows another person's Director wrote, so this Director may not register its key";
+        return null;
+    }
+
+    /// <summary>Whether, in the team <paramref name="tenant"/>, a person other than the team key's own holds an active
+    /// key enrolled for <paramref name="directorId"/>. A team key naming no person, or a Gateway with no ownership
+    /// answer, cannot be cleared, so it is answered yes and the Hello refused - never guessed.</summary>
+    private bool IsAnotherPersonsDirectorInTeam(Pairing.DeviceCredentialIdentity device, TenantId tenant, string directorId)
+    {
+        if (string.IsNullOrWhiteSpace(device.AccountSubject) || _teamOwnership is null)
+        {
+            FileLog.Write($"[DirectorHub] Hello: a team key, and its person or the ownership answer is missing - refused: director={directorId}");
+            return true;
+        }
+        return _teamOwnership.IsAnotherPersonsDirector(tenant, device.AccountSubject, directorId);
+    }
+
+    private enum TeamTurnPushRefusal { None, AnotherPersonWroteIt, AnotherDirectorsSession, NotItsOnlyHolder }
+
+    /// <summary>
+    /// A TEAM'S TURN PUSH IS ACCEPTED ONLY INTO THE PUSHER'S OWN SESSION (devthrottle_internal#2311, Gateway review
+    /// round 2, R2-F1). Inside a team, whose a session is decides who may read its stored content, and part of that
+    /// answer is who wrote it - so the write itself must not let one person write into another's session. A session
+    /// id with anything stored, in ANY generation, is accepted only when every Director that wrote it is this one or
+    /// another Director of the same person (<see cref="Teams.TeamCallerOwnership.OwnerOf"/>; a writer it cannot name
+    /// is not the pusher's). A session id with nothing stored is accepted from the Director its session key row names,
+    /// and from no other, however many Directors list the id (#3552 review, S2-F6); only a session that never registered a
+    /// key falls to the roster: accepted when this Director is the ONLY one in the tenant whose roster holds it. That closes both harms: a later generation taking over a colleague's ended session, and a foreign row
+    /// spoiling a colleague's live one. A personal key is never asked: <see cref="TeamKeyHolderItemKey"/> is set only
+    /// for a team key. Called inside the bound tenant scope.
+    /// </summary>
+    private TeamTurnPushRefusal TeamTurnPushRefusalFor(string directorId, string sessionId)
+    {
+        if (!Context.Items.TryGetValue(TeamKeyHolderItemKey, out var holder))
+            return TeamTurnPushRefusal.None;
+        var person = holder as string;
+        var tenant = RequireBoundTenant();
+        if (string.IsNullOrEmpty(person) || _teamOwnership is null)
+        {
+            FileLog.Write($"[DirectorHub] PushTurns REFUSED (a team key, and its person or the ownership answer is missing): director={directorId} session={Short(sessionId)}");
+            return TeamTurnPushRefusal.AnotherPersonWroteIt;
+        }
+
+        // THE ONE RULE (Teams.TeamCallerOwnership.ClaimOf): anything stored decides by who wrote it (R2-F1); nothing
+        // stored, the session key row decides (S2-F6); neither, only the ONE Director whose roster lists the id (S2-F2).
+        var claim = _teamOwnership.ClaimOf(tenant, directorId, person, sessionId);
+        switch (claim)
+        {
+            case Teams.TeamSessionClaim.Its:
+                return TeamTurnPushRefusal.None;
+            case Teams.TeamSessionClaim.NotNow:
+                FileLog.Write($"[DirectorHub] PushTurns REFUSED for now (in a team, session {Short(sessionId)} has nothing stored, no key row, and this Director is not its only holder): director={directorId}");
+                return TeamTurnPushRefusal.NotItsOnlyHolder;
+            case Teams.TeamSessionClaim.AnotherDirectorsKey:
+                FileLog.Write($"[DirectorHub] PushTurns REFUSED (in a team, session {Short(sessionId)} has nothing stored and its key was registered by another Director): director={directorId}");
+                return TeamTurnPushRefusal.AnotherDirectorsSession;
+            default:
+                FileLog.Write($"[DirectorHub] PushTurns REFUSED (in a team, session {Short(sessionId)} is not this Director's: {claim}): director={directorId}");
+                return TeamTurnPushRefusal.AnotherPersonWroteIt;
         }
     }
 
@@ -559,6 +686,13 @@ public sealed class DirectorHub : Hub
             throw new HubException("the connection's bound tenant is not valid");
         }
 
+        var teamRefusal = TeamSessionKeyRefusalFor(directorId, tenant, registration.SessionId.Trim());
+        if (teamRefusal is not null)
+        {
+            FileLog.Write($"[DirectorHub] RegisterSessionKey REFUSED ({teamRefusal}): director={directorId}");
+            throw new HubException(teamRefusal);
+        }
+
         bool registered;
         try
         {
@@ -613,6 +747,21 @@ public sealed class DirectorHub : Hub
         {
             FileLog.Write($"[DirectorHub] RevokeSessionKey REFUSED (this Gateway has no session key registry): director={directorId}, session={sessionId}");
             throw new HubException("this Gateway has no session key registry");
+        }
+
+        // IN A TEAM, A DIRECTOR ENDS ONLY ITS OWN SESSION'S KEY (#3552 review, S2-F11). The tenant is everybody's there, and
+        // the key row is the record of whose a session is, so it is ended only when it names the calling Director - read
+        // through the one reader, TeamCallerOwnership.SessionKeyDirectorOf. Otherwise nothing is ended, not the key and
+        // not the raised entry, and it is said once here. A personal tenant is one person's, and is unchanged.
+        if (Context.Items.ContainsKey(TeamKeyHolderItemKey))
+        {
+            var keyed = _teamOwnership?.SessionKeyDirectorOf(tenant, sessionId.Trim());
+            if (keyed is null || !Pairing.DeviceCredentialIdentity.SameDirectorId(keyed, directorId))
+            {
+                FileLog.Write($"[DirectorHub] RevokeSessionKey IGNORED (in a team, the key of session {Short(sessionId)} is not this Director's"
+                              + $"{(keyed is null ? ", or there is no key row" : "")}; nothing was ended): director={directorId}");
+                return;
+            }
         }
 
         var revoked = _sessionKeys.Revoke(tenant, sessionId, Pairing.SessionKeyRegistry.ReasonSessionReaped);

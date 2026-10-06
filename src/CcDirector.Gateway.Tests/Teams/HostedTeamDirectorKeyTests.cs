@@ -17,12 +17,11 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// <see cref="GatewayHost"/> with Teams released, over REAL HTTP, through the REAL auth middleware. Keys are minted the
 /// way hosted enrollment mints them.
 ///
-/// WHAT A TEAM KEY GETS TODAY, AND WHY. A team key authenticates - the device registry accepts it while its person may
-/// run sessions in the team - but the request-path access lease then refuses it with 402, because the lease reads a
-/// PERSONAL account's bill and a team's tenant is no one person's. Reading the team's bill there is the next step
-/// (after devthrottle_internal#3521). So the wire-level proof here is the difference between "authenticated, then
-/// refused for the bill" (402) and "the key itself is revoked" (401): removing the person turns the first into the
-/// second, for their keys on that team only.
+/// WHAT A TEAM KEY GETS, AND WHY. A team key authenticates - the device registry accepts it while its person may run
+/// sessions in the team - and the request-path access lease then reads the TEAM's bill and the person's role there
+/// (Gateway step 2): a member is never refused for the bill, so with no bill they are served on the free tier (200). So
+/// the wire-level proof here is the difference between "served" (200) and "the key itself is revoked" (401): removing
+/// the person turns the first into the second, for their keys on that team only.
 /// </summary>
 [Collection("GatewayHostedMode")]
 public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
@@ -50,6 +49,7 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true, teamsReleased: true);
         await _gateway.StartAsync();
+        HostedTeamBill.CreateTable(_gateway);
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }
 
@@ -97,17 +97,17 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
         var bobHere = TeamKey(team, _bob, "director-bob-here");
         var alicePersonal = HostedTestEnrollment.Enroll(_gateway, _alice, "alice@example.com", "director-alice-home", "M").DeviceKey;
 
-        // Authenticated, then refused for the bill: the lease (next step) is what answers.
-        Assert.Equal(HttpStatusCode.PaymentRequired, (await Get("gateway/skills", aliceHere)).Status);
-        Assert.Equal(HttpStatusCode.PaymentRequired, (await Get("gateway/skills", bobHere)).Status);
+        // Authenticated, and served: the lease reads the team's bill, and a member is never refused for it.
+        Assert.Equal(HttpStatusCode.OK, (await Get("gateway/skills", aliceHere)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Get("gateway/skills", bobHere)).Status);
 
         Assert.True(_gateway.TeamRegistry.RemoveMember(team, _alice).IsDone);
 
         var revoked = await Get("gateway/skills", aliceHere);
         Assert.Equal(HttpStatusCode.Unauthorized, revoked.Status);
         Assert.Equal("device_credential_revoked", revoked.Code);
-        Assert.Equal(HttpStatusCode.PaymentRequired, (await Get("gateway/skills", aliceThere)).Status);
-        Assert.Equal(HttpStatusCode.PaymentRequired, (await Get("gateway/skills", bobHere)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Get("gateway/skills", aliceThere)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Get("gateway/skills", bobHere)).Status);
         Assert.Equal(HttpStatusCode.OK, (await Get("teams", alicePersonal)).Status);
     }
 
@@ -117,7 +117,7 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
         var team = _gateway.TeamRegistry.CreateTeam(_owner, "Acme").Team!.TeamId;
         Assert.True(_gateway.TeamRegistry.AddMember(team, _alice, TeamRole.Developer).IsDone);
         var key = TeamKey(team, _alice, "director-alice");
-        Assert.Equal(HttpStatusCode.PaymentRequired, (await Get("gateway/skills", key)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await Get("gateway/skills", key)).Status);
 
         Assert.True(_gateway.TeamRegistry.ChangeRole(team, _alice, TeamRole.Collaborator).IsDone);
 

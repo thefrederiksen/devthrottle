@@ -26,12 +26,12 @@ namespace CcDirector.Gateway.Tests.Teams;
 ///
 /// The team: the Owner, Alice and Bob (Developers), Mike and Nina (Collaborators). Alice writes the reports.
 ///
-/// WHERE THE REPORT COMES FROM. A report in a team's tenant is published by a session on a Director set up for the team.
-/// That session cannot reach the Gateway over the wire yet: a key bound to a team's tenant authenticates, and then the
-/// request-path access lease answers 402 because it reads a personal account's bill (devthrottle#3530; the next step of
-/// devthrottle_internal#2311). So the team's report is written here through the store the publish route writes with,
-/// carrying the author the publish route would record, and every person-facing step after that is over the wire. The
-/// 402 itself is recorded by <see cref="Issue2309_TeamKeyVariant_TheTeamsOwnSessionAndDirectorKeys_AreStoppedAtTheLease"/>.
+/// WHERE THE REPORT COMES FROM. A report in a team's tenant is published by a session on a Director set up for the team,
+/// and the team pays (a live team bill, set up below), so that session reaches the Gateway over the wire: the access lease
+/// reads the TEAM's bill (devthrottle_internal#2311 step 2, #3552). The publish itself is proven over the wire by
+/// <see cref="Issue2309_TeamKeyVariant_ATeamSessionPublishesOverTheWire_AuthoredByItsDirectorsPerson_AndAColleagueCannot"/>.
+/// The other tests write the team's report through the store the publish route writes with, carrying the author the
+/// publish route records, and every person-facing step after that is over the wire.
 ///
 /// WHERE "NEVER REACHES AN AGENT" IS PROVEN WITH A LIVE SESSION. For the same reason, a live session on the tunnel can
 /// only be a personal account's today. <see cref="Issue2309_ACommentNeverReachesTheSession_LiveSessionOnTheTunnel"/> runs
@@ -87,6 +87,9 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _bob, TeamRole.Developer).IsDone);
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _mike, TeamRole.Collaborator).IsDone);
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _nina, TeamRole.Collaborator).IsDone);
+        // The team pays: a team key's access is read from the team's bill (devthrottle_internal#2311 step 2).
+        HostedTeamBill.CreateTable(_gateway);
+        HostedTeamBill.Start(_gateway, _team, seats: 5);
     }
 
     public async Task DisposeAsync()
@@ -288,25 +291,31 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
         Assert.Empty(_gateway.DevReportsForTest.Replies(team, report));
         Assert.Empty(_gateway.DevReportsForTest.SessionsWithOpenItems(team));
 
-        // ABSENT from every read a session key can make. The team's session is registered with its own key, in the team.
-        // TODAY EVERY READ BELOW IS STOPPED BY THE ACCESS LEASE (402), before any route runs, so "not 200" holds for a
-        // reason that is not this rule (delta review D6). When the lease reads the team's bill, the two session routes
-        // will answer 200 and the NotEqual(OK) goes red. Do NOT loosen it then: replace it, for those two, with the
-        // personal-tenant test's assertion - 200, the marker absent, and a positive control (the owner's note) present -
-        // as Issue2309_ACommentNeverReachesTheSession_LiveSessionOnTheTunnel does below.
+        // ABSENT from every read a session key can make. The team pays, so the session's key reaches the routes: Alice's
+        // team Director is connected (so the key's Director names Alice) and registers the session's key through the hub.
+        // The session's own two routes answer 200 - the report is there, by its title, the positive control - and the
+        // marker is absent from both. The person-facing team routes and the owner's route refuse a session key outright.
+        var aliceDirectorKey = _gateway.Devices.RegisterForTenant(team, _alice,
+            CcDirector.Gateway.Api.HostedEnrollmentEndpoint.TeamScopedDeviceId(_team, _alice, "director-alice-team"), "M-alice").DeviceKey;
+        await using var aliceDirector = await FakeTunnelDirector.StartAsync(_gateway, aliceDirectorKey, "director-alice-team");
         var sessionKey = GatewaySessionKey.Mint();
-        Assert.True(_gateway.SessionKeys.Register(team, "director-alice-team", sessionId, GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
+        await aliceDirector.RegisterSessionKeyAsync(sessionId, sessionKey, DateTime.UtcNow.AddHours(1));
+        foreach (var path in new[] { $"sessions/{sessionId}/dev-reports", $"sessions/{sessionId}/dev-reports/{report}" })
+        {
+            var (status, text) = await Call(HttpMethod.Get, path, sessionKey);
+            Assert.Equal(HttpStatusCode.OK, status);
+            Assert.Contains("Signup page rewrite", text);
+            Assert.DoesNotContain(marker, text);
+        }
         foreach (var (method, path) in new[]
                  {
-                     (HttpMethod.Get, $"sessions/{sessionId}/dev-reports"),
-                     (HttpMethod.Get, $"sessions/{sessionId}/dev-reports/{report}"),
                      (HttpMethod.Get, $"teams/{_team}/reports/mine/{report}"),
                      (HttpMethod.Get, $"teams/{_team}/reports/sent-to-me/{report}"),
                      (HttpMethod.Get, $"dev-reports/{report}"),
                  })
         {
             var (status, text) = await Call(method, path, sessionKey);
-            Assert.NotEqual(HttpStatusCode.OK, status);
+            Assert.Equal(HttpStatusCode.Forbidden, status);
             Assert.DoesNotContain(marker, text);
         }
     }
@@ -443,28 +452,51 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
         }
     }
 
+    /// <summary>
+    /// A session on a Director set up for the team publishes a report OVER THE WIRE, and the report is its Director's
+    /// person's: Alice's team Director connects on its team key and registers a session key through the hub, the session
+    /// publishes with that key, and the report lands in the team's tenant authored by Alice (the publish route names the
+    /// author as the owner of the calling session key's Director). A colleague cannot publish under her session's id: Bob's
+    /// team Director is refused a key for it (#3552 review S2-F8, the session key row is Alice's), so the key it minted
+    /// authenticates nothing; and Bob's own session's key may publish only for his own session.
+    /// </summary>
     [Fact]
-    public async Task Issue2309_TeamKeyVariant_TheTeamsOwnSessionAndDirectorKeys_AreStoppedAtTheLease()
+    public async Task Issue2309_TeamKeyVariant_ATeamSessionPublishesOverTheWire_AuthoredByItsDirectorsPerson_AndAColleagueCannot()
     {
-        // THE GAP, RECORDED. A Director set up for the team, and a session on it, call with keys bound to the team's
-        // tenant. Today those authenticate and are then refused by the request-path access lease (402) before any route
-        // runs, so no team session publishes or reads a report over the wire yet.
-        var report = TeamReport();
-        var teamDirectorKey = _gateway.Devices.RegisterForTenant(new TenantId(_team), _bob,
+        var tenant = new TenantId(_team);
+        var aliceDirectorKey = _gateway.Devices.RegisterForTenant(tenant, _alice,
+            CcDirector.Gateway.Api.HostedEnrollmentEndpoint.TeamScopedDeviceId(_team, _alice, "director-alice-team"), "M-alice").DeviceKey;
+        await using var aliceDirector = await FakeTunnelDirector.StartAsync(_gateway, aliceDirectorKey, "director-alice-team");
+        var aliceSession = Guid.NewGuid().ToString("D");
+        var aliceSessionKey = GatewaySessionKey.Mint();
+        await aliceDirector.RegisterSessionKeyAsync(aliceSession, aliceSessionKey, DateTime.UtcNow.AddHours(1));
+        await aliceDirector.PushSnapshotAsync(new SessionDto { SessionId = aliceSession });
+
+        // PRESENCE: the team session publishes, and the report is Alice's.
+        var publish = await Call(HttpMethod.Post, $"sessions/{aliceSession}/dev-reports", aliceSessionKey,
+            new { key = @"C:\team.html", html = Html("Team report") });
+        Assert.Equal(HttpStatusCode.OK, publish.Status);
+        var reportId = Guid.Parse(Json(publish.Text).GetProperty("report").GetProperty("id").GetString()!);
+        Assert.Equal(_alice, _gateway.DevReportsForTest.Get(tenant, reportId)?.AuthorSubject);
+
+        // A colleague's Director is refused a key for Alice's session, so the key it minted authenticates nothing.
+        var bobDirectorKey = _gateway.Devices.RegisterForTenant(tenant, _bob,
             CcDirector.Gateway.Api.HostedEnrollmentEndpoint.TeamScopedDeviceId(_team, _bob, "director-bob-team"), "M-bob").DeviceKey;
-        var sessionId = Guid.NewGuid().ToString("D");
-        var sessionKey = GatewaySessionKey.Mint();
-        Assert.True(_gateway.SessionKeys.Register(new TenantId(_team), "director-bob-team", sessionId, GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
+        await using var bobDirector = await FakeTunnelDirector.StartAsync(_gateway, bobDirectorKey, "director-bob-team");
+        var bobKeyForAlices = GatewaySessionKey.Mint();
+        await Assert.ThrowsAnyAsync<Exception>(() => bobDirector.RegisterSessionKeyAsync(aliceSession, bobKeyForAlices, DateTime.UtcNow.AddHours(1)));
+        var underAlices = await Call(HttpMethod.Post, $"sessions/{aliceSession}/dev-reports", bobKeyForAlices,
+            new { key = @"C:\bob.html", html = Html("Bob under Alice") });
+        Assert.Equal(HttpStatusCode.Unauthorized, underAlices.Status);
 
-        var directorList = await Call(HttpMethod.Get, "dev-reports", teamDirectorKey);
-        var directorRead = await Call(HttpMethod.Get, $"dev-reports/{report}", teamDirectorKey);
-        var publish = await Call(HttpMethod.Post, $"sessions/{sessionId}/dev-reports", sessionKey, new { key = @"C:\team.html", html = Html("Team") });
-
-        Assert.Equal(HttpStatusCode.PaymentRequired, directorList.Status);
-        Assert.Equal(HttpStatusCode.PaymentRequired, directorRead.Status);
-        Assert.NotEqual(HttpStatusCode.OK, publish.Status);
-        _out.WriteLine($"A session key bound to the team's tenant, publishing: {(int)publish.Status}");
-        Assert.DoesNotContain("Signup page rewrite", directorRead.Text);
+        // Bob's own session's key publishes only for his own session, never under Alice's id.
+        var bobSession = Guid.NewGuid().ToString("D");
+        var bobSessionKey = GatewaySessionKey.Mint();
+        await bobDirector.RegisterSessionKeyAsync(bobSession, bobSessionKey, DateTime.UtcNow.AddHours(1));
+        var crossed = await Call(HttpMethod.Post, $"sessions/{aliceSession}/dev-reports", bobSessionKey,
+            new { key = @"C:\bob2.html", html = Html("Bob crossed") });
+        Assert.NotEqual(HttpStatusCode.OK, crossed.Status);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, crossed.Status);
     }
 
     [Fact]
@@ -532,8 +564,9 @@ public sealed class HostedTeamReportsTests : IAsyncLifetime
     [Fact]
     public async Task Issue2309_F4_KeysBoundToTheTeamsTenant_AreRefusedByTheTeamReportRoutesOwnAdmission_WhateverTheLeaseDoes()
     {
-        // Over the wire the access lease answers 402 first for these keys (recorded by the team-key test above), so the
-        // wire cannot show what the team report routes do with them. This asks the routes' own admission directly - the
+        // Over the wire these keys may be refused before a route runs (a session key by the session-key guard; any team key
+        // by the access lease when the team's bill cannot be read), so the wire cannot always show what the team report
+        // routes do with them. This asks the routes' own admission directly - the
         // filter every one of them runs, TeamLibraryEndpoints.AdmitIntoTeam - with the identity the auth layer records for
         // each key, and the gate's "allowed in this team" already set, the worst case. It must refuse, for its own reason:
         // the team's tenant is not a person's account, so there is nobody to answer for.

@@ -236,3 +236,246 @@ method). Commit 3523df018.
       HostedTeamDirectorKeyDarkTests|Invitation|TeamEndpointWalkTests: Passed 42, Skipped 1 (the PostgreSQL migration
       test), 0 failed.
     .\scripts\test-local.ps1 (default gate): every suite outcome=Completed; 3,594 passed, 0 failed.
+
+GATEWAY STEP 2 - A TEAM'S BILL ON THE REQUEST PATH (branch teams/2311-gateway-team-bill, cut from origin/main 3fa6f7ca0).
+Details in step2-team-bill.md.
+
+25. On head bbf5798c4.
+    Revert proofs (each on a build that succeeded, then restored and green):
+      item 7  TeamTurnPushRefusalFor answers no refusal             Failed 4 of 22
+      item 1  the lease's team branch never taken                   Failed 8 of 15
+      seam 2  PersonOf ignores a session key                        Failed 6 of 29
+      D8      ReadTeamBill ignores livemode                         Failed 3 of 50 (two are #3521's test-mode cases)
+      R3-F4   no tenant check in AccountSubjectOfActiveDevice       Failed 2
+      R3-F1/2 the dark filter as it was before round 3              Failed 7
+    Gateway.UnitTests in full, two halves: Half A Passed 3497, Skipped 2; Half B Passed 5318, Skipped 8.
+      Together 8,815 passed, 0 failed.
+    .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; 3,601 tests.
+    Gateway.Tests: compiled, NOT run here (by instruction); continuous integration is their result.
+
+26. #3552 review round 1 (reviews/review-2311-step2.md, rulings-2311-step2-review1.md). Rebased onto origin/main
+    8b23aaba4 (#3537). Conflicts resolved by hand in EntitlementRegistry.cs (ReadTeamBill now computes
+    TeamBillFingerprint for every row it counts as a bill; TeamBill carries Fingerprint) and TeamSeatSync.cs
+    (ConvergeAsync keeps #3537's stop marks and reads ReadTeamBill), in commit d8a38d341.
+    TeamSeatConvergenceEndedSubscriptionTests + OneTeamBillReaderTests together: Passed 30, 0 failed.
+    Revert proofs (restore by trap on exit, build checked before the test run, no diff afterwards):
+      D8     ReadTeamBill ignores livemode            Failed 4 of 68  OneTeamBillReaderTests (live: False),
+                                                                      EvaluateTeamTenant_ProductionHostedAndTestModeRow_... x2,
+                                                                      ReadTeamBill_OnAHostedGateway_ALiveRowCarriesItsFingerprint_...
+      S2-F1  DirectorIdTakenRefusal never refuses     Failed 4 of 76  AKeyUnderAColleaguesDirectorId_... (the reproduction),
+                                                                      EnrollOrMove_IntoATeam_UnderADirectorIdAnotherMemberHolds_...,
+                                                                      Enroll_TwoMembersPresentingTheSameDeviceId_TheSecondIsRefused_...,
+                                                                      Enroll_TheSameDirectorSomewhereElse_...
+      S2-F2  nothing-stored rule back to "this        Failed 1 of 76  AColleagueListingALiveSessionId_... (the reproduction)
+             Director's roster holds it"
+      S2-F4  the DenyNotAMember block in AuthMiddleware disabled (condition made false), with the Tech Lead's leave,
+             ONE Gateway.Tests test run filtered:
+             HostedTeamBillOverTheWireTests.ASessionKey_WhoseDirectorsOwnerIsNoLongerAMember_...
+             Failed 1 of 1 (Expected "team_member_required", Actual "team_action_refused" - the team gate's 403);
+             restored by trap, fresh build: Passed 1 of 1, no diff.
+    Gateway.UnitTests in full, two halves: Half A Passed 3526, Skipped 2; Half B Passed 5318, Skipped 8.
+      Together 8,844 passed, 0 failed.
+    .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
+    Gateway.Tests: built; only the one S2-F4 test above was run here.
+
+27. #3552 review round 2 (reviews/review-2311-step2.md "Round 2", rulings-2311-step2-review2.md). Fix commit bc1828f1c,
+    on origin/main 8b23aaba4 (renamed bc1828f1c by the rebase below).
+    New tests, TeamDirectorTunnelTests: 5 passed (ADeviceIdWithABarBeforeAColleaguesDirectorId_..., AColleaguesDirectorIdInAnotherLetterCase_...,
+    Hello_UnderAnIdAnotherPersonHoldsAnActiveKeyFor_..., AColleagueWhoListsALiveSessionIdUntilItEnds_..., ASessionWithNothingStored_...).
+    Revert proofs (one at a time; build checked before the test run; whole CcDirector.Gateway.Tests.Teams namespace, 796 tests,
+    2 skipped; restored by trap on exit, empty diff afterwards). Baseline: Passed 794, Skipped 2.
+      S2-F5 part 1  DeviceIdRefusal never refuses                     Failed 1 of 796  ADeviceIdWithABarBeforeAColleaguesDirectorId_...
+      S2-F5 part 2  the old database query (EndsWith, sent as LIKE)   Failed 1 of 796  AColleaguesDirectorIdInAnotherLetterCase_...
+      S2-F5 part 3  Hello's other-person check never true             Failed 1 of 796  Hello_UnderAnIdAnotherPersonHoldsAnActiveKeyFor_...
+      S2-F6 part 1  ownership not reading the session key row         Failed 1 of 796  ASessionWithNothingStored_WhoseKeyNamesAnotherPersonsDirector_...
+      S2-F6 part 2  the hub not reading the session key row           Failed 1 of 796  AColleagueWhoListsALiveSessionIdUntilItEnds_... (the reproduction)
+      (A first part 1 attempt did not compile and ran the unmutated binary green: not counted; redone on a successful build.)
+    S2-F7, with the Tech Lead's leave, ONE Gateway.Tests test filtered:
+      HostedTeamBillOverTheWireTests.ASessionKey_WhoseDirectorsOwnerIsNoLongerAMember_...
+      DenyNotAMember block REMOVED from AuthMiddleware (10 lines): Failed 1 of 1, Expected "team_member_required",
+      Actual "team_action_refused". Restored by trap, empty diff, fresh build: Passed 1 of 1.
+    Gateway.UnitTests in full, two halves (as in 26): Half A Passed 3531, Skipped 2; Half B Passed 5318, Skipped 8.
+      Together 8,849 passed, 0 failed. Wingman.OwnedSessionsAreNotReadTests did not fail in this run.
+    .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
+      Its COVERAGE GAP names Gateway.Tests and Gateway.UnitTests: the second is the full run above; the first was not run
+      here beyond the one S2-F7 test (by instruction; continuous integration is its result).
+    Rebased onto origin/main b65e15fc5 (#3533 the Fleet Map, #3541 the Mentor). One comment-only conflict in GatewayHost.cs;
+    after it the host defined TeamCallerOwnership twice (the Fleet Map added its own) - merged into one in commit 74002fe71,
+    which also hands the session key registry to the two test fixtures #3533 added (TeamEndpointsTests, TeamFleetMapTests).
+    Gateway.Tests builds. On the rebased head:
+      Gateway.UnitTests in full, two halves: Half A Passed 3727, Skipped 3; Half B Passed 5323, Skipped 8.
+        Together 9,050 passed, 0 failed.
+      .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
+      The revert proofs and the S2-F7 run above were made before the rebase; the code they mutate is unchanged by it.
+
+28. #3552 review round 3 (reviews/review-2311-step2.md "Round 3", rulings-2311-step2-review3.md). Fix commit 82b85d59c,
+    rebased onto origin/main b7e12f84b (#3539), no conflict; Gateway.UnitTests and Gateway.Tests both build.
+    New tests: 6 passed (S2-F8 x3, S2-F9 x1, S2-F10 x2 cases).
+    Revert proofs (one at a time; build checked; whole CcDirector.Gateway.Tests.Teams namespace, 999 tests, 3 skipped;
+    restored by trap, empty diff). Baseline: Passed 996, Skipped 3.
+      S2-F8   roster half never refuses                     Failed 1 of 999  AColleaguesDirector_RegisteringASessionKey... (the reproduction)
+      S2-F8   stored-rows half never refuses                Failed 1 of 999  ASessionKey_ForAnIdWithRowsAnotherPersonsDirectorWrote_...
+      S2-F8   the whole registration check removed          Failed 2 of 999  both of the above
+      S2-F10  database suffix match back in the revoke      Failed 1 of 999  SettingOneDirectorUpAgain_... (non-ASCII case)
+    (The revert proofs ran before the rebase onto #3539; the code they mutate is unchanged by it.)
+    On the rebased head:
+      Gateway.UnitTests in full, two halves: Half A Passed 3760, Skipped 4; Half B Passed 5323, Skipped 8.
+        Together 9,083 passed, 0 failed.
+      .\scripts\test-local.ps1 (default gate): first run every suite passed and every outcome=Completed, but RESULT
+        "OVER BUDGET": Core.UnitTests ran 1 m 51 s on a loaded machine (this change does not touch Core). Rerun:
+        RESULT: all projects exited zero; every suite outcome=Completed (Core.UnitTests 1 m 20 s); 3,601 tests.
+      Gateway.Tests: built, not run (by instruction).
+
+29. #3552 review round 4 (reviews/review-2311-step2.md "Round 4", rulings-2311-step2-review4.md). Fix commit 6263e2080
+    (8579d0912 before the rebase).
+    Reproductions on 80d46ca40 (that head's src/CcDirector.Gateway over the new head, the two question tests compiled
+    out, build succeeded): Failed 3, Passed 1 of 4 - the S2-F11 revoke test and the two S2-F12 refresh tests fail; the
+    personal-tenant test passes. Restored by trap, empty diff.
+    Revert proofs (one at a time; build checked; Teams, FleetDisplayState and TurnEndWatcher tests, 1,054 tests, 4
+    skipped; restored by trap, empty diff). Baseline: Passed 1050, Skipped 4.
+      S2-F11  revoke not checking whose the key row is       Failed 1 of 1054  AColleaguesDirector_RevokingAnotherPersonsSessionKey_...
+      S2-F12  roster half asked even with a key row          Failed 2 of 1054  WhileAColleagueListsASessionId_... (both)
+      Q2      watcher takes any Director's report (168)      Failed 1 of 1054  ATurnEnd_ReportedForAColleaguesSession_...
+      Q2      watcher takes any Director's removal (233)     Failed 1 of 1054  ATurnEnd_ReportedForAColleaguesSession_...
+      Q1      sweep sends to any lister (173)                Failed 1 of 1054  AColleaguesSessionsFoldedState_...
+      Q1      one-session push sends to any lister (253)     Failed 1 of 1054  AColleaguesSessionsFoldedState_...
+    (The revert proofs ran before the rebase; the code they mutate is unchanged by it.)
+    Rebased onto origin/main a82762c44 (#3554, #3549, #3542). One conflict: DirectorHub's constructor, #3549's two
+    message link parameters beside teamOwnership; both kept. Gateway.UnitTests and Gateway.Tests both build.
+    On the rebased head:
+      Gateway.UnitTests in full, two halves: Half A Passed 3817, Skipped 4; Half B Failed 2, Passed 5329, Skipped 8.
+        The two failures: VerbAnswersWhenStarvedTests.DeliveryStateVerb_DirectorStartedBelowNormalOnABusyMachine_... and
+        .PromptVerb_DirectorStartedBelowNormalOnABusyMachine_..., both at their 30 s limit, in a test class that loads the
+        machine on purpose; this change does not touch the verbs. Rerun alone: Passed 3 of 3.
+        Together 9,146 passed on the first run, plus the 2 on the rerun.
+      .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
+      Gateway.Tests: built, not run (by instruction).
+
+30. #3552 review round 5 (reviews/review-2311-step2.md "Round 5", rulings-2311-step2-review5.md). Rebased onto origin/main
+    with #3555, no conflict (round 4 commits now afd453825 and d7da1aed2). Test commit 549dc06b9.
+    Gateway.Tests, ONE class filtered (as ruled): Teams.HostedTeamColleagueSessionWiringTests.
+      Green: Passed 2 of 2.
+      mayReceive wire removed (GatewayHost.cs 2021-2022)            Failed 1 of 2  folded-state test, colleague absence
+      acceptsReport wire removed (GatewayHost.cs 3802-3804)         Failed 1 of 2  turn-end test, owner presence
+      team branch, Director and session swapped (GatewayHost 3277)  Failed 2 of 2  both, owner presence
+      Each on a build that succeeded, restored by trap, empty diff. Clean rebuild after: Passed 2 of 2.
+    .\scripts\test-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,601 tests.
+    Gateway.UnitTests: builds; not rerun (no change to it or to production code this round).
+
+31. Rebase onto #3551, #3556, #3560 (then #3564, #3558): origin/main 3c5c8970a. Conflicts resolved in GatewayHost.cs,
+    TeamEndpointGate.cs, TeamCallerOwnership.cs, both sides kept. Point 2 fix commit 3f51557fa (history row taken only
+    from the session's own Director).
+    Gateway.Tests filtered (HostedTeamColleagueSessionWiringTests, TeamPersonStampHostTests): Passed 5 of 5.
+      recorder ObserveCore check gated off       Failed 1 of 5  ASessionsHistoryRow_... (line 149)
+      recorder ObserveRemoval check gated off    NO RESULT - queued on the Gateway.Tests lock (held by the release-gate
+                                                 run from 1:30 PM), stopped, restored, diff empty. Not counted.
+      host acceptsReport wire on the recorder    NOT RUN - same lock.
+    Gateway.UnitTests in full, two halves: Half A Passed 3964, Skipped 5; Half B Passed 5338, Skipped 8. 0 failed.
+    .\scripts	est-local.ps1: green before the last rebase (3,601). On 3c5c8970a-based head: all passed except
+      Core.UnitTests OVER BUDGET (stopped at 120 s, loaded machine); alone: Passed 1228 of 1228 in 1 m 14 s.
+
+32. CI 37365016132 on 790d21d5b: Gateway.Tests HostedTeamRequestEndpointsTests.ARequestsRoutes_RefuseTeamBoundDirectorAndSessionKeys_AndNothingChanges
+    (from #3556) expected 402 hosted_subscription_required for a team Director key and got 503 entitlement_unknown: the
+    test pinned step 1's temporary 402; with #3552 the lease reads the team's bill, and the test made none. Fix commit
+    (test only): the class gives the team a live bill (HostedTeamBill.CreateTable + Start), the team Director key expects
+    the routes' own 403 person_only, the session key stays 403 session_key_out_of_scope, the summary says so, and the
+    "nothing changes" assertions are kept. No other Gateway.Tests test asserts hosted_subscription_required (or a 402)
+    for a team key; the other 402 assertions are personal accounts or the transcription service.
+    Gateway.Tests, that class filtered: Passed 8 of 8.
+      expecting the old 402 hosted_subscription_required     Failed 1 of 8  Expected (PaymentRequired, "hosted_subscription_required"),
+                                                             Actual (Forbidden, "person_only"). Restored, diff empty.
+      clean rebuild after: Passed 8 of 8.
+    Rebased onto origin/main 060cdc0bf (#3568, a test-only change to the PostgreSQL proof), no conflict.
+
+33. Rebased onto origin/main 21189035e (#3561-#3566 Fleet Manager lessons, #3570 release). One conflict: the DirectorHub
+    constructor - main's fleetManagerLessons and this branch's teamOwnership; both parameters and both field
+    assignments kept. The hub is built by dependency injection, and the host registers both
+    (AddSingleton(TeamCallerOwnership), AddSingleton(FleetManagerLessonsStamp)).
+    The question asked: does FleetManagerLessonsObserver take anything keyed by a session id from a hub call? YES.
+    DirectorHub.PushDelta calls _fleetManagerLessons.Observe(tenant, directorId, session.SessionId); Observe compares
+    the id to the account's marked Fleet Manager session and, on a match, StampAsync(tenant, directorId, marked) sends
+    the account's confirmed lessons block (set-fleet-manager-lessons) to the PUSHING Director and records it as that
+    session's Director. So in a team, a colleague's Director that pushes a delta carrying the marked session's id is
+    sent the lessons block. Refresh and the reconnect path also choose the Director by directorOf =
+    PushedSessions.TryLocateIgnoringFreshness(tenant, sid), whichever Director the roster finds holding the id.
+    NOT FIXED - reported to the Tech Lead first, as asked.
+    Gateway.UnitTests filtered (DirectorHub, Teams namespace, FleetManagerLessons): Passed 1242, Skipped 5, 0 failed.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,616 tests.
+
+34. Rebased onto origin/main d4a78d521 (#3557 team reports, #3578, #3574, #3576). Conflicts, both sides kept:
+    GatewayHost.cs - ONE TeamCallerOwnership, built after #3557's dev report stores with the session key registry AND
+    #3557's reportAuthor reader. TeamCallerOwnership.cs - both fields; the constructor takes SessionKeyRegistry
+    sessionKeys (required) then reportAuthor (optional); #3557's OwnerOfReport kept beside this branch's PersonOf and
+    PersonOfSession. TeamEndpointGate.cs - the private Whose takes #3557's rule (route-team scope) AND the session key
+    identity; CallerSubject gets the session. #3557's TeamReportsTests built TeamCallerOwnership without the registry;
+    both of its constructions now pass one.
+    The question asked: does #3557 read or write anything per session or per Director id in a team? Its one such read is
+    the publish author: POST /sessions/{sid}/dev-reports requires the calling session key's own session (OwnSession)
+    and names the author as OwnerOf(the calling session key's Director). In a team a session key is refused for
+    another Director's session (#3552 S2-F8), so a colleague cannot hold a key for another person's session id and
+    cannot publish under it. The team report routes go by the signed-in person (callerSubject), not by session. No
+    harm found; nothing changed in #3557's code.
+    Gateway.UnitTests filtered (Teams namespace incl. Teams.Reports, DirectorHub, DevReport, FleetManagerLessons):
+      Passed 1473, Skipped 6, 0 failed.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
+
+35. CI 37409136491 on 5fa042cb0 failed #3557's HostedTeamReportsTests.Issue2309_TeamKeyVariant_TheTeamsOwnSessionAndDirectorKeys_AreStoppedAtTheLease
+    (expected step 1's temporary 402 for team keys, got 503 entitlement_unknown: the team had no bill). Fix commit
+    73d76d8e4 (tests and comments only):
+    - HostedTeamReportsTests: the class's team gets a live bill (HostedTeamBill.CreateTable + Start). The 402 test is
+      REPLACED by Issue2309_TeamKeyVariant_ATeamSessionPublishesOverTheWire_AuthoredByItsDirectorsPerson_AndAColleagueCannot:
+      Alice's team Director connects over the tunnel and registers a session key through the hub; POST
+      /sessions/{sid}/dev-reports with that key answers 200 and the report is stored authored by Alice; Bob's team
+      Director is refused a key for Alice's session (S2-F8), so the key it minted is 401 on her publish route; Bob's own
+      session key is refused (not 200, not 401) on her session's route. The class summary no longer says a team session
+      cannot reach the Gateway.
+    - The same class's Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire said in its own words that once the
+      lease reads the team's bill its two session reads go 200 and must then assert 200, marker absent, positive control
+      present. Done: Alice's team Director registers the session key over the wire; sessions/{sid}/dev-reports and
+      sessions/{sid}/dev-reports/{report} answer 200 with the report's title present and the marker absent; the two team
+      person routes and the owner route answer 403.
+    - FakeTunnelDirector gains RegisterSessionKeyAsync (the hub's RegisterSessionKey, hash only).
+    Sweep of Gateway.Tests and Gateway.UnitTests for 402 / hosted_subscription_required / "stopped at the lease" on a
+    TEAM key: the two tests above; comments corrected in HostedTeamReportsTests (the F4 test), TeamPersonStampHostTests
+    and TeamReportsProofRig, which said a team key is answered 402 by the lease. Not team keys, left as they are:
+    HostedTeamEnrollmentTests (402 is a PERSONAL enrollment on a plan without hosted capacity), HostedEntitlementGate,
+    HostedProTrial, HostedMobileAccountEnroll, the transcription, text-to-speech and inference 402s. Already fixed:
+    HostedTeamRequestEndpointsTests (entry 32).
+    Gateway.Tests for these classes: NOT RUN. The machine-wide lock is held by another session's release-gate run in
+    devthrottle-release-2160 since 11:00 PM; a filtered run of HostedTeamReportsTests, TeamPersonStampHostTests and
+    HostedTeamRequestEndpointsTests waited 560 s and was stopped (no result, no process left). The red run with the bill
+    row ended was not run for the same reason. The other session's process was not touched.
+    Gateway.UnitTests filtered (Teams namespace, DevReport): Passed 1412, Skipped 6, 0 failed.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
+
+36. The Delivery Lead's question (a setup gap or a defect?): (a). New Gateway.UnitTests test, commit 1994252c5,
+    TeamBillOnTheRequestPathTests.AuthorizeAsync_ATeamDirectorsPerson_NoBillRowIsTheFreeTier_ALiveRowIsServed_AMissingTableIsUnknown:
+    table present + no row -> Allow on the free tier (not 503, not 402: a member is never refused for the bill, and a
+    402 would revoke the team's keys); active live row -> Allow on the team tier; table missing -> RetryUnknown (503
+    entitlement_unknown), nothing revoked. No defect (b), so no code change.
+    Gateway.UnitTests filtered (TeamBillOnTheRequestPathTests, OneTeamBillReaderTests, TeamEntitlementTests): Passed 66 of 66.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
+
+37. CI 37422608704 on 2191f0f16: HostedTeamReportsTests.Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire got
+    403 team_action_refused for the session's own key reading GET sessions/{sid}/dev-reports. Answer: (b), a DEFECT.
+    TeamCallerOwnership.Whose, for any {sid} route, asked the ROSTER first (DirectorsHoldingSession): no holder -> Unknown
+    -> the gate refuses; the session's key row was read only later, inside the stored-conversation check. A keyed but
+    unlisted session is a real state: #3558 sends every key before any session id, and the key rows are in the Gateway
+    database while the roster is in memory, so after a Gateway restart every team session's own key was refused its own
+    reports until its Director reconnected and re-listed it. (A personal tenant never asks this.) Registration is not
+    racy: DirectorHub.RegisterSessionKey is synchronous and writes the row before the hub call returns.
+    Fix commit eb23c4297: the {sid} branch takes the session's Director from its KEY ROW when there is one (the record,
+    never taken over - the same order ClaimOf uses), and only without one from the sole roster holder; then the stored
+    conversation check as before. So a keyed session is its owner's unlisted, and still its owner's while a colleague
+    lists the id; never the colleague's. A session with no key row is decided by the roster exactly as before.
+    Test: TeamDirectorTunnelTests.Whose_AKeyedSession_IsItsOwnersFromTheKeyRow_UnlistedOrListedByAColleague_AndNeverTheColleagues.
+      Red with the key row taken out of the read: Failed 1 of 1239 (Teams namespace), Expected Callers, Actual Unknown.
+      Restored, diff empty.
+    Gateway.UnitTests filtered (Teams namespace, DirectorHub, DevReport): Passed 1446, Skipped 6, 0 failed.
+    Gateway.Tests, the lock FREE: every class under Teams/ (which includes HostedTeamReportsTests,
+    HostedTeamColleagueSessionWiringTests and TeamPersonStampHostTests), on a clean build: Passed 129 of 129, 0 failed -
+    HostedTeamBillOverTheWire 7, HostedTeamColleagueSessionWiring 3, HostedTeamDirectorKeyDark 2, HostedTeamDirectorKey 4,
+    HostedTeamEndpoints 7, HostedTeamInvitationEndpoints 9, HostedTeamLibrary 21, HostedTeamPageEndpoints 4,
+    HostedTeamReports 12, HostedTeamRequestEndpoints 8, HostedTeamsDarkCockpit 1, HostedTeamsDark 7, TeamEndpointWalk 37,
+    TeamMentorSwitchHost 5, TeamPersonStampHost 2.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.

@@ -187,7 +187,7 @@ public sealed class TeamEndpointsTests : IDisposable
     {
         var devices = new DeviceRegistry(_db);
         return new TeamCallerOwnership(directors, new Streaming.PushedSessionStore(), devices, new CcDirector.Gateway.History.SessionTurnStore(_db),
-            new HostedTenantBoundary(new SingleTenantContext(), devices));
+            new HostedTenantBoundary(new SingleTenantContext(), devices), new SessionKeyRegistry(_db));
     }
 
     private TeamFleetMap NewFleetMap(out Discovery.DirectorRegistry directors)

@@ -197,7 +197,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment, I
     private readonly Func<TenantId, SpokenLanguage> _language;
     private readonly Func<string?> _customSpokenRules;
     private readonly Func<TenantId, string, bool> _isVoiceSession;
-    private readonly Func<TenantId, NarrationPlan> _narrationPlan;
+    private readonly Func<TenantId, string, NarrationPlan> _narrationPlan;
     private readonly ActivityEventStore? _ledger;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<DateTime> _nowUtc;
@@ -222,7 +222,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment, I
         Func<TenantId, SpokenLanguage> language,
         Func<string?> customSpokenRules,
         Func<TenantId, string, bool> isVoiceSession,
-        Func<TenantId, NarrationPlan> narrationPlan,
+        Func<TenantId, string, NarrationPlan> narrationPlan,
         ActivityEventStore? ledger = null,
         Func<TenantId, IDisposable>? enterTenantScope = null,
         Func<DateTime>? nowUtc = null)
@@ -352,7 +352,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment, I
 
     public bool IsVoiceSession(TenantId tenant, string sessionId) => _isVoiceSession(tenant, sessionId);
 
-    public NarrationPlan PlanForNarration(TenantId tenant) => _narrationPlan(tenant);
+    public NarrationPlan PlanForNarration(TenantId tenant, string sid) => _narrationPlan(tenant, sid);
 
     public Task DelayAsync(TimeSpan delay, CancellationToken ct) => Task.Delay(delay, ct);
 

@@ -34,7 +34,8 @@ public sealed class SessionKeyEntity
     public string TenantId { get; set; } = "";
 
     /// <summary>The Director that owns the session, for diagnostics and for revoking a whole Director's
-    /// keys. Not a credential and not an authorization input.</summary>
+    /// keys. Not a credential. Inside a team it IS the record of whose a session id is
+    /// (<c>SessionKeyRegistry.DirectorOfSession</c>, #3552 review S2-F6), which is why it is never taken over.</summary>
     public string DirectorId { get; set; } = "";
 
     /// <summary>The lower-case hexadecimal SHA-256 of the session key - the ONLY form of the key ever

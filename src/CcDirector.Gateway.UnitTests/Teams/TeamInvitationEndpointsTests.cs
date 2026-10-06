@@ -34,7 +34,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
         _db = _harness.Open();
         var tenants = new TenantRegistry(_db);
         tenants.MintOrLookupBySubject(Owner, "owner@acme.example");
-        _teams = new TeamRegistry(_db, tenants, readTeamBill: _ => new TeamBilledSeats(true, true, "active", 1));
+        _teams = new TeamRegistry(_db, tenants, readTeamBill: _ => new TeamBill(true, true, "active", 1));
         _team = _teams.CreateTeam(Owner, "Acme").Team!.TeamId;
         _teams.AddMember(_team, Developer, TeamRole.Developer);
     }
