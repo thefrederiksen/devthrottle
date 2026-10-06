@@ -41,10 +41,11 @@ public sealed class FactoriesScreenFoldTests
         OccurredUtc = at, RecordedUtc = at, SessionId = session, CorrectsId = corrects, Actor = "session:" + session,
     };
 
-    private static CronJobDto Job(string id, string cron, bool enabled = true, DateTime? lastFired = null, string? lastStatus = null) => new()
+    private static CronJobDto Job(string id, string cron, bool enabled = true, DateTime? lastFired = null, string? lastStatus = null,
+        string zone = "UTC") => new()
     {
         Id = id, Name = id, Enabled = enabled, ScheduleKind = CronSchedule.KindRecurring, CronExpression = cron,
-        TimeZoneId = "UTC", LastFiredUtc = lastFired, LastStatus = lastStatus,
+        TimeZoneId = zone, LastFiredUtc = lastFired, LastStatus = lastStatus,
     };
 
     /// <summary>One enabled schedule of the WarmForward CEO, so a factory is not PAUSED for want of one.</summary>
@@ -52,13 +53,14 @@ public sealed class FactoriesScreenFoldTests
 
     private static FactoriesScreenInputs Inputs(IReadOnlyList<RegisteredFactoryDto> registry,
         IReadOnlyList<FactoryActivityDto>? rows = null, IReadOnlyList<CronJobDto>? jobs = null,
-        IReadOnlyList<FactoryTriggerFacts>? triggers = null, GoalNumberDto? number = null, IReadOnlyList<FactoryActivityDto>? talks = null)
+        IReadOnlyList<FactoryTriggerFacts>? triggers = null, GoalNumberDto? number = null, IReadOnlyList<FactoryActivityDto>? talks = null,
+        TimeZoneInfo? accountZone = null)
     {
         rows ??= Array.Empty<FactoryActivityDto>();
         var waiting = rows.Where(r => r.Outcome is FactoryActivityOutcome.Asked or FactoryActivityOutcome.Escalated).ToList();
         var activity = new FactoryFoldInputs(rows, false, false, waiting, Array.Empty<FactoryActivityDto>(),
             triggers ?? Array.Empty<FactoryTriggerFacts>(), new HashSet<string>(),
-            new FactoryWindow(FactoryAgentsFold.WindowLast7d, Now.AddDays(-7), Now), TimeZoneInfo.Utc, Now);
+            new FactoryWindow(FactoryAgentsFold.WindowLast7d, Now.AddDays(-7), Now), accountZone ?? TimeZoneInfo.Utc, Now);
         var latest = new Dictionary<string, GoalNumberDto>();
         if (number is not null) latest[number.Factory] = number;
         return new FactoriesScreenInputs(registry, activity, jobs ?? Array.Empty<CronJobDto>(), latest,
@@ -366,6 +368,91 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal("06:00 and 18:00", seats["reliability-watch"].WhenText);
         Assert.Equal("Not run yet", seats["reliability-watch"].LastRunText);
         Assert.Equal("Wednesday 05:30", seats["value-hunter"].WhenText);
+    }
+
+    // ---------- one clock per seat (live QA, 6 Oct 2026) ----------
+
+    private const string Toronto = "America/Toronto";
+
+    [Fact]
+    public void Seats_AScheduleInAnotherZone_TellsTheRunInThatZone_AndNamesIt()
+    {
+        // 06:00 Toronto (EDT, UTC-4) on 6 Oct is 10:00 UTC. The CEO runs at 05:00 Toronto, which is 09:00 UTC.
+        // Live, this row read "Daily 06:15 (America/Toronto)" beside "Today 10:16 - started": two clocks on one row.
+        var jobs = new[] { Job("cj_ceo", "0 5 * * *", lastFired: Now.AddHours(-1), lastStatus: "started", zone: Toronto) };
+        var rows = new[]
+        {
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Started, "Run started.", Now.AddHours(-1).AddMinutes(1), session: "s1"),
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Done, "Feed healthy.", Now.AddHours(-1).AddMinutes(9), session: "s1"),
+        };
+        var row = FactoriesScreenFold.Seats(WarmForward(), Inputs(new[] { WarmForward() }, rows, jobs)).Rows.Single(r => r.SeatId == "nora-hale");
+
+        Assert.Equal("Daily 05:00 (America/Toronto)", row.WhenText);
+        Assert.Equal("Today 05:01 (America/Toronto) - succeeded", row.LastRunText);
+    }
+
+    [Fact]
+    public void Seats_TheDayIsTheSchedulesDay_NotUtcs()
+    {
+        // 23:30 Toronto on 5 Oct is 03:30 UTC on 6 Oct: in the account's UTC it is "today", in the seat's clock it
+        // is yesterday - and the schedule beside it says 23:30, so yesterday is the only reading that agrees.
+        var fired = new DateTime(2026, 10, 6, 3, 30, 0, DateTimeKind.Utc);
+        var jobs = new[] { Job("cj_ceo", "30 23 * * *", lastFired: fired, lastStatus: "started", zone: Toronto) };
+        var row = FactoriesScreenFold.Seats(WarmForward(), Inputs(new[] { WarmForward() }, jobs: jobs)).Rows.Single(r => r.SeatId == "nora-hale");
+
+        Assert.Equal("Daily 23:30 (America/Toronto)", row.WhenText);
+        Assert.Equal("Yesterday 23:30 (America/Toronto) - started", row.LastRunText);
+    }
+
+    [Fact]
+    public void Seats_AScheduleInTheAccountsZone_NamesNoZone()
+    {
+        var zone = TimeZoneInfo.FindSystemTimeZoneById(Toronto);
+        var jobs = new[] { Job("cj_ceo", "0 5 * * *", lastFired: Now.AddHours(-1), lastStatus: "started", zone: Toronto) };
+        var row = FactoriesScreenFold.Seats(WarmForward(), Inputs(new[] { WarmForward() }, jobs: jobs, accountZone: zone))
+            .Rows.Single(r => r.SeatId == "nora-hale");
+
+        Assert.Equal("Daily 05:00", row.WhenText);
+        Assert.Equal("Today 05:00 - started", row.LastRunText);
+    }
+
+    [Fact]
+    public void Seats_ASeatWhoseSchedulesDisagreeOnAZone_IsToldInTheAccountsZone()
+    {
+        var f = Factory("x", "X", null, Seat("a", "A", "A", "cj_1", "cj_2"));
+        var jobs = new[]
+        {
+            Job("cj_1", "0 5 * * *", lastFired: Now.AddHours(-1), lastStatus: "started", zone: Toronto),
+            Job("cj_2", "0 18 * * *", zone: "Europe/Copenhagen"),
+        };
+        var row = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: jobs)).Rows.Single();
+
+        Assert.Equal("Daily 05:00 (America/Toronto); Daily 18:00 (Europe/Copenhagen)", row.WhenText);
+        Assert.Equal("Today 09:00 - started", row.LastRunText);
+    }
+
+    [Fact]
+    public void Page_ASeatsRunIsToldInItsScheduleZone_InTheStatusAndTheCeoCard()
+    {
+        var jobs = new[] { Job("cj_ceo", "0 5 * * *", lastFired: Now.AddHours(-1), lastStatus: "started", zone: Toronto) };
+        var rows = new[]
+        {
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Started, "Run started.", Now.AddHours(-1).AddMinutes(1), session: "s1"),
+            Row("warmforward", "nora-hale", FactoryActivityOutcome.Failed, "Meter read failed.", Now.AddHours(-1).AddMinutes(9), session: "s1"),
+        };
+        var page = FactoriesScreenFold.Page(WarmForward(), Inputs(new[] { WarmForward() }, rows, jobs));
+
+        Assert.Equal("A run of Nora Hale failed today 05:09 (America/Toronto): Meter read failed.", page.StatusReason);
+        Assert.Equal("Latest from the CEO (America/Toronto time)", page.CeoLatest.Heading);
+        Assert.Equal(new[] { "Today 05:09 - Meter read failed." }, page.CeoLatest.Lines);
+    }
+
+    [Fact]
+    public void Status_AScheduleThatCouldNotStart_IsToldInItsOwnZone()
+    {
+        var jobs = new[] { Job("cj_save", "0 5 * * *", lastFired: Now.AddHours(-1), lastStatus: "not-started", zone: Toronto) };
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs)).Rows[0];
+        Assert.Equal("The schedule for Savings Engineer could not start its run today 05:00 (America/Toronto).", row.StatusReason);
     }
 
     [Fact]
