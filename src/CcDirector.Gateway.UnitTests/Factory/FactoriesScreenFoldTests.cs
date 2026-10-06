@@ -210,9 +210,11 @@ public sealed class FactoriesScreenFoldTests
         var rows = FactoriesScreenFold.List(Inputs(new[] { warm, tally, reports, care })).Rows.ToDictionary(r => r.Id);
 
         Assert.Equal("Talk to Nora Hale", rows["warmforward"].Talk!.Label);
+        Assert.Equal("Starting the talk with Nora Hale...", rows["warmforward"].Talk!.BusyLabel);
         Assert.Equal(("warmforward", "nora-hale"), (rows["warmforward"].Talk!.FactoryId, rows["warmforward"].Talk!.SeatId));
         Assert.Null(rows["warmforward"].NoCeoText);
         Assert.Equal("Talk to the CEO", rows["tallyhand"].Talk!.Label);
+        Assert.Equal("Starting the talk with the CEO...", rows["tallyhand"].Talk!.BusyLabel);
         Assert.Equal("Talk to the CEO", rows["mindzie-ai-reports"].Talk!.Label);
         Assert.Null(rows["machine-care"].Talk);
         Assert.Equal("No CEO", rows["machine-care"].NoCeoText);
@@ -334,6 +336,7 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal(new[] { "Seat", "When it runs", "Last run", "Computer" }, seats.Columns);
         Assert.All(seats.Rows, r => Assert.Equal("change - coming", r.ComputerChangeText));
         Assert.Equal(("Talk", "warmforward", "nora-hale"), (seats.Rows[0].Talk.Label, seats.Rows[0].Talk.FactoryId, seats.Rows[0].Talk.SeatId));
+        Assert.Equal("Starting the talk with Nora Hale...", seats.Rows[0].Talk.BusyLabel);
     }
 
     [Fact]

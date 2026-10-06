@@ -280,7 +280,13 @@ public static class FactoriesScreenFold
             LastRunTone = lastTone,
             ComputerText = seat.Computer,
             ComputerChangeText = ChangeComing,
-            Talk = new FactoryTalkDto { Label = "Talk", FactoryId = f.Factory, SeatId = seat.Id },
+            Talk = new FactoryTalkDto
+            {
+                Label = "Talk",
+                BusyLabel = $"Starting the talk with {seat.Name}...",
+                FactoryId = f.Factory,
+                SeatId = seat.Id,
+            },
         };
     }
 
@@ -394,9 +400,11 @@ public static class FactoriesScreenFold
     {
         var ceo = Ceo(f);
         if (ceo is null) return null;
+        var who = duplicateNames.Contains(ceo.Name) ? "the CEO" : ceo.Name;
         return new FactoryTalkDto
         {
-            Label = duplicateNames.Contains(ceo.Name) ? "Talk to the CEO" : $"Talk to {ceo.Name}",
+            Label = $"Talk to {who}",
+            BusyLabel = $"Starting the talk with {who}...",
             FactoryId = f.Factory,
             SeatId = ceo.Id,
         };

@@ -162,11 +162,13 @@ describe("Factories - Talk", () => {
     renderAt("/factories");
 
     fireEvent.click(await screen.findByRole("button", { name: "Talk to Nora Hale" }));
-    const busy = await screen.findByRole("button", { name: "Starting the talk..." });
+    // The busy words are the Gateway's, like the button's own label.
+    const busy = await screen.findByRole("button", { name: "Starting the talk with Nora Hale (fixture)..." });
     expect((busy as HTMLButtonElement).disabled).toBe(true);
     expect(busy.getAttribute("aria-busy")).toBe("true");
     expect(screenClient.startFactoryTalk).toHaveBeenCalledWith({
       label: "Talk to Nora Hale",
+      busyLabel: "Starting the talk with Nora Hale (fixture)...",
       factoryId: "warmforward",
       seatId: "nora-hale",
     });
@@ -298,7 +300,7 @@ describe("A factory's Seats tab (mockup 3)", () => {
     const row = await screen.findByTestId("fa-seat-value-hunter");
     fireEvent.click(within(row).getByRole("button", { name: "Talk" }));
     await waitFor(() => expect(where()).toBe("/session/s-9"));
-    expect(screenClient.startFactoryTalk).toHaveBeenCalledWith({ label: "Talk", factoryId: "warmforward", seatId: "value-hunter" });
+    expect(screenClient.startFactoryTalk).toHaveBeenCalledWith(FACTORY_SEATS.rows[1].talk);
   });
 });
 

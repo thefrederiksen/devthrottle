@@ -390,7 +390,7 @@ export function TalkButton({ talk, variant = "primary" }: { talk: FactoryTalkTar
           }
         }}
       >
-        {busy ? "Starting the talk..." : talk.label}
+        {busy ? talk.busyLabel : talk.label}
       </Button>
       {error !== null && (
         <span className="fa-error" role="alert">

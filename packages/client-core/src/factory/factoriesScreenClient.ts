@@ -11,6 +11,8 @@ import type { FactoryTab, FactoryTone, FactoryWaitingItem } from "./factoryAgent
 export interface FactoryTalkTarget {
   /** "Talk to Nora Hale", "Talk to the CEO", or "Talk" on a seat row. */
   label: string;
+  /** What the button says while the talk is being started: "Starting the talk with Nora Hale...". */
+  busyLabel: string;
   factoryId: string;
   seatId: string;
 }
@@ -148,18 +150,41 @@ export interface FactoryTalkStarted {
 const PREFIX = "/gateway/factories";
 const TALK_PREFIX = "/gateway/factory-agents/factories";
 
+const NOT_SERVED =
+  "This Gateway does not serve the Factories screen - it answered with a web page instead of data. Upgrade or redeploy the Gateway.";
+
 // A 2XX is not proof the Gateway understood the request: a Gateway from before this screen answers unknown paths with
-// the app's own HTML shell. Every read asserts it got JSON. A refusal keeps the Gateway's own sentence.
+// the app's own HTML shell. Every answer is asserted to be JSON. A refusal keeps the Gateway's own sentence.
+function assertJson(res: Response): void {
+  const type = (res.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
+  if (type !== "application/json") throw new GatewayError(502, NOT_SERVED);
+}
+
 async function getJson<T>(path: string, what: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, { method: "GET", headers: { Accept: "application/json", ...authHeaders() }, signal });
   if (!res.ok) throw await GatewayError.from(res, what);
-  const type = (res.headers.get("Content-Type") ?? "").split(";")[0].trim().toLowerCase();
-  if (type !== "application/json")
-    throw new GatewayError(
-      502,
-      "This Gateway does not serve the Factories screen - it answered with a web page instead of data. Upgrade or redeploy the Gateway.",
-    );
+  assertJson(res);
   return (await res.json()) as T;
+}
+
+/**
+ * The sentence a refused Talk shows. The Talk route refuses with `{ error }`; the session create behind it can
+ * refuse with a problem-details body (`{ title, detail }`, e.g. a Director that is not connected), and some bodies
+ * carry both an error and a detail. Every sentence the Gateway wrote is shown - none is dropped for another.
+ */
+export function talkRefusalReason(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const b = body as { error?: unknown; title?: unknown; detail?: unknown };
+  const error = typeof b.error === "string" && b.error.trim().length > 0 ? b.error.trim() : undefined;
+  const detail = typeof b.detail === "string" && b.detail.trim().length > 0 ? b.detail.trim() : undefined;
+  const title = typeof b.title === "string" && b.title.trim().length > 0 ? b.title.trim() : undefined;
+  const head = error ?? title;
+  if (head !== undefined && detail !== undefined && head !== detail) return `${terminated(head)} ${terminated(detail)}`;
+  return head ?? detail;
+}
+
+function terminated(sentence: string): string {
+  return /[.!?]$/.test(sentence) ? sentence : `${sentence}.`;
 }
 
 export function getFactoriesList(signal?: AbortSignal): Promise<FactoriesListView> {
@@ -186,6 +211,21 @@ export async function startFactoryTalk(target: FactoryTalkTarget, signal?: Abort
     headers: { Accept: "application/json", ...authHeaders() },
     signal,
   });
-  if (!res.ok) throw await GatewayError.from(res, "start the talk");
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let parsed: unknown = undefined;
+    try {
+      parsed = text.length > 0 ? JSON.parse(text) : undefined;
+    } catch {
+      parsed = undefined;
+    }
+    const reason =
+      talkRefusalReason(parsed) ??
+      (parsed === undefined && text.length > 0 && text.length <= 300 && !text.trimStart().startsWith("<")
+        ? text.trim()
+        : undefined);
+    throw new GatewayError(res.status, reason ?? `Could not start the talk (error ${res.status}).`, { reason });
+  }
+  assertJson(res);
   return (await res.json()) as FactoryTalkStarted;
 }
