@@ -147,8 +147,8 @@ Both Directors' keys served (`GET /gateway/skills` 200). Then Team A's row was e
 Team A's members dropped to the free tier; Team B stayed on the team tier. Both keys were still served (200 on
 `/gateway/skills` and on each Director's own session), which is what the contract now says: a member is never refused
 for the team's bill - the team tier with a bill, the free tier without (`docs/proof/teams-2311/step2-team-bill.md`, item
-1). Note that `gateway-contract.md` section 5 still says a team key is answered 402; that was true before step 2 merged
-and is now out of date (finding F5).
+1). `gateway-contract.md` section 5 said a team key is answered 402, which stopped being true when step 2 merged; it is
+corrected in this pull request (finding F5).
 
 ## Step 5 - removal
 
@@ -232,8 +232,10 @@ These do not stop any step of the proof, and nothing was changed for them. Each 
   Team B chip, for good; nothing tells the person their key was revoked because they left the team.
 - **F4 - a Director's name does not follow a move.** The name the team question suggested, `SOREN_NORTH - Team A`, stays
   after the move to Team B, on the toolbar and on Team B's Fleet Map.
-- **F5 - `docs/proof/teams-2311/gateway-contract.md` section 5 is out of date.** It says every request with a team key is
-  answered 402 until the team bill is wired; step 2 wired it, and live a member is served (step 4).
+- **F5 - `docs/proof/teams-2311/gateway-contract.md` section 5 was out of date** - it said every request with a team key
+  is answered 402 until the team bill is wired; step 2 wired it, and live a member is served (step 4). Corrected in this
+  pull request, at the Tech Lead's ruling: section 5 now states what step 2 wired. (Section 3 still has one aside saying
+  the lease answers a team key 402; left as it was, outside the ruling.)
 - **Not a product finding - members show "An account with no email recorded".** That is this rig: Alice and Bob were
   added as rows and never had a personal account on this Gateway, so it has no address for them. A person who accepts a
   real invitation does.

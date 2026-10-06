@@ -224,12 +224,33 @@ no team route.
   watching it, which no role may (403). A list across the team, an unknown session or Director, or a request not made
   with a device key is refused, never guessed.
 
-## 5. What is NOT entitled for a team tenant yet (the next step)
+## 5. A team key is answered from the team's bill (Gateway step 2)
 
-The request-path **access lease** (`HostedAccessLeaseService`) reads a PERSONAL account's bill
-(`SubjectForTenant(tenant)` then `EntitlementRegistry.Evaluate`). A team's tenant is no one person's, so today **every
-authenticated request and every Hello made with a team key is answered 402** `hosted_subscription_required` by the
-auth middleware - the key authenticates, and the bill check refuses it. Nothing is revoked by this (the lease denies
-without a tombstone when the tenant names no subject). Wiring the lease, the narration plan and
-`PreFreeTierKeyReinstatement` to the team's bill through `EvaluateTeamTenant` (merged in #3521) is the next step. Until
-then a Director set up for a team can enroll, list its teams and move, but cannot connect its tunnel.
+Wired in Gateway step 2 (#3552; the proof is [step2-team-bill.md](step2-team-bill.md)). The request-path **access lease**
+(`HostedAccessLeaseService`) no longer reads a personal account's bill for a team's tenant. For every authenticated request
+and every Hello made with a team key it asks `TeamMemberEntitlement`: the calling person's role in the team
+(`gateway.team_members`) and the TEAM's bill, read once through `EntitlementRegistry.ReadTeamBill`
+(`team_entitlements`). The person is the key's `AccountSubject`, or for a session key the owner of that session's
+Director (section 4).
+
+| The team's bill | A member's request is | Tier |
+|---|---|---|
+| a live row, `status` `active` (or `past_due`, which stops nothing) | served | `team` |
+| no row, a row that grants nothing (for example `canceled`), or - on a hosted Gateway - a row whose `livemode` is not true | served | `free` |
+| the bill cannot be read (for example the table is missing) | **503** `{"error":"entitlement temporarily unverifiable","code":"entitlement_unknown"}` with `Retry-After: 10`, unless an unexpired lease already covers it | - |
+
+- **A member is never refused for the team's bill.** No 402 is answered for a team key; `hosted_subscription_required`
+  stays a personal-account answer.
+- **A person who is not a member** (removed, never added) is answered **403** `team_member_required`: "This key is for a
+  team you are not a member of. Ask the team's Owner to invite you, or set this Director up again for your own account."
+  Nothing is revoked by this answer. (A removed member's own keys are already revoked at the membership change, section
+  4, so they meet 401 `device_credential_revoked` first.)
+- **An unreadable bill is never a grant and never a revoke**: an existing lease is honoured, otherwise the 503 above.
+- A team lease is keyed by tenant AND person, so one member's lease never serves another; the one-minute sweep re-reads
+  every lease, so a bill that ends is seen within the minute.
+- **Paid features follow the same answer.** The Wingman's narration plan for a team session is the session owner's
+  answer in that team (team tier: allowed; free tier: needs Pro; a session that is nobody's: unknown, no call made),
+  and `PreFreeTierKeyReinstatement` gives back only members' keys, one person at a time.
+
+Shown live in [../teams-2311-live/README.md](../teams-2311-live/README.md), step 4: Team A's row ended, the next sweep
+moved Team A from `tier=team` to `tier=free` with both teams' keys still served, and Team B stayed on `tier=team`.
