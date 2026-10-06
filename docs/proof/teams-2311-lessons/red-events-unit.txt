@@ -7,7 +7,7 @@ A total of 1 test files matched the specified pattern.
                v (pos 4)
 Expected: "dir-1"
 Actual:   "dir-colleague"
-               ↑ (pos 4)
+               ^ (pos 4)
   Stack Trace:
      at CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.DeliverOnce_AColleaguesDirectorAlsoListsTheMarkedId_TheMarkedEventAndLessonsGoOnlyToTheOwnDirector() in D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.UnitTests\Fleet\FleetManagerEventServiceTests.cs:line 1685
 --- End of stack trace from previous location ---
