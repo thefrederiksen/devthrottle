@@ -1,0 +1,69 @@
+NOTE: CleanupReadsBeforeTheStartingMark_TheExecutorMarksInBetween_NoReleaseAndNoOverlap was removed from this copy: it uses the AfterOpenRunsRead test seam added in round 4, which does not exist at 7d14dbaa6. Its red is in revert-proof-review4.txt.
+  Determining projects to restore...
+  Restored D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj (in 126 ms).
+  Restored D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj (in 102 ms).
+  Restored D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Core\CcDirector.Core.csproj (in 354 ms).
+  Restored D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine.Tests\CcDirector.Engine.Tests.csproj (in 332 ms).
+  Restored D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine\CcDirector.Engine.csproj (in 331 ms).
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Engine.Tests -> D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll
+Test run for D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.81]   Discovering: CcDirector.Engine.Tests
+[xUnit.net 00:00:00.85]   Discovered:  CcDirector.Engine.Tests
+[xUnit.net 00:00:00.86]   Starting:    CcDirector.Engine.Tests
+[xUnit.net 00:00:06.98]     CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.ChildRecordAffectsZeroRows_TheCommandIsKilled [FAIL]
+[xUnit.net 00:00:06.98]       the command kept running after its run was ended under it
+[xUnit.net 00:00:06.98]       Stack Trace:
+[xUnit.net 00:00:06.98]         D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine.Tests\Storage\NoReleaseWithoutProofTests.cs(128,0): at CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.ChildRecordAffectsZeroRows_TheCommandIsKilled()
+[xUnit.net 00:00:06.98]         --- End of stack trace from previous location ---
+  Failed CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.ChildRecordAffectsZeroRows_TheCommandIsKilled [6 s]
+  Error Message:
+   the command kept running after its run was ended under it
+  Stack Trace:
+     at CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.ChildRecordAffectsZeroRows_TheCommandIsKilled() in D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine.Tests\Storage\NoReleaseWithoutProofTests.cs:line 128
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:07.02]     CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.MigratedOpenOwnerBearingRunWithoutAMark_IsReleasedOnlyAtItsDeadline [FAIL]
+[xUnit.net 00:00:07.02]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:07.02]       Expected: 0
+[xUnit.net 00:00:07.02]       Actual:   1
+[xUnit.net 00:00:07.02]       Stack Trace:
+[xUnit.net 00:00:07.02]         D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine.Tests\Storage\NoReleaseWithoutProofTests.cs(159,0): at CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.MigratedOpenOwnerBearingRunWithoutAMark_IsReleasedOnlyAtItsDeadline()
+[xUnit.net 00:00:07.02]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:07.02]            at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[xUnit.net 00:00:07.10]     CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.OwnerUndecidable_RecordedCommandRunningPastTheDeadline_IsKept [FAIL]
+[xUnit.net 00:00:07.10]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:07.10]       Expected: 0
+[xUnit.net 00:00:07.10]       Actual:   1
+[xUnit.net 00:00:07.10]       Stack Trace:
+[xUnit.net 00:00:07.10]         D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine.Tests\Storage\NoReleaseWithoutProofTests.cs(78,0): at CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.OwnerUndecidable_RecordedCommandRunningPastTheDeadline_IsKept()
+[xUnit.net 00:00:07.10]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:07.10]            at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[xUnit.net 00:00:07.11]   Finished:    CcDirector.Engine.Tests
+  Failed CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.MigratedOpenOwnerBearingRunWithoutAMark_IsReleasedOnlyAtItsDeadline [41 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 0
+Actual:   1
+  Stack Trace:
+     at CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.MigratedOpenOwnerBearingRunWithoutAMark_IsReleasedOnlyAtItsDeadline() in D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine.Tests\Storage\NoReleaseWithoutProofTests.cs:line 159
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Failed CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.OwnerUndecidable_RecordedCommandRunningPastTheDeadline_IsKept [79 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 0
+Actual:   1
+  Stack Trace:
+     at CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.OwnerUndecidable_RecordedCommandRunningPastTheDeadline_IsKept() in D:\ReposFred\devthrottle-2311-red4\src\CcDirector.Engine.Tests\Storage\NoReleaseWithoutProofTests.cs:line 78
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+
+Test Run Failed.
+Total tests: 3
+     Failed: 3
+ Total time: 9.2047 Seconds

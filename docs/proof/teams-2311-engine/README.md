@@ -300,6 +300,64 @@ Engine tests: 97 of 97; the round 2 and round 3 timing tests passed three runs i
 **What round 3 does NOT cover.** The overlap named in the contract: a command whose identity was lost
 and that is still running past its deadline. A Director whose clock is badly wrong judges deadlines by it.
 
+## Review round 4: a recorded command is asked first, and nothing is released without proof (EN-F8, EN-F9)
+
+**EN-F8 - an undecidable owner skipped the recorded command.** When the owning Director could not be
+inspected, cleanup went straight to the deadline and released a command the operating system could still
+see running. Now a recorded command is asked FIRST, whatever the owner's state (this replaces the order of
+the round 3 tables; their rows still apply when no recorded command decides):
+
+| Recorded command | Decision |
+|---|---|
+| Probed RUNNING | kept, whoever the owner is |
+| Probed GONE | ended at once - unless the owner is another LIVE Director, which records its own result |
+| Undecidable, or none recorded | the owner rules of round 3 decide (deadline at most) |
+
+**A reading I took, for the Tech Lead.** The ruling says "proven Gone releases it" for every owner state.
+For an owner that is another live Director I keep the run instead: its command has just exited and that
+Director is about to record the result. Releasing it would end a live Director's run and turn its real
+result into a late one, against the contract line "A Director never fails, releases or overwrites another
+live Director's run". That Director's own tick releases the run if it is no longer executing it.
+
+**EN-F9 - a missing starting mark was taken as proof.**
+1. *Stale read.* Cleanup read the rows, decided, and ended a run with only "still open" as the condition.
+   Now the end is conditional on EXACTLY the state it was decided from: the same starting mark, the same
+   recorded command and the same owner, compared with SQLite's null-safe `IS`. If a mark was written or a
+   command recorded in between, nothing changes and the run is decided again next tick.
+2. *The executor checks its own writes.* Writing the starting mark already refused to start the command
+   when it changed no row. Recording the command now does the same: zero rows means the run was ended
+   under it, so it throws inside the kill protection and the command's process tree is killed and its exit
+   confirmed.
+3. *Migration.* When the starting mark column is added, every run still open is marked as possibly started
+   (the mark is set to its start time). Such a run is held to its deadline unless a recorded command proves
+   it gone - never released as "never started".
+
+Tests (`NoReleaseWithoutProofTests.cs`):
+- `OwnerUndecidable_RecordedCommandRunningPastTheDeadline_IsKept` - a real running process recorded as the
+  command, the owner undecidable, cleanup an hour past the deadline: kept, and the job cannot be claimed.
+- `CleanupReadsBeforeTheStartingMark_TheExecutorMarksInBetween_NoReleaseAndNoOverlap` - a test hook
+  (`AfterOpenRunsRead`) writes the starting mark between cleanup's read and its end, as the old executor of
+  a restarted engine would: nothing is ended, and another Director cannot claim the job.
+- `ChildRecordAffectsZeroRows_TheCommandIsKilled` - a real 30-second command; the run is ended under the
+  executor just before the record lands: the command is gone within seconds, and the other release stands.
+- `MigratedOpenOwnerBearingRunWithoutAMark_IsReleasedOnlyAtItsDeadline` - an owner-bearing open run in a
+  database whose `runs` table has no starting mark column, opened and migrated, its owner gone: not ended
+  now nor five seconds before the deadline; ended five seconds after.
+
+Red on the reviewed head 7d14dbaa6 (`red-review4-on-7d14dbaa6.txt`): the undecidable-owner, zero-row and
+migration tests all fail there ("the command kept running after its run was ended under it" for the
+second). The stale-read test needs the new hook, so it was left out of that run; its red is in
+`revert-proof-review4.txt` - removing only the starting-mark condition from the conditional end turns it,
+and only it, red.
+
+Engine tests: 101 of 101; the round 3 and 4 tests passed three runs in a row. Default gate
+(`test-local-default.txt`): every suite Completed, first attempt. Trigger runner: 9 of 9.
+
+**What round 4 does NOT cover.** When recording the command finds the run already ended and the kill is
+not confirmed within ten seconds, the claim is already gone and the command may still run; that is the
+lost-identity overlap named in the contract. The migration test builds its old database by dropping the
+new column from a current one, not from a binary written by 7d14dbaa6.
+
 ## CC_VAULT_PATH - not changed here
 
 How it resolves today: `CcStorage.Vault()` (`src/CcDirector.Core/Storage/CcStorage.cs:236-243`) returns
