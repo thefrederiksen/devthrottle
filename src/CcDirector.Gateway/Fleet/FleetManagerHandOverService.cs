@@ -13,6 +13,11 @@ public interface IFleetManagerHandOverEnvironment
     /// <summary>The account's fresh pushed roster, with every role and owner answer resolved across the whole of it.</summary>
     IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant);
 
+    /// <summary>Whether the row a Director pushed for a session is THAT session's row - the session store's one answer to
+    /// which Director holds it (<see cref="Streaming.PushedSessionStore.IsHoldersRow"/>). In a team a colleague's Director
+    /// can list the session's id too, and is never the one told its new owner (devthrottle_internal#2311).</summary>
+    bool IsHoldersRow(TenantId tenant, string directorId, string sessionId);
+
     /// <summary>The new Fleet Manager waiting to take over from the marked one (a restart or a move under way), or null.</summary>
     string? WaitingFleetManager(TenantId tenant) => null;
 
@@ -153,7 +158,8 @@ public sealed class FleetManagerHandOverService
         // before the caller is judged, because whether the caller owns the session is what decides whether it may ask.
         var callerOwnsIt = callingSessionId is not null
                            && roster.Any(r => FleetManagerSessions.SameId(r.Session.SessionId, sid)
-                                              && FleetManagerSessions.IsOwnedBy(r.Session, callingSessionId));
+                                              && FleetManagerSessions.IsOwnedBy(r.Session, callingSessionId)
+                                              && _env.IsHoldersRow(tenant, r.DirectorId, r.Session.SessionId));
         var releasing = callerOwnsIt && to == SessionOwnerChangeDto.ToOwner;
         // TAKING IS ALLOWED ON THE OWNER'S DIRECTION (issue #3096), and the guards are what make that safe rather than
         // hopeful: a session may only ever name ITSELF as the new owner, it can only reach a session that already
@@ -169,7 +175,8 @@ public sealed class FleetManagerHandOverService
             && RefuseUnlessFleetManager(roster, marked, callingSessionId, sid, callerOwnsIt) is { } notAllowed)
             return notAllowed;
 
-        var found = roster.FirstOrDefault(r => FleetManagerSessions.SameId(r.Session.SessionId, sid));
+        var found = roster.FirstOrDefault(r => FleetManagerSessions.SameId(r.Session.SessionId, sid)
+                                               && _env.IsHoldersRow(tenant, r.DirectorId, r.Session.SessionId));
         if (found.Session is null)
             return FleetHandOverResult.Refused(404,
                 $"No session {sid} is running in this account on a computer that can be reached now, so it cannot be handed over.");

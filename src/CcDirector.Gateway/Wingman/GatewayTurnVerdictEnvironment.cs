@@ -249,7 +249,13 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment, I
 
     public TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId)
         => TurnVerdictHeldCheck.Resolve(
-            _pushedSessions.SnapshotFresh(tenant, _streamStale), sessionId);
+            _pushedSessions.SnapshotFresh(tenant, _streamStale)
+                // The session's own row only (devthrottle_internal#2311): in a team a colleague's Director can list its id
+                // too. Outside a team every row is the holder's, so the roster is unchanged.
+                .Where(r => !string.Equals(r.Session.SessionId, sessionId, StringComparison.Ordinal)
+                            || _pushedSessions.IsHoldersRow(tenant, r.DirectorId, sessionId))
+                .ToList(),
+            sessionId);
 
     public async Task<ScreenGridResponse?> ReadScreenGridAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct)
     {

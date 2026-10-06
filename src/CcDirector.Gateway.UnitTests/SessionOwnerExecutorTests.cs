@@ -260,6 +260,9 @@ public sealed class SessionOwnerExecutorTests
 
         public string? MarkedFleetManager(TenantId tenant) => FleetManagerId;
 
+        // Outside a team every row is the session's own row.
+        public bool IsHoldersRow(TenantId tenant, string directorId, string sessionId) => true;
+
         public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant)
         {
             var rows = Manager.ListSessions().Select(s => ControlEndpoints.Map(s, "director-under-test")).ToList();

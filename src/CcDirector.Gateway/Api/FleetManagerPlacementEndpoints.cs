@@ -254,6 +254,9 @@ internal sealed class GatewayFleetManagerPlacementEnvironment : IFleetManagerPla
     public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant)
         => Pushed.SnapshotFresh(tenant, StaleAfter);
 
+    public bool IsHoldersRow(TenantId tenant, string directorId, string sessionId)
+        => Pushed.IsHoldersRow(tenant, directorId, sessionId);
+
     public async Task<IReadOnlyList<AgentChoiceDto>?> AgentsOfferedAsync(TenantId tenant, string directorId, CancellationToken ct)
     {
         using var scope = EnterTenantScope(tenant);

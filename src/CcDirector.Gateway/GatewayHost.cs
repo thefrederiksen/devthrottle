@@ -1870,7 +1870,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // team's turn push (devthrottle_internal#2311).
         TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary, SessionKeys,
             reportAuthor: (tenant, reportId) => _devReports.Get(tenant, reportId)?.AuthorSubject);
-        TeamGate = new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
+        // ONE answer to "which Director holds this session" in a team (devthrottle_internal#2311): every per-session
+        // lookup of the session store - the prompt route and its held deliveries, dev-report delivery, the Fleet
+        // Manager's close - answers through the same ownership rule, never the roster's first row. Personal tenants
+        // and a dark Gateway are not governed and keep the first row.
+        PushedSessions.UseHolderRule(new Teams.TeamSessionHolderRule(
+            tenant => TeamsReleased && TeamMemberEntitlement.IsTeam(tenant), TeamCallerOwnership));
+        TeamGate =new Teams.TeamEndpointGate(TeamAccess, TeamRegistry, TenantRegistry, _tenantBoundary, TeamCallerOwnership);
         TeamRequests = new Teams.TeamRequestStore(_gatewayDb, TeamRegistry);
         // Removing a person from a team, or making them a Collaborator, cuts their Directors off that team: their keys
         // there are revoked and their open tunnels there cut (devthrottle_internal#2311). Attached only where Teams is

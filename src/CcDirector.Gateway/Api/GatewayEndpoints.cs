@@ -6105,7 +6105,9 @@ internal static class GatewayEndpoints
         {
             var row = pushedSessions.GetLastKnown(tenant, d.DirectorId).Sessions
                 .FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
-            if (row is not null) return row;
+            // Only the holder's row (devthrottle_internal#2311): in a team a colleague's Director can list this id too.
+            // Outside a team every row is the holder's, so this is the first row as before.
+            if (row is not null && pushedSessions.IsHoldersRow(tenant, d.DirectorId, row.SessionId)) return row;
         }
         return null;
     }

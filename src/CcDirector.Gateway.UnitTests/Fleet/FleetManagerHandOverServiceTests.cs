@@ -47,6 +47,9 @@ public sealed class FleetManagerHandOverServiceTests
 
         public string? WaitingFleetManager(TenantId tenant) => Successor;
 
+        // Outside a team every row is the session's own row.
+        public bool IsHoldersRow(TenantId tenant, string directorId, string sessionId) => true;
+
         public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant)
         {
             if (!Rosters.TryGetValue(tenant, out var list)) return Array.Empty<(string, SessionDto)>();

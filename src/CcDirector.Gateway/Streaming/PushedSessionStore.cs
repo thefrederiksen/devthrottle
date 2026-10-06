@@ -98,6 +98,10 @@ public sealed class PushedSessionStore
     /// </summary>
     private readonly object _membershipGate = new();
 
+    /// <summary>The rule that answers "which Director holds this session" for the tenants it governs (a team's,
+    /// devthrottle_internal#2311), or null - every tenant keeps the first row. Set once, at start.</summary>
+    private volatile ISessionHolderRule? _holderRule;
+
     /// <summary>
     /// Create the store. <paramref name="utcNow"/> is a test seam for the staleness and idle-clock logic;
     /// production passes null and the store reads <see cref="DateTime.UtcNow"/>.
@@ -121,6 +125,67 @@ public sealed class PushedSessionStore
     /// Raised outside every lock, on the pushing Director's own call; a handler must not block it.
     /// </summary>
     public event Action<TenantId, string>? SessionsArrivedOnNewConnection;
+
+    /// <summary>
+    /// Make every per-session lookup of this store answer through <paramref name="rule"/> in the tenants it governs
+    /// (devthrottle_internal#2311): <see cref="TryLocate"/>, <see cref="TryLocateIgnoringFreshness"/>,
+    /// <see cref="TryGetLastKnownSession"/> and <see cref="IsHoldersRow"/>. THE ONE POINT where "which Director holds
+    /// session X" is answered: a caller cannot take the first row around it, because the first row is no longer what
+    /// these return in a governed tenant. Set once, by the host, before any Director connects; a second rule is refused
+    /// rather than silently replacing the first.
+    /// </summary>
+    public void UseHolderRule(ISessionHolderRule rule)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        if (_holderRule is not null)
+            throw new InvalidOperationException("A session holder rule is already in use; the store answers through exactly one.");
+        _holderRule = rule;
+        FileLog.Write($"[PushedSessionStore] UseHolderRule: per-session lookups answer through {rule.GetType().Name} in the tenants it governs");
+    }
+
+    /// <summary>The rule when it governs <paramref name="tenant"/>; null keeps today's first-row answer.</summary>
+    private ISessionHolderRule? GoverningRule(TenantId tenant)
+        => _holderRule is { } rule && rule.Governs(tenant) ? rule : null;
+
+    /// <summary>
+    /// The Director <paramref name="rule"/> names as holding <paramref name="sessionId"/> out of every Director that lists
+    /// it, or null - nobody - when no Director lists it or the rule names none. Read with no store lock held: the rule
+    /// reads stored records and asks this store who lists the id. A rule that names a Director which does not list the
+    /// id has broken its contract, and that is thrown, never served.
+    /// </summary>
+    private string? GovernedHolder(TenantId tenant, string sessionId, ISessionHolderRule rule, string asker)
+    {
+        var holders = DirectorsHoldingSession(tenant, sessionId);
+        if (holders.Count == 0)
+            return null;
+        var holder = rule.HolderOf(tenant, sessionId, holders);
+        if (holder is null)
+        {
+            FileLog.Write($"[PushedSessionStore] {asker}: tenant={tenant.ToLogString()}, session={sessionId} is listed by {string.Join(", ", holders)} and the holder rule names none of them - WITHHELD, nobody holds it");
+            return null;
+        }
+        if (!holders.Any(h => string.Equals(h, holder, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException(
+                $"The session holder rule named director={holder} for session {sessionId}, which does not list it (listed by {string.Join(", ", holders)}).");
+        return holder;
+    }
+
+    /// <summary>
+    /// Whether the row <paramref name="directorId"/> pushed for <paramref name="sessionId"/> is THAT SESSION'S row - the
+    /// question a caller asks when it picks one session out of a whole-fleet snapshot (<see cref="SnapshotFresh"/> and
+    /// the rest list every row of every Director, so in a team a session id can appear under a colleague's Director
+    /// too). In a tenant the holder rule governs: only the holder's row is. Everywhere else: every row is, exactly as
+    /// before - the first one found is the answer it always was.
+    /// </summary>
+    public bool IsHoldersRow(TenantId tenant, string directorId, string sessionId)
+    {
+        if (string.IsNullOrEmpty(directorId) || string.IsNullOrEmpty(sessionId))
+            return false;
+        if (GoverningRule(tenant) is not { } rule)
+            return true;
+        var holder = GovernedHolder(tenant, sessionId, rule, nameof(IsHoldersRow));
+        return holder is not null && string.Equals(holder, directorId, StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>The per-Director map for one tenant, created on first use. Fails loud on an invalid tenant.</summary>
     private ConcurrentDictionary<string, DirectorEntry> DirectorsFor(TenantId tenant)
@@ -526,6 +591,19 @@ public sealed class PushedSessionStore
     public (string DirectorId, SessionDto Session)? TryGetLastKnownSession(TenantId tenant, string sessionId)
     {
         if (string.IsNullOrEmpty(sessionId)) return null;
+        if (GoverningRule(tenant) is { } rule)
+        {
+            var holder = GovernedHolder(tenant, sessionId, rule, nameof(TryGetLastKnownSession));
+            if (holder is null || !DirectorsFor(tenant).TryGetValue(holder, out var held))
+                return null;
+            lock (held.Gate)
+            {
+                return held.Sessions.TryGetValue(sessionId, out var heldRow)
+                    ? (holder, RecomputeClocks(heldRow.Clone(), _utcNow()))
+                    : null;
+            }
+        }
+
         var now = _utcNow();
         foreach (var kvp in DirectorsFor(tenant))
         {
@@ -542,9 +620,10 @@ public sealed class PushedSessionStore
     /// <summary>
     /// EVERY Director in <paramref name="tenant"/> whose last-known roster holds <paramref name="sessionId"/>, freshness
     /// ignored. The roster accepts any session id from any Director, so in a team's tenant two members' Directors can
-    /// list the same id; <see cref="TryGetLastKnownSession"/> answers with the first it finds, which is no answer to
-    /// "whose is it". This is the question for that (devthrottle_internal#2311, review F2): normally one, and anything
-    /// else is not a session anyone can be said to own.
+    /// list the same id; outside a tenant the holder rule governs, <see cref="TryGetLastKnownSession"/> answers with the
+    /// first it finds, which is no answer to "whose is it". This is the question for that (devthrottle_internal#2311,
+    /// review F2): normally one, and anything else is not a session anyone can be said to own. It is the raw INPUT to the
+    /// holder rule (<see cref="UseHolderRule"/>), never itself an answer to which Director holds the session.
     /// </summary>
     public IReadOnlyList<string> DirectorsHoldingSession(TenantId tenant, string sessionId)
     {
@@ -611,6 +690,22 @@ public sealed class PushedSessionStore
     {
         if (string.IsNullOrEmpty(sessionId))
             return null;
+        if (GoverningRule(tenant) is { } rule)
+        {
+            // THE HOLDER'S ROW OR NOTHING: a fresher row under another Director is never the answer.
+            var holder = GovernedHolder(tenant, sessionId, rule, nameof(TryLocate));
+            if (holder is null || !DirectorsFor(tenant).TryGetValue(holder, out var held))
+                return null;
+            var at = _utcNow();
+            lock (held.Gate)
+            {
+                if (held.ActiveConnectionId is null || held.ReceivedAtUtc == DateTime.MinValue || at - held.ReceivedAtUtc > staleAfter)
+                    return null;
+                return held.Sessions.TryGetValue(sessionId, out var heldRow)
+                    ? (holder, RecomputeClocks(heldRow.Clone(), at))
+                    : null;
+            }
+        }
 
         var now = _utcNow();
         foreach (var kvp in DirectorsFor(tenant))
@@ -653,6 +748,20 @@ public sealed class PushedSessionStore
     {
         if (string.IsNullOrEmpty(sessionId))
             return null;
+        if (GoverningRule(tenant) is { } rule)
+        {
+            var holder = GovernedHolder(tenant, sessionId, rule, nameof(TryLocateIgnoringFreshness));
+            if (holder is null || !DirectorsFor(tenant).TryGetValue(holder, out var held))
+                return null;
+            var at = _utcNow();
+            lock (held.Gate)
+            {
+                if (!held.Sessions.ContainsKey(sessionId))
+                    return null;
+                var heldAge = held.ReceivedAtUtc == DateTime.MinValue ? TimeSpan.MaxValue : at - held.ReceivedAtUtc;
+                return (holder, heldAge < TimeSpan.Zero ? TimeSpan.Zero : heldAge);
+            }
+        }
 
         var now = _utcNow();
         foreach (var kvp in DirectorsFor(tenant))

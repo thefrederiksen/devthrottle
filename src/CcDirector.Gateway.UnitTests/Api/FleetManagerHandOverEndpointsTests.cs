@@ -33,6 +33,9 @@ public sealed class FleetManagerHandOverEndpointsTests
 
         public string? MarkedFleetManager(TenantId tenant) => Fm;
 
+        // Outside a team every row is the session's own row.
+        public bool IsHoldersRow(TenantId tenant, string directorId, string sessionId) => true;
+
         public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant)
         {
             Reads++;
