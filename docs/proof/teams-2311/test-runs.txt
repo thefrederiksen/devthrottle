@@ -418,3 +418,32 @@ Details in step2-team-bill.md.
     Gateway.UnitTests filtered (Teams namespace incl. Teams.Reports, DirectorHub, DevReport, FleetManagerLessons):
       Passed 1473, Skipped 6, 0 failed.
     .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
+
+35. CI 37409136491 on 5fa042cb0 failed #3557's HostedTeamReportsTests.Issue2309_TeamKeyVariant_TheTeamsOwnSessionAndDirectorKeys_AreStoppedAtTheLease
+    (expected step 1's temporary 402 for team keys, got 503 entitlement_unknown: the team had no bill). Fix commit
+    73d76d8e4 (tests and comments only):
+    - HostedTeamReportsTests: the class's team gets a live bill (HostedTeamBill.CreateTable + Start). The 402 test is
+      REPLACED by Issue2309_TeamKeyVariant_ATeamSessionPublishesOverTheWire_AuthoredByItsDirectorsPerson_AndAColleagueCannot:
+      Alice's team Director connects over the tunnel and registers a session key through the hub; POST
+      /sessions/{sid}/dev-reports with that key answers 200 and the report is stored authored by Alice; Bob's team
+      Director is refused a key for Alice's session (S2-F8), so the key it minted is 401 on her publish route; Bob's own
+      session key is refused (not 200, not 401) on her session's route. The class summary no longer says a team session
+      cannot reach the Gateway.
+    - The same class's Issue2309_ACollaboratorsComment_ReachesTheAuthor_OverTheWire said in its own words that once the
+      lease reads the team's bill its two session reads go 200 and must then assert 200, marker absent, positive control
+      present. Done: Alice's team Director registers the session key over the wire; sessions/{sid}/dev-reports and
+      sessions/{sid}/dev-reports/{report} answer 200 with the report's title present and the marker absent; the two team
+      person routes and the owner route answer 403.
+    - FakeTunnelDirector gains RegisterSessionKeyAsync (the hub's RegisterSessionKey, hash only).
+    Sweep of Gateway.Tests and Gateway.UnitTests for 402 / hosted_subscription_required / "stopped at the lease" on a
+    TEAM key: the two tests above; comments corrected in HostedTeamReportsTests (the F4 test), TeamPersonStampHostTests
+    and TeamReportsProofRig, which said a team key is answered 402 by the lease. Not team keys, left as they are:
+    HostedTeamEnrollmentTests (402 is a PERSONAL enrollment on a plan without hosted capacity), HostedEntitlementGate,
+    HostedProTrial, HostedMobileAccountEnroll, the transcription, text-to-speech and inference 402s. Already fixed:
+    HostedTeamRequestEndpointsTests (entry 32).
+    Gateway.Tests for these classes: NOT RUN. The machine-wide lock is held by another session's release-gate run in
+    devthrottle-release-2160 since 11:00 PM; a filtered run of HostedTeamReportsTests, TeamPersonStampHostTests and
+    HostedTeamRequestEndpointsTests waited 560 s and was stopped (no result, no process left). The red run with the bill
+    row ended was not run for the same reason. The other session's process was not touched.
+    Gateway.UnitTests filtered (Teams namespace, DevReport): Passed 1412, Skipped 6, 0 failed.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
