@@ -19,14 +19,22 @@ public sealed class HostedTeamSetupTests
     private const string TeamsHealth = "{\"status\":\"ok\",\"teams\":true}";
     private const string PreTeamsHealth = "{\"status\":\"ok\",\"version\":\"2.13.0\"}";
 
-    private sealed class FakeGateway(string health) : HttpMessageHandler
+    private const string OneTeam =
+        "{\"teams\":[{\"teamId\":\"t-dev\",\"name\":\"DevThrottle\",\"role\":\"owner\",\"memberCount\":5}]}";
+
+    // Two teams, so D1 is shown.
+    private const string TwoTeams =
+        "{\"teams\":[{\"teamId\":\"t-dev\",\"name\":\"DevThrottle\",\"role\":\"owner\",\"memberCount\":5}," +
+        "{\"teamId\":\"t-acme\",\"name\":\"Acme\",\"role\":\"developer\",\"memberCount\":3}]}";
+
+    private sealed class FakeGateway(string health, string teams) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var body = request.RequestUri!.AbsolutePath switch
             {
                 "/healthz" => health,
-                "/devices/enroll-hosted/teams" => "{\"teams\":[{\"teamId\":\"t-dev\",\"name\":\"DevThrottle\",\"role\":\"owner\",\"memberCount\":5}]}",
+                "/devices/enroll-hosted/teams" => teams,
                 "/devices/enroll-hosted" => "{\"deviceKey\":\"team-key\",\"deviceCount\":1}",
                 _ => throw new InvalidOperationException(request.RequestUri.AbsolutePath),
             };
@@ -37,10 +45,10 @@ public sealed class HostedTeamSetupTests
         }
     }
 
-    private static Func<Action<DirectorTeam?>, GatewayAccountEnrollRunner> Runner(string health, List<string> log) =>
+    private static Func<Action<DirectorTeam?>, GatewayAccountEnrollRunner> Runner(string health, List<string> log, string teams = TwoTeams) =>
         persistTeam => new GatewayAccountEnrollRunner(
             signIn: _ => Task.FromResult(new DevThrottleTokens("account-token", "refresh")),
-            handlerFactory: () => new FakeGateway(health),
+            handlerFactory: () => new FakeGateway(health, teams),
             persist: (_, key) => log.Add("key:" + key),
             persistTeam: persistTeam);
 
@@ -58,6 +66,21 @@ public sealed class HostedTeamSetupTests
         Assert.True(result.Success, result.ErrorMessage);
         Assert.Equal("team-key", result.Value!.DeviceKey);
         // The team is recorded last: that write redraws the title bar, and the name must already be saved.
+        Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - DevThrottle", "team:t-dev" }, log);
+    }
+
+    // A person with one team is never asked (devthrottle_internal#2311): D1 is not shown, and the Director takes
+    // the name D1 would have started with, "<computer> - <team>"; the chip and the title show the recorded team.
+    [AvaloniaFact]
+    public async Task RunAsync_OneTeam_NotAskedNamedForTheTeamAndTeamRecorded()
+    {
+        var log = new List<string>();
+
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log, OneTeam),
+            _ => throw new InvalidOperationException("must not ask"),
+            name => log.Add("rename:" + name), team => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
         Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - DevThrottle", "team:t-dev" }, log);
     }
 

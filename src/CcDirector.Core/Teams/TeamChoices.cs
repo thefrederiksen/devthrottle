@@ -64,7 +64,7 @@ public static class TeamChoices
 {
     /// <summary>
     /// The options: every listed team, in the Gateway's order, then the personal account ("Just you"). With no
-    /// listed team there is exactly one option, which is the signal that the question is not asked at all.
+    /// listed team there is exactly one option. Whether setup asks is <see cref="TakenWithoutAsking"/>.
     /// </summary>
     public static IReadOnlyList<TeamChoice> Build(IReadOnlyList<HostedTeam> teams)
     {
@@ -80,8 +80,23 @@ public static class TeamChoices
         return choices;
     }
 
-    /// <summary>True when the person must be asked: there is more than the personal account to choose from.</summary>
-    public static bool MustAsk(IReadOnlyList<TeamChoice> choices) => choices.Count > 1;
+    /// <summary>
+    /// The one rule for SETUP (screen D1): the choice taken without asking, or null when the person must be asked.
+    /// No team listed: the personal account. Exactly one team: that team - a person with one team is never asked to
+    /// choose (devthrottle_internal#2311). Two or more: null, and D1 offers them all with the personal account.
+    /// A move (screen D3) never uses this: there the person is choosing, so the personal account stays offered.
+    /// </summary>
+    public static TeamChoice? TakenWithoutAsking(IReadOnlyList<TeamChoice> choices)
+    {
+        ArgumentNullException.ThrowIfNull(choices);
+        var teams = choices.Where(c => !c.IsPersonal).ToList();
+        return teams.Count switch
+        {
+            0 => choices.Single(c => c.IsPersonal),
+            1 => teams[0],
+            _ => null,
+        };
+    }
 
     /// <summary>
     /// Why the Director cannot offer <paramref name="team"/> as a choice - no id, no name, or a role that cannot
