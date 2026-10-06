@@ -747,7 +747,7 @@ public static class FactoryAgentsFold
             Id = s.Id,
             Name = s.Name,
             Description = string.Join(", ", parts),
-            Href = $"/factory-agents?tab=reports&report={Uri.EscapeDataString(s.Id)}",
+            Href = $"/factories?tab=reports&report={Uri.EscapeDataString(s.Id)}",
             SavedText = $"Saved {DateTimeText(s.SavedUtc, zone)} by {s.SavedBy}",
         };
     }
@@ -894,23 +894,23 @@ public static class FactoryAgentsFold
     }
 
     public static string WaitingHref(string factory) =>
-        $"/factory-agents/waiting?factory={Uri.EscapeDataString(factory)}";
+        $"/factories/waiting?factory={Uri.EscapeDataString(factory)}";
 
     /// <summary>The Activity tab filtered to one factory and outcome, over the same window the card counted.</summary>
     public static string ActivityHrefFor(string factory, string outcome, FactoryWindow window)
     {
-        var href = $"/factory-agents?tab=activity&factory={Uri.EscapeDataString(factory)}&outcome={Uri.EscapeDataString(outcome)}&window={window.Key}";
+        var href = $"/factories?tab=activity&factory={Uri.EscapeDataString(factory)}&outcome={Uri.EscapeDataString(outcome)}&window={window.Key}";
         if (window.Key == WindowCustom)
             href += $"&from={Uri.EscapeDataString(window.FromUtc.ToString("o", CultureInfo.InvariantCulture))}&to={Uri.EscapeDataString(window.ToUtc.ToString("o", CultureInfo.InvariantCulture))}";
         return href;
     }
 
-    /// <summary>A factory's page, which opens on its Map tab (issue #3383).</summary>
-    public static string MapHref(string factory) =>
-        $"/factory-agents/{Uri.EscapeDataString(factory)}";
+    /// <summary>A factory's page (the Factories screen's; it once opened on the Map tab, issue #3383).</summary>
+    public static string MapHref(string factory) => FactoriesScreenFold.PageHref(factory);
 
+    /// <summary>A factory agent's own page, under its factory's page.</summary>
     public static string AgentHref(string factory, string agent) =>
-        $"/factory-agents/{Uri.EscapeDataString(factory)}/{Uri.EscapeDataString(agent)}";
+        $"{FactoriesScreenFold.PageHref(factory)}/agents/{Uri.EscapeDataString(agent)}";
 
     private static string TriggerText(FactoryTriggerFacts t) =>
         $"Trigger: {t.Name}, every {IntervalText(t.IntervalSeconds)}{(t.Paused ? " (paused)" : "")}";

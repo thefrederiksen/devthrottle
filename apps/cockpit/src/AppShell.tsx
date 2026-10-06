@@ -102,13 +102,13 @@ const NAV_MAIN: ReadonlyArray<NavItem> = [
   { to: "/network", label: "Network", icon: "network" },
 ];
 
-// Factory Agents sits after Fleet Map and before History - but only while the GATEWAY says the area is on
-// (factoryAgents.enabled). The rail never decides that itself (rule 7).
-const FACTORY_AGENTS_ITEM: NavItem = {
-  to: "/factory-agents",
-  label: "Factory Agents",
-  icon: "factory-agents",
-  subtree: "/factory-agents",
+// Factories (once "Factory Agents") sits after Fleet Map and before History - but only while the GATEWAY says the
+// area is on (factoryAgents.enabled). The rail never decides that itself (rule 7).
+const FACTORIES_ITEM: NavItem = {
+  to: "/factories",
+  label: "Factories",
+  icon: "factories",
+  subtree: "/factories",
 };
 
 // The Mentor's weekly page for the team on screen (devthrottle_internal#2305), after Skills - the mockups put it
@@ -254,7 +254,7 @@ function ShellFrame() {
   const factorySwitch = useFactorySwitch(wholeApp).state;
   const railItems =
     factorySwitch === "on"
-      ? NAV_MAIN.flatMap((item) => (item.to === "/fleet-map" ? [item, FACTORY_AGENTS_ITEM] : [item]))
+      ? NAV_MAIN.flatMap((item) => (item.to === "/fleet-map" ? [item, FACTORIES_ITEM] : [item]))
       : NAV_MAIN;
 
   // A TEAM WHERE THE PERSON GETS THE WHOLE APP still has the team's own pages (devthrottle_internal#2309, Tech Lead

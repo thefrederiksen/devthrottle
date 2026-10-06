@@ -432,7 +432,7 @@ public sealed class FactoryAgentsFoldTests
 
         Assert.Equal("Scout v2 - Website Business", factorySession.FactoryAgent!.Text);
         Assert.Equal("Factory agent", factorySession.FactoryAgent.Label);
-        Assert.Equal("/factory-agents/website-business/scout", factorySession.FactoryAgent.Href);
+        Assert.Equal("/factories/website-business/agents/scout", factorySession.FactoryAgent.Href);
         Assert.Null(plain.FactoryAgent);
     }
 }

@@ -1,12 +1,11 @@
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   downloadFactoryCsv,
   saveFactoryReport,
   setFactoryPaused,
   type FactoryActivityLine,
-  type FactoryAgentRow,
   type FactoryFilters,
   type FactoryNumber,
   type FactoryPause,
@@ -15,6 +14,10 @@ import {
   type FactoryWindow,
   type SavedFactoryReport,
 } from "@devthrottle/client-core/factory/factoryAgentsClient";
+import {
+  startFactoryTalk,
+  type FactoryTalkTarget,
+} from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { Button, ConfirmDialog } from "../components";
 
 // The building blocks the Factory Agents pages share. Rule 7: every word, number and tone arrives finished from the
@@ -357,34 +360,43 @@ export function PauseButton({
   );
 }
 
-/** Factory agents as rows: on a factory card, the All factory agents tab and a factory's Agents tab. */
-export function AgentTable({ rows, showFactory }: { rows: FactoryAgentRow[]; showFactory: boolean }) {
+/**
+ * Talk, on a factory's row, its page and every seat: the Gateway starts a new top-level session owned by the person
+ * who pressed it, seated as that agent, and the Cockpit opens it. The button shows it is working the moment it is
+ * pressed, and a refusal shows the Gateway's own sentence beside it - never a button that does nothing silently.
+ */
+export function TalkButton({ talk, variant = "primary" }: { talk: FactoryTalkTarget; variant?: "primary" | "secondary" }) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   return (
-    <table className="fa-table">
-      <thead>
-        <tr>
-          <th>Factory agent</th>
-          {showFactory && <th>Factory</th>}
-          <th>Woken by</th>
-          <th>Last run</th>
-          <th style={{ width: "110px" }}>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((a) => (
-          <tr key={`${a.factoryId}/${a.agentId}`}>
-            <td>
-              <Link to={a.href}>{a.name}</Link>
-            </td>
-            {showFactory && <td>{a.factoryTitle}</td>}
-            <td>{a.wokenBy}</td>
-            <td>{a.lastRun}</td>
-            <td>
-              <ToneChip word={a.statusWord} tone={a.statusTone} />
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <span className="fa-inline-action fa-talk">
+      <Button
+        variant={variant}
+        disabled={busy}
+        aria-busy={busy}
+        data-testid={`fa-talk-${talk.factoryId}-${talk.seatId}`}
+        onClick={async (e) => {
+          // A Talk button sits inside a clickable row; pressing it must not also open the row.
+          e.stopPropagation();
+          setBusy(true);
+          setError(null);
+          try {
+            const started = await startFactoryTalk(talk);
+            navigate(started.href);
+          } catch (err) {
+            setError(gatewayErrorMessage(err, "start the talk"));
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Starting the talk..." : talk.label}
+      </Button>
+      {error !== null && (
+        <span className="fa-error" role="alert">
+          {error}
+        </span>
+      )}
+    </span>
   );
 }

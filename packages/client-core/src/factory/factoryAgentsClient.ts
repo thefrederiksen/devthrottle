@@ -58,103 +58,6 @@ export interface FactoryPause {
   confirm: string | null;
 }
 
-export interface FactoryAgentRow {
-  factoryId: string;
-  factoryTitle: string;
-  agentId: string;
-  name: string;
-  wokenBy: string;
-  lastRun: string;
-  statusWord: string;
-  statusTone: FactoryTone;
-  href: string;
-}
-
-export interface FactoryCard {
-  id: string;
-  title: string;
-  statusWord: string;
-  statusTone: FactoryTone;
-  subtitle: string;
-  faultText: string | null;
-  numbers: FactoryNumber[];
-  agents: FactoryAgentRow[];
-  pause: FactoryPause | null;
-  waitingHref: string;
-  /** The factory's page, which opens on its Map tab (issue #3383). */
-  mapHref: string;
-}
-
-// The factory map (issue #3383), mirroring FactoryMapDtos.cs. The layout is the factory's own (Graphviz, in the
-// factory's tool); the Gateway adds each agent's status and returns every word, tone, line style and path finished.
-export interface FactoryMapSpecRow {
-  label: string;
-  text: string;
-}
-
-export interface FactoryMapNode {
-  id: string;
-  kind: "agent" | "owner" | "source";
-  title: string;
-  lines: string[];
-  statusWord: string | null;
-  tone: FactoryTone;
-  lastRun: string | null;
-  dashed: boolean;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  spec: FactoryMapSpecRow[];
-  href: string | null;
-}
-
-export interface FactoryMapEdge {
-  from: string;
-  to: string;
-  label: string;
-  tone: FactoryTone;
-  line: "solid" | "dashed" | "dotted";
-  path: string;
-  head: string | null;
-  labelX: number | null;
-  labelY: number | null;
-}
-
-export interface FactoryMapLegend {
-  text: string;
-  tone: FactoryTone;
-  line: "solid" | "dashed" | "dotted";
-}
-
-export interface FactoryMapView {
-  factoryId: string;
-  title: string;
-  emptyText: string | null;
-  sourceText: string | null;
-  statusNote: string;
-  width: number;
-  height: number;
-  nodes: FactoryMapNode[];
-  edges: FactoryMapEdge[];
-  legend: FactoryMapLegend[];
-  changeLabel: string;
-  changeHref: string;
-  tabs: FactoryTab[];
-  agents: FactoryAgentRow[];
-  waitingHref: string;
-}
-
-export interface FactoriesView {
-  title: string;
-  subtitle: string;
-  tabs: FactoryTab[];
-  window: FactoryWindow;
-  factories: FactoryCard[];
-  allAgents: FactoryAgentRow[];
-  emptyText: string | null;
-}
-
 export interface FactoryWokenBy {
   triggerId: string;
   text: string;
@@ -360,19 +263,11 @@ export function getFactoryAgentsSwitch(signal?: AbortSignal): Promise<FactoryAge
   return getJson<FactoryAgentsSwitch>(`${PREFIX}/switch`, signal);
 }
 
-export function getFactories(q: FactoryQuery, signal?: AbortSignal): Promise<FactoriesView> {
-  return getJson<FactoriesView>(`${PREFIX}/factories${factoryQueryString(q)}`, signal);
-}
-
 export function getFactoryAgent(factory: string, agent: string, signal?: AbortSignal): Promise<FactoryAgentPage> {
   return getJson<FactoryAgentPage>(
     `${PREFIX}/factories/${encodeURIComponent(factory)}/agents/${encodeURIComponent(agent)}`,
     signal,
   );
-}
-
-export function getFactoryMap(factory: string, signal?: AbortSignal): Promise<FactoryMapView> {
-  return getJson<FactoryMapView>(`${PREFIX}/factories/${encodeURIComponent(factory)}/map`, signal);
 }
 
 export function getFactoryActivity(q: FactoryQuery, signal?: AbortSignal): Promise<FactoryActivityView> {

@@ -33,9 +33,9 @@ describe("A factory agent's page (Screen 2)", () => {
 
   function renderPage() {
     return render(
-      <MemoryRouter initialEntries={["/factory-agents/website-business/front-desk"]}>
+      <MemoryRouter initialEntries={["/factories/website-business/agents/front-desk"]}>
         <Routes>
-          <Route path="/factory-agents/:factory/:agent" element={<FactoryAgentPageView />} />
+          <Route path="/factories/:factory/agents/:agent" element={<FactoryAgentPageView />} />
         </Routes>
       </MemoryRouter>,
     );
@@ -115,9 +115,9 @@ describe("Waiting for you (Screen 4)", () => {
 
   function renderWaiting() {
     return render(
-      <MemoryRouter initialEntries={["/factory-agents/waiting?factory=website-business"]}>
+      <MemoryRouter initialEntries={["/factories/waiting?factory=website-business"]}>
         <Routes>
-          <Route path="/factory-agents/waiting" element={<FactoryWaitingView />} />
+          <Route path="/factories/waiting" element={<FactoryWaitingView />} />
         </Routes>
       </MemoryRouter>,
     );

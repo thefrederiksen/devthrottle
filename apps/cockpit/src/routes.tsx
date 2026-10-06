@@ -13,10 +13,16 @@ import { WalkthroughView } from "./fleetmanager/WalkthroughView";
 import { FleetMapView } from "./fleet/FleetMapView";
 import { HistoryView } from "./history/HistoryView";
 import { FactoryAreaGate } from "./factory/FactoryAreaGate";
-import { FactoryAgentsView } from "./factory/FactoryAgentsView";
+import { FactoriesView } from "./factory/FactoriesView";
+import { FactoryView } from "./factory/FactoryView";
 import { FactoryAgentPageView } from "./factory/FactoryAgentPageView";
-import { FactoryPageView } from "./factory/FactoryPageView";
 import { FactoryWaitingView } from "./factory/FactoryWaitingView";
+import {
+  OldFactoriesListRedirect,
+  OldFactoryAgentRedirect,
+  OldFactoryPageRedirect,
+  OldFactoryWaitingRedirect,
+} from "./factory/FactoryRedirects";
 import { DirectorsView } from "./fleet/DirectorsView";
 import { DirectorDetailView } from "./fleet/DirectorDetailView";
 import { ScheduleView } from "./schedule/ScheduleView";
@@ -136,14 +142,21 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // page lists, pivotable by machine / repository / agent. Reads the same GET /sessions
           // envelope through client-core.
           { path: "/fleet-map", element: <FleetMapView /> },
-          // Factory Agents (Website Business Factory, product track): the factories, their factory agents, what they
-          // did, what waits for the owner, and reports. Behind the Gateway's factoryAgents.enabled switch: while the
-          // Gateway says it is off, every one of these routes is the ordinary "Page not found".
-          { path: "/factory-agents", element: <FactoryAreaGate><FactoryAgentsView /></FactoryAreaGate> },
-          { path: "/factory-agents/waiting", element: <FactoryAreaGate><FactoryWaitingView /></FactoryAreaGate> },
-          // One factory's page, opening on its Map tab (issue #3383). "waiting" above is the static route and wins.
-          { path: "/factory-agents/:factory", element: <FactoryAreaGate><FactoryPageView /></FactoryAreaGate> },
-          { path: "/factory-agents/:factory/:agent", element: <FactoryAreaGate><FactoryAgentPageView /></FactoryAreaGate> },
+          // Factories (Factories screen mission): every factory as one row, a factory's page with its goal, goal
+          // number and Seats, and a Talk button on the CEO and every seat. Behind the Gateway's factoryAgents.enabled
+          // switch: while the Gateway says it is off, every one of these routes is the ordinary "Page not found".
+          // "waiting" is a static route and wins over a factory id; "agents/:agent" is the factory agent's own page
+          // (where a session's factory agent chip links).
+          { path: "/factories", element: <FactoryAreaGate><FactoriesView /></FactoryAreaGate> },
+          { path: "/factories/waiting", element: <FactoryAreaGate><FactoryWaitingView /></FactoryAreaGate> },
+          { path: "/factories/:factory", element: <FactoryAreaGate><FactoryView /></FactoryAreaGate> },
+          { path: "/factories/:factory/:tab", element: <FactoryAreaGate><FactoryView /></FactoryAreaGate> },
+          { path: "/factories/:factory/agents/:agent", element: <FactoryAreaGate><FactoryAgentPageView /></FactoryAreaGate> },
+          // The area was "Factory Agents" until the Factories screen; its old addresses land on their new equivalents.
+          { path: "/factory-agents", element: <OldFactoriesListRedirect /> },
+          { path: "/factory-agents/waiting", element: <OldFactoryWaitingRedirect /> },
+          { path: "/factory-agents/:factory", element: <OldFactoryPageRedirect /> },
+          { path: "/factory-agents/:factory/:agent", element: <OldFactoryAgentRedirect /> },
           // The History page (issue #2194): what was worked on over a picked range, grouped by
           // repository and day, from the Gateway's durable per-session record (GET /history/report).
           // Running sessions appear as the entries that have not ended yet.

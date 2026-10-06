@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-li
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 // The factory page's Memory tab (Factory Memory mission, phase 3b). What is held down:
-//   * the tab is the Gateway's - it appears because the fold offers it, and ?tab=memory opens it;
+//   * the tab is the Gateway's - it appears because the fold offers it, and /factories/<id>/memory opens it;
 //   * every call names THIS factory;
 //   * a correction sends the version it was made against, and a stale one shows what is there now beside the
 //     owner's own text, keeps his text, and saves over the newer version only when he says so;
@@ -29,14 +29,15 @@ vi.mock("@devthrottle/client-core/factory/factoryMemoryClient", async (importOri
   return { ...real, ...client };
 });
 
-const mapClient = vi.hoisted(() => ({ getFactoryMap: vi.fn() }));
-vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => mapClient);
+const pageClient = vi.hoisted(() => ({ getFactoryPage: vi.fn(), getFactorySeats: vi.fn(), startFactoryTalk: vi.fn() }));
+vi.mock("@devthrottle/client-core/factory/factoriesScreenClient", () => pageClient);
 
 import { FactoryMemoryRefusal } from "@devthrottle/client-core/factory/factoryMemoryClient";
-import { FactoryPageView } from "./FactoryPageView";
-import { MAP } from "./fixtures";
+import { FactoryView } from "./FactoryView";
+import { FACTORY_PAGE } from "./fixtures";
 
-const MAP_WITH_MEMORY = { ...MAP, tabs: [...MAP.tabs, { key: "memory", label: "Memory" }] };
+const PAGE = { ...FACTORY_PAGE, id: "website-business", title: "Website Business" };
+const PAGE_WITHOUT_MEMORY = { ...PAGE, tabs: PAGE.tabs.filter((t) => t.key !== "memory") };
 
 const SESSION = "4baef30d-281d-44c9-9a86-654cef33ecfa";
 
@@ -72,11 +73,11 @@ const HISTORY = {
   ],
 };
 
-function renderMemory(path = "/factory-agents/website-business?tab=memory") {
+function renderMemory(path = "/factories/website-business/memory") {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/factory-agents/:factory" element={<FactoryPageView />} />
+        <Route path="/factories/:factory/:tab" element={<FactoryView />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -92,17 +93,17 @@ describe("The factory page's Memory tab (Factory Memory mission, phase 3b)", () 
   beforeEach(() => {
     cleanup();
     vi.clearAllMocks();
-    mapClient.getFactoryMap.mockResolvedValue(MAP_WITH_MEMORY);
+    pageClient.getFactoryPage.mockResolvedValue(PAGE);
     client.listFactoryMemory.mockResolvedValue(LIST);
     client.getFactoryMemoryNote.mockResolvedValue(note());
     client.getFactoryMemoryHistory.mockResolvedValue(HISTORY);
   });
 
-  it("is a tab because the Gateway offers it, and ?tab=memory opens it on this factory's notes", async () => {
+  it("is a tab because the Gateway offers it, and its address opens it on this factory's notes", async () => {
     renderMemory();
 
     const list = await screen.findByTestId("fa-memory-list");
-    expect(screen.getByRole("tab", { name: "Memory" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("link", { name: "Memory" }).getAttribute("aria-current")).toBe("page");
     expect(client.listFactoryMemory).toHaveBeenCalledWith("website-business", expect.anything());
     expect(within(list).getByRole("button", { name: "domains" })).toBeTruthy();
     expect(within(list).getByRole("button", { name: "deliverability" })).toBeTruthy();
@@ -110,12 +111,12 @@ describe("The factory page's Memory tab (Factory Memory mission, phase 3b)", () 
     expect(screen.getByTestId("fa-memory-summary").textContent).toBe("2 of 100 notes . 2.0 KB of 512.0 KB");
   });
 
-  it("opens on the Map when the Gateway did not offer the tab asked for", async () => {
-    mapClient.getFactoryMap.mockResolvedValue(MAP);
+  it("opens on the Overview when the Gateway did not offer the tab asked for", async () => {
+    pageClient.getFactoryPage.mockResolvedValue(PAGE_WITHOUT_MEMORY);
     renderMemory();
 
-    await screen.findByTestId("fa-map");
-    expect(screen.queryByRole("tab", { name: "Memory" })).toBeNull();
+    await screen.findByTestId("fa-overview");
+    expect(screen.queryByRole("link", { name: "Memory" })).toBeNull();
     expect(client.listFactoryMemory).not.toHaveBeenCalled();
   });
 
