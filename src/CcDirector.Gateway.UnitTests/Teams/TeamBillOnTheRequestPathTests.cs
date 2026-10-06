@@ -157,6 +157,42 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
         Assert.Empty(leases.LiveLeases());
     }
 
+    /// <summary>
+    /// THE THREE STATES OF THE TEAM BILL TABLE, for the person behind a team Director's key (the Delivery Lead's question
+    /// on #3552: was CI's 503 a setup gap, or a defect where "no row" answers 503 instead of "not entitled"?). Decided here:
+    /// <list type="bullet">
+    /// <item>Table PRESENT, NO row for the team: Allow - the member is served on the FREE tier. Not 503, and not 402: a
+    /// team member is never refused for the team's bill (step 2's rule, <see cref="TeamMemberEntitlement"/>). A 402
+    /// (<see cref="HostedAccessDecision.DenyNotEntitled"/>) is also the decision that revokes the tenant's devices, so
+    /// answering it for an unpaid team would revoke every member's keys in the team.</item>
+    /// <item>Table present, an ACTIVE LIVE row: Allow, on the team tier.</item>
+    /// <item>Table MISSING: <see cref="HostedAccessDecision.RetryUnknown"/>, which the auth middleware answers 503
+    /// entitlement_unknown - failing closed, with nothing revoked. So CI's 503 was the missing table (a setup gap in the
+    /// test), and Teams must not be released before <c>team_entitlements</c> exists in production.</item>
+    /// </list>
+    /// </summary>
+    [Fact]
+    public async Task AuthorizeAsync_ATeamDirectorsPerson_NoBillRowIsTheFreeTier_ALiveRowIsServed_AMissingTableIsUnknown()
+    {
+        // Table present, no row for the team: served, on the free tier. Never 503, never 402.
+        Assert.Equal(HostedAccessDecision.Allow, await Leases().AuthorizeAsync(new TenantId(_unpaidTeam), () => Alice));
+        Assert.Equal(EntitlementRegistry.TierFree,
+            _teamEntitlement.Decide(new TenantId(_unpaidTeam), Alice, DateTime.UtcNow).Entitlement!.Tier);
+
+        // Table present, an active live row: served, on the team's tier (not the free one).
+        Assert.Equal(HostedAccessDecision.Allow, await Leases().AuthorizeAsync(new TenantId(_paidTeam), () => Alice));
+        Assert.NotEqual(EntitlementRegistry.TierFree,
+            _teamEntitlement.Decide(new TenantId(_paidTeam), Alice, DateTime.UtcNow).Entitlement!.Tier);
+
+        // Table missing: unknown for both teams (503 entitlement_unknown on the wire), never a grant, never a revoke.
+        using (var ctx = _db.CreateUnscopedContext())
+            ctx.Database.ExecuteSqlRaw("DROP TABLE team_entitlements");
+        Assert.Equal(HostedAccessDecision.RetryUnknown, await Leases().AuthorizeAsync(new TenantId(_unpaidTeam), () => Alice));
+        Assert.Equal(HostedAccessDecision.RetryUnknown, await Leases().AuthorizeAsync(new TenantId(_paidTeam), () => Alice));
+
+        Assert.Empty(_revoker.Revoked);
+    }
+
     [Fact]
     public async Task RefreshAsync_AMemberDemotedToCollaborator_StaysAllowedOnTheFreeTier_AndTheRevokeBranchIsNeverReached()
     {
