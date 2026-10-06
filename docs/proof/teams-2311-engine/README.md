@@ -1,7 +1,16 @@
-# Two Directors on one engine.db never run a job twice
+# Two live Directors on one engine.db: one run per occurrence, never overlapping
 
 Proof for devthrottle_internal#2311, live proof finding F6. Branch `teams/2311-engine-shared-db`, cut from
-origin/main e8f673ab9.
+origin/main e8f673ab9. Updated for review round 1 (findings EN-F1 and EN-F2), see the last sections.
+
+## The contract (Tech Lead ruling, 6 October 2026)
+
+- Two LIVE Directors on one `engine.db` never run the same due occurrence, and never overlap one.
+- A Director never fails, releases or overwrites another live Director's run.
+- **The exception, stated plainly:** after an ambiguous end - a Director killed, or the machine losing
+  power - a job may run again, as it does today with one Director. That is at-least-once, never
+  concurrently: the rerun waits until the earlier command process is proven gone.
+- A file shared across machines over a network folder is out of scope.
 
 ## What was wrong (code at e8f673ab9)
 
@@ -95,6 +104,75 @@ their `CronRunRecord` is the Gateway's own), and all three were built and compil
   new Director is running. Once every Director on the machine is upgraded this is closed.
 - A run owned by a Director on ANOTHER machine (a shared engine.db on a synced folder) is never judged by
   process; it is failed only after its timeout plus five minutes.
+
+## Review round 1: the claim covers the command (EN-F1) and is judged fairly (EN-F2)
+
+The section "What changed" above describes the first version. Review round 1 found two holes, and
+these rules now replace the cleanup rule given there.
+
+**EN-F1 - a claim owned only the Director, not its command.** A cancelled command was left running
+(`ProcessJob` killed only on timeout) while its run ended with `next_run` still due, and cleanup released
+a dead Director's claim without asking whether its command had survived. Now:
+- `ProcessJob` kills the command's whole process tree on ANY cancellation and waits up to ten seconds to
+  see it exit, then throws `JobCancelledException` saying whether it did. A timeout does the same wait.
+- The run records the command process (`child_pid`, `child_process_started`) the moment it starts.
+- A cancellation (or timeout) that is not seen to exit leaves the claim OPEN. Only a proven stop ends the
+  run, and then `next_run` stays due so the occurrence runs again - after, never alongside.
+- Cleanup releases a gone Director's claim only when its command process is proven gone too (same
+  id-plus-start-time proof), or it never recorded one. A surviving command keeps the claim until it ends.
+
+**EN-F2 - a live owner could be aged out by a mutable timeout, and a late completion overwrote the
+verdict.** Now:
+- The run stores the timeout it was claimed with (`run_timeout_seconds`); the executor uses that value
+  and cleanup judges by it, never by the job's current, editable timeout.
+- A positively running owner is NEVER aged out by another Director. Age-out applies only when the owner
+  cannot be decided (another machine, an uninspectable process, a run from before owners existed).
+- `CompleteRun` is fenced on "still open and still mine". A revoked owner's late result is stored in
+  `late_completion` and changes neither the run's verdict nor `next_run`.
+- The migration adds the four new columns too, and back-fills `run_timeout_seconds` once from each
+  job's timeout at migration time - the best record there is of what an old run ran with.
+
+The cleanup rules in full, for each unfinished run:
+
+| Owner | Decision |
+|---|---|
+| This process, or probed RUNNING | kept, always |
+| Probed GONE, command recorded | failed only if the command is probed GONE too; otherwise kept |
+| Probed GONE, no command recorded | failed |
+| Undecidable, or no owner recorded | failed once open longer than its stored timeout plus five minutes |
+
+**Red on the reviewed head.** `red-review1-on-3823c55c5.txt`: `ClaimCoversTheCommandTests.cs` uses only API
+that existed at 3823c55c5 and was run there in a scratch worktree. All five fail:
+- `CancelledMidRun_TheCommandStops_AndTheOtherSchedulerDoesNotStartItWhileItLives` - "the cancelled
+  command kept running after its Director shut down". A real looping command, two real schedulers.
+- `DirectorGoneWithItsCommandStillAlive_NoSecondStart` - the run was failed while its command ran.
+- `JobEditedToAShorterTimeoutMidRun_UndecidableOwner_IsJudgedByTheTimeoutItWasClaimedWith` - aged out at
+  400 seconds by the edited one-second timeout.
+- `LiveOwner_IsNeverAgedOutByAnotherDirector` - a running owner's run was failed.
+- `RevokedOwnersLateCompletion_ChangesNeitherTheVerdictNorTheSchedule` - the late result overwrote it.
+
+Further tests only the fix can compile: a gone Director with one dead and one live command (only the
+dead one's run is failed), a late completion is kept as late and reports not applied, an owner's own
+completion applies, the migration adds all eight columns and back-fills 300 seconds, and
+`ProcessJob` cancelled mid-run reports the command stopped and the real probe finds it gone.
+
+Engine tests: 89 of 89. The new tests passed three runs in a row.
+
+**What round 1 does NOT cover.**
+- A Director that dies in the instant between starting the command and recording it leaves a command
+  nobody knows about; cleanup then releases the claim once the Director is proven gone. The window is
+  one database write long.
+- "Proven stopped" is the command's shell process exiting after the tree kill. Its descendants were
+  sent the kill but are not each waited for.
+- A cancellation not proven stopped inside a Director that stays alive (an engine restarted in the same
+  process) keeps the claim until that process exits; nothing in the app restarts the engine in-process.
+- The trigger runner (`DirectorTriggerRunner`) also uses `ProcessJob`: a cancelled trigger check now kills
+  its command instead of leaving it running. It still sees an `OperationCanceledException`. Its 9 tests
+  (`DirectorTriggerRunnerTests`, in the parked `Gateway.UnitTests`) were run by filter and pass
+  (`trigger-runner-tests.txt`); the rest of that parked suite was built, not run.
+
+Gate after round 1: `test-local-default.txt`, every suite Completed, Engine 89 of 89. ControlApi and the
+three parked test projects build.
 
 ## CC_VAULT_PATH - not changed here
 

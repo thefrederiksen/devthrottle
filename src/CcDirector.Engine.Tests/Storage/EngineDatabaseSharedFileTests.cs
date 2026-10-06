@@ -188,6 +188,61 @@ public sealed class EngineDatabaseSharedFileTests : IDisposable
     }
 
     [Fact]
+    public void CleanupOrphanedRuns_OwnerGoneAndItsCommandGone_IsFailed_ButCommandAlive_IsKept()
+    {
+        var dead = Director("director-a", 4242);
+        var aliveJob = dead.AddJob(Job("alive-command", DateTime.UtcNow.AddSeconds(-1)));
+        var goneJob = dead.AddJob(Job("gone-command", DateTime.UtcNow.AddSeconds(-1)));
+        var aliveRun = dead.TryClaimRun(aliveJob, DateTime.UtcNow)!;
+        var goneRun = dead.TryClaimRun(goneJob, DateTime.UtcNow)!;
+        dead.RecordRunChild(aliveRun.Id, 7001, DateTime.UtcNow);
+        dead.RecordRunChild(goneRun.Id, 7002, DateTime.UtcNow);
+
+        // 4242 (the Director) and 7002 (one command) are gone; 7001 (the other command) still runs.
+        var other = Director("director-b", 2002, gonePids: [4242, 7002]);
+
+        Assert.Equal(1, other.CleanupOrphanedRuns());
+        Assert.Null(other.GetRun(aliveRun.Id)!.EndedAt);
+        Assert.Equal(7001, other.GetRun(aliveRun.Id)!.ChildProcessId);
+        Assert.Equal(EngineDatabase.InterruptedRunMessage, other.GetRun(goneRun.Id)!.Stderr);
+    }
+
+    [Fact]
+    public void CompleteRun_AfterTheClaimWasReleased_IsKeptAsLate_AndReportsNotApplied()
+    {
+        var owner = Director("director-a", 4242);
+        var jobId = owner.AddJob(Job("late-job", DateTime.UtcNow.AddSeconds(-1)));
+        var run = owner.TryClaimRun(jobId, DateTime.UtcNow)!;
+        Assert.Equal(1, Director("director-b", 2002, gonePids: 4242).CleanupOrphanedRuns());
+
+        run.EndedAt = DateTime.UtcNow;
+        run.ExitCode = 0;
+        var applied = owner.CompleteRun(run, DateTime.UtcNow.AddHours(1));
+
+        Assert.False(applied);
+        var loaded = owner.GetRun(run.Id)!;
+        Assert.NotNull(loaded.LateCompletion);
+        Assert.Contains("exit=0", loaded.LateCompletion);
+        Assert.Equal(-1, loaded.ExitCode);
+    }
+
+    [Fact]
+    public void CompleteRun_ByTheOwnerOfTheOpenClaim_Applies()
+    {
+        var owner = Director("director-a", 1001);
+        var jobId = owner.AddJob(Job("own-job", DateTime.UtcNow.AddSeconds(-1)));
+        var run = owner.TryClaimRun(jobId, DateTime.UtcNow)!;
+        Assert.Equal(300, run.TimeoutSeconds);
+
+        run.EndedAt = DateTime.UtcNow;
+        run.ExitCode = 0;
+
+        Assert.True(owner.CompleteRun(run, DateTime.UtcNow.AddHours(1)));
+        Assert.Null(owner.GetRun(run.Id)!.LateCompletion);
+        Assert.Equal(0, owner.GetRun(run.Id)!.ExitCode);
+    }
+
+    [Fact]
     public void ProcessOwnerLiveness_CurrentProcess_IsRunning_AndAReusedIdIsGone()
     {
         var current = EngineRunOwner.ForCurrentProcess("director-a");
@@ -220,9 +275,16 @@ public sealed class EngineDatabaseSharedFileTests : IDisposable
         Assert.Contains("owner_pid", columns);
         Assert.Contains("owner_process_started", columns);
 
+        Assert.Contains("run_timeout_seconds", columns);
+        Assert.Contains("child_pid", columns);
+        Assert.Contains("child_process_started", columns);
+        Assert.Contains("late_completion", columns);
+
         var runs = again.ListRuns(jobName: "legacy-job");
         Assert.Equal(2, runs.Count);
         Assert.All(runs, r => Assert.Null(r.Owner));
+        // Backfilled once, from the job's timeout at migration time.
+        Assert.All(runs, r => Assert.Equal(300, r.TimeoutSeconds));
         var finished = runs.Single(r => r.EndedAt.HasValue);
         Assert.Equal("legacy", finished.Stdout);
         var open = runs.Single(r => !r.EndedAt.HasValue);

@@ -49,6 +49,30 @@ public sealed class ProcessJobTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_CancelledByTheCaller_KillsTheCommand_AndSaysItStopped()
+    {
+        var slow = OperatingSystem.IsWindows() ? "ping -n 30 127.0.0.1 >nul" : "sleep 30";
+        int? childPid = null;
+        DateTime childStarted = default;
+        using var cts = new CancellationTokenSource();
+        var job = new ProcessJob("cancel-me", slow, Path.GetTempPath(), 120, (pid, started) =>
+        {
+            childPid = pid;
+            childStarted = started;
+        });
+
+        var execution = job.ExecuteAsync(cts.Token);
+        await Task.Delay(1000);
+        Assert.NotNull(childPid);
+        cts.Cancel();
+
+        var cancelled = await Assert.ThrowsAsync<JobCancelledException>(() => execution);
+        Assert.True(cancelled.ProcessStopped);
+        var command = new CcDirector.Engine.Storage.EngineRunOwner("test", Environment.MachineName, childPid.Value, childStarted);
+        Assert.Equal(CcDirector.Engine.Storage.OwnerLiveness.Gone, CcDirector.Engine.Storage.ProcessOwnerLiveness.Probe(command));
+    }
+
+    [Fact]
     public void ShellFor_UsesTheShellOfThisOperatingSystem()
     {
         var info = ProcessJob.ShellFor("echo hi");
