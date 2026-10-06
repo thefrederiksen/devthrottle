@@ -142,8 +142,20 @@ shape. The Director is named by its own id.
 `teamId` null, absent or blank = move it to the person's own account. The Director's working key must have been issued
 to the account the token names.
 
-**200** - a `DeviceRegistrationResponse` exactly as enrollment returns, carrying the **new** `deviceKey`. Store it and
-reconnect with it. On success, in this order:
+**200** - a `DeviceRegistrationResponse` as enrollment returns, carrying the **new** `deviceKey`, plus one field only a
+move sets: `movedFrom` - where the key this move revoked for this caller was working (review RM-F8):
+
+```json
+{ "deviceKey": "...", "deviceId": "...", "movedFrom": { "teamId": "t-old" } }
+```
+
+`movedFrom.teamId` is the team that key was for, or null for the person's own account. It names nothing about any other
+key or tenant. A Director names its suggested name after the team it is leaving only from this field, never from its
+own files: after a move whose local saves failed, those still name the place it left. `movedFrom` absent (a Gateway from
+before this field) means the Director does not know what it left, and its name stays. **Release order:** the hosted
+Gateway carrying `movedFrom` is deployed before Directors that read it.
+
+Store the key and reconnect with it. On success, in this order:
 
 1. the old key is **revoked** (reason `director_moved_to_another_team`) - it never works again;
 2. the Director's open tunnel on the old team, on this Gateway, is cut (steps 1 and 2, and the 409 for sessions, are

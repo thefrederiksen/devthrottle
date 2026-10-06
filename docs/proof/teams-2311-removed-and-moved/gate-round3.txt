@@ -1,0 +1,127 @@
+Round 3 gate, head 7f52475e7 (fix) plus proof, 2026-10-06. Every number below is copied from the run's own output.
+
+== Default gate, first run: .\scripts	est-local.ps1
+Building once, then running 10 test project(s)...
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:03:33.92
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:25.28
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:25.42
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:25.79
+  started CcDirector.Core.UnitTests
+  started CcDirector.Avalonia.Tests
+  started CcDirector.Engine.Tests
+  started CcDirector.HostedAgent.Tests
+  started CcDirector.Launcher.Tests
+  started CcDirector.Terminal.Avalonia.Tests
+  started CcDirector.Reclaim.Tests
+  started cc-director-setup.Tests
+  started cc-director-setup-engine.Tests
+  started cc-director-setup-cli.Tests
+
+Waiting. No parked suite is in this run, so nothing here queues for the machine-wide lock.
+
+  PASS  CcDirector.Core.UnitTests  Passed!  - Failed:     0, Passed:  1289, Skipped:     0, Total:  1289, Duration: 1
+m 45 s - CcDirector.Core.UnitTests.dll (net10.0)
+  PASS  CcDirector.Avalonia.Tests  Passed!  - Failed:     0, Passed:   923, Skipped:     0, Total:   923, Duration: 3
+m 7 s - CcDirector.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    68, Skipped:     0, Total:    68, Duration: 9 s
+- CcDirector.Engine.Tests.dll (net10.0)
+  PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    88, Skipped:     0, Total:    88, Duration:
+1 m 38 s - CcDirector.HostedAgent.Tests.dll (net10.0)
+  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   197, Skipped:     0, Total:   197, Duration: 30
+s - CcDirector.Launcher.Tests.dll (net10.0)
+  PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:    82, Skipped:     0, Total:    82,
+Duration: 25 s - CcDirector.Terminal.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   310, Skipped:     0, Total:   310, Duration: 14
+s - CcDirector.Reclaim.Tests.dll (net10.0)
+  PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: 5 s
+- CcDirectorSetup.Tests.dll (net10.0)
+  PASS  cc-director-setup-engine.Tests  Passed!  - Failed:     0, Passed:   711, Skipped:     0, Total:   711,
+Duration: 19 s - CcDirector.Setup.Engine.Tests.dll (net10.0)
+  PASS  cc-director-setup-cli.Tests  Passed!  - Failed:     0, Passed:    59, Skipped:     0, Total:    59, Duration:
+4 s - CcDirector.Setup.Cli.Tests.dll (net10.0)
+
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=1289   executed=1289
+  CcDirector.Avalonia.Tests                outcome=Completed    total=923    executed=923
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=711    executed=711
+  cc-director-setup-cli.Tests              outcome=Completed    total=59     executed=59
+
+TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-1a0c252d
+
+
+COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
+  CcDirector.Core.Tests
+  CcDirector.Gateway.Tests
+  CcDirector.Gateway.UnitTests
+
+Run '.\scripts	est-local.ps1 -Parked' before merging, or say in the pull request why not.
+(Explain the reasoning with: .\scripts\select-tests.ps1 -Explain)
+RESULT: OVER BUDGET - 1 suite(s) exceeded the 120-second ceiling and were STOPPED:
+  CcDirector.Core.UnitTests
+
+This is NOT a test failure. It means the suite no longer belongs in the default run.
+Park it in $parkedProjects, or make it fit. Do not raise the ceiling to make this go away -
+the ceiling is the point, and every second added to it is paid by every person and agent
+on every change, forever.
+
+== Default gate, second run (heavier load): summary lines
+  FAIL  CcDirector.Core.UnitTests  (no summary line - see
+  PASS  CcDirector.Avalonia.Tests  Passed!  - Failed:     0, Passed:   923, Skipped:     0, Total:   923, Duration: 3
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    68, Skipped:     0, Total:    68, Duration: 21 s
+  PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    88, Skipped:     0, Total:    88, Duration:
+  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   197, Skipped:     0, Total:   197, Duration: 40
+  PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:    82, Skipped:     0, Total:    82,
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   310, Skipped:     0, Total:   310, Duration: 27
+  PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: 10 s
+  PASS  cc-director-setup-engine.Tests  Passed!  - Failed:     0, Passed:   711, Skipped:     0, Total:   711,
+  PASS  cc-director-setup-cli.Tests  Passed!  - Failed:     0, Passed:    59, Skipped:     0, Total:    59, Duration:
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=NO-TRX       total=0      executed=0
+  CcDirector.Avalonia.Tests                outcome=Completed    total=923    executed=923
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=711    executed=711
+  cc-director-setup-cli.Tests              outcome=Completed    total=59     executed=59
+COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
+RESULT: OVER BUDGET - 1 suite(s) exceeded the 120-second ceiling and were STOPPED:
+  CcDirector.Core.UnitTests
+
+== Core.UnitTests in full, on its own: dotnet test src\CcDirector.Core.UnitTests
+Passed!  - Failed:     0, Passed:  1289, Skipped:     0, Total:  1289, Duration: 1 m 46 s - CcDirector.Core.UnitTests.dll (net10.0)
+
+== Gateway.UnitTests, first half: --filter (the line below)
+FullyQualifiedName~CcDirector.Gateway.Tests.Wingman.|FullyQualifiedName~CcDirector.Gateway.Tests.Teams.|FullyQualifiedName~CcDirector.Gateway.Tests.Fleet.|FullyQualifiedName~CcDirector.Gateway.Tests.Factory.|FullyQualifiedName~CcDirector.Gateway.Tests.Messaging.|FullyQualifiedName~CcDirector.Gateway.Tests.History.
+Passed!  - Failed:     0, Passed:  3428, Skipped:     6, Total:  3434, Duration: 8 m 21 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+== Gateway.UnitTests, the rest: NOT RUN. Drive C reached 0 bytes free; the next chunk's first output was disk-write
+   failures (CronRunHistoryStoreTests and others failing to write), then the run died. Not a test result. Owed.

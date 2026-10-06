@@ -1,0 +1,56 @@
+Round 3 red checks, run in a throwaway worktree cut from 7f52475e7, 2026-10-06.
+
+== RM-F8: the team being left is taken from this computer's own belief (the record's team), not the Gateway's answer
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: RED (caught)
+   Total tests: 32
+   Passed: 30
+   Failed: 2
+   Test Run Failed.
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.FollowMove_GatewayDidNotSayWhatItLeft_KeepsTheName
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.TeamAToPersonal_RecordRemovalAndTeamSaveBothFail_ThenToTeamB_NameUnchanged_AndBothFailuresReported
+
+== RM-F8: the record's key is not compared with the key being left
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: RED (caught)
+   Total tests: 32
+   Passed: 30
+   Failed: 2
+   Test Run Failed.
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.Decide_RecordForAnotherKeyThanTheOneBeingLeft_KeepsTheName(leavingKey: "key-for-personal")
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.Decide_RecordForAnotherKeyThanTheOneBeingLeft_KeepsTheName(leavingKey: null)
+
+== RM-F8 / RM-F7: a record that could not be removed is logged but not reported
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: RED (caught)
+   Total tests: 32
+   Passed: 30
+   Failed: 2
+   Test Run Failed.
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.TeamARecord_MovedToPersonalWithTheRemovalFailing_ThenToTeamB_NameUnchanged
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.TeamAToPersonal_RecordRemovalAndTeamSaveBothFail_ThenToTeamB_NameUnchanged_AndBothFailuresReported
+
+== RM-F8: the Gateway's move answer does not say where the revoked key was working
+   mutated: src\CcDirector.Gateway\Api\HostedEnrollmentEndpoint.cs
+   tests:   src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~HostedTeamEnrollmentTests.Move_
+   verdict: RED (caught)
+   Total tests: 11
+   Passed: 10
+   Failed: 1
+   Test Run Failed.
+   Failed CcDirector.Gateway.Tests.Teams.HostedTeamEnrollmentTests.Move_SaysWhereTheKeyItRevokedWasWorking_TeamOrPersonal_AndEnrollmentDoesNot
+
+== RM-F8: the Director's move call drops what the Gateway said it left
+   mutated: tools\cc-director-setup-engine\GatewayAccountEnrollRunner.cs
+   tests:   tools\cc-director-setup-engine.Tests --filter FullyQualifiedName~HostedTeamEnrollRunnerTests.MoveHostedDirector
+   verdict: RED (caught)
+   Total tests: 15
+   Passed: 12
+   Failed: 3
+   Test Run Failed.
+   Failed CcDirector.Setup.Engine.Tests.HostedTeamEnrollRunnerTests.MoveHostedDirector_GatewaySaysWhatItLeft_IsPassedOn(reply: "{\"deviceKey\":\"moved-key\",\"movedFrom\":{\"team"..., leftTeamId: "t-old")
+   Failed CcDirector.Setup.Engine.Tests.HostedTeamEnrollRunnerTests.MoveHostedDirector_GatewaySaysWhatItLeft_IsPassedOn(reply: "{\"deviceKey\":\"moved-key\",\"movedFrom\":{\"team"..., leftTeamId: null)
+   Failed CcDirector.Setup.Engine.Tests.HostedTeamEnrollRunnerTests.MoveHostedDirector_GatewaySaysWhatItLeft_IsPassedOn(reply: "{\"deviceKey\":\"moved-key\",\"movedFrom\":{}}", leftTeamId: null)

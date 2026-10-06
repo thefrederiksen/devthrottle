@@ -78,24 +78,44 @@ message therefore sends the person to set the Director up again, which works wit
 ## F4 - where "was it the suggestion" comes from
 
 It was not stored before. Now setup records it, in the Director's own storage home beside its team file:
-`<home>/config/director/director-name-suggestion.json` = `{ "teamId": "...", "machineName": "...", "name": "<computer> - <team>" }`,
+`<home>/config/director/director-name-suggestion.json` = `{ "teamId": "...", "keyFingerprint": "...", "machineName": "...", "name": "<computer> - <team>" }`,
 written ONLY when the Director was set up for a TEAM and named exactly the suggestion (D1 left as suggested, or one
 team taken without asking). A typed name writes no record (and removes an old one). Choosing Personal writes no record
 even with its suggested `<computer> - Personal` name (review round 1, RM-F2).
 
-The record carries the team it was suggested for, and a move follows it ONLY when it leaves that very team (review
-round 2, RM-F5). So a record that outlives its team - say the move to Personal could not remove it - never renames the
-Director on a later move. A record with no team (written before this) counts as no record.
+The record carries the team it was suggested for (review round 2, RM-F5) and the SHA-256 fingerprint of the device key
+the Director held for that team (review round 3, RM-F8 - the same fingerprint the team file stores, never the key). A
+move follows it ONLY when it leaves that very team, off that very key, and the name still equals the suggestion. A
+record with no team or no key fingerprint (written before this) counts as no record.
+
+**Which team is being left comes from the Gateway, not from this computer (RM-F8, ruling amended).** Review round 3
+found that a move whose local saves fail leaves EVERY local fact naming the old place: Team A to Personal with the
+record removal and the team save both failing leaves the Team A record, the Team A team file and the Team A key on
+disk (the key is saved after the team, so it is never reached), while the Gateway has the Director on Personal. The
+next move, to Team B, would then match all three and rename a personal Director. The ruling as first written (compare
+the key being left) could not see this either: the only key the Director can read is still Team A's. So, as agreed with
+the Tech Lead, the Gateway's move answer now carries `movedFrom.teamId` - the team of the key THIS move revoked for
+THIS caller, null for the personal account (contract: `docs/proof/teams-2311/gateway-contract.md`, section 3). The
+name follows only when that team is the record's team. A Gateway without the field (older) renames nothing. No database
+change.
+
+**Release order: the hosted Gateway carrying `movedFrom` is deployed before Directors carrying this change.** Until then
+a move keeps the name (and drops the record), which is the safe direction.
 
 On a move (`DirectorTeamMover`, after the Gateway's yes):
 
 | The Director's state | What the move does |
 |---|---|
-| Record present for the team being left, name still equals it | renamed to `<same computer> - <new team>`, record updated |
+| Record for the team the Gateway says it left, on the key being left, name still equals it | renamed to `<same computer> - <new team>`, record updated for the new team and new key |
 | Record present, person renamed it since | name kept, record removed |
 | No record (typed name, Personal, or set up before this existed) | name kept |
 | Moving to Personal | name kept, record removed - a personal Director never carries a record |
-| Record present for another team than the one being left, or with no team | name kept |
+| Record for another team than the Gateway says it left, for another key, or with no team or key | name kept, record removed |
+| The Gateway did not say what it left (older Gateway) | name kept, record removed |
+
+A record that no longer applies but cannot be removed is reported in the move's result (RM-F7, RM-F8): on its own as
+"now works for <team> and is connected. This computer could not remove the record of its old suggested name ...", or
+after any later failure of the same move.
 
 The rename runs before the team is saved (saving the team redraws the title bar, which then shows the new name and
 chip together) and before the connection is re-applied (whose Hello reads the name from the instance registry, so the
@@ -119,10 +139,24 @@ Personal Directors and Directors on a Gateway without Teams: unchanged. A person
 | F3 | `GatewayKeyRefusalTests` (17), `KeyRefusedStatusBoxTests` (Core.UnitTests) | body classification (only the Gateway's revoke answer in full is a refusal; eleven other bodies are not), the words, red visual, "Connecting..." kept while dialing |
 | F3 | `TeamNameForKeyTests` (Core.UnitTests) - 4 | the team is named only for the key it was saved with; a file from another key, from no key, or none names no team; the key itself is never written (RM-F6) |
 | F4 | `DirectorNameFollowsMoveTests` (Core.UnitTests) - 25 | suggested name follows; typed name never changes; no record keeps the name; Personal is never recorded and a move to Personal drops the record; Personal set up with its suggestion then moved to a team keeps its name; a record that cannot be saved after the rename removes the old one, the next move keeps the name, and the move says "will not change on later moves"; rename before team save and reconnect; a failed rename still finishes the move; a record for another team than the one being left keeps the name; Team A record, move to Personal with the removal failing, then to Team B: name unchanged (RM-F5); a record with no team is no record; the name failure is reported beside a failed team save, key save or re-apply (RM-F7) |
-| F4 | `HostedTeamSetupTests` (Avalonia.Tests) - 3 new, 4 updated | setup records the suggestion only for a team's suggested name; never for Personal (RM-F2) |
+| F4, RM-F8 | `DirectorNameFollowsMoveTests` (Core.UnitTests), round 3 - now 32 | the record for another KEY than the one being left keeps the name; a Gateway that does not say what it left renames nothing; the store writes the key's fingerprint and never the key, and a record with no key is no record; an old record that cannot be removed is reported alone; and THE RM-F8 SEQUENCE through the real mover, follower and store with a Gateway fake that tracks where the Director really is: Team A to Personal with the record removal AND the team save failing - the fake does NOT advance the local team, and the key is not saved - then to Team B: the name is unchanged, and the first result reports both failures |
+| RM-F8 | `HostedTeamEnrollmentTests.Move_SaysWhereTheKeyItRevokedWasWorking_TeamOrPersonal_AndEnrollmentDoesNot` (Gateway.UnitTests) | team to Personal says the team; Personal to a team says null (present, not absent); team to team says the first team; enrollment carries no `movedFrom` |
+| RM-F8 | `HostedTeamEnrollRunnerTests` (setup engine) - 3 cases new, 2 updated | the Director's move call passes `movedFrom` on exactly as sent (a team, null, an empty object); a reply without it reads as "not said" |
+| F4 | `HostedTeamSetupTests` (Avalonia.Tests) - 3 new, 4 updated | setup records the suggestion only for a team's suggested name; never for Personal (RM-F2); the record is tied to the key setup was just issued (RM-F8) |
 | F4 | `DirectorTeamScreensTests` (Avalonia.Tests) - 1 new | the Settings Team panel passes its name step to the move |
 
 ## Red checks
+
+`red-checks-round3.txt` (review round 3): five mutations in a throwaway worktree cut from the fix commit, all red,
+`git status` empty after the restores, 10 failing tests named in the file. Taking the team being left from this
+computer's own belief (the record's team) instead of the Gateway's answer makes the RM-F8 sequence test and the
+older-Gateway test red; not comparing the key makes both key cases red; not reporting a record that could not be removed
+makes the RM-F8 sequence test and the RM-F5 test red; a Gateway that does not say which team it left makes the Gateway
+move test red; a Director move call that drops `movedFrom` makes all three pass-on cases red. The RM-F8 sequence test
+cannot be run against the round 2 head itself - the move answer and the record changed shape - so the first mutation
+puts the round 2 behaviour (the team being left is what this computer believes) back into the new code instead. (A
+first attempt at the key mutation did not compile - an unreachable-code warning treated as an error - and a script
+fault briefly misread the run summary; the file holds only the final, correct run of all five.)
 
 `red-checks-round2.txt` (review round 2): six mutations, all red, `git status` empty after every restore - the round 1
 classifier rule (a code-only body or "missing or invalid token" stops the Director) makes three classifier cases and
@@ -143,6 +177,17 @@ Gateway send the reason for every revoke makes five body tests red; a move that 
 typed name, are each red.
 
 ## Gates
+
+Round 3 (`gate-round3.txt`). Round 3 CHANGED THE GATEWAY (the move answer), so Gateway.UnitTests is owed in full.
+- Default local gate: every suite except Core.UnitTests `outcome=Completed` and green (Avalonia.Tests 923, setup engine
+  711, and the rest). Core.UnitTests passed 1,289 of 1,289 but its run went past the 120-second ceiling, so the script
+  stopped it and reported OVER BUDGET; a second run under heavier load stopped it before it reported. The machine was
+  heavily loaded (about a hundred dotnet processes from other sessions; other suites ran about twice as slow). Core.UnitTests
+  was then run in full on its own: **1,289 passed, 0 failed**.
+- Gateway.UnitTests: **NOT COMPLETE.** The first half (the Wingman, Teams, Fleet, Factory, Messaging and History
+  namespaces): **3,428 passed, 0 failed, 6 skipped**. The rest could not run: drive C of this machine reached 0 bytes
+  free, and the next chunk failed at once on disk writes - not a test result. This session's own temporary files are
+  about 25 MB. Owed when C has room.
 
 Round 2 (head after the second review's fixes): see `gate-round2.txt` - green, 10 suites, every one `outcome=Completed`.
 Round 2 changed no Gateway code. The parked Gateway.Tests was built (it compiles against the renamed constructor
