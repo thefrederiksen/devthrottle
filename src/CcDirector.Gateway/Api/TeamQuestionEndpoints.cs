@@ -262,7 +262,8 @@ internal sealed class TeamQuestions
         // THE CHOICE AND THE WORDS, STORED TOGETHER IN ONE TRANSACTION that also decides, in the database, that the caller
         // still holds this version and has not answered this question (review F2, F3, F4). The words go to the person who
         // asked, by the person-only table; the choice is stored held, with no words in it.
-        var stored = _store.AddMemberAnswer(team, report, row.SentVersion, ChoiceItem(question, option), caller, words,
+        var choice = ChoiceItem(question, option);
+        var stored = _store.AddMemberAnswer(team, report, row.SentVersion, choice, caller, words,
             report.AuthorSubject ?? "", senderKind, _utcNow());
         switch (stored)
         {
@@ -289,6 +290,17 @@ internal sealed class TeamQuestions
             FileLog.Write($"[TeamQuestions] AnswerAsync: report={report.Id} the answer is stored; settling its session FAILED ({ex.GetType().Name}): {ex.Message}");
         }
 
+        // THE SESSION ENDED BETWEEN THE CHECK ABOVE AND THE SETTLE PASS (delta review D1): the pass refused the stored
+        // choice, which will never reach a session. The caller is told so plainly, exactly as the check above would have
+        // told them. Their words were already the author's and stay so - words to a person are allowed - labelled with
+        // the answer they were given with.
+        var settled = _store.Items(team, report.Id).Single(i => string.Equals(i.ClientItemId, choice.Id, StringComparison.Ordinal));
+        if (settled.Status == DevReportItemStates.Refused)
+        {
+            FileLog.Write($"[TeamQuestions] AnswerAsync: report={report.Id} the session ended after the answer was stored; the choice is refused, the words stay with the author");
+            return Conflict("session_ended", SessionEnded);
+        }
+
         var names = TeamReports.MemberNames(_teams, teamId, caller);
         var card = Cards(teamId, caller, [new DevReportReceived(row, held.Title, held.Status)], names)
             .Single(c => string.Equals(c.QuestionId, question.Id, StringComparison.Ordinal));
@@ -313,7 +325,9 @@ internal sealed class TeamQuestions
     {
         ArgumentNullException.ThrowIfNull(comment);
         if (comment.QuestionId is null) return null;
-        return _store.AnswersBy(team, comment.FromSubject, [comment.ReportId]).TryGetValue((comment.ReportId, comment.QuestionId), out var answer)
+        // A refused answer still labels its words: the session ended after they were taken (delta review D1).
+        return _store.AnswersBy(team, comment.FromSubject, [comment.ReportId], includeRefused: true)
+                   .TryGetValue((comment.ReportId, comment.QuestionId), out var answer)
             ? AboutLabel(answer.Question, answer.OptionLabel)
             : null;
     }

@@ -456,6 +456,42 @@ public sealed class TeamQuestionsTests : IDisposable
         Assert.Single(_comments.To(_tenant, report, Alice));
     }
 
+    /// <summary>DELTA REVIEW D1. The session ends in the window between the route's own check and the settle pass - after
+    /// the choice and the words are stored together. The settle pass refuses the choice, and the person is told so
+    /// plainly, as the check would have told them: a refusal, never a fault. The choice never reaches a session. The words
+    /// were the author's the moment they were stored and stay so, labelled with the answer they came with. A second press
+    /// is refused the same way and stores nothing.</summary>
+    [Fact]
+    public async Task AnswerAsync_TheSessionEndsAfterTheAnswerIsStored_IsRefusedPlainly_TheChoiceNeverGoes_AndTheWordsStayLabelled()
+    {
+        var (report, sid) = Report(Mike);
+        _reach[sid] = DevReportSessionReach.Idle;
+        _store.BeforeMemberAnswerWriteForTests = () => _reach[sid] = DevReportSessionReach.Ended;
+
+        var (status, body) = await AnswerAsync(Mike, report, "30", "We trialled 14 days.");
+
+        Assert.Equal(409, status);
+        Assert.Equal("session_ended", body.GetProperty("code").GetString());
+        Assert.Equal(TeamQuestions.SessionEnded, body.GetProperty("error").GetString());
+        Assert.Equal(DevReportItemStates.Refused, Assert.Single(_store.Items(_tenant, report)).Status);
+        Assert.Empty(_prompts);
+
+        var comment = Assert.Single(_comments.To(_tenant, report, Alice));
+        Assert.Equal("We trialled 14 days.", comment.Text);
+        Assert.Equal($"About \"{Question}\" - chose \"30 days\"", _questions.AboutLabelFor(_tenant, comment));
+        var (_, mine) = await Run(_reports.MineDetail(_team, Alice, report.ToString("D")));
+        Assert.Equal($"About \"{Question}\" - chose \"30 days\"", mine.GetProperty("comments")[0].GetProperty("aboutLabel").GetString());
+
+        _store.BeforeMemberAnswerWriteForTests = null;
+        var (again, againBody) = await AnswerAsync(Mike, report, "14", "Second words.");
+        Assert.Equal(409, again);
+        Assert.Equal(TeamQuestions.SessionEnded, againBody.GetProperty("error").GetString());
+        Assert.Single(_store.Items(_tenant, report));
+        Assert.Single(_comments.To(_tenant, report, Alice));
+        Assert.Empty(QuestionIds(await ListFor(Mike), "waiting"));
+        Assert.Empty(_prompts);
+    }
+
     [Fact]
     public async Task List_AnAnsweredQuestion_MovesToAnswered_WithTheChoiceItsStateAndTheWordsReadBackToTheirWriterOnly()
     {

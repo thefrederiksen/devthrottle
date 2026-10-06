@@ -572,10 +572,11 @@ internal sealed class DevReportStore
     /// <summary>
     /// The answers <paramref name="answererSubject"/> gave on the given reports (devthrottle_internal#2307), one per
     /// (report, question): the latest that was not refused, since a refused answer never reached the session and the
-    /// question is still waiting on them.
+    /// question is still waiting on them. With <paramref name="includeRefused"/>, a refused answer stands when there is
+    /// no other: what a comment given with it is about, for its author (delta review D1).
     /// </summary>
     public IReadOnlyDictionary<(Guid ReportId, string QuestionId), DevReportItemEntity> AnswersBy(
-        TenantId tenant, string answererSubject, IReadOnlyCollection<Guid> reportIds)
+        TenantId tenant, string answererSubject, IReadOnlyCollection<Guid> reportIds, bool includeRefused = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(answererSubject);
         ArgumentNullException.ThrowIfNull(reportIds);
@@ -583,10 +584,12 @@ internal sealed class DevReportStore
         using var ctx = _db.CreateContext(tenant);
         return ctx.DevReportItems.AsNoTracking()
             .Where(i => i.AnswererSubject == answererSubject && i.Kind == DevReportItem.Answer
-                        && reportIds.Contains(i.ReportId) && i.Status != DevReportItemStates.Refused)
+                        && reportIds.Contains(i.ReportId) && (includeRefused || i.Status != DevReportItemStates.Refused))
             .ToList()
             .GroupBy(i => (i.ReportId, i.QuestionId))
-            .ToDictionary(g => g.Key, g => g.OrderByDescending(i => i.Sequence).First());
+            .ToDictionary(g => g.Key, g => g
+                .OrderBy(i => i.Status == DevReportItemStates.Refused)
+                .ThenByDescending(i => i.Sequence).First());
     }
 }
 
