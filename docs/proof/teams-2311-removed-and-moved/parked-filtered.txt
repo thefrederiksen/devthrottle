@@ -6,6 +6,5 @@ Core.Tests (parked for time, no lock), built from this source:
 
 Gateway.Tests (parked, machine-wide lock), the classes that assert the revoked 401 body:
   dotnet test src\CcDirector.Gateway.Tests --filter "FullyQualifiedName~ContextLessDatabaseRouteTenancyTests|FullyQualifiedName~HostedContentReadDenyTests|FullyQualifiedName~HostedTeamDirectorKeyTests"
-  PENDING when this file was committed: queued on the lock behind a full Gateway.Tests run from another worktree
-  (started 10:45) and three other filtered runs. Those classes assert today's body for a revoke that is not a team
-  removal, which this change keeps byte for byte. The result is added here when the run finishes.
+  Built from commit cd27bbb22 (round 0; round 1 changed no Gateway code). Waited about 75 minutes on the lock, then:
+  Passed!  - Failed:     0, Passed:    20, Skipped:     0, Total:    20, Duration: 1 m 30 s - CcDirector.Gateway.Tests.dll (net10.0)

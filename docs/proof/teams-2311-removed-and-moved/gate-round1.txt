@@ -1,0 +1,26 @@
+Default local gate on the review round 1 head (rebased onto origin/main c4f8a481c), 2026-10-06. Verdict block, verbatim:
+
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=1268   executed=1268
+  CcDirector.Avalonia.Tests                outcome=Completed    total=919    executed=919
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=708    executed=708
+  cc-director-setup-cli.Tests              outcome=Completed    total=59     executed=59
+
+TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-d926fb7e
+
+
+COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
+  CcDirector.Core.Tests
+  CcDirector.Gateway.Tests
+  CcDirector.Gateway.UnitTests
+
+Run '.\scripts	est-local.ps1 -Parked' before merging, or say in the pull request why not.
+(Explain the reasoning with: .\scripts\select-tests.ps1 -Explain)
+RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
+This is the gate - you do not need to wait for GitHub CI to merge.

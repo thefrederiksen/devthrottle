@@ -46,14 +46,19 @@ The root cause of "Connecting..." for good was two things:
 Now:
 
 - The tunnel client reads the 401's body from the very negotiate SignalR refused (`TunnelRefusalRecorder`, a handler in
-  SignalR's own pipeline - SignalR's exception carries the status code but not the body), stops dialing, and marks the
-  connection `KeyRefused` with the reason.
+  SignalR's own pipeline - SignalR's exception carries the status code but not the body; it is cleared before every
+  attempt, so a body always belongs to the attempt that read it).
+- It stops dialing ONLY on positive evidence that the GATEWAY refused the key (review round 1, RM-F1): the body must
+  be one of the Gateway's own credential answers - `code: device_credential_revoked` (with or without a reason) or
+  `error: missing or invalid token` with no code. A 401 with no body, a proxy's HTML page or any other JSON is retried
+  exactly as before ("Connecting..."), with one log line saying so.
 - The status box, in the place it said "Connecting...", says in red:
   - **"Removed from Team B"** - only on `reason: team_member_removed`; the tooltip: "This Director was removed from
     Team B: you are no longer a member of that team, so the Gateway revoked this Director's key and it has stopped
     trying to connect. To use it again, set it up again: click the Gateway status, sign in, and choose another team or
     set it up for yourself."
-  - **"Key revoked"** for any other revoke (or an older Gateway); **"Key not accepted"** for an unknown key.
+  - **"Key revoked"** for any other revoke (or an older Gateway); **"Key not accepted"** for the Gateway's own
+    unknown-key answer.
 - Clicking it opens the Gateway connection panel on the choice step, where the Director is set up again (sign in, the
   team question, a new key).
 - A 402 keeps today's "subscription required" path, unchanged.
@@ -69,8 +74,9 @@ message therefore sends the person to set the Director up again, which works wit
 
 It was not stored before. Now setup records it, in the Director's own storage home beside its team file:
 `<home>/config/director/director-name-suggestion.json` = `{ "machineName": "...", "name": "<computer> - <team>" }`,
-written ONLY when the Director was named exactly the suggestion (D1 left as suggested, or one team taken without asking).
-A typed name writes no record (and removes an old one).
+written ONLY when the Director was set up for a TEAM and named exactly the suggestion (D1 left as suggested, or one
+team taken without asking). A typed name writes no record (and removes an old one). Choosing Personal writes no record
+even with its suggested `<computer> - Personal` name (review round 1, RM-F2).
 
 On a move (`DirectorTeamMover`, after the Gateway's yes):
 
@@ -78,30 +84,37 @@ On a move (`DirectorTeamMover`, after the Gateway's yes):
 |---|---|
 | Record present, name still equals it | renamed to `<same computer> - <new team>`, record updated |
 | Record present, person renamed it since | name kept, record removed |
-| No record (typed name, or set up before this existed) | name kept |
+| No record (typed name, Personal, or set up before this existed) | name kept |
+| Moving to Personal | name kept, record removed - a personal Director never carries a record |
 
 The rename runs before the team is saved (saving the team redraws the title bar, which then shows the new name and
 chip together) and before the connection is re-applied (whose Hello reads the name from the instance registry, so the
 Fleet Map shows the new name). A rename that fails does not undo the move; the person is told the move finished and to
-rename by hand.
+rename by hand. If the rename succeeds but the new record cannot be saved (review round 1, RM-F3), the old record is
+removed - never left beside the new name - and the person is told the name changed but will not change on later moves;
+if even the removal fails it is logged, and the stale record no longer matches the name, so the next move keeps it.
 
-Personal Directors and Directors on a Gateway without Teams: nothing about them changes unless they move. A Director
-named by D1 as `<computer> - Personal` is a suggestion like any other, so a later move of it follows too.
+Personal Directors and Directors on a Gateway without Teams: unchanged. A personal Director is never renamed by a move.
 
 ## Tests
 
 | Finding | Test (project) | Proves |
 |---|---|---|
 | F3 | `RevokedKeyReasonTests` (Gateway.UnitTests) - 10 | the reason only for team removal; every other revoke byte-for-byte today's body; two keys; unknown key unchanged |
-| F3 | `RemovedDirectorTunnelTests` (Avalonia.Tests) - 5 | the REAL `GatewayStreamClient` over a real socket: removal -> `KeyRefused`, names the team, no further negotiate in 7 seconds; other revoke -> plain revoke; 503 -> still Connecting and retried; the main window's status-box inputs say "Removed from Team B" |
-| F3 | `GatewayKeyRefusalTests`, `KeyRefusedStatusBoxTests` (Core.UnitTests) - 16 | body classification, the words, red visual, "Connecting..." kept while dialing |
-| F4 | `DirectorNameFollowsMoveTests` (Core.UnitTests) - 12 | suggested name follows; typed name never changes; no record keeps the name; rename before team save and reconnect; a failed rename still finishes the move |
-| F4 | `HostedTeamSetupTests` (Avalonia.Tests) - 2 new, 4 updated | setup records the suggestion only for the suggested name |
+| F3 | `RemovedDirectorTunnelTests` (Avalonia.Tests) - 7 | the REAL `GatewayStreamClient` over a real socket: removal -> `KeyRefused`, names the team, no further negotiate in 7 seconds; other revoke -> plain revoke; 503 -> still Connecting and retried; the main window's status-box inputs say "Removed from Team B"; an EMPTY 401 and an HTML 401 in front of a real SignalR hub -> retried, never `KeyRefused`, and connected on the next attempt (RM-F1) |
+| F3 | `GatewayKeyRefusalTests`, `KeyRefusedStatusBoxTests` (Core.UnitTests) - 20 | body classification (only the Gateway's own answers are refusals), the words, red visual, "Connecting..." kept while dialing |
+| F4 | `DirectorNameFollowsMoveTests` (Core.UnitTests) - 18 | suggested name follows; typed name never changes; no record keeps the name; Personal is never recorded and a move to Personal drops the record; Personal set up with its suggestion then moved to a team keeps its name; a record that cannot be saved after the rename removes the old one, the next move keeps the name, and the move says "will not change on later moves"; rename before team save and reconnect; a failed rename still finishes the move |
+| F4 | `HostedTeamSetupTests` (Avalonia.Tests) - 3 new, 4 updated | setup records the suggestion only for a team's suggested name; never for Personal (RM-F2) |
 | F4 | `DirectorTeamScreensTests` (Avalonia.Tests) - 1 new | the Settings Team panel passes its name step to the move |
 
 ## Red checks
 
-`red-checks.txt`: ten mutations, each putting one piece of the old or a wrong behaviour back in a throwaway worktree
+`red-checks-round1.txt` (review round 1): four mutations, all red - the round 0 status-only rule (every 401 stops)
+makes both recovery tests red; recording Personal makes the setup test and two rule/store tests red; dropping the
+removal of the old record after a failed save makes the RM-F3 test red. (One first attempt at the RM-F3 mutation did
+not compile and was replaced; both runs are in the file.)
+
+`red-checks.txt` (round 0): ten mutations, each putting one piece of the old or a wrong behaviour back in a throwaway worktree
 cut from the commit, running the tests that must catch it, and restoring the file in a `finally`. **All ten red.**
 `git status` was empty after every restore. Highlights: putting today's 401 handling back makes the three tunnel
 tests red; putting today's status-box mapping back makes the status-box test red (it reads "Connecting..."); making the
@@ -110,11 +123,14 @@ typed name, are each red.
 
 ## Gates
 
+Round 1 (head after the review fixes): see `gate-round1.txt`. The Gateway was not changed in round 1, so Gateway.UnitTests
+was not re-run. Round 0 below.
+
 - Default local gate (`.\scripts\test-local.ps1`): **green**, 10 suites, 3,713 tests, every one `outcome=Completed`
   (`gate-default.txt`).
 - Gateway.UnitTests in full: **9,418 passed, 0 failed, 14 skipped** (`gateway-unittests-full.txt`).
-- Gateway.Tests filtered to the classes that assert the revoked 401 body, and Core.Tests filtered to the status box
-  presenter and resolver: `parked-filtered.txt`.
+- Gateway.Tests filtered to the classes that assert the revoked 401 body: **20 passed, 0 failed**; Core.Tests filtered
+  to the status box presenter and resolver: **35 passed** (`parked-filtered.txt`).
 
 ## What this does not prove
 
