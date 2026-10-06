@@ -75,6 +75,11 @@ internal static partial class GatewayEndpoints
         if (!SpawnFactory.TryEstablish(req, ctx, spawnRoute, door.SessionFactoryOf, out var factoryError))
             return DirectorSpawnOutcome.Refused(factoryError!);
 
+        // AND THE DIRECTOR MUST BE ABLE TO CARRY IT. A Director older than the factory field drops it silently, so the
+        // session would start in no factory and never know - refused here, loudly, before anything is started.
+        if (SpawnFactory.DirectorCannotCarry(req, d) is { } tooOld)
+            return DirectorSpawnOutcome.Refused(Results.Json(new { error = tooOld }, statusCode: StatusCodes.Status409Conflict));
+
         // A RESTORE'S CREATE (the Message Load mission, inspection 7, ruling 3) carries the token its Director
         // stored on the workspace seat before sending it. Only a Director restores, so only a Director's
         // credential may carry one - a claim from anyone else could mark a seat restored as a session of the

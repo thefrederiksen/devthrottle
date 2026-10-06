@@ -142,7 +142,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
         });
 
         _registry = new DirectorRegistry(Path.Combine(_dir, "instances"));
-        _registry.RegisterFromStream(DirectorId, Machine, "test", "0.0.0-test", pid: 1,
+        _registry.RegisterFromStream(DirectorId, Machine, "test", "2.16.0-test", pid: 1,
             startedAt: DateTime.UtcNow, tenant: TenantId.Local);
 
         DirectorCommandRouter.SendDirectorCommandAsync send = (directorId, command, ct) =>

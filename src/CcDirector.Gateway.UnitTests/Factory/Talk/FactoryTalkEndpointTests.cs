@@ -82,7 +82,8 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
     /// <summary>Who is calling, as the auth middleware stamps it.</summary>
     public enum Caller { OwnerBrowser, OwnerPhone, DirectorDeviceKey, MachineToken }
 
-    private async Task StartAsync(bool switchOn = true, bool northStopped = false, Caller caller = Caller.OwnerBrowser)
+    private async Task StartAsync(bool switchOn = true, bool northStopped = false, Caller caller = Caller.OwnerBrowser,
+        string northVersion = "2.16.0")
     {
         Directory.CreateDirectory(_dir);
         var builder = WebApplication.CreateBuilder();
@@ -111,7 +112,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         });
 
         _directors = new DirectorRegistry(Path.Combine(_dir, "instances"));
-        _directors.RegisterFromStream(NorthDirector, "SOREN_NORTH", "test", "0.0.0-test", pid: 1,
+        _directors.RegisterFromStream(NorthDirector, "SOREN_NORTH", "test", northVersion, pid: 1,
             startedAt: DateTime.UtcNow, tenant: TenantId.Local);
         if (northStopped) Assert.True(_directors.MarkStopped(TenantId.Local, NorthDirector));
         _directors.RegisterFromStream("dir-elsewhere", "OTHER-PC", "test", "0.0.0-test", pid: 2,
@@ -209,6 +210,44 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.Equal("nora-hale", talk.Seat);
         Assert.Equal("SOREN_NORTH", talk.Computer);
         Assert.Equal(NorthDirector, talk.DirectorId);
+    }
+
+    // ---------- a Director too old to carry a factory (live QA, 6 Oct 2026) ----------
+
+    [Theory]
+    [InlineData("2.12.0")]
+    [InlineData("2.12.9+68fd9d75b")]
+    [InlineData("0.0.0-test")]
+    [InlineData("")]
+    public async Task Talk_ToADirectorOlderThanTheFactoryField_Is409WithASentence_AndNothingIsStarted(string version)
+    {
+        // Live, the talk reached a v2.12.0 Director, which has no factory field: it dropped the factory and started
+        // the session in no factory, and the agent could not read or write the factory's memory. Refused instead.
+        await StartAsync(northVersion: version);
+
+        var response = await Talk("warmforward", "nora-hale");
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        var error = await ErrorOf(response);
+        Assert.Contains("The Director on SOREN_NORTH is ", error);
+        if (version.Length > 0) Assert.Contains($"version {version}", error);
+        Assert.Contains("no session was started in 'warmforward'", error);
+        Assert.Contains("Update this Director to 2.13.0 or later", error);
+        Assert.Empty(_sent);
+    }
+
+    [Theory]
+    [InlineData("2.13.0")]
+    [InlineData("v2.16.0")]
+    [InlineData("3.0.0-rc1")]
+    public async Task Talk_ToADirectorThatCarriesAFactory_IsSentTheFactory(string version)
+    {
+        await StartAsync(northVersion: version);
+
+        var response = await Talk("warmforward", "nora-hale");
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.Equal("warmforward", Assert.Single(_sent).Request.Factory);
     }
 
     [Fact]
