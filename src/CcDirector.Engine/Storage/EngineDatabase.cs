@@ -825,7 +825,10 @@ public sealed class EngineDatabase
 
         using var conn = CreateConnection();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "DELETE FROM runs WHERE started_at < @cutoff";
+        // Only ended runs are history. An unfinished run is a live claim - deleting it would let another
+        // Director start the job while its command still runs - and it is ended only by the orphan
+        // cleanup's rules (CleanupOrphanedRuns), never by age alone here.
+        cmd.CommandText = "DELETE FROM runs WHERE started_at < @cutoff AND ended_at IS NOT NULL";
         cmd.Parameters.AddWithValue("@cutoff", DateTime.UtcNow.AddDays(-retentionDays).ToString("o"));
         var count = cmd.ExecuteNonQuery();
 

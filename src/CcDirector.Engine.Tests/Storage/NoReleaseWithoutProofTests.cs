@@ -85,6 +85,37 @@ public sealed class NoReleaseWithoutProofTests : IDisposable
         }
     }
 
+    // -- EN-F10: the history purge never deletes an unfinished run --
+
+    [Fact]
+    public void HistoryPurge_KeepsAnOldUnfinishedRunWithARunningCommand_AndASecondDirectorCannotClaimIt()
+    {
+        var owner = Director(1001, running: [1001, 2002]);
+        var longAgo = DateTime.UtcNow.AddDays(-40);
+        var jobId = owner.AddJob(new JobRecord
+        {
+            Name = "forty-days", Cron = "0 0 31 2 *", Command = "unused", TimeoutSeconds = 60, NextRun = longAgo.AddSeconds(-1)
+        });
+        var run = owner.TryClaimRun(jobId, longAgo)!;
+        using var command = StartLongCommand();
+        try
+        {
+            owner.RecordRunChild(run.Id, command.Id, command.StartTime.ToUniversalTime());
+
+            // The 30-day retention purge runs, then a second, live Director tries the still-due job.
+            owner.CleanupOldRuns(retentionDays: 30);
+            var second = Director(2002, running: [1001, 2002]);
+
+            Assert.NotNull(second.GetRun(run.Id));
+            Assert.Null(second.GetRun(run.Id)!.EndedAt);
+            Assert.Null(second.TryClaimRun(jobId, DateTime.UtcNow));
+        }
+        finally
+        {
+            command.Kill(entireProcessTree: true);
+        }
+    }
+
     // -- EN-F9 (1): no decision from a stale snapshot --
 
     [Fact]
