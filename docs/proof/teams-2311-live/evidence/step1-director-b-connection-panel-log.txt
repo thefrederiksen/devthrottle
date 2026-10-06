@@ -1,0 +1,32 @@
+Director B's sign-in and enrollment through Settings, Gateway tab (the Gateway connection panel), from its preserved log:
+.liveproof-rig/director-root/instances/teams-proof-b/logs/director/director-2026-10-06-40304.log, lines 457-485, each prefixed with its line number.
+
+457: 2026-10-06 07:54:46.922 [GatewayConnectionPanel] choice: Use hosted -> hosted enroll
+458: 2026-10-06 07:54:46.930 [HostedTeamSetup] RunAsync: deviceId=977326fb-d7fe-482c-a867-c5f0d972e9c5
+459: 2026-10-06 07:54:46.934 [GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: deviceId=977326fb-d7fe-482c-a867-c5f0d972e9c5, machine=SOREN_NORTH
+460: 2026-10-06 07:54:47.098 [HealthzTeamsSignal] TeamsReleasedAsync: http://127.0.0.1:7951 teams=True
+461: 2026-10-06 07:54:47.102 [GatewayAccountEnrollRunner] HostedTeamsReleasedAsync: hosted=http://127.0.0.1:7951, teams=True
+462: 2026-10-06 07:54:47.130 [LoopbackLoginListener] Started on loopback callback http://127.0.0.1:49174/devthrottle-login-callback/ (127.0.0.1 only)
+463: 2026-10-06 07:54:47.134 [GatewayAccountEnrollRunner] SignInViaBrowserAsync: sign-in url=http://127.0.0.1:7952/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A49174%2Fdevthrottle-login-callback%2F
+464: 2026-10-06 07:54:47.602 [LoopbackLoginListener] WaitForCredentialAsync: awaiting the browser sign-in hand-back
+465: 2026-10-06 07:54:47.698 [LoopbackLoginListener] WaitForCredentialAsync: served the fragment hand-back page (awaiting the same-origin POST)
+466: 2026-10-06 07:54:47.768 [LoopbackLoginListener] WaitForCredentialAsync: credential captured from the fragment hand-back (request body - no token in the URL)
+467: 2026-10-06 07:54:47.850 [GatewayAccountEnrollRunner] ListHostedTeamsAsync: 1 team(s) listed
+468: 2026-10-06 07:54:47.852 [GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: one team, not asked; team 1a223ddf-1e2f-4b7c-bf5e-23bef903585a
+469: 2026-10-06 07:54:47.897 [GatewayCredentialStore] Wrote per-device key to D:\ReposFred\devthrottle-teams-2311-liveproof\.liveproof-rig\director-root\instances\teams-proof-b\config\director\gateway-token.txt
+470: 2026-10-06 07:54:47.902 [GatewayCredentialStore] Recorded gateway url + per-device key + streamMode=true in D:\ReposFred\devthrottle-teams-2311-liveproof\.liveproof-rig\director-root\instances\teams-proof-b\config\config.json (url=http://127.0.0.1:7951)
+471: 2026-10-06 07:54:47.902 [GatewayAccountEnrollRunner] EnrollAtHostedGatewayAsync: persisted hosted url + local per-device key (machine=SOREN_NORTH, team=1a223ddf-1e2f-4b7c-bf5e-23bef903585a)
+472: 2026-10-06 07:54:47.906 [NamedInstanceRegistry] Rename: slug=teams-proof-b, newDisplayName="SOREN_NORTH - Team B"
+473: 2026-10-06 07:54:47.911 [NamedInstanceRegistry] Renamed slug=teams-proof-b -> "SOREN_NORTH - Team B"
+474: 2026-10-06 07:54:47.911 [HostedTeamSetup] RunAsync: Director renamed from screen D1
+475: 2026-10-06 07:54:47.915 [DirectorTeamStore] Save: team 1a223ddf-1e2f-4b7c-bf5e-23bef903585a to D:\ReposFred\devthrottle-teams-2311-liveproof\.liveproof-rig\director-root\instances\teams-proof-b\config\director\gateway-team.json
+476: 2026-10-06 07:54:47.916 [HostedTeamSetup] RunAsync: enrolled (team 1a223ddf-1e2f-4b7c-bf5e-23bef903585a)
+477: 2026-10-06 07:54:47.916 [GatewayConnectionPanel] hosted enroll succeeded; re-applying and handshaking
+478: 2026-10-06 07:54:47.919 [ControlApiHost] ReapplyGatewayAsync: reloading gateway config
+479: 2026-10-06 07:54:47.922 [GatewayConnectionMonitor] Reset: status=Connecting
+480: 2026-10-06 07:54:47.923 [GatewayClient] Start: candidates=[http://127.0.0.1:7951], directorId=977326fb-d7fe-482c-a867-c5f0d972e9c5 (tunnel-only: no HTTP register/heartbeat/verify)
+481: 2026-10-06 07:54:47.926 [GatewayStreamClient] Start: dialing http://127.0.0.1:7951 for director 977326fb-d7fe-482c-a867-c5f0d972e9c5
+482: 2026-10-06 07:54:48.099 [BackgroundJobs] registered 'Tunnel re-push of the full snapshot': SlowAndSteady, cadence=00:00:10, off switch: the stream client stops
+483: 2026-10-06 07:54:48.099 [BackgroundJobs] registered 'Turn sweep': SlowAndSteady, cadence=00:01:00, off switch: the pusher is disposed
+484: 2026-10-06 07:54:48.101 [MainWindow] RefreshDirectorTeamAsync
+485: 2026-10-06 07:54:48.103 [DirectorTeamStore] Load: team 1a223ddf-1e2f-4b7c-bf5e-23bef903585a from D:\ReposFred\devthrottle-teams-2311-liveproof\.liveproof-rig\director-root\instances\teams-proof-b\config\director\gateway-team.json

@@ -22,9 +22,20 @@ request is served on); the per-session narration answer that also reads it needs
 Each process was started by its own scheduled task (`teams-2311-liveproof-*`), as a visible window, because a Director
 started from an agent's console loses its sessions. The launch files are in `rig/`.
 
-**Never touched:** the owner's Directors and instances, `%LOCALAPPDATA%\cc-director`, any of the owner's keys, the
-production Gateway, any production database, Supabase, Stripe. No email was sent: invitations were not used, and the
-seat sync after the removal logged `NOTIFY_OWNER_SERVICE_TOKEN is not set on this Gateway - the seat sync was NOT called`.
+**The isolation was not complete: both test Directors opened and wrote the owner's engine database.** The user-level
+variable `CC_VAULT_PATH` on this computer names the owner's vault, `%LOCALAPPDATA%\cc-director\vault`, and the storage
+code takes it ahead of `CC_DIRECTOR_ROOT` (`CcStorage.Vault()`), so both processes opened
+`%LOCALAPPDATA%\cc-director\vault\engine.db` instead of one in their own instance home. I saw the variable before the
+launch and did not clear it. On that database each Director ran the schema check (creates tables only if missing),
+marked interrupted runs as failed (0 marked), recomputed the next run time of every enabled job, and purged runs older
+than 30 days (0 purged by each). Each ran the owner's
+scheduler while it was up - Director A 07:48:07 to 08:02:52, Director B 07:53:21 to 08:02:55 - and no job run is logged
+by either. Every log line is in [evidence/owner-state-touches.txt](evidence/owner-state-touches.txt), section 1. The
+launch files in `rig/` now clear `CC_VAULT_PATH` (see "To run it again"); the rig was not run again.
+
+**Never touched:** the owner's Directors and instances and their keys, the production Gateway, any production
+database, Supabase, Stripe. No email was sent: invitations were not used, and the seat sync after the removal logged
+`NOTIFY_OWNER_SERVICE_TOKEN is not set on this Gateway - the seat sync was NOT called`.
 
 **Side effects on the machine, all named:** each sign-in opened its hand-back page as a tab in the owner's default
 browser (three tabs on `127.0.0.1`, left open - they are the owner's browser). The first-run wizard's browser step,
@@ -33,6 +44,27 @@ minute. The wizard's screenshot step pointed Director A at the owner's screensho
 panel listed them; that panel is covered in the two pictures where it showed. The two agent sessions started in step 3
 wrote their transcripts under the agent's own per-user folder (two folders named after `.liveproof-rig\work-a` and
 `work-b`); nothing was typed into either session.
+
+**Side effects on the owner's per-user state, found in the logs after the run** (all in
+[evidence/owner-state-touches.txt](evidence/owner-state-touches.txt)):
+
+- **Backup cleaner** (section 2). Each Director started its periodic scan of the owner's per-user agent backup
+  folder. That cleaner can delete files it judges corrupt; the only line either wrote is the "Starting periodic scan" line, so no
+  deletion is logged.
+- **Skills removed from the owner's skill folders** (section 3). The skill installer works on the per-user
+  skill folders (`~/.agents/skills` and the agent's own skill folder), not per instance. Connected to this
+  Gateway, which serves fewer skills than production, Director A removed six skills from both folders at 07:56:04 (`browsers`, `demo-mode`, `director-restart`,
+  `hormozi-playbook`, `notebook-reviewer`, `remote-desktop`), and both Directors rewrote the twelve it serves. I checked
+  afterwards, reading only: all six were back, reinstalled at 08:26 by one of the owner's Directors, so they were missing
+  for about half an hour. Finding F7.
+- **The owner's installed tools and vault** (section 4). Before its own tools were built, Director A's tool check ran
+  `cc-vault stats` four times from the owner's installed copy on the user `PATH`, and its fleet check ran the owner's
+  installed `cc-devthrottle` twice. `cc-vault stats` ran nine times in all (Director A six, Director B three), every one
+  of them against the owner's vault through `CC_VAULT_PATH`.
+- **Read-only git in 19 of the owner's repositories** (section 5). After the wizard's code step, Director A's source
+  control view ran `status`, `log`, `rev-parse`, `rev-list`, `config --get`, `for-each-ref`, `merge-base`,
+  `worktree list` and similar - no fetch, push, prune, checkout or commit. `git status` can refresh a repository's index
+  file; whether it did was not checked.
 
 **Stopped at the end, everything:** both Directors by their own shutdown signal (`Local\cc-director-shutdown-<id>`; each
 closed its own session), the Gateway with Ctrl+C in its console (a hosted Gateway refuses `POST /shutdown` by design; its
@@ -80,6 +112,18 @@ Window title `DevThrottle Director -- teams-proof-a [Team A]`, the name `SOREN_N
 DevThrottle" ([1f](screens/1f-director-b-gateway-connection-panel.png)). Bob has one team, so - by #3573, now on main -
 he was **not asked**: `one team, not asked; team 1a223ddf-...`, and the Director was named as the question would have
 named it.
+
+The panel's picture after sign-in was not captured (the capture still showed "Waiting for you to sign in"). That
+Director B was set up through the connection panel rests on its log, lines 457-485
+([evidence/step1-director-b-connection-panel-log.txt](evidence/step1-director-b-connection-panel-log.txt)):
+
+```
+[GatewayConnectionPanel] choice: Use hosted -> hosted enroll
+... ListHostedTeamsAsync: 1 team(s)
+... one team, not asked; team 1a223ddf-...
+... DirectorTeamStore Save ...
+[GatewayConnectionPanel] hosted enroll succeeded; re-applying and handshaking
+```
 
 ![Director B](screens/1g-director-b-main-window-team-b-chip.png)
 
@@ -223,8 +267,9 @@ These do not stop any step of the proof, and nothing was changed for them. Each 
   the fleet list: DevThrottle cannot confirm that what this request touches is yours`. Whether an agent inside a team
   session meets the same refusal was not tried.
 - **F2 - a Director keeps calling routes not yet opened to teams.** Refused by the team gate during the run
-  ([evidence/refused-routes.txt](evidence/refused-routes.txt)): `GET /account/status` 45 times, `GET
-  /gateway/session-colours` 43, and `GET /gateway/snooze-presets`, `GET /gateway/injected-text`, `GET
+  ([evidence/refused-routes.txt](evidence/refused-routes.txt), counted over the Gateway's whole log to its shutdown: 126
+  refusals across 14 route groups, some of them the proof's own cross-team checks in step 3): `GET /account/status` 46
+  times, `GET /gateway/session-colours` 43, and `GET /gateway/snooze-presets`, `GET /gateway/injected-text`, `GET
   /gateway/workspaces`, `POST /gateway/director-errors`, `POST /activity-events/batch`, `POST /session-numbers/allocate`,
   `DELETE /session-numbers/{id}`, `POST /gateway/skills/placement`. The two sessions still showed numbers (937 and 983)
   although the Gateway refused to allocate them; where those numbers came from was not looked into.
@@ -234,8 +279,21 @@ These do not stop any step of the proof, and nothing was changed for them. Each 
   after the move to Team B, on the toolbar and on Team B's Fleet Map.
 - **F5 - `docs/proof/teams-2311/gateway-contract.md` section 5 was out of date** - it said every request with a team key
   is answered 402 until the team bill is wired; step 2 wired it, and live a member is served (step 4). Corrected in this
-  pull request, at the Tech Lead's ruling: section 5 now states what step 2 wired. (Section 3 still has one aside saying
-  the lease answers a team key 402; left as it was, outside the ruling.)
+  pull request, at the Tech Lead's ruling: section 5 now states what step 2 wired, and section 3's aside that the lease
+  answers a team key 402 is corrected the same way.
+- **F6 - two Directors on one computer share one engine database and both run its scheduler.** Read in the code, not
+  seen live. Each process keeps its own list of running jobs (`_runningJobs`, `src/CcDirector.Engine/Scheduling/Scheduler.cs`
+  lines 96-102); `GetDueJobs` selects every due job without claiming it (`src/CcDirector.Engine/Storage/EngineDatabase.cs`
+  lines 253-262); and `CleanupOrphanedRuns`, run at every start, marks every run still marked running as failed (same
+  file, lines 351-361). So two Directors on one database can both start the same due job, and a Director starting up
+  marks the other's running jobs failed. Each Director sets `CC_DIRECTOR_ROOT` to its own instance home, so two instances
+  share the database only when `CC_VAULT_PATH` is set - as it is on this computer, where a personal Director and a team
+  Director would therefore share it. In this run no job ran.
+- **F7 - a Director removes skills from the folders every Director and agent on the computer uses.** Seen live. The
+  skill installer writes the per-user skill folders (`~/.agents/skills` and the agent's own), not the instance home, and removes
+  whatever the Gateway it is connected to does not serve. A Director on another Gateway - a team's, on the same computer as
+  a personal one - therefore takes away the other Director's skills until that one reinstalls them. Here Director A
+  removed six (see "Side effects on the owner's per-user state").
 - **Not a product finding - members show "An account with no email recorded".** That is this rig: Alice and Bob were
   added as rows and never had a personal account on this Gateway, so it has no address for them. A person who accepts a
   real invitation does.
@@ -261,7 +319,11 @@ These do not stop any step of the proof, and nothing was changed for them. Each 
   Only the move shown, and removal (not a role change).
 - **Director B's Gateway panel after sign-in** was not captured: the picture taken still showed "Waiting for you to sign
   in" while the log already showed the enrollment. Whether the panel lags or the capture was early was not checked; the
-  main window ([1g](screens/1g-director-b-main-window-team-b-chip.png)) is the evidence for Director B.
+  panel path rests on Director B's log (step 1) and the result on its main window
+  ([1g](screens/1g-director-b-main-window-team-b-chip.png)).
+- **That the owner's state was left alone.** See the top: the run opened the owner's engine database and reached other
+  per-user state. The counts logged were zero and the skills came back, but this run cannot certify the owner's state
+  untouched.
 
 ## To run it again
 
@@ -272,3 +334,11 @@ register `director-root\config\director\named-instances.json` with `teams-proof-
 launch file from its own scheduled task. `rig\gw.py` makes and records the HTTP calls; `rig\win.ps1` lists, captures
 (`PrintWindow`) and drives (UI Automation, or a posted click where a control has no automation pattern) the Director
 windows.
+
+**Do not run it as it was run.** The launch files now clear `CC_VAULT_PATH`. The user-level `CC_*` variables on this
+computer were two: `CC_VAULT_PATH`, cleared because it names the owner's vault and wins over `CC_DIRECTOR_ROOT`; and
+`CC_COCKPIT_MANAGED`, which names no path and was already cleared. Check the list again before a run
+(`[Environment]::GetEnvironmentVariables('User')`). Three things a variable cannot keep apart, so a run again still
+reaches them: the per-user skill folders (F7), the agent's per-user backup folder the backup cleaner scans, and the
+owner's installed tools on the user `PATH` - unless the launch file also takes the owner's `cc-director` folders off
+`PATH`, which these do not.

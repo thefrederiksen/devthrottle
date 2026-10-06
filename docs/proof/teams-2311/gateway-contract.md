@@ -129,8 +129,9 @@ set up for it."); the role table's own sentence follows. No key is minted on any
 ## 3. `POST /devices/enroll-hosted/move` - move one Director to another team, or back home
 
 **Route shape (fixed with the Tech Lead).** It sits beside enrollment because it IS a re-enrollment: same bearer (the
-account token - a team key could not be used, the access lease answers 402 for it until the next step), the same
-permission check, and the same answer shape. The Director is named by its own id.
+account token - a team key is served from the team's bill since step 2, see section 5, but a Director changing team
+proves its person afresh, so the move does not take a device key), the same permission check, and the same answer
+shape. The Director is named by its own id.
 
 **Request.** `Authorization: Bearer <account token>`.
 

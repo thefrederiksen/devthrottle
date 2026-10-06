@@ -1,14 +1,20 @@
-     45 GET /account/status  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
-     43 GET /gateway/session-colours  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
-     13 GET /sessions  =>  so inside a team it refuses it. Nothing was done.
-      3 POST /gateway/director-errors  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
-      3 POST /activity-events/batch  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
-      3 GET /gateway/snooze-presets  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
-      3 GET /gateway/injected-text  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
-      2 POST /session-numbers/allocate  =>  so inside a team it refuses it. Nothing was done.
-      2 GET /sessions/{sid}  =>  so inside a team it refuses it. Nothing was done.
-      2 GET /gateway/workspaces  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
-      2 GET /directors/{id}/agents  =>  so inside a team it refuses it. Nothing was done.
-      2 GET /directors  =>  In this team you are a Developer, and a Developer may see the team's Fleet Map only for their own. This answer covers the whole team, so it is refused.
-      1 POST /gateway/skills/placement  =>  In this team you are a Developer, and a Developer may not change the team's shared skills and workflows.
-      1 DELETE /session-numbers/{sessionId}  =>  so inside a team it refuses it. Nothing was done.
+Every request the team gate refused on the local Gateway, from its whole log (it ends with the shutdown at 08:03:52).
+Log: .liveproof-rig/gateway-root/logs/director/director-2026-10-06-17748.log
+126 refusals across 14 route groups, 2026-10-06 07:50:15.993 to 2026-10-06 08:02:40.555.
+Marked [proof] = includes the proof's own deliberate cross-team checks in step 3 (two calls each, one per team key);
+every other refusal is a Director's own call.
+
+   46  GET /account/status  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
+   43  GET /gateway/session-colours  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
+   13  GET /sessions [proof]  =>  so inside a team it refuses it. Nothing was done.
+    3  GET /gateway/snooze-presets  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
+    3  GET /gateway/injected-text  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
+    3  POST /gateway/director-errors  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
+    3  POST /activity-events/batch  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
+    2  GET /gateway/workspaces  =>  This part of DevThrottle has not been opened to teams yet, so it is refused inside a team. Nothing was done.
+    2  POST /session-numbers/allocate  =>  so inside a team it refuses it. Nothing was done.
+    2  GET /directors [proof]  =>  In this team you are a Developer, and a Developer may see the team's Fleet Map only for their own. This answer covers the whole team, so it 
+    2  GET /sessions/{sid}  =>  so inside a team it refuses it. Nothing was done.
+    2  GET /directors/{id}/agents [proof]  =>  so inside a team it refuses it. Nothing was done.
+    1  DELETE /session-numbers/{sessionId}  =>  so inside a team it refuses it. Nothing was done.
+    1  POST /gateway/skills/placement  =>  In this team you are a Developer, and a Developer may not change the team's shared skills and workflows.

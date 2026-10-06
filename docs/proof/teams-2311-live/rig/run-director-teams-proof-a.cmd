@@ -7,6 +7,9 @@ set "CC_GATEWAY_URL="
 set "CC_GATEWAY_SESSION_KEY="
 set "CC_SESSION_ID="
 set "CC_COCKPIT_MANAGED="
+REM CC_VAULT_PATH is set at user level on this computer to the owner's vault, and it wins over CC_DIRECTOR_ROOT:
+REM left in place, the process opens the owner's engine database. Cleared here (review finding L-F1).
+set "CC_VAULT_PATH="
 set "DEVTHROTTLE_JWT_PUBLIC_KEY_SET={"keys": [{"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": "teams-2311-liveproof", "x": "5ogG37FJwJIJpTT-liljmWg6qAJ3VgL2hM5USanCRl0", "y": "cdtQ3orO5-hTDR6fLs1e-MFe5Tw91TPgoLcnyWpWbrc"}]}"
 set "DEVTHROTTLE_API_URL=http://127.0.0.1:7952/website-stub"
 set "DEVTHROTTLE_REFRESH_URL=http://127.0.0.1:7952/refresh-stub"

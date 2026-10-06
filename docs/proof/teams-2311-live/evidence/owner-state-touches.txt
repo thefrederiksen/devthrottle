@@ -1,0 +1,136 @@
+Every place the two test Directors reached the computer owner's own state, from their preserved logs.
+Log A = .liveproof-rig/director-root/instances/teams-proof-a/logs/director/director-2026-10-06-48192.log
+Log B = .liveproof-rig/director-root/instances/teams-proof-b/logs/director/director-2026-10-06-40304.log
+Each line is prefixed with its line number in that log.
+
+== 1. The owner's engine database (CC_VAULT_PATH, set at user level, wins over CC_DIRECTOR_ROOT)
+-- A
+66:2026-10-06 07:48:07.854 [EngineDatabase] Creating: path=C:\Users\soren\AppData\Local\cc-director\vault\engine.db
+67:2026-10-06 07:48:07.856 [EngineDatabase] InitializeSchema: creating tables if needed
+68:2026-10-06 07:48:07.928 [EngineDatabase] InitializeSchema: complete
+69:2026-10-06 07:48:07.932 [Scheduler] Starting
+70:2026-10-06 07:48:07.932 [EngineDatabase] CleanupOrphanedRuns: marking interrupted runs as failed
+71:2026-10-06 07:48:07.933 [EngineDatabase] CleanupOrphanedRuns: marked 0 runs as failed
+72:2026-10-06 07:48:07.934 [Scheduler] InitializeNextRuns: calculating next_run for enabled jobs
+73:2026-10-06 07:48:07.935 [Scheduler] Started
+80:2026-10-06 07:48:07.948 [Scheduler] Loop started
+81:2026-10-06 07:48:07.949 [EngineDatabase] CleanupOldRuns: purging runs older than 30 days
+82:2026-10-06 07:48:07.955 [EngineDatabase] CleanupOldRuns: purged 0 runs
+4158:2026-10-06 08:02:52.731 [Scheduler] Stopping
+4159:2026-10-06 08:02:52.731 [Scheduler] Loop ended
+4160:2026-10-06 08:02:52.732 [Scheduler] Stopped
+-- B
+80:2026-10-06 07:53:20.938 [EngineDatabase] Creating: path=C:\Users\soren\AppData\Local\cc-director\vault\engine.db
+81:2026-10-06 07:53:20.960 [EngineDatabase] InitializeSchema: creating tables if needed
+82:2026-10-06 07:53:21.016 [EngineDatabase] InitializeSchema: complete
+83:2026-10-06 07:53:21.019 [Scheduler] Starting
+84:2026-10-06 07:53:21.019 [EngineDatabase] CleanupOrphanedRuns: marking interrupted runs as failed
+85:2026-10-06 07:53:21.020 [EngineDatabase] CleanupOrphanedRuns: marked 0 runs as failed
+86:2026-10-06 07:53:21.020 [Scheduler] InitializeNextRuns: calculating next_run for enabled jobs
+87:2026-10-06 07:53:21.021 [Scheduler] Started
+89:2026-10-06 07:53:21.022 [Scheduler] Loop started
+93:2026-10-06 07:53:21.023 [EngineDatabase] CleanupOldRuns: purging runs older than 30 days
+106:2026-10-06 07:53:21.028 [EngineDatabase] CleanupOldRuns: purged 0 runs
+1131:2026-10-06 08:02:55.842 [Scheduler] Stopping
+1132:2026-10-06 08:02:55.843 [Scheduler] Loop ended
+1133:2026-10-06 08:02:55.844 [Scheduler] Stopped
+   Scheduled job runs logged: A 0, B 0
+
+== 2. The backup cleaner over the owner's per-user agent backup folder (every line it wrote)
+-- A
+58:2026-10-06 07:48:07.845 [CcDirector] [BackupCleaner] Starting periodic scan of C:\Users\soren\.claude\backups (interval=60s)
+-- B
+72:2026-10-06 07:53:20.928 [CcDirector] [BackupCleaner] Starting periodic scan of C:\Users\soren\.claude\backups (interval=60s)
+
+== 3. The owner's managed skill folders (machine-wide per user, not per instance)
+-- A
+2422:2026-10-06 07:56:04.053 [SkillDirectoryInstaller] Removed withdrawn skill 'browsers' from C:\Users\soren\.agents\skills
+2423:2026-10-06 07:56:04.055 [SkillDirectoryInstaller] Removed withdrawn skill 'demo-mode' from C:\Users\soren\.agents\skills
+2424:2026-10-06 07:56:04.056 [SkillDirectoryInstaller] Removed withdrawn skill 'director-restart' from C:\Users\soren\.agents\skills
+2425:2026-10-06 07:56:04.057 [SkillDirectoryInstaller] Removed withdrawn skill 'hormozi-playbook' from C:\Users\soren\.agents\skills
+2426:2026-10-06 07:56:04.058 [SkillDirectoryInstaller] Removed withdrawn skill 'notebook-reviewer' from C:\Users\soren\.agents\skills
+2427:2026-10-06 07:56:04.059 [SkillDirectoryInstaller] Removed withdrawn skill 'remote-desktop' from C:\Users\soren\.agents\skills
+2428:2026-10-06 07:56:04.112 [SkillDirectoryInstaller] Removed withdrawn skill 'browsers' from C:\Users\soren\.claude\skills
+2429:2026-10-06 07:56:04.112 [SkillDirectoryInstaller] Removed withdrawn skill 'demo-mode' from C:\Users\soren\.claude\skills
+2430:2026-10-06 07:56:04.113 [SkillDirectoryInstaller] Removed withdrawn skill 'director-restart' from C:\Users\soren\.claude\skills
+2431:2026-10-06 07:56:04.113 [SkillDirectoryInstaller] Removed withdrawn skill 'hormozi-playbook' from C:\Users\soren\.claude\skills
+2432:2026-10-06 07:56:04.114 [SkillDirectoryInstaller] Removed withdrawn skill 'notebook-reviewer' from C:\Users\soren\.claude\skills
+2433:2026-10-06 07:56:04.115 [SkillDirectoryInstaller] Removed withdrawn skill 'remote-desktop' from C:\Users\soren\.claude\skills
+2434:2026-10-06 07:56:05.882 [SkillDirectoryInstaller] InstallFor: kind=ClaudeCode, materialized=12 at C:\Users\soren\.agents\skills, linked=12/12 into C:\Users\soren\.claude\skills
+-- B
+649:2026-10-06 07:56:18.566 [SkillDirectoryInstaller] InstallFor: kind=ClaudeCode, materialized=12 at C:\Users\soren\.agents\skills, linked=12/12 into C:\Users\soren\.claude\skills
+
+== 4. Tool checks: the owner's installed tools from the user PATH, and cc-vault stats against the owner's vault
+   (smoke arguments from src/CcDirector.Core/Tools/tools-manifest.json: cc-vault stats, cc-devthrottle actions --json,
+    cc-secrets/cc-worktrees/cc-ship --help, cc-html/cc-pdf/cc-word --themes)
+-- A
+211:2026-10-06 07:48:10.580 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+225:2026-10-06 07:48:10.921 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+257:2026-10-06 07:48:13.793 [ToolTestRunner] RunTest: cc-vault [Smoke]
+284:2026-10-06 07:48:42.508 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+311:2026-10-06 07:48:43.791 [ToolTestRunner] RunTest: cc-vault [Smoke]
+331:2026-10-06 07:48:50.422 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+359:2026-10-06 07:48:51.506 [ToolTestRunner] RunTest: cc-vault [Smoke]
+477:2026-10-06 07:49:02.997 [ToolCatalogService] GetCatalog: 12 tools, 0 built, 12 on PATH, 12 available
+505:2026-10-06 07:49:04.068 [ToolTestRunner] RunTest: cc-vault [Smoke]
+808:2026-10-06 07:51:00.508 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+809:2026-10-06 07:51:00.618 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+1489:2026-10-06 07:52:52.329 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+1494:2026-10-06 07:52:52.465 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+1642:2026-10-06 07:53:12.059 [ToolTestRunner] RunTest: cc-vault [Smoke]
+1715:2026-10-06 07:53:22.048 [FleetToolReachability] cc-devthrottle at C:\Users\soren\AppData\Local\cc-director\bin\cc-devthrottle.CMD FAILED to reach the Gateway at http://127.0.0.1:7951: Error: could not read the fleet list: DevThrottle c
+1828:2026-10-06 07:53:31.656 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+3978:2026-10-06 08:01:25.395 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+4062:2026-10-06 08:02:09.290 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+4107:2026-10-06 08:02:15.010 [ToolTestRunner] RunTest: cc-vault [Smoke]
+4118:2026-10-06 08:02:18.256 [FleetToolReachability] cc-devthrottle at C:\Users\soren\AppData\Local\cc-director\bin\cc-devthrottle.CMD FAILED to reach the Gateway at http://127.0.0.1:7951: Error: could not read the fleet list: DevThrottle c
+4123:2026-10-06 08:02:20.189 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+-- B
+170:2026-10-06 07:53:26.386 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+231:2026-10-06 07:53:27.583 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+240:2026-10-06 07:53:27.827 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+268:2026-10-06 07:53:31.177 [ToolTestRunner] RunTest: cc-vault [Smoke]
+276:2026-10-06 07:53:34.120 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+313:2026-10-06 07:53:35.186 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+316:2026-10-06 07:53:35.188 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+343:2026-10-06 07:53:35.906 [ToolTestRunner] RunTest: cc-vault [Smoke]
+352:2026-10-06 07:53:37.062 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+444:2026-10-06 07:53:51.090 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+559:2026-10-06 07:55:17.250 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+591:2026-10-06 07:55:19.150 [ToolTestRunner] RunTest: cc-vault [Smoke]
+605:2026-10-06 07:55:21.917 [ToolCatalogService] GetCatalog: 12 tools, 12 built, 12 on PATH, 12 available
+
+== 5. Read-only git commands in the owner's repositories (Director A, after the wizard's code step)
+   repositories: 19
+     D:\Dev\CenterConsulting
+     D:\ReposFred\BanyaGame
+     D:\ReposFred\CenterConsulting
+     D:\ReposFred\agenteyes-app
+     D:\ReposFred\cc-ai-reddit
+     D:\ReposFred\cc-ai-video
+     D:\ReposFred\cc-ai-youtube
+     D:\ReposFred\cc-clickfunnels
+     D:\ReposFred\cc-consult
+     D:\ReposFred\cc-hnet
+     D:\ReposFred\cc-hostsaver
+     D:\ReposFred\cc-linkedin
+     D:\ReposFred\cc-renpho
+     D:\ReposFred\cc-software-survey
+     D:\ReposFred\cc-swimming
+     D:\ReposFred\cc-tools
+     D:\ReposFred\cc-warmboard
+     D:\ReposFred\compublox
+     D:\ReposFred\devthrottle
+   commands by kind (no fetch, pull, push, prune, checkout, commit or config write appears):
+    318   git status --porcelain
+    253   git rev-parse --git-path
+    253   git log -
+    117   git rev-list --left-right
+    117   git config --get-all
+    117   git config --get
+    117   git cherry origin
+    109   git for-each-ref --format
+     98   git merge-base --is-ancestor
+     60   git rev-parse --verify
+     57   git worktree list
+     57   git remote get-url
