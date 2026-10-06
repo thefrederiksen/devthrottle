@@ -1,0 +1,33 @@
+Test run for D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:01.12]   Discovering: CcDirector.Gateway.Tests
+2026-10-06 09:31:28 pid 72160: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+2026-10-06 09:31:28 pid 72160: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+[xUnit.net 00:00:02.25]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:02.25]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_APersonalTenant_TheOneDirectorListingTheMarkedSession_IsSentTheLessons [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_BothDirectorsListAlicesMarkedSession_OnlyAlicesDirectorIsSentTheLessons_OnAPushALessonsChangeAndAReconnect [9 s]
+[xUnit.net 00:00:31.96]     CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs [FAIL]
+[xUnit.net 00:00:31.96]       Assert.Null() Failure: Value is not null
+[xUnit.net 00:00:31.96]       Expected: null
+[xUnit.net 00:00:31.96]       Actual:   DirectorCommand { CommandId = "b0c758c7fe6b425eaceb024706efb7a6", PayloadJson = "{\"text\":\"[Fleet Manager events] You are now thi"..., SessionId = "4d74e22c-f935-4dd8-81d4-6b737259a01f", Verb = "prompt" }
+[xUnit.net 00:00:31.96]       Stack Trace:
+[xUnit.net 00:00:31.96]         D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\Teams\HostedTeamFleetManagerLessonsTests.cs(174,0): at CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs()
+[xUnit.net 00:00:31.96]         --- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs [3 s]
+  Error Message:
+   Assert.Null() Failure: Value is not null
+Expected: null
+Actual:   DirectorCommand { CommandId = "b0c758c7fe6b425eaceb024706efb7a6", PayloadJson = "{\"text\":\"[Fleet Manager events] You are now thi"..., SessionId = "4d74e22c-f935-4dd8-81d4-6b737259a01f", Verb = "prompt" }
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs() in D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\Teams\HostedTeamFleetManagerLessonsTests.cs:line 174
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:44.22]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DirectorOf_OnlyBobsDirectorListsAlicesKeyedMarkedSession_TheLessonsGoToAlicesDirector_NeverBobs [9 s]
+
+Test Run Failed.
+Total tests: 4
+     Passed: 3
+     Failed: 1
+ Total time: 45.0951 Seconds

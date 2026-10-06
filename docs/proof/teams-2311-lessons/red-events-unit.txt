@@ -1,0 +1,35 @@
+Test run for D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:06.45]     CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.DeliverOnce_AColleaguesDirectorAlsoListsTheMarkedId_TheMarkedEventAndLessonsGoOnlyToTheOwnDirector [FAIL]
+  Failed CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.DeliverOnce_AColleaguesDirectorAlsoListsTheMarkedId_TheMarkedEventAndLessonsGoOnlyToTheOwnDirector [4 s]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+               v (pos 4)
+Expected: "dir-1"
+Actual:   "dir-colleague"
+               ↑ (pos 4)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.DeliverOnce_AColleaguesDirectorAlsoListsTheMarkedId_TheMarkedEventAndLessonsGoOnlyToTheOwnDirector() in D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.UnitTests\Fleet\FleetManagerEventServiceTests.cs:line 1685
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:06.72]     CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.DeliverOnce_OnlyAColleaguesDirectorListsTheMarkedId_NothingIsSent_AndTheEventWaits [FAIL]
+  Failed CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.DeliverOnce_OnlyAColleaguesDirectorListsTheMarkedId_NothingIsSent_AndTheEventWaits [269 ms]
+  Error Message:
+   Assert.Empty() Failure: Collection was not empty
+Collection: [Sent { DirectorId = dir-colleague, SessionId = fm-2, Text = [Fleet Manager events] You are now this account's Fleet Manager. 0 stops and 0 died since your last turn.
+Sessions you own. Act on each, then acknowledge it by its id. Readings are the Wingman's, not the session's.
+An event can be sent more than once: if you have already handled an event id, do not act on it again - acknowledge it.
+
+event 1 of 1: 367a779c-1aee-4317-aaec-26ae7540bfe6
+kind: marked
+session: fm-2 "Fleet Manager"
+what: The account's Fleet Manager mark has moved to you. You are now this account's Fleet Manager. Run `cc-devthrottle workflow instructions fleet-manager` and follow it exactly, then run `cc-devthrottle fleet digest` to see where things stand.
+[Fleet Manager lessons] 1 lesson from the owner's corrections.
+<<<Check first.>>>
+
+When you have acted on an event (filed an outcome, answered it, or decided it needs nothing): cc-devthrottle fleet ack <event id> [<event id> ...]. List what is still open: cc-devthrottle fleet events.
+ }]
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.DeliverOnce_OnlyAColleaguesDirectorListsTheMarkedId_NothingIsSent_AndTheEventWaits() in D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.UnitTests\Fleet\FleetManagerEventServiceTests.cs:line 1695
+--- End of stack trace from previous location ---
+
+Failed!  - Failed:     2, Passed:     0, Skipped:     0, Total:     2, Duration: 5 s - CcDirector.Gateway.UnitTests.dll (net10.0)

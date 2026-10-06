@@ -126,3 +126,70 @@ A clean rebuild followed both mutations.
   green run is kept.
 - **The Gateway test lock** was held by session 6e74d41b (#2307 Questions) at 11:40 UTC. This was reported to the Tech
   Lead, and the lock was not touched. My runs took the lock in turn once it was released.
+
+## FL-F1: the marked Fleet Manager event (review of d9408cb6e)
+
+**The harm.** A `marked` event carries the confirmed lessons. `FleetManagerEventService.DeliverOnceAsync` typed every
+owed event, the marked one included, into the FIRST fresh roster row for the marked id
+(`PushedSessionStore.SnapshotFresh`), with no team rule. In a team that row can be a colleague's Director that only
+lists the id.
+
+**The fix.** The delivery collects every row for the marked id. It takes only the row of a Director the one team rule
+names, and withholds and logs when none is; the event waits (`FleetManagerEventService.cs:925-935`). The rule is the
+same `IsTeamSessionOfDirector`, passed as `isSessionOfDirector:` (`GatewayHost.cs:3716-3720`). It is asked inside the
+tenant's scope, because the rule reads the session's stored record. A personal tenant and a dark Gateway answer yes
+there, so the first row is taken as before.
+
+**Tests.**
+- Host, over the wire:
+  `HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs`.
+  - The roster's order follows string hashes that change from run to run, so naming the Directors cannot put Bob's
+    row first. The test does it the certain way: at the first delivery attempt Bob's Director's row is the ONLY row
+    for Alice's marked id, and the test asserts that.
+  - The marked event must then wait. Once Alice's Director lists the session too, the event is typed into Alice's
+    Director, lessons included, and still never into Bob's.
+  - The rows are Idle, which is delivered to at once, and a delivery is booked the way a promotion books one.
+- Unit, in `FleetManagerEventServiceTests`:
+  - `DeliverOnce_AColleaguesDirectorAlsoListsTheMarkedId_TheMarkedEventAndLessonsGoOnlyToTheOwnDirector`
+  - `DeliverOnce_OnlyAColleaguesDirectorListsTheMarkedId_NothingIsSent_AndTheEventWaits`
+
+**Red check.** Each mutation was made after the fix was committed, built, run, and then restored with an empty diff;
+a clean rebuild followed.
+- **The host wiring removed.** The `isSessionOfDirector:` argument (`GatewayHost.cs:3713-3720`) was put back to
+  `lessons: FleetManagerLessonsBlock);`.
+  - RED: the host test fails at line 174, `Assert.Null() Failure: Value is not null`. Bob's Director WAS sent a
+    `prompt` whose text begins "[Fleet Manager events] You are now this account's Fleet Manager".
+  - The other three host tests stay green. See `red-events.txt`.
+- **The service's own check removed.** `FleetManagerEventService.cs:927` was made to take the first row whatever the
+  rule says.
+  - RED: both unit tests fail. The "only a colleague lists it" test fails deterministically: a send was made.
+  - The first test fails when the colleague's row happens to come first, which it did on this run. See
+    `red-events-unit.txt`.
+- The first version of the "withheld" unit test gave the colleague's row a waiting state with no turn end. Under the
+  mutation it stayed green for that other reason: delivery is held until the turn end is seen. The colleague's row is
+  now Idle, so a first-row choice really would type into it, and the test goes red as shown.
+
+## The sweep: every path that can carry the lessons or a marked-session prompt to a Director
+
+| Path | Where | How it picks the Director | In a team |
+|---|---|---|---|
+| Lessons on a push of the marked session | `DirectorHub.cs:931-932`, then `FleetManagerLessonsObserver.cs:137` | The pushing Director, only if the rule names it (`GatewayHost.cs:2036`) | Fixed in this pull request |
+| Lessons on a lessons change | Route hook `GatewayHost.cs:5058`, then `Refresh` | `FleetManagerDirectorOf` (`GatewayHost.cs:3350`): the roster's answer, then the other holders, then the key row's Director; the first the rule names, or none | Fixed in this pull request |
+| Lessons on a Director's new connection | `GatewayHost.cs:2039-2040`, then `Refresh` | Same as above | Fixed in this pull request |
+| Lessons on the backstop sweep | `FleetManagerEventSweep.cs:47`, then `Refresh`, inside each tenant's scope | Same as above | Fixed in this pull request |
+| The marked event (lessons) and every other Fleet Manager event prompt | `FleetManagerEventService.cs:925-935`, sent at `:971` | Only the row of a Director the rule names; withheld and logged when none | Fixed in this pull request (FL-F1) |
+| What books a marked event: a promotion, a mark by hand, a successor told | `FleetManagerPlacementService.cs:640` and the other `Promote` calls; `RecordMarked` | Stores the event only; delivered by the row above | Covered by FL-F1 |
+| A plain Fleet Manager start, whose first prompt carries the lessons | `FleetManagerPlacementService.cs:487-499` | A NEW session, created on the Director of the machine the caller chose (`request.Director = running?.DirectorId`, `:493`). No existing session id is looked up, and the session it creates is that Director's own | Not by roster. The start route is refused in a team today. Whether a team member may pick a colleague's machine is a placement question for when the route is opened, not this rule's |
+| Retiring the old Fleet Manager (a close, not a prompt, and no lessons) | `FleetManagerPlacementService.cs:759`, Director from `Find` (`:816-818`) | The FIRST roster row for the old marked id, with no team rule | NOT changed. A close command, not lessons or a prompt; reachable only through restart and move, both refused in a team. Raised with the Tech Lead |
+| Hand-over (a set-controller command, not a prompt) | `FleetManagerHandOverService.cs:172` | The first roster row for the session being handed over, which is a worker, not the marked session | Not a marked-session prompt. The hand-over route is refused in a team |
+| A typed prompt or fleet message to any session, the marked one included | `/sessions/{sid}/prompt`, `GatewayEndpoints.cs:3943`, through `LocateSessionAsync` (`:7416`, `TryLocate`). Its held form is `HeldDeliveryDriver.OnSessionsArrived` (`HeldDeliveryDriver.cs:192-209`) | The FIRST roster holder of the id, with no team rule. The team gate decides only whether the CALLER may use the route (`Whose`) | NOT changed: it is not specific to the Fleet Manager, and `{sid}` routes ARE open in a team today. Raised with the Tech Lead as a separate finding, with a recommendation |
+
+## Gates on the new head
+
+| Gate | Result |
+|---|---|
+| Default `.\scripts\test-local.ps1` | all projects exited zero, 3,677 tests (`default-gate-fl-f1.txt`) |
+| Gateway.UnitTests, half A | 4,073 passed, 6 skipped, 0 failed (`gateway-unit-a-fl-f1.txt`) |
+| Gateway.UnitTests, half B | 5,343 passed, 8 skipped, 0 failed (`gateway-unit-b-fl-f1.txt`) |
+| Gateway.Tests, every class under `Teams/`, in two complementary halves (`Teams.HostedTeam*`, then the rest) | 89 + 44 = 133 passed, 0 failed (`gateway-tests-teams-a-fl-f1.txt`, `gateway-tests-teams-b-fl-f1.txt`) |
+| Gateway.Tests, every `FleetManager*` class and `StreamCommandTests` | 112 passed, 1 skipped (the PostgreSQL proof that runs only under `-Parked`), 0 failed (`gateway-tests-fleetmanager-stream-fl-f1.txt`) |
