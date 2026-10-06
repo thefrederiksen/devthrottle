@@ -219,7 +219,9 @@ public sealed class SkillSwapTests : IDisposable
         var placement = Install(Personal);
 
         var problem = Assert.Single(placement.Problems);
-        Assert.Equal(SkillPlacementFault.FolderLinkUnresolved, problem.Fault);
+        // One refusal for every way the real place is unknown (review finding SK-F20).
+        Assert.Equal(SkillPlacementFault.StagingFolderUnsafe, problem.Fault);
+        Assert.Equal(Shared, problem.Target);
         Assert.Contains("is a link whose target cannot be found", placement.Describe());
         Assert.False(Directory.Exists(LinkRoot), "the agent's own folder was touched although nothing could be placed");
     }

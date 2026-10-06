@@ -28,14 +28,11 @@ public enum SkillPlacementFault
     /// instance a team key saved without its team record - so this Director changed nothing.</summary>
     SourceMismatch,
 
-    /// <summary>The skills folder is a link (a junction or a symbolic link) whose target cannot be found, so there
-    /// is nowhere known to be on the same volume to build a copy, and this Director changed nothing (review finding
-    /// SK-F9). Repairing or removing the link fixes it.</summary>
-    FolderLinkUnresolved,
-
-    /// <summary>The folder where copies are built is inside a skills folder agents read, or already exists and was
-    /// not made by this installer, so this Director changed nothing (review finding SK-F11). Moving the link or the
-    /// folder fixes it.</summary>
+    /// <summary>The folder where copies are built is not known to be safe, so this Director changed nothing: it is
+    /// inside a skills folder agents read, or already exists and was not made by this installer (review finding
+    /// SK-F11), or a skills folder or the staging folder goes through a link whose target cannot be found or read
+    /// (review findings SK-F9, SK-F14, SK-F20 - one refusal for every way the real place is unknown). Moving or
+    /// repairing the link or the folder fixes it.</summary>
     StagingFolderUnsafe,
 }
 
@@ -64,8 +61,13 @@ public sealed record SkillPlacement(
     int Reachable,
     IReadOnlyList<SkillPlacementProblem> Problems,
     bool StoreMissing,
-    bool AgentHasNoSkillsDirectory)
+    bool AgentHasNoSkillsDirectory,
+    IReadOnlyList<string>? Notes = null)
 {
+    /// <summary>Things worth knowing that stopped nothing - for instance an unreadable link record, which is
+    /// information only and was treated as empty (review finding SK-F19). Logged; never a reason a skill is missing.</summary>
+    public IReadOnlyList<string> NotesOrEmpty => Notes ?? Array.Empty<string>();
+
     /// <summary>Nothing was expected of this placement: the agent has no skills mechanism, or the
     /// library holds nothing for this machine. Not a fault - there is nothing to be wrong.</summary>
     public bool NothingExpected => AgentHasNoSkillsDirectory || (Held == 0 && !StoreMissing);
@@ -98,7 +100,6 @@ public sealed record SkillPlacement(
         var busy = Problems.Where(p => p.Fault == SkillPlacementFault.FolderBusy).ToList();
         var unknown = Problems.Where(p => p.Fault == SkillPlacementFault.SourceUnknown).ToList();
         var mismatch = Problems.Where(p => p.Fault == SkillPlacementFault.SourceMismatch).ToList();
-        var unresolved = Problems.Where(p => p.Fault == SkillPlacementFault.FolderLinkUnresolved).ToList();
         var unsafeStaging = Problems.Where(p => p.Fault == SkillPlacementFault.StagingFolderUnsafe).ToList();
         var parts = new List<string>();
         if (shadowed.Count > 0)
@@ -118,13 +119,10 @@ public sealed record SkillPlacement(
         if (mismatch.Count > 0)
             parts.Add($"{mismatch.Count} not placed because they were fetched for a different account than this " +
                       "Director is set up for - nothing was changed; check the Director's team in Settings");
-        if (unresolved.Count > 0)
-            parts.Add($"{unresolved.Count} not placed because {unresolved[0].Target} is a link whose target cannot be " +
-                      "found - nothing was changed; repair or remove the link");
         if (unsafeStaging.Count > 0)
             parts.Add($"{unsafeStaging.Count} not placed because the folder where copies are built, {unsafeStaging[0].Target}, " +
-                      "is inside a skills folder agents read or was not made by DevThrottle - nothing was changed; move " +
-                      "the link or the folder");
+                      "is inside a skills folder agents read, was not made by DevThrottle, or is a link whose target cannot " +
+                      "be found - nothing was changed; move or repair the link or the folder");
         if (failed.Count > 0)
             parts.Add($"{failed.Count} could not be linked ({string.Join(", ", failed.Select(p => p.SkillId))})");
 

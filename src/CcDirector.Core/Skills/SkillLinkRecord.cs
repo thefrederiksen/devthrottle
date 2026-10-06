@@ -35,14 +35,31 @@ internal sealed class SkillLinkRecord
         return Path.Combine(Path.GetDirectoryName(trimmed)!, Path.GetFileName(trimmed) + ".devthrottle-links.json");
     }
 
-    public static SkillLinkRecord Load(string sharedRoot)
+    /// <summary>
+    /// Read the record for <paramref name="sharedRoot"/>. A record that cannot be read or makes no sense is treated as
+    /// EMPTY and the reason comes back in <paramref name="unreadable"/> (review finding SK-F19): the record is
+    /// information only, so it must never stop a missing link being made. Throwing here used to fail every launch
+    /// before the link loop, so one truncated file left an agent without a skill for good.
+    /// </summary>
+    public static SkillLinkRecord Load(string sharedRoot, out string? unreadable)
     {
+        unreadable = null;
         var path = PathFor(sharedRoot);
         if (!File.Exists(path))
             return new SkillLinkRecord(path, new List<Entry>());
-        var entries = JsonSerializer.Deserialize<List<Entry>>(File.ReadAllText(path), Json)
-            ?? throw new InvalidDataException($"The skill link record {path} is empty.");
-        return new SkillLinkRecord(path, entries);
+        try
+        {
+            var entries = JsonSerializer.Deserialize<List<Entry>>(File.ReadAllText(path), Json)
+                ?? throw new InvalidDataException("it holds no list of links");
+            return new SkillLinkRecord(path, entries);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            unreadable = $"The skill link record {path} could not be read ({ex.Message}) - treated as empty; it is " +
+                         "information only and is rewritten when the next link is made";
+            FileLog.Write($"[SkillLinkRecord] {unreadable}");
+            return new SkillLinkRecord(path, new List<Entry>());
+        }
     }
 
     /// <summary>Note that this installer made <paramref name="link"/> to <paramref name="target"/> for

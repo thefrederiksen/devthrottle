@@ -215,20 +215,19 @@ public static class SkillDirectoryInstaller
         }
 
         // WHERE copies are built and old ones put aside: beside the folder each skills root REALLY is, so every
-        // move is a rename on one volume (review finding SK-F9). A root that is a link whose target cannot be
-        // found has nowhere safe to build, so nothing is changed and the reason is recorded.
+        // move is a rename on one volume (review finding SK-F9). A root whose real place cannot be found - a link
+        // to nothing, or a link that cannot be read - has nowhere known to be safe to build, so nothing is changed.
+        // It is the same refusal as a staging folder inside a scanned one, through the same one path (review finding
+        // SK-F20): either way the folder where copies would be built is not known to be safe.
         var sharedStaging = StagingRootFor(paths.SharedRoot);
         var linkStaging = paths.LinkRoot is null ? null : StagingRootFor(paths.LinkRoot);
         if (sharedStaging is null || (paths.LinkRoot is not null && linkStaging is null))
         {
             var unresolved = sharedStaging is null ? paths.SharedRoot : paths.LinkRoot!;
-            foreach (var skill in held)
-                problems.Add(new SkillPlacementProblem(Path.GetFileName(skill), unresolved, SkillPlacementFault.FolderLinkUnresolved));
-            var stuck = new SkillPlacement(kind, held.Count, 0, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
-            FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, {unresolved} is a link whose target " +
-                          "cannot be found - nothing installed and nothing removed");
-            LogIfIncomplete(stuck);
-            return stuck;
+            return RefuseUnsafeStaging(
+                kind, held, unresolved, problems,
+                $"{unresolved} goes through a link whose target cannot be found or read, so there is nowhere known " +
+                "to be safe to build a copy");
         }
 
         // NEVER INSIDE A FOLDER AGENTS READ, AND NEVER IN A FOLDER WE DID NOT MAKE (review finding SK-F11). Following
@@ -247,12 +246,7 @@ public static class SkillDirectoryInstaller
                 : WhyStagingIsUnsafe(staging, scanned);
             if (unsafeBecause is null)
                 continue;
-            foreach (var skill in held)
-                problems.Add(new SkillPlacementProblem(Path.GetFileName(skill), staging, SkillPlacementFault.StagingFolderUnsafe));
-            var refusedStaging = new SkillPlacement(kind, held.Count, 0, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
-            FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, {unsafeBecause} - nothing installed and nothing removed");
-            LogIfIncomplete(refusedStaging);
-            return refusedStaging;
+            return RefuseUnsafeStaging(kind, held, staging, problems, unsafeBecause);
         }
         foreach (var staging in stagingRoots)
             EnsureStagingRoot(staging);
@@ -300,9 +294,10 @@ public static class SkillDirectoryInstaller
         }
 
         ReclaimRetiredInstallerCopies(materialized, paths.LinkRoot, reclaimStampPath ?? DefaultReclaimStampPath());
-        var linked = ReconcileLinks(paths.SharedRoot, materialized, paths.LinkRoot, linkStaging!, source, problems);
+        var notes = new List<string>();
+        var linked = ReconcileLinks(paths.SharedRoot, materialized, paths.LinkRoot, linkStaging!, source, problems, notes);
         var result = new SkillPlacement(
-            kind, held.Count, linked, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
+            kind, held.Count, linked, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false, notes);
         FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, materialized={materialized.Count} " +
                       $"at {paths.SharedRoot}, linked={linked}/{held.Count} into {paths.LinkRoot}");
         LogIfIncomplete(result);
@@ -316,9 +311,24 @@ public static class SkillDirectoryInstaller
     {
         if (!placement.IsComplete && !placement.NothingExpected)
             FileLog.Write($"[SkillDirectoryInstaller] {placement.Describe()}");
+        foreach (var note in placement.NotesOrEmpty)
+            FileLog.Write($"[SkillDirectoryInstaller] NOTE for {placement.Kind}: {note}");
         // Recorded locally for the Gateway cycle to pick up. Writing a small file is the whole cost this
         // adds to a launch - the report itself goes out on the network half, which is never on this path.
         SkillPlacementLog.Record(placement);
+    }
+
+    /// <summary>The ONE refusal for a folder where copies cannot safely be built (review findings SK-F11, SK-F14,
+    /// SK-F20): one <see cref="SkillPlacementFault.StagingFolderUnsafe"/> problem per held skill, nothing changed.</summary>
+    private static SkillPlacement RefuseUnsafeStaging(
+        AgentKind kind, IReadOnlyList<string> held, string where, List<SkillPlacementProblem> problems, string because)
+    {
+        foreach (var skill in held)
+            problems.Add(new SkillPlacementProblem(Path.GetFileName(skill), where, SkillPlacementFault.StagingFolderUnsafe));
+        var refused = new SkillPlacement(kind, held.Count, 0, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
+        FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, {because} - nothing installed and nothing removed");
+        LogIfIncomplete(refused);
+        return refused;
     }
 
     private static TimeSpan Remaining(DateTime deadline)
@@ -383,6 +393,16 @@ public static class SkillDirectoryInstaller
             if (!RetiredInstallerSkillIds.Contains(name))
                 continue;
             var candidate = Path.Combine(linkRoot, name);
+
+            // A LINK IS NEVER A LEFTOVER (review finding SK-F16). The retired installer only ever wrote real folders,
+            // so a junction or symbolic link at one of its names is the person's - rejected here, before anything
+            // is read through it, because its TARGET can have exactly the retired shape.
+            if (IsLink(candidate))
+            {
+                FileLog.Write($"[SkillDirectoryInstaller] '{name}' in {linkRoot} is a link - never a retired installer " +
+                              "copy, left exactly as it is");
+                continue;
+            }
             if (!Directory.Exists(candidate) || !LooksLikeRetiredInstallerCopy(candidate))
                 continue;
 
@@ -530,9 +550,9 @@ public static class SkillDirectoryInstaller
         }
         Directory.Move(built, destination);
         Step("swapped", destination);
-        Directory.Delete(staging, recursive: true);
+        RemoveEnvelope(staging);
         if (aside is not null)
-            Directory.Delete(aside, recursive: true);
+            RemoveEnvelope(aside);
     }
 
     /// <summary>Remove a real skill folder without its name ever showing a half-deleted folder: rename it into a
@@ -544,7 +564,64 @@ public static class SkillDirectoryInstaller
         var aside = NewStagingFolder(stagingRoot, name, "withdrawn");
         Directory.Move(folder, Path.Combine(aside, name));
         Step("withdrawn-aside", folder);
-        Directory.Delete(aside, recursive: true);
+        RemoveEnvelope(aside);
+    }
+
+    /// <summary>
+    /// Delete a staging or moved-aside folder this installer made, and say so rather than stop when it cannot (review
+    /// finding SK-F17). By the time this runs the skill's visible folder is already right, so a leftover envelope
+    /// costs only disk: it still carries its marker - deleted last (<see cref="DeleteOwnTree"/>) - and
+    /// <see cref="ClearStaging"/> removes it on the next reconcile. Aborting here would instead leave every skill after
+    /// this one unplaced and every link unmade.
+    /// </summary>
+    private static void RemoveEnvelope(string envelope)
+    {
+        try
+        {
+            DeleteOwnTree(envelope);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            FileLog.Write($"[SkillDirectoryInstaller] could not delete '{envelope}': {ex.Message} - left for the next " +
+                          "reconcile, which removes it");
+        }
+    }
+
+    /// <summary>
+    /// Delete a folder this installer made - an envelope in a staging root and everything in it - WITHOUT EVER
+    /// FOLLOWING A LINK (review finding SK-F17). A junction or symbolic link anywhere inside is removed as the link
+    /// itself, on every platform; what it points at is never entered, so a link the person put inside one of our
+    /// folders can cost them the link but never the folder it leads to. The envelope's own marker goes LAST, so an
+    /// envelope that could only be part-deleted is still recognisably ours on the next reconcile.
+    /// </summary>
+    internal static void DeleteOwnTree(string folder)
+    {
+        if (IsLink(folder))
+            throw new IOException($"'{folder}' is a link - this installer deletes only folders it made, never a link's target");
+        var entries = Directory.GetFileSystemEntries(folder)
+            .OrderBy(e => string.Equals(Path.GetFileName(e), StagingMarkerFileName, StringComparison.Ordinal) ? 1 : 0)
+            .ToList();
+        foreach (var entry in entries)
+        {
+            var info = new FileInfo(entry);
+            if (info.LinkTarget is not null)
+                DeleteLinkItself(entry, info);
+            else if ((info.Attributes & FileAttributes.Directory) != 0)
+                DeleteOwnTree(entry);
+            else
+                File.Delete(entry);
+        }
+        Directory.Delete(folder, recursive: false);
+    }
+
+    /// <summary>Remove a link and only the link. On Windows a directory junction or symbolic link is removed as an
+    /// empty directory entry, which never touches its target; elsewhere unlinking removes the link itself.</summary>
+    private static void DeleteLinkItself(string link, FileInfo info)
+    {
+        if (OperatingSystem.IsWindows() && (info.Attributes & FileAttributes.Directory) != 0)
+            Directory.Delete(link, recursive: false);
+        else
+            File.Delete(link);
     }
 
     /// <summary>
@@ -605,9 +682,24 @@ public static class SkillDirectoryInstaller
         {
             var next = Path.Combine(resolved, part);
             var info = new DirectoryInfo(next);
-            if (info.LinkTarget is not null)
+            string? linkTarget;
+            FileSystemInfo? target = null;
+            try
             {
-                var target = info.ResolveLinkTarget(returnFinalTarget: true);
+                // Both calls read the file system and can throw (access refused, a malformed reparse point). A path
+                // that cannot be resolved is a path whose real place is unknown, which the caller refuses as
+                // StagingFolderUnsafe (review finding SK-F20) - it is not an error for the session launch.
+                linkTarget = info.LinkTarget;
+                if (linkTarget is not null)
+                    target = info.ResolveLinkTarget(returnFinalTarget: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                FileLog.Write($"[SkillDirectoryInstaller] could not resolve {next}: {ex.Message}");
+                return null;
+            }
+            if (linkTarget is not null)
+            {
                 if (target is null || !target.Exists)
                     return null;
                 var again = ResolveFully(target.FullName, depth + 1);
@@ -763,8 +855,9 @@ public static class SkillDirectoryInstaller
                 FileLog.Write($"[SkillDirectoryInstaller] '{leftover}' does not carry this installer's staging marker - left alone");
                 continue;
             }
-            Directory.Delete(leftover, recursive: true);
-            FileLog.Write($"[SkillDirectoryInstaller] removed '{leftover}', left by a reconciliation that did not finish");
+            RemoveEnvelope(leftover);
+            if (!Directory.Exists(leftover))
+                FileLog.Write($"[SkillDirectoryInstaller] removed '{leftover}', left by a reconciliation that did not finish");
         }
     }
 
@@ -798,14 +891,15 @@ public static class SkillDirectoryInstaller
     ///
     /// The links it makes are written to <see cref="SkillLinkRecord"/> for the person's information. Nothing reads
     /// that record to decide anything, and it is written once, after every link is made, so a failure to write it can
-    /// never undo or remove anything on disk.
+    /// never undo or remove anything on disk. A record that cannot be READ is treated as empty and noted, so it can
+    /// never stop a missing link being made (review finding SK-F19).
     ///
     /// A real FOLDER at a name is a copy from the scheme before links, and follows the ownership rule of the shared
     /// copy: its own marker says whose it is.
     /// </summary>
     private static int ReconcileLinks(
         string sharedRoot, IReadOnlyList<string> names, string linkRoot, string stagingRoot, SkillSource source,
-        List<SkillPlacementProblem> problems)
+        List<SkillPlacementProblem> problems, List<string> notes)
     {
         Directory.CreateDirectory(linkRoot);
         var wanted = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
@@ -828,7 +922,11 @@ public static class SkillDirectoryInstaller
             FileLog.Write($"[SkillDirectoryInstaller] Removed withdrawn skill '{name}' from {linkRoot}");
         }
 
-        var record = SkillLinkRecord.Load(sharedRoot);
+        // Information only, so a record that cannot be read is a note and an empty record - never a reason not to
+        // make a missing link (review finding SK-F19).
+        var record = SkillLinkRecord.Load(sharedRoot, out var unreadable);
+        if (unreadable is not null)
+            notes.Add(unreadable);
         var made = 0;
         var linked = 0;
         foreach (var name in names)
