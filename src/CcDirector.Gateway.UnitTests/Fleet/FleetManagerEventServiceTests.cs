@@ -1659,9 +1659,10 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     {
         _service = new FleetManagerEventService(_events, _env, _deliveryGate, lessons: _ => MarkedLessons,
             isSessionOfDirector: (_, directorId, sid) => directorId == "dir-1" && sid == "fm-2");
-        // The colleague's Director lists the marked id; it pushes FIRST, so a first-row choice would be it.
+        // The colleague's Director lists the marked id, Idle - delivered to at once by a first-row choice, with no
+        // reading waited for.
         _pushed.RegisterConnection(Tenant, "dir-colleague", "conn-colleague");
-        Assert.True(_pushed.ApplySnapshot(Tenant, "dir-colleague", "conn-colleague", 1, new List<SessionDto> { Session("fm-2") }));
+        Assert.True(_pushed.ApplySnapshot(Tenant, "dir-colleague", "conn-colleague", 1, new List<SessionDto> { Session("fm-2", state: "Idle") }));
         _pendingSuccessors.Add("fm-2");
         if (ownListsIt)
         {
