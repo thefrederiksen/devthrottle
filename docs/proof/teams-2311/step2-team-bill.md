@@ -314,6 +314,27 @@ Runs (before the final rebase; the rebase onto 3c5c8970a brought no Gateway chan
   Core.UnitTests ran over the 120-second ceiling on a loaded machine and was stopped; run alone it passed 1,228 of
   1,228 in 1 m 14 s.
 
+## Was CI's 503 a setup gap or a defect? (the Delivery Lead's question)
+
+(a), a setup gap - not a defect. Decided by
+`TeamBillOnTheRequestPathTests.AuthorizeAsync_ATeamDirectorsPerson_NoBillRowIsTheFreeTier_ALiveRowIsServed_AMissingTableIsUnknown`
+(Gateway.UnitTests, commit 1994252c5), for the person behind a team Director's key, through the real access lease over
+a real database:
+
+- Table PRESENT, NO row for the team: **Allow - served, on the free tier.** Not 503, and not 402 either. A team member is
+  never refused for the team's bill: that is step 2's rule (`TeamMemberEntitlement`, `EntitlementRegistry.EvaluateTeamTenant`,
+  "free tier when the bill grants nothing"), and the existing
+  `AuthorizeAsync_AMemberOfAPaidTeam_AndOfAnUnpaidTeam_AreBothAllowed_AndNothingIsRevoked` says the same. A 402 would also
+  be wrong in kind: `DenyNotEntitled` is the decision that revokes the tenant's devices, so answering it for an unpaid
+  team would revoke every member's keys in that team.
+- Table present, an ACTIVE LIVE row: **Allow, on the team tier.**
+- Table MISSING: **RetryUnknown, which the auth middleware answers 503 entitlement_unknown** (`AuthMiddleware.cs`, the
+  RetryUnknown branch) - failing closed, with nothing revoked.
+
+So the CI failures were the test classes not creating `team_entitlements` (fixed by giving them a live bill), and
+**Teams must not be released before the `team_entitlements` table exists in production**: until it does, every team
+key is answered 503.
+
 ## Schema
 
 None. No table, column or index added; no migration. The team bill table is the website's; the Gateway.Tests helper

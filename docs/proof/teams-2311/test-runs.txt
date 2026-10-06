@@ -447,3 +447,11 @@ Details in step2-team-bill.md.
     row ended was not run for the same reason. The other session's process was not touched.
     Gateway.UnitTests filtered (Teams namespace, DevReport): Passed 1412, Skipped 6, 0 failed.
     .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
+
+36. The Delivery Lead's question (a setup gap or a defect?): (a). New Gateway.UnitTests test, commit 1994252c5,
+    TeamBillOnTheRequestPathTests.AuthorizeAsync_ATeamDirectorsPerson_NoBillRowIsTheFreeTier_ALiveRowIsServed_AMissingTableIsUnknown:
+    table present + no row -> Allow on the free tier (not 503, not 402: a member is never refused for the bill, and a
+    402 would revoke the team's keys); active live row -> Allow on the team tier; table missing -> RetryUnknown (503
+    entitlement_unknown), nothing revoked. No defect (b), so no code change.
+    Gateway.UnitTests filtered (TeamBillOnTheRequestPathTests, OneTeamBillReaderTests, TeamEntitlementTests): Passed 66 of 66.
+    .\scripts	est-local.ps1 (default gate): RESULT: all projects exited zero; every suite outcome=Completed; 3,671 tests.
