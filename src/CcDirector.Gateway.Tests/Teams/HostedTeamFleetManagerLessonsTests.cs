@@ -143,12 +143,15 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// FL-F1: the marked Fleet Manager EVENT carries the confirmed lessons, and its delivery typed into the first fresh
-    /// roster row for the marked id. The roster's order follows string hashes that change from run to run, so Bob's row
-    /// is made first the only certain way: at the first delivery attempt it is the ONLY row for Alice's marked id. A
-    /// first-row choice can then pick nothing but Bob's Director. The event must wait instead; then, once Alice's
-    /// Director lists her session too, it is typed into Alice's and still never Bob's. The rows are Idle, which is
-    /// delivered to at once (no Wingman reading is waited for), and a delivery is booked as a promotion books one.
+    /// FL-F1 and FL-F3: the marked Fleet Manager EVENT carries the confirmed lessons, and its delivery typed into the
+    /// first fresh roster row for the marked id. The roster's order follows string hashes that change from run to run,
+    /// so Bob's row is made first the only certain way: while it is the ONLY row for Alice's marked id, a delivery
+    /// attempt is DRIVEN AND AWAITED (the service's own <c>DeliverToAsync</c>, which the batch window and the reconcile
+    /// both call), so the attempt is known to have happened with Bob alone. It must answer
+    /// <see cref="FleetManagerDeliveryResult.NotOwnDirector"/> - the only result the WITHHELD branch returns - send Bob
+    /// nothing, and leave the event open. A first-row choice there can pick nothing but Bob's Director, on every hash
+    /// order and every interleaving. Then Alice's Director lists the session and the next driven attempt types the
+    /// event, lessons and all, into Alice's Director, still never Bob's. The rows are Idle, which is delivered to at once.
     /// </summary>
     [Fact]
     public async Task DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs()
@@ -158,21 +161,47 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
         _gateway.TurnPushCapabilities.Record(_team, AliceDirector, pushesTurns: true, checksIdleBeforeTyping: true);
         _gateway.TurnPushCapabilities.Record(_team, BobDirector, pushesTurns: true, checksIdleBeforeTyping: true);
         await _bobDirector.PushSnapshotAsync(Row(_sessionId, "Idle"));
-        var rows = _gateway.PushedSessions.SnapshotFresh(_team, TimeSpan.FromMinutes(5)).Where(r => r.Session.SessionId == _sessionId);
-        Assert.Equal(BobDirector, Assert.Single(rows).DirectorId);
-
-        // The marked event is owed and a delivery is booked: Bob's row is the only one, and it is never typed into.
+        Assert.Equal(BobDirector, Assert.Single(RowsFor(_sessionId)).DirectorId);
         Assert.NotNull(_gateway.FleetManagerEventStoreForTest!.RecordMarked(_team, _sessionId, DateTime.UtcNow));
-        _gateway.FleetManagerEventsForTest!.OnEventQueued(_team);
-        Assert.Null(await WaitForMarkedEvent(_seenByBob, seconds: 3));
 
-        // Alice's Director lists her session and a delivery is booked again. PRESENCE: Alice's Director types the
-        // marked event, lessons and all; Bob's still never does.
+        // Bob's row is the only one: the attempt is made and finished here, and it is withheld.
+        Assert.Equal(BobDirector, Assert.Single(RowsFor(_sessionId)).DirectorId);
+        Assert.Equal(FleetManagerDeliveryResult.NotOwnDirector, await DeliverNowAsync());
+        Assert.DoesNotContain(_seenByBob, IsMarkedEvent);
+        Assert.Equal(FleetManagerEventStore.KindMarked, Assert.Single(_gateway.FleetManagerEventStoreForTest!.Unacknowledged(_team)).Kind);
+
+        // Alice's Director lists her session. PRESENCE: the next attempt types the marked event, lessons and all, into
+        // Alice's Director; Bob's still never.
+        // Her Director's arrival may itself book the delivery, so the driven attempt finds it Delivered or, when that
+        // one came first, NothingOwed; either way the event is closed and it was typed into Alice's Director.
         await _aliceDirector.PushSnapshotAsync(Row(_sessionId, "Idle"));
-        _gateway.FleetManagerEventsForTest!.OnEventQueued(_team);
-        Assert.NotNull(await WaitForMarkedEvent(_seenByAlice));
-        Assert.Null(await WaitForMarkedEvent(_seenByBob, seconds: 3));
+        Assert.Contains(await DeliverNowAsync(), new[] { FleetManagerDeliveryResult.Delivered, FleetManagerDeliveryResult.NothingOwed });
+        Assert.Empty(_gateway.FleetManagerEventStoreForTest!.Owed(_team, _sessionId, 10).Events);
+        Assert.Contains(_seenByAlice, IsMarkedEvent);
+        Assert.DoesNotContain(_seenByBob, IsMarkedEvent);
     }
+
+    /// <summary>One delivery attempt, awaited to its end. A reconcile or a batch already delivering answers
+    /// AlreadyDelivering; then the attempt is made again once that one has finished, so the answer is this attempt's.</summary>
+    private async Task<FleetManagerDeliveryResult> DeliverNowAsync()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (true)
+        {
+            var result = await _gateway.FleetManagerEventsForTest!.DeliverToAsync(_team, _sessionId);
+            if (result != FleetManagerDeliveryResult.AlreadyDelivering || DateTime.UtcNow > deadline) return result;
+            await Task.Delay(50);
+        }
+    }
+
+    private System.Collections.Generic.List<(string DirectorId, SessionDto Session)> RowsFor(string sessionId) =>
+        _gateway.PushedSessions.SnapshotFresh(_team, TimeSpan.FromMinutes(5)).Where(r => r.Session.SessionId == sessionId).ToList();
+
+    /// <summary>A command on the marked session that carries the marked event and the lessons.</summary>
+    private bool IsMarkedEvent(DirectorCommand c) =>
+        c.SessionId == _sessionId && c.Verb != FleetManagerLessonsObserver.Verb
+        && (c.PayloadJson ?? "").Contains("kind: marked", StringComparison.Ordinal)
+        && (c.PayloadJson ?? "").Contains("lesson one", StringComparison.Ordinal);
 
     [Fact]
     public async Task Observe_APersonalTenant_TheOneDirectorListingTheMarkedSession_IsSentTheLessons()
@@ -231,26 +260,12 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
         return null;
     }
 
-    /// <summary>Poll for a command on the marked session that carries the marked event and the lessons.</summary>
-    private async Task<DirectorCommand?> WaitForMarkedEvent(ConcurrentQueue<DirectorCommand> seen, int seconds = 15)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(seconds);
-        while (DateTime.UtcNow < deadline)
-        {
-            var hit = seen.FirstOrDefault(c => c.SessionId == _sessionId && c.Verb != FleetManagerLessonsObserver.Verb
-                && (c.PayloadJson ?? "").Contains("kind: marked", StringComparison.Ordinal)
-                && (c.PayloadJson ?? "").Contains("lesson one", StringComparison.Ordinal));
-            if (hit is not null) return hit;
-            await Task.Delay(50);
-        }
-        return null;
-    }
-
     private static string? Lessons(DirectorCommand command) =>
         JsonSerializer.Deserialize<SetFleetManagerLessonsRequest>(command.PayloadJson!,
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!.Lessons;
 
-    private static DirectorCommandResult Ok() => FakeTunnelDirector.Ok(new { ok = true });
+    /// <summary>What a current Director answers; for a prompt, that it was accepted after checking the session waited.</summary>
+    private static DirectorCommandResult Ok() => FakeTunnelDirector.Ok(new { ok = true, accepted = true, idleChecked = true });
 
     private static SessionDto Row(string sid, string state = "WaitingForInput") => new()
     {

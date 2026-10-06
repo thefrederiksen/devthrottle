@@ -96,6 +96,11 @@ public enum FleetManagerDeliveryResult
     /// <summary>A replacement is under way: the marked Fleet Manager is about to close, so nothing is typed into it.
     /// The events stay owed and go to the new Fleet Manager once the mark has moved.</summary>
     ReplacementPending,
+
+    /// <summary>In a team: Directors list the marked Fleet Manager's id, but the one team rule names none of them as the
+    /// session's own (devthrottle_internal#2311, FL-F1). Nothing was typed - the WITHHELD line is logged - and the events
+    /// stay owed until the session's own Director lists it.</summary>
+    NotOwnDirector,
 }
 
 /// <summary>
@@ -931,7 +936,7 @@ public sealed class FleetManagerEventService : IDisposable
             FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: WITHHELD - listed by " +
                           $"{string.Join(", ", listed.Select(r => r.DirectorId))}, none of which is the session's own Director; " +
                           "nothing is typed and events wait");
-            return (FleetManagerDeliveryResult.NotLive, 0, null);
+            return (FleetManagerDeliveryResult.NotOwnDirector, 0, null);
         }
         if (fm.Session is null || !FleetManagerSessions.IsFleetManager(fm.Session, marked) || IsExited(fm.Session))
         {
