@@ -1,0 +1,45 @@
+{
+  "factory": "warmforward",
+  "title": "WarmForward",
+  "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",
+  "computer": "SOREN_NORTH",
+  "ceoSeat": "ceo",
+  "seats": [
+    {
+      "id": "ceo",
+      "name": "Nora Hale",
+      "role": "CEO",
+      "briefFile": "agents/ceo.yaml",
+      "schedules": [
+        "cj_a721e6"
+      ]
+    },
+    {
+      "id": "savings-engineer",
+      "name": "Savings Engineer",
+      "role": "Savings Engineer",
+      "briefFile": "agents/savings-engineer.yaml",
+      "schedules": [
+        "cj_c01b95"
+      ]
+    },
+    {
+      "id": "value-hunter",
+      "name": "Value Hunter",
+      "role": "Value Hunter",
+      "briefFile": "agents/value-hunter.yaml",
+      "schedules": [
+        "cj_b8a59f"
+      ]
+    },
+    {
+      "id": "reliability-watch",
+      "name": "Reliability Watch",
+      "role": "Reliability Watch",
+      "briefFile": "agents/reliability-watch.yaml",
+      "schedules": [
+        "cj_32129d"
+      ]
+    }
+  ]
+}

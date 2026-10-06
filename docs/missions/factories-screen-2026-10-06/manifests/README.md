@@ -1,0 +1,32 @@
+# Factory manifests (6 October 2026)
+
+One registry manifest per factory, in the format of `docs/cli-reference.md` "Factory registry". Not
+registered yet: the Implementation Lead runs `cc-devthrottle factory register --manifest <file>` after the
+deploy, on SOREN_NORTH (every factory runs there).
+
+Sources: `cc-devthrottle factory activity` (all 8,353 rows, paged), `cc-devthrottle schedule list --json`
+(133 schedules), `cc-devthrottle trigger list`, and each factory's own definition on disk (FACTORY.md,
+factory.yaml, agents/*.yaml, AUTONOMY.md). Every brief file was checked to exist, every schedule id to exist
+on the Gateway, and every schedule's `action.repoPath` and `target.machine` to equal the manifest's folder and
+computer - all matched. Every file passes `python -m json.tool`.
+
+**Rules applied to all ten.** No factory has a GOAL.md, so no manifest has `goalFile` or `goalApprovedOn`
+(the page will say "No goal set yet"). A seat is an agent the factory's definition names AND that has its own
+brief file; agents a FACTORY.md names but has not built yet (no brief) are left out and listed below. Spent
+one-off schedules (disabled after firing once) are left out of `schedules`; recurring ones are in, enabled or
+disabled. Seat ids are the `factory_agent` value in the agent's own yaml.
+
+| Factory id | Sure of | Guessed or judged |
+|---|---|---|
+| `mindzie-web` | id (activity rows and factory.yaml), folder `D:\ReposMindzie\mindzieWeb` (schedules start there), Cost Watch `cj_42d61e`, Usage Watch `cj_006d84` | Usage Watch is a seat although factory.yaml lists only Cost Watch: its yaml says `factory: mindzie-web` and it has its own schedule. The other mindzieWeb schedules (Daily Error Triage, Nightly Code Review, QA Manager, i18n, repo cleanup/hygiene, Cube Status Updater) are not named in the factory definition, so not seats. No CEO in the definition: `ceoSeat` left out. |
+| `website-business` | id (activity rows, factory.yaml), folder = factory.yaml `start_folder`, the ten agents of `factory_agents`, schedule ids as factory.yaml `starts` names them, CEO Malik Grant | Sender, Site Checker and Front Desk have `[]`: they are started by triggers (`website-sender-after-scout`, `website-new-mail`) or by other agents, not by schedules. Bookkeeper is `status: planned` but is in `factory_agents` with a brief, so it is listed with `[]`. Business Reviewer carries the disabled duplicate `cj_003165` beside `cj_e196e3`. Site Keeper's only schedule `cj_725f8d` is disabled. Not seats: "chain", "trigger", "owner" rows, and the cc-consult scripts "Website Factory follow-ups" (`cj_b0d3be`) and "resends" (`cj_1d9b66`), which run `outreach/followups.py`, not an agent brief. |
+| `warmforward` | folder, the four built agents and their schedules (AUTONOMY.md table matches the Gateway), CEO Nora Hale | **id guessed**: never wrote an activity row; `warmforward` is the folder name without `-factory` and the example in cli-reference. Named in FACTORY.md but not built (no brief): Product Architect, Partner Desk, Hardware Scout, Content Writer. One-off `cj_b2248c` (Savings Engineer daytime run, spent) left out. |
+| `tallyhand` | folder, Market Scout and CTO briefs (`agents/*.yaml`), CEO named Max Ridley in FACTORY.md | **id guessed** (folder name; never wrote a row). **No schedules at all** - every seat is `[]`; check what the status fold says for a factory with no schedules at all (decision 5 does not cover it). The CEO has no agents/ceo.yaml; its brief is `CEO-BRIEF.md`, and market-scout.yaml says "until Max exists, straight to the owner", so the CEO seat is defined but not yet built. Same CEO name as mindzie AI Reports (Max Ridley), recorded as it is; mindzie AI Reports' CTO and Market Scout look copied from here. Not built: Product Architect, Pack Builder, Evaluator, Partner Scout, Content Writer, Bookkeeper. |
+| `devthrottle` | folder `devthrottle-factory\factory`, CEO Ada Brennan `cj_99e21a`, Onboarding `cj_f9a6e2` (AUTONOMY.md matches) | **id guessed** (folder name without `-factory`; never wrote a row). |
+| `clickfunnels` | id (activity rows), folder (every brief says "run pwd ... stop if anywhere else"), the seven agents of FACTORY.md and their schedules (FACTORY.md schedule table), CEO Hazel Morgan | Facebook Reader `cj_a872fa`, Badge Runner `cj_efee28` and Sales Sender `cj_f05973` are NOT seats: FACTORY.md says they run from the repo root on the owner's side, "never by a factory session", with runner scripts, not agent briefs - but they do write activity rows under this factory, so the Lead may want their failures to count toward status. Not seats either: "Owner session", "owner-session", "architect", "certifier-19". |
+| `business-research` | folder `business-research\factory` (the schedule's start folder), four agents in `factory\agents`, CEO Victor Lane `cj_ebe3cd` | **id guessed** (folder name; never wrote a row). CTO, Sales Leader and Reviewer are `[]`: they only ever ran from spent one-off schedules (about 15 of them, 5-6 Oct). |
+| `cc-factory` (title Center Consulting) | folder, CFO Ruth Calder `cj_14734a`, Cost Sweep `cj_f8e403` (AUTONOMY.md matches) | **id guessed** and the least sure: never wrote a row; `cc-factory` is the folder name, the schedule prefix ("CC Factory") and its memory folder (`%LOCALAPPDATA%\cc-factory`). Confirm before registering - `center-consulting` would also be defensible. **No `ceoSeat`**: FACTORY.md and CFO-BRIEF.md never call the CFO the factory's head, so per the brief it is left out; the screen will say "No CEO". |
+| `mindzie-ai-reports` | id (activity rows, factory.yaml), the four agents of factory.yaml, CEO Max Ridley `cj_b605fe` | **Folder is the worktree `D:\wt\ai-reports-factory`** (where the CEO schedule starts; `factory/ai-reports` does not exist in `D:\ReposMindzie\mindzieWeb` main), so briefs are `factory/ai-reports/agents/*.yaml`. A worktree is a fragile home for a factory - flag to the Factory Manager. "founder" activity rows are not a seat. CTO, Sales Lead, Market Scout have no schedule. |
+| `machine-care` | id (activity rows, factory-cleaner.yaml `factory: machine-care`), Factory Cleaner `cj_28d5b2` | Folder is `D:\ReposFred\cc-consult` (the schedule's start folder); the brief lives at `tools/factory-cleaner/factory-cleaner.yaml`. The disabled "Machine care - Daily disk sweep" `cj_b3ef9e` runs a script, not the cleaner brief, so it is not on the seat. No CEO: `ceoSeat` left out. |
+
+Not one of the ten, but writes activity rows: `money-saver` (daily and weekly cost reports, 76 rows).

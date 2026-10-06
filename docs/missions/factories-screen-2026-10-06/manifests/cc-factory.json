@@ -1,0 +1,26 @@
+{
+  "factory": "cc-factory",
+  "title": "Center Consulting",
+  "folder": "D:\\ReposFred\\cc-consult\\ideas\\cc-factory",
+  "computer": "SOREN_NORTH",
+  "seats": [
+    {
+      "id": "cfo",
+      "name": "Ruth Calder",
+      "role": "CFO",
+      "briefFile": "agents/cfo.yaml",
+      "schedules": [
+        "cj_14734a"
+      ]
+    },
+    {
+      "id": "cost-sweep",
+      "name": "Cost Sweep",
+      "role": "Cost Sweep - the CFO's weekday run",
+      "briefFile": "agents/cost-sweep.yaml",
+      "schedules": [
+        "cj_f8e403"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "factory": "machine-care",
+  "title": "Machine Care",
+  "folder": "D:\\ReposFred\\cc-consult",
+  "computer": "SOREN_NORTH",
+  "seats": [
+    {
+      "id": "factory-cleaner",
+      "name": "Factory Cleaner",
+      "role": "Factory Cleaner",
+      "briefFile": "tools/factory-cleaner/factory-cleaner.yaml",
+      "schedules": [
+        "cj_28d5b2"
+      ]
+    }
+  ]
+}

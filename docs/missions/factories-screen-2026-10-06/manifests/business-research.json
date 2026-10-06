@@ -1,0 +1,39 @@
+{
+  "factory": "business-research",
+  "title": "Business Research",
+  "folder": "D:\\ReposFred\\cc-consult\\ideas\\business-research\\factory",
+  "computer": "SOREN_NORTH",
+  "ceoSeat": "ceo",
+  "seats": [
+    {
+      "id": "ceo",
+      "name": "Victor Lane",
+      "role": "CEO",
+      "briefFile": "agents/ceo.yaml",
+      "schedules": [
+        "cj_ebe3cd"
+      ]
+    },
+    {
+      "id": "cto",
+      "name": "CTO",
+      "role": "CTO - can it be built and run",
+      "briefFile": "agents/cto.yaml",
+      "schedules": []
+    },
+    {
+      "id": "sales-leader",
+      "name": "Sales Leader",
+      "role": "Sales Leader - can we sell it",
+      "briefFile": "agents/sales-leader.yaml",
+      "schedules": []
+    },
+    {
+      "id": "reviewer",
+      "name": "Reviewer",
+      "role": "Reviewer - tries to kill the plan",
+      "briefFile": "agents/reviewer.yaml",
+      "schedules": []
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "factory": "mindzie-web",
+  "title": "mindzie Web",
+  "folder": "D:\\ReposMindzie\\mindzieWeb",
+  "computer": "SOREN_NORTH",
+  "seats": [
+    {
+      "id": "cost-watch",
+      "name": "Cost Watch",
+      "role": "Cost Watch",
+      "briefFile": "factory/agents/cost-watch.yaml",
+      "schedules": [
+        "cj_42d61e"
+      ]
+    },
+    {
+      "id": "usage-watch",
+      "name": "Usage Watch",
+      "role": "Usage Watch",
+      "briefFile": "factory/agents/usage-watch.yaml",
+      "schedules": [
+        "cj_006d84"
+      ]
+    }
+  ]
+}
