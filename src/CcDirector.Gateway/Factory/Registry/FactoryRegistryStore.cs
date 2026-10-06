@@ -155,7 +155,6 @@ public sealed partial class FactoryRegistryStore
 
         var entity = new FactoryGoalNumberEntity
         {
-            Id = Guid.NewGuid(),
             TenantId = tenant.Value,
             Factory = factory,
             Value = value,

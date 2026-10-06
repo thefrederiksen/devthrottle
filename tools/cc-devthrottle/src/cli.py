@@ -3590,10 +3590,15 @@ def factory_register(
 
 @factory_app.command("list")
 def factory_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Comma-separated fields to show. Valid: " + ", ".join(factory_registry_ops.LIST_FIELDS)
+        + ". Default: " + ", ".join(factory_registry_ops.LIST_DEFAULT_FIELDS) + ".",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON (every field)."),
 ) -> None:
     """List the registered factories."""
-    factory_registry_ops.list_factories(json_output)
+    factory_registry_ops.list_factories(json_output, fields)
 
 
 @factory_goal_number_app.command("post")
@@ -3621,10 +3626,16 @@ def factory_goal_number_post(
 def factory_goal_number_show(
     factory: str = typer.Option(..., "--factory", help="The factory."),
     count: int = typer.Option(20, "--count", "-n", min=1, max=200, help="Largest number of posts to show (1-200)."),
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Comma-separated fields to show. Valid: " + ", ".join(factory_registry_ops.GOAL_FIELDS)
+        + ". Default: " + ", ".join(factory_registry_ops.GOAL_DEFAULT_FIELDS) + ".",
+    ),
+    full: bool = typer.Option(False, "--full", help="Show long values and links whole instead of a preview."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON (every field)."),
 ) -> None:
     """Show a factory's goal numbers, newest first."""
-    factory_registry_ops.show_goal_numbers(factory, count, json_output)
+    factory_registry_ops.show_goal_numbers(factory, count, json_output, fields, full)
 
 
 @factory_memory_app.command("list")

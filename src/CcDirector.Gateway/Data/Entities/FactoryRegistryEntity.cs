@@ -56,11 +56,12 @@ public sealed class FactoryRegistryEntity : TenantScopedEntity
 /// factory's CEO posts the number its goal is measured by on every run - the value, its unit, the day it is as of,
 /// and a link to how it was measured. Every post is kept, so the number's history is there to read; the factory's
 /// page shows the newest.
+///
+/// The key is a Guid the Gateway mints for each post (<see cref="GatewayMintedKeyEntity"/>): no caller ever names
+/// it, so it needs no tenant in it.
 /// </summary>
-public sealed class FactoryGoalNumberEntity : TenantScopedEntity
+public sealed class FactoryGoalNumberEntity : GatewayMintedKeyEntity
 {
-    public Guid Id { get; set; }
-
     /// <summary>The registered factory the number is for.</summary>
     public string Factory { get; set; } = "";
 

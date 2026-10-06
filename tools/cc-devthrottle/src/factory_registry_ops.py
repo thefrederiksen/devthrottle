@@ -46,7 +46,7 @@ if _tools_dir not in sys.path:
 
 from cc_shared import axi_output, gateway  # noqa: E402
 
-from . import axi_cli  # noqa: E402
+from . import axi_cli, usage_errors  # noqa: E402
 
 REGISTRY_ROUTE = "gateway/factory/registry"
 GOAL_NUMBERS_ROUTE = "gateway/factory/goal-numbers"
@@ -54,6 +54,17 @@ GOAL_NUMBERS_ROUTE = "gateway/factory/goal-numbers"
 #: The keys a manifest may hold, and a seat inside it. Anything else is refused.
 MANIFEST_KEYS = ("factory", "title", "folder", "computer", "ceoSeat", "goalFile", "goalApprovedOn", "seats")
 SEAT_KEYS = ("id", "name", "role", "briefFile", "schedules", "computer")
+
+#: `factory list`: every field it can show, and the few it shows unless asked (docs/axi-standard.md).
+LIST_FIELDS = ("id", "title", "ceo", "seats", "computer", "goal", "folder")
+LIST_DEFAULT_FIELDS = ("id", "title", "ceo", "seats")
+
+#: `factory goal-number show`: every field, and the default few.
+GOAL_FIELDS = ("asOf", "value", "unit", "postedBy", "postedAtUtc", "link", "id")
+GOAL_DEFAULT_FIELDS = ("asOf", "value", "unit", "postedBy")
+
+#: Free text longer than this is cut in plain output, with its length and --full.
+PREVIEW_CHARS = 80
 
 #: What a 404 from these routes means: they are not mapped while the switch is off, so the Gateway cannot say
 #: it in its own words.
@@ -84,6 +95,34 @@ def _seat_cells(seat: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ---------- register ----------
+
+
+def _contained_goal_file(folder: str, goal_file: str) -> Path:
+    """The goal file, resolved, and only if it stays inside the factory's folder. Exits 1 otherwise.
+
+    The goal's text is SENT to the Gateway and kept in the account, so this command must never read a file
+    outside the folder the manifest names: not by an absolute path, not by "..", and not through a link.
+    Links are followed and the FINAL target is what is checked - a GOAL.md that is a link to a file inside
+    the folder is fine, one that points outside it is refused - because the bytes read are the target's.
+    The check happens before anything is read.
+    """
+    raw = Path(goal_file)
+    parts = goal_file.replace("\\", "/").split("/")
+    if raw.is_absolute() or raw.anchor or goal_file.startswith(("/", "\\")) or ".." in parts:
+        axi_cli.fail(
+            f"Not registered: the goal file {axi_cli.ascii_text(goal_file)} must be a path inside the factory's "
+            "folder, relative to it, with no '..'.",
+            ["cc-devthrottle factory register --help"],
+        )
+    base = Path(folder).resolve()
+    target = (base / raw).resolve()
+    if target != base and base not in target.parents:
+        axi_cli.fail(
+            f"Not registered: the goal file {axi_cli.ascii_text(goal_file)} leads outside the factory's folder "
+            f"(to {axi_cli.ascii_text(str(target))}), so it is not read. The goal must live in the factory's folder.",
+            ["cc-devthrottle factory register --help"],
+        )
+    return target
 
 
 def read_manifest(path: str) -> Dict[str, Any]:
@@ -125,7 +164,7 @@ def read_manifest(path: str) -> Dict[str, Any]:
         folder = manifest.get("folder")
         if not isinstance(folder, str) or not isinstance(goal_file, str):
             axi_cli.fail("Not registered: \"folder\" and \"goalFile\" must both be text.", [_REGISTER])
-        goal_path = Path(folder) / goal_file
+        goal_path = _contained_goal_file(folder, goal_file)
         if not goal_path.is_file():
             axi_cli.fail(
                 f"Not registered: the goal file {goal_path} does not exist on this computer. The command reads it "
@@ -165,11 +204,12 @@ def register(manifest_path: str, json_output: bool) -> None:
             goal += f", approved {answer['goalApprovedOn']}"
         if answer.get("goalFile"):
             goal += f" ({answer['goalFile']})"
+    goal = axi_cli.ascii_text(goal)
     seats = answer.get("seats") or []
     axi_output.write_blocks(
         sys.stdout,
         "\n".join([
-            f"registered: {answer['factory']}",
+            f"registered: {axi_cli.ascii_text(str(answer['factory']))}",
             f"title: {axi_output.format_value(answer.get('title'))}",
             f"computer: {axi_output.format_value(answer.get('computer'))}",
             f"folder: {axi_cli.ascii_text(str(answer.get('folder')))}",
@@ -177,15 +217,18 @@ def register(manifest_path: str, json_output: bool) -> None:
             f"goal: {goal}",
         ]),
         axi_output.render_list("seats", ["id", "name", "role", "computer", "schedules"], [_seat_cells(s) for s in seats]),
-        axi_output.format_help([_LIST, f"cc-devthrottle factory goal-number show --factory {answer['factory']}"]),
+        axi_output.format_help([_LIST, f"cc-devthrottle factory goal-number show --factory {axi_cli.bare(answer['factory'], '<id>')}"]),
     )
 
 
 # ---------- list ----------
 
 
-def list_factories(json_output: bool) -> None:
+def list_factories(json_output: bool, fields: Optional[str] = None) -> None:
     """Every registered factory in the account."""
+    if json_output and fields is not None:
+        usage_errors.usage_error(axi_cli.FIELDS_WITH_JSON)
+    chosen = usage_errors.parse_fields(fields, LIST_FIELDS, LIST_DEFAULT_FIELDS)
     try:
         answer = gateway.get_json(REGISTRY_ROUTE)
     except gateway.GatewayError as exc:
@@ -208,13 +251,14 @@ def list_factories(json_output: bool) -> None:
             "ceo": f.get("ceoSeat"),
             "seats": len(f.get("seats") or []),
             "goal": "yes" if f.get("goalText") else "no",
+            "folder": f.get("folder"),
         }
         for f in factories
     ]
     axi_output.write_blocks(
         sys.stdout,
         axi_output.format_count(len(records)),
-        axi_output.render_list("factories", ["id", "title", "computer", "ceo", "seats", "goal"], records),
+        axi_output.render_list("factories", chosen, [{k: r[k] for k in chosen} for r in records]),
         axi_output.format_help([_REGISTER] if not records else [_SHOW, _REGISTER]),
     )
 
@@ -241,19 +285,30 @@ def post_goal_number(factory: str, value: str, unit: str, date: str, link: str, 
     axi_output.write_blocks(
         sys.stdout,
         "\n".join([
-            f"posted: {answer['id']}",
-            f"factory: {answer.get('factory')}",
+            f"posted: {axi_cli.ascii_text(str(answer['id']))}",
+            f"factory: {axi_output.format_value(answer.get('factory'))}",
             f"value: {axi_output.format_value(answer.get('value'))}",
             f"unit: {axi_output.format_value(answer.get('unit'))}",
-            f"as of: {answer.get('asOf')}",
-            f"posted by: {answer.get('postedBy')}",
+            f"as of: {axi_output.format_value(answer.get('asOf'))}",
+            f"posted by: {axi_output.format_value(answer.get('postedBy'))}",
         ]),
-        axi_output.format_help([f"cc-devthrottle factory goal-number show --factory {answer.get('factory')}"]),
+        axi_output.format_help([f"cc-devthrottle factory goal-number show --factory {axi_cli.bare(answer.get('factory'), '<id>')}"]),
     )
 
 
-def show_goal_numbers(factory: str, count: int, json_output: bool) -> None:
+def _preview(text: Any, full: bool) -> Any:
+    """Long free text cut to a preview with its size and the way to see it whole."""
+    if full or not isinstance(text, str) or len(text) <= PREVIEW_CHARS:
+        return text
+    return f"{text[:PREVIEW_CHARS]}... (truncated, {len(text)} chars total - use --full)"
+
+
+def show_goal_numbers(factory: str, count: int, json_output: bool, fields: Optional[str] = None,
+                      full: bool = False) -> None:
     """A factory's goal numbers, newest first."""
+    if json_output and fields is not None:
+        usage_errors.usage_error(axi_cli.FIELDS_WITH_JSON)
+    chosen = usage_errors.parse_fields(fields, GOAL_FIELDS, GOAL_DEFAULT_FIELDS)
     path = f"{GOAL_NUMBERS_ROUTE}?{urllib.parse.urlencode([('factory', factory), ('count', str(count))])}"
     try:
         answer = gateway.get_json(path)
@@ -272,21 +327,23 @@ def show_goal_numbers(factory: str, count: int, json_output: bool) -> None:
     records: List[Dict[str, Any]] = [
         {
             "asOf": p.get("asOf"),
-            "value": p.get("value"),
-            "unit": p.get("unit"),
+            "value": _preview(p.get("value"), full),
+            "unit": _preview(p.get("unit"), full),
             "postedBy": p.get("postedBy"),
             "postedAtUtc": p.get("postedAtUtc"),
-            "link": p.get("link"),
+            "link": _preview(p.get("link"), full),
             "id": p.get("id"),
         }
         for p in posts
     ]
-    blocks = [f"factory: {answer.get('factory')}",
+    blocks = [f"factory: {axi_output.format_value(answer.get('factory'))}",
               axi_output.format_count(len(records), total=total if total != len(records) else None)]
     if not records:
         blocks.append("No goal number posted yet.")
     else:
-        blocks.append(axi_output.render_list("goalNumbers", ["asOf", "value", "unit", "postedBy", "postedAtUtc", "link", "id"], records))
-    more = f"cc-devthrottle factory goal-number show --factory {answer.get('factory')} --count {min(total, 200)}"
-    blocks.append(axi_output.format_help([_POST] if not records else [more, _POST]))
+        blocks.append(axi_output.render_list("goalNumbers", chosen, [{k: r[k] for k in chosen} for r in records]))
+    shown_id = axi_cli.bare(answer.get("factory"), "<id>")
+    more = [f"cc-devthrottle factory goal-number show --factory {shown_id} --count {min(total, 200)}",
+            f"cc-devthrottle factory goal-number show --factory {shown_id} --fields {','.join(GOAL_FIELDS)}"]
+    blocks.append(axi_output.format_help([_POST] if not records else more))
     axi_output.write_blocks(sys.stdout, *blocks)

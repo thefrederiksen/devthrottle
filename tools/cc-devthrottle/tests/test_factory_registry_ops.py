@@ -198,6 +198,67 @@ def test_register_UnknownSeatKey_IsRefused(gateway_answering, tmp_path):
     assert gw.calls == []
 
 
+@pytest.mark.parametrize("goal_file", ["../secret.txt", "sub/../../secret.txt", "/etc/passwd", "C:/secret.txt", r"\\server\share\x.md"])
+def test_register_GoalFileOutsideTheFolder_IsRefusedBeforeAnythingIsRead(gateway_answering, tmp_path, goal_file):
+    gw = gateway_answering(200, REGISTERED)
+    (tmp_path / "secret.txt").write_text("TOP-SECRET", encoding="utf-8")
+    folder = _factory_folder(tmp_path)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder, goalFile=goal_file))])
+
+    assert result.exit_code == 1
+    assert "inside the factory's folder" in result.stderr
+    assert gw.calls == []
+
+
+def _symlink_or_skip(link, target):
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"this machine cannot create a symbolic link here: {exc}")
+
+
+def test_register_GoalFileThatLinksOutsideTheFolder_IsRefusedAndNothingIsSent(gateway_answering, tmp_path):
+    gw = gateway_answering(200, REGISTERED)
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOP-SECRET", encoding="utf-8")
+    folder = _factory_folder(tmp_path, goal=None)
+    _symlink_or_skip(folder / "GOAL.md", secret)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder))])
+
+    assert result.exit_code == 1
+    assert "leads outside the factory's folder" in result.stderr
+    assert gw.calls == []
+
+
+def test_register_GoalFileThatLinksInsideTheFolder_IsRead(gateway_answering, tmp_path):
+    gw = gateway_answering(200, REGISTERED)
+    folder = _factory_folder(tmp_path, goal=None)
+    (folder / "docs").mkdir()
+    (folder / "docs" / "goal.md").write_text("The real goal.", encoding="utf-8")
+    _symlink_or_skip(folder / "GOAL.md", folder / "docs" / "goal.md")
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder))])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"]["goalText"] == "The real goal."
+
+
+def test_register_NonAsciiGoalFile_RegistersAndPrintsItEscaped(gateway_answering, tmp_path):
+    name = "G\u00d6AL.md"
+    gateway_answering(200, dict(REGISTERED, goalFile=name))
+    folder = _factory_folder(tmp_path, goal=None)
+    (folder / name).write_text("A goal.", encoding="utf-8")
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder, goalFile=name))])
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.isascii()
+    assert "registered: warmforward" in result.stdout
+    assert "goal: set, approved 2026-10-04 (G" in result.stdout
+
+
 def test_register_ManifestNotJson_ExitsNonZero(gateway_answering, tmp_path):
     gateway_answering(200, REGISTERED)
     bad = tmp_path / "m.json"
@@ -254,11 +315,43 @@ def test_list_PrintsEveryFactoryInFull_WithACount(gateway_answering):
     assert result.exit_code == 0, result.output
     assert gw.calls[0]["path"] == "/gateway/factory/registry"
     assert "count: 2" in result.stdout
-    _, rows = axi_output.parse_list(result.stdout, "factories")
+    fields, rows = axi_output.parse_list(result.stdout, "factories")
+    assert fields == ["id", "title", "ceo", "seats"]
     assert [r["id"] for r in rows] == ["warmforward", "website-business-factory-long-id"]
     assert rows[1]["title"] == "Website Business, Inc."
-    assert rows[0]["goal"] == "yes" and rows[1]["goal"] == "no"
+    assert rows[0]["ceo"] == "nora-hale" and rows[1]["ceo"] is None
     assert rows[0]["seats"] == "2"
+
+
+def test_list_Fields_ShowsTheNamedFieldsInThatOrder(gateway_answering):
+    other = dict(REGISTERED, factory="website-business", goalText=None)
+    gateway_answering(200, {"count": 2, "factories": [REGISTERED, other]})
+
+    result = runner.invoke(app, ["factory", "list", "--fields", "id,goal,computer,folder"])
+
+    assert result.exit_code == 0, result.output
+    fields, rows = axi_output.parse_list(result.stdout, "factories")
+    assert fields == ["id", "goal", "computer", "folder"]
+    assert rows[0]["goal"] == "yes" and rows[1]["goal"] == "no"
+    assert rows[0]["folder"] == "D:\\f"
+
+
+def test_list_UnknownField_IsAUsageErrorNamingTheValidOnes(gateway_answering):
+    gw = gateway_answering(200, {"count": 0, "factories": []})
+
+    result = runner.invoke(app, ["factory", "list", "--fields", "id,owner"])
+
+    assert result.exit_code == 2
+    assert "owner" in result.stderr and "computer" in result.stderr
+    assert gw.calls == []
+
+
+def test_list_FieldsWithJson_IsAUsageError(gateway_answering):
+    gateway_answering(200, {"count": 0, "factories": []})
+
+    result = runner.invoke(app, ["factory", "list", "--fields", "id", "--json"])
+
+    assert result.exit_code == 2
 
 
 def test_list_None_SaysCountZero(gateway_answering):
@@ -355,8 +448,37 @@ def test_show_ListsThePostsNewestFirst_WithTheTotal(gateway_answering):
     assert result.exit_code == 0, result.output
     assert gw.calls[0]["path"] == "/gateway/factory/goal-numbers?factory=warmforward&count=2"
     assert "count: 2 of 5 total" in result.stdout
-    assert "not yet proven" in result.stdout and POSTED["id"] in result.stdout
+    assert "not yet proven" in result.stdout
     assert "--count 5" in result.stdout
+
+
+def test_show_DefaultFieldsAreFour_AndALongLinkIsCutWithItsSizeAndFull(gateway_answering):
+    long_link = "https://example.com/" + "x" * 300
+    post = dict(POSTED, link=long_link)
+    gateway_answering(200, {"factory": "warmforward", "latest": post, "count": 1, "posts": [post]})
+
+    plain = runner.invoke(app, ["factory", "goal-number", "show", "--factory", "warmforward"])
+    fields, _ = axi_output.parse_list(plain.stdout, "goalNumbers")
+    assert fields == ["asOf", "value", "unit", "postedBy"]
+    assert long_link not in plain.stdout
+
+    linked = runner.invoke(app, ["factory", "goal-number", "show", "--factory", "warmforward", "--fields", "asOf,link"])
+    assert linked.exit_code == 0, linked.output
+    assert "(truncated, 320 chars total - use --full)" in linked.stdout
+    assert long_link not in linked.stdout
+
+    whole = runner.invoke(app, ["factory", "goal-number", "show", "--factory", "warmforward", "--fields", "link", "--full"])
+    assert whole.exit_code == 0, whole.output
+    _, rows = axi_output.parse_list(whole.stdout, "goalNumbers")
+    assert rows[0]["link"] == long_link
+
+
+def test_show_FieldsWithJson_IsAUsageError(gateway_answering):
+    gateway_answering(200, {"factory": "warmforward", "latest": None, "count": 0, "posts": []})
+
+    result = runner.invoke(app, ["factory", "goal-number", "show", "--factory", "warmforward", "--fields", "id", "--json"])
+
+    assert result.exit_code == 2
 
 
 def test_show_NothingPosted_SaysSo(gateway_answering):

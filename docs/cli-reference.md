@@ -1686,10 +1686,10 @@ USAGE: cc-devthrottle factory COMMAND [ARGS]...
 
 COMMANDS:
   register --manifest FILE [--json]
-  list [--json]
+  list [--fields F,F] [--json]
   goal-number post --factory ID --value TEXT --unit TEXT --date YYYY-MM-DD --link URL
                    [--by SEAT] [--json]
-  goal-number show --factory ID [--count N | -n N] [--json]
+  goal-number show --factory ID [--count N | -n N] [--fields F,F] [--full] [--json]
 ```
 
 The manifest is JSON and holds exactly these keys (an unknown key is refused, so a misspelt one never
@@ -1714,13 +1714,20 @@ registers a factory with a field silently missing):
 ```
 
 `register` reads the goal file from the factory's folder and sends its TEXT, so run it on the factory's
-computer; it stops with the reason when the file is not there. Registering again replaces the whole
+computer; it stops with the reason when the file is not there. The goal file must stay inside the
+folder: an absolute path, a `..`, or a link whose target is outside the folder is refused before anything
+is read (a link to a file inside the folder is followed). Registering again replaces the whole
 entry, seats included. It exits 1 whenever the factory was not registered.
 
 `goal-number post` is posted by a seat of the factory. In a session a factory agent started, the Gateway
 knows the seat and `--by` is left out (naming another seat, or another factory, is refused); anywhere else
 `--by SEAT` names it. `--link` is an http or https address showing how the number was measured. A
 factory that is not registered is refused with the reason. It exits 0 only when the Gateway kept the post.
+
+`list` shows `id,title,ceo,seats` by default; `--fields` picks from `id, title, ceo, seats, computer,
+goal, folder`. `goal-number show` shows `asOf,value,unit,postedBy` by default; `--fields` picks from
+`asOf, value, unit, postedBy, postedAtUtc, link, id`, and a value or link over 80 characters is cut with
+its length unless `--full` is given. `--json` always carries every field and does not take `--fields`.
 
 #### Factory memory
 
