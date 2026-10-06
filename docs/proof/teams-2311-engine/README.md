@@ -358,6 +358,22 @@ not confirmed within ten seconds, the claim is already gone and the command may 
 lost-identity overlap named in the contract. The migration test builds its old database by dropping the
 new column from a current one, not from a binary written by 7d14dbaa6.
 
+## Review round 5: the history purge never deletes an unfinished run (EN-F10)
+
+**EN-F10 - the 30-day purge deleted a live claim.** `CleanupOldRuns` deleted every run older than the
+retention cutoff, finished or not. An unfinished run is the claim and holds the recorded command, so a
+command still running after 30 days lost both, and another Director could start the still-due job beside
+it. Now the purge deletes only rows with `ended_at` set; an unfinished run is ended only by the orphan
+cleanup's rules.
+
+Test `NoReleaseWithoutProofTests.HistoryPurge_KeepsAnOldUnfinishedRunWithARunningCommand_AndASecondDirectorCannotClaimIt`:
+a run claimed 40 days ago with a real running command recorded; the 30-day purge runs; the row is still
+there and open, and a second live Director cannot claim the job. Red on 1ecafa12f
+(`red-review5-on-1ecafa12f.txt`: the test alone added, no source change - "Value is null", the row was
+deleted). The existing `CleanupOldRuns_PurgesOldRecords` still passes: ended history is purged as before.
+
+Engine tests: 102 of 102. Default gate (`test-local-default.txt`): every suite Completed, first attempt.
+
 ## CC_VAULT_PATH - not changed here
 
 How it resolves today: `CcStorage.Vault()` (`src/CcDirector.Core/Storage/CcStorage.cs:236-243`) returns
