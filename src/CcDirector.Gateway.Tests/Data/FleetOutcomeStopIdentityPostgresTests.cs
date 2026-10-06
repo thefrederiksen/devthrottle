@@ -106,7 +106,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20261006140813_AddFactoryRegistry", all[index + 19]);
             // A team member's answer and the question a person's comment is about (devthrottle_internal#2307), after that.
             Assert.Equal("20261006171258_AddTeamQuestionAnswers", all[index + 20]);
-            Assert.Equal(all.Count - 20, index);
+            Assert.Equal(all.Count - 21, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
