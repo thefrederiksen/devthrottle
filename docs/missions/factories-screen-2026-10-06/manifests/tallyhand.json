@@ -1,0 +1,30 @@
+{
+  "factory": "tallyhand",
+  "title": "Tallyhand",
+  "folder": "D:\\ReposFred\\cc-consult\\ideas\\tallyhand",
+  "computer": "SOREN_NORTH",
+  "ceoSeat": "ceo",
+  "seats": [
+    {
+      "id": "ceo",
+      "name": "Max Ridley",
+      "role": "CEO",
+      "briefFile": "CEO-BRIEF.md",
+      "schedules": []
+    },
+    {
+      "id": "market-scout",
+      "name": "Market Scout",
+      "role": "Market Scout",
+      "briefFile": "agents/market-scout.yaml",
+      "schedules": []
+    },
+    {
+      "id": "cto",
+      "name": "CTO",
+      "role": "CTO - technical validator",
+      "briefFile": "agents/cto.yaml",
+      "schedules": []
+    }
+  ]
+}

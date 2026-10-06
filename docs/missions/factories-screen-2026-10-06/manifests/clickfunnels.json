@@ -1,0 +1,72 @@
+{
+  "factory": "clickfunnels",
+  "title": "ClickFunnels",
+  "folder": "D:\\ReposFred\\cc-clickfunnels\\factory",
+  "computer": "SOREN_NORTH",
+  "ceoSeat": "ceo",
+  "seats": [
+    {
+      "id": "ceo",
+      "name": "Hazel Morgan",
+      "role": "CEO",
+      "briefFile": "agents/ceo.yaml",
+      "schedules": [
+        "cj_3c7722"
+      ]
+    },
+    {
+      "id": "hacker",
+      "name": "Leo Vance",
+      "role": "ClickFunnels Hacker",
+      "briefFile": "agents/hacker.yaml",
+      "schedules": [
+        "cj_6ddb8a"
+      ]
+    },
+    {
+      "id": "certifier",
+      "name": "Certifier",
+      "role": "Certifier",
+      "briefFile": "agents/certifier.yaml",
+      "schedules": [
+        "cj_b8be16"
+      ]
+    },
+    {
+      "id": "builder",
+      "name": "Builder",
+      "role": "Builder",
+      "briefFile": "agents/builder.yaml",
+      "schedules": [
+        "cj_ffba1d"
+      ]
+    },
+    {
+      "id": "sales",
+      "name": "Theo Banks",
+      "role": "Outreach Manager",
+      "briefFile": "agents/sales.yaml",
+      "schedules": [
+        "cj_e844c4"
+      ]
+    },
+    {
+      "id": "marketing",
+      "name": "Iris Calloway",
+      "role": "Marketing Manager",
+      "briefFile": "agents/marketing.yaml",
+      "schedules": [
+        "cj_daafd6"
+      ]
+    },
+    {
+      "id": "sales-manager",
+      "name": "Nadia Brooks",
+      "role": "Sales Manager",
+      "briefFile": "agents/sales-manager.yaml",
+      "schedules": [
+        "cj_1251ab"
+      ]
+    }
+  ]
+}

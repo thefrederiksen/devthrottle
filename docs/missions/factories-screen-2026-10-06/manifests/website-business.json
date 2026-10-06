@@ -1,0 +1,92 @@
+{
+  "factory": "website-business",
+  "title": "Website Business",
+  "folder": "D:\\ReposFred\\cc-consult\\ideas\\website-factory\\factory",
+  "computer": "SOREN_NORTH",
+  "ceoSeat": "ceo",
+  "seats": [
+    {
+      "id": "ceo",
+      "name": "Malik Grant",
+      "role": "CEO",
+      "briefFile": "agents/ceo.yaml",
+      "schedules": [
+        "cj_ce0d76"
+      ]
+    },
+    {
+      "id": "scout",
+      "name": "Scout",
+      "role": "Scout",
+      "briefFile": "agents/scout.yaml",
+      "schedules": [
+        "cj_332296"
+      ]
+    },
+    {
+      "id": "sender",
+      "name": "Sender",
+      "role": "Sender",
+      "briefFile": "agents/sender.yaml",
+      "schedules": []
+    },
+    {
+      "id": "site-checker",
+      "name": "Site Checker",
+      "role": "Site Checker",
+      "briefFile": "agents/site-checker.yaml",
+      "schedules": []
+    },
+    {
+      "id": "front-desk",
+      "name": "Front Desk",
+      "role": "Front Desk",
+      "briefFile": "agents/front-desk.yaml",
+      "schedules": []
+    },
+    {
+      "id": "site-keeper",
+      "name": "Site Keeper",
+      "role": "Site Keeper",
+      "briefFile": "agents/site-keeper.yaml",
+      "schedules": [
+        "cj_725f8d"
+      ]
+    },
+    {
+      "id": "mail-watcher",
+      "name": "Mail Watcher",
+      "role": "Mail Watcher",
+      "briefFile": "agents/mail-watcher.yaml",
+      "schedules": [
+        "cj_e8bfdb"
+      ]
+    },
+    {
+      "id": "mail-warmer",
+      "name": "Mail Warmer",
+      "role": "Mail Warmer",
+      "briefFile": "agents/mail-warmer.yaml",
+      "schedules": [
+        "cj_84c39b"
+      ]
+    },
+    {
+      "id": "business-reviewer",
+      "name": "Business Reviewer",
+      "role": "Business Reviewer",
+      "briefFile": "agents/business-reviewer.yaml",
+      "schedules": [
+        "cj_e196e3",
+        "cj_003165"
+      ]
+    },
+    {
+      "id": "bookkeeper",
+      "name": "Bookkeeper",
+      "role": "Bookkeeper",
+      "briefFile": "agents/bookkeeper.yaml",
+      "schedules": []
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "factory": "mindzie-ai-reports",
+  "title": "mindzie AI Reports",
+  "folder": "D:\\wt\\ai-reports-factory",
+  "computer": "SOREN_NORTH",
+  "ceoSeat": "ceo",
+  "seats": [
+    {
+      "id": "ceo",
+      "name": "Max Ridley",
+      "role": "CEO",
+      "briefFile": "factory/ai-reports/agents/ceo.yaml",
+      "schedules": [
+        "cj_b605fe"
+      ]
+    },
+    {
+      "id": "cto",
+      "name": "CTO",
+      "role": "CTO - technical validator",
+      "briefFile": "factory/ai-reports/agents/cto.yaml",
+      "schedules": []
+    },
+    {
+      "id": "sales-lead",
+      "name": "Sales Lead",
+      "role": "Sales Lead - partners",
+      "briefFile": "factory/ai-reports/agents/sales-lead.yaml",
+      "schedules": []
+    },
+    {
+      "id": "market-scout",
+      "name": "Market Scout",
+      "role": "Market Scout",
+      "briefFile": "factory/ai-reports/agents/market-scout.yaml",
+      "schedules": []
+    }
+  ]
+}

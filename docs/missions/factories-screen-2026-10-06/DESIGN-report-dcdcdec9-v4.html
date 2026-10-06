@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factories Screen</title>
+<style>
+  :root { --ink:#1d2330; --muted:#5b6475; --line:#d9dee7; --soft:#f4f6fa; --accent:#2f5bd3; }
+  body { font-family: Georgia, "Times New Roman", serif; color:var(--ink); background:#fff; margin:0; padding:0 16px; line-height:1.55; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 0 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 32px 0 8px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+  h3 { font-size: 1.02rem; margin: 18px 0 6px; }
+  .sub { color: var(--muted); font-size: .95rem; }
+  .q { border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:14px 0; background:var(--soft); }
+  .q label { display:block; margin:6px 0; font-family: Arial, sans-serif; font-size:.92rem; }
+  .q textarea { width:100%; min-height:44px; margin-top:6px; }
+  table.plain { border-collapse: collapse; width:100%; font-family: Arial, sans-serif; font-size:.88rem; }
+  table.plain th, table.plain td { border:1px solid var(--line); padding:6px 8px; text-align:left; vertical-align:top; }
+  table.plain th { background: var(--soft); }
+  .caption { font-family: Arial, sans-serif; font-size: .85rem; color: var(--muted); margin: 6px 0 18px; }
+
+  /* ---------- Cockpit mockup ---------- */
+  .scroll { overflow-x: auto; border-radius: 10px; }
+  .app { display:flex; min-width: 980px; background:#0b1120; color:#d7deea; font-family: "Segoe UI", Arial, sans-serif; font-size: 13px; border-radius: 10px; border:1px solid #1e293b; }
+  .side { width: 190px; background:#0f172a; padding: 14px 10px; border-right:1px solid #1e293b; flex-shrink:0; }
+  .brand { font-weight: 700; font-size: 16px; color:#fff; padding: 2px 8px 14px; }
+  .nav { padding: 7px 10px; border-radius: 6px; color:#b8c2d3; margin-bottom: 2px; }
+  .nav.on { background:#1e293b; color:#fff; border-left: 3px solid #4f7cff; }
+  .nav .badge { float:right; background:#ef4444; color:#fff; border-radius:9px; padding:0 6px; font-size:11px; }
+  .newtag { font-size:10px; color:#4f7cff; margin-left:6px; }
+  .content { flex:1; padding: 20px 26px; }
+  .content h4 { font-size: 21px; color:#fff; margin: 0 0 4px; font-weight: 600; }
+  .content .lead { color:#9aa6ba; margin: 0 0 16px; max-width: 620px; }
+  .tabs { border-bottom:1px solid #1e293b; margin-bottom: 16px; }
+  .tab { display:inline-block; padding: 8px 14px; color:#9aa6ba; font-weight:600; }
+  .tab.on { color:#fff; border-bottom: 2px solid #4f7cff; }
+  .tiles { display:flex; gap:12px; margin-bottom: 18px; flex-wrap: wrap; }
+  .tile { background:#111a2e; border:1px solid #1e293b; border-radius:8px; padding:10px 14px; min-width: 150px; }
+  .tile .n { font-size: 22px; font-weight: 700; color:#fff; }
+  .tile .l { color:#9aa6ba; font-size: 12px; }
+  .tile.red .n { color:#f87171; } .tile.amber .n { color:#fbbf24; }
+  table.ft { width:100%; border-collapse: collapse; }
+  table.ft th { text-align:left; color:#8391a7; font-weight:600; font-size:12px; padding: 8px 10px; border-bottom:1px solid #1e293b; }
+  table.ft td { padding: 10px 10px; border-bottom:1px solid #172036; vertical-align: top; }
+  .fname { color:#7aa2ff; font-weight:600; text-decoration: underline; }
+  .goal { color:#9aa6ba; font-size: 12px; margin-top: 2px; max-width: 260px; }
+  .big { color:#fff; font-weight:600; }
+  .small { color:#8391a7; font-size: 12px; }
+  .up { color:#4ade80; } .flat { color:#9aa6ba; } .down { color:#f87171; }
+  .pill { display:inline-block; font-size: 10.5px; font-weight:700; padding: 2px 8px; border-radius: 10px; letter-spacing:.3px; }
+  .p-run { color:#4ade80; border:1px solid #22c55e; }
+  .p-you { color:#fbbf24; border:1px solid #f59e0b; }
+  .p-fail { color:#f87171; border:1px solid #ef4444; }
+  .p-off { color:#94a3b8; border:1px solid #475569; }
+  .runs { white-space: nowrap; } .runs span { display:inline-block; margin-right: 8px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; }
+  .g { background:#22c55e; } .y { background:#64748b; } .r { background:#ef4444; }
+  .link { color:#7aa2ff; text-decoration: underline; }
+
+  /* detail screen */
+  .head { display:flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+  .crumb { color:#8391a7; font-size:12px; margin-bottom:6px; }
+  .card { background:#111a2e; border:1px solid #1e293b; border-radius:8px; padding:14px 16px; margin-bottom: 14px; }
+  .card .t { color:#8391a7; font-size:12px; font-weight:600; text-transform: uppercase; letter-spacing:.5px; margin-bottom: 6px; }
+  .cols { display:flex; gap: 14px; }
+  .cols > div { flex:1; }
+  .bar { height:8px; background:#1e293b; border-radius:4px; overflow:hidden; margin: 6px 0 4px; }
+  .bar > i { display:block; height:100%; background:#4f7cff; }
+  .lockline { color:#fbbf24; font-size: 12px; }
+  .act { border-bottom:1px solid #172036; padding: 7px 0; }
+  .act b { color:#fff; font-weight: 600; }
+
+  /* phone */
+  .phone { width: 340px; background:#0b1120; color:#d7deea; font-family: "Segoe UI", Arial, sans-serif; font-size: 13px; border-radius: 26px; border: 8px solid #1f2937; padding: 16px 14px; margin: 0 auto; }
+  .phone h5 { color:#fff; font-size: 18px; margin: 4px 0 12px; }
+  .pc { background:#111a2e; border:1px solid #1e293b; border-radius:10px; padding: 10px 12px; margin-bottom: 10px; }
+  .pc .top { display:flex; justify-content: space-between; align-items:center; }
+  .btn { display:inline-block; background:#2f5bd3; color:#fff; font-weight:600; font-size:12px; padding:5px 12px; border-radius:6px; white-space:nowrap; }
+  .btn-ghost { background:transparent; color:#64748b; border:1px solid #334155; }
+</style>
+</head>
+<body>
+<main>
+
+<section data-dev-report="header" data-dev-report-status="done">
+  <h1>Factories in the Cockpit: one simple list, and a Talk button on every agent</h1>
+  <p class="sub">Factory Manager, 6 October 2026. Version 4: every question answered. The design is settled and carried on devthrottle#3585 for the build.</p>
+</section>
+
+<section data-dev-report="summary">
+  <h2>Summary</h2>
+  <p><b>The screen, as you decided it:</b> the sidebar says <b>Factories</b>. The list has one row per factory with its name, status and what is waiting on you, and a "Talk to the CEO" button. Each factory's page carries the goal, the goal number the CEO posts on every run, and a Seats tab where every agent has its own Talk button and computer. The top-level "All factory agents" tab is removed.</p>
+  <p><b>Talking to an agent:</b> one click opens a top-level session seated as that agent, under <b>the same rules as its scheduled runs</b>. Before it ends, it writes a line in the factory's activity record and puts what you decided into the factory's memory, so the next night's run starts from it.</p>
+  <p><b>And in a talk, anything about the factory can change, the goal included.</b> Your words: "the CEO and the user when they talk can strategize on anything that needs to be changed, because now the CEO can get user approval." The goal stays the one file a CEO cannot change on its own; in a talk you are there to approve it, and the change is recorded in GOAL.md with the date and the talk it was agreed in. WarmForward's GOAL.md now says this.</p>
+</section>
+
+<section data-dev-report="questions">
+  <h2>Decisions</h2>
+  <p data-dev-report-no-questions>No questions - nothing needed from you on this screen. Your answers: row = name, status and waiting on you; seats = a tab in each factory; goal number = posted by the CEO; a talk follows the agent's own rules; a talk leaves an activity line and a memory note; in a talk the goal and the factory's structure may change with your approval.</p>
+</section>
+
+<section data-dev-report="detail">
+<h2>Mockup 1 - Factories (the list)</h2>
+  <p class="caption">Name, status, waiting on you, and the Talk button. Figures from this morning's review.</p>
+  <div class="scroll"><div class="app">
+    <div class="side">
+      <div class="brand">DevThrottle</div>
+      <div class="nav">Fleet Manager <span class="badge">3</span></div>
+      <div class="nav">Sessions</div>
+      <div class="nav">Fleet Map</div>
+      <div class="nav on">Factories<span class="newtag">was Factory Agents</span></div>
+      <div class="nav">History</div>
+      <div class="nav">Directors</div>
+      <div class="nav">Schedule</div>
+      <div class="nav">Workflows</div>
+      <div class="nav">Skills</div>
+      <div class="nav">Settings</div>
+    </div>
+    <div class="content">
+      <h4>Factories</h4>
+      <p class="lead">Each factory runs one business or one job on its own, toward the goal you set for it.</p>
+      <div class="tabs"><span class="tab on">Factories</span><span class="tab">Activity</span><span class="tab">Reports</span></div>
+      <table class="ft">
+        <tr><th>Factory</th><th>Waiting on you</th><th>Status</th><th></th></tr>
+        <tr><td><span class="fname">mindzie Web</span></td><td>-</td><td><span class="pill p-fail">FAILING</span></td><td><span class="btn btn-ghost">No CEO</span></td></tr>
+        <tr><td><span class="fname">Website Business</span></td><td>1 question</td><td><span class="pill p-you">NEEDS YOU</span></td><td><span class="btn">Talk to Malik Grant</span></td></tr>
+        <tr><td><span class="fname">WarmForward</span></td><td>1 question</td><td><span class="pill p-you">NEEDS YOU</span></td><td><span class="btn">Talk to Nora Hale</span></td></tr>
+        <tr><td><span class="fname">Tallyhand</span></td><td>1 decision</td><td><span class="pill p-off">PAUSED</span></td><td><span class="btn">Talk to Max Ridley</span></td></tr>
+        <tr><td><span class="fname">DevThrottle</span></td><td>-</td><td><span class="pill p-run">RUNNING</span></td><td><span class="btn">Talk to Ada Brennan</span></td></tr>
+        <tr><td><span class="fname">ClickFunnels</span></td><td>-</td><td><span class="pill p-run">RUNNING</span></td><td><span class="btn">Talk to Hazel Morgan</span></td></tr>
+        <tr><td><span class="fname">Business Research</span></td><td>-</td><td><span class="pill p-run">RUNNING</span></td><td><span class="btn">Talk to Victor Lane</span></td></tr>
+        <tr><td><span class="fname">Center Consulting</span></td><td>-</td><td><span class="pill p-run">RUNNING</span></td><td><span class="btn">Talk to Ruth Calder</span></td></tr>
+        <tr><td><span class="fname">mindzie AI Reports</span></td><td>-</td><td><span class="pill p-run">RUNNING</span></td><td><span class="btn">Talk to the CEO</span></td></tr>
+        <tr><td><span class="fname">Machine Care</span></td><td>-</td><td><span class="pill p-run">RUNNING</span></td><td><span class="btn btn-ghost">No CEO</span></td></tr>
+      </table>
+      <p class="small" style="margin-top:10px">Worst first: failing, then needs you, then paused, then running. That is also the order of the morning walk.</p>
+    </div>
+  </div></div>
+  <ul>
+    <li><b>Status</b> is one of four words: RUNNING, NEEDS YOU, FAILING (a run failed in the last 24 hours), PAUSED (its schedules are off).</li>
+    <li><b>A factory with no CEO</b> (mindzie Web, Machine Care) has no Talk button on the list; you can still talk to its seats from its Seats tab.</li>
+    <li>mindzie AI Reports shows "Talk to the CEO" because its CEO and Tallyhand's are both called Max Ridley today; one of them gets a new name in the standardisation.</li>
+  </ul>
+
+  <h2>Mockup 2 - one factory's page</h2>
+  <p class="caption">What clicking WarmForward opens. The goal number lives here, posted by the CEO.</p>
+  <div class="scroll"><div class="app">
+    <div class="side">
+      <div class="brand">DevThrottle</div>
+      <div class="nav">Fleet Manager <span class="badge">3</span></div>
+      <div class="nav">Sessions</div>
+      <div class="nav on">Factories</div>
+      <div class="nav">History</div>
+      <div class="nav">Schedule</div>
+    </div>
+    <div class="content">
+      <div class="crumb">Factories / WarmForward</div>
+      <div class="head">
+        <div><h4>WarmForward <span class="pill p-you">NEEDS YOU</span></h4><div class="small">CEO Nora Hale - 4 seats - runs on <b>SOREN_NORTH</b> <span class="link">change</span></div></div>
+        <div><span class="btn">Talk to Nora Hale</span></div>
+      </div>
+      <div class="tabs"><span class="tab on">Overview</span><span class="tab">Seats (4)</span><span class="tab">Activity</span><span class="tab">Reports</span><span class="tab">Memory</span><span class="tab">Documents</span></div>
+      <div class="cols">
+        <div>
+          <div class="card">
+            <div class="t">Goal</div>
+            <div class="big">A cash engine of $15,000-$40,000 a year that runs without your time.</div>
+            <div class="lockline" style="margin-top:6px">Only you change the goal. Approved 4 Oct 2026.</div>
+          </div>
+          <div class="card">
+            <div class="t">Goal number - posted by Nora Hale, today 06:20</div>
+            <div class="big">Propane saved this season: not yet proven</div>
+            <div class="small">Against $5,702.53 last season. Experiments start in November. <span class="link">How it is measured</span></div>
+          </div>
+          <div class="card">
+            <div class="t">Waiting on you</div>
+            <div>Is the Bunkie Bathroom meant to be at 20 C? It is all of the boiler's hours while the house sits at 12 C.</div>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <div class="t">Latest from the CEO</div>
+            <div class="act"><b>Today 06:20</b> - Feed healthy. Found zone 8 holding 20 C; asked you. Opened websites#276.</div>
+            <div class="act"><b>Yesterday 06:18</b> - First run. Constraint: proof. Booked the baseline.</div>
+            <div style="margin-top:8px"><span class="link">All reports</span></div>
+          </div>
+          <div class="card">
+            <div class="t">Last talk with you</div>
+            <div class="small">None yet. After the first morning walk: "Talked with you, 08:10 - decided: bunkie back to 13 C."</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+
+  <h2>Mockup 3 - the Seats tab</h2>
+  <p class="caption">Every agent in the factory, each with its own Talk button and its own computer.</p>
+  <div class="scroll"><div class="app">
+    <div class="side">
+      <div class="brand">DevThrottle</div>
+      <div class="nav">Fleet Manager <span class="badge">3</span></div>
+      <div class="nav">Sessions</div>
+      <div class="nav on">Factories</div>
+      <div class="nav">History</div>
+      <div class="nav">Schedule</div>
+    </div>
+    <div class="content">
+      <div class="crumb">Factories / WarmForward / Seats</div>
+      <div class="head">
+        <div><h4>WarmForward</h4></div>
+        <div><span class="btn">Talk to Nora Hale</span></div>
+      </div>
+      <div class="tabs"><span class="tab">Overview</span><span class="tab on">Seats (4)</span><span class="tab">Activity</span><span class="tab">Reports</span><span class="tab">Memory</span><span class="tab">Documents</span></div>
+      <table class="ft">
+        <tr><th>Seat</th><th>When it runs</th><th>Last run</th><th>Computer</th><th></th></tr>
+        <tr><td><span class="fname">Nora Hale</span><div class="small">CEO</div></td><td>Daily 06:15</td><td>Today 06:20 - succeeded</td><td>SOREN_NORTH <span class="link">change</span></td><td><span class="btn">Talk</span></td></tr>
+        <tr><td><span class="fname">Savings Engineer</span></td><td>Daily 05:00</td><td>Today 05:04 - succeeded</td><td>SOREN_NORTH <span class="link">change</span></td><td><span class="btn">Talk</span></td></tr>
+        <tr><td><span class="fname">Reliability Watch</span></td><td>06:00 and 18:00</td><td>Today 06:02 - succeeded</td><td>SOREN_NORTH <span class="link">change</span></td><td><span class="btn">Talk</span></td></tr>
+        <tr><td><span class="fname">Value Hunter</span></td><td>Wednesday 05:30</td><td>Not run yet</td><td>SOREN_NORTH <span class="link">change</span></td><td><span class="btn">Talk</span></td></tr>
+      </table>
+      <p class="small" style="margin-top:10px">Only seats the CEO hired are listed. Sessions that only wrote activity rows (today's "Owner Session", "Certifier 19") are not seats and do not appear.</p>
+    </div>
+  </div></div>
+
+  <h2>Mockup 4 - the list on a phone</h2>
+  <div class="phone">
+    <h5>Factories</h5>
+    <div class="pc"><div class="top"><span class="fname">mindzie Web</span><span class="pill p-fail">FAILING</span></div></div>
+    <div class="pc"><div class="top"><span class="fname">Website Business</span><span class="pill p-you">NEEDS YOU</span></div><div class="small">1 question</div><div style="margin-top:8px"><span class="btn">Talk to Malik Grant</span></div></div>
+    <div class="pc"><div class="top"><span class="fname">WarmForward</span><span class="pill p-you">NEEDS YOU</span></div><div class="small">1 question</div><div style="margin-top:8px"><span class="btn">Talk to Nora Hale</span></div></div>
+    <div class="pc"><div class="top"><span class="fname">Tallyhand</span><span class="pill p-off">PAUSED</span></div><div class="small">1 decision</div><div style="margin-top:8px"><span class="btn">Talk to Max Ridley</span></div></div>
+    <div class="pc"><div class="top"><span class="fname">DevThrottle</span><span class="pill p-run">RUNNING</span></div><div style="margin-top:8px"><span class="btn">Talk to Ada Brennan</span></div></div>
+    <div class="small" style="text-align:center">+ 5 more</div>
+  </div>
+
+  <h2>What pressing Talk does</h2>
+  <ol>
+    <li>Opens a <b>new top-level session</b>: you own it, it shows in Sessions, and it is never a child of the Floor Manager or any other session.</li>
+    <li>On the agent's <b>computer</b> (from the Computer column), in its factory's folder, so the factory's rules load.</li>
+    <li><b>Seated as that agent:</b> it starts with the agent's brief, the factory's goal, its memory, and its last runs and reports. The first thing it says is what happened since you last talked and what it needs from you.</li>
+    <li>Named to the fleet convention: <code>WarmForward - Nora Hale - morning talk with the owner</code>.</li>
+    <li>What it may do, and what it leaves behind, are the two questions above.</li>
+  </ol>
+
+  <h2>What it takes to build</h2>
+  <table class="plain">
+    <tr><th>Piece</th><th>Exists today?</th><th>Needed</th></tr>
+    <tr><td>List of factories</td><td>Partly: the Gateway knows the 6 of 10 factories that write activity rows</td><td>Every factory registered</td></tr>
+    <tr><td>Status and waiting on you</td><td>Partly: dev reports carry questions; runs end "started" only</td><td>Every run ends with a result; each CEO report linked to its factory</td></tr>
+    <tr><td>Seats tab</td><td>Yes, as today's table</td><td>Moved under the factory; non-seats filtered out</td></tr>
+    <tr><td>Talk button</td><td>No (devthrottle#3585)</td><td>Start a top-level session seated as a named agent, on its computer</td></tr>
+    <tr><td>Computer per factory and seat</td><td>No (devthrottle#3585)</td><td>Today each schedule is pinned to SOREN_NORTH one by one</td></tr>
+    <tr><td>Goal number</td><td>No</td><td>One command the CEO runs to post it (your answer)</td></tr>
+  </table>
+  <p>Next: I add these mockups and your answers to devthrottle#3585, which already holds the Talk button and the computer choice, rather than opening a second issue for the same screen.</p>
+</section>
+
+<section data-dev-report="evidence">
+  <h2>Evidence, and what is not proved</h2>
+  <ul>
+    <li>Your answers to version 2 of this report (6 Oct): row = minimal, seats = a tab in each factory, goal number = posted by the CEO; and your comment asking for a way to start a session as any agent.</li>
+    <li>The morning walk and the Talk to the CEO button: your ruling recorded on devthrottle_internal#2177 and the build issue devthrottle#3585.</li>
+    <li>Statuses and questions in the mockups come from this morning's review (report c650d7df). They are examples of what the screen would show, not live data: only the Website Factory records how its runs end today.</li>
+    <li>Not checked: the Cockpit's source, so how much of today's screen can be reused is a guess.</li>
+  </ul>
+</section>
+
+</main>
+</body>
+</html>
