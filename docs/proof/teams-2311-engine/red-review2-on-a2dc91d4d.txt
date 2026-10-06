@@ -1,0 +1,34 @@
+  Determining projects to restore...
+  Restored D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj (in 84 ms).
+  Restored D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj (in 84 ms).
+  Restored D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Engine\CcDirector.Engine.csproj (in 260 ms).
+  Restored D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Core\CcDirector.Core.csproj (in 260 ms).
+  Restored D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Engine.Tests\CcDirector.Engine.Tests.csproj (in 261 ms).
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Engine.Tests -> D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll
+Test run for D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.01] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:01.92]   Discovering: CcDirector.Engine.Tests
+[xUnit.net 00:00:02.16]   Discovered:  CcDirector.Engine.Tests
+[xUnit.net 00:00:02.19]   Starting:    CcDirector.Engine.Tests
+[xUnit.net 00:00:08.04]     CcDirector.Engine.Tests.Jobs.ProcessJobTests.ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled [FAIL]
+[xUnit.net 00:00:08.04]       the command whose record failed was left running
+[xUnit.net 00:00:08.04]       Stack Trace:
+[xUnit.net 00:00:08.05]         D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Engine.Tests\Jobs\ProcessJobTests.cs(99,0): at CcDirector.Engine.Tests.Jobs.ProcessJobTests.ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled()
+[xUnit.net 00:00:08.05]         --- End of stack trace from previous location ---
+[xUnit.net 00:00:08.07]   Finished:    CcDirector.Engine.Tests
+  Failed CcDirector.Engine.Tests.Jobs.ProcessJobTests.ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled [5 s]
+  Error Message:
+   the command whose record failed was left running
+  Stack Trace:
+     at CcDirector.Engine.Tests.Jobs.ProcessJobTests.ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled() in D:\ReposFred\devthrottle-2311-red2\src\CcDirector.Engine.Tests\Jobs\ProcessJobTests.cs:line 99
+--- End of stack trace from previous location ---
+
+Test Run Failed.
+Total tests: 1
+     Failed: 1
+ Total time: 13.6390 Seconds

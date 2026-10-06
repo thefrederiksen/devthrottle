@@ -1,0 +1,21 @@
+MUTATION 1: the scheduler tick no longer calls ReleaseConfirmedStops
+ src/CcDirector.Engine/Scheduling/Scheduler.cs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+  Passed CcDirector.Engine.Tests.Jobs.ProcessJobTests.ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled [718 ms]
+[xUnit.net 00:00:14.74]       Assert.Equal() Failure: Values differ
+  Failed CcDirector.Engine.Tests.Scheduling.UnconfirmedStopTests.KilledCommandExitsAfterTheConfirmationWindow_TheClaimIsReleasedOnALaterTick_AndTheNextOccurrenceRuns [13 s]
+   Assert.Equal() Failure: Values differ
+  Passed CcDirector.Engine.Tests.Scheduling.UnconfirmedStopTests.RecordingTheCommandFails_TheCommandIsKilled_TheRunEndsWithoutMovingTheSchedule_AndNobodyStartsItWhileItLived [257 ms]
+     Failed: 1
+
+MUTATION 2: ProcessJob no longer kills the command when recording it fails (the catch rethrows without the kill)
+ src/CcDirector.Engine/Jobs/ProcessJob.cs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+  Passed CcDirector.Engine.Tests.Scheduling.UnconfirmedStopTests.KilledCommandExitsAfterTheConfirmationWindow_TheClaimIsReleasedOnALaterTick_AndTheNextOccurrenceRuns [4 s]
+[xUnit.net 00:00:05.70]       Assert.Equal() Failure: Values differ
+  Failed CcDirector.Engine.Tests.Scheduling.UnconfirmedStopTests.RecordingTheCommandFails_TheCommandIsKilled_TheRunEndsWithoutMovingTheSchedule_AndNobodyStartsItWhileItLived [124 ms]
+   Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:08.85]       the command whose record failed was left running
+  Failed CcDirector.Engine.Tests.Jobs.ProcessJobTests.ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled [3 s]
+   the command whose record failed was left running
+     Failed: 2

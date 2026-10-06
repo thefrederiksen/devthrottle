@@ -1,0 +1,69 @@
+NOTE: StartTimeUnreadable_OwnerStillLive_TheOwnerItselfReleasesItAtTheDeadlinePlusMargin was removed from this copy: it calls the CleanupOrphanedRuns(now, jobInFlightHere) overload that does not exist at b369273b4.
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Engine.Tests -> D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll
+Test run for D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.81]   Discovering: CcDirector.Engine.Tests
+[xUnit.net 00:00:00.94]   Discovered:  CcDirector.Engine.Tests
+[xUnit.net 00:00:00.95]   Starting:    CcDirector.Engine.Tests
+[xUnit.net 00:00:16.58]     CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.EngineRestartedInALiveProcess_UnconfirmedStop_IsReleasedWhenTheCommandExits [FAIL]
+[xUnit.net 00:00:16.59]       the restarted engine never released the claim after the command exited
+[xUnit.net 00:00:16.59]       Stack Trace:
+[xUnit.net 00:00:16.59]         D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs(118,0): at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.EngineRestartedInALiveProcess_UnconfirmedStop_IsReleasedWhenTheCommandExits()
+[xUnit.net 00:00:16.59]         D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs(126,0): at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.EngineRestartedInALiveProcess_UnconfirmedStop_IsReleasedWhenTheCommandExits()
+[xUnit.net 00:00:16.59]         --- End of stack trace from previous location ---
+  Failed CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.EngineRestartedInALiveProcess_UnconfirmedStop_IsReleasedWhenTheCommandExits [15 s]
+  Error Message:
+   the restarted engine never released the claim after the command exited
+  Stack Trace:
+     at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.EngineRestartedInALiveProcess_UnconfirmedStop_IsReleasedWhenTheCommandExits() in D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs:line 118
+   at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.EngineRestartedInALiveProcess_UnconfirmedStop_IsReleasedWhenTheCommandExits() in D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs:line 126
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:16.60]     CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.RecordFailed_OwnerThenGone_NoSecondStartBeforeTheDeadlinePlusMargin_AStartAfterIt [FAIL]
+[xUnit.net 00:00:16.60]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:16.60]       Expected: 0
+[xUnit.net 00:00:16.60]       Actual:   1
+[xUnit.net 00:00:16.60]       Stack Trace:
+[xUnit.net 00:00:16.60]         D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs(169,0): at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.AssertHeldUntilTheDeadlineThenReleased(RunRecord run)
+[xUnit.net 00:00:16.60]         D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs(184,0): at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.RecordFailed_OwnerThenGone_NoSecondStartBeforeTheDeadlinePlusMargin_AStartAfterIt()
+[xUnit.net 00:00:16.60]         --- End of stack trace from previous location ---
+[xUnit.net 00:00:16.61]     CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.StartTimeUnreadable_OwnerThenGone_NoSecondStartBeforeTheDeadlinePlusMargin_AStartAfterIt [FAIL]
+[xUnit.net 00:00:16.62]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:16.62]       Expected: 0
+[xUnit.net 00:00:16.62]       Actual:   1
+[xUnit.net 00:00:16.62]       Stack Trace:
+[xUnit.net 00:00:16.62]         D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs(169,0): at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.AssertHeldUntilTheDeadlineThenReleased(RunRecord run)
+[xUnit.net 00:00:16.62]         D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs(191,0): at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.StartTimeUnreadable_OwnerThenGone_NoSecondStartBeforeTheDeadlinePlusMargin_AStartAfterIt()
+[xUnit.net 00:00:16.62]         --- End of stack trace from previous location ---
+[xUnit.net 00:00:16.63]   Finished:    CcDirector.Engine.Tests
+  Failed CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.RecordFailed_OwnerThenGone_NoSecondStartBeforeTheDeadlinePlusMargin_AStartAfterIt [18 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 0
+Actual:   1
+  Stack Trace:
+     at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.AssertHeldUntilTheDeadlineThenReleased(RunRecord run) in D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs:line 169
+   at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.RecordFailed_OwnerThenGone_NoSecondStartBeforeTheDeadlinePlusMargin_AStartAfterIt() in D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs:line 184
+--- End of stack trace from previous location ---
+  Failed CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.StartTimeUnreadable_OwnerThenGone_NoSecondStartBeforeTheDeadlinePlusMargin_AStartAfterIt [11 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 0
+Actual:   1
+  Stack Trace:
+     at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.AssertHeldUntilTheDeadlineThenReleased(RunRecord run) in D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs:line 169
+   at CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.StartTimeUnreadable_OwnerThenGone_NoSecondStartBeforeTheDeadlinePlusMargin_AStartAfterIt() in D:\ReposFred\devthrottle-2311-red3\src\CcDirector.Engine.Tests\Scheduling\DatabaseDecidesOpenRunsTests.cs:line 191
+--- End of stack trace from previous location ---
+  Passed CcDirector.Engine.Tests.Scheduling.DatabaseDecidesOpenRunsTests.OwnerGone_CommandNeverStarted_IsReleasedAtOnce [12 ms]
+
+Test Run Failed.
+Total tests: 4
+     Passed: 1
+     Failed: 3
+ Total time: 19.5633 Seconds

@@ -1,0 +1,10 @@
+MUTATION: the conditional release no longer requires the starting mark to be unchanged (line 'AND command_starting_at IS @mark' removed)
+ src/CcDirector.Engine/Storage/EngineDatabase.cs | 1 -
+ 1 file changed, 1 deletion(-)
+  Passed CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.ChildRecordAffectsZeroRows_TheCommandIsKilled [2 s]
+[xUnit.net 00:00:04.12]       Assert.Equal() Failure: Values differ
+  Passed CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.MigratedOpenOwnerBearingRunWithoutAMark_IsReleasedOnlyAtItsDeadline [55 ms]
+  Passed CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.OwnerUndecidable_RecordedCommandRunningPastTheDeadline_IsKept [298 ms]
+  Failed CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.CleanupReadsBeforeTheStartingMark_TheExecutorMarksInBetween_NoReleaseAndNoOverlap [124 ms]
+   Assert.Equal() Failure: Values differ
+     Failed: 1

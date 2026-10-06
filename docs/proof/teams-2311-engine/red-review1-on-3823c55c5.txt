@@ -1,0 +1,104 @@
+  Determining projects to restore...
+  Restored D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj (in 77 ms).
+  Restored D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Gateway.Contracts\CcDirector.Gateway.Contracts.csproj (in 76 ms).
+  Restored D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine\CcDirector.Engine.csproj (in 2.08 sec).
+  Restored D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Core\CcDirector.Core.csproj (in 2.08 sec).
+  Restored D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\CcDirector.Engine.Tests.csproj (in 2.08 sec).
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Engine.Tests -> D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll
+Test run for D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.66]   Discovering: CcDirector.Engine.Tests
+[xUnit.net 00:00:00.71]   Discovered:  CcDirector.Engine.Tests
+[xUnit.net 00:00:00.71]   Starting:    CcDirector.Engine.Tests
+[xUnit.net 00:00:01.55]     CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.JobEditedToAShorterTimeoutMidRun_UndecidableOwner_IsJudgedByTheTimeoutItWasClaimedWith [FAIL]
+[xUnit.net 00:00:01.55]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:01.55]       Expected: 0
+[xUnit.net 00:00:01.55]       Actual:   1
+[xUnit.net 00:00:01.55]       Stack Trace:
+[xUnit.net 00:00:01.55]         D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs(184,0): at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.JobEditedToAShorterTimeoutMidRun_UndecidableOwner_IsJudgedByTheTimeoutItWasClaimedWith()
+[xUnit.net 00:00:01.55]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:01.55]            at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  Failed CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.JobEditedToAShorterTimeoutMidRun_UndecidableOwner_IsJudgedByTheTimeoutItWasClaimedWith [800 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 0
+Actual:   1
+  Stack Trace:
+     at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.JobEditedToAShorterTimeoutMidRun_UndecidableOwner_IsJudgedByTheTimeoutItWasClaimedWith() in D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs:line 184
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:09.72]     CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.CancelledMidRun_TheCommandStops_AndTheOtherSchedulerDoesNotStartItWhileItLives [FAIL]
+[xUnit.net 00:00:09.72]       the cancelled command kept running after its Director shut down
+[xUnit.net 00:00:09.72]       Stack Trace:
+[xUnit.net 00:00:09.72]         D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs(112,0): at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.CancelledMidRun_TheCommandStops_AndTheOtherSchedulerDoesNotStartItWhileItLives()
+[xUnit.net 00:00:09.72]         D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs(125,0): at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.CancelledMidRun_TheCommandStops_AndTheOtherSchedulerDoesNotStartItWhileItLives()
+[xUnit.net 00:00:09.72]         --- End of stack trace from previous location ---
+  Failed CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.CancelledMidRun_TheCommandStops_AndTheOtherSchedulerDoesNotStartItWhileItLives [8 s]
+  Error Message:
+   the cancelled command kept running after its Director shut down
+  Stack Trace:
+     at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.CancelledMidRun_TheCommandStops_AndTheOtherSchedulerDoesNotStartItWhileItLives() in D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs:line 112
+   at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.CancelledMidRun_TheCommandStops_AndTheOtherSchedulerDoesNotStartItWhileItLives() in D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs:line 125
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:09.73]     CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.RevokedOwnersLateCompletion_ChangesNeitherTheVerdictNorTheSchedule [FAIL]
+[xUnit.net 00:00:09.73]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:09.73]       Expected: -1
+[xUnit.net 00:00:09.73]       Actual:   0
+[xUnit.net 00:00:09.73]       Stack Trace:
+[xUnit.net 00:00:09.73]         D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs(228,0): at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.RevokedOwnersLateCompletion_ChangesNeitherTheVerdictNorTheSchedule()
+[xUnit.net 00:00:09.73]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:09.73]            at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[xUnit.net 00:00:10.18]     CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.DirectorGoneWithItsCommandStillAlive_NoSecondStart [FAIL]
+[xUnit.net 00:00:10.18]       Assert.Null() Failure: Value of type 'Nullable<DateTime>' has a value
+[xUnit.net 00:00:10.18]       Expected: null
+[xUnit.net 00:00:10.18]       Actual:   2026-10-06T09:47:58.9533964-04:00
+[xUnit.net 00:00:10.18]       Stack Trace:
+[xUnit.net 00:00:10.18]         D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs(153,0): at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.DirectorGoneWithItsCommandStillAlive_NoSecondStart()
+[xUnit.net 00:00:10.18]         D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs(161,0): at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.DirectorGoneWithItsCommandStillAlive_NoSecondStart()
+[xUnit.net 00:00:10.18]         --- End of stack trace from previous location ---
+[xUnit.net 00:00:10.19]     CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.LiveOwner_IsNeverAgedOutByAnotherDirector [FAIL]
+[xUnit.net 00:00:10.20]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:00:10.20]       Expected: 0
+[xUnit.net 00:00:10.20]       Actual:   1
+[xUnit.net 00:00:10.20]       Stack Trace:
+[xUnit.net 00:00:10.20]         D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs(202,0): at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.LiveOwner_IsNeverAgedOutByAnotherDirector()
+[xUnit.net 00:00:10.20]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:10.20]            at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+[xUnit.net 00:00:10.20]   Finished:    CcDirector.Engine.Tests
+  Failed CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.RevokedOwnersLateCompletion_ChangesNeitherTheVerdictNorTheSchedule [13 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: -1
+Actual:   0
+  Stack Trace:
+     at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.RevokedOwnersLateCompletion_ChangesNeitherTheVerdictNorTheSchedule() in D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs:line 228
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+  Failed CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.DirectorGoneWithItsCommandStillAlive_NoSecondStart [447 ms]
+  Error Message:
+   Assert.Null() Failure: Value of type 'Nullable<DateTime>' has a value
+Expected: null
+Actual:   2026-10-06T09:47:58.9533964-04:00
+  Stack Trace:
+     at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.DirectorGoneWithItsCommandStillAlive_NoSecondStart() in D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs:line 153
+   at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.DirectorGoneWithItsCommandStillAlive_NoSecondStart() in D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs:line 161
+--- End of stack trace from previous location ---
+  Failed CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.LiveOwner_IsNeverAgedOutByAnotherDirector [14 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: 0
+Actual:   1
+  Stack Trace:
+     at CcDirector.Engine.Tests.Scheduling.ClaimCoversTheCommandTests.LiveOwner_IsNeverAgedOutByAnotherDirector() in D:\ReposFred\devthrottle-2311-redcheck\src\CcDirector.Engine.Tests\Scheduling\ClaimCoversTheCommandTests.cs:line 202
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.RuntimeMethodInfo.Invoke(Object obj, BindingFlags invokeAttr, Binder binder, Object[] parameters, CultureInfo culture)
+
+Test Run Failed.
+Total tests: 5
+     Failed: 5
+ Total time: 12.2295 Seconds

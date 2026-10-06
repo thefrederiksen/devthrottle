@@ -1,0 +1,33 @@
+Run against 1ecafa12f: the reviewed head, with only this test added and no source change.
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2311-engine\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2311-engine\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2311-engine\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2311-engine\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.Engine.Tests -> D:\ReposFred\devthrottle-teams-2311-engine\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll
+Test run for D:\ReposFred\devthrottle-teams-2311-engine\src\CcDirector.Engine.Tests\bin\Debug\net10.0\CcDirector.Engine.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.23]   Discovering: CcDirector.Engine.Tests
+[xUnit.net 00:00:00.27]   Discovered:  CcDirector.Engine.Tests
+[xUnit.net 00:00:00.28]   Starting:    CcDirector.Engine.Tests
+[xUnit.net 00:00:00.83]     CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.HistoryPurge_KeepsAnOldUnfinishedRunWithARunningCommand_AndASecondDirectorCannotClaimIt [FAIL]
+[xUnit.net 00:00:00.83]       Assert.NotNull() Failure: Value is null
+[xUnit.net 00:00:00.83]       Stack Trace:
+[xUnit.net 00:00:00.83]         D:\ReposFred\devthrottle-teams-2311-engine\src\CcDirector.Engine.Tests\Storage\NoReleaseWithoutProofTests.cs(109,0): at CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.HistoryPurge_KeepsAnOldUnfinishedRunWithARunningCommand_AndASecondDirectorCannotClaimIt()
+[xUnit.net 00:00:00.83]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:00.83]            at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.84]   Finished:    CcDirector.Engine.Tests
+  Failed CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.HistoryPurge_KeepsAnOldUnfinishedRunWithARunningCommand_AndASecondDirectorCannotClaimIt [498 ms]
+  Error Message:
+   Assert.NotNull() Failure: Value is null
+  Stack Trace:
+     at CcDirector.Engine.Tests.Storage.NoReleaseWithoutProofTests.HistoryPurge_KeepsAnOldUnfinishedRunWithARunningCommand_AndASecondDirectorCannotClaimIt() in D:\ReposFred\devthrottle-teams-2311-engine\src\CcDirector.Engine.Tests\Storage\NoReleaseWithoutProofTests.cs:line 109
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+
+Test Run Failed.
+Total tests: 1
+     Failed: 1
+ Total time: 1.4022 Seconds
