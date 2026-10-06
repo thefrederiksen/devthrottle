@@ -112,6 +112,9 @@ public sealed class GatewayHostBootSmokeTests
     // A dev report sent to a member of a team, and that member's comments (devthrottle_internal#2309).
     private const string DevReportSharingPostgresMigration = "20261005234644_AddDevReportSharing";
     private const string DevReportSharingSqliteMigration = "20261005234625_AddDevReportSharing";
+    // The factory registry and goal numbers (Factories screen mission, phase A) - the newest.
+    private const string FactoryRegistryPostgresMigration = "20261006140813_AddFactoryRegistry";
+    private const string FactoryRegistrySqliteMigration = "20261006140613_AddFactoryRegistry";
 
     // Requests to a team's Owner and Managers (devthrottle_internal#2308), after the message links.
     private const string TeamRequestsPostgresMigration = "20261005124444_AddTeamRequests";
@@ -186,7 +189,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(MessageLinkRequestsPostgresMigration, migrations);
         Assert.Contains(LessonsPostgresMigration, migrations);
         Assert.Contains(DevReportSharingPostgresMigration, migrations);
-        Assert.Equal(DevReportSharingPostgresMigration, migrations[^1]);
+        Assert.Contains(FactoryRegistryPostgresMigration, migrations);
+        Assert.Equal(FactoryRegistryPostgresMigration, migrations[^1]);
     }
 
     /// <summary>
@@ -248,7 +252,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(MessageLinkRequestsSqliteMigration, sqliteAll);
         Assert.Contains(LessonsSqliteMigration, sqliteAll);
         Assert.Contains(DevReportSharingSqliteMigration, sqliteAll);
-        Assert.Equal(DevReportSharingSqliteMigration, sqliteAll[^1]);
+        Assert.Contains(FactoryRegistrySqliteMigration, sqliteAll);
+        Assert.Equal(FactoryRegistrySqliteMigration, sqliteAll[^1]);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
@@ -354,8 +359,9 @@ public sealed class GatewayHostBootSmokeTests
             TeamRequestsSqliteMigration,
             MessageLinkRequestsSqliteMigration,
             LessonsSqliteMigration,
-            DevReportSharingSqliteMigration);
-        Assert.Equal(DevReportSharingSqliteMigration, applied[^1]);
+            DevReportSharingSqliteMigration,
+            FactoryRegistrySqliteMigration);
+        Assert.Equal(FactoryRegistrySqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
@@ -414,8 +420,9 @@ public sealed class GatewayHostBootSmokeTests
             TeamRequestsPostgresMigration,
             MessageLinkRequestsPostgresMigration,
             LessonsPostgresMigration,
-            DevReportSharingPostgresMigration);
-        Assert.Equal(DevReportSharingPostgresMigration, migrations[^1]);
+            DevReportSharingPostgresMigration,
+            FactoryRegistryPostgresMigration);
+        Assert.Equal(FactoryRegistryPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }

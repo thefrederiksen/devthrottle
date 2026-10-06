@@ -1,0 +1,387 @@
+"""`cc-devthrottle factory register|list` and `factory goal-number post|show` (Factories screen mission, phase A).
+
+These answer from a REAL local HTTP server, so the whole path - the shared transport, its error mapping and these
+commands' handling - runs as it does against a Gateway. What matters most: the manifest's goal file is read and its
+TEXT is sent, an unknown manifest key is refused rather than dropped, a number that was not kept never exits 0,
+and an empty answer is said out loud rather than printed as nothing.
+"""
+
+import json
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import pytest
+from typer.testing import CliRunner
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from cc_shared import axi_output  # noqa: E402
+from src.cli import app  # noqa: E402
+
+runner = CliRunner()
+
+
+class _Gateway:
+    """A local HTTP server answering every request with one fixed status and body, keeping each call."""
+
+    def __init__(self, status, body):
+        self.status = status
+        self.body = body
+        self.calls = []
+        owner = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def _answer(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                raw = self.rfile.read(length) if length else b""
+                owner.calls.append({
+                    "method": self.command,
+                    "path": self.path,
+                    "auth": self.headers.get("Authorization"),
+                    "body": json.loads(raw) if raw else None,
+                })
+                payload = json.dumps(owner.body).encode("utf-8") if owner.body is not None else b""
+                self.send_response(owner.status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+
+            do_GET = _answer
+            do_POST = _answer
+            do_PUT = _answer
+
+            def log_message(self, *args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    @property
+    def url(self):
+        return f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def gateway_answering(monkeypatch):
+    servers = []
+
+    def start(status, body):
+        server = _Gateway(status, body)
+        servers.append(server)
+        monkeypatch.setenv("CC_GATEWAY_URL", server.url)
+        return server
+
+    yield start
+    for server in servers:
+        server.close()
+
+
+def _factory_folder(tmp_path, goal="A cash engine that runs without your time.\n"):
+    folder = tmp_path / "warmforward-factory"
+    folder.mkdir()
+    if goal is not None:
+        (folder / "GOAL.md").write_text(goal, encoding="utf-8")
+    return folder
+
+
+def _manifest(tmp_path, folder, **overrides):
+    manifest = {
+        "factory": "warmforward",
+        "title": "WarmForward",
+        "folder": str(folder),
+        "computer": "SOREN_NORTH",
+        "ceoSeat": "nora-hale",
+        "goalFile": "GOAL.md",
+        "goalApprovedOn": "2026-10-04",
+        "seats": [
+            {"id": "nora-hale", "name": "Nora Hale", "role": "CEO", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"]},
+            {"id": "value-hunter", "name": "Value Hunter", "role": "Value Hunter", "briefFile": "agents/value.yaml", "schedules": []},
+        ],
+    }
+    manifest.update(overrides)
+    path = tmp_path / "warmforward.manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    return path
+
+
+REGISTERED = {
+    "factory": "warmforward", "title": "WarmForward", "folder": "D:\\f", "computer": "SOREN_NORTH",
+    "ceoSeat": "nora-hale", "goalText": "A cash engine.", "goalFile": "GOAL.md", "goalApprovedOn": "2026-10-04",
+    "seats": [
+        {"id": "nora-hale", "name": "Nora Hale", "role": "CEO", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"], "computer": "SOREN_NORTH"},
+        {"id": "value-hunter", "name": "Value Hunter", "role": "Value Hunter", "briefFile": "agents/value.yaml", "schedules": [], "computer": "SOREN_NORTH"},
+    ],
+    "registeredBy": "session s1", "registeredAtUtc": "2026-10-06T12:00:00Z",
+}
+
+
+# ---------------------------------------------------------------------------------------------------
+# factory register
+# ---------------------------------------------------------------------------------------------------
+
+def test_register_SendsTheManifestWithTheGoalFilesText_AndPrintsTheSeats(gateway_answering, tmp_path):
+    gw = gateway_answering(200, REGISTERED)
+    folder = _factory_folder(tmp_path)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder))])
+
+    assert result.exit_code == 0, result.output
+    call = gw.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "/gateway/factory/registry"
+    assert call["auth"] == "Bearer test-session-key"
+    assert call["body"]["goalText"] == "A cash engine that runs without your time.\n"
+    assert call["body"]["goalFile"] == "GOAL.md"
+    assert call["body"]["seats"][0]["schedules"] == ["cj_a721e6"]
+    assert "registered: warmforward" in result.stdout
+    assert "goal: set, approved 2026-10-04 (GOAL.md)" in result.stdout
+    _, seats = axi_output.parse_list(result.stdout, "seats")
+    assert [s["id"] for s in seats] == ["nora-hale", "value-hunter"]
+    assert seats[0]["name"] == "Nora Hale"
+
+
+def test_register_NoGoalFile_SendsNoGoalText(gateway_answering, tmp_path):
+    gw = gateway_answering(200, dict(REGISTERED, goalText=None, goalFile=None, goalApprovedOn=None))
+    folder = _factory_folder(tmp_path, goal=None)
+    manifest = _manifest(tmp_path, folder)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    del data["goalFile"], data["goalApprovedOn"]
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(manifest)])
+
+    assert result.exit_code == 0, result.output
+    assert "goalText" not in gw.calls[0]["body"]
+    assert "goal: none" in result.stdout
+
+
+def test_register_GoalFileMissing_ExitsNonZeroAndSendsNothing(gateway_answering, tmp_path):
+    gw = gateway_answering(200, REGISTERED)
+    folder = _factory_folder(tmp_path, goal=None)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder))])
+
+    assert result.exit_code == 1
+    assert "goal file" in result.stderr and "does not exist" in result.stderr
+    assert gw.calls == []
+
+
+def test_register_UnknownManifestKey_IsRefusedNotDropped(gateway_answering, tmp_path):
+    gw = gateway_answering(200, REGISTERED)
+    folder = _factory_folder(tmp_path)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder, goalfile="GOAL.md"))])
+
+    assert result.exit_code == 1
+    assert "goalfile" in result.stderr
+    assert gw.calls == []
+
+
+def test_register_UnknownSeatKey_IsRefused(gateway_answering, tmp_path):
+    gw = gateway_answering(200, REGISTERED)
+    folder = _factory_folder(tmp_path)
+    seats = [{"id": "nora-hale", "name": "Nora Hale", "role": "CEO", "briefFile": "a.yaml", "schedules": [], "brief": "x"}]
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder, seats=seats))])
+
+    assert result.exit_code == 1
+    assert "brief" in result.stderr
+    assert gw.calls == []
+
+
+def test_register_ManifestNotJson_ExitsNonZero(gateway_answering, tmp_path):
+    gateway_answering(200, REGISTERED)
+    bad = tmp_path / "m.json"
+    bad.write_text("factory: warmforward\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(bad)])
+
+    assert result.exit_code == 1
+    assert "not readable JSON" in result.stderr
+
+
+def test_register_GatewayRefuses_ExitsNonZeroWithItsSentence(gateway_answering, tmp_path):
+    gateway_answering(400, {"error": "The folder 'x' must be an absolute path on the factory's computer."})
+    folder = _factory_folder(tmp_path)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder))])
+
+    assert result.exit_code == 1
+    assert "Not registered:" in result.stderr
+    assert "must be an absolute path" in result.stderr
+
+
+def test_register_SwitchOff_SaysTheFeatureIsOff(gateway_answering, tmp_path):
+    gateway_answering(404, None)
+    folder = _factory_folder(tmp_path)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder))])
+
+    assert result.exit_code == 1
+    assert "switched off" in result.stderr
+
+
+def test_register_Json_PrintsTheGatewaysAnswer(gateway_answering, tmp_path):
+    gateway_answering(200, REGISTERED)
+    folder = _factory_folder(tmp_path)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder)), "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == REGISTERED
+
+
+# ---------------------------------------------------------------------------------------------------
+# factory list
+# ---------------------------------------------------------------------------------------------------
+
+def test_list_PrintsEveryFactoryInFull_WithACount(gateway_answering):
+    other = dict(REGISTERED, factory="website-business-factory-long-id", title="Website Business, Inc.",
+                 ceoSeat=None, goalText=None)
+    gw = gateway_answering(200, {"count": 2, "factories": [REGISTERED, other]})
+
+    result = runner.invoke(app, ["factory", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["path"] == "/gateway/factory/registry"
+    assert "count: 2" in result.stdout
+    _, rows = axi_output.parse_list(result.stdout, "factories")
+    assert [r["id"] for r in rows] == ["warmforward", "website-business-factory-long-id"]
+    assert rows[1]["title"] == "Website Business, Inc."
+    assert rows[0]["goal"] == "yes" and rows[1]["goal"] == "no"
+    assert rows[0]["seats"] == "2"
+
+
+def test_list_None_SaysCountZero(gateway_answering):
+    gateway_answering(200, {"count": 0, "factories": []})
+
+    result = runner.invoke(app, ["factory", "list"])
+
+    assert result.exit_code == 0, result.output
+    assert "count: 0" in result.stdout
+    assert "factory register --manifest" in result.stdout
+
+
+def test_list_Json_IsTheGatewaysAnswerUnchanged(gateway_answering):
+    answer = {"count": 1, "factories": [REGISTERED]}
+    gateway_answering(200, answer)
+
+    result = runner.invoke(app, ["factory", "list", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == answer
+
+
+def test_list_AnswerWithNoList_IsAnErrorNotNone(gateway_answering):
+    gateway_answering(200, {"items": []})
+
+    result = runner.invoke(app, ["factory", "list"])
+
+    assert result.exit_code == 1
+    assert "no list of factories" in result.stderr
+
+
+# ---------------------------------------------------------------------------------------------------
+# factory goal-number
+# ---------------------------------------------------------------------------------------------------
+
+POST = ["factory", "goal-number", "post", "--factory", "warmforward", "--value", "not yet proven",
+        "--unit", "propane saved this season", "--date", "2026-10-06",
+        "--link", "https://github.com/thefrederiksen/websites/issues/276"]
+
+POSTED = {"id": "0b6f0000-0000-4000-8000-000000000001", "factory": "warmforward", "value": "not yet proven",
+          "unit": "propane saved this season", "asOf": "2026-10-06",
+          "link": "https://github.com/thefrederiksen/websites/issues/276", "postedBy": "nora-hale",
+          "postedBySession": "s1", "postedAtUtc": "2026-10-06T10:20:00Z"}
+
+
+def test_post_SendsTheNumber_AndPrintsWhatWasKept(gateway_answering):
+    gw = gateway_answering(201, POSTED)
+
+    result = runner.invoke(app, POST + ["--by", "nora-hale"])
+
+    assert result.exit_code == 0, result.output
+    call = gw.calls[0]
+    assert call["method"] == "POST" and call["path"] == "/gateway/factory/goal-numbers"
+    assert call["body"] == {"factory": "warmforward", "value": "not yet proven", "unit": "propane saved this season",
+                            "asOf": "2026-10-06", "link": "https://github.com/thefrederiksen/websites/issues/276",
+                            "postedBy": "nora-hale"}
+    assert f"posted: {POSTED['id']}" in result.stdout
+    assert "posted by: nora-hale" in result.stdout
+
+
+def test_post_NoBy_SendsNoPoster_SoTheGatewaySettlesIt(gateway_answering):
+    gw = gateway_answering(201, POSTED)
+
+    result = runner.invoke(app, POST)
+
+    assert result.exit_code == 0, result.output
+    assert "postedBy" not in gw.calls[0]["body"]
+
+
+def test_post_NotRegistered_ExitsNonZeroWithTheReason(gateway_answering):
+    gateway_answering(409, {"error": "The factory 'warmforward' is not registered, so it has no goal number to post."})
+
+    result = runner.invoke(app, POST)
+
+    assert result.exit_code == 1
+    assert "Not posted:" in result.stderr and "not registered" in result.stderr
+
+
+def test_post_SuccessWithNoId_IsNotReportedAsPosted(gateway_answering):
+    gateway_answering(201, {"factory": "warmforward"})
+
+    result = runner.invoke(app, POST)
+
+    assert result.exit_code == 1
+    assert "Not posted:" in result.stderr
+
+
+def test_show_ListsThePostsNewestFirst_WithTheTotal(gateway_answering):
+    older = dict(POSTED, id="0b6f0000-0000-4000-8000-000000000000", value="0", asOf="2026-10-05")
+    gw = gateway_answering(200, {"factory": "warmforward", "latest": POSTED, "count": 5, "posts": [POSTED, older]})
+
+    result = runner.invoke(app, ["factory", "goal-number", "show", "--factory", "warmforward", "-n", "2"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["path"] == "/gateway/factory/goal-numbers?factory=warmforward&count=2"
+    assert "count: 2 of 5 total" in result.stdout
+    assert "not yet proven" in result.stdout and POSTED["id"] in result.stdout
+    assert "--count 5" in result.stdout
+
+
+def test_show_NothingPosted_SaysSo(gateway_answering):
+    gateway_answering(200, {"factory": "warmforward", "latest": None, "count": 0, "posts": []})
+
+    result = runner.invoke(app, ["factory", "goal-number", "show", "--factory", "warmforward"])
+
+    assert result.exit_code == 0, result.output
+    assert "count: 0" in result.stdout
+    assert "No goal number posted yet." in result.stdout
+
+
+def test_show_Json_IsTheGatewaysAnswerUnchanged(gateway_answering):
+    answer = {"factory": "warmforward", "latest": POSTED, "count": 1, "posts": [POSTED]}
+    gateway_answering(200, answer)
+
+    result = runner.invoke(app, ["factory", "goal-number", "show", "--factory", "warmforward", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == answer
+
+
+def test_actions_ListTheRegistryVerbs():
+    result = runner.invoke(app, ["actions", "--json"])
+
+    assert result.exit_code == 0
+    ids = {action["id"] for action in json.loads(result.output)["actions"]}
+    assert {"factory-register", "factory-list", "factory-goal-number-post", "factory-goal-number-show"}.issubset(ids)

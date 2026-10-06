@@ -160,6 +160,8 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
         var gate = FactoryAgentsGate.Group(app, sw, resolve);
         FactoryActivityEndpoints.Map(gate, record);
         FactoryMapEndpoints.Map(gate, new FactoryMapStore(new TenantSettingsStore(Db)), resolve);
+        FactoryRegistryEndpoints.Map(gate, resolve, new CcDirector.Gateway.Factory.Registry.FactoryRegistryStore(Db),
+            sessionStart: (_, _) => null, nowUtc: () => _now);
         FactoryAgentsViewEndpoints.Map(gate, resolve, sources);
         TriggerEndpoints.Map(FactoryAgentsGate.Group(app, sw, resolve), resolve, triggers,
             directorMachine: (_, _) => "NORTH", nowUtc: () => _now, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
@@ -209,6 +211,10 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
         Assert.Contains("GET /gateway/factory-agents/waiting", names);
         Assert.Contains("POST /gateway/factory-agents/reports", names);
         Assert.Contains("PUT /gateway/factory/map", names);
+        Assert.Contains("PUT /gateway/factory/registry", names);
+        Assert.Contains("GET /gateway/factory/registry", names);
+        Assert.Contains("POST /gateway/factory/goal-numbers", names);
+        Assert.Contains("GET /gateway/factory/goal-numbers", names);
         Assert.Contains("GET /gateway/factory-agents/factories/{factory}/map", names);
         Assert.True(gated.Count >= 20, $"expected every factory route, found {gated.Count}: {string.Join(", ", names)}");
 

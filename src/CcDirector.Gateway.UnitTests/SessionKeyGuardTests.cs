@@ -242,6 +242,11 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/triggers/website-new-mail/pause")]
     [InlineData("POST", "/triggers/website-new-mail/resume")]
     [InlineData("GET", "/triggers/website-new-mail/runs")]
+    // The factory registry and goal numbers: `cc-devthrottle factory register|list|goal-number post|show`.
+    [InlineData("PUT", "/gateway/factory/registry")]
+    [InlineData("GET", "/gateway/factory/registry")]
+    [InlineData("POST", "/gateway/factory/goal-numbers")]
+    [InlineData("GET", "/gateway/factory/goal-numbers")]
     public void The_methods_and_paths_the_shipped_clients_send_are_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is what the shipped client sends; refusing it returns 403 to every agent");
@@ -266,6 +271,19 @@ public sealed class SessionKeyGuardTests
     public void Workspace_shapes_the_Gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is not a routed workspace shape and must not be authorized");
+
+    [Theory]
+    // The registry and goal number routes are allowed in exactly the shapes the commands send. A delete, a
+    // second-level path or the other verb is not routed, and must be classified before a session key reaches it.
+    [InlineData("DELETE", "/gateway/factory/registry")]
+    [InlineData("POST", "/gateway/factory/registry")]
+    [InlineData("PUT", "/gateway/factory/registry/warmforward")]
+    [InlineData("PUT", "/gateway/factory/goal-numbers")]
+    [InlineData("DELETE", "/gateway/factory/goal-numbers")]
+    [InlineData("POST", "/gateway/factory/goal-numbers/abc")]
+    public void Factory_registry_shapes_the_commands_do_not_send_stay_refused(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
+            $"{method} {path} is not a shape the factory commands send and must not be authorized");
 
     [Theory]
     // A check report decides whether a session starts, so a session that could forge one could start sessions at
