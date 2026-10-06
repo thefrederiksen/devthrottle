@@ -1,0 +1,54 @@
+Round 2 red checks, run in a throwaway worktree cut from e366690f7, 2026-10-06.
+
+== RM-F4: the round 1 rule - a code-only body or the generic 'missing or invalid token' stops the Director (classifier tests)
+   mutated: src\CcDirector.Core\GatewayConnection\GatewayKeyRefusal.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~GatewayKeyRefusalTests
+   verdict: RED (caught)
+   Failed!  - Failed:     3, Passed:    14, Skipped:     0, Total:    17, Duration: 200 ms - CcDirector.Core.UnitTests.dll (net10.0)
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_NotTheGatewaysRevokeAnswerInFull_IsNoRefusal(body: "{\"error\":\"missing or invalid token\"}") [2 ms]
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_NotTheGatewaysRevokeAnswerInFull_IsNoRefusal(body: "{\"code\":\"device_credential_revoked\",\"reason\""...) [< 1 ms]
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_NotTheGatewaysRevokeAnswerInFull_IsNoRefusal(body: "{\"code\":\"device_credential_revoked\"}") [< 1 ms]
+
+== RM-F4: the same rule, against a real SignalR hub behind a 401 front (tunnel tests)
+   mutated: src\CcDirector.Core\GatewayConnection\GatewayKeyRefusal.cs
+   tests:   src\CcDirector.Avalonia.Tests --filter FullyQualifiedName~RemovedDirectorTunnelTests
+   verdict: RED (caught)
+   Failed!  - Failed:     2, Passed:     9, Skipped:     0, Total:    11, Duration: 1 m 5 s - CcDirector.Avalonia.Tests.dll (net10.0)
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.Tunnel_GenericMissingOrInvalidTokenUnauthorized_KeepsRetrying_AndRecovers [20 s]
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.Tunnel_CodeOnlyRevokeObject_KeepsRetrying_AndRecovers [20 s]
+
+== RM-F5: a recorded suggestion follows a move whatever team is being left (round 1 Decide)
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: RED (caught)
+   Failed!  - Failed:     3, Passed:    22, Skipped:     0, Total:    25, Duration: 229 ms - CcDirector.Core.UnitTests.dll (net10.0)
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.Decide_RecordForAnotherTeamThanTheOneBeingLeft_KeepsTheName(leavingTeamId: "t-c") [2 ms]
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.Decide_RecordForAnotherTeamThanTheOneBeingLeft_KeepsTheName(leavingTeamId: null) [< 1 ms]
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.TeamARecord_MovedToPersonalWithTheRemovalFailing_ThenToTeamB_NameUnchanged [8 ms]
+
+== RM-F6: the refusal names whatever team file is on disk, whichever key it was saved for (Core store tests)
+   mutated: src\CcDirector.Core\Teams\DirectorTeamStore.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~TeamNameForKeyTests
+   verdict: RED (caught)
+   Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 117 ms - CcDirector.Core.UnitTests.dll (net10.0)
+   Failed CcDirector.Core.Tests.Teams.TeamNameForKeyTests.TeamNameForKey_TeamSavedWithNoKey_OrNothingSaved_NamesNoTeam [14 ms]
+   Failed CcDirector.Core.Tests.Teams.TeamNameForKeyTests.TeamNameForKey_TeamFileLeftFromAnotherKey_NamesNoTeam [5 ms]
+
+== RM-F6: the same, through the tunnel against a stand-in Gateway's removal answer
+   mutated: src\CcDirector.Core\Teams\DirectorTeamStore.cs
+   tests:   src\CcDirector.Avalonia.Tests --filter FullyQualifiedName~RemovedDirectorTunnelTests
+   verdict: RED (caught)
+   Failed!  - Failed:     1, Passed:    10, Skipped:     0, Total:    11, Duration: 33 s - CcDirector.Avalonia.Tests.dll (net10.0)
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.Tunnel_RemovalWithAStaleTeamFileFromAnotherKey_DoesNotNameThatTeam [98 ms]
+
+== RM-F7: a later failure of the move drops what happened to the name
+   mutated: src\CcDirector.Core\Teams\DirectorTeamMover.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: RED (caught)
+   Failed!  - Failed:     3, Passed:    22, Skipped:     0, Total:    25, Duration: 372 ms - CcDirector.Core.UnitTests.dll (net10.0)
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.MoveAsync_NameChangedButNotRecordedAndReapplyFails_BothAreReported [4 ms]
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.MoveAsync_NameRecordAndTeamSaveBothFail_BothAreReported [8 ms]
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.MoveAsync_NameNotChangedAndKeySaveFails_BothAreReported [1 ms]
+
+git status after every restore (must be empty):
+
