@@ -1,6 +1,6 @@
 Revert proofs for the team Director routes change, 2026-10-06. Each: one mutation of the shipped code, the projects rebuilt, the named tests run,
 the result recorded, and the file restored (checked clean with git diff). Run by a script, in order; M3 and M5 were re-run after a first
-attempt that did not compile (M3) or removed more than the one refusal (M5) - those two attempts are not recorded.
+attempt that did not compile (M3, and M13 and M14 the first time) or removed more than the one refusal (M5) - those attempts are not recorded.
 
 === M1 the GET /sessions rule removed (the state before this change)
 file: src/CcDirector.Gateway/Teams/TeamEndpointRules.cs
@@ -93,5 +93,19 @@ file: src/CcDirector.Gateway/Workspaces/WorkspaceStore.cs
 filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.Workspaces
 Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.Workspaces_TheListIsCutToTheCallersOwnDirectors_ACollaboratorIsRefused [77 ms]
 Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 77 ms - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M13 the narration owner answered by the previous rule (one lister or nobody) - over the wire
+file: src/CcDirector.Gateway/Teams/TeamCallerOwnership.cs
+filter: FullyQualifiedName~TheOwnersNarrationPlan
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.TheOwnersNarrationPlan_IsTheTeamTier_WhileAColleaguesDirectorListsTheSessionToo [35 ms]
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 35 ms - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M14 the narration owner answered by the previous rule (one lister or nobody) - unit
+file: src/CcDirector.Gateway/Teams/TeamCallerOwnership.cs
+filter: FullyQualifiedName~PersonOfSession|FullyQualifiedName~TeamDirectorTunnelTests
+Failed CcDirector.Gateway.Tests.Teams.TeamDirectorRoutesTests.PersonOfSession_AKeyedSessionAColleaguesDirectorAlsoLists_IsStillItsOwners [3 s]
+Failed!  - Failed:     1, Passed:    65, Skipped:     0, Total:    66, Duration: 15 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 restored: clean
 
