@@ -1,0 +1,23 @@
+Test run for D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.20]   Discovering: CcDirector.Gateway.Tests
+2026-10-06 08:11:48 pid 40000: [gateway-test-lock] WAITING. Another run of CcDirector.Gateway.Tests holds the per-user test lock, and this suite is destroyed by concurrent runs, so this run is queued rather than started. THIS IS NOT A HANG. Holder: process 71752, started 2026-10-06T12:10:03.6090054Z, holding since 2026-10-06T12:10:37.6487509Z (71s ago), owner cc-director session 6e74d41b-f4c1-4d9b-9e29-79c9949d7525, working directory D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Tests\bin\Debug\net10.0. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock. When the holder's process ends the lock is released by the operating system and this run starts on its own. If the holder is still alive after 45 minutes this run FAILS rather than running alongside it.
+2026-10-06 08:11:48 pid 40000: [gateway-test-lock] WAITING. Another run of CcDirector.Gateway.Tests holds the per-user test lock, and this suite is destroyed by concurrent runs, so this run is queued rather than started. THIS IS NOT A HANG. Holder: process 71752, started 2026-10-06T12:10:03.6090054Z, holding since 2026-10-06T12:10:37.6487509Z (71s ago), owner cc-director session 6e74d41b-f4c1-4d9b-9e29-79c9949d7525, working directory D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Tests\bin\Debug\net10.0. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock. When the holder's process ends the lock is released by the operating system and this run starts on its own. If the holder is still alive after 45 minutes this run FAILS rather than running alongside it.
+2026-10-06 08:12:18 pid 40000: [gateway-test-lock] Still waiting after 30s. Holder: process 71752, started 2026-10-06T12:10:03.6090054Z, holding since 2026-10-06T12:10:37.6487509Z (101s ago), owner cc-director session 6e74d41b-f4c1-4d9b-9e29-79c9949d7525, working directory D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Tests\bin\Debug\net10.0.
+2026-10-06 08:12:18 pid 40000: [gateway-test-lock] Still waiting after 30s. Holder: process 71752, started 2026-10-06T12:10:03.6090054Z, holding since 2026-10-06T12:10:37.6487509Z (101s ago), owner cc-director session 6e74d41b-f4c1-4d9b-9e29-79c9949d7525, working directory D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Tests\bin\Debug\net10.0.
+2026-10-06 08:12:49 pid 40000: [gateway-test-lock] Still waiting after 60s. Holder: process 71752, started 2026-10-06T12:10:03.6090054Z, holding since 2026-10-06T12:10:37.6487509Z (131s ago), owner cc-director session 6e74d41b-f4c1-4d9b-9e29-79c9949d7525, working directory D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Tests\bin\Debug\net10.0.
+2026-10-06 08:12:49 pid 40000: [gateway-test-lock] Still waiting after 60s. Holder: process 71752, started 2026-10-06T12:10:03.6090054Z, holding since 2026-10-06T12:10:37.6487509Z (131s ago), owner cc-director session 6e74d41b-f4c1-4d9b-9e29-79c9949d7525, working directory D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Tests\bin\Debug\net10.0.
+2026-10-06 08:13:13 pid 40000: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+2026-10-06 08:13:13 pid 40000: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+[xUnit.net 00:01:25.37]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:01:25.38]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_APersonalTenant_TheOneDirectorListingTheMarkedSession_IsSentTheLessons [1 s]
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_BothDirectorsListAlicesMarkedSession_OnlyAlicesDirectorIsSentTheLessons_OnAPushALessonsChangeAndAReconnect [9 s]
+[xUnit.net 00:02:10.24]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DirectorOf_OnlyBobsDirectorListsAlicesKeyedMarkedSession_TheLessonsGoToAlicesDirector_NeverBobs [9 s]
+
+Test Run Successful.
+Total tests: 3
+     Passed: 3
+ Total time: 2.1804 Minutes

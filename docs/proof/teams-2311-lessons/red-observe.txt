@@ -1,0 +1,34 @@
+Test run for D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.91]   Discovering: CcDirector.Gateway.Tests
+2026-10-06 08:15:07 pid 72776: [gateway-test-lock] WAITING. Another run of CcDirector.Gateway.Tests holds the per-user test lock, and this suite is destroyed by concurrent runs, so this run is queued rather than started. THIS IS NOT A HANG. Holder: process 24004, started 2026-10-06T12:13:36.2619179Z, holding since 2026-10-06T12:14:01.2643973Z (66s ago), owner cc-director session 6e74d41b-f4c1-4d9b-9e29-79c9949d7525, working directory D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Tests\bin\Debug\net10.0. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock. When the holder's process ends the lock is released by the operating system and this run starts on its own. If the holder is still alive after 45 minutes this run FAILS rather than running alongside it.
+2026-10-06 08:15:07 pid 72776: [gateway-test-lock] WAITING. Another run of CcDirector.Gateway.Tests holds the per-user test lock, and this suite is destroyed by concurrent runs, so this run is queued rather than started. THIS IS NOT A HANG. Holder: process 24004, started 2026-10-06T12:13:36.2619179Z, holding since 2026-10-06T12:14:01.2643973Z (66s ago), owner cc-director session 6e74d41b-f4c1-4d9b-9e29-79c9949d7525, working directory D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Tests\bin\Debug\net10.0. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock. When the holder's process ends the lock is released by the operating system and this run starts on its own. If the holder is still alive after 45 minutes this run FAILS rather than running alongside it.
+2026-10-06 08:15:19 pid 72776: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+2026-10-06 08:15:19 pid 72776: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+[xUnit.net 00:00:13.69]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:00:13.69]   Starting:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_APersonalTenant_TheOneDirectorListingTheMarkedSession_IsSentTheLessons [772 ms]
+[xUnit.net 00:00:29.25]     CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_BothDirectorsListAlicesMarkedSession_OnlyAlicesDirectorIsSentTheLessons_OnAPushALessonsChangeAndAReconnect [FAIL]
+[xUnit.net 00:00:29.25]       Assert.Null() Failure: Value is not null
+[xUnit.net 00:00:29.25]       Expected: null
+[xUnit.net 00:00:29.25]       Actual:   DirectorCommand { CommandId = "4b1a5ce6ba3a4e2dbd0d49b95f6b5dc8", PayloadJson = "{\"lessons\":\"[Fleet Manager lessons] 1 lesson fr"..., SessionId = "b8a8a5e7-d7ec-4777-8e03-804ab18088c4", Verb = "set-fleet-manager-lessons" }
+[xUnit.net 00:00:29.25]       Stack Trace:
+[xUnit.net 00:00:29.25]         D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\Teams\HostedTeamFleetManagerLessonsTests.cs(108,0): at CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_BothDirectorsListAlicesMarkedSession_OnlyAlicesDirectorIsSentTheLessons_OnAPushALessonsChangeAndAReconnect()
+[xUnit.net 00:00:29.25]         --- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_BothDirectorsListAlicesMarkedSession_OnlyAlicesDirectorIsSentTheLessons_OnAPushALessonsChangeAndAReconnect [210 ms]
+  Error Message:
+   Assert.Null() Failure: Value is not null
+Expected: null
+Actual:   DirectorCommand { CommandId = "4b1a5ce6ba3a4e2dbd0d49b95f6b5dc8", PayloadJson = "{\"lessons\":\"[Fleet Manager lessons] 1 lesson fr"..., SessionId = "b8a8a5e7-d7ec-4777-8e03-804ab18088c4", Verb = "set-fleet-manager-lessons" }
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.Observe_BothDirectorsListAlicesMarkedSession_OnlyAlicesDirectorIsSentTheLessons_OnAPushALessonsChangeAndAReconnect() in D:\ReposFred\devthrottle-teams-2311-gw2\src\CcDirector.Gateway.Tests\Teams\HostedTeamFleetManagerLessonsTests.cs:line 108
+--- End of stack trace from previous location ---
+[xUnit.net 00:00:41.90]   Finished:    CcDirector.Gateway.Tests
+  Passed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DirectorOf_OnlyBobsDirectorListsAlicesKeyedMarkedSession_TheLessonsGoToAlicesDirector_NeverBobs [9 s]
+
+Test Run Failed.
+Total tests: 3
+     Passed: 2
+     Failed: 1
+ Total time: 42.6090 Seconds
