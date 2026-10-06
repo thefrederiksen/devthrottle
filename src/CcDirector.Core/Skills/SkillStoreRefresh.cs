@@ -97,7 +97,10 @@ public sealed class SkillStoreRefresh
         // (SK-F2). Null when the Gateway does not say.
         var source = SourceNamedBy(register.Source);
 
+        // THE NETWORK HALF, with no lock held: decide what to fetch and fetch it. Only this refresh writes the store,
+        // so what it reads here cannot change underneath it; placement only reads.
         int unchanged = 0, refreshed = 0;
+        var fetched = new List<(RegisterRow Row, VersionDetail? Detail)>();
         foreach (var row in wanted)
         {
             // The register names the version the Gateway serves, and a version is immutable once
@@ -111,9 +114,27 @@ public sealed class SkillStoreRefresh
                 continue;
             }
 
-            var detail = await GetAsync<VersionDetail>(
+            fetched.Add((row, await GetAsync<VersionDetail>(
                 $"{baseUrl}/gateway/skills/{Uri.EscapeDataString(row.Id)}/versions/{row.Version}", token, ct)
-                .ConfigureAwait(false);
+                .ConfigureAwait(false)));
+        }
+
+        // THE WRITE HALF, under the store's own lock (review finding SK-F7). Placement holds the same lock while it
+        // reads a skill's recorded source and copies that skill's bytes, so the bytes it copies are always the bytes
+        // the source it stamps was recorded with: a refresh cannot rebuild a skill directory with another library's
+        // bytes between placement reading the source and copying the files. Refresh takes ONLY this lock; placement
+        // takes the shared-folder lock first and this one second, so the two can never wait on each other in a
+        // circle. A refresh that cannot have it in time changes nothing - the next cycle tries again.
+        using var storeLock = SharedSkillFolderLock.TryAcquire(new[] { store }, StoreLockWait);
+        if (storeLock is null)
+        {
+            FileLog.Write($"[SkillStoreRefresh] RefreshAsync: placement held the store {store} for more than " +
+                          $"{StoreLockWait.TotalSeconds:0}s - keeping the current store; the next cycle tries again");
+            return -1;
+        }
+
+        foreach (var (row, detail) in fetched)
+        {
             if (detail is null)
             {
                 // Leave whatever is already materialized for this skill in place: a skill we could not
@@ -166,6 +187,10 @@ public sealed class SkillStoreRefresh
                       $"({unchanged} already at the served version, {refreshed} downloaded)");
         return wanted.Count;
     }
+
+    /// <summary>How long the write half waits for a placement to finish reading the store. A placement takes well
+    /// under a second; this runs off the launch path, so it can afford to wait.</summary>
+    private static readonly TimeSpan StoreLockWait = TimeSpan.FromSeconds(60);
 
     /// <summary>The source the register named, or null when it names none in full.</summary>
     private static SkillSource? SourceNamedBy(RegisterSource? named) =>

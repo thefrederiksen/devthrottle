@@ -125,6 +125,28 @@ source lines as a placed copy, written last with the bytes (`Materialize(store, 
 - **On upgrade**, every store marker lacks the source lines, so the first refresh fetches each skill once more. A
   skill whose fetch fails then leaves the store and arrives on the next cycle that can read it.
 
+**Refresh and placement share one lock on the store (review finding SK-F7).** Both layers above held in sequence, but
+a refresh could rebuild a skill directory between placement reading its source and copying its bytes, so the new
+library's bytes went out under the old library's stamp. The store now has its own machine-wide named lock, the same
+kind as the folder lock. The refresh fetches with no lock held (only it writes the store), then takes the store lock
+for every write: materialise, drop, delete what is no longer served, record the source. Placement takes the
+shared-folder lock FIRST and the store lock SECOND, and holds both from reading the store's record and each skill's
+source to the last copy. The refresh takes only the store lock, so no two of them can wait on each other in a circle.
+A refresh that cannot have the lock within 60 seconds changes nothing; a placement that cannot have both within its
+10 seconds records `FolderBusy`, as before.
+
+**Cleanup deletes only what it can prove it made (review finding SK-F8).** Every folder the installer makes in a
+staging root - a copy being built, an old copy moved aside, a withdrawn one - is created and given the marker
+`.devthrottle-staging` BEFORE anything goes in, and the skill itself goes into a subfolder, so the marker never
+travels into the skills folder. Cleanup deletes a folder only when it is a real folder, has a name of the right shape,
+AND its marker's first line is this installer's signature. Anything else is left alone and logged.
+
+**Copies are built on the volume the skills folder really lives on (review finding SK-F9).** When a skills root is a
+link - a junction or a symbolic link, both followed the same way (`DirectoryInfo.ResolveLinkTarget`) - the staging root
+goes beside the link's final target, not beside the link's own spelling. If the target does not exist, or is the top
+of a drive, nothing is changed and every skill is reported as the new fault `FolderLinkUnresolved`, with its own
+sentence on the Director and on the Gateway's placement page.
+
 ## Tests
 
 First round. `src/CcDirector.Core.Tests/Skills/SkillSourceOwnershipTests.cs`, the real installer run twice over ONE pair
@@ -206,6 +228,22 @@ compared byte for byte with the diff before them.
 With one layer put back, the ruling's own test stays green, because the other layer still holds: the two layers are
 tested separately for that reason.
 
+### Review round 3 - the tests for SK-F7, SK-F8 and SK-F9
+
+| Finding | Tests |
+|---|---|
+| SK-F7 refresh racing placement | `SkillSourceEstablishmentTests`, the real refresh against the hermetic Gateway. `A_refresh_that_lands_while_placement_is_copying_never_gets_its_bytes_stamped_with_the_old_source` - 20 rounds alternating the account; on every round placement pauses right after reading a skill's source and starts a refresh to the OTHER account, giving it 300 ms to land before the copy. `Refresh_and_placement_racing_freely_for_many_rounds_never_relabel_a_librarys_bytes` - 60 rounds, three skills, a refresh and a placement released together. After every round, every placed copy carries the stamp of the library its bytes came from. |
+| SK-F8 only what it made | `SkillSwapTests`. `A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted` - four folders, three with names of exactly the right shape (the review's `backup.<32 hex>.old` among them), each with a marker file of the right NAME but not the installer's content, and somebody's file inside: all survive. `Every_folder_the_installer_makes_in_the_staging_folder_carries_its_marker_before_anything_else` - checked at every step, for a copy being built, an old copy and a withdrawn one. The kill tests now also check that the staging marker never reaches the skills folder. |
+| SK-F9 the real volume | `SkillSwapTests`, with a real junction on a temporary folder (a symbolic link on other systems). `A_skills_folder_that_is_a_link_has_its_copies_built_beside_the_folder_it_points_at` - placed, refreshed and withdrawn through the link; staging beside the target, none beside the link. `A_skills_folder_linked_to_nowhere_changes_nothing_and_says_why` - one `FolderLinkUnresolved`, the agent's folder never touched. Gateway: `SkillPlacementStoreTests.A_skills_folder_linked_to_nowhere_says_so_and_not_could_not_be_linked`. |
+
+### Review round 3 - the red checks - [red-check-review3.txt](red-check-review3.txt)
+
+| Finding | The old behaviour put back | Red |
+|---|---|---|
+| SK-F7 | placement takes no store lock | both race tests: `round 0: the team's bytes in '...\skills\both' are stamped 'personal'` (the forced one) and the same at round 2 of the free race. |
+| SK-F8 | cleanup trusts the name alone | the three right-shaped foreign folders: their contents are gone. The fourth, with a name of the wrong shape, survives either way. |
+| SK-F9 | the link is not followed | both link tests: the staging root is beside the link, and a link to nowhere is not refused. Both folders in the test are on one volume, so the red shows the WHERE, not a cross-volume move failing. |
+
 ### Runs
 
 | What | Result | File |
@@ -220,6 +258,10 @@ tested separately for that reason.
 | **Review round 2:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 75 passed, 0 failed | [test-runs-review2.txt](test-runs-review2.txt) |
 | **Review round 2:** `.\scripts\test-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review2.txt](gate-default-review2.txt) |
 | **Review round 2:** the Gateway suites | not run: round 2 changes no Gateway code (`git diff 60f0e64c1 --stat` touches `src/CcDirector.Core` and its tests only) | - |
+| **Review round 3:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 84 passed, 0 failed | [test-runs-review3.txt](test-runs-review3.txt) |
+| **Review round 3:** `.\scripts\test-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review3.txt](gate-default-review3.txt) |
+| **Review round 3:** `CcDirector.Gateway.UnitTests`, whole suite (the placement message changed) | first run 9412 passed, **1 failed**: `DirectorHubTests.Hello_WithNothingStoredForThisDirector_SaysSo_RatherThanStayingSilent`, `SQLite Error 14: unable to open database file` at a temporary path named for another test (`ccd-catalog-name-...`). Its class alone: 30 of 30, three times. Second whole run: 9413 passed, 0 failed. | [test-runs-review3.txt](test-runs-review3.txt) |
+| **Review round 3:** `CcDirector.Gateway.Tests`, filtered as before | **NOT RUN**: the suite's machine-wide lock was held by another session's run for over an hour; my run waited about five minutes and was stopped. Round 3 changes no Gateway route; its Gateway change is one sentence, covered by the unit test above. | [test-runs-review3.txt](test-runs-review3.txt) |
 
 The default gate's first run failed one test, `RetiredMessagingWordsTests`, because I was writing the gate's own
 output into this folder and the repository-wide scan could not open the locked file. Rerun with the output outside the
@@ -297,7 +339,10 @@ One run is not in the evidence. A first attempt of the full script was cut off a
 command (`Select-Object -First 80` ends the pipeline it reads from, which ended the script mid-step). It was rerun in
 full; the file above is that rerun.
 
-**Not rerun for review round 2.** Round 2 changes how a copy is written and removed, not what ends up in the two
+**Not rerun for review rounds 2 and 3.** Round 3 adds locks, the staging marker and link resolution; none of
+it changes what ends up in the two folders, and the rig's folders are not links.
+
+**Round 2 note.** Round 2 changes how a copy is written and removed, not what ends up in the two
 folders: every listing above would be the same. The staging folders are siblings of the two folders, outside what the
 rig lists.
 
@@ -305,6 +350,10 @@ rig lists.
 
 - **A kill by the operating system (review round 2).** The swap tests throw from inside the reconcile at each named
   step; no process was killed. Between the steps the code relies on a rename within one volume being a single step.
+- **Two Director PROCESSES racing over the store (review round 3).** The store-lock race tests run the refresh and
+  placement on two threads of one process, contending for the same named operating-system mutex two processes would.
+- **A real cross-volume link (review round 3).** The link test's folders are on one volume; it proves where staging
+  goes, not that a move across volumes fails without it.
 - **A rename refused because an agent holds a file open (review round 2).** On Windows a folder with an open file in it
   may refuse to be renamed. That case was not tested; it fails the reconcile with an exception, as a refused delete did
   before.

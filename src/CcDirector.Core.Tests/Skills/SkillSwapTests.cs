@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Skills;
 using Xunit;
@@ -10,6 +11,9 @@ namespace CcDirector.Core.Tests.Skills;
 /// no source stamp - is read by every one of them as the owner's own skill and frozen. So a reconciliation killed at
 /// ANY step must leave the name either holding a complete, stamped copy or empty, and the next reconciliation must
 /// put the skill back. Each test kills the reconciliation by throwing from inside it at one named step.
+///
+/// Also here: the cleanup of what a killed reconciliation leaves deletes only folders it can prove it made (SK-F8),
+/// and copies are built on the volume a linked skills folder really lives on (SK-F9).
 /// </summary>
 public sealed class SkillSwapTests : IDisposable
 {
@@ -18,6 +22,7 @@ public sealed class SkillSwapTests : IDisposable
     private string Store => Path.Combine(_root, "director", "skills", "installed");
     private string Shared => Path.Combine(_root, "home", ".agents", "skills");
     private string LinkRoot => Path.Combine(_root, "home", ".claude", "skills");
+    private string Staging => SkillDirectoryInstaller.StagingRootFor(Shared)!;
 
     private static readonly SkillSource Personal = new("gw-1", "tenant-person", null);
     private static readonly SkillSource TeamA = new("gw-1", "team-a", "team-a");
@@ -34,6 +39,8 @@ public sealed class SkillSwapTests : IDisposable
         }
         Directory.Delete(_root, recursive: true);
     }
+
+    // ---- SK-F5: never without its marker ---------------------------------------------------------------------
 
     [Theory]
     [InlineData("copying")]       // part-way through copying the files
@@ -60,7 +67,7 @@ public sealed class SkillSwapTests : IDisposable
             Assert.DoesNotContain(after.Problems, p => p.Fault == SkillPlacementFault.Shadowed);
             Assert.Contains("v2", File.ReadAllText(Path.Combine(LinkRoot, "keeper", "SKILL.md")));
             AssertNeverWithoutItsMarker(Path.Combine(Shared, "keeper"));
-            Assert.Empty(Directory.GetDirectories(SkillDirectoryInstaller.StagingRootFor(Shared)));
+            Assert.Empty(Directory.GetDirectories(Staging));
         }
     }
 
@@ -78,7 +85,7 @@ public sealed class SkillSwapTests : IDisposable
 
         Assert.Empty(Install(TeamA).Problems);
         Assert.Contains("v1", File.ReadAllText(Path.Combine(LinkRoot, "new-one", "SKILL.md")));
-        Assert.Empty(Directory.GetDirectories(SkillDirectoryInstaller.StagingRootFor(Shared)));
+        Assert.Empty(Directory.GetDirectories(Staging));
     }
 
     [Fact]
@@ -94,19 +101,20 @@ public sealed class SkillSwapTests : IDisposable
         Assert.Empty(Install(TeamA).Problems);
         Assert.False(Directory.Exists(Path.Combine(Shared, "gone")));
         Assert.False(Directory.Exists(Path.Combine(LinkRoot, "gone")));
-        Assert.Empty(Directory.GetDirectories(SkillDirectoryInstaller.StagingRootFor(Shared)));
+        Assert.Empty(Directory.GetDirectories(Staging));
     }
 
     [Fact]
-    public void Nothing_is_ever_built_inside_a_skills_folder_and_a_staging_folder_name_this_code_did_not_make_is_kept()
+    public void Nothing_is_ever_built_inside_a_skills_folder()
     {
-        var foreign = Path.Combine(SkillDirectoryInstaller.StagingRootFor(Shared), "somebody-elses-folder");
-        Directory.CreateDirectory(foreign);
         Holds(Personal, ("keeper", "v1"));
 
         var inside = new List<string>();
         SkillDirectoryInstaller.SwapStepForTests.Value = (_, _) =>
-            inside.AddRange(Directory.GetDirectories(Shared).Select(Path.GetFileName)!);
+        {
+            if (Directory.Exists(Shared))
+                inside.AddRange(Directory.GetDirectories(Shared).Select(d => Path.GetFileName(d)));
+        };
         try
         {
             Install(Personal);
@@ -117,7 +125,103 @@ public sealed class SkillSwapTests : IDisposable
         }
 
         Assert.All(inside, name => Assert.Equal("keeper", name));
-        Assert.True(Directory.Exists(foreign));
+    }
+
+    // ---- SK-F8: cleanup deletes only what it can prove it made -----------------------------------------------
+
+    [Theory]
+    [InlineData("backup.0123456789abcdef0123456789abcdef.old")]          // the review's example: the right SHAPE
+    [InlineData("keeper.0123456789abcdef0123456789abcdef.staging")]
+    [InlineData("notes.0123456789abcdef0123456789abcdef.withdrawn")]
+    [InlineData("somebody-elses-folder")]
+    public void A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted(string name)
+    {
+        Directory.CreateDirectory(Staging);
+        var foreign = Path.Combine(Staging, name);
+        Directory.CreateDirectory(Path.Combine(foreign, "work"));
+        File.WriteAllText(Path.Combine(foreign, "work", "precious.txt"), "somebody's work\n");
+        // A marker file of the right NAME whose content is not ours proves nothing either.
+        File.WriteAllText(Path.Combine(foreign, SkillDirectoryInstaller.StagingMarkerFileName), "not the installer's\n");
+        Holds(Personal, ("keeper", "v1"));
+
+        Install(Personal);
+
+        Assert.Equal("somebody's work\n", File.ReadAllText(Path.Combine(foreign, "work", "precious.txt")));
+    }
+
+    [Fact]
+    public void Every_folder_the_installer_makes_in_the_staging_folder_carries_its_marker_before_anything_else()
+    {
+        Holds(Personal, ("keeper", "v1"), ("gone", "v1"));
+        Install(Personal);
+        Holds(Personal, ("keeper", "v2"));
+
+        var seen = new List<string>();
+        SkillDirectoryInstaller.SwapStepForTests.Value = (_, _) =>
+        {
+            foreach (var folder in Directory.GetDirectories(Staging))
+            {
+                Assert.True(File.Exists(Path.Combine(folder, SkillDirectoryInstaller.StagingMarkerFileName)),
+                    $"'{folder}' is in the staging folder without the installer's marker");
+                seen.Add(Path.GetFileName(folder));
+            }
+        };
+        try
+        {
+            Install(Personal);
+        }
+        finally
+        {
+            SkillDirectoryInstaller.SwapStepForTests.Value = null;
+        }
+
+        Assert.Contains(seen, n => n.EndsWith(".staging", StringComparison.Ordinal));
+        Assert.Contains(seen, n => n.EndsWith(".old", StringComparison.Ordinal));
+        Assert.Contains(seen, n => n.EndsWith(".withdrawn", StringComparison.Ordinal));
+    }
+
+    // ---- SK-F9: build on the volume the skills folder really lives on --------------------------------------------
+
+    [Fact]
+    public void A_skills_folder_that_is_a_link_has_its_copies_built_beside_the_folder_it_points_at()
+    {
+        var real = Path.Combine(_root, "elsewhere", "agent-skills");
+        Directory.CreateDirectory(real);
+        Directory.CreateDirectory(Path.GetDirectoryName(Shared)!);
+        Link(Shared, real);
+
+        Assert.Equal(Path.Combine(_root, "elsewhere", "agent-skills.devthrottle-staging"), SkillDirectoryInstaller.StagingRootFor(Shared));
+
+        Holds(TeamA, ("keeper", "v1"), ("gone", "v1"));
+        Assert.True(Install(TeamA).IsComplete);
+        Holds(TeamA, ("keeper", "v2"));
+        Assert.Empty(Install(TeamA).Problems);
+
+        Assert.Contains("v2", File.ReadAllText(Path.Combine(real, "keeper", "SKILL.md")));
+        Assert.False(Directory.Exists(Path.Combine(real, "gone")));
+        Assert.True(Directory.Exists(Path.Combine(_root, "elsewhere", "agent-skills.devthrottle-staging")));
+        Assert.False(Directory.Exists(Path.Combine(_root, "home", ".agents", "skills.devthrottle-staging")),
+            "a staging folder was made beside the link's own spelling - on another volume, every move would fail");
+    }
+
+    [Fact]
+    public void A_skills_folder_linked_to_nowhere_changes_nothing_and_says_why()
+    {
+        var real = Path.Combine(_root, "elsewhere", "agent-skills");
+        Directory.CreateDirectory(real);
+        Directory.CreateDirectory(Path.GetDirectoryName(Shared)!);
+        Link(Shared, real);
+        Directory.Delete(real);   // the link now points at nothing
+
+        Assert.Null(SkillDirectoryInstaller.StagingRootFor(Shared));
+
+        Holds(Personal, ("keeper", "v1"));
+        var placement = Install(Personal);
+
+        var problem = Assert.Single(placement.Problems);
+        Assert.Equal(SkillPlacementFault.FolderLinkUnresolved, problem.Fault);
+        Assert.Contains("is a link whose target cannot be found", placement.Describe());
+        Assert.False(Directory.Exists(LinkRoot), "the agent's own folder was touched although nothing could be placed");
     }
 
     // ---- helpers ---------------------------------------------------------------------------------------------
@@ -157,6 +261,25 @@ public sealed class SkillSwapTests : IDisposable
         Assert.True(File.Exists(marker), $"'{folder}' is visible without its marker");
         Assert.NotNull(SkillSource.ReadStamp(File.ReadAllLines(marker)));
         Assert.True(File.Exists(Path.Combine(folder, "SKILL.md")), $"'{folder}' is visible without its SKILL.md");
+        Assert.False(File.Exists(Path.Combine(folder, SkillDirectoryInstaller.StagingMarkerFileName)),
+            $"'{folder}' carries the staging marker into the skills folder");
+    }
+
+    /// <summary>A directory link: a junction on Windows (what a person makes without administrator rights), a
+    /// symbolic link elsewhere.</summary>
+    private static void Link(string link, string target)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateSymbolicLink(link, target);
+            return;
+        }
+        using var process = Process.Start(new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{target}\"")
+        {
+            UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true,
+        })!;
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
     }
 
     private void Reset()

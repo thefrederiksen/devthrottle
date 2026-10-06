@@ -157,6 +157,38 @@ public static class SkillDirectoryInstaller
             return new SkillPlacement(kind, 0, 0, problems, StoreMissing: true, AgentHasNoSkillsDirectory: false);
         }
 
+        // TWO LOCKS, ALWAYS IN THIS ORDER: the shared folders first, then this Director's store.
+        //
+        // The shared-folder lock is one critical section for the folders every Director on the computer writes,
+        // held from the first ownership read to the last change (review finding SK-F1): no other Director can
+        // re-stamp a folder between this one deciding it may change it and changing it.
+        //
+        // The store lock is the one the store refresh takes while it deletes and rebuilds the store (review finding
+        // SK-F7). Held here from reading the store's record and each skill's recorded source to copying that
+        // skill's bytes, it makes the source stamped on a copy the source recorded with exactly those bytes - a
+        // refresh can no longer swap another library's bytes in between. The refresh takes only the store lock, and
+        // every placement takes the two in this one order, so no two of them ever wait on each other in a circle.
+        //
+        // A Director that cannot have both in time changes nothing and says so - it never proceeds unlocked.
+        var wait = folderLockWait ?? FolderLockWait;
+        var deadline = DateTime.UtcNow + wait;
+        using var folderLock = SharedSkillFolderLock.TryAcquire(new[] { paths.SharedRoot, paths.LinkRoot }.OfType<string>(), wait);
+        using var storeLock = folderLock is null
+            ? null
+            : SharedSkillFolderLock.TryAcquire(new[] { store }, Remaining(deadline));
+        if (folderLock is null || storeLock is null)
+        {
+            var waiting = Directory.GetDirectories(store).Where(d => File.Exists(Path.Combine(d, MarkerFileName))).ToList();
+            foreach (var skill in waiting)
+                problems.Add(new SkillPlacementProblem(Path.GetFileName(skill), paths.SharedRoot, SkillPlacementFault.FolderBusy));
+            var busy = new SkillPlacement(kind, waiting.Count, 0, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
+            FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, " +
+                          (folderLock is null ? $"another Director held {paths.SharedRoot}" : $"the store refresh held {store}") +
+                          $" for more than {wait.TotalSeconds:0.#}s - nothing installed and nothing removed");
+            LogIfIncomplete(busy);
+            return busy;
+        }
+
         var held = Directory.GetDirectories(store)
             .Where(d => File.Exists(Path.Combine(d, MarkerFileName)))
             .ToList();
@@ -182,29 +214,29 @@ public static class SkillDirectoryInstaller
             source = established.Source;
         }
 
-        // ONE critical section for the shared folders, held from the first ownership read to the last change
-        // (review finding SK-F1). Every Director on the computer takes the same lock, so no other Director can
-        // re-stamp a folder between this one deciding it may change it and changing it. A Director that cannot
-        // have the lock in time changes nothing and says so - it never proceeds unlocked.
-        using var folderLock = SharedSkillFolderLock.TryAcquire(
-            new[] { paths.SharedRoot, paths.LinkRoot }.OfType<string>(), folderLockWait ?? FolderLockWait);
-        if (folderLock is null)
+        // WHERE copies are built and old ones put aside: beside the folder each skills root REALLY is, so every
+        // move is a rename on one volume (review finding SK-F9). A root that is a link whose target cannot be
+        // found has nowhere safe to build, so nothing is changed and the reason is recorded.
+        var sharedStaging = StagingRootFor(paths.SharedRoot);
+        var linkStaging = paths.LinkRoot is null ? null : StagingRootFor(paths.LinkRoot);
+        if (sharedStaging is null || (paths.LinkRoot is not null && linkStaging is null))
         {
+            var unresolved = sharedStaging is null ? paths.SharedRoot : paths.LinkRoot!;
             foreach (var skill in held)
-                problems.Add(new SkillPlacementProblem(Path.GetFileName(skill), paths.SharedRoot, SkillPlacementFault.FolderBusy));
-            var busy = new SkillPlacement(kind, held.Count, 0, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
-            FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, another Director held {paths.SharedRoot} " +
-                          $"for more than {(folderLockWait ?? FolderLockWait).TotalSeconds:0.#}s - nothing installed and nothing removed");
-            LogIfIncomplete(busy);
-            return busy;
+                problems.Add(new SkillPlacementProblem(Path.GetFileName(skill), unresolved, SkillPlacementFault.FolderLinkUnresolved));
+            var stuck = new SkillPlacement(kind, held.Count, 0, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
+            FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, {unresolved} is a link whose target " +
+                          "cannot be found - nothing installed and nothing removed");
+            LogIfIncomplete(stuck);
+            return stuck;
         }
 
-        // A reconciliation that was killed part-way leaves its staging and moved-aside folders behind. They are
-        // recognised by their names, outside the skills folders, and nobody else can be using them while this
-        // Director holds the lock - so they go first (review finding SK-F5).
-        ClearStaging(paths.SharedRoot);
-        if (paths.LinkRoot is not null)
-            ClearStaging(paths.LinkRoot);
+        // A reconciliation that was killed part-way leaves its staging and moved-aside folders behind. Each carries
+        // this installer's marker from the moment it was made, and nobody else can be using them while this
+        // Director holds the lock - so they go first (review findings SK-F5, SK-F8).
+        ClearStaging(sharedStaging);
+        if (linkStaging is not null)
+            ClearStaging(linkStaging);
 
         // EACH SKILL IS PLACED AS THE SOURCE RECORDED WITH ITS OWN BYTES (review finding SK-F6). The store's
         // record says whose library this Director is serving; a skill whose bytes were fetched for a different
@@ -215,6 +247,7 @@ public static class SkillDirectoryInstaller
         foreach (var skill in held)
         {
             var recorded = SkillSource.RecordedIn(skill);
+            Step("source-read", Path.Combine(paths.SharedRoot, Path.GetFileName(skill)));
             if (source.Is(recorded))
             {
                 placeable.Add((skill, recorded!.ToSource()));
@@ -229,7 +262,7 @@ public static class SkillDirectoryInstaller
         // The copy is reconciled BEFORE the links, and the order is load-bearing: a link is created
         // only for a skill that is already present in the shared directory, so no link is ever made
         // pointing at something that is not there.
-        var materialized = ReconcileCopies(held, placeable, paths.SharedRoot, source, problems);
+        var materialized = ReconcileCopies(held, placeable, paths.SharedRoot, sharedStaging, source, problems);
         if (paths.LinkRoot is null)
         {
             var shared = new SkillPlacement(
@@ -241,7 +274,7 @@ public static class SkillDirectoryInstaller
         }
 
         ReclaimRetiredInstallerCopies(materialized, paths.LinkRoot, reclaimStampPath ?? DefaultReclaimStampPath());
-        var linked = ReconcileLinks(paths.SharedRoot, materialized, paths.LinkRoot, source, problems);
+        var linked = ReconcileLinks(paths.SharedRoot, materialized, paths.LinkRoot, linkStaging!, source, problems);
         var result = new SkillPlacement(
             kind, held.Count, linked, problems, StoreMissing: false, AgentHasNoSkillsDirectory: false);
         FileLog.Write($"[SkillDirectoryInstaller] InstallFor: kind={kind}, materialized={materialized.Count} " +
@@ -260,6 +293,12 @@ public static class SkillDirectoryInstaller
         // Recorded locally for the Gateway cycle to pick up. Writing a small file is the whole cost this
         // adds to a launch - the report itself goes out on the network half, which is never on this path.
         SkillPlacementLog.Record(placement);
+    }
+
+    private static TimeSpan Remaining(DateTime deadline)
+    {
+        var left = deadline - DateTime.UtcNow;
+        return left > TimeSpan.Zero ? left : TimeSpan.Zero;
     }
 
     /// <summary>How long a reconciliation waits for another Director to finish with the same folders. A
@@ -395,7 +434,7 @@ public static class SkillDirectoryInstaller
     /// </summary>
     private static List<string> ReconcileCopies(
         IReadOnlyList<string> held, IReadOnlyList<(string StoreCopy, SkillSource Own)> placeable, string sharedRoot,
-        SkillSource source, List<SkillPlacementProblem> problems)
+        string stagingRoot, SkillSource source, List<SkillPlacementProblem> problems)
     {
         Directory.CreateDirectory(sharedRoot);
         var wanted = new HashSet<string>(held.Select(d => Path.GetFileName(d)!), StringComparer.OrdinalIgnoreCase);
@@ -407,7 +446,7 @@ public static class SkillDirectoryInstaller
             var name = Path.GetFileName(existing)!;
             if (wanted.Contains(name) || Decide(existing, source) != Claim.Mine)
                 continue;
-            Withdraw(existing);
+            Withdraw(existing, stagingRoot);
             FileLog.Write($"[SkillDirectoryInstaller] Removed withdrawn skill '{name}' from {sharedRoot}");
         }
 
@@ -418,7 +457,7 @@ public static class SkillDirectoryInstaller
             var destination = Path.Combine(sharedRoot, name);
             if (Directory.Exists(destination) && !MayWrite(destination, name, sharedRoot, source, problems))
                 continue;
-            SwapIn(storeCopy, destination, own);
+            SwapIn(storeCopy, destination, own, stagingRoot);
             ours.Add(name);
         }
         return ours;
@@ -433,94 +472,159 @@ public static class SkillDirectoryInstaller
     /// with the marker the store wrote but not the stamp - and every Director after it read that as the owner's
     /// own skill: classified <c>Shadowed</c>, never replaced, never removed. One crash froze the skill for good.
     ///
-    /// HOW. The copy is built and stamped in a staging folder first, and only a COMPLETE folder is ever renamed to
-    /// the skill's name. If the name is taken, the old folder is renamed aside before the new one is renamed in,
+    /// HOW. The copy is built and stamped inside a staging folder first, and only a COMPLETE folder is ever renamed
+    /// to the skill's name. If the name is taken, the old folder is renamed aside before the new one is renamed in,
     /// and deleted after. A rename within one volume is a single step, so at every point the name is either the
     /// old complete folder, nothing, or the new complete folder. A kill between steps leaves staging and
     /// moved-aside folders, which <see cref="ClearStaging"/> removes under the lock on the next reconcile, and the
     /// skill is then simply placed again.
     ///
-    /// WHERE. The staging folder is a SIBLING of the skills folder (<see cref="StagingRootFor"/>), not inside it.
-    /// Inside it, a staging folder would hold a SKILL.md in a folder the agent scans, and come back as a skill
-    /// under a mangled name for as long as it existed - which is exactly what the superseded folders once did
-    /// (see <see cref="ReclaimRetiredInstallerCopies"/>). A sibling is on the same volume, so the rename is still
-    /// a rename and never a copy.
+    /// WHERE. <paramref name="stagingRoot"/> is a SIBLING of the folder the skills root really is
+    /// (<see cref="StagingRootFor"/>), not a folder inside it. Inside it, a staging folder would hold a SKILL.md in
+    /// a folder the agent scans, and come back as a skill under a mangled name for as long as it existed - which is
+    /// exactly what the superseded folders once did (see <see cref="ReclaimRetiredInstallerCopies"/>). Beside the
+    /// resolved folder, it is on the same volume, so every move is a rename and never a copy (review finding SK-F9).
     /// </summary>
-    private static void SwapIn(string storeCopy, string destination, SkillSource own)
+    private static void SwapIn(string storeCopy, string destination, SkillSource own, string stagingRoot)
     {
         var name = Path.GetFileName(destination);
-        var stagingRoot = StagingRootFor(Path.GetDirectoryName(destination)!);
-        Directory.CreateDirectory(stagingRoot);
-
-        var staging = StagingPath(stagingRoot, name, "staging");
-        CopyTree(storeCopy, staging, destination);
+        var staging = NewStagingFolder(stagingRoot, name, "staging");
+        var built = Path.Combine(staging, name);
+        CopyTree(storeCopy, built, destination);
         Step("copied", destination);
-        StampSource(staging, own);
+        StampSource(built, own);
         Step("staged", destination);
 
         string? aside = null;
         if (Directory.Exists(destination))
         {
-            aside = StagingPath(stagingRoot, name, "old");
-            Directory.Move(destination, aside);
+            aside = NewStagingFolder(stagingRoot, name, "old");
+            Directory.Move(destination, Path.Combine(aside, name));
             Step("moved-aside", destination);
         }
-        Directory.Move(staging, destination);
+        Directory.Move(built, destination);
         Step("swapped", destination);
+        Directory.Delete(staging, recursive: true);
         if (aside is not null)
             Directory.Delete(aside, recursive: true);
     }
 
-    /// <summary>Remove a real skill folder without its name ever showing a half-deleted folder: rename it aside
-    /// into the staging folder, then delete it there. A recursive delete in place can stop part-way and leave a
-    /// folder with no marker at the skill's name (review finding SK-F5).</summary>
-    private static void Withdraw(string folder)
+    /// <summary>Remove a real skill folder without its name ever showing a half-deleted folder: rename it into a
+    /// staging folder, then delete it there. A recursive delete in place can stop part-way and leave a folder with
+    /// no marker at the skill's name (review finding SK-F5).</summary>
+    private static void Withdraw(string folder, string stagingRoot)
     {
-        var stagingRoot = StagingRootFor(Path.GetDirectoryName(folder)!);
-        Directory.CreateDirectory(stagingRoot);
-        var aside = StagingPath(stagingRoot, Path.GetFileName(folder), "withdrawn");
-        Directory.Move(folder, aside);
+        var name = Path.GetFileName(folder);
+        var aside = NewStagingFolder(stagingRoot, name, "withdrawn");
+        Directory.Move(folder, Path.Combine(aside, name));
         Step("withdrawn-aside", folder);
         Directory.Delete(aside, recursive: true);
     }
 
-    /// <summary>Where the folders being built or removed for <paramref name="root"/> are kept: beside it, never
-    /// inside it. <c>~/.agents/skills</c> stages in <c>~/.agents/skills.devthrottle-staging</c>.</summary>
-    public static string StagingRootFor(string root)
+    /// <summary>
+    /// Where the folders being built or removed for the skills root <paramref name="root"/> are kept: beside the
+    /// folder the root REALLY is, never inside it. <c>~/.agents/skills</c> stages in
+    /// <c>~/.agents/skills.devthrottle-staging</c>.
+    ///
+    /// A ROOT THAT IS A LINK (review finding SK-F9). When <c>~/.agents/skills</c> is a junction or a symbolic link to
+    /// <c>D:\agent-skills</c>, its skill folders are physically on D:, and a staging folder beside the link's own
+    /// spelling would be on C: - every move between them a cross-volume move, which fails, so no skill would ever be
+    /// placed, refreshed or withdrawn again. So the link is followed to its final target and the staging folder
+    /// goes beside THAT (<c>D:\agent-skills.devthrottle-staging</c>). Junctions and symbolic links are followed the
+    /// same way. Null when the root is a link whose target cannot be found, or is the top of a drive: there is then
+    /// nowhere known to be on the right volume, and the caller changes nothing.
+    /// </summary>
+    public static string? StagingRootFor(string root)
     {
-        var trimmed = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return Path.Combine(Path.GetDirectoryName(trimmed)!, Path.GetFileName(trimmed) + ".devthrottle-staging");
+        var full = TrimSeparators(Path.GetFullPath(root));
+        var info = new DirectoryInfo(full);
+        if (info.LinkTarget is null)
+            return BesideIt(full);
+
+        var target = info.ResolveLinkTarget(returnFinalTarget: true);
+        if (target is null || !target.Exists)
+        {
+            FileLog.Write($"[SkillDirectoryInstaller] {full} is a link to '{info.LinkTarget}', which does not exist - " +
+                          "nowhere to build a copy on the right volume");
+            return null;
+        }
+        var real = TrimSeparators(target.FullName);
+        if (Path.GetDirectoryName(real) is null)
+        {
+            FileLog.Write($"[SkillDirectoryInstaller] {full} is a link to the top of a drive ({real}) - nowhere beside it " +
+                          "to build a copy");
+            return null;
+        }
+        FileLog.Write($"[SkillDirectoryInstaller] {full} is a link to {real} - copies are built beside {real}");
+        return BesideIt(real);
     }
 
-    /// <summary>A new staging-folder path for <paramref name="name"/>. The role says what it is - a copy being
-    /// built, an old copy moved aside, or a withdrawn one - and the random part keeps two attempts apart.</summary>
-    private static string StagingPath(string stagingRoot, string name, string role) =>
-        Path.Combine(stagingRoot, $"{name}.{Guid.NewGuid():N}.{role}");
+    private static string BesideIt(string folder) =>
+        Path.Combine(Path.GetDirectoryName(folder)!, Path.GetFileName(folder) + ".devthrottle-staging");
 
-    /// <summary>The names <see cref="StagingPath"/> makes, and the only names <see cref="ClearStaging"/> removes.</summary>
+    private static string TrimSeparators(string path) =>
+        path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+    /// <summary>The file at the top of every folder this installer makes in a staging root, written before
+    /// anything else goes in, and the only evidence <see cref="ClearStaging"/> accepts that a folder is its own.</summary>
+    public const string StagingMarkerFileName = ".devthrottle-staging";
+
+    /// <summary>The first line of <see cref="StagingMarkerFileName"/>.</summary>
+    private const string StagingMarkerSignature = "DevThrottle skill installer - a staging or moved-aside folder; safe to delete";
+
+    /// <summary>
+    /// Make a new folder in <paramref name="stagingRoot"/> for <paramref name="name"/> and mark it as this
+    /// installer's FIRST, before any content goes in (review finding SK-F8). The role says what it is for - a copy
+    /// being built, an old copy moved aside, or a withdrawn one - and the random part keeps two attempts apart.
+    /// The skill itself always goes in a subfolder, so the marker never travels with it into the skills folder.
+    /// </summary>
+    private static string NewStagingFolder(string stagingRoot, string name, string role)
+    {
+        var folder = Path.Combine(stagingRoot, $"{name}.{Guid.NewGuid():N}.{role}");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, StagingMarkerFileName), $"{StagingMarkerSignature}\n{role}\n");
+        return folder;
+    }
+
+    /// <summary>The names <see cref="NewStagingFolder"/> makes.</summary>
     private static readonly Regex StagingName = new(@"^.+\.[0-9a-f]{32}\.(staging|old|withdrawn)$", RegexOptions.CultureInvariant);
 
     /// <summary>
-    /// Remove what an interrupted reconciliation left in <paramref name="root"/>'s staging folder. Called only
-    /// under the folder lock, so no other Director is building there. Only names this code makes are removed;
-    /// anything else found there is somebody else's and is left alone, and said so.
+    /// Remove what an interrupted reconciliation left in <paramref name="stagingRoot"/>. Called only under the
+    /// folder lock, so no other Director is building there.
+    ///
+    /// ONLY WHAT IT CAN PROVE IT MADE (review finding SK-F8). A name of the right shape is not proof: anybody can
+    /// make a folder called <c>backup.0123...cdef.old</c>, and a recursive delete of it cannot be undone. A folder is
+    /// removed only when it is a real folder, has a name this installer makes, AND carries this installer's
+    /// marker as its first line - which <see cref="NewStagingFolder"/> writes before anything else goes in.
+    /// Anything else found there is left alone and said so: a folder kept by mistake costs disk, a folder deleted
+    /// by mistake is gone.
     /// </summary>
-    private static void ClearStaging(string root)
+    private static void ClearStaging(string stagingRoot)
     {
-        var stagingRoot = StagingRootFor(root);
         if (!Directory.Exists(stagingRoot))
             return;
         foreach (var leftover in Directory.GetDirectories(stagingRoot))
         {
-            if (!StagingName.IsMatch(Path.GetFileName(leftover)))
+            if (!IsOurStagingFolder(leftover))
             {
-                FileLog.Write($"[SkillDirectoryInstaller] '{leftover}' is not a name this installer makes - left alone");
+                FileLog.Write($"[SkillDirectoryInstaller] '{leftover}' does not carry this installer's staging marker - left alone");
                 continue;
             }
-            var isLink = (File.GetAttributes(leftover) & FileAttributes.ReparsePoint) != 0;
-            Directory.Delete(leftover, recursive: !isLink);
+            Directory.Delete(leftover, recursive: true);
             FileLog.Write($"[SkillDirectoryInstaller] removed '{leftover}', left by a reconciliation that did not finish");
         }
+    }
+
+    private static bool IsOurStagingFolder(string folder)
+    {
+        if ((File.GetAttributes(folder) & FileAttributes.ReparsePoint) != 0)
+            return false;
+        if (!StagingName.IsMatch(Path.GetFileName(folder)))
+            return false;
+        var marker = Path.Combine(folder, StagingMarkerFileName);
+        return File.Exists(marker)
+               && string.Equals(File.ReadLines(marker).FirstOrDefault(), StagingMarkerSignature, StringComparison.Ordinal);
     }
 
     /// <summary>Tells a test where a swap has got to: the step and the skill's visible folder. Per asynchronous
@@ -535,7 +639,7 @@ public static class SkillDirectoryInstaller
     /// write - only named entries inside it. Returns how many links the agent can now follow.
     /// </summary>
     private static int ReconcileLinks(
-        string sharedRoot, IReadOnlyList<string> names, string linkRoot, SkillSource source,
+        string sharedRoot, IReadOnlyList<string> names, string linkRoot, string stagingRoot, SkillSource source,
         List<SkillPlacementProblem> problems)
     {
         Directory.CreateDirectory(linkRoot);
@@ -546,7 +650,7 @@ public static class SkillDirectoryInstaller
             var name = Path.GetFileName(existing)!;
             if (wanted.Contains(name) || !IsWithdrawnByThisSource(existing, sharedRoot, source))
                 continue;
-            RemoveOurs(existing);
+            RemoveOurs(existing, stagingRoot);
             FileLog.Write($"[SkillDirectoryInstaller] Removed withdrawn skill '{name}' from {linkRoot}");
         }
 
@@ -564,7 +668,7 @@ public static class SkillDirectoryInstaller
                     continue;
                 // Rebuilt rather than inspected, because a link is cheap to make and a link believed to
                 // point somewhere it does not is the failure that has no symptom.
-                RemoveOurs(destination);
+                RemoveOurs(destination, stagingRoot);
             }
 
             // One skill that cannot be linked is recorded and stepped over rather than abandoning the
@@ -711,12 +815,12 @@ public static class SkillDirectoryInstaller
     /// <summary>Delete one of our entries. A link is removed as a link, so what it points at survives -
     /// a recursive delete through a link would empty the one real copy every other agent reads. A real folder
     /// is withdrawn through the staging folder, so its name never shows it half-deleted.</summary>
-    private static void RemoveOurs(string path)
+    private static void RemoveOurs(string path, string stagingRoot)
     {
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
             Directory.Delete(path, recursive: false);
         else
-            Withdraw(path);
+            Withdraw(path, stagingRoot);
     }
 
     /// <summary>

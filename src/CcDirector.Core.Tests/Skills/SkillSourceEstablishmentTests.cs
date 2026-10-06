@@ -265,7 +265,97 @@ public sealed class SkillSourceEstablishmentTests : IDisposable
         Assert.Equal("personal", AccountStampedOn(Path.Combine(Shared, "mine")));
     }
 
+    // ---- SK-F7: refresh and placement never interleave over the store -------------------------------------------
+
+    [Fact]
+    public async Task A_refresh_that_lands_while_placement_is_copying_never_gets_its_bytes_stamped_with_the_old_source()
+    {
+        // THE REVIEW'S INTERLEAVING, forced on every round (review finding SK-F7). Placement has read a skill's
+        // recorded source and not yet copied its bytes; at exactly that point a refresh after an account move
+        // rebuilds the store with the other library's bytes. Placement must never copy those bytes under the
+        // source it already read. The refresh is given 300 ms to land inside the window - long enough that it
+        // always lands when nothing stops it.
+        var gateway = new FakeGateway();
+        gateway.Account("person-key", "gw-1", "tenant-person", null);
+        gateway.Account("team-key", "gw-1", "team-a", "team-a");
+        gateway.Serve("person-key", "both", "PERSONAL");
+        gateway.Serve("team-key", "both", "TEAM");
+        await Refresh("director", gateway, "https://devthrottle.com", "person-key");
+
+        for (var round = 0; round < 20; round++)
+        {
+            var key = round % 2 == 0 ? "team-key" : "person-key";
+            var source = round % 2 == 0 ? PersonalSource : new SkillSource("gw-1", "team-a", "team-a");
+            Task? landing = null;
+            SkillDirectoryInstaller.SwapStepForTests.Value = (step, _) =>
+            {
+                if (step != "source-read" || landing is not null)
+                    return;
+                landing = Task.Run(() => Refresh("director", gateway, "https://devthrottle.com", key));
+                landing.Wait(TimeSpan.FromMilliseconds(300));
+            };
+            try
+            {
+                PlaceAs(source);
+            }
+            finally
+            {
+                SkillDirectoryInstaller.SwapStepForTests.Value = null;
+            }
+            Assert.NotNull(landing);
+            await landing!;
+
+            AssertNeverRelabelled(round);
+        }
+    }
+
+    [Fact]
+    public async Task Refresh_and_placement_racing_freely_for_many_rounds_never_relabel_a_librarys_bytes()
+    {
+        var gateway = new FakeGateway();
+        gateway.Account("person-key", "gw-1", "tenant-person", null);
+        gateway.Account("team-key", "gw-1", "team-a", "team-a");
+        foreach (var id in new[] { "both", "second", "third" })
+        {
+            gateway.Serve("person-key", id, "PERSONAL");
+            gateway.Serve("team-key", id, "TEAM");
+        }
+        await Refresh("director", gateway, "https://devthrottle.com", "person-key");
+
+        for (var round = 0; round < 60; round++)
+        {
+            var key = round % 2 == 0 ? "team-key" : "person-key";
+            var refresh = Task.Run(() => Refresh("director", gateway, "https://devthrottle.com", key));
+            var place = Task.Run(() => PlaceAs(round % 3 == 0 ? new SkillSource("gw-1", "team-a", "team-a") : PersonalSource));
+            await Task.WhenAll(refresh, place);
+            AssertNeverRelabelled(round);
+        }
+    }
+
     // ---- helpers ---------------------------------------------------------------------------------------------
+
+    /// <summary>Place this Director's store into the shared folder only (no links, so a round is fast), as
+    /// <paramref name="source"/>.</summary>
+    private SkillPlacement PlaceAs(SkillSource source) =>
+        SkillDirectoryInstaller.InstallFor(
+            AgentKind.Codex, StoreOf("director"), new SkillInstallPaths(Shared, null),
+            Path.Combine(_root, "director", "reclaimed.txt"), source);
+
+    /// <summary>Every placed copy carries the stamp of the library its bytes came from.</summary>
+    private void AssertNeverRelabelled(int round)
+    {
+        if (!Directory.Exists(Shared))
+            return;
+        foreach (var folder in Directory.GetDirectories(Shared))
+        {
+            var body = File.ReadAllText(Path.Combine(folder, "SKILL.md"));
+            var account = AccountStampedOn(folder);
+            if (body.Contains("TEAM"))
+                Assert.True(account == "team:team-a", $"round {round}: the team's bytes in '{folder}' are stamped '{account}'");
+            else
+                Assert.True(account == "personal", $"round {round}: the person's bytes in '{folder}' are stamped '{account}'");
+        }
+    }
 
     private static readonly SkillSource PersonalSource = new("gw-1", "tenant-person", null);
 

@@ -15,6 +15,11 @@ namespace CcDirector.Core.Skills;
 /// rule. Sequential tests cannot see it. So the read of ownership and the change it licenses happen under one
 /// lock that every Director takes.
 ///
+/// THE STORE TOO (review finding SK-F7). The same kind of lock, on a Director's own materialized store, is shared
+/// by the store refresh, which deletes and rebuilds it, and placement, which reads each skill's recorded source and
+/// copies its bytes - so the two can never interleave. The order is fixed: placement takes the shared folders'
+/// locks first and the store's second; the refresh takes only the store's.
+///
 /// HOW. A named operating-system mutex per folder, its name derived from the folder's full path, so every
 /// process of every Director on the machine meets on the same object, and two different folders never wait on
 /// each other. On Windows it lives in the <c>Global\</c> namespace, because a Director started by the Task

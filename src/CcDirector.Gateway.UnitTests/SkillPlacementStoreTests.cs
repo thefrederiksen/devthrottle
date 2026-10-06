@@ -108,6 +108,30 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_skills_folder_linked_to_nowhere_says_so_and_not_could_not_be_linked()
+    {
+        // The skills folder is a junction whose target is gone (devthrottle_internal#2311, review finding SK-F9):
+        // the Director changed nothing, and the sentence must name the link, not a skill link that failed.
+        var store = NewStore();
+        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        {
+            Report(held: 1, reachable: 0, problems: new[]
+            {
+                new SkillPlacementProblemDto
+                {
+                    SkillId = "fleet-comms", Target = @"C:\Users\x\.agents\skills", Fault = "FolderLinkUnresolved",
+                },
+            }),
+        }, T0);
+
+        var row = Assert.Single(store.ReadAll(Alice).Rows);
+
+        Assert.Equal("broken", row.Status);
+        Assert.Contains(@"C:\Users\x\.agents\skills is a link whose target cannot be found", row.Message);
+        Assert.DoesNotContain("could not be linked", row.Message);
+    }
+
+    [Fact]
     public void A_healthy_machine_is_ok_and_does_not_raise_the_badge()
     {
         var store = NewStore();

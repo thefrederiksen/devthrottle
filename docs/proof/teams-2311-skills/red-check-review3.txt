@@ -1,0 +1,36 @@
+RED CHECKS, review round 3 - 2026-10-06T15:34:11.328710Z - built on bf51da055 plus the round 3 change
+Each: mutate, full build, run the named tests, record, restore the saved source.
+
+====================================================================================================
+SK-F7: no store lock in placement - placement reads sources and copies bytes while the refresh rebuilds the store
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++            : SharedSkillFolderLock.TryAcquire(Array.Empty<string>() /* RED CHECK: no store lock */, Remaining(deadline));
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_refresh_that_lands_while_placement_is_copying_never_gets_its_bytes_stamped_with_the_old_source [38 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.Refresh_and_placement_racing_freely_for_many_rounds_never_relabel_a_librarys_bytes [83 ms]
+first messages:
+     round 0: the team's bytes in 'C:\Users\soren\AppData\Local\Temp\skill-source-establish-ef159b16469d425cbd18331bd0ecc726\home\.agents\skills\both' are stamped 'personal'
+     round 2: the team's bytes in 'C:\Users\soren\AppData\Local\Temp\skill-source-establish-62bc62553adb4b469b9f47b66fefd0aa\home\.agents\skills\both' are stamped 'personal'
+
+====================================================================================================
+SK-F8: name-only cleanup - a folder with a staging-shaped name is deleted, marker or not
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++        return true; // RED CHECK: the name alone
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted(name: "backup.0123456789abcdef0123456789abcdef.old") [77 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted(name: "notes.0123456789abcdef0123456789abcdef.withdrawn") [71 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted(name: "keeper.0123456789abcdef0123456789abcdef.staging") [86 ms]
+first messages:
+     System.IO.DirectoryNotFoundException : Could not find a part of the path 'C:\Users\soren\AppData\Local\Temp\skill-swap-1b322ed1612a4ad5b90dce3292d52dfa\home\.agents\skills.devthrottle-staging\backup.0123456789abcdef0123456789abcdef.old\work\precious.txt'.
+     System.IO.DirectoryNotFoundException : Could not find a part of the path 'C:\Users\soren\AppData\Local\Temp\skill-swap-3ed4549ad69147cab52a43edd926fe55\home\.agents\skills.devthrottle-staging\notes.0123456789abcdef0123456789abcdef.withdrawn\work\precious.txt'.
+     System.IO.DirectoryNotFoundException : Could not find a part of the path 'C:\Users\soren\AppData\Local\Temp\skill-swap-0ae63573ba3e40a5bc6f90bf7f706ae2\home\.agents\skills.devthrottle-staging\keeper.0123456789abcdef0123456789abcdef.staging\work\precious.txt'.
+
+====================================================================================================
+SK-F9: the link is not followed - staging goes beside the link's own spelling
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++        return BesideIt(full); // RED CHECK: the link is not followed
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_skills_folder_that_is_a_link_has_its_copies_built_beside_the_folder_it_points_at [60 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillSwapTests.A_skills_folder_linked_to_nowhere_changes_nothing_and_says_why [59 ms]
+first messages:
+     Assert.Equal() Failure: Strings differ
+     Assert.Null() Failure: Value is not null
+
+Every mutation restored from the saved source.

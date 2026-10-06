@@ -221,7 +221,10 @@ public sealed class SkillPlacementStore
                         ? "nothing was placed because the skills were fetched for a different account than the Director is set up for"
                         : problems.Any(p => p.Fault == "FolderBusy")
                             ? "nothing was placed because another Director was placing skills in the same folder at that moment"
-                            : "could not be linked";
+                            : problems.Any(p => p.Fault == "FolderLinkUnresolved")
+                                ? $"nothing was placed because {problems.First(p => p.Fault == "FolderLinkUnresolved").Target} " +
+                                  "is a link whose target cannot be found - repair or remove the link"
+                                : "could not be linked";
         row.Message = $"Only {e.Reachable} of {e.Held} skill(s) reached {e.AgentKind} on {e.MachineName} - {detail}.";
         return row;
     }

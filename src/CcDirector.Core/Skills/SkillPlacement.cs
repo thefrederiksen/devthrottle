@@ -27,6 +27,11 @@ public enum SkillPlacementFault
     /// <summary>The skills were fetched for a different account than the one this Director is set up for - for
     /// instance a team key saved without its team record - so this Director changed nothing.</summary>
     SourceMismatch,
+
+    /// <summary>The skills folder is a link (a junction or a symbolic link) whose target cannot be found, so there
+    /// is nowhere known to be on the same volume to build a copy, and this Director changed nothing (review finding
+    /// SK-F9). Repairing or removing the link fixes it.</summary>
+    FolderLinkUnresolved,
 }
 
 /// <summary>One skill that should have reached the agent and did not.</summary>
@@ -88,6 +93,7 @@ public sealed record SkillPlacement(
         var busy = Problems.Where(p => p.Fault == SkillPlacementFault.FolderBusy).ToList();
         var unknown = Problems.Where(p => p.Fault == SkillPlacementFault.SourceUnknown).ToList();
         var mismatch = Problems.Where(p => p.Fault == SkillPlacementFault.SourceMismatch).ToList();
+        var unresolved = Problems.Where(p => p.Fault == SkillPlacementFault.FolderLinkUnresolved).ToList();
         var parts = new List<string>();
         if (shadowed.Count > 0)
             parts.Add($"{shadowed.Count} blocked by a directory DevThrottle did not write " +
@@ -106,6 +112,9 @@ public sealed record SkillPlacement(
         if (mismatch.Count > 0)
             parts.Add($"{mismatch.Count} not placed because they were fetched for a different account than this " +
                       "Director is set up for - nothing was changed; check the Director's team in Settings");
+        if (unresolved.Count > 0)
+            parts.Add($"{unresolved.Count} not placed because {unresolved[0].Target} is a link whose target cannot be " +
+                      "found - nothing was changed; repair or remove the link");
         if (failed.Count > 0)
             parts.Add($"{failed.Count} could not be linked ({string.Join(", ", failed.Select(p => p.SkillId))})");
 
