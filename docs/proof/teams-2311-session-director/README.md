@@ -79,8 +79,9 @@ How it is proved:
 | Fleet/FleetManagerHandOverService.cs:179 | first roster row with the id | holder's row only (hand-over target) |
 | Fleet/FleetManagerHandOverService.cs:162 | any row with the id owned by the caller | the holder's row only |
 | Api/GatewayEndpoints.cs:6110 (`LastKnownSession`, used by GatewayHost.cs:2287, 5041, 5088, 5104, 5115, 5157, 5170, 5193, Api/FleetManagerEndpoints.cs:924, FleetManagerPage/Walkthrough endpoints, FleetManagerWalkthroughFold.cs:122) | first Director's row with the id | first holder's row |
-| Fleet/FleetManagerEventService.cs:563-565 (`ReportedAliveElsewhere`, review OR-F2) | any other Director's live row of the id kept a worker's death from being recorded | only the holder's row counts as alive elsewhere; a colleague's listing never suppresses the death |
-| Fleet/FleetManagerEventService.cs:934 (`DeliverOnceAsync`, review OR-F1) | first roster row of the marked Fleet Manager (#3583 had narrowed it with its own `isSessionOfDirector` delegate, `IsTeamSessionOfDirector`) | the first row with the id that `_env.IsHoldersRow` - the store's single point; #3583's delegate is removed. Only Bob lists it: withheld (`NotOwnDirector`), the event stays owed - **the marked event** |
+| Fleet/FleetManagerEventService.cs:444-449 (`ReconcileAsync`'s first loop, review OR-F3) | every roster row of an owned session recorded it alive on that row's Director, so a colleague's row naming the Fleet Manager could become the worker's Director, and that colleague's later drop then read as the worker's death | only the holder's row is recorded; outside a team every row is the holder's, so personal and dark are unchanged |
+| Fleet/FleetManagerEventService.cs:571-573 (`ReportedAliveElsewhere`, review OR-F2) | any other Director's live row of the id kept a worker's death from being recorded | only the holder's row counts as alive elsewhere; a colleague's listing never suppresses the death |
+| Fleet/FleetManagerEventService.cs:937 (`DeliverOnceAsync`, review OR-F1) | first roster row of the marked Fleet Manager (#3583 had narrowed it with its own `isSessionOfDirector` delegate, `IsTeamSessionOfDirector`) | the first row with the id that `_env.IsHoldersRow` - the store's single point; #3583's delegate is removed. Only Bob lists it: withheld (`NotOwnDirector`), the event stays owed - **the marked event** |
 | Fleet/FleetManagerLessonsObserver.cs:138 via GatewayHost.cs:2046 (#3583, on a push) | `IsTeamSessionOfDirector` | `PushedSessions.IsHoldersRow` - the same single point, so a push from a Director that only lists the marked id never stamps the lessons |
 | Wingman/GatewayTurnVerdictEnvironment.cs:252-256 (`ReadSessionState`) | session row from `SnapshotFresh`, first match | rows of that id kept only if `IsHoldersRow`; other rows unchanged |
 
@@ -134,17 +135,22 @@ first row again; nothing in code forbids it. The guard is the per-session method
   Bob's. #3583's own `HostedTeamFleetManagerLessonsTests` run alongside it unchanged.
 - **Unit** - `FleetManagerEventServiceTests` FL-F1 pair now drives the selection through a holder rule on the real
   store (`UseHolderRule`) instead of #3583's delegate.
+- **Unit, OR-F3** - `FleetManagerEventServiceTests.Reconcile_AColleaguesRowNamingTheFleetManager_NeverBecomesTheWorkersDirector_AndItsDropIsNoDeath`,
+  through the same holder-rule seam: worker-1 is remembered on Alice's Director (dir-1); Alice's Director stops
+  reporting and Bob's lists worker-1 naming Alice's Fleet Manager - the only row, and not the holder's (asserted); the
+  reconcile keeps dir-1 as the worker's Director; Bob's Director then drops the id and no death is recorded.
 
 ## Runs
 
 | Check | Result | File |
 |---|---|---|
-| Default gate `.\scripts\test-local.ps1` (own worktree, commit f5d38c11a) | all 10 suites outcome=Completed, exit 0 | `default-gate.txt` |
-| Gateway.UnitTests in full | 9,417 passed, 1 failed, 14 skipped of 9,432 | `gateway-unit-tests.txt` |
-| - the one failure, alone | 4/4 passed | `gateway-unit-tests-tenantscopedsweep-rerun.txt` |
+| Default gate `.\scripts\test-local.ps1`, commit a074e0fa1 (OR-F3) | all 10 suites outcome=Completed, 3,711 tests, exit 0 | `default-gate.txt` |
+| Gateway.UnitTests in full, commit a074e0fa1 | 9,525 passed, 0 failed, 14 skipped of 9,539 | `gateway-unit-tests.txt` |
+| Earlier full Gateway.UnitTests run, commit f5d38c11a: 9,417 passed, 1 failed (below) - the one failure, alone | 4/4 passed | `gateway-unit-tests-tenantscopedsweep-rerun.txt` |
 | Gateway.Tests filtered (`Teams.`, `StreamCommandTests`, `DevReport`, `GatewayDrivesHeldDeliveries`, `TypedPromptsAreResolvedByTheGateway`, `DeliveryIdIsGatewayAuthoritative`, `FleetManager`), commit 70838483b | 316 passed, 0 failed, 2 skipped | `gateway-tests-filtered.txt` |
+| Gateway.Tests filtered (`HostedTeamSessionDirectorOneRuleTests`, `.FleetManager` - the five `FleetManager*` host classes), commit a074e0fa1 | 81 passed, 0 failed, 1 skipped (the PostgreSQL proof, which needs Docker) | `gateway-tests-or-f3-filtered.txt` |
 
-The one Gateway.UnitTests failure is `TenantScopedSweepTests.Hosted_OneTenantBodyThrowing_DoesNotAbortTheOthers`:
+The one failure in the earlier full Gateway.UnitTests run is `TenantScopedSweepTests.Hosted_OneTenantBodyThrowing_DoesNotAbortTheOthers`:
 `SQLite Error 14: unable to open database file` under another test's temporary root. It builds a `DeviceRegistry()`
 from the process-wide `CC_DIRECTOR_ROOT`, which parallel tests change; it passed in the first full run of this change
 and passes alone. This change does not touch it or anything it reads.
@@ -156,6 +162,11 @@ and passes alone. This change does not touch it or anything it reads.
 | `GoverningRule` returns null (the single point bypassed: every lookup takes the first row again) | `Streaming/PushedSessionStore.cs:148` | 3 store-in-a-team unit tests red; rule-level and dark/personal tests stay green, as they should | `red-unit-single-point-bypassed.txt` |
 | Same bypass, over the wire, commit 98ac7a4cb | `Streaming/PushedSessionStore.cs:148` | all 5 host tests red, each at its Bob-only assertion: typed prompt line 132 (sent to Bob, not held), held prompt line 162 (Bob asked), dev report line 188 (note typed into Bob's Director), retirement close line 215 (`kill` sent to Bob), worker death line 259 (no death recorded: Bob's listing kept it alive) | `red-host-single-point-bypassed.txt` |
 
+| OR-F1 over the wire: the marked-event pick bypassed to take the first row (`listed.FirstOrDefault(r => true)`), commit 563038a17 | `Fleet/FleetManagerEventService.cs:934` (937 after OR-F3) | both marked-event host tests red: `TheMarkedFleetManagerEvent_IsNeverTypedIntoAColleaguesDirector_AndIsTypedIntoTheOwners` at line 282 (expected `NotOwnDirector`, got `DirectorTooOld` - the prompt WAS dispatched to Bob's Director, whose fake answers without confirming the idle check) and `HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs` at line 169 (got `Delivered`) | `red-host-or-f1-single-point-bypassed.txt` |
+| OR-F3: the reconcile's holder filter removed, commit a074e0fa1 | `Fleet/FleetManagerEventService.cs:448` | the OR-F3 test red at line 1718: the worker's Director became `dir-bob`, not `dir-1`; the other 79 `FleetManagerEventServiceTests` stay green | `red-unit-or-f3-filter-removed.txt` |
+| Same, with the line-1718 stamp assertion also skipped, to show the death half is guarded | `Fleet/FleetManagerEventService.cs:448` | red at line 1723: Bob's drop recorded Alice's worker dead | `red-unit-or-f3-death-half.txt` |
+
 After each red run the mutation was restored with `git checkout`, the tree confirmed clean, and the projects rebuilt.
-| Focused host run after the rebase and OR-F1: `HostedTeamSessionDirectorOneRuleTests` + `HostedTeamFleetManagerLessonsTests`, commit e4dc6ada3 | 10 passed, 0 failed | `gateway-tests-or-f1-green.txt` |
-| Red check for OR-F1 (line 934 bypassed to take the first row) | PENDING: drive C: was full (0 bytes) from about 14:27 on 6 Oct 2026, and the attempted run failed in Gateway setup writing a file, before any assertion - not counted | - |
+
+A green focused host run after the rebase and OR-F1 (`HostedTeamSessionDirectorOneRuleTests` + `HostedTeamFleetManagerLessonsTests`,
+commit e4dc6ada3): 10 passed, 0 failed - `gateway-tests-or-f1-green.txt`.

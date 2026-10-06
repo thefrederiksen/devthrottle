@@ -1,0 +1,47 @@
+934:        var fm = listed.FirstOrDefault(r => true); // RED CHECK: single point bypassed
+Test run for D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Tests\bin\Debug\net10.0\CcDirector.Gateway.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:01.18]   Discovering: CcDirector.Gateway.Tests
+2026-10-06 14:34:16 pid 53948: [gateway-test-lock] WAITING. Another run of CcDirector.Gateway.Tests holds the per-user test lock, and this suite is destroyed by concurrent runs, so this run is queued rather than started. THIS IS NOT A HANG. Holder: process 53408, started 2026-10-06T18:31:58.8957423Z, holding since 2026-10-06T18:32:03.4147766Z (133s ago), owner cc-director session 6419ff9b-827d-4656-9d85-a0ead3e92c83, working directory D:\ReposFred\_wt\factories-screen-talk\src\CcDirector.Gateway.Tests\bin\Debug\net10.0. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock. When the holder's process ends the lock is released by the operating system and this run starts on its own. If the holder is still alive after 45 minutes this run FAILS rather than running alongside it.
+2026-10-06 14:34:16 pid 53948: [gateway-test-lock] WAITING. Another run of CcDirector.Gateway.Tests holds the per-user test lock, and this suite is destroyed by concurrent runs, so this run is queued rather than started. THIS IS NOT A HANG. Holder: process 53408, started 2026-10-06T18:31:58.8957423Z, holding since 2026-10-06T18:32:03.4147766Z (133s ago), owner cc-director session 6419ff9b-827d-4656-9d85-a0ead3e92c83, working directory D:\ReposFred\_wt\factories-screen-talk\src\CcDirector.Gateway.Tests\bin\Debug\net10.0. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock. When the holder's process ends the lock is released by the operating system and this run starts on its own. If the holder is still alive after 45 minutes this run FAILS rather than running alongside it.
+2026-10-06 14:36:10 pid 53948: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+2026-10-06 14:36:10 pid 53948: [gateway-test-lock] Acquired the per-user Gateway test lock. Starting the run. Lock file: C:\Users\soren\AppData\Local\cc-director\test-locks\gateway-test-suite.lock
+[xUnit.net 00:01:57.11]   Discovered:  CcDirector.Gateway.Tests
+[xUnit.net 00:01:57.13]   Starting:    CcDirector.Gateway.Tests
+[xUnit.net 00:02:12.66]     CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs [FAIL]
+[xUnit.net 00:02:12.66]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:02:12.66]       Expected: NotOwnDirector
+[xUnit.net 00:02:12.66]       Actual:   Delivered
+[xUnit.net 00:02:12.66]       Stack Trace:
+[xUnit.net 00:02:12.66]         D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Tests\Teams\HostedTeamFleetManagerLessonsTests.cs(169,0): at CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs()
+[xUnit.net 00:02:12.66]         --- End of stack trace from previous location ---
+  Failed CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs [820 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: NotOwnDirector
+Actual:   Delivered
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.HostedTeamFleetManagerLessonsTests.DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs() in D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Tests\Teams\HostedTeamFleetManagerLessonsTests.cs:line 169
+--- End of stack trace from previous location ---
+[xUnit.net 00:02:21.23]     CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.TheMarkedFleetManagerEvent_IsNeverTypedIntoAColleaguesDirector_AndIsTypedIntoTheOwners [FAIL]
+[xUnit.net 00:02:21.23]       Assert.Equal() Failure: Values differ
+[xUnit.net 00:02:21.23]       Expected: NotOwnDirector
+[xUnit.net 00:02:21.23]       Actual:   DirectorTooOld
+[xUnit.net 00:02:21.23]       Stack Trace:
+[xUnit.net 00:02:21.23]         D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Tests\Teams\HostedTeamSessionDirectorOneRuleTests.cs(282,0): at CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.TheMarkedFleetManagerEvent_IsNeverTypedIntoAColleaguesDirector_AndIsTypedIntoTheOwners()
+[xUnit.net 00:02:21.23]         --- End of stack trace from previous location ---
+[xUnit.net 00:02:21.23]   Finished:    CcDirector.Gateway.Tests
+  Failed CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.TheMarkedFleetManagerEvent_IsNeverTypedIntoAColleaguesDirector_AndIsTypedIntoTheOwners [172 ms]
+  Error Message:
+   Assert.Equal() Failure: Values differ
+Expected: NotOwnDirector
+Actual:   DirectorTooOld
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.TheMarkedFleetManagerEvent_IsNeverTypedIntoAColleaguesDirector_AndIsTypedIntoTheOwners() in D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Tests\Teams\HostedTeamSessionDirectorOneRuleTests.cs:line 282
+--- End of stack trace from previous location ---
+
+Test Run Failed.
+Total tests: 2
+     Failed: 2
+ Total time: 2.3712 Minutes

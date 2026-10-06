@@ -1,0 +1,30 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2311-onerule\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:17.66]     CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.Reconcile_AColleaguesRowNamingTheFleetManager_NeverBecomesTheWorkersDirector_AndItsDropIsNoDeath [FAIL]
+  Failed CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.Reconcile_AColleaguesRowNamingTheFleetManager_NeverBecomesTheWorkersDirector_AndItsDropIsNoDeath [152 ms]
+  Error Message:
+   Assert.Equal() Failure: Strings differ
+               ↓ (pos 4)
+Expected: "dir-1"
+Actual:   "dir-bob"
+               ↑ (pos 4)
+  Stack Trace:
+     at CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.Reconcile_AColleaguesRowNamingTheFleetManager_NeverBecomesTheWorkersDirector_AndItsDropIsNoDeath() in D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.UnitTests\Fleet\FleetManagerEventServiceTests.cs:line 1718
+--- End of stack trace from previous location ---
+
+Failed!  - Failed:     1, Passed:    79, Skipped:     0, Total:    80, Duration: 25 s - CcDirector.Gateway.UnitTests.dll (net10.0)

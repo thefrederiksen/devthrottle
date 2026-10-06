@@ -1,53 +1,47 @@
-Test run for D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  CcDirector.AgentBrain -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.AgentBrain\bin\Debug\net10.0\CcDirector.AgentBrain.dll
+  CcDirector.Gateway.Contracts -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Contracts\bin\Debug\net10.0\CcDirector.Gateway.Contracts.dll
+  CcDirector.Terminal.Core -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Terminal.Core\bin\Debug\net10.0\CcDirector.Terminal.Core.dll
+  CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
+  CcDirector.Core -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
+  CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2311-onerule\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
+  CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
+  CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
+  CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
+  CcDirector.Launcher -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Launcher\bin\Debug\net10.0\cc-launcher.dll
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+Test run for D:\ReposFred\devthrottle-teams-2311-onerule\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
 A total of 1 test files matched the specified pattern.
-[xUnit.net 00:00:44.39]     CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [SKIP]
+[xUnit.net 00:00:48.99]     CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [SKIP]
   Skipped CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [1 ms]
-[xUnit.net 00:01:16.64]     CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [SKIP]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [1 ms]
-[xUnit.net 00:01:20.67]     CcDirector.Gateway.Tests.Tenancy.TenantScopedSweepTests.Hosted_OneTenantBodyThrowing_DoesNotAbortTheOthers [FAIL]
-  Failed CcDirector.Gateway.Tests.Tenancy.TenantScopedSweepTests.Hosted_OneTenantBodyThrowing_DoesNotAbortTheOthers [499 ms]
-  Error Message:
-   System.InvalidOperationException : The Gateway SQLite database at 'C:\Users\soren\AppData\Local\Temp\ccd-catalog-name-284e6a0c9ccd4fe68900aad404511b4a\config\director\devices.json.gateway.db' could not be opened or migrated: SQLite Error 14: 'unable to open database file'.. The Gateway will not fall back to the old JSON stores. Fix the database file (or move it aside to start a fresh one) and restart the Gateway.
----- Microsoft.Data.Sqlite.SqliteException : SQLite Error 14: 'unable to open database file'.
-  Stack Trace:
-     at CcDirector.Gateway.Data.GatewayDatabase.Open() in D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway\Data\GatewayDatabase.cs:line 430
-   at CcDirector.Gateway.Data.GatewayDatabase..ctor(ITenantContext tenant, String dbPath, Boolean deferOpen) in D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway\Data\GatewayDatabase.cs:line 278
-   at CcDirector.Gateway.Pairing.DeviceRegistry..ctor(String storePath) in D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway\Pairing\DeviceRegistry.cs:line 50
-   at CcDirector.Gateway.Pairing.DeviceRegistry..ctor() in D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway\Pairing\DeviceRegistry.cs:line 39
-   at CcDirector.Gateway.Tests.Tenancy.TenantScopedSweepTests.Hosted_OneTenantBodyThrowing_DoesNotAbortTheOthers() in D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway.UnitTests\Tenancy\TenantScopedSweepTests.cs:line 76
---- End of stack trace from previous location ---
------ Inner Stack Trace -----
-   at Microsoft.Data.Sqlite.SqliteConnectionInternal..ctor(SqliteConnectionStringBuilder connectionOptions, SqliteConnectionPool pool)
-   at Microsoft.Data.Sqlite.SqliteConnectionPool.GetConnection()
-   at Microsoft.Data.Sqlite.SqliteConnection.Open()
-   at Microsoft.EntityFrameworkCore.Storage.RelationalConnection.OpenInternal(Boolean errorsExpected)
-   at Microsoft.EntityFrameworkCore.Storage.RelationalConnection.Open(Boolean errorsExpected)
-   at Microsoft.EntityFrameworkCore.Sqlite.Storage.Internal.SqliteDatabaseCreator.Create()
-   at Microsoft.EntityFrameworkCore.Migrations.Internal.Migrator.Migrate(String targetMigration)
-   at CcDirector.Gateway.Data.GatewayDatabase.Open() in D:\ReposFred\devthrottle-teams-2311-onerule-gate\src\CcDirector.Gateway\Data\GatewayDatabase.cs:line 418
-[xUnit.net 00:02:54.44]     CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [SKIP]
-  Skipped CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [1 ms]
-[xUnit.net 00:02:57.27]     CcDirector.Gateway.Tests.Teams.Mentor.TeamMentorProofRig.WriteOneTeamWeek_AndDumpTheStoredRows [SKIP]
+[xUnit.net 00:00:53.85]     CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [SKIP]
+  Skipped CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [1 ms]
+[xUnit.net 00:01:56.79]     CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:02:02.56]     CcDirector.Gateway.Tests.Teams.Mentor.TeamMentorProofRig.WriteOneTeamWeek_AndDumpTheStoredRows [SKIP]
   Skipped CcDirector.Gateway.Tests.Teams.Mentor.TeamMentorProofRig.WriteOneTeamWeek_AndDumpTheStoredRows [1 ms]
-[xUnit.net 00:03:38.12]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_that_omits_the_tenant_is_refused [SKIP]
-[xUnit.net 00:03:38.12]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_only_whitespace_is_refused [SKIP]
-[xUnit.net 00:03:38.12]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_row_whose_tenant_is_a_spelling_production_mints_is_still_stored [SKIP]
-[xUnit.net 00:03:38.12]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused [SKIP]
-[xUnit.net 00:03:38.12]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_empty_is_refused [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_that_omits_the_tenant_is_refused [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_only_whitespace_is_refused [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_row_whose_tenant_is_a_spelling_production_mints_is_still_stored [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_empty_is_refused [SKIP]
   Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_that_omits_the_tenant_is_refused [1 ms]
   Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_only_whitespace_is_refused [1 ms]
   Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_row_whose_tenant_is_a_spelling_production_mints_is_still_stored [1 ms]
   Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.A_tenant_with_whitespace_inside_an_otherwise_legal_value_is_refused [1 ms]
   Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.An_insert_whose_tenant_is_empty_is_refused [1 ms]
-[xUnit.net 00:03:38.12]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant [SKIP]
+[xUnit.net 00:02:39.83]     CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant [SKIP]
   Skipped CcDirector.Gateway.Tests.Stats.HostedSchemaRefusesAnUnownedRowTests.Every_character_dotnet_calls_whitespace_is_refused_as_a_tenant [1 ms]
-[xUnit.net 00:04:08.10]     CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [SKIP]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [1 ms]
-[xUnit.net 00:05:03.76]     CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [SKIP]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [1 ms]
-[xUnit.net 00:06:08.85]     CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [SKIP]
-  Skipped CcDirector.Gateway.Tests.Architecture.TenantGateArchitectureTests.DT_TEN_3_background_workers_touch_stores_only_through_TenantScopedSweep [1 ms]
-[xUnit.net 00:06:32.94]     CcDirector.Gateway.Tests.Teams.TeamReportsProofRig.ServeTheTeamReportsPage_UntilTheStopFileAppears [SKIP]
+[xUnit.net 00:02:49.37]     CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [SKIP]
+  Skipped CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [1 ms]
+[xUnit.net 00:05:04.89]     CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:05:11.42]     CcDirector.Gateway.Tests.Teams.TeamReportsProofRig.ServeTheTeamReportsPage_UntilTheStopFileAppears [SKIP]
   Skipped CcDirector.Gateway.Tests.Teams.TeamReportsProofRig.ServeTheTeamReportsPage_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:05:27.12]     CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [1 ms]
 
-Failed!  - Failed:     1, Passed:  9417, Skipped:    14, Total:  9432, Duration: 8 m 24 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+Passed!  - Failed:     0, Passed:  9525, Skipped:    14, Total:  9539, Duration: 7 m 14 s - CcDirector.Gateway.UnitTests.dll (net10.0)
