@@ -610,7 +610,7 @@ public static class FactoryAgentsFold
         };
     }
 
-    private static FactoryWaitingItemDto WaitingItem(FactoryActivityDto r, TimeZoneInfo zone)
+    internal static FactoryWaitingItemDto WaitingItem(FactoryActivityDto r, TimeZoneInfo zone)
     {
         var escalated = Is(r, FactoryActivityOutcome.Escalated);
         return new FactoryWaitingItemDto
@@ -867,7 +867,7 @@ public static class FactoryAgentsFold
                         && (f.Agent is null || SameId(r.FactoryAgent, f.Agent))
                         && (f.Outcome is null || Is(r, f.Outcome)));
 
-    private static IReadOnlyList<FactoryActivityDto> AllCorrections(FactoryFoldInputs input) =>
+    internal static IReadOnlyList<FactoryActivityDto> AllCorrections(FactoryFoldInputs input) =>
         input.Corrections.Concat(input.WindowRows.Where(r => r.CorrectsId is not null)).ToList();
 
     private static List<string> FactoryIds(FactoryFoldInputs input, IReadOnlyList<FactoryActivityDto> open) =>
@@ -978,6 +978,7 @@ public static class FactoryAgentsFold
         FactoryActivityOutcome.Blocked => FactoryTone.Red,
         FactoryActivityOutcome.Failed => FactoryTone.Red,
         FactoryActivityOutcome.Paused => FactoryTone.Paused,
+        FactoryActivityOutcome.Talked => FactoryTone.Blue,
         _ => FactoryTone.Grey,
     };
 

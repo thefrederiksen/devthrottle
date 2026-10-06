@@ -29,11 +29,14 @@ public static class FactoryActivityOutcome
     public const string Skipped = "skipped";
     /// <summary>The action or check failed.</summary>
     public const string Failed = "failed";
+    /// <summary>The owner talked with a seat of the factory (Factories screen mission): the line a talk session
+    /// writes before it ends, which the factory's page shows as "Last talk with you".</summary>
+    public const string Talked = "talked";
 
     /// <summary>Every legal outcome, in the order the refusal lists them.</summary>
     public static readonly string[] All =
     {
-        Started, Allowed, Asked, Blocked, Escalated, Done, SentBack, NothingToDo, Paused, Skipped, Failed,
+        Started, Allowed, Asked, Blocked, Escalated, Done, SentBack, NothingToDo, Paused, Skipped, Failed, Talked,
     };
 }
 

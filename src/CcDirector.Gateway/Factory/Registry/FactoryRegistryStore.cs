@@ -192,20 +192,6 @@ public sealed partial class FactoryRegistryStore
         }
     }
 
-    /// <summary>The newest goal number of each factory in the account, keyed by factory id.</summary>
-    public IReadOnlyDictionary<string, GoalNumberDto> LatestGoalNumbers(TenantId tenant)
-    {
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext(tenant);
-            return ctx.FactoryGoalNumbers.AsNoTracking().ToList()
-                .GroupBy(g => g.Factory, StringComparer.Ordinal)
-                .ToDictionary(g => g.Key,
-                    g => ToDto(g.OrderByDescending(x => x.PostedAtUtc).ThenByDescending(x => x.Id).First()),
-                    StringComparer.Ordinal);
-        }
-    }
-
     // ---------- the rules ----------
 
     /// <summary>Every rule a manifest must meet. Returns the row to store (without tenant and registrar) or

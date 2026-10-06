@@ -211,7 +211,6 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         Assert.Equal("sess-2", read.Latest.PostedBySession);
         Assert.Equal("nora-hale", read.Latest.PostedBy);
         Assert.Equal(new[] { "$120", "not yet proven" }, read.Posts.Select(p => p.Value));
-        Assert.Equal("$120", store.LatestGoalNumbers(A)["warmforward"].Value);
     }
 
     [Fact]
@@ -297,6 +296,6 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         store.Register(B, WarmForward(), "s", Now);
         store.PostGoalNumber(A, Number("A's"), "nora-hale", null, Now);
         Assert.Equal(0, store.GoalNumbers(B, "warmforward", 20).Count);
-        Assert.Empty(store.LatestGoalNumbers(B));
+        Assert.Equal(1, store.GoalNumbers(A, "warmforward", 20).Count);
     }
 }

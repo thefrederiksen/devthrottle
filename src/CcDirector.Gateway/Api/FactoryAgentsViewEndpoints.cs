@@ -260,7 +260,7 @@ internal static class FactoryAgentsViewEndpoints
 
     // The owner's pages: a request with no account is refused, and so is a session key - a session reads the record
     // through `cc-devthrottle factory activity`, never the owner's screens.
-    private static IResult Owner(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what,
+    internal static IResult Owner(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what,
         Func<TenantId, IResult> handle)
     {
         FileLog.Write($"[FactoryAgentsViewEndpoints] {what}");
