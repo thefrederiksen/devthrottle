@@ -1,7 +1,8 @@
-# Two live Directors on one engine.db: one run per occurrence, never overlapping
+# Two live Directors on one local engine database never run an occurrence at the same time (at-least-once after a crash)
 
 Proof for devthrottle_internal#2311, live proof finding F6. Branch `teams/2311-engine-shared-db`, cut from
-origin/main e8f673ab9. Updated for review round 1 (findings EN-F1 and EN-F2), see the last sections.
+origin/main e8f673ab9. Updated for review rounds 1 (EN-F1, EN-F2) and 2 (EN-F3, EN-F4, EN-F5), see the
+last sections. Scope: a database file on this machine. A file shared over a network folder is not covered.
 
 ## The contract (Tech Lead ruling, 6 October 2026)
 
@@ -173,6 +174,58 @@ Engine tests: 89 of 89. The new tests passed three runs in a row.
 
 Gate after round 1: `test-local-default.txt`, every suite Completed, Engine 89 of 89. ControlApi and the
 three parked test projects build.
+
+## Review round 2: an unrecorded command, and a command that exits late (EN-F3, EN-F4)
+
+**EN-F3 - recording the started command could fail outside the kill protection.** The command started,
+the write that records it threw, and the run was then completed with `next_run` moved while the
+unrecorded command kept running. Now `ProcessJob` reads the start time and calls the record inside the
+same protection as a cancellation: on any failure it kills the process tree, confirms the exit, and
+throws `CommandNotRecordedException` saying whether it stopped. The executor ends the run exactly as a
+confirmed cancellation (without moving `next_run`) only when it stopped; otherwise the claim stays open
+and the command is watched from memory (the executor learns the process id before the write, so it
+knows it even when the record failed). The executor's catch-all for other failures also watches a
+started command that is not proven gone instead of completing over it.
+
+**EN-F4 - a killed command that exited after the ten-second window held its job forever.** The claim
+was kept (correctly) but nothing ever looked again while the Director lived. Now every run whose
+killed command was not seen to exit - a timeout, a cancellation, a failed record, a failure while it
+ran - is kept in the executor's watch list, and every scheduler tick calls `ReleaseConfirmedStops`:
+once the command (process id plus start time) is proven gone, the run ends and the claim is released
+exactly as a confirmed cancellation, so the occurrence runs again. A command still running, or one that
+cannot be decided, keeps the claim.
+
+**EN-F5 - the short forms overstated the promise.** The heading above and the pull request title now
+carry the scope (a local database) and the exception (at-least-once after a crash).
+
+Tests:
+- `ProcessJobTests.ExecuteAsync_RecordingTheStartedCommandFails_TheCommandIsKilled` - red on the reviewed
+  head a2dc91d4d ("the command whose record failed was left running", `red-review2-on-a2dc91d4d.txt`).
+- `UnconfirmedStopTests.RecordingTheCommandFails_TheCommandIsKilled_TheRunEndsWithoutMovingTheSchedule_AndNobodyStartsItWhileItLived`
+  - a real looping command; the record write is made to throw; a second Director tries to claim the
+  whole time the execution runs and never can; afterwards the command is gone, the run ended, `next_run`
+  is still due.
+- `UnconfirmedStopTests.KilledCommandExitsAfterTheConfirmationWindow_TheClaimIsReleasedOnALaterTick_AndTheNextOccurrenceRuns`
+  - a real Scheduler; the first execution reports a kill not confirmed while a real process keeps
+  running for about three seconds. While it lives: one execution, the run open, the job unclaimable.
+  After it exits: a tick ends the run and the occurrence runs again.
+- These two use a test seam added in this round (the executor's job factory and record hook), so they
+  cannot compile on the reviewed head. Their red is shown by reverting the fix instead
+  (`revert-proof-review2.txt`): without the per-tick release the late-exit test fails; without the kill
+  in the record failure path, the executor test and the `ProcessJob` test both fail. Source restored
+  from the commit afterwards.
+
+Engine tests: 92 of 92. Default gate (`test-local-default.txt`): every suite Completed. Its first attempt
+was stopped because `CcDirector.Core.UnitTests` passed the two-minute ceiling
+(`test-local-default-first-attempt-over-budget.txt`); that suite is untouched by this change and ran in
+67 seconds in the round-0 gate, and the immediate rerun was green. The trigger runner's 9 tests pass
+again (`trigger-runner-tests.txt`).
+
+**What round 2 does NOT cover.** The watch list is in memory. If the Director exits while a run is
+watched, the next start's cleanup takes over: owner gone, so the run is released when the RECORDED
+command is proven gone - or, when the record had failed, at once, because nothing identifies that
+command. A command whose start time could not even be read cannot be watched; its claim is held until
+the Director exits.
 
 ## CC_VAULT_PATH - not changed here
 
