@@ -246,5 +246,5 @@ fix: in a team, every "which Director holds session X" lookup answers through th
 `FleetManager*` class and `StreamCommandTests`, did not run here. The machine-wide Gateway test lock was held by
 session 35ca0a83 (Factories Screen, test host 14904) from 14:52 UTC; two waits of over nine minutes each timed out. The
 lock was never touched. On the Tech Lead's instruction the head was pushed without waiting: CI runs those classes
-without the machine lock. On d9408cb6e, one commit before FL-F3's test change, those same classes passed: 133 Teams
+without the machine lock. On 035445965, the head before the FL-F3 change, those same classes passed: 133 Teams
 and 112 FleetManager plus stream.
