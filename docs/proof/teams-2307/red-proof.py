@@ -209,11 +209,29 @@ MUTATIONS = {
         "runs": [UNIT],
     },
     "f5-publish-takes-an-option-with-no-value": {
-        "rule": "Review F5: publishing refuses a question whose option has no value of its own.",
+        "rule": "Review F5: publishing refuses a question whose option has no value of its own, and one where two options share a value (both halves broken; delta review D3).",
         "file": SHAPECHECK,
-        "old": "            if (noValue > 0)\n            {",
-        "new": "            if (noValue < 0)\n            {",
+        "edits": [
+            ("            if (noValue > 0)\n            {",
+             "            if (noValue < 0)\n            {"),
+            (".GroupBy(v => v, StringComparer.Ordinal).Where(g => g.Count() > 1)",
+             ".GroupBy(v => v, StringComparer.Ordinal).Where(g => g.Count() > 2)"),
+        ],
         "runs": [SHAPE],
+    },
+    "d1-session-ends-after-the-write-is-a-fault": {
+        "rule": "Delta review D1: a session that ends after the answer is stored is answered as a plain refusal, never a fault.",
+        "file": TQ,
+        "old": "        if (settled.Status == DevReportItemStates.Refused)\n",
+        "new": "        if (settled.Status == \"no such status\")\n",
+        "runs": [UNIT],
+    },
+    "d1-words-lose-their-refused-answer": {
+        "rule": "Delta review D1: words given with an answer the session never took stay labelled with that answer for their author.",
+        "file": TQ,
+        "old": "[comment.ReportId], includeRefused: true)",
+        "new": "[comment.ReportId], includeRefused: false)",
+        "runs": [UNIT],
     },
     "f6-reports-without-questions": {
         "rule": "Review F6: the Reports page is never built without its Questions collaborator.",

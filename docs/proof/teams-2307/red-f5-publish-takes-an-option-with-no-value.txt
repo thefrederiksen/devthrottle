@@ -1,5 +1,5 @@
 RED PROOF: f5-publish-takes-an-option-with-no-value
-Rule: Review F5: publishing refuses a question whose option has no value of its own.
+Rule: Review F5: publishing refuses a question whose option has no value of its own, and one where two options share a value (both halves broken; delta review D3).
 File: src/CcDirector.Gateway/DevReports/DevReportShapeCheck.cs
 
 Mutation - replaced:
@@ -9,13 +9,19 @@ with:
             if (noValue < 0)
             {
 
+Mutation - replaced:
+.GroupBy(v => v, StringComparer.Ordinal).Where(g => g.Count() > 1)
+with:
+.GroupBy(v => v, StringComparer.Ordinal).Where(g => g.Count() > 2)
+
 Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~DevReportShapeCheck -nologo
 Exit code: 1
 Output (the lines that say what failed):
   CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
-  Failed CcDirector.Gateway.Tests.DevReports.DevReportShapeCheckTests.Check_AnOptionWithNoValue_Fails(from: "value=\"no\"", to: "") [2 ms]
+  Failed CcDirector.Gateway.Tests.DevReports.DevReportShapeCheckTests.Check_AnOptionWithNoValue_Fails(from: "value=\"no\"", to: "") [78 ms]
   Failed CcDirector.Gateway.Tests.DevReports.DevReportShapeCheckTests.Check_AnOptionWithNoValue_Fails(from: "value=\"no\"", to: "value=\"   \"") [< 1 ms]
   Failed CcDirector.Gateway.Tests.DevReports.DevReportShapeCheckTests.Check_AnOptionWithNoValue_Fails(from: "value=\"no\"", to: "value=\"\"") [< 1 ms]
-Failed!  - Failed:     3, Passed:    83, Skipped:     0, Total:    86, Duration: 3 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+  Failed CcDirector.Gateway.Tests.DevReports.DevReportShapeCheckTests.Check_TwoOptionsWithOneValue_Fails [< 1 ms]
+Failed!  - Failed:     4, Passed:    82, Skipped:     0, Total:    86, Duration: 5 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
-Restored from the committed tree afterwards; git diff on the file is empty.
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.

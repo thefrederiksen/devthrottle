@@ -29,6 +29,10 @@ recommended, and an optional comment.
   - `POST /{reportId}/{questionId}/answer` answers one.
   - Both are declared in `TeamEndpointRules` under "answer questions" for every role, and both are absent when
     `CC_GATEWAY_TEAMS` is off.
+- **A session that ends after the answer is stored is a plain refusal (delta review D1).** If the session ends between
+  the route's own check and the settle pass, the pass refuses the stored choice, and the route answers 409
+  `session_ended`, exactly as the check would have. It is never a fault. The person's words were already the author's and
+  stay so, labelled with the answer they came with.
 - **A report whose options break the value rule is now refused at publish (F5).** An option with no value, an empty
   value, or a value another option in the same question uses fails the shape check. CONTRACT.md and the shipped
   `dev-reports` skill say so. A stored version that breaks any question rule is a fault, never a silently dropped
@@ -45,7 +49,9 @@ recommended, and an optional comment.
 
 ## The migration
 
-`AddTeamQuestionAnswers` exists in two forms, one for SQLite (`20261006025431`) and a PostgreSQL twin (`20261006025508`).
+`AddTeamQuestionAnswers` exists in two forms, one for SQLite (`20261006171223`) and a PostgreSQL twin (`20261006171258`).
+It comes after main's newest migration, `AddFactoryRegistry`, and was regenerated after it; the regenerated files are
+the same as before apart from their ids.
 
 **What it adds:**
 - `dev_report_items.AnswererSubject`, nullable. It holds the team member who gave an answer. It is empty for the owner's
@@ -59,7 +65,7 @@ recommended, and an optional comment.
   an answerer whose status is not `refused`. Every existing row has no answerer, so none is covered and the index cannot
   fail to build on existing data.
 
-**How to reverse it:** migrate down to `AddDevReportSharing`. Its `Down` drops both indexes and the three columns. Existing
+**How to reverse it:** migrate down to `AddFactoryRegistry`. Its `Down` drops both indexes and the three columns. Existing
 notes, answers and comments survive with their words, and `AddTeamQuestionAnswersPostgresTests` proves that on a real
 PostgreSQL database.
 
@@ -71,7 +77,7 @@ PostgreSQL database.
 | `-Gateway -Filter "FullyQualifiedName~Teams"` | 152 of 152 executed, Completed; see note 3 |
 | `-Gateway -Filter "FullyQualifiedName~DevReport"` | 37 of 37 executed, Completed |
 | `-Gateway -Filter "FullyQualifiedName~Postgres\|FullyQualifiedName~Migration"` | 55 of 59 executed, Completed; see note 1 |
-| `dotnet test src\CcDirector.Gateway.UnitTests` with the Teams, DevReport, Migration and BootSmoke filter | 1,537 passed, 8 skipped; see note 2 |
+| `dotnet test src\CcDirector.Gateway.UnitTests` with the Teams, DevReport, Migration and BootSmoke filter | 1,538 passed, 8 skipped; see note 2 |
 | Cockpit vitest | 81 files, 814 tests passed |
 | client-core vitest | 151 files, 1,791 tests passed |
 | `tsc` for the Cockpit, client-core and mobile | clean |
@@ -82,8 +88,9 @@ PostgreSQL database.
    screenshot rig.
 3. One fewer than before review round 1 (153): the personal-tenant live test was removed, as the tests section says.
 
-The first attempt at these runs waited the full 45 minutes behind another session's test lock and was refused with no test
-executed. That is not a result, and it is not counted. The runs above were made once the lock was free.
+Every run above is on the final head, after the merge of main with `AddFactoryRegistry`. Two earlier attempts are not
+counted: one waited the full 45 minutes behind another session's test lock and was refused with no test executed, and one
+default gate ran while the C: drive was full (26 MB free) and stopped part way. Neither is a result.
 
 The Gateway run was split into these filters to keep each under ten minutes, as in #2309.
 
@@ -129,6 +136,8 @@ The Gateway run was split into these filters to keep each under ten minutes, as 
   `AddMemberAnswer_AnotherProcessTakesTheSamePersonsAnswerBetweenTheReadAndTheWrite_OnlyOneIsTaken`, and
   `TheMemberAnswerIndex_RefusesASecondNotRefusedAnswerByOnePerson_AndIgnoresARefusedOne`.
 - F4: `TeamQuestionsTests.AnswerAsync_TheDeliveryFailsAfterTheAnswerIsTaken_TheWordsStillReachThePerson_AndTheChoiceGoesExactlyOnce`.
+- D1: `TeamQuestionsTests.AnswerAsync_TheSessionEndsAfterTheAnswerIsStored_IsRefusedPlainly_TheChoiceNeverGoes_AndTheWordsStayLabelled`.
+  The session ends in the window between the write and the settle pass, through the store's test hook.
 - F5: `DevReportShapeCheckTests.Check_AnOptionWithNoValue_Fails`, `Check_TwoOptionsWithOneValue_Fails`, and
   `DevReportQuestionsTests.Read_AQuestionTheShapeCheckRefuses_IsAFault_NeverADroppedQuestion`.
 - F6: `TeamReportsTests.TeamReports_NullDependencies_Throw` covers a missing `TeamQuestions`.
@@ -174,7 +183,9 @@ the earlier record in place: one attempt this round was refused that way and wro
 | f1-answer-named-as-the-newest-version | a member's answer is named by the report's newest version | 1 |
 | f3-version-decided-before-the-write | the version is checked outside the write that takes the answer | 2 |
 | f4-a-failed-send-fails-the-answer | a failed delivery after the answer is taken fails the answer | 1 |
-| f5-publish-takes-an-option-with-no-value | publish accepts an option with no value or a repeated value | 3 |
+| f5-publish-takes-an-option-with-no-value | publish accepts an option with no value, and two options with one value (both halves broken) | 4 |
+| d1-session-ends-after-the-write-is-a-fault | a session that ends after the answer is stored turns the answer into a fault | 1 |
+| d1-words-lose-their-refused-answer | the words lose the label of the answer the session never took | 1 |
 | f6-reports-without-questions | the Reports collaborator is built without Questions | 1 |
 | f7-card-keeps-its-first-answer | a card keeps the answer from its own send over the Gateway's newer state | 1 |
 | f7-card-key-without-version | a newer version of a question reuses the old card | 1 |

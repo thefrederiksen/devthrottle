@@ -1,5 +1,4 @@
-﻿Removing abandoned test rig ceef4c13d374 - the run that created it (process 74136) is gone.
-Starting a throwaway PostgreSQL for this run (instance run55abad55, port 59062)...
+﻿Starting a throwaway PostgreSQL for this run (instance runad2f7bfb, port 55287)...
 PostgreSQL ready. It is destroyed when this run ends.
 Building once, then running 1 test project(s)...
 
@@ -7,19 +6,19 @@ Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:01:06.36
+Time Elapsed 00:00:28.31
   started CcDirector.Gateway.Tests
 
 Waiting. The Gateway suite serializes machine-wide, so it may queue behind another run;
 that is not a hang - it prints its holder every 30s into its log.
 
-  PASS  CcDirector.Gateway.Tests  Passed!  - Failed:     0, Passed:    37, Skipped:     0, Total:    37, Duration: 2 m 
-49 s - CcDirector.Gateway.Tests.dll (net10.0)
+  PASS  CcDirector.Gateway.Tests  Passed!  - Failed:     0, Passed:    37, Skipped:     0, Total:    37, Duration: 3 m 
+39 s - CcDirector.Gateway.Tests.dll (net10.0)
 
 TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
   CcDirector.Gateway.Tests                 outcome=Completed    total=37     executed=37
 
-TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-7a736df0
+TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-450ae328
 
 RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
 This is the gate - you do not need to wait for GitHub CI to merge.

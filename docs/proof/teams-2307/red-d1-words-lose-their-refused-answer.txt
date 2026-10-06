@@ -1,0 +1,20 @@
+RED PROOF: d1-words-lose-their-refused-answer
+Rule: Delta review D1: words given with an answer the session never took stay labelled with that answer for their author.
+File: src/CcDirector.Gateway/Api/TeamQuestionEndpoints.cs
+
+Mutation - replaced:
+[comment.ReportId], includeRefused: true)
+with:
+[comment.ReportId], includeRefused: false)
+
+Command: dotnet test src/CcDirector.Gateway.UnitTests --filter FullyQualifiedName~Teams.Questions|FullyQualifiedName~Teams.Reports -nologo
+Exit code: 1
+Output (the lines that say what failed):
+  CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
+  Failed CcDirector.Gateway.Tests.Teams.Questions.TeamQuestionsTests.AnswerAsync_TheSessionEndsAfterTheAnswerIsStored_IsRefusedPlainly_TheChoiceNeverGoes_AndTheWordsStayLabelled [238 ms]
+   Assert.Equal() Failure: Strings differ
+Expected: "About "Should the trial be 14 days or 30?"???
+Actual:   null
+Failed!  - Failed:     1, Passed:   107, Skipped:     0, Total:   108, Duration: 18 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+Restored afterwards to the bytes read before the mutation; git diff on the file is empty.
