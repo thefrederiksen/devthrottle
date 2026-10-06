@@ -27,7 +27,11 @@ public static class ActivityEventEndpoints
         // REQUIRED, not defaulted (tenant-boundary hardening, release 2026-07-31, finding CR-7): the boundary
         // is a security argument, and when it was optional a forgotten argument silently served the Local
         // partition on hosted. A self-host-only caller must state the absence with an explicit null.
-        Tenancy.HostedTenantBoundary? tenantBoundary)
+        Tenancy.HostedTenantBoundary? tenantBoundary,
+        // The caller inside a team's tenant (devthrottle_internal#2311, live proof F2): in a team every event must name the
+        // calling key's own Director and a session that is not another person's, or the whole batch is refused and
+        // nothing is written. Null answers for a personal account.
+        Func<HttpContext, TenantId, Teams.TeamCaller?>? teamCaller = null)
     {
         ArgumentNullException.ThrowIfNull(store);
 
@@ -40,6 +44,11 @@ public static class ActivityEventEndpoints
 
             if (request?.Events is null || request.Events.Count == 0)
                 return Results.BadRequest(new { error = "events is required and must not be empty" });
+
+            var team = Api.GatewayEndpoints.RosterTeamCaller(ctx, tenant.Value, teamCaller);
+            if (team is not null
+                && Teams.TeamCallerChecks.RefuseActivityBatch(team, request.Events.Select(e => (e.DirectorId, e.SessionId))) is { } refusal)
+                return Teams.TeamCallerChecks.Refused(refusal);
 
             try
             {

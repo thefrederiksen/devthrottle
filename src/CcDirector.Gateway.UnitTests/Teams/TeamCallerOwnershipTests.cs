@@ -219,9 +219,19 @@ public sealed class TeamCallerOwnershipTests : IDisposable
     [Fact]
     public async Task RunAsync_AListAcrossTheTeam_IsRefusedAsNotShownToBeTheCallersOwn()
     {
-        var result = await Run(Request("GET", "/sessions", _aliceKey));
+        // A list of a person's private things that does NOT cut itself to the caller's own is still refused.
+        var result = await Run(Request("GET", "/interrupted", _aliceKey));
         Assert.False(result.Reached);
         Assert.Equal(TeamEndpointGate.OwnershipUnknownRefusal, result.Error);
+    }
+
+    [Fact]
+    public async Task RunAsync_TheSessionRoster_ReachesTheEndpoint_WhichCutsItToTheCallersOwn()
+    {
+        // devthrottle_internal#2311, live proof F1: the roster cuts its own answer (ListCutToCallersOwn), so the gate
+        // asks only the cell, and records the person it allowed for the endpoint to cut by.
+        var result = await Run(Request("GET", "/sessions", _aliceKey));
+        Assert.True(result.Reached);
     }
 
     [Fact]

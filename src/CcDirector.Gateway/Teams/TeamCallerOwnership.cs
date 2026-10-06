@@ -62,6 +62,7 @@ public sealed class TeamCallerOwnership
     private readonly HostedTenantBoundary _boundary;
     private readonly SessionKeyRegistry _sessionKeys;
     private readonly Func<TenantId, Guid, string?>? _reportAuthor;
+    private readonly Func<TenantId, string, string?>? _numberDirector;
 
     /// <param name="turns">The stored conversations - the one store the Gateway serves them from.</param>
     /// <param name="boundary">Enters the team's tenant scope for the stored-conversation read, which is partitioned by
@@ -70,9 +71,11 @@ public sealed class TeamCallerOwnership
     /// <param name="reportAuthor">The author recorded on a dev report in a tenant, or null when the tenant holds no such
     /// report or none was recorded (devthrottle_internal#2309). Null answers Unknown for every report route, which the
     /// gate refuses.</param>
+    /// <param name="numberDirector">The Director a session's short number was handed to in a tenant, or null when the
+    /// session holds none (devthrottle_internal#2311). Null answers Unknown for freeing a number, which the gate refuses.</param>
     public TeamCallerOwnership(DirectorRegistry directors, PushedSessionStore sessions, DeviceRegistry devices,
         SessionTurnStore turns, HostedTenantBoundary boundary, SessionKeyRegistry sessionKeys,
-        Func<TenantId, Guid, string?>? reportAuthor = null)
+        Func<TenantId, Guid, string?>? reportAuthor = null, Func<TenantId, string, string?>? numberDirector = null)
     {
         _directors = directors ?? throw new ArgumentNullException(nameof(directors));
         _sessions = sessions ?? throw new ArgumentNullException(nameof(sessions));
@@ -81,6 +84,7 @@ public sealed class TeamCallerOwnership
         _boundary = boundary ?? throw new ArgumentNullException(nameof(boundary));
         _sessionKeys = sessionKeys ?? throw new ArgumentNullException(nameof(sessionKeys));
         _reportAuthor = reportAuthor;
+        _numberDirector = numberDirector;
     }
 
     /// <summary>
@@ -101,6 +105,10 @@ public sealed class TeamCallerOwnership
             return TeamOwnership.Callers;
         if (IsUnder(pattern, "/director-stream"))
             return TeamOwnership.Callers;
+        if (AboutTheCallingKey.Contains(pattern))
+            return TeamOwnership.Callers;
+        if (string.Equals(pattern, NumberPattern, StringComparison.Ordinal))
+            return OwnerOfNumber(tenant, routeValue("sessionId"), callerSubject);
 
         if (IsUnder(pattern, "/directors"))
         {
@@ -146,6 +154,62 @@ public sealed class TeamCallerOwnership
         }
 
         return TeamOwnership.Unknown;
+    }
+
+    /// <summary>
+    /// THE ROUTES WHOSE WHOLE REQUEST IS ABOUT THE CALLING KEY ITSELF (devthrottle_internal#2311, live proof F2), so what
+    /// they touch is the caller's own by what the endpoint does with the key - never by anything the client writes:
+    /// <list type="bullet">
+    /// <item><c>GET /account/status</c> answers about the calling key's own account and nothing else.</item>
+    /// <item><c>POST /gateway/director-errors</c> files the errors under the calling key's own device.</item>
+    /// <item><c>POST /session-numbers/allocate</c>, <c>POST /gateway/skills/placement</c> and
+    /// <c>POST /activity-events/batch</c> carry a Director id in their body, which the gate cannot read. In a team each of
+    /// those endpoints asks <see cref="CallerIn"/> and acts only for the calling key's own Director (a number and a
+    /// placement report are filed under it, whatever the body names), and refuses a session that is not that Director's
+    /// own by <see cref="ClaimOf(TenantId, string, string, string)"/>. An endpoint that cannot ask refuses.</item>
+    /// </list>
+    /// </summary>
+    internal static readonly IReadOnlySet<string> AboutTheCallingKey = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "/account/status",
+        Api.DirectorErrorEndpoints.Path,
+        "/session-numbers/allocate",
+        Api.SkillPlacementEndpoints.Path,
+        "/activity-events/batch",
+    };
+
+    /// <summary>The route that frees a session's short number.</summary>
+    internal const string NumberPattern = "/session-numbers/{sessionId}";
+
+    /// <summary>The caller's own when the Director the session's number was handed to is the caller's; someone else's
+    /// when it is another person's; Unknown when the session holds no number here, or the Director is nobody's.</summary>
+    private TeamOwnership OwnerOfNumber(TenantId tenant, string? sessionId, string callerSubject)
+    {
+        var director = _numberDirector is null || string.IsNullOrWhiteSpace(sessionId) ? null : _numberDirector(tenant, sessionId);
+        if (string.IsNullOrWhiteSpace(director))
+        {
+            FileLog.Write($"[TeamCallerOwnership] Whose: the number of session {sessionId} in tenant {tenant.ToLogString()} - no number held, or no reader - unknown");
+            return TeamOwnership.Unknown;
+        }
+        return OwnerOfDirector(tenant, director, callerSubject, "session number");
+    }
+
+    /// <summary>
+    /// THE CALLER INSIDE A TEAM'S TENANT, as the endpoints that cut or check their own answer see them
+    /// (devthrottle_internal#2311): the person the gate allowed the request for, and the Director the calling key belongs
+    /// to - a team device key's enrolled Director, or a session key's Director. Either may be null, and then the caller
+    /// owns nothing: a cut keeps nothing and a check refuses. Personally identifying: never logged.
+    /// </summary>
+    public TeamCaller CallerIn(TenantId tenant, string? person, DeviceCredentialIdentity? device, SessionCredentialIdentity? session)
+    {
+        string? keyDirector = null;
+        if (device is not null)
+            keyDirector = string.Equals(device.TenantId, tenant.Value, StringComparison.Ordinal) ? device.EnrolledDirectorId : null;
+        else if (session is not null && session.Tenant == tenant)
+            keyDirector = session.DirectorId;
+        return new TeamCaller(this, tenant,
+            string.IsNullOrWhiteSpace(person) ? null : person,
+            string.IsNullOrWhiteSpace(keyDirector) ? null : keyDirector);
     }
 
     /// <summary>The caller's own only when every Director that wrote the session's stored conversation is the caller's.
@@ -394,6 +458,49 @@ public sealed class TeamCallerOwnership
     private static bool IsUnder(string pattern, string prefix) =>
         string.Equals(pattern, prefix, StringComparison.Ordinal)
         || pattern.StartsWith(prefix + "/", StringComparison.Ordinal);
+}
+
+/// <summary>
+/// The caller of one request inside a team's tenant (<see cref="TeamCallerOwnership.CallerIn"/>): every question it
+/// answers is asked of the one ownership rule, never a second copy. With no person, or no key Director, it owns nothing.
+/// </summary>
+public sealed class TeamCaller
+{
+    private readonly TeamCallerOwnership _ownership;
+
+    internal TeamCaller(TeamCallerOwnership ownership, TenantId tenant, string? person, string? keyDirector)
+    {
+        _ownership = ownership;
+        Tenant = tenant;
+        Person = person;
+        KeyDirector = keyDirector;
+    }
+
+    /// <summary>The team's tenant.</summary>
+    public TenantId Tenant { get; }
+
+    /// <summary>The person the gate allowed the request for, or null. Never logged.</summary>
+    public string? Person { get; }
+
+    /// <summary>The Director the calling key belongs to, or null.</summary>
+    public string? KeyDirector { get; }
+
+    /// <summary>Whether <paramref name="directorId"/> is one of the caller's own Directors
+    /// (<see cref="TeamCallerOwnership.OwnerOf"/>).</summary>
+    public bool OwnsDirector(string? directorId) =>
+        Person is not null && !string.IsNullOrWhiteSpace(directorId)
+        && string.Equals(_ownership.OwnerOf(Tenant, directorId), Person, StringComparison.Ordinal);
+
+    /// <summary>Whether <paramref name="directorId"/> is the calling key's own Director.</summary>
+    public bool IsKeyDirector(string? directorId) =>
+        KeyDirector is not null && DeviceCredentialIdentity.SameDirectorId(KeyDirector, directorId);
+
+    /// <summary>What the one ownership rule says of <paramref name="sessionId"/> for the calling key's own Director;
+    /// <see cref="TeamSessionClaim.NoPerson"/> when the caller has no person or no key Director.</summary>
+    public TeamSessionClaim ClaimOfSession(string sessionId) =>
+        Person is null || KeyDirector is null
+            ? TeamSessionClaim.NoPerson
+            : _ownership.ClaimOf(Tenant, KeyDirector, Person, sessionId);
 }
 
 /// <summary>The answer of <see cref="TeamCallerOwnership.ClaimOf(TenantId, string, string, string)"/>.</summary>

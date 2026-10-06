@@ -38,9 +38,11 @@ public enum TeamOwnership
 }
 
 /// <summary>The gate's verdict on one request. <see cref="Message"/> is the sentence a person reads, set on every
-/// refusal. <see cref="TeamId"/> is the team the request was allowed in, set exactly when it was allowed.</summary>
+/// refusal. <see cref="TeamId"/> is the team the request was allowed in, and <see cref="Caller"/> the account subject of
+/// the person it was allowed for, both set exactly when it was allowed. The subject is personally identifying and is
+/// never logged.</summary>
 public sealed record TeamGateVerdict(TeamGateOutcome Outcome, TeamAction? Action, TeamRole? Role, string? Message,
-    string? TeamId = null)
+    string? TeamId = null, string? Caller = null)
 {
     public static readonly TeamGateVerdict NotATeamRequest = new(TeamGateOutcome.NotATeamRequest, null, null, null);
 }
@@ -93,6 +95,10 @@ public sealed class TeamEndpointGate
     /// <summary>The <see cref="HttpContext.Items"/> key under which <see cref="RunAsync"/> records the team a request
     /// was ALLOWED in. Read through <see cref="AllowedTeam"/>.</summary>
     public const string AllowedTeamItemKey = "cc.teams.allowed-team";
+
+    /// <summary>The <see cref="HttpContext.Items"/> key under which <see cref="RunAsync"/> records the person a request
+    /// was ALLOWED for. Read through <see cref="AllowedCaller"/>.</summary>
+    public const string AllowedCallerItemKey = "cc.teams.allowed-caller";
 
     private readonly TeamAccess _access;
     private readonly TeamRegistry _teams;
@@ -158,7 +164,9 @@ public sealed class TeamEndpointGate
             return Refuse(where, rule.Action, null, CallerUnknownRefusal);
 
         // What the request IS depends, for a person's private things, on whose they are: touching another person's
-        // session is watching it and touching their prompts is reading them, whatever endpoint carries it.
+        // session is watching it and touching their prompts is reading them, whatever endpoint carries it. A list cut to
+        // the caller's own (ListCutToCallersOwn) touches nothing of anyone else's by construction: the endpoint keeps
+        // only what is the caller's, so only the cell is asked here.
         var ownership = rule.Target == TeamTarget.CallersOwn ? whose(rule) : TeamOwnership.Callers;
         var action = ownership == TeamOwnership.SomeoneElses
             ? rule.OthersAction ?? throw new InvalidOperationException(
@@ -176,7 +184,7 @@ public sealed class TeamEndpointGate
             return Refuse(where, action, role, OwnOnlyRefusal(role, action));
         if (ownership == TeamOwnership.Unknown)
             return Refuse(where, action, role, OwnershipUnknownRefusal);
-        return Allow(where, action, role, teamId);
+        return Allow(where, action, role, teamId, subject);
     }
 
     /// <summary>
@@ -208,6 +216,7 @@ public sealed class TeamEndpointGate
                 return;
             case TeamGateOutcome.Allowed:
                 ctx.Items[AllowedTeamItemKey] = verdict.TeamId;
+                ctx.Items[AllowedCallerItemKey] = verdict.Caller;
                 await next().ConfigureAwait(false);
                 return;
             case TeamGateOutcome.NoSuchTeam:
@@ -231,6 +240,18 @@ public sealed class TeamEndpointGate
     {
         ArgumentNullException.ThrowIfNull(ctx);
         return ctx.Items.TryGetValue(AllowedTeamItemKey, out var value) ? value as string : null;
+    }
+
+    /// <summary>
+    /// The account subject of the person this gate ALLOWED <paramref name="ctx"/> for, or null when it allowed nothing.
+    /// An endpoint that cuts its answer to the caller's own inside a team (<see cref="TeamTarget.ListCutToCallersOwn"/>)
+    /// reads the caller here - the gate's own answer, never a second resolution - and keeps nothing when it is null.
+    /// Personally identifying: never logged.
+    /// </summary>
+    public static string? AllowedCaller(HttpContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        return ctx.Items.TryGetValue(AllowedCallerItemKey, out var value) ? value as string : null;
     }
 
     /// <summary>
@@ -281,10 +302,10 @@ public sealed class TeamEndpointGate
                "This answer covers the whole team, so it is refused.";
     }
 
-    private static TeamGateVerdict Allow(string where, TeamAction action, TeamRole role, string teamId)
+    private static TeamGateVerdict Allow(string where, TeamAction action, TeamRole role, string teamId, string caller)
     {
         FileLog.Write($"[TeamEndpointGate] {where}: ALLOWED action={action} role={role}");
-        return new TeamGateVerdict(TeamGateOutcome.Allowed, action, role, null, teamId);
+        return new TeamGateVerdict(TeamGateOutcome.Allowed, action, role, null, teamId, caller);
     }
 
     private static TeamGateVerdict Refuse(string where, TeamAction? action, TeamRole? role, string message)

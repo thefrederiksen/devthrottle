@@ -139,7 +139,9 @@ public sealed class SkillPlacementStore
     /// rows to the top is part of the ruling: the one row that needs attention must not be the twentieth
     /// thing on the page.
     /// </summary>
-    public SkillPlacementListResponse ReadAll(TenantId tenant)
+    /// <param name="keepDirector">When given, keep only the rows of the Directors it answers true for
+    /// (devthrottle_internal#2311: in a team, the caller's own Directors).</param>
+    public SkillPlacementListResponse ReadAll(TenantId tenant, Func<string, bool>? keepDirector = null)
     {
         if (!tenant.IsValid)
             throw new ArgumentException("A valid TenantId is required.", nameof(tenant));
@@ -151,7 +153,7 @@ public sealed class SkillPlacementStore
             stored = ctx.SkillPlacementState.ToList();
         }
 
-        var rows = stored.Select(ToRow).ToList();
+        var rows = stored.Where(e => keepDirector is null || keepDirector(e.DirectorId)).Select(ToRow).ToList();
         var ordered = rows
             .OrderBy(r => r.Status == "broken" ? 0 : r.Status == "stale" ? 1 : 2)
             .ThenBy(r => r.MachineName, StringComparer.OrdinalIgnoreCase)

@@ -31,6 +31,14 @@ public enum TeamTarget
     /// Directors (devthrottle_internal#2312). The gate lets a cell of <see cref="TeamGrant.Own"/> through to such an
     /// endpoint, and the endpoint asks <see cref="TeamAccess.Decide"/> itself and narrows on the grant it gets.</summary>
     TeamNarrowedToCaller,
+
+    /// <summary>A LIST of things private to one person, answered by an endpoint that CUTS ITS OWN ANSWER to the caller's
+    /// own for EVERY role - the session roster (<c>GET /sessions</c>) and the workspace list (devthrottle_internal#2311).
+    /// No role may see another person's sessions there (the row "join or watch someone else's session" is no for all
+    /// four), so unlike <see cref="TeamNarrowedToCaller"/> the cut does not depend on the cell: an Owner gets their own,
+    /// not the team's. The gate cannot show a whole list is the caller's own, so it asks only the cell; the endpoint keeps
+    /// only what <see cref="TeamCallerOwnership"/> says is the caller's, and keeps nothing when it cannot say.</summary>
+    ListCutToCallersOwn,
 }
 
 /// <summary>Where the team a request acts in comes from.</summary>
@@ -161,8 +169,19 @@ public static class TeamEndpointRules
 
         // Sessions: a person's own sessions; touching another person's is joining or watching it.
         new TeamEndpointRule("/sessions", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
+        // The session roster (devthrottle_internal#2311, live proof F1): the list a Director's own fleet check reads
+        // through cc-devthrottle. Every role that runs sessions gets THEIR OWN sessions only - their own Directors, and
+        // only the sessions the one holder rule says those Directors hold. An Owner's or Manager's whole-team view is
+        // the Fleet Map (#2312), names and status; the roster carries whole session rows, and showing another person's
+        // would be watching their session, which no role may. A Collaborator runs no sessions and is refused.
+        new TeamEndpointRule("/sessions", TeamMethods.Read, Sessions, TeamTarget.ListCutToCallersOwn, Exact: true),
         new TeamEndpointRule("/interrupted", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
-        new TeamEndpointRule("/session-numbers", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
+        // A session's short number (devthrottle_internal#2311, live proof F2). Asking for one is the caller's own: in a
+        // team the endpoint numbers the session for the calling key's own Director, never the Director the body names,
+        // and refuses a session another person's Director already holds a number for or owns. Freeing one is the
+        // caller's own only when the Director the number was handed to is theirs (TeamCallerOwnership).
+        new TeamEndpointRule("/session-numbers/allocate", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        new TeamEndpointRule("/session-numbers/{sessionId}", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
         new TeamEndpointRule("/fanout", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
         new TeamEndpointRule("/handover", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
         new TeamEndpointRule("/worktrees", TeamMethods.Any, Sessions, TeamTarget.CallersOwn, Watch),
@@ -202,6 +221,39 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/gateway/skills", TeamMethods.Write, TeamAction.ChangeSharedSkillsAndWorkflows, TeamTarget.Team),
         new TeamEndpointRule("/gateway/workflows", TeamMethods.Read, TeamAction.UseSharedSkillsAndWorkflows, TeamTarget.Team),
         new TeamEndpointRule("/gateway/workflows", TeamMethods.Write, TeamAction.ChangeSharedSkillsAndWorkflows, TeamTarget.Team),
+        // A Director's report of whether the skills it was served could be read on its machine (live proof F2). It
+        // changes no shared skill - it is part of using them - and it is about the caller's own machine only: in a team
+        // the endpoint files it under the calling key's own Director, never the one the body names.
+        new TeamEndpointRule(Api.SkillPlacementEndpoints.Path, TeamMethods.Write, TeamAction.UseSharedSkillsAndWorkflows,
+            TeamTarget.CallersOwn, TeamAction.ChangeSharedSkillsAndWorkflows, Exact: true),
+        // Reading the placement fleet view. Before this it fell under the "/gateway/skills" read row above and answered
+        // every member's machines to any member; a machine is a person's own, so it is now the caller's own machines
+        // only, for every role.
+        new TeamEndpointRule(Api.SkillPlacementEndpoints.Path, TeamMethods.Read, Sessions, TeamTarget.ListCutToCallersOwn, Exact: true),
+
+        // What a member's own Director reads and writes about itself (devthrottle_internal#2311, live proof F2). The
+        // principle: a person's own Director, sessions and account - yes; anyone else's - no; a Collaborator runs no
+        // sessions and has no Director, so every one of these is the row "run sessions on their own computers".
+        //
+        // The caller's own account: the endpoint answers about the calling key and nothing else.
+        new TeamEndpointRule("/account/status", TeamMethods.Read, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        // The team's settings that every member's sessions run with - READ only. They are the team tenant's one setting,
+        // not the person's, and no row of the role table says who may change them, so every write stays undeclared and
+        // refused for every role until the owner decides (an owner decision, not built here).
+        new TeamEndpointRule(Contracts.SessionColourLegend.Route, TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
+        new TeamEndpointRule("/gateway/snooze-presets", TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
+        new TeamEndpointRule(CcDirector.Core.Sessions.InjectedTextStore.GatewayPath, TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
+        // The workspace list, cut to the workspaces captured from the caller's own Directors. A workspace written by hand
+        // belongs to no Director, so it cannot be shown to be anyone's and is left out; every other workspace route stays
+        // undeclared and refused.
+        new TeamEndpointRule("/gateway/workspaces", TeamMethods.Read, Sessions, TeamTarget.ListCutToCallersOwn, Exact: true),
+        // The errors a member's own Director logged: filed under the calling key's own device, so what it writes can only
+        // be the caller's. Reading them back (GET) stays undeclared: in a team it would read every member's.
+        new TeamEndpointRule(Api.DirectorErrorEndpoints.Path, TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
+        // What a member's own Director observed about its own sessions. In a team the endpoint refuses the whole batch
+        // when any event names a Director that is not the calling key's own, or a session that Director does not hold
+        // by the one ownership rule. Reading the ledger (GET) stays undeclared: in a team it would read every member's.
+        new TeamEndpointRule("/activity-events/batch", TeamMethods.Write, Sessions, TeamTarget.CallersOwn, Watch, Exact: true),
     };
 
     /// <summary>
