@@ -20,7 +20,7 @@ public sealed class GatewayKeyRefusalTests
     [Fact]
     public void FromUnauthorizedBody_TeamRemovalReason_IsRemovedFromThatTeam()
     {
-        var refusal = GatewayKeyRefusal.FromUnauthorizedBody(RemovedBody, "Team B");
+        var refusal = GatewayKeyRefusal.FromUnauthorizedBody(RemovedBody, "Team B")!;
 
         Assert.Equal(GatewayKeyRefusalKind.RemovedFromTeam, refusal.Kind);
         Assert.Equal("Removed from Team B", refusal.ChipText);
@@ -33,7 +33,7 @@ public sealed class GatewayKeyRefusalTests
     [Fact]
     public void FromUnauthorizedBody_TeamRemovalWithNoTeamRecorded_SaysItsTeam()
     {
-        var refusal = GatewayKeyRefusal.FromUnauthorizedBody(RemovedBody, null);
+        var refusal = GatewayKeyRefusal.FromUnauthorizedBody(RemovedBody, null)!;
 
         Assert.Equal("Removed from the team", refusal.ChipText);
         Assert.StartsWith("This Director was removed from its team", refusal.Summary);
@@ -47,7 +47,7 @@ public sealed class GatewayKeyRefusalTests
     [InlineData("{\"error\":\"device credential revoked\",\"code\":\"device_credential_revoked\",\"reason\":7}")]
     public void FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(string body)
     {
-        var refusal = GatewayKeyRefusal.FromUnauthorizedBody(body, "Team B");
+        var refusal = GatewayKeyRefusal.FromUnauthorizedBody(body, "Team B")!;
 
         Assert.Equal(GatewayKeyRefusalKind.KeyRevoked, refusal.Kind);
         Assert.Equal("Key revoked", refusal.ChipText);
@@ -55,21 +55,30 @@ public sealed class GatewayKeyRefusalTests
         Assert.DoesNotContain("removed", refusal.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
-    // The reason without the revoked code is not a revoke the Gateway stated.
-    [Theory]
-    [InlineData("{\"error\":\"missing or invalid token\"}")]
-    [InlineData("{\"reason\":\"team_member_removed\"}")]
-    [InlineData("")]
-    [InlineData(null)]
-    [InlineData("<html>401 Unauthorized</html>")]
-    [InlineData("[1,2]")]
-    public void FromUnauthorizedBody_NoRevokedCode_IsAKeyNotAccepted(string? body)
+    // The Gateway's own answer for a key it does not know.
+    [Fact]
+    public void FromUnauthorizedBody_TheGatewaysUnknownKeyAnswer_IsAKeyNotAccepted()
     {
-        var refusal = GatewayKeyRefusal.FromUnauthorizedBody(body, "Team B");
+        var refusal = GatewayKeyRefusal.FromUnauthorizedBody("{\"error\":\"missing or invalid token\"}", "Team B")!;
 
         Assert.Equal(GatewayKeyRefusalKind.KeyNotAccepted, refusal.Kind);
         Assert.Equal("Key not accepted", refusal.ChipText);
         Assert.DoesNotContain("removed", refusal.Summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // Review RM-F1: a 401 that is not one of the Gateway's own credential answers is no evidence the key is refused -
+    // a proxy, an intermediary, an empty body - so there is no refusal and the tunnel keeps retrying.
+    [Theory]
+    [InlineData("{\"reason\":\"team_member_removed\"}")]
+    [InlineData("{\"error\":\"unauthorized\"}")]
+    [InlineData("{\"error\":\"missing or invalid token\",\"code\":\"something_else\"}")]
+    [InlineData("")]
+    [InlineData(null)]
+    [InlineData("<html>401 Unauthorized</html>")]
+    [InlineData("[1,2]")]
+    public void FromUnauthorizedBody_NotTheGatewaysAnswer_IsNoRefusal(string? body)
+    {
+        Assert.Null(GatewayKeyRefusal.FromUnauthorizedBody(body, "Team B"));
     }
 }
 
@@ -92,7 +101,7 @@ public sealed class KeyRefusedStatusBoxTests
     public void Describe_KeyRefusedRemovedFromTeam_IsRedAndSaysRemovedWhereItSaidConnecting()
     {
         var refusal = GatewayKeyRefusal.FromUnauthorizedBody(
-            "{\"code\":\"device_credential_revoked\",\"reason\":\"team_member_removed\"}", "Team B");
+            "{\"code\":\"device_credential_revoked\",\"reason\":\"team_member_removed\"}", "Team B")!;
 
         var content = GatewayStatusBoxPresenter.Describe(Inputs(GatewayConnectionVerification.KeyRefused, refusal), "gw.example", null);
 
@@ -107,7 +116,7 @@ public sealed class KeyRefusedStatusBoxTests
     [Fact]
     public void Describe_KeyRevokedForAnotherReason_SaysKeyRevoked()
     {
-        var refusal = GatewayKeyRefusal.FromUnauthorizedBody("{\"code\":\"device_credential_revoked\"}", "Team B");
+        var refusal = GatewayKeyRefusal.FromUnauthorizedBody("{\"code\":\"device_credential_revoked\"}", "Team B")!;
 
         var content = GatewayStatusBoxPresenter.Describe(Inputs(GatewayConnectionVerification.KeyRefused, refusal), "gw.example", null);
 
@@ -177,6 +186,24 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
     public void Decide_RenamedSinceSetup_KeepsTheNameAndDropsTheRecord()
     {
         var decision = DirectorNameAfterMove.Decide("Build box", DirectorNameSuggestion.For("SOREN_NORTH", "Team A"), TeamB);
+
+        Assert.Null(decision.NewName);
+        Assert.Null(decision.Record);
+    }
+
+    // Review RM-F2: the personal account is never recorded, even with its suggested name, so a personal Director is never
+    // renamed by a move.
+    [Fact]
+    public void IfSuggested_PersonalWithItsSuggestedName_IsNull()
+    {
+        Assert.Null(DirectorNameSuggestion.IfSuggested("SOREN_NORTH", DirectorTeam.Personal, "SOREN_NORTH - Personal"));
+    }
+
+    [Fact]
+    public void Decide_MoveToPersonal_KeepsTheNameAndDropsTheRecord()
+    {
+        var decision = DirectorNameAfterMove.Decide("SOREN_NORTH - Team A", DirectorNameSuggestion.For("SOREN_NORTH", "Team A"),
+            DirectorTeam.Personal);
 
         Assert.Null(decision.NewName);
         Assert.Null(decision.Record);
@@ -256,6 +283,73 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
         Assert.Null(DirectorNameSuggestionStore.LoadAt(_home));
     }
 
+    // Review RM-F2, setup to move over the real store: Personal chosen with its suggested name records nothing, so a
+    // later move to a team leaves the name alone.
+    [Fact]
+    public void PersonalSetUpWithItsSuggestedName_ThenMovedToATeam_NameUnchanged()
+    {
+        DirectorNameSuggestionStore.SaveAt(_home,
+            DirectorNameSuggestion.IfSuggested("SOREN_NORTH", DirectorTeam.Personal, "SOREN_NORTH - Personal"));
+        var (follower, name) = Follower("SOREN_NORTH - Personal");
+
+        Assert.Null(follower.FollowMove(TeamB));
+        Assert.Equal("SOREN_NORTH - Personal", name());
+    }
+
+    // Review RM-F3: the rename happened, then the new record could not be saved. The old record is removed (never left
+    // beside the new name), the follower says the name changed but will not follow, and the next move keeps the name.
+    [Fact]
+    public void FollowMove_RecordCannotBeSavedAfterTheRename_RemovesTheOldRecordAndTheNextMoveKeepsTheName()
+    {
+        DirectorNameSuggestionStore.SaveAt(_home, DirectorNameSuggestion.For("SOREN_NORTH", "Team A"));
+        var name = "SOREN_NORTH - Team A";
+        var follower = new DirectorNameFollower(
+            () => name,
+            n => name = n,
+            () => DirectorNameSuggestionStore.LoadAt(_home),
+            s =>
+            {
+                if (s is not null) throw new IOException("suggestion file locked");
+                DirectorNameSuggestionStore.SaveAt(_home, null);
+            });
+
+        var thrown = Assert.Throws<NameChangedButNotRecordedException>(() => follower.FollowMove(TeamB));
+
+        Assert.Equal("SOREN_NORTH - Team B", thrown.NewName);
+        Assert.Equal("SOREN_NORTH - Team B", name);
+        Assert.Null(DirectorNameSuggestionStore.LoadAt(_home));
+
+        Assert.Null(follower.FollowMove(new DirectorTeam("t-c", "Team C")));
+        Assert.Equal("SOREN_NORTH - Team B", name);
+    }
+
+    // If even the removal fails, the follower still reports the change; the stale record no longer matches the name, so
+    // the next move keeps the name.
+    [Fact]
+    public void FollowMove_RecordCannotBeSavedOrRemoved_StillSaysTheNameChanged_AndTheNextMoveKeepsTheName()
+    {
+        DirectorNameSuggestionStore.SaveAt(_home, DirectorNameSuggestion.For("SOREN_NORTH", "Team A"));
+        var name = "SOREN_NORTH - Team A";
+        var writable = false;
+        var follower = new DirectorNameFollower(
+            () => name,
+            n => name = n,
+            () => DirectorNameSuggestionStore.LoadAt(_home),
+            s =>
+            {
+                if (!writable) throw new IOException("disk gone");
+                DirectorNameSuggestionStore.SaveAt(_home, s);
+            });
+
+        Assert.Throws<NameChangedButNotRecordedException>(() => follower.FollowMove(TeamB));
+        Assert.Equal("SOREN_NORTH - Team B", name);
+
+        writable = true;
+        Assert.Null(follower.FollowMove(new DirectorTeam("t-c", "Team C")));
+        Assert.Equal("SOREN_NORTH - Team B", name);
+        Assert.Null(DirectorNameSuggestionStore.LoadAt(_home));
+    }
+
     [Fact]
     public void SuggestionStore_UnreadableFile_Throws()
     {
@@ -292,6 +386,25 @@ public sealed class DirectorNameFollowsMoveTests : IDisposable
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.Equal(new[] { "name:Team B", "team:Team B", "key", "reapply" }, log);
+    }
+
+    // Review RM-F3, at the move: the name changed but its record did not save - the move finishes and says exactly that.
+    [Fact]
+    public async Task MoveAsync_NameChangedButItsRecordNotSaved_TheMoveFinishesAndSaysTheNameWillNotFollow()
+    {
+        var log = new List<string>();
+        var mover = new DirectorTeamMover(new MovingService(), r => new SessionCreationHold(0, () => { }),
+            t => log.Add("team"), k => log.Add("key"),
+            () => { log.Add("reapply"); return Task.CompletedTask; },
+            _ => throw new NameChangedButNotRecordedException("SOREN_NORTH - Team B", new IOException("suggestion file locked")));
+
+        var result = await mover.MoveAsync("dir-1", TeamBChoice, CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(DirectorTeamMover.MovedRenamedButWillNotFollow("Team B", "SOREN_NORTH - Team B", "suggestion file locked"),
+            result.ErrorMessage);
+        Assert.Contains("will not change on later moves", result.ErrorMessage);
+        Assert.Equal(new[] { "team", "key", "reapply" }, log);
     }
 
     [Fact]

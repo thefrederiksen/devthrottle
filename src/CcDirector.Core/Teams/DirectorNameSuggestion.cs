@@ -27,11 +27,15 @@ public sealed record DirectorNameSuggestion(string MachineName, string Name)
 
     /// <summary>
     /// What setup records when the Director was named <paramref name="givenName"/> for <paramref name="team"/>: the
-    /// suggestion when the name is exactly it, otherwise null - the person typed a name of their own.
+    /// suggestion when the team is a TEAM and the name is exactly its suggestion, otherwise null - the person typed a
+    /// name of their own, or chose the personal account. A personal Director is never renamed by a move (brief item 3,
+    /// review RM-F2), so its setup records nothing even when it kept "&lt;computer&gt; - Personal".
     /// </summary>
     public static DirectorNameSuggestion? IfSuggested(string machineName, DirectorTeam team, string givenName)
     {
         ArgumentNullException.ThrowIfNull(team);
+        if (team.IsPersonal)
+            return null;
         var suggestion = For(machineName, team.Name);
         return string.Equals((givenName ?? "").Trim(), suggestion.Name, StringComparison.Ordinal) ? suggestion : null;
     }
@@ -46,12 +50,14 @@ public sealed record DirectorNameAfterMove(string? NewName, DirectorNameSuggesti
     /// The one rule. With no recorded suggestion - a name the person typed, or a Director set up before this was
     /// recorded - the name stays. With a recorded suggestion the Director still carries, the name follows to the
     /// suggestion for <paramref name="newTeam"/>, on the same computer name. With a recorded suggestion the person has
-    /// since renamed away from, the name stays and the record is dropped: the name is theirs now.
+    /// since renamed away from, the name stays and the record is dropped: the name is theirs now. A move to the
+    /// personal account keeps the name and drops the record, so a personal Director never carries one and is never
+    /// renamed by a later move (review RM-F2).
     /// </summary>
     public static DirectorNameAfterMove Decide(string? currentName, DirectorNameSuggestion? recorded, DirectorTeam newTeam)
     {
         ArgumentNullException.ThrowIfNull(newTeam);
-        if (recorded is null)
+        if (recorded is null || newTeam.IsPersonal)
             return new DirectorNameAfterMove(null, null);
         if (!string.Equals((currentName ?? "").Trim(), recorded.Name, StringComparison.Ordinal))
             return new DirectorNameAfterMove(null, null);
@@ -90,7 +96,10 @@ public sealed class DirectorNameFollower
 
     /// <summary>
     /// Follow a move to <paramref name="newTeam"/>. Returns the Director's new name, or null when its name stays.
-    /// Renames before recording, so a failed rename leaves the old record matching the old name.
+    /// Renames before recording, so a failed rename leaves the old record matching the old name. A record that cannot
+    /// be saved AFTER the rename is never left behind as the old one (review RM-F3): the old record is removed - no
+    /// record means the name is never followed again, the safe state - and
+    /// <see cref="NameChangedButNotRecordedException"/> says the name changed but will not follow later moves.
     /// </summary>
     public string? FollowMove(DirectorTeam newTeam)
     {
@@ -100,7 +109,25 @@ public sealed class DirectorNameFollower
         if (decision.NewName is not null)
         {
             _rename(decision.NewName);
-            _saveSuggestion(decision.Record);
+            try
+            {
+                _saveSuggestion(decision.Record);
+            }
+            catch (Exception saveError)
+            {
+                FileLog.Write($"[DirectorNameFollower] FollowMove: renamed, but the new suggestion could not be recorded: {saveError.Message}");
+                try
+                {
+                    _saveSuggestion(null);
+                    FileLog.Write("[DirectorNameFollower] FollowMove: the old suggestion record was removed, so the name will not follow later moves");
+                }
+                catch (Exception removeError)
+                {
+                    FileLog.Write($"[DirectorNameFollower] FollowMove: the old suggestion record could NOT be removed either ({removeError.Message}); " +
+                                  "it no longer matches the name, so the next move will keep the name and try to remove it again");
+                }
+                throw new NameChangedButNotRecordedException(decision.NewName, saveError);
+            }
             FileLog.Write("[DirectorNameFollower] FollowMove: the name was the suggestion, so it follows the move");
             return decision.NewName;
         }
@@ -108,6 +135,22 @@ public sealed class DirectorNameFollower
             _saveSuggestion(null);
         FileLog.Write($"[DirectorNameFollower] FollowMove: name kept ({(recorded is null ? "no suggestion recorded" : "renamed by the person since")})");
         return null;
+    }
+}
+
+/// <summary>
+/// The Director WAS renamed for its new team, but the record that its name is the suggestion could not be saved, so
+/// the old record was removed and the name will not follow later moves (review RM-F3).
+/// </summary>
+public sealed class NameChangedButNotRecordedException : Exception
+{
+    /// <summary>The name the Director now has.</summary>
+    public string NewName { get; }
+
+    public NameChangedButNotRecordedException(string newName, Exception inner)
+        : base($"renamed to \"{newName}\", but the record of its suggested name could not be saved: {inner.Message}", inner)
+    {
+        NewName = newName;
     }
 }
 

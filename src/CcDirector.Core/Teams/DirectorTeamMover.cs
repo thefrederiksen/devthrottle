@@ -102,6 +102,11 @@ public sealed class DirectorTeamMover
         $"This Director now works for {teamName} and is connected, but its name could not be changed to match ({error}). " +
         "Rename it from File, Rename this director.";
 
+    /// <summary>The words for a move whose name followed, but whose suggestion record could not be saved.</summary>
+    public static string MovedRenamedButWillNotFollow(string teamName, string newName, string error) =>
+        $"This Director now works for {teamName} and is connected, and its name is now \"{newName}\", but this computer " +
+        $"could not record that the name is the suggested one ({error}), so its name will not change on later moves.";
+
     /// <summary>
     /// Move this Director to <paramref name="target"/>. Refused, with nothing sent and nothing stored, while any
     /// session is running; no session can start until it returns. The Gateway's refusal is returned as it is.
@@ -148,12 +153,18 @@ public sealed class DirectorTeamMover
         // new name and the new chip together, and the re-apply below sends the new name to the Fleet Map in its Hello.
         // A name that cannot follow does not undo the move; the person is told once the move is finished.
         string? renameError = null;
+        NameChangedButNotRecordedException? renamedButNotRecorded = null;
         if (_followName is not null)
         {
             try
             {
                 var renamed = _followName(team);
                 FileLog.Write($"[DirectorTeamMover] MoveAsync: name {(renamed is null ? "kept" : "followed the move")}");
+            }
+            catch (NameChangedButNotRecordedException ex)
+            {
+                FileLog.Write($"[DirectorTeamMover] MoveAsync: moved on the Gateway, name changed, its record NOT saved: {ex.InnerException?.Message}");
+                renamedButNotRecorded = ex;
             }
             catch (Exception ex)
             {
@@ -197,6 +208,9 @@ public sealed class DirectorTeamMover
 
         if (renameError is not null)
             return OperationResult<DirectorTeam>.Fail(MovedButNotRenamed(team.Name, renameError));
+        if (renamedButNotRecorded is not null)
+            return OperationResult<DirectorTeam>.Fail(MovedRenamedButWillNotFollow(
+                team.Name, renamedButNotRecorded.NewName, renamedButNotRecorded.InnerException?.Message ?? renamedButNotRecorded.Message));
 
         FileLog.Write("[DirectorTeamMover] MoveAsync: moved; team and new device key stored, connection re-applied");
         return OperationResult<DirectorTeam>.Ok(team);

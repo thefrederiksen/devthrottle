@@ -87,6 +87,20 @@ public sealed class HostedTeamSetupTests
         Assert.Equal(new[] { "key:team-key", "rename:Build box", "suggestion:none", "team:t-acme" }, log);
     }
 
+    // Review RM-F2: Personal chosen with its suggested name records nothing, so a personal Director is never renamed.
+    [AvaloniaFact]
+    public async Task RunAsync_PersonalWithItsSuggestedName_RecordsNoSuggestion()
+    {
+        var log = new List<string>();
+
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(2, "SOREN_NORTH - Personal"),
+            name => log.Add("rename:" + name), Suggest(log), team => log.Add("team:" + (team is { IsPersonal: true } ? "personal" : team?.TeamId)),
+            "dir-1", "SOREN_NORTH", CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - Personal", "suggestion:none", "team:personal" }, log);
+    }
+
     // The suggestion is the one for the team CHOSEN, not the first card's: D1 follows the selection.
     [AvaloniaFact]
     public async Task RunAsync_SecondTeamWithItsSuggestedName_RecordsThatSuggestion()

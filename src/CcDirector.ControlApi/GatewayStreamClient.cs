@@ -523,6 +523,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     private async Task<ConnectOutcome> TryConnectAsync()
     {
         if (_connection is null) return ConnectOutcome.Retry;
+        _refusals.Clear();
         try
         {
             await _connection.StartAsync();
@@ -539,10 +540,17 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         }
         catch (Exception ex) when (TerminalRefusalStatus(ex) is HttpStatusCode.Unauthorized)
         {
-            // Terminal: the key is revoked or not known. The body of the refused negotiate says which; "removed
-            // from the team" only when the Gateway said so.
-            _keyRefusal = GatewayKeyRefusal.FromUnauthorizedBody(_refusals.LastUnauthorizedBody, ReadTeamName());
-            FileLog.Write($"[GatewayStreamClient] connect REFUSED (401, {_keyRefusal.Kind}) - stopping reconnect");
+            // Terminal ONLY on positive evidence (review RM-F1): the body must be the Gateway's own credential answer -
+            // revoked, revoked because the person left the team, or a key it does not know. A 401 with no body, a
+            // proxy's page or any other JSON is not proof the key is refused, so it is retried exactly as before.
+            var refusal = GatewayKeyRefusal.FromUnauthorizedBody(_refusals.LastUnauthorizedBody, ReadTeamName());
+            if (refusal is null)
+            {
+                FileLog.Write("[GatewayStreamClient] connect failed with a 401 that is not the Gateway's credential answer - will retry");
+                return ConnectOutcome.Retry;
+            }
+            _keyRefusal = refusal;
+            FileLog.Write($"[GatewayStreamClient] connect REFUSED (401, {refusal.Kind}) - stopping reconnect");
             return ConnectOutcome.KeyRefused;
         }
         catch (Exception ex)

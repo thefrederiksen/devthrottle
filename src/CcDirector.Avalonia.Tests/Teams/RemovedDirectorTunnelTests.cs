@@ -5,6 +5,10 @@ using CcDirector.ControlApi;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.GatewayConnection;
 using CcDirector.Gateway.Contracts;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace CcDirector.Avalonia.Tests.Teams;
@@ -187,6 +191,85 @@ public sealed class RemovedDirectorTunnelTests
             deviceKeyPresent: true, GatewayAccountSignInState.Unknown);
 
         Assert.Equal("Connecting...", GatewayStatusBoxPresenter.Describe(inputs, "gw.example", null).ChipText);
+    }
+
+    /// <summary>
+    /// A real SignalR hub on a loopback port, behind a front that answers the first negotiate with a 401 that is NOT the
+    /// Gateway's credential answer - an empty body, or a proxy's HTML page - and lets every later request through.
+    /// </summary>
+    private sealed class HubBehindAFlakyFront : IAsyncDisposable
+    {
+        private readonly WebApplication _app;
+        private int _negotiates;
+
+        public sealed class EmptyHub : Microsoft.AspNetCore.SignalR.Hub { }
+
+        public HubBehindAFlakyFront(string firstAnswerBody, string contentType)
+        {
+            var builder = WebApplication.CreateSlimBuilder();
+            builder.WebHost.UseUrls("http://127.0.0.1:0");
+            builder.Services.AddSignalR().AddMessagePackProtocol();
+            _app = builder.Build();
+            _app.Use(async (ctx, next) =>
+            {
+                if (ctx.Request.Path.StartsWithSegments("/director-stream/negotiate")
+                    && Interlocked.Increment(ref _negotiates) == 1)
+                {
+                    ctx.Response.StatusCode = 401;
+                    if (firstAnswerBody.Length > 0)
+                    {
+                        ctx.Response.ContentType = contentType;
+                        await ctx.Response.WriteAsync(firstAnswerBody);
+                    }
+                    return;
+                }
+                await next();
+            });
+            _app.MapHub<EmptyHub>("/director-stream");
+        }
+
+        public int Negotiates => Volatile.Read(ref _negotiates);
+
+        public async Task<string> StartAsync()
+        {
+            await _app.StartAsync();
+            return _app.Urls.Single();
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await _app.StopAsync();
+            await _app.DisposeAsync();
+        }
+    }
+
+    // Review RM-F1: a 401 with no body is no evidence the GATEWAY refused the key. The tunnel keeps dialing, stays
+    // "Connecting...", and connects as soon as the next attempt gets through.
+    [Fact]
+    public async Task Tunnel_EmptyUnauthorized_KeepsRetrying_AndRecoversWhenTheNextAttemptSucceeds()
+    {
+        await using var front = new HubBehindAFlakyFront("", "text/plain");
+        var (client, monitor) = Dial(await front.StartAsync(), "Team B");
+        await using var _ = client;
+
+        Assert.True(await WaitForAsync(() => monitor.Status == GatewayConnectionStatus.Connected, TimeSpan.FromSeconds(20)),
+            $"the tunnel did not recover after an empty 401; status={monitor.Status}, negotiates={front.Negotiates}");
+        Assert.True(front.Negotiates >= 2);
+        Assert.Null(monitor.KeyRefusal);
+    }
+
+    // Review RM-F1: a proxy's HTML 401 is not the Gateway's answer either.
+    [Fact]
+    public async Task Tunnel_HtmlUnauthorized_KeepsRetrying_AndRecoversWhenTheNextAttemptSucceeds()
+    {
+        await using var front = new HubBehindAFlakyFront("<html><body><h1>401 Authorization Required</h1></body></html>", "text/html");
+        var (client, monitor) = Dial(await front.StartAsync(), "Team B");
+        await using var _ = client;
+
+        Assert.True(await WaitForAsync(() => monitor.Status == GatewayConnectionStatus.Connected, TimeSpan.FromSeconds(20)),
+            $"the tunnel did not recover after an HTML 401; status={monitor.Status}, negotiates={front.Negotiates}");
+        Assert.True(front.Negotiates >= 2);
+        Assert.Null(monitor.KeyRefusal);
     }
 
     // The Gateway down behind a proxy is a network problem, not a refusal: still "Connecting...", still dialing.

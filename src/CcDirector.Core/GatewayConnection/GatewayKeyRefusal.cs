@@ -12,7 +12,7 @@ public enum GatewayKeyRefusalKind
     /// <summary>The key was revoked for any other reason, or by a Gateway too old to say why.</summary>
     KeyRevoked,
 
-    /// <summary>The Gateway does not know the key at all ("missing or invalid token"), or gave no reason it can read.</summary>
+    /// <summary>The Gateway does not know the key at all: its own "missing or invalid token" answer.</summary>
     KeyNotAccepted,
 }
 
@@ -35,22 +35,39 @@ public sealed record GatewayKeyRefusal(GatewayKeyRefusalKind Kind, string? TeamN
     /// <summary>The reason the Gateway adds to that 401 when the key's person was removed from the team.</summary>
     public const string TeamRemovalReason = "team_member_removed";
 
+    /// <summary>The <c>error</c> of the Gateway's own 401 for a key it does not know (it carries no code).</summary>
+    public const string UnknownKeyError = "missing or invalid token";
+
     /// <summary>
-    /// Read a 401's body. <c>code: device_credential_revoked</c> with <c>reason: team_member_removed</c> is a removal
-    /// from the team; that code with any other reason, or none (a Gateway from before the reason was sent), is a plain
-    /// revoke; anything else - "missing or invalid token", an empty or unreadable body - is a key the Gateway does not
-    /// accept.
+    /// Read a 401's body, and say what the GATEWAY refused - or null when the body is not one of the Gateway's own
+    /// credential answers. Only positive evidence counts (review RM-F1): a 401 can come from a proxy or an intermediary
+    /// in front of the Gateway, and stopping a Director on one of those would strand it until it is set up again.
+    /// <list type="bullet">
+    /// <item><c>code: device_credential_revoked</c> with <c>reason: team_member_removed</c>: removed from the team.</item>
+    /// <item>That code with any other reason, or none (a Gateway from before the reason was sent): a plain revoke.</item>
+    /// <item><c>error: missing or invalid token</c> and no code: a key the Gateway does not know.</item>
+    /// <item>Anything else - no body, an HTML page, other JSON: null, and the caller retries as before.</item>
+    /// </list>
     /// </summary>
     /// <param name="body">The 401's body, or null when none was read.</param>
     /// <param name="teamName">The team this Director recorded, or null.</param>
-    public static GatewayKeyRefusal FromUnauthorizedBody(string? body, string? teamName)
+    public static GatewayKeyRefusal? FromUnauthorizedBody(string? body, string? teamName)
     {
-        var (code, reason) = ReadCodeAndReason(body);
-        var kind = !string.Equals(code, RevokedCode, StringComparison.Ordinal)
-            ? GatewayKeyRefusalKind.KeyNotAccepted
-            : string.Equals(reason, TeamRemovalReason, StringComparison.Ordinal)
+        var answer = ReadAnswer(body);
+        if (answer is null)
+            return null;
+        var (error, code, reason) = answer.Value;
+
+        GatewayKeyRefusalKind kind;
+        if (string.Equals(code, RevokedCode, StringComparison.Ordinal))
+            kind = string.Equals(reason, TeamRemovalReason, StringComparison.Ordinal)
                 ? GatewayKeyRefusalKind.RemovedFromTeam
                 : GatewayKeyRefusalKind.KeyRevoked;
+        else if (code is null && string.Equals(error, UnknownKeyError, StringComparison.Ordinal))
+            kind = GatewayKeyRefusalKind.KeyNotAccepted;
+        else
+            return null;
+
         return new GatewayKeyRefusal(kind, string.IsNullOrWhiteSpace(teamName) ? null : teamName.Trim());
     }
 
@@ -81,22 +98,23 @@ public sealed record GatewayKeyRefusal(GatewayKeyRefusalKind Kind, string? TeamN
     private const string WhatToDo =
         "To use it again, set it up again: click the Gateway status, sign in, and choose another team or set it up for yourself.";
 
-    private static (string? Code, string? Reason) ReadCodeAndReason(string? body)
+    // The error, code and reason of a JSON object body, or null when the body is not a JSON object at all.
+    private static (string? Error, string? Code, string? Reason)? ReadAnswer(string? body)
     {
         if (string.IsNullOrWhiteSpace(body))
-            return (null, null);
+            return null;
         try
         {
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.ValueKind != JsonValueKind.Object)
-                return (null, null);
-            return (StringProperty(doc.RootElement, "code"), StringProperty(doc.RootElement, "reason"));
+                return null;
+            return (StringProperty(doc.RootElement, "error"), StringProperty(doc.RootElement, "code"),
+                StringProperty(doc.RootElement, "reason"));
         }
         catch (JsonException)
         {
-            // Not JSON: a proxy's page, say. It names no code, so it is read as a key not accepted - exactly what a
-            // body with no code is.
-            return (null, null);
+            // Not JSON: a proxy's page, say. Not the Gateway's answer, so it is no evidence of a refused key.
+            return null;
         }
     }
 

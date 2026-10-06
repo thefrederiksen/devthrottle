@@ -25,6 +25,12 @@ public sealed class TunnelRefusalRecorder
         get { lock (_lock) return _lastUnauthorizedBody; }
     }
 
+    /// <summary>Forget the last 401, before an attempt, so a body read now belongs to this attempt alone.</summary>
+    public void Clear()
+    {
+        lock (_lock) _lastUnauthorizedBody = null;
+    }
+
     /// <summary>Put the recorder in front of <paramref name="inner"/>, the handler SignalR's requests go through.</summary>
     public HttpMessageHandler Wrap(HttpMessageHandler inner)
     {
