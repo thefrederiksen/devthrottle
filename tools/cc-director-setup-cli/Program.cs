@@ -41,6 +41,16 @@ public static class Program
         if (args.HasFlag("help"))
             return Help();
 
+        // On macOS the install is per-user: run as root it fills the user's own Library with root-owned
+        // files, and launchd then refuses to start the launcher (#3411). Refused before anything is written.
+        // Only the commands that write: a read-only command (status, components) stays observational.
+        var writes = WritesTheInstall(args);
+        if (OperatingSystem.IsMacOS() && writes && Environment.IsPrivilegedProcess)
+        {
+            Console.Error.WriteLine($"Error: {MacFileOwnership.RefuseRootMessage}");
+            return ExitError;
+        }
+
         var json = args.HasFlag("json");
 
         // When launched elevated by the WPF wizard (a hidden console), tee stdout/stderr to a file
@@ -49,7 +59,26 @@ public static class Program
 
         // Resolve the install layout (roots overridable for testing) and route engine logs to a file.
         var layout = ResolveLayout(args);
-        WireLogging(layout);
+
+        // Before the first write into the install folder (the log below is one): a root-owned install
+        // fails every write, so a repair that waited for the launcher step was never reached (#3411).
+        // The command line is the headless surface agents drive, so it never opens a password dialog: it
+        // stops with the command that repairs the files. The setup wizard offers the prompt.
+        if (OperatingSystem.IsMacOS() && writes)
+        {
+            var ownership = MacFileOwnership.EnsureOwnedByUser(MacFileOwnership.DefaultRunner,
+                MacFileOwnership.InstallTargets(layout, LauncherLaunchdAutostart.PlistPath), offerPrompt: false, _ => { });
+            if (ownership is not null)
+            {
+                Console.Error.WriteLine($"Error: {ownership}");
+                return ExitError;
+            }
+        }
+
+        // A read-only command run with sudo must stay read-only: wiring the log creates <root>/logs, and as
+        // root that is the root-owned install folder this guard exists to prevent. It answers without a log.
+        if (!(OperatingSystem.IsMacOS() && !writes && Environment.IsPrivilegedProcess))
+            WireLogging(layout);
 
         try
         {
@@ -107,6 +136,19 @@ public static class Program
         }
         catch { /* a missing tee must never block the install */ }
     }
+
+    /// <summary>
+    /// Whether the command may write the per-user install (and so must not run as root, and needs the install
+    /// to belong to the user). A list of the commands that write NOTHING, so a new command is guarded until
+    /// someone shows it is read-only: plan and --dry-run looked read-only and still wrote the release cache
+    /// into the install folder. Read-only commands answer from what is there, even on a damaged install.
+    /// </summary>
+    internal static bool WritesTheInstall(CliArgs args) => args.Option("log-file") is not null || args.Command.ToLowerInvariant() switch
+    {
+        "status" or "components" or "prereqs" or "version" or "--version" or "help" or "--help" => false,
+        "autostart" => args.Positionals.Count > 0 && !args.Positionals[0].Equals("status", StringComparison.OrdinalIgnoreCase),
+        _ => true,
+    };
 
     private static void WireLogging(InstallLayout layout)
     {
