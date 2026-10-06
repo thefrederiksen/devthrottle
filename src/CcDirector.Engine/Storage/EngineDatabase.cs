@@ -206,6 +206,17 @@ public sealed class EngineDatabase
             backfill.ExecuteNonQuery();
         }
 
+        if (added.Contains("command_starting_at"))
+        {
+            // A run still open from before the starting mark existed may well have started its command;
+            // the database cannot say it did not. Mark it as possibly started, so it is held to its
+            // deadline unless a recorded command proves it gone - never released as "never started".
+            using var mark = conn.CreateCommand();
+            mark.Transaction = tx;
+            mark.CommandText = "UPDATE runs SET command_starting_at = started_at WHERE ended_at IS NULL AND command_starting_at IS NULL";
+            mark.ExecuteNonQuery();
+        }
+
         tx.Commit();
 
         if (added.Count > 0)
@@ -468,7 +479,11 @@ public sealed class EngineDatabase
         cmd.Parameters.AddWithValue("@id", runId);
         cmd.Parameters.AddWithValue("@pid", processId);
         cmd.Parameters.AddWithValue("@started", processStartedAtUtc.ToString("o"));
-        cmd.ExecuteNonQuery();
+        if (cmd.ExecuteNonQuery() != 1)
+        {
+            // The run was ended under us (its claim released): the command it started must not run on.
+            throw new InvalidOperationException($"Run {runId} is no longer open; its command must be stopped");
+        }
     }
 
     /// <summary>
@@ -672,11 +687,15 @@ public sealed class EngineDatabase
                     DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.AdjustToUniversal),
                     reader.IsDBNull(3) ? null : reader.GetInt32(3),
                     reader.IsDBNull(4) ? null : reader.GetInt32(4),
-                    reader.IsDBNull(5) ? null : DateTime.Parse(reader.GetString(5), null, System.Globalization.DateTimeStyles.AdjustToUniversal),
-                    !reader.IsDBNull(6),
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetString(6),
+                    reader.IsDBNull(9) ? null : reader.GetInt32(9),
+                    reader.IsDBNull(10) ? null : reader.GetString(10),
                     ReadOwner(reader, 7)));
             }
         }
+
+        AfterOpenRunsRead?.Invoke();
 
         if (open.Count == 0)
             return 0;
@@ -689,19 +708,35 @@ public sealed class EngineDatabase
 
             using var conn = CreateConnection();
             using var update = conn.CreateCommand();
-            // Conditional on still being open: its owner may have finished it since we read it.
+            // Conditional on EXACTLY the state it was decided from: still open, the same starting mark,
+            // the same recorded command and the same owner. If the row moved on (a mark written, a
+            // command recorded, the owner finished it), nothing changes and it is decided again next tick.
             update.CommandText = """
                 UPDATE runs SET
                     ended_at = @endedAt,
                     exit_code = -1,
                     stderr = @reason,
                     duration_seconds = 0
-                WHERE id = @id AND ended_at IS NULL
+                WHERE id = @id
+                  AND ended_at IS NULL
+                  AND command_starting_at IS @mark
+                  AND child_pid IS @childPid
+                  AND child_process_started IS @childStarted
+                  AND owner_pid IS @ownerPid
+                  AND owner_process_started IS @ownerStarted
                 """;
             update.Parameters.AddWithValue("@id", run.Id);
             update.Parameters.AddWithValue("@endedAt", nowUtc.ToString("o"));
             update.Parameters.AddWithValue("@reason", reason);
-            count += update.ExecuteNonQuery();
+            update.Parameters.AddWithValue("@mark", (object?)run.CommandStartingRaw ?? DBNull.Value);
+            update.Parameters.AddWithValue("@childPid", (object?)run.ChildPid ?? DBNull.Value);
+            update.Parameters.AddWithValue("@childStarted", (object?)run.ChildStartedRaw ?? DBNull.Value);
+            update.Parameters.AddWithValue("@ownerPid", (object?)run.OwnerPidRaw ?? DBNull.Value);
+            update.Parameters.AddWithValue("@ownerStarted", (object?)run.OwnerStartedRaw ?? DBNull.Value);
+            var ended = update.ExecuteNonQuery();
+            if (ended == 0)
+                FileLog.Write($"[EngineDatabase] CleanupOrphanedRuns: run={run.Id} changed since it was read, not ended; decided again next tick");
+            count += ended;
         }
 
         if (count > 0)
@@ -709,49 +744,69 @@ public sealed class EngineDatabase
         return count;
     }
 
-    private sealed record OpenRun(
-        int Id, int JobId, DateTime StartedAt, int? TimeoutSeconds, int? ChildPid, DateTime? ChildStartedAt,
-        bool CommandStarting, EngineRunOwner? Owner);
+    /// <summary>Test seam: runs between reading the open runs and ending any of them.</summary>
+    internal Action? AfterOpenRunsRead { get; set; }
 
-    /// <summary>The reason to end this unfinished run, or null to keep it. See <see cref="CleanupOrphanedRuns(DateTime, Func{int, bool})"/>.</summary>
+    /// <summary>An open run exactly as read: the raw column values are what the conditional end compares against.</summary>
+    private sealed record OpenRun(
+        int Id, int JobId, DateTime StartedAt, int? TimeoutSeconds, int? ChildPid, string? ChildStartedRaw,
+        string? CommandStartingRaw, int? OwnerPidRaw, string? OwnerStartedRaw, EngineRunOwner? Owner)
+    {
+        public bool CommandStarting => CommandStartingRaw is not null;
+
+        public DateTime? ChildStartedAt => ChildStartedRaw is null
+            ? null
+            : DateTime.Parse(ChildStartedRaw, null, System.Globalization.DateTimeStyles.AdjustToUniversal);
+    }
+
+    /// <summary>
+    /// The reason to end this unfinished run, or null to keep it. See <see cref="CleanupOrphanedRuns(DateTime, Func{int, bool})"/>.
+    /// A recorded command is asked FIRST, whatever the owner's state: proven running keeps the claim;
+    /// proven gone releases it unless a live owner is still there to end it itself; only an undecidable
+    /// command falls to the owner rules and, at most, the deadline.
+    /// </summary>
     private string? DecideOrphan(OpenRun run, DateTime nowUtc, Func<int, bool>? jobInFlightHere)
     {
-        if (run.Owner is not null && IsThisProcess(run.Owner))
+        var ours = run.Owner is not null && IsThisProcess(run.Owner);
+        if (ours && (jobInFlightHere is null || jobInFlightHere(run.JobId)))
+            return null;
+
+        var owner = ours ? OwnerLiveness.Gone // ours and not executed here: nobody will end it but us
+            : run.Owner is null ? OwnerLiveness.Unknown
+            : _probeOwner(run.Owner);
+
+        if (run.ChildPid is not null && run.ChildStartedAt is not null)
         {
-            if (jobInFlightHere is null || jobInFlightHere(run.JobId))
-                return null;
-            return DecideByCommand(run, nowUtc);
+            // The command ran on the owner's machine; it is judged by the same id-plus-start proof.
+            var command = (run.Owner ?? _owner) with { ProcessId = run.ChildPid.Value, ProcessStartedAtUtc = run.ChildStartedAt.Value };
+            switch (_probeOwner(command))
+            {
+                case OwnerLiveness.Running:
+                    return null;
+                case OwnerLiveness.Gone:
+                    // A live owner records its own result; never end another live Director's run.
+                    return owner == OwnerLiveness.Running ? null : InterruptedRunMessage;
+            }
         }
 
-        var owner = run.Owner is null ? OwnerLiveness.Unknown : _probeOwner(run.Owner);
         return owner switch
         {
             OwnerLiveness.Running => null,
-            OwnerLiveness.Gone => DecideByCommand(run, nowUtc),
+            OwnerLiveness.Gone => DecideWithoutAProvenCommand(run, nowUtc),
             _ => PastDeadline(run, nowUtc) ? AbandonedRunMessage : null,
         };
     }
 
-    /// <summary>Judges a run nobody is executing any more by its command, as recorded on the row.</summary>
-    private string? DecideByCommand(OpenRun run, DateTime nowUtc)
+    /// <summary>Nobody is executing this run and no recorded command proves it alive or gone.</summary>
+    private static string? DecideWithoutAProvenCommand(OpenRun run, DateTime nowUtc)
     {
-        if (run.ChildPid is not null && run.ChildStartedAt is not null)
-        {
-            // The command ran on the owner's machine; it is judged by the same id-plus-start proof.
-            var command = run.Owner! with { ProcessId = run.ChildPid.Value, ProcessStartedAtUtc = run.ChildStartedAt.Value };
-            return _probeOwner(command) switch
-            {
-                OwnerLiveness.Gone => InterruptedRunMessage,
-                OwnerLiveness.Running => null,
-                _ => PastDeadline(run, nowUtc) ? AbandonedRunMessage : null,
-            };
-        }
-
-        if (!run.CommandStarting)
+        // No starting mark, read in the same state the conditional end will require: no command was
+        // ever started for this run.
+        if (run.ChildPid is null && !run.CommandStarting)
             return InterruptedRunMessage;
 
-        // The command may have started but its identity was never recorded: it cannot be proven gone,
-        // so the claim is held until the deadline - never released earlier, never held forever.
+        // A command may be running and cannot be proven gone: held until the deadline - never released
+        // earlier, never held forever.
         return PastDeadline(run, nowUtc) ? AbandonedRunMessage : null;
     }
 
