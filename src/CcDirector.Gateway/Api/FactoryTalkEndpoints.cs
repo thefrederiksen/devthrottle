@@ -12,7 +12,7 @@ namespace CcDirector.Gateway.Api;
 /// <summary>
 /// The Factories screen's Talk button (Factories screen mission, phase C):
 ///
-///   POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk  -> 201 FactoryTalkDto | 400 | 403 | 404 | 409 | 502
+///   POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk  -> 201 FactoryTalkStartedDto | 400 | 403 | 404 | 409 | 502
 ///
 /// It starts a NEW TOP-LEVEL SESSION OWNED BY THE PERSON WHO PRESSED IT, seated as that seat: on the seat's computer,
 /// in the factory's folder, in the factory (so its rules and memory load as they do for its scheduled runs), named
@@ -114,7 +114,7 @@ internal static class FactoryTalkEndpoints
             }
 
             FileLog.Write($"[FactoryTalkEndpoints] started talk sid={started.SessionId} for {registered.Factory}/{seated.Id} on {director.DirectorId} ({seated.Computer})");
-            return Results.Json(new FactoryTalkDto
+            return Results.Json(new FactoryTalkStartedDto
             {
                 SessionId = started.SessionId,
                 SessionName = request.Name,

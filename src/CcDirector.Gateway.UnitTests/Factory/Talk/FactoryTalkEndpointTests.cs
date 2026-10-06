@@ -200,7 +200,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
 
         var response = await Talk("warmforward", "nora-hale");
 
-        var talk = await response.Content.ReadFromJsonAsync<FactoryTalkDto>(Web);
+        var talk = await response.Content.ReadFromJsonAsync<FactoryTalkStartedDto>(Web);
         Assert.NotNull(talk);
         Assert.Equal("7d2c0e4e-0000-4000-8000-00000000c0de", talk!.SessionId);
         Assert.Equal("/session/7d2c0e4e-0000-4000-8000-00000000c0de", talk.Href);

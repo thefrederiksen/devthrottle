@@ -153,7 +153,7 @@ public sealed class GoalNumbersDto
 /// The answer of <c>POST /gateway/factory-agents/factories/{factory}/seats/{seat}/talk</c> (Factories screen mission,
 /// phase C): the top-level session the owner's Talk button started, seated as that seat, and where the Cockpit opens it.
 /// </summary>
-public sealed class FactoryTalkDto
+public sealed class FactoryTalkStartedDto
 {
     /// <summary>The new session's id.</summary>
     public string SessionId { get; set; } = "";
