@@ -47,6 +47,7 @@ public sealed class FleetManagerLessonsObserver
     private readonly Func<TenantId, string, string?> _directorOf;
     private readonly Func<string, DirectorCommand, CancellationToken, Task<DirectorCommandResult?>> _sendCommand;
     private readonly Func<DateTime> _utcNow;
+    private readonly Func<TenantId, string, string, bool>? _isSessionOfDirector;
 
     // Per account: the marked session id the push path last read, and when.
     private readonly ConcurrentDictionary<TenantId, (string? Id, DateTime ReadAtUtc)> _marked = new();
@@ -63,16 +64,43 @@ public sealed class FleetManagerLessonsObserver
     /// <param name="directorOf">The Director that holds a session of the account, however stale, or null.</param>
     /// <param name="sendCommand">The down-channel command sender. A null result means that Director has no stream.</param>
     /// <param name="utcNow">The clock the marked-id reuse is measured on; the system clock when null.</param>
+    /// <param name="isSessionOfDirector">Whether a session, given (tenant, directorId, sessionId), is that Director's own,
+    /// asked before a PUSH stamps the marked session down to the pushing Director (devthrottle_internal#2311, #3552
+    /// review: the Fleet Manager lessons). In a team any Director may list any session id, so a colleague's Director
+    /// listing the marked id would otherwise be sent the lessons. Production asks the one team rule; outside a team it
+    /// answers yes. Null takes every push, as before.</param>
     public FleetManagerLessonsObserver(Func<TenantId, string?> markedSessionId, Func<TenantId, string?> lessonsBlock,
         Func<TenantId, string, string?> directorOf,
         Func<string, DirectorCommand, CancellationToken, Task<DirectorCommandResult?>> sendCommand,
-        Func<DateTime>? utcNow = null)
+        Func<DateTime>? utcNow = null,
+        Func<TenantId, string, string, bool>? isSessionOfDirector = null)
     {
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        _isSessionOfDirector = isSessionOfDirector;
         _markedSessionId = markedSessionId ?? throw new ArgumentNullException(nameof(markedSessionId));
         _lessonsBlock = lessonsBlock ?? throw new ArgumentNullException(nameof(lessonsBlock));
         _directorOf = directorOf ?? throw new ArgumentNullException(nameof(directorOf));
         _sendCommand = sendCommand ?? throw new ArgumentNullException(nameof(sendCommand));
+    }
+
+    /// <summary>
+    /// Which Director a session's lessons go to, when not every Director that lists its id is the session's own
+    /// (devthrottle_internal#2311): the roster's own answer <paramref name="located"/> when it is the session's, otherwise
+    /// the first other holder, then the Director the session's key row names, that is. Null when none is - never merely
+    /// whichever Director lists the id. <paramref name="isOwn"/> is the one team rule, asked per candidate.
+    /// </summary>
+    public static string? OwnDirectorOf(string? located, IEnumerable<string> holders, string? keyed, Func<string, bool> isOwn)
+    {
+        ArgumentNullException.ThrowIfNull(holders);
+        ArgumentNullException.ThrowIfNull(isOwn);
+        var candidates = new List<string>();
+        if (!string.IsNullOrEmpty(located)) candidates.Add(located);
+        candidates.AddRange(holders);
+        if (!string.IsNullOrEmpty(keyed)) candidates.Add(keyed);
+        foreach (var candidate in candidates.Distinct(StringComparer.Ordinal))
+            if (isOwn(candidate))
+                return candidate;
+        return null;
     }
 
     /// <summary>A lesson was kept, confirmed, edited or removed: read the block again and stamp it down now.</summary>
@@ -105,6 +133,12 @@ public sealed class FleetManagerLessonsObserver
         {
             var marked = MarkedForPush(tenant);
             if (!SameId(marked, sessionId)) return;
+            // Only the marked session's own Director is stamped: a Director that merely lists its id is not.
+            if (_isSessionOfDirector is not null && !_isSessionOfDirector(tenant, directorId, marked!))
+            {
+                FileLog.Write($"[FleetManagerLessonsObserver] Observe IGNORED: tenant={tenant.ToLogString()}, director={directorId} lists the marked session {marked} but it is not that Director's own");
+                return;
+            }
             await StampAsync(tenant, directorId, marked!).ConfigureAwait(false);
         }
         catch (Exception ex)

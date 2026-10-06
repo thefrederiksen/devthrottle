@@ -673,6 +673,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The Gateway database, for the doorbell's end-to-end proof, which reads the ring and stuck columns.</summary>
     internal Data.GatewayDatabase GatewayDatabaseForTests => _gatewayDb;
 
+    /// <summary>The Fleet Manager preference store, so a host test can keep a confirmed lesson in a team, where the
+    /// lesson routes are refused (devthrottle_internal#2311).</summary>
+    internal Fleet.FleetPreferenceStore FleetPreferencesForTests => _fleetPreferences!;
+
     /// <summary>The one session-history recorder the Director hub feeds, for the host-level stamp test.</summary>
     internal History.SessionHistoryRecorder SessionHistoryRecorderForTests => _sessionHistoryRecorder;
 
@@ -2026,8 +2030,10 @@ public sealed class GatewayHost : IAsyncDisposable
         FleetManagerLessonsStamp = new Fleet.FleetManagerLessonsObserver(
             markedSessionId: tenant => _tenantSettingsResolver!.FleetManagerSessionId(tenant),
             lessonsBlock: FleetManagerLessonsBlock,
-            directorOf: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid)?.DirectorId,
-            sendCommand: SendCommandAsync);
+            directorOf: FleetManagerDirectorOf,
+            sendCommand: SendCommandAsync,
+            // In a team, only the marked session's own Director is stamped on a push (devthrottle_internal#2311).
+            isSessionOfDirector: (tenant, directorId, sid) => IsTeamSessionOfDirector(tenant, directorId, sid, isRemoval: false));
         // A Director drops every session's lessons when a new connection opens; its first snapshot is the moment to
         // stamp the marked Fleet Manager again. Off the pushing Director's call, which a handler must not block.
         PushedSessions.SessionsArrivedOnNewConnection += (tenant, directorId)
@@ -3332,6 +3338,29 @@ public sealed class GatewayHost : IAsyncDisposable
             narrationPlan: ResolveNarrationPlan,
             ledger: _activityEvents,
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
+
+    /// <summary>
+    /// The Director the Fleet Manager lessons are stamped on for a session (devthrottle_internal#2311, #3552 review: the
+    /// Fleet Manager lessons). Outside a team, and while Teams is dark, the Director the roster finds holding the id -
+    /// exactly as before. In a team, the Director the one rule names (<see cref="IsTeamSessionOfDirector"/>, which asks
+    /// <see cref="Teams.TeamCallerOwnership.ClaimOf(TenantId, string, string)"/>): the roster's own answer when that
+    /// Director is the session's, otherwise another holder or the Director the session's key row names that is - never
+    /// merely whichever Director lists the id. Null when no Director is the session's.
+    /// </summary>
+    internal string? FleetManagerDirectorOf(TenantId tenant, string sessionId)
+    {
+        var located = PushedSessions.TryLocateIgnoringFreshness(tenant, sessionId)?.DirectorId;
+        if (!tenant.IsValid || !TeamsReleased || !TeamMemberEntitlement.IsTeam(tenant))
+            return located;
+
+        var own = Fleet.FleetManagerLessonsObserver.OwnDirectorOf(located,
+            PushedSessions.DirectorsHoldingSession(tenant, sessionId),
+            TeamCallerOwnership.SessionKeyDirectorOf(tenant, sessionId),
+            candidate => IsTeamSessionOfDirector(tenant, candidate, sessionId, isRemoval: false));
+        if (own is null)
+            FileLog.Write($"[GatewayHost] FleetManagerDirectorOf: no Director is session {sessionId}'s own in team {tenant.ToLogString()} - the lessons are sent to none");
+        return own;
+    }
 
     /// <summary>
     /// Whether a Director's report about a session, or a fold sent to it, belongs to that session (#3552 review, round
