@@ -541,8 +541,9 @@ public sealed class GatewayAccountEnrollRunner
     /// <item>The Gateway says it has no Teams, or says nothing about Teams (a Gateway from before Teams): no teams
     /// call, nothing asked, the enrollment is exactly the one sent before Teams, and no team is recorded.</item>
     /// <item>It says it has Teams: the teams call, and any answer but 200 is an error shown as it is. No team
-    /// listed: nothing asked, today's enrollment, the personal account recorded. One or more: the person is
-    /// asked, the chosen team's id is sent, and a refusal is returned in the Gateway's own words.</item>
+    /// listed: nothing asked, today's enrollment, the personal account recorded. Exactly one: nothing asked, that
+    /// team's id sent, and the Director named "&lt;computer&gt; - &lt;team&gt;" as D1 would have started it. Two or
+    /// more: the person is asked, the chosen team's id is sent, and a refusal is returned in the Gateway's own words.</item>
     /// </list>
     /// The account token is held in memory only and never logged.
     /// </summary>
@@ -585,10 +586,19 @@ public sealed class GatewayAccountEnrollRunner
                 return OperationResult<HostedTeamEnrollment>.Fail(listed.ErrorMessage!);
 
             var choices = TeamChoices.Build(listed.Value!);
-            if (!TeamChoices.MustAsk(choices))
+            if (TeamChoices.TakenWithoutAsking(choices) is { } taken)
             {
-                EngineLog.Write("[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: no team to choose; the personal account, not asked");
-                team = choices[0].ToTeam();
+                team = taken.ToTeam();
+                if (taken.IsPersonal)
+                {
+                    EngineLog.Write("[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: no team to choose; the personal account, not asked");
+                }
+                else
+                {
+                    // D1 is not shown, so the Director gets the name D1 would have started with: "<computer> - <team>".
+                    directorName = TeamChoices.SuggestDirectorName(machineName, taken);
+                    EngineLog.Write($"[GatewayAccountEnrollRunner] SignInChooseTeamAndEnrollHostedAsync: one team, not asked; team {team.TeamId}");
+                }
             }
             else
             {
