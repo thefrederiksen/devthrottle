@@ -15,6 +15,7 @@ from . import diag_ops
 from . import email_ops
 from . import factory_ops
 from . import factory_memory_ops
+from . import factory_registry_ops
 from . import fleet_manager_ops
 from . import fleet_ops
 from . import link_ops
@@ -125,7 +126,7 @@ schedule_app = typer.Typer(
 )
 factory_app = typer.Typer(
     cls=AxiGroup,
-    help="Record what a factory agent did, and read the factory activity record back.",
+    help="Register factories, post goal numbers, record and read factory activity.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -136,6 +137,13 @@ factory_memory_app = typer.Typer(
     no_args_is_help=True,
 )
 factory_app.add_typer(factory_memory_app, name="memory")
+factory_goal_number_app = typer.Typer(
+    cls=AxiGroup,
+    help="The number a factory's goal is measured by: its CEO posts it on every run.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+factory_app.add_typer(factory_goal_number_app, name="goal-number")
 trigger_app = typer.Typer(
     cls=AxiGroup,
     help="Checks with no model that start a session when there is work.",
@@ -964,6 +972,41 @@ _ACTIONS = [
             {"name": "version", "required": False},
             {"name": "corrects", "required": False},
         ],
+    },
+    {
+        "id": "factory-register",
+        "description": "Register a factory from a JSON manifest (title, folder, computer, CEO, goal file, seats); replaces its last registration.",
+        "command": "cc-devthrottle factory register --manifest <file>",
+        "mutatesState": True,
+        "args": [{"name": "manifest", "required": True}],
+    },
+    {
+        "id": "factory-list",
+        "description": "List the registered factories.",
+        "command": "cc-devthrottle factory list",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "factory-goal-number-post",
+        "description": "Post a factory's goal number (value, unit, as-of date, link to how it was measured); a CEO runs it on every run.",
+        "command": "cc-devthrottle factory goal-number post --factory <id> --value <text> --unit <text> --date <YYYY-MM-DD> --link <url>",
+        "mutatesState": True,
+        "args": [
+            {"name": "factory", "required": True},
+            {"name": "value", "required": True},
+            {"name": "unit", "required": True},
+            {"name": "date", "required": True},
+            {"name": "link", "required": True},
+            {"name": "by", "required": False},
+        ],
+    },
+    {
+        "id": "factory-goal-number-show",
+        "description": "Show a factory's goal numbers, newest first.",
+        "command": "cc-devthrottle factory goal-number show --factory <id>",
+        "mutatesState": False,
+        "args": [{"name": "factory", "required": True}],
     },
     {
         "id": "factory-memory-list",
@@ -3527,6 +3570,72 @@ def factory_activity(
 ) -> None:
     """Read the factory activity record, newest first."""
     factory_ops.activity(factory, agent, outcome, since, until, oldest_first, offset, limit, json_output)
+
+
+@factory_app.command("register")
+def factory_register(
+    manifest: str = typer.Option(..., "--manifest", help="The factory's JSON manifest file."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the registered factory as JSON."),
+) -> None:
+    """Register a factory from a JSON manifest, replacing its last registration.
+
+    The manifest holds exactly: factory, title, folder (absolute), computer, ceoSeat (optional), goalFile
+    (optional, relative to the folder - its text is read here and sent, so run this on the factory's computer),
+    goalApprovedOn (optional, YYYY-MM-DD), and seats: a list of {id, name, role, briefFile (relative to the
+    folder), schedules (Gateway schedule ids), computer (optional, defaults to the factory's)}. An unknown key
+    is refused. Exits non-zero when the factory was not registered.
+    """
+    factory_registry_ops.register(manifest, json_output)
+
+
+@factory_app.command("list")
+def factory_list(
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Comma-separated fields to show. Valid: " + ", ".join(factory_registry_ops.LIST_FIELDS)
+        + ". Default: " + ", ".join(factory_registry_ops.LIST_DEFAULT_FIELDS) + ".",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON (every field)."),
+) -> None:
+    """List the registered factories."""
+    factory_registry_ops.list_factories(json_output, fields)
+
+
+@factory_goal_number_app.command("post")
+def factory_goal_number_post(
+    factory: str = typer.Option(..., "--factory", help="The registered factory the number is for."),
+    value: str = typer.Option(..., "--value", help="The number, as text (\"1,240\", \"not yet proven\")."),
+    unit: str = typer.Option(..., "--unit", help="What the number counts."),
+    date: str = typer.Option(..., "--date", help="The day the number is as of, YYYY-MM-DD."),
+    link: str = typer.Option(..., "--link", help="A web address (http or https) showing how it was measured."),
+    by: Optional[str] = typer.Option(
+        None, "--by",
+        help="The seat that posts it. Leave out in a factory agent's own session: the Gateway knows the seat.",
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the posted number as JSON."),
+) -> None:
+    """Post a factory's goal number; non-zero exit if it was not kept.
+
+    Every post is kept and the newest is shown on the factory's page. The poster must be one of the factory's
+    registered seats.
+    """
+    factory_registry_ops.post_goal_number(factory, value, unit, date, link, by, json_output)
+
+
+@factory_goal_number_app.command("show")
+def factory_goal_number_show(
+    factory: str = typer.Option(..., "--factory", help="The factory."),
+    count: int = typer.Option(20, "--count", "-n", min=1, max=200, help="Largest number of posts to show (1-200)."),
+    fields: Optional[str] = typer.Option(
+        None, "--fields",
+        help="Comma-separated fields to show. Valid: " + ", ".join(factory_registry_ops.GOAL_FIELDS)
+        + ". Default: " + ", ".join(factory_registry_ops.GOAL_DEFAULT_FIELDS) + ".",
+    ),
+    full: bool = typer.Option(False, "--full", help="Show long values and links whole instead of a preview."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON (every field)."),
+) -> None:
+    """Show a factory's goal numbers, newest first."""
+    factory_registry_ops.show_goal_numbers(factory, count, json_output, fields, full)
 
 
 @factory_memory_app.command("list")

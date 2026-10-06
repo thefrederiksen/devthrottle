@@ -1673,6 +1673,62 @@ The Gateway stamps the calling session as the actor and as the row's session.
 `activity` reads newest first; `--from` is inclusive and `--to` exclusive. `--count` defaults to 50
 (at most 1000); when more rows match it says which `--offset` shows the next page.
 
+#### Factory registry and goal number
+
+The factory registry: one entry per factory, on the Gateway, saying what the owner's Factories screen
+lists - its title, folder, computer, CEO, goal and seats. It is an index of the factory, not its
+definition: the briefs stay in the factory's folder. The goal number is the number a factory's goal is
+measured by; its CEO posts it on every run, every post is kept, and the newest is shown on the factory's
+page. These commands need factory agents switched on for the account, like the activity record.
+
+```
+USAGE: cc-devthrottle factory COMMAND [ARGS]...
+
+COMMANDS:
+  register --manifest FILE [--json]
+  list [--fields F,F] [--json]
+  goal-number post --factory ID --value TEXT --unit TEXT --date YYYY-MM-DD --link URL
+                   [--by SEAT] [--json]
+  goal-number show --factory ID [--count N | -n N] [--fields F,F] [--full] [--json]
+```
+
+The manifest is JSON and holds exactly these keys (an unknown key is refused, so a misspelt one never
+registers a factory with a field silently missing):
+
+```
+{
+  "factory": "warmforward",                         lower-case letters, digits and hyphens
+  "title": "WarmForward",
+  "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",   absolute, on its computer
+  "computer": "SOREN_NORTH",
+  "ceoSeat": "nora-hale",                           optional; one of the seats
+  "goalFile": "GOAL.md",                            optional; relative to the folder
+  "goalApprovedOn": "2026-10-04",                   optional; YYYY-MM-DD
+  "seats": [
+    {"id": "nora-hale", "name": "Nora Hale", "role": "CEO",
+     "briefFile": "agents/ceo.yaml",                relative to the folder
+     "schedules": ["cj_a721e6"],                    the Gateway schedules that run this seat
+     "computer": "SOREN_NORTH"}                     optional; the factory's computer when left out
+  ]
+}
+```
+
+`register` reads the goal file from the factory's folder and sends its TEXT, so run it on the factory's
+computer; it stops with the reason when the file is not there. The goal file must stay inside the
+folder: an absolute path, a `..`, or a link whose target is outside the folder is refused before anything
+is read (a link to a file inside the folder is followed). Registering again replaces the whole
+entry, seats included. It exits 1 whenever the factory was not registered.
+
+`goal-number post` is posted by a seat of the factory. In a session a factory agent started, the Gateway
+knows the seat and `--by` is left out (naming another seat, or another factory, is refused); anywhere else
+`--by SEAT` names it. `--link` is an http or https address showing how the number was measured. A
+factory that is not registered is refused with the reason. It exits 0 only when the Gateway kept the post.
+
+`list` shows `id,title,ceo,seats` by default; `--fields` picks from `id, title, ceo, seats, computer,
+goal, folder`. `goal-number show` shows `asOf,value,unit,postedBy` by default; `--fields` picks from
+`asOf, value, unit, postedBy, postedAtUtc, link, id`, and a value or link over 80 characters is cut with
+its length unless `--full` is given. `--json` always carries every field and does not take `--fields`.
+
 #### Factory memory
 
 A factory's memory: small named notes, one idea each, kept on the Gateway and shared by every session of

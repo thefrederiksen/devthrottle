@@ -45,6 +45,13 @@ public static partial class FactoryNames
         => Try(raw, MaxFactoryLength, "factory", out factory, out refusal);
 
     /// <summary>
+    /// Fold a factory SEAT's id to the one spelling (Factories screen mission). A seat id is the factory agent's
+    /// id in the activity record, so it follows the same rule as a factory id - one spelling in both places.
+    /// </summary>
+    public static bool TrySeat(string? raw, out string seat, out string? refusal)
+        => Try(raw, MaxFactoryLength, "seat id", out seat, out refusal);
+
+    /// <summary>
     /// The names Windows keeps for devices. They pass the alphabet rule - they are lower-case letters - and they
     /// cannot be files, which for a note is worse than being refused: the Director writes one file per note before
     /// an agent starts, so a single note called <c>aux</c> would stop every later session of that factory on every
