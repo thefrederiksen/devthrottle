@@ -65,7 +65,7 @@ public sealed class SkillSourceEstablishmentTests : IDisposable
         Assert.Empty(placement.Problems);
         Assert.Contains("v2", File.ReadAllText(Path.Combine(LinkRoot, "keeper", "SKILL.md")));
         Assert.False(Directory.Exists(Path.Combine(Shared, "withdrawn")));
-        Assert.False(Directory.Exists(Path.Combine(LinkRoot, "withdrawn")));
+        Assert.False(File.Exists(Path.Combine(LinkRoot, "withdrawn", "SKILL.md")));   // its link is left in place and reads as nothing (SK-F12)
     }
 
     [Fact]

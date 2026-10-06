@@ -100,7 +100,7 @@ public sealed class SkillSwapTests : IDisposable
 
         Assert.Empty(Install(TeamA).Problems);
         Assert.False(Directory.Exists(Path.Combine(Shared, "gone")));
-        Assert.False(Directory.Exists(Path.Combine(LinkRoot, "gone")));
+        Assert.False(File.Exists(Path.Combine(LinkRoot, "gone", "SKILL.md")));   // its link is left in place and reads as nothing (SK-F12)
         Assert.Empty(Directory.GetDirectories(Staging));
     }
 

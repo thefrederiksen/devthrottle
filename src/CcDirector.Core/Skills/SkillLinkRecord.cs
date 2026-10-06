@@ -5,18 +5,15 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Core.Skills;
 
 /// <summary>
-/// The links this installer has made from an agent's own skills folder into the shared folder, and for which library
-/// (devthrottle_internal#2311, review finding SK-F10). One record per shared folder, kept BESIDE it
-/// (<c>~/.agents/skills.devthrottle-links.json</c>), shared by every Director on the computer and only ever read or
-/// written under the shared-folder lock.
+/// The links this installer has made from an agent's own skills folder into the shared folder, and for which library -
+/// for the PERSON'S INFORMATION ONLY (devthrottle_internal#2311, review rounds 4 and 5). One record per shared folder,
+/// kept BESIDE it (<c>~/.agents/skills.devthrottle-links.json</c>), written under the shared-folder lock.
 ///
-/// WHY. A link carries no marker of its own, and where it points is not evidence of who made it: a person can make
-/// <c>~/.claude/skills/hand-made</c> pointing at <c>~/.agents/skills/hand-made</c> as easily as this installer can.
-/// Withdrawal used to remove any link into the shared folder whose target was gone or was this source's - so a
-/// person's link whose target was briefly missing was deleted, and the skill stayed unreachable after it came back.
-/// Now a link is changed or removed ONLY when this record says this installer made it, for this library, and it
-/// still points where the record says. Links made before the record existed are not in it, so they are left alone:
-/// a leftover link is harmless, a deleted one of the person's is not.
+/// NOTHING READS IT TO DECIDE ANYTHING. In round 4 it authorised removing a link; round 5 found that a path, a target
+/// and a library do not identify the link object the installer made - a person can remove it and make their own at
+/// the same path, to the same target or another - and that removing first and saving the record second fails the
+/// wrong way. So the installer no longer deletes, moves or replaces a link at all (see
+/// <c>SkillDirectoryInstaller.ReconcileLinks</c>), and this record only says which links it made, when.
 /// </summary>
 internal sealed class SkillLinkRecord
 {
@@ -48,30 +45,14 @@ internal sealed class SkillLinkRecord
         return new SkillLinkRecord(path, entries);
     }
 
-    /// <summary>What the record says about the link at <paramref name="link"/>, or null when this installer did not
-    /// record making it.</summary>
-    public Entry? Find(string link)
-    {
-        var full = Normalize(link);
-        return _entries.FirstOrDefault(e => SamePath(e.Link, full));
-    }
-
-    /// <summary>Record that this installer made <paramref name="link"/> to <paramref name="target"/> for
-    /// <paramref name="source"/>, replacing whatever it said about that link before. Saved at once.</summary>
-    public void Set(string link, string target, SkillSource source)
+    /// <summary>Note that this installer made <paramref name="link"/> to <paramref name="target"/> for
+    /// <paramref name="source"/>, replacing whatever was noted about that path before. Not saved until
+    /// <see cref="Save"/>.</summary>
+    public void Add(string link, string target, SkillSource source)
     {
         var full = Normalize(link);
         _entries.RemoveAll(e => SamePath(e.Link, full));
         _entries.Add(new Entry(full, Normalize(target), source.GatewayId, source.TenantId, source.TeamId));
-        Save();
-    }
-
-    /// <summary>Forget <paramref name="link"/>. Saved at once.</summary>
-    public void Remove(string link)
-    {
-        var full = Normalize(link);
-        if (_entries.RemoveAll(e => SamePath(e.Link, full)) > 0)
-            Save();
     }
 
     /// <summary>True when the link at <paramref name="link"/> points at <paramref name="target"/> right now.</summary>
@@ -84,7 +65,8 @@ internal sealed class SkillLinkRecord
         return SamePath(Normalize(now), Normalize(target));
     }
 
-    private void Save()
+    /// <summary>Write the record. Called once, after every link is made.</summary>
+    public void Save()
     {
         var temp = _path + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(_entries, Json));
@@ -104,10 +86,5 @@ internal sealed class SkillLinkRecord
         [property: JsonPropertyName("target")] string Target,
         [property: JsonPropertyName("gatewayId")] string GatewayId,
         [property: JsonPropertyName("tenantId")] string TenantId,
-        [property: JsonPropertyName("teamId")] string? TeamId)
-    {
-        /// <summary>The library the link was made for.</summary>
-        [JsonIgnore]
-        public SkillSourceStamp Stamp => new(GatewayId, TenantId, TeamId);
-    }
+        [property: JsonPropertyName("teamId")] string? TeamId);
 }

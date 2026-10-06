@@ -237,11 +237,14 @@ public static class SkillDirectoryInstaller
         // aside is read as a skill. And the staging name can already be somebody's folder. Either way there is
         // nowhere safe to build, so nothing is changed and the reason is recorded.
         // Every staging root is checked before any is created, so a refusal changes nothing at all.
-        var scanned = ScannedRoots(paths, machineWide: pathsOverride is null);
+        var scanned = ScannedRoots(paths, machineWide: pathsOverride is null, out var unresolvedRoot);
         var stagingRoots = new[] { sharedStaging, linkStaging }.OfType<string>().ToList();
         foreach (var staging in stagingRoots)
         {
-            var unsafeBecause = WhyStagingIsUnsafe(staging, scanned);
+            var unsafeBecause = unresolvedRoot is not null
+                ? $"{unresolvedRoot}, a folder agents read skills from, goes through a link whose target does not exist, " +
+                  "so it cannot be told whether the folder where copies would be built is inside it"
+                : WhyStagingIsUnsafe(staging, scanned);
             if (unsafeBecause is null)
                 continue;
             foreach (var skill in held)
@@ -560,26 +563,61 @@ public static class SkillDirectoryInstaller
     public static string? StagingRootFor(string root)
     {
         var full = TrimSeparators(Path.GetFullPath(root));
-        var info = new DirectoryInfo(full);
-        if (info.LinkTarget is null)
-            return BesideIt(full);
-
-        var target = info.ResolveLinkTarget(returnFinalTarget: true);
-        if (target is null || !target.Exists)
+        var real = ResolveFully(full);
+        if (real is null)
         {
-            FileLog.Write($"[SkillDirectoryInstaller] {full} is a link to '{info.LinkTarget}', which does not exist - " +
+            FileLog.Write($"[SkillDirectoryInstaller] {full} goes through a link whose target does not exist - " +
                           "nowhere to build a copy on the right volume");
             return null;
         }
-        var real = TrimSeparators(target.FullName);
+        if (string.Equals(real, full, PathComparison))
+            return BesideIt(full);
         if (Path.GetDirectoryName(real) is null)
         {
             FileLog.Write($"[SkillDirectoryInstaller] {full} is a link to the top of a drive ({real}) - nowhere beside it " +
                           "to build a copy");
             return null;
         }
-        FileLog.Write($"[SkillDirectoryInstaller] {full} is a link to {real} - copies are built beside {real}");
+        FileLog.Write($"[SkillDirectoryInstaller] {full} is really {real} - copies are built beside {real}");
         return BesideIt(real);
+    }
+
+    private static StringComparison PathComparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    /// <summary>
+    /// Where <paramref name="path"/> really is, with EVERY link along it followed - its ancestors as well as the
+    /// folder itself (review finding SK-F14). Checking only the last part is not enough: with <c>~/.claude</c> a
+    /// junction into <c>~/.agents/skills/x</c>, the ordinary folder <c>~/.claude/skills</c> really lives inside the
+    /// shared skills folder. A part that does not exist yet cannot be a link and is kept as written. Null when a link
+    /// on the way points at nothing, or links lead round in a circle.
+    /// </summary>
+    internal static string? ResolveFully(string path) => ResolveFully(path, depth: 0);
+
+    private static string? ResolveFully(string path, int depth)
+    {
+        if (depth > 32)
+            return null;
+        var full = TrimSeparators(Path.GetFullPath(path));
+        var resolved = Path.GetPathRoot(full)!;
+        foreach (var part in full[resolved.Length..].Split(
+                     new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var next = Path.Combine(resolved, part);
+            var info = new DirectoryInfo(next);
+            if (info.LinkTarget is not null)
+            {
+                var target = info.ResolveLinkTarget(returnFinalTarget: true);
+                if (target is null || !target.Exists)
+                    return null;
+                var again = ResolveFully(target.FullName, depth + 1);
+                if (again is null)
+                    return null;
+                next = again;
+            }
+            resolved = next;
+        }
+        return TrimSeparators(resolved);
     }
 
     /// <summary>
@@ -587,8 +625,9 @@ public static class SkillDirectoryInstaller
     /// placement and, on a real machine, every agent family's own folder. A test passes its own paths and reads no
     /// one's real profile, so it checks only those.
     /// </summary>
-    private static List<string> ScannedRoots(SkillInstallPaths paths, bool machineWide)
+    private static List<string> ScannedRoots(SkillInstallPaths paths, bool machineWide, out string? unresolved)
     {
+        unresolved = null;
         var roots = new List<string> { paths.SharedRoot };
         if (paths.LinkRoot is not null)
             roots.Add(paths.LinkRoot);
@@ -609,9 +648,13 @@ public static class SkillDirectoryInstaller
         {
             var full = TrimSeparators(Path.GetFullPath(root));
             all.Add(full);
-            var info = new DirectoryInfo(full);
-            if (info.LinkTarget is not null && info.ResolveLinkTarget(returnFinalTarget: true) is { Exists: true } target)
-                all.Add(TrimSeparators(target.FullName));
+            var real = ResolveFully(full);
+            if (real is null)
+            {
+                unresolved = full;
+                return all;
+            }
+            all.Add(real);
         }
         return all;
     }
@@ -625,12 +668,19 @@ public static class SkillDirectoryInstaller
     /// </summary>
     private static string? WhyStagingIsUnsafe(string stagingRoot, IReadOnlyList<string> scannedRoots)
     {
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        // Compared where the staging folder REALLY is, every link along its path followed (SK-F14), against every
+        // scanned folder both as written and as really located.
+        var real = ResolveFully(stagingRoot);
+        if (real is null)
+            return $"the folder where copies would be built, {stagingRoot}, goes through a link whose target does not exist";
         foreach (var root in scannedRoots)
         {
-            if (string.Equals(stagingRoot, root, comparison)
-                || stagingRoot.StartsWith(root + Path.DirectorySeparatorChar, comparison))
-                return $"the folder where copies would be built, {stagingRoot}, is inside {root}, which agents read skills from";
+            foreach (var candidate in new[] { stagingRoot, real })
+            {
+                if (string.Equals(candidate, root, PathComparison)
+                    || candidate.StartsWith(root + Path.DirectorySeparatorChar, PathComparison))
+                    return $"the folder where copies would be built, {stagingRoot}, is inside {root}, which agents read skills from";
+            }
         }
 
         var info = new DirectoryInfo(stagingRoot);
@@ -736,9 +786,22 @@ public static class SkillDirectoryInstaller
     private static void Step(string step, string destination) => SwapStepForTests.Value?.Invoke(step, destination);
 
     /// <summary>
-    /// Give an agent that does not read the shared path one link per skill into it. Never touches
-    /// <paramref name="linkRoot"/> itself - that folder is the owner's and holds skills we did not
-    /// write - only named entries inside it. Returns how many links the agent can now follow.
+    /// Give an agent that does not read the shared path one link per skill into it.
+    ///
+    /// THE INSTALLER NEVER DELETES, MOVES OR REPLACES A LINK (review findings SK-F10 to SK-F13). It only CREATES a
+    /// link that is missing. Five review rounds each found a new way a record or a marker could vouch for a link the
+    /// person had made or replaced, so ownership of a link is no longer proved at all: whatever link already sits at a
+    /// name - one this installer made, one the person made pointing anywhere, one dangling - is left exactly as it is.
+    /// One pointing at the copy this source placed counts as reaching the agent; one pointing elsewhere is logged and
+    /// reported as <see cref="SkillPlacementFault.Shadowed"/>. When a skill is withdrawn its link is left in place and
+    /// dangles, which every agent reads as nothing; a leftover link is harmless, a deleted one of the person's is not.
+    ///
+    /// The links it makes are written to <see cref="SkillLinkRecord"/> for the person's information. Nothing reads
+    /// that record to decide anything, and it is written once, after every link is made, so a failure to write it can
+    /// never undo or remove anything on disk.
+    ///
+    /// A real FOLDER at a name is a copy from the scheme before links, and follows the ownership rule of the shared
+    /// copy: its own marker says whose it is.
     /// </summary>
     private static int ReconcileLinks(
         string sharedRoot, IReadOnlyList<string> names, string linkRoot, string stagingRoot, SkillSource source,
@@ -746,7 +809,6 @@ public static class SkillDirectoryInstaller
     {
         Directory.CreateDirectory(linkRoot);
         var wanted = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
-        var record = SkillLinkRecord.Load(sharedRoot);
 
         foreach (var existing in Directory.GetDirectories(linkRoot))
         {
@@ -755,20 +817,19 @@ public static class SkillDirectoryInstaller
                 continue;
             if (IsLink(existing))
             {
-                if (!MayRemoveLink(existing, record, source))
-                    continue;
-                Directory.Delete(existing, recursive: false);
-                record.Remove(existing);
-                FileLog.Write($"[SkillDirectoryInstaller] Removed the withdrawn skill's link '{name}' from {linkRoot}");
+                if (!Directory.Exists(existing))
+                    FileLog.Write($"[SkillDirectoryInstaller] '{name}' in {linkRoot} is a link to nothing - left in place; " +
+                                  "the installer never removes a link");
                 continue;
             }
-            // A real folder is a copy from the scheme that preceded links; its own marker says whose it is.
             if (Decide(existing, source) != Claim.Mine)
                 continue;
             Withdraw(existing, stagingRoot);
             FileLog.Write($"[SkillDirectoryInstaller] Removed withdrawn skill '{name}' from {linkRoot}");
         }
 
+        var record = SkillLinkRecord.Load(sharedRoot);
+        var made = 0;
         var linked = 0;
         foreach (var name in names)
         {
@@ -776,35 +837,18 @@ public static class SkillDirectoryInstaller
             var target = Path.Combine(sharedRoot, name);
             if (IsLink(destination))
             {
-                var entry = record.Find(destination);
                 if (SkillLinkRecord.PointsAt(destination, target))
                 {
-                    // Already right. A link this installer made for another library follows the copy it points at,
-                    // which this source has just made its own, so the record now says so. A link the record does
-                    // not know is left exactly as it is and NOT adopted - it is the person's, and stays theirs.
-                    if (entry is not null && !source.Is(entry.Stamp))
-                        record.Set(destination, target, source);
                     linked++;
                     continue;
                 }
-                if (entry is null || !source.Is(entry.Stamp))
-                {
-                    FileLog.Write($"[SkillDirectoryInstaller] '{name}' in {linkRoot} is a link this installer did not " +
-                                  "make for this library, pointing somewhere else - leaving it alone");
-                    problems.Add(new SkillPlacementProblem(name, linkRoot, entry is null
-                        ? SkillPlacementFault.Shadowed
-                        : SkillPlacementFault.HeldByAnotherSource));
-                    continue;
-                }
-                // Our own link, pointing at the wrong place: rebuilt, because a link believed to point somewhere it
-                // does not is the failure that has no symptom.
-                Directory.Delete(destination, recursive: false);
-                record.Remove(destination);
+                FileLog.Write($"[SkillDirectoryInstaller] '{name}' in {linkRoot} is a link to somewhere other than {target} " +
+                              "- left exactly as it is; the installer never replaces a link");
+                problems.Add(new SkillPlacementProblem(name, linkRoot, SkillPlacementFault.Shadowed));
+                continue;
             }
-            else if (Directory.Exists(destination))
+            if (Directory.Exists(destination))
             {
-                // A real folder here is a copy from the scheme that preceded links, and follows the same rule as the
-                // shared copy.
                 if (!MayWrite(destination, name, linkRoot, source, problems))
                     continue;
                 Withdraw(destination, stagingRoot);
@@ -824,36 +868,16 @@ public static class SkillDirectoryInstaller
                 problems.Add(new SkillPlacementProblem(name, linkRoot, SkillPlacementFault.LinkFailed));
                 continue;
             }
-            record.Set(destination, target, source);
+            record.Add(destination, target, source);
+            made++;
             linked++;
         }
-        return linked;
-    }
 
-    /// <summary>
-    /// Whether this source may remove the link at <paramref name="link"/> because it no longer holds the skill
-    /// (review finding SK-F10). ONLY with proof: the record says this installer made it for THIS library, it still
-    /// points where the record says, and what it points at is not another library's copy now. Where a link points is
-    /// never proof on its own - a person's link into the shared folder looks exactly like ours - so a link the record
-    /// does not know is left alone whatever its target, dangling or not.
-    /// </summary>
-    private static bool MayRemoveLink(string link, SkillLinkRecord record, SkillSource source)
-    {
-        var entry = record.Find(link);
-        if (entry is null)
-        {
-            FileLog.Write($"[SkillDirectoryInstaller] '{link}' is a link this installer has no record of making - left alone");
-            return false;
-        }
-        if (!source.Is(entry.Stamp))
-            return false;
-        if (!SkillLinkRecord.PointsAt(link, entry.Target))
-        {
-            FileLog.Write($"[SkillDirectoryInstaller] '{link}' no longer points at '{entry.Target}', where this installer " +
-                          "made it point - left alone");
-            return false;
-        }
-        return !Directory.Exists(entry.Target) || Decide(entry.Target, source) == Claim.Mine;
+        // Written last, once, after everything on disk is done: a write that fails throws to the launch's own
+        // handler, which reports it, and leaves every link exactly as it now is.
+        if (made > 0)
+            record.Save();
+        return linked;
     }
 
     /// <summary>What this source may do with a folder that occupies a name.</summary>
@@ -889,6 +913,12 @@ public static class SkillDirectoryInstaller
     /// </summary>
     private static Claim Decide(string folder, SkillSource source)
     {
+        // A LINK IS NEVER OURS (review finding SK-F15). This installer never makes a link in the shared folder, and
+        // never treats one anywhere as its own: a person who moved an installed skill elsewhere and linked its old
+        // name to it has a link whose TARGET carries our marker, which proves who wrote the bytes, not who made the
+        // link. Read through it, the marker would license moving, overwriting or withdrawing the person's link.
+        if (IsLink(folder))
+            return Claim.NotOurs;
         var marker = Path.Combine(folder, MarkerFileName);
         if (!File.Exists(marker))
             return Claim.NotOurs;

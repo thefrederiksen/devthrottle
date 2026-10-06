@@ -68,8 +68,10 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
     }
 
     [Fact]
-    public void Our_own_recorded_link_is_still_withdrawn_and_leaves_the_record()
+    public void A_withdrawn_skills_link_is_left_in_place_and_reads_as_nothing()
     {
+        // ROUND 5 (SK-F12, SK-F13): the installer never deletes a link, its own included. A withdrawn skill's link
+        // dangles, which every agent reads as nothing.
         Holds(("keeper", "v1"), ("gone", "v1"));
         Assert.True(Install().IsComplete);
         Assert.Contains("gone", File.ReadAllText(SkillLinkRecord.PathFor(Shared)));
@@ -77,10 +79,99 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Holds(("keeper", "v1"));
         Assert.Empty(Install().Problems);
 
-        Assert.False(IsLink(Path.Combine(LinkRoot, "gone")));
-        Assert.False(Directory.Exists(Path.Combine(LinkRoot, "gone")));
-        Assert.DoesNotContain(Path.Combine(LinkRoot, "gone"), File.ReadAllText(SkillLinkRecord.PathFor(Shared)).Replace(@"\\", @"\"));
-        Assert.True(Directory.Exists(Path.Combine(LinkRoot, "keeper")));
+        Assert.True(IsLink(Path.Combine(LinkRoot, "gone")), "the installer deleted a link");
+        Assert.False(File.Exists(Path.Combine(LinkRoot, "gone", "SKILL.md")));
+        Assert.True(File.Exists(Path.Combine(LinkRoot, "keeper", "SKILL.md")));
+    }
+
+    [Fact]
+    public void A_recorded_link_the_person_replaced_with_one_to_another_place_survives_refresh_and_withdrawal()
+    {
+        // SK-F12: the record names the path; the person removed our link and made their own there.
+        Holds(("keeper", "v1"));
+        Assert.True(Install().IsComplete);
+        var link = Path.Combine(LinkRoot, "keeper");
+        var theirs = Path.Combine(_root, "their-keeper");
+        Directory.CreateDirectory(theirs);
+        File.WriteAllText(Path.Combine(theirs, "SKILL.md"), "# theirs\n");
+        Directory.Delete(link, recursive: false);
+        Link(link, theirs);
+
+        Holds(("keeper", "v2"));                         // still held: a refresh
+        var refreshed = Install();
+        Assert.Equal("# theirs\n", File.ReadAllText(Path.Combine(link, "SKILL.md")));
+        Assert.Contains(refreshed.Problems, p => p.SkillId == "keeper" && p.Fault == SkillPlacementFault.Shadowed);
+
+        Holds(("other", "v1"));                          // withdrawn
+        Install();
+        Assert.Equal("# theirs\n", File.ReadAllText(Path.Combine(link, "SKILL.md")));
+    }
+
+    [Fact]
+    public void A_recorded_link_the_person_replaced_with_one_to_the_same_place_survives_withdrawal()
+    {
+        // SK-F12, the quieter form: same path, same target, same library in the record - and still the person's link.
+        Holds(("keeper", "v1"));
+        Assert.True(Install().IsComplete);
+        var link = Path.Combine(LinkRoot, "keeper");
+        Directory.Delete(link, recursive: false);
+        Link(link, Path.Combine(Shared, "keeper"));
+
+        Holds(("other", "v1"));
+        Install();
+
+        Assert.True(IsLink(link), "the person's link at a recorded path was deleted on withdrawal");
+    }
+
+    [Fact]
+    public void A_record_that_cannot_be_written_changes_nothing_on_disk_and_says_so()
+    {
+        // SK-F13: the record is written once, after every link is made, and never before a removal - there are no
+        // removals. A failed write is reported and every link stays exactly as it is.
+        Holds(("keeper", "v1"), ("gone", "v1"));
+        Assert.True(Install().IsComplete);
+        var hand = Path.Combine(LinkRoot, "hand-made");
+        Directory.CreateDirectory(Path.Combine(_root, "hand-made-target"));
+        Link(hand, Path.Combine(_root, "hand-made-target"));
+        var recordPath = SkillLinkRecord.PathFor(Shared);
+        File.Delete(recordPath);
+        Directory.CreateDirectory(recordPath);            // nothing can be written there now
+
+        Holds(("keeper", "v1"), ("new-one", "v1"));      // "gone" withdrawn, "new-one" needs a link made
+        var failure = Record.Exception(() => Install());
+
+        Assert.NotNull(failure);
+        Assert.True(IsLink(Path.Combine(LinkRoot, "gone")), "a link was removed although the record could not be written");
+        Assert.True(IsLink(Path.Combine(LinkRoot, "keeper")));
+        Assert.True(IsLink(hand));
+        Assert.True(IsLink(Path.Combine(LinkRoot, "new-one")));
+        Directory.Delete(recordPath);
+    }
+
+    [Fact]
+    public void A_persons_link_in_the_shared_folder_is_never_moved_overwritten_or_withdrawn()
+    {
+        // SK-F15: the person moved our installed copy elsewhere, customised it, and linked its old name to it. The
+        // target carries our marker; the LINK is theirs.
+        Holds(("keeper", "v1"));
+        Assert.True(Install().IsComplete);
+        var shared = Path.Combine(Shared, "keeper");
+        var moved = Path.Combine(_root, "my-keeper");
+        Directory.Move(shared, moved);
+        File.AppendAllText(Path.Combine(moved, "SKILL.md"), "my own notes\n");
+        Link(shared, moved);
+
+        Holds(("keeper", "v2"));                         // still held, at a new version
+        var placement = Install();
+        Assert.True(IsLink(shared), "the person's link in the shared folder was replaced");
+        Assert.Contains("my own notes", File.ReadAllText(Path.Combine(moved, "SKILL.md")));
+        Assert.DoesNotContain("v2", File.ReadAllText(Path.Combine(moved, "SKILL.md")));
+        Assert.Contains(placement.Problems, p => p.SkillId == "keeper" && p.Fault == SkillPlacementFault.Shadowed);
+
+        Holds(("other", "v1"));                          // withdrawn
+        Install();
+        Assert.True(IsLink(shared), "the person's link in the shared folder was withdrawn");
+        Assert.Contains("my own notes", File.ReadAllText(Path.Combine(moved, "SKILL.md")));
     }
 
     [Fact]
@@ -136,6 +227,24 @@ public sealed class SkillLinkAndStagingOwnershipTests : IDisposable
         Assert.Empty(Directory.GetFileSystemEntries(claudeRoot));
         Assert.False(Directory.Exists(SkillDirectoryInstaller.StagingRootFor(Shared)),
             "a staging root was created although placement was refused");
+    }
+
+    [Fact]
+    public void An_agent_folder_whose_PARENT_is_linked_into_the_shared_folder_stages_nothing()
+    {
+        // SK-F14: ~/.claude is a junction into ~/.agents/skills/claude-home, and ~/.claude/skills is an ordinary child.
+        // The link is on an ANCESTOR, so the skills folder itself is not a link - and still lives inside the shared one.
+        var claudeHome = Path.Combine(Shared, "claude-home");
+        Directory.CreateDirectory(Path.Combine(claudeHome, "skills"));
+        Link(Path.Combine(_root, "home", ".claude"), claudeHome);
+        Holds(("keeper", "v1"));
+
+        var placement = Install();
+
+        Assert.Equal(SkillPlacementFault.StagingFolderUnsafe, Assert.Single(placement.Problems).Fault);
+        Assert.Equal(new[] { "claude-home" }, Directory.GetDirectories(Shared).Select(d => Path.GetFileName(d)));
+        Assert.Equal(new[] { "skills" }, Directory.GetDirectories(claudeHome).Select(d => Path.GetFileName(d)));
+        Assert.Empty(Directory.GetFileSystemEntries(Path.Combine(claudeHome, "skills")));
     }
 
     [Fact]

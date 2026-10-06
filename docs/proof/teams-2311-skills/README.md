@@ -147,7 +147,25 @@ goes beside the link's final target, not beside the link's own spelling. If the 
 of a drive, nothing is changed and every skill is reported as the new fault `FolderLinkUnresolved`, with its own
 sentence on the Director and on the Gateway's placement page.
 
-**A link is changed or removed only with proof this installer made it (review finding SK-F10).** Where a link points
+**ROUND 5 REPLACES THE NEXT PARAGRAPH: the installer never deletes, moves or replaces a link (review findings
+SK-F12, SK-F13).** It only CREATES a link that is missing. Whatever link already sits at a name - one it made, one
+the person made pointing anywhere, one dangling - is left exactly as it is: one pointing at the copy this source placed
+counts as reaching the agent, one pointing elsewhere is logged and reported `Shadowed`. A withdrawn skill's link stays
+and dangles, which every agent reads as nothing. The link record (`SkillLinkRecord`) is now for the person's
+information only - nothing reads it to decide anything - and it is written once, after every link is made, so a write
+that fails is reported by the launch and leaves every link as it is. A real folder at a name in an agent's folder (a
+copy from the scheme before links) still follows the ownership rule of the shared copy.
+
+**A link in the shared folder is never ours (review finding SK-F15).** `Decide` classifies any link at a shared
+skill's path as not the installer's, whatever marker its target carries: it is never moved, overwritten or withdrawn,
+and a held skill whose name it occupies is reported `Shadowed`.
+
+**Containment is checked on fully resolved paths (review finding SK-F14).** Every scanned folder and every staging
+folder is resolved through EVERY link on its path, ancestors included (`ResolveFully`, walking each part and following
+any link to its final target), and compared both as written and as resolved. A scanned folder or a staging folder that
+goes through a link to nothing fails closed with `StagingFolderUnsafe`.
+
+**Round 4 (superseded by round 5 for links):** a link is changed or removed only with proof this installer made it (review finding SK-F10). Where a link points
 is not evidence: a person's `~/.claude/skills/hand-made` pointing at `~/.agents/skills/hand-made` looks exactly like
 one of ours, and when its target was briefly gone the old rule deleted it. Every link the installer makes is now
 written into a record kept beside the shared folder (`~/.agents/skills.devthrottle-links.json`: the link, its target,
@@ -280,6 +298,29 @@ tested separately for that reason.
 | SK-F11 | no inside check | the linked-into-the-shared-folder test: nothing is refused. |
 | SK-F11 | an existing staging root is used whoever made it | the existing-folder test: nothing is refused. |
 
+### Review round 5 - the tests for SK-F12 to SK-F15
+
+In `SkillLinkAndStagingOwnershipTests`, with real junctions:
+
+| Finding | Tests |
+|---|---|
+| SK-F12 | `A_recorded_link_the_person_replaced_with_one_to_another_place_survives_refresh_and_withdrawal`; `A_recorded_link_the_person_replaced_with_one_to_the_same_place_survives_withdrawal`; `A_withdrawn_skills_link_is_left_in_place_and_reads_as_nothing` (replaces round 4's "still withdrawn" test). |
+| SK-F13 | `A_record_that_cannot_be_written_changes_nothing_on_disk_and_says_so` - the record path made unwritable; the launch throws (the session start catches and reports it), and the person's link, our withdrawn skill's link and the held skill's link are all still there. The new skill's link was made before the write was tried, and stays. |
+| SK-F15 | `A_persons_link_in_the_shared_folder_is_never_moved_overwritten_or_withdrawn` - the person moved our copy, customised it and linked its old name to it: a refresh to v2 and a withdrawal both leave the link and the person's notes. |
+| SK-F14 | `An_agent_folder_whose_PARENT_is_linked_into_the_shared_folder_stages_nothing` - `.claude` a junction into `.agents\skills\claude-home` with an ordinary `skills` child: one `StagingFolderUnsafe`, nothing created anywhere. |
+
+Five older assertions that a withdrawn skill's entry in the agent's folder was GONE now assert that it reads as nothing
+(no `SKILL.md` through it), because the link is deliberately left in place.
+
+### Review round 5 - the red checks - [red-check-review5.txt](red-check-review5.txt)
+
+| Finding | The round 4 behaviour put back | Red |
+|---|---|---|
+| SK-F12 refresh | a link at a held name pointing elsewhere is deleted and rebuilt | the other-place test: the person's `SKILL.md` is replaced. |
+| SK-F12/F13 withdrawal | a link at a withdrawn name pointing at the recorded target is deleted | five tests, including the same-place test (`the person's link at a recorded path was deleted on withdrawal`) and the unwritable-record test (`a link was removed although the record could not be written`). |
+| SK-F15 | a link in the shared folder is judged by its target's marker | the shared-folder test: placement tries to move the person's link aside (`Access to the path 'keeper' is denied`). |
+| SK-F14 | only the last part of a path is followed | the linked-parent test: nothing is refused. |
+
 ### Runs
 
 | What | Result | File |
@@ -297,6 +338,9 @@ tested separately for that reason.
 | **Review round 3:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 84 passed, 0 failed | [test-runs-review3.txt](test-runs-review3.txt) |
 | **Review round 3:** `.\scripts\test-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review3.txt](gate-default-review3.txt) |
 | **Review round 3:** `CcDirector.Gateway.UnitTests`, whole suite (the placement message changed) | first run 9412 passed, **1 failed**: `DirectorHubTests.Hello_WithNothingStoredForThisDirector_SaysSo_RatherThanStayingSilent`, `SQLite Error 14: unable to open database file` at a temporary path named for another test (`ccd-catalog-name-...`). Its class alone: 30 of 30, three times. Second whole run: 9413 passed, 0 failed. | [test-runs-review3.txt](test-runs-review3.txt) |
+| **Review round 5:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 96 passed, 0 failed | [test-runs-review5.txt](test-runs-review5.txt) |
+| **Review round 5:** `.\scripts\test-local.ps1` (default) | first run: `CcDirector.Core.UnitTests` passed the 120-second ceiling on a loaded machine and was stopped; alone it passed 1232 of 1232. Second run: all 10 suites `outcome=Completed` | [gate-default-review5.txt](gate-default-review5.txt), [test-runs-review5.txt](test-runs-review5.txt) |
+| **Review round 5:** the Gateway suites | not run: round 5 changes no Gateway code (`git diff 50450e90d --stat -- src` touches `src/CcDirector.Core` and its tests only) | - |
 | **Review round 4:** `CcDirector.Core.Tests` skill tests (full build, clean source) | 91 passed, 0 failed | [test-runs-review4.txt](test-runs-review4.txt) |
 | **Review round 4:** `.\scripts\test-local.ps1` (default) | all 10 suites `outcome=Completed`, every project exited zero | [gate-default-review4.txt](gate-default-review4.txt) |
 | **Review round 4:** `CcDirector.Gateway.UnitTests`, whole suite | 9414 passed, 0 failed, 14 skipped | [test-runs-review4.txt](test-runs-review4.txt) |

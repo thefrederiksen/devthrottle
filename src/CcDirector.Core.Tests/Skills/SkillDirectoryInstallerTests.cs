@@ -212,7 +212,7 @@ public sealed class SkillDirectoryInstallerTests : IDisposable
         Install();
 
         Assert.False(Directory.Exists(Path.Combine(Shared, "withdrawn")));
-        Assert.False(Directory.Exists(Path.Combine(LinkRoot, "withdrawn")));
+        Assert.False(File.Exists(Path.Combine(LinkRoot, "withdrawn", "SKILL.md")));   // its link is left in place and reads as nothing (SK-F12)
         Assert.True(Directory.Exists(Path.Combine(Shared, "keeper")));
         Assert.True(File.Exists(Path.Combine(LinkRoot, "keeper", "SKILL.md")));
         Assert.True(File.Exists(Path.Combine(theirs, "SKILL.md")));

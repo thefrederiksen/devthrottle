@@ -131,7 +131,7 @@ public sealed class SkillSourceOwnershipTests : IDisposable
         Install(TeamA);
 
         Assert.False(Directory.Exists(Path.Combine(Shared, "team-one")));
-        Assert.False(Directory.Exists(Path.Combine(LinkRoot, "team-one")));
+        Assert.False(File.Exists(Path.Combine(LinkRoot, "team-one", "SKILL.md")));   // its link is left in place and reads as nothing (SK-F12)
         foreach (var name in new[] { "mine-one", "mine-two", "both", "team-two" })
             Assert.True(File.Exists(Path.Combine(LinkRoot, name, "SKILL.md")), $"'{name}' was removed");
 
@@ -140,7 +140,7 @@ public sealed class SkillSourceOwnershipTests : IDisposable
         Install(Personal);
 
         Assert.False(Directory.Exists(Path.Combine(Shared, "mine-one")));
-        Assert.False(Directory.Exists(Path.Combine(LinkRoot, "mine-one")));
+        Assert.False(File.Exists(Path.Combine(LinkRoot, "mine-one", "SKILL.md")));   // its link is left in place and reads as nothing (SK-F12)
         foreach (var name in new[] { "mine-two", "both", "team-two" })
             Assert.True(File.Exists(Path.Combine(LinkRoot, name, "SKILL.md")), $"'{name}' was removed");
     }
