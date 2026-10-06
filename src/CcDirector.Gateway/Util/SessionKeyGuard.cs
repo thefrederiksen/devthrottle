@@ -337,6 +337,11 @@ public static class SessionKeyGuard
                 // The factory activity record (Website Business Factory). A business tool reads back what its
                 // factory did; the route is only mapped while the factory agents switch is on.
                 case "gateway/factory/activity":
+                // The factory registry and a factory's goal numbers (Factories screen mission, phase A): what
+                // `factory list` and `factory goal-number show` read. Account data the factory's own sessions use;
+                // the route is only mapped while the factory agents switch is on.
+                case "gateway/factory/registry":
+                case "gateway/factory/goal-numbers":
                 // The errors this account's Directors and launchers reported (issue #3311), so an agent can
                 // look before it asks the owner. The route files the read under the key's own account; only
                 // the READ is here - reporting is a device's, never an agent's.
@@ -519,6 +524,11 @@ public static class SessionKeyGuard
             // appends to our own record and reaches nothing outside the Gateway; there is no update or delete.
             if (Join(s) == "gateway/factory/activity") return true;
 
+            // A factory's CEO posts its goal number (Factories screen mission, phase A). It appends to our own
+            // record in the caller's account; the route settles the posting seat from the session's own start and
+            // refuses a session posting for another factory.
+            if (Join(s) == "gateway/factory/goal-numbers") return true;
+
             // Start a session, or an application, on a machine in this account.
             if (s.Length == 3 && s[0] == "machines" && (s[2] == "sessions" || s[2] == "launch")) return true;
 
@@ -590,6 +600,11 @@ public static class SessionKeyGuard
             // that factory's last map in the caller's own account and reaches nothing outside the Gateway; the
             // route is only mapped while the factory agents switch is on.
             if (Join(s) == "gateway/factory/map") return true;
+
+            // A factory is registered (Factories screen mission, phase A): its title, folder, computer, CEO, goal
+            // and seats, replacing its last registration in the caller's own account. An index of files on the
+            // factory's own computer; it starts, schedules and reaches nothing.
+            if (Join(s) == "gateway/factory/registry") return true;
             return false;
         }
 

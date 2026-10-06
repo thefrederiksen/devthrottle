@@ -45,7 +45,8 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20261005160401_AddFleetMessageLinkRequests",
         "20261005184745_AddFleetManagerLessons",
         "20261005234625_AddDevReportSharing",
-        "20261006025431_AddTeamQuestionAnswers",
+        "20261006140613_AddFactoryRegistry",
+        "20261006171223_AddTeamQuestionAnswers",
     })]
     [InlineData("postgres", new[]
     {
@@ -73,7 +74,8 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20261005160425_AddFleetMessageLinkRequests",
         "20261005184813_AddFleetManagerLessons",
         "20261005234644_AddDevReportSharing",
-        "20261006025508_AddTeamQuestionAnswers",
+        "20261006140813_AddFactoryRegistry",
+        "20261006171258_AddTeamQuestionAnswers",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {
@@ -110,11 +112,11 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         // their six indexes (devthrottle_internal#2308), then the message link requests table and its four indexes
         // (issue #3548), then the Fleet Manager lesson's three columns on the preferences table and the lesson id on
         // its events (issue #3559), then the dev report's author column and its index, the report recipients and
-        // person comments tables and their five indexes (devthrottle_internal#2309), then the answerer column on a dev
-        // report item and its index, the answered version on a dev report item and the one-answer-per-person unique
-        // index, and the question column on a person's comment (devthrottle_internal#2307): an empty comparison proves
-        // nothing.
-        Assert.Equal(95, changes);
+        // person comments tables and their five indexes (devthrottle_internal#2309), then the factory registry and goal
+        // numbers tables and their three indexes (Factories screen mission), then the answerer column on a dev report item
+        // and its index, the answered version on a dev report item and the one-answer-per-person unique index, and the
+        // question column on a person's comment (devthrottle_internal#2307): an empty comparison proves nothing.
+        Assert.Equal(100, changes);
     }
 
     /// <summary>The schema operations, as sorted "kind table.name" lines. Data operations are not schema.</summary>

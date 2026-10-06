@@ -1,0 +1,4 @@
+device_credentials after removing Bob from Team B:
+  Director ...16081887-799c-402d-a010-06bfc6daef5b  tenant=Team A  status=active  revokedAt=None  reason=None  key ...rb0g
+  Director ...977326fb-d7fe-482c-a867-c5f0d972e9c5  tenant=Team B  status=revoked  revokedAt=2026-10-06 11:59:27.062602  reason=team_member_removed  key ..._bf8
+team_members of Team B now: [('4b3a14b4-6714-4b04-8515-9d7ba91faf2d', 'owner'), ('7eaf551b-e4e8-4191-bfe5-2da2535a606a', 'developer')]

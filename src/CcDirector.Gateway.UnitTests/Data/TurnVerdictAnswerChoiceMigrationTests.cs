@@ -62,8 +62,10 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             Assert.Equal("20261005184745_AddFleetManagerLessons", all[index + 18]);
             // A dev report sent to a member of a team (devthrottle_internal#2309), after that.
             Assert.Equal("20261005234625_AddDevReportSharing", all[index + 19]);
+            // The factory registry and goal numbers (Factories screen mission, phase A), after that.
+            Assert.Equal("20261006140613_AddFactoryRegistry", all[index + 20]);
             // A team member's answer and the question a person's comment is about (devthrottle_internal#2307), after that.
-            Assert.Equal("20261006025431_AddTeamQuestionAnswers", all[index + 20]);
+            Assert.Equal("20261006171223_AddTeamQuestionAnswers", all[index + 21]);
             Assert.Equal(index + 21, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.

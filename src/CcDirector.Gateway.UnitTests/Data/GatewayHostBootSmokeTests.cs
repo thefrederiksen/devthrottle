@@ -112,6 +112,9 @@ public sealed class GatewayHostBootSmokeTests
     // A dev report sent to a member of a team, and that member's comments (devthrottle_internal#2309).
     private const string DevReportSharingPostgresMigration = "20261005234644_AddDevReportSharing";
     private const string DevReportSharingSqliteMigration = "20261005234625_AddDevReportSharing";
+    // The factory registry and goal numbers (Factories screen mission, phase A) - the newest.
+    private const string FactoryRegistryPostgresMigration = "20261006140813_AddFactoryRegistry";
+    private const string FactoryRegistrySqliteMigration = "20261006140613_AddFactoryRegistry";
 
     // Requests to a team's Owner and Managers (devthrottle_internal#2308), after the message links.
     private const string TeamRequestsPostgresMigration = "20261005124444_AddTeamRequests";
@@ -125,8 +128,8 @@ public sealed class GatewayHostBootSmokeTests
     private const string LessonsSqliteMigration = "20261005184745_AddFleetManagerLessons";
     // Who answered a question on a team member's Questions page, and which question a comment is about
     // (devthrottle_internal#2307).
-    private const string TeamQuestionAnswersPostgresMigration = "20261006025508_AddTeamQuestionAnswers";
-    private const string TeamQuestionAnswersSqliteMigration = "20261006025431_AddTeamQuestionAnswers";
+    private const string TeamQuestionAnswersPostgresMigration = "20261006171258_AddTeamQuestionAnswers";
+    private const string TeamQuestionAnswersSqliteMigration = "20261006171223_AddTeamQuestionAnswers";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -190,6 +193,7 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(MessageLinkRequestsPostgresMigration, migrations);
         Assert.Contains(LessonsPostgresMigration, migrations);
         Assert.Contains(DevReportSharingPostgresMigration, migrations);
+        Assert.Contains(FactoryRegistryPostgresMigration, migrations);
         Assert.Contains(TeamQuestionAnswersPostgresMigration, migrations);
         Assert.Equal(TeamQuestionAnswersPostgresMigration, migrations[^1]);
     }
@@ -253,6 +257,7 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(MessageLinkRequestsSqliteMigration, sqliteAll);
         Assert.Contains(LessonsSqliteMigration, sqliteAll);
         Assert.Contains(DevReportSharingSqliteMigration, sqliteAll);
+        Assert.Contains(FactoryRegistrySqliteMigration, sqliteAll);
         Assert.Contains(TeamQuestionAnswersSqliteMigration, sqliteAll);
         Assert.Equal(TeamQuestionAnswersSqliteMigration, sqliteAll[^1]);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
@@ -361,6 +366,7 @@ public sealed class GatewayHostBootSmokeTests
             MessageLinkRequestsSqliteMigration,
             LessonsSqliteMigration,
             DevReportSharingSqliteMigration,
+            FactoryRegistrySqliteMigration,
             TeamQuestionAnswersSqliteMigration);
         Assert.Equal(TeamQuestionAnswersSqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
@@ -422,6 +428,7 @@ public sealed class GatewayHostBootSmokeTests
             MessageLinkRequestsPostgresMigration,
             LessonsPostgresMigration,
             DevReportSharingPostgresMigration,
+            FactoryRegistryPostgresMigration,
             TeamQuestionAnswersPostgresMigration);
         Assert.Equal(TeamQuestionAnswersPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),

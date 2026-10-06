@@ -261,6 +261,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The factory maps (issue #3383): the latest map each factory published, per account.</summary>
     internal Factory.FactoryMapStore FactoryMaps { get; }
 
+    /// <summary>The factory registry and the goal numbers its CEOs post (Factories screen mission, phase A).</summary>
+    internal Factory.Registry.FactoryRegistryStore FactoryRegistry { get; }
+
     /// <summary>The factory triggers (Website Business Factory, product track): the definitions, their run
     /// history, and the decision to start a session when a check counts work. Constructed whatever the switch
     /// says, so the database shape does not depend on it; only the routes do.</summary>
@@ -2113,6 +2116,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // lives in the per-tenant settings just built - so no new table, and the administrator route writes it.
         FactoryAgentsSwitch = new Factory.FactoryAgentsSwitch(FactoryAgentsEnabled, _tenantSettings);
         FactoryMaps = new Factory.FactoryMapStore(_tenantSettings);
+        FactoryRegistry = new Factory.Registry.FactoryRegistryStore(_gatewayDb);
         // The Fleet Manager Improvement mission, phase 1: the list of raised sessions, which reads the account's
         // Fleet Manager mark from the resolver above, and its record in the governance audit trail.
         RaisedSessions = new Fleet.RaisedSessionStore(_gatewayDb, _tenantSettingsResolver.FleetManagerSessionId);
@@ -4842,6 +4846,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // A factory publishes its map (issue #3383): the layout its own tool drew from its files, kept per factory.
         Api.FactoryMapEndpoints.Map(factoryGate, FactoryMaps,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary));
+        // The factory registry and the goal numbers (Factories screen mission, phase A): what `factory register` and
+        // `factory goal-number` write. A goal number posted from a factory agent's own session is that agent's.
+        Api.FactoryRegistryEndpoints.Map(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            store: FactoryRegistry,
+            sessionStart: (tenant, sessionId) =>
+                Factory.FactorySessionStarts.Read(FactoryActivity, tenant, new[] { sessionId }).TryGetValue(sessionId, out var row) ? row : null,
+            nowUtc: () => DateTime.UtcNow);
         Api.FactoryAgentsViewEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: FactoryAgentsViewSources());

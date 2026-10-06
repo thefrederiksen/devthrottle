@@ -38,7 +38,7 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
             var index = all.IndexOf(SqliteUnderTest);
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
-            Assert.Equal("20261006025431_AddTeamQuestionAnswers", all[^1]); // the migrations that sort after it
+            Assert.Equal("20261006171223_AddTeamQuestionAnswers", all[^1]); // the migrations that sort after it
             Assert.Equal("20261005234625_AddDevReportSharing", all[^2]);
             Assert.Equal("20261005184745_AddFleetManagerLessons", all[^3]);
             Assert.Equal("20261005160401_AddFleetMessageLinkRequests", all[^4]);
@@ -72,7 +72,7 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
 
             migrator.Migrate();
 
-            Assert.Equal("20261006025431_AddTeamQuestionAnswers", context.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20261006171223_AddTeamQuestionAnswers", context.Database.GetAppliedMigrations().Last());
             Assert.Empty(context.Database.GetPendingMigrations());
             Assert.False(context.Database.HasPendingModelChanges());
             var columns = ColumnNames(connection);
@@ -99,8 +99,8 @@ public sealed class FleetOutcomeStopIdentityMigrationTests
     /// one: that is what says a later migration did not quietly drop them.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20261006025431_AddTeamQuestionAnswers")]
-    [InlineData("postgres", "20261006025508_AddTeamQuestionAnswers")]
+    [InlineData("sqlite", "20261006171223_AddTeamQuestionAnswers")]
+    [InlineData("postgres", "20261006171258_AddTeamQuestionAnswers")]
     public void TheNewestMigrationsDesigner_IsDiscovered_AndCarriesTheCurrentModel(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);

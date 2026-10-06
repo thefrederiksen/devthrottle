@@ -281,6 +281,12 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>Every version of every note in every factory's memory (Factory Memory mission, phase 2).</summary>
     public DbSet<FactoryMemoryNoteEntity> FactoryMemoryNotes => Set<FactoryMemoryNoteEntity>();
 
+    /// <summary>The registered factories, one row per factory (Factories screen mission, phase A).</summary>
+    public DbSet<FactoryRegistryEntity> FactoryRegistry => Set<FactoryRegistryEntity>();
+
+    /// <summary>Every goal number a factory's CEO posted (Factories screen mission, phase A).</summary>
+    public DbSet<FactoryGoalNumberEntity> FactoryGoalNumbers => Set<FactoryGoalNumberEntity>();
+
     /// <summary>The durable repository catalog used by machine-scoped session creation search.</summary>
     public DbSet<KnownRepositoryEntity> KnownRepositories => Set<KnownRepositoryEntity>();
 
@@ -1169,6 +1175,37 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AuthorId).HasMaxLength(200);
         });
 
+        modelBuilder.Entity<FactoryRegistryEntity>(b =>
+        {
+            b.ToTable("factory_registry");
+            // One row per factory in an account: re-registering replaces it, so the key is the identity.
+            b.HasKey(e => new { e.TenantId, e.Factory });
+            // Lengths are enforced by the store with a sentence; these are the column's outer bound.
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Title).HasMaxLength(120);
+            b.Property(e => e.Folder).HasMaxLength(1024);
+            b.Property(e => e.Computer).HasMaxLength(128);
+            b.Property(e => e.CeoSeat).HasMaxLength(64);
+            b.Property(e => e.GoalFile).HasMaxLength(512);
+            b.Property(e => e.GoalApprovedOn).HasMaxLength(10);
+            b.Property(e => e.RegisteredBy).HasMaxLength(256);
+        });
+
+        modelBuilder.Entity<FactoryGoalNumberEntity>(b =>
+        {
+            b.ToTable("factory_goal_numbers");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Factory).HasMaxLength(64);
+            b.Property(e => e.Value).HasMaxLength(200);
+            b.Property(e => e.Unit).HasMaxLength(120);
+            b.Property(e => e.AsOf).HasMaxLength(10);
+            b.Property(e => e.Link).HasMaxLength(2048);
+            b.Property(e => e.PostedBy).HasMaxLength(64);
+            b.Property(e => e.PostedBySession).HasMaxLength(64);
+            // The one read: a factory's posts, newest first. Tenant-leading for the global filter.
+            b.HasIndex(e => new { e.TenantId, e.Factory, e.PostedAtUtc });
+        });
+
         modelBuilder.Entity<KnownRepositoryEntity>(b =>
         {
             b.ToTable("known_repositories");
@@ -1731,6 +1768,8 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<SkillPlacementStateEntity>(modelBuilder);
         ApplyTenantScope<SessionHistoryEntity>(modelBuilder);
         ApplyTenantScope<FactoryMemoryNoteEntity>(modelBuilder);
+        ApplyTenantScope<FactoryRegistryEntity>(modelBuilder);
+        ApplyTenantScope<FactoryGoalNumberEntity>(modelBuilder);
         ApplyTenantScope<KnownRepositoryEntity>(modelBuilder);
         ApplyTenantScope<SessionHistoryRollupEntity>(modelBuilder);
         ApplyTenantScope<SessionTurnEntity>(modelBuilder);

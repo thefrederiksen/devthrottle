@@ -1,0 +1,18 @@
+2026-10-06 07:59:26.881 [TeamAccess] Decide: team t#016aeadc action=InviteOrRemoveDevelopersAndCollaborators role=Owner grant=Yes
+2026-10-06 07:59:26.881 [TeamEndpointGate] DELETE /teams/{teamId}/members/{memberId}: ALLOWED action=InviteOrRemoveDevelopersAndCollaborators role=Owner
+2026-10-06 07:59:26.883 [TeamRegistry] RemoveTeamMember: team t#016aeadc
+2026-10-06 07:59:26.939 [TeamAccess] Decide: team t#016aeadc action=InviteOrRemoveDevelopersAndCollaborators role=Owner grant=Yes
+2026-10-06 07:59:26.940 [TeamRegistry] RemoveMember: team t#016aeadc
+2026-10-06 07:59:27.034 [TeamRegistry] CommitMembershipChange: team t#016aeadc change=MemberRemoved committed, paid seats 3 -> 2
+2026-10-06 07:59:27.037 [TeamSeatSync] SyncAfterMembershipChangeAsync: team=t#016aeadc a membership change committed, asking the website to recount the team's seats
+2026-10-06 07:59:27.040 [TeamSeatSync] CallSyncAsync: team=t#016aeadc NOTIFY_OWNER_SERVICE_TOKEN is not set on this Gateway - the seat sync was NOT called
+2026-10-06 07:59:27.061 [TeamRegistry] CommitMembershipChange: team t#016aeadc seat sync NOT done (status=0) - convergence will retry
+2026-10-06 07:59:27.068 [DeviceRegistry] RevokeTenantMember: tenant t#016aeadc revoked=1 (reason=team_member_removed)
+2026-10-06 07:59:27.071 [DirectorConnectionRegistry] AbortForTenantMember: aborted 1 live Director connection(s) of one member of tenant t#016aeadc (reason=team_member_removed)
+2026-10-06 07:59:27.072 [TeamMemberAccessRevoker] OnMembershipCommitted: team t#016aeadc change=MemberRemoved - revoked 1 key(s) and cut 1 open tunnel(s) of that one person (reason=team_member_removed)
+2026-10-06 07:59:27.072 [TeamRegistry] RemoveMember: removed
+2026-10-06 07:59:27.075 [TeamEndpoints] remove member: outcome=Done
+2026-10-06 07:59:27.078 [DirectorHub] disconnected: conn=C4JCFRkM, director=977326fb-d7fe-482c-a867-c5f0d972e9c5 (clean)
+2026-10-06 07:59:34.727 [PushedRepositoryStore] repeated Hello from the current connection - sequence baseline kept: director=16081887-799c-402d-a010-06bfc6daef5b
+2026-10-06 07:59:34.727 [DirectorHub] Hello: director=16081887-799c-402d-a010-06bfc6daef5b bound to conn=1gAY4_GV (version=2.16.0, machine=SOREN_NORTH)
+2026-10-06 07:59:34.732 [DirectorHub] PushRepoSnapshot: director=16081887-799c-402d-a010-06bfc6daef5b seq=131 repos=18 (measured=18, identity-only=0) accepted=True

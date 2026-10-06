@@ -10,7 +10,7 @@ namespace CcDirector.Gateway.Tests.Data;
 
 /// <summary>
 /// The PostgreSQL half of a team member's answers on their Questions page (devthrottle_internal#2307):
-/// <c>AddTeamQuestionAnswers</c> applies to a real PostgreSQL database right after <c>AddDevReportSharing</c>, adds the
+/// <c>AddTeamQuestionAnswers</c> applies to a real PostgreSQL database right after <c>AddFactoryRegistry</c>, adds the
 /// nullable <c>dev_report_items.AnswererSubject</c> (byte-ordinal "C", with its index), <c>dev_report_items.SourceVersion</c>
 /// and <c>dev_report_comments.QuestionId</c> without touching an existing item, with the unique index that allows one person
 /// one not-refused answer to a question (review F2) - which this proves refuses a second one on PostgreSQL - and its Down
@@ -22,8 +22,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class AddTeamQuestionAnswersPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20261005234644_AddDevReportSharing";
-    private const string MigrationUnderTest = "20261006025508_AddTeamQuestionAnswers";
+    private const string MigrationBefore = "20261006140813_AddFactoryRegistry";
+    private const string MigrationUnderTest = "20261006171258_AddTeamQuestionAnswers";
 
     private sealed class RequiresPostgresFactAttribute : FactAttribute
     {
@@ -113,7 +113,7 @@ public sealed class AddTeamQuestionAnswersPostgresTests
         Scalar(Member("a-m3", "refused"));
         Scalar("""DELETE FROM gateway.dev_report_items WHERE "AnswererSubject" IS NOT NULL""");
 
-        // The reversal: back to AddDevReportSharing removes the columns and the index, and the old answer survives with its words.
+        // The reversal: back to AddFactoryRegistry removes the columns and the index, and the old answer survives with its words.
         using (var ctx = NewContext())
         {
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);

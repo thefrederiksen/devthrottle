@@ -394,9 +394,14 @@ FIELDS_COMMANDS = _options_named("--fields")
 
 
 def _required_arguments(command):
-    """A value for every required positional argument, so the body runs and reaches its own checks.
-    `machine apps` and `machine files` take a machine (and a query) before any option is read."""
-    return ["x" for param in command.params if param.param_type_name == "argument" and param.required]
+    """A value for every required positional argument and every required option, so the body runs and
+    reaches its own checks. `machine apps` and `machine files` take a machine (and a query) before any
+    option is read; `factory goal-number show` needs --factory."""
+    values = ["x" for param in command.params if param.param_type_name == "argument" and param.required]
+    for param in command.params:
+        if param.param_type_name == "option" and param.required:
+            values += [param.opts[0], "x"]
+    return values
 
 
 def _usage_line_ok(line, path, command):

@@ -1,0 +1,183 @@
+Every HTTP call this proof made to the LOCAL hosted Gateway (http://127.0.0.1:7951), in order.
+Device keys are shown only as their last four characters. Account tokens were minted by the local sign-in stub
+and are never written here. Long answers are trimmed.
+
+## Setup: the owner (Olivia) enrolls her personal device
+07:47:13 POST /devices/enroll-hosted  [bearer: Olivia account token]
+  body: {"deviceId": "olivia-browser", "machineName": "Olivia browser", "platform": "web", "deviceType": "browser"}
+  -> 503 {"error":"the entitlement service is temporarily unavailable; please try again"}
+
+## Setup: the owner (Olivia) enrolls her personal device
+07:47:30 POST /devices/enroll-hosted  [bearer: Olivia account token]
+  body: {"deviceId": "olivia-browser", "machineName": "Olivia browser", "platform": "web", "deviceType": "browser"}
+  -> 200 {"deviceKey":"<redacted ...DM8>>","deviceId":"424f40015cd241149b8345a39831734fab1a75a540f2030e37b1635ba0d4a5f0|olivia-browser","machineName":"Olivia browser","status":"active","deviceCount":1}
+
+## Setup: Olivia creates Team A
+07:47:31 POST /teams  [bearer: Olivia personal device key]
+  body: {"name": "Team A"}
+  -> 201 {"team":{"id":"f96c8023-aa1f-49c5-850b-9945da11ed8f","name":"Team A","role":"Owner","memberCount":1,"people":"1 person","app":{"full":true,"pages":[{"id":"questions","label":"Questions","path":"/questions"},{"id":"requests","label":"Requests","path":"/requests"},{"id":"reports","label":"Reports","path":"/reports"}],"landing":null,"elsewhere":null}}}
+
+## Setup: Olivia creates Team B
+07:47:31 POST /teams  [bearer: Olivia personal device key]
+  body: {"name": "Team B"}
+  -> 201 {"team":{"id":"1a223ddf-1e2f-4b7c-bf5e-23bef903585a","name":"Team B","role":"Owner","memberCount":1,"people":"1 person","app":{"full":true,"pages":[{"id":"questions","label":"Questions","path":"/questions"},{"id":"requests","label":"Requests","path":"/requests"},{"id":"reports","label":"Reports","path":"/reports"}],"landing":null,"elsewhere":null}}}
+
+## Setup: Olivia's teams
+07:47:31 GET /teams  [bearer: Olivia personal device key]
+  -> 200 {"count":2,"teams":[{"id":"f96c8023-aa1f-49c5-850b-9945da11ed8f","name":"Team A","role":"Owner","memberCount":1,"people":"1 person","app":{"full":true,"pages":[{"id":"questions","label":"Questions","path":"/questions"},{"id":"requests","label":"Requests","path":"/requests"},{"id":"reports","label":"Reports","path":"/reports"}],"landing":null,"elsewhere":null}},{"id":"1a223ddf-1e2f-4b7c-bf5e-23bef903585a","name":"Team B","role":"Owner","memberCount":1,"people":"1 person","app":{"full":true,"pages":[{"id":"questions","label":"Questions","path":"/questions"},{"id":"requests","label":"Requests","path":"/requests"},{"id":"reports","label":"Reports","path":"/reports"}],"landing":null,"elsewhere":null}}],"start":{"where":"choose","teamId":null}}
+
+## Setup check: the teams alice may set a Director up for
+07:47:45 GET /devices/enroll-hosted/teams  [bearer: alice account token]
+  -> 200 {"teams":[{"teamId":"f96c8023-aa1f-49c5-850b-9945da11ed8f","name":"Team A","role":"developer","memberCount":2},{"teamId":"1a223ddf-1e2f-4b7c-bf5e-23bef903585a","name":"Team B","role":"developer","memberCount":3}]}
+
+## Setup check: the teams bob may set a Director up for
+07:47:45 GET /devices/enroll-hosted/teams  [bearer: bob account token]
+  -> 200 {"teams":[{"teamId":"1a223ddf-1e2f-4b7c-bf5e-23bef903585a","name":"Team B","role":"developer","memberCount":3}]}
+
+## Step 3: start a session on Director A with its own team key
+07:56:11 POST /directors/16081887-799c-402d-a010-06bfc6daef5b/sessions  [bearer: Director A team key]
+  body: {"repoPath": "D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-a", "agent": "ClaudeCode", "name": "Team A proof session", "standalone": true}
+  -> 201 {"sessionId":"b1e52eb0-6a95-4718-86bd-10eafe01f96e","directorId":"16081887-799c-402d-a010-06bfc6daef5b","agent":"ClaudeCode","agentToolDisplay":"","groupId":null,"groupRole":null,"repoPath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-a","pooledWorktree":null,"primaryRepoPath":null,"status":"Running","activityState":"WaitingForInput","assessedState":null,"createdAt":"2026-10-06T11:56:04.0154033Z","totalBufferBytes":16,"isAlternateScreen":false,"claudeSessionId":"e7febcc2-96ca-447e-91b1-7c0bca484add","claudeTranscriptPath":null,"name":"Team A proof session","missionId":null,"missionName":null,"workflowRunId":null,"workflowId":null,"workflowVersion":null,"number":937,"sortOrder":0,"statusColor":"red","crashed":false,"lastStatusReason":"needs you","briefingState":"None","railLine":null,"needsYouSince":null,"voiceWaitingSince":null,"snoozeUntil":null,"lastO ...(trimmed)
+
+## Step 3: start a session on Director B with its own team key
+07:56:19 POST /directors/977326fb-d7fe-482c-a867-c5f0d972e9c5/sessions  [bearer: Director B team key]
+  body: {"repoPath": "D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-b", "agent": "ClaudeCode", "name": "Team B proof session", "standalone": true}
+  -> 201 {"sessionId":"6e5ce7a5-b4d2-49ef-9bb7-dbb3994981f5","directorId":"977326fb-d7fe-482c-a867-c5f0d972e9c5","agent":"ClaudeCode","agentToolDisplay":"","groupId":null,"groupRole":null,"repoPath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-b","pooledWorktree":null,"primaryRepoPath":null,"status":"Running","activityState":"WaitingForInput","assessedState":null,"createdAt":"2026-10-06T11:56:16.3816613Z","totalBufferBytes":49,"isAlternateScreen":false,"claudeSessionId":"b8347f3a-40f2-401b-bcb3-277dea6c0fc3","claudeTranscriptPath":null,"name":"Team B proof session","missionId":null,"missionName":null,"workflowRunId":null,"workflowId":null,"workflowVersion":null,"number":null,"sortOrder":0,"statusColor":"red","crashed":false,"lastStatusReason":"needs you","briefingState":"None","railLine":null,"needsYouSince":null,"voiceWaitingSince":null,"snoozeUntil":null,"last ...(trimmed)
+
+## Step 3: GET /directors as Director A team key (Alice, Team A)
+07:56:34 GET /directors  [bearer: Director A team key (Alice, Team A)]
+  -> 403 {"error":"In this team you are a Developer, and a Developer may see the team's Fleet Map only for their own. This answer covers the whole team, so it is refused.","code":"team_action_refused"}
+
+## Step 3: GET /sessions as Director A team key (Alice, Team A)
+07:56:34 GET /sessions  [bearer: Director A team key (Alice, Team A)]
+  -> 403 {"error":"DevThrottle cannot confirm that what this request touches is yours - your own sessions, computers, transcripts and prompts - so inside a team it refuses it. Nothing was done.","code":"team_action_refused"}
+
+## Step 3: Team A's session, asked by Director A team key (Alice, Team A)
+07:56:34 GET /sessions/b1e52eb0-6a95-4718-86bd-10eafe01f96e  [bearer: Director A team key (Alice, Team A)]
+  -> 200 {"sessionId":"b1e52eb0-6a95-4718-86bd-10eafe01f96e","directorId":"16081887-799c-402d-a010-06bfc6daef5b","agent":"ClaudeCode","agentToolDisplay":"Claude Code","groupId":null,"groupRole":null,"repoPath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-a","pooledWorktree":null,"primaryRepoPath":null,"status":"Running","activityState":"WaitingForInput","assessedState":null,"createdAt":"2026-10-06T11:56:04.0154033Z","totalBufferBytes":1639,"isAlternateScreen":false,"claudeSessionId":"e7febcc2-96ca-447e-91b1-7c0bca484add","claudeTranscriptPath":"C:\\Users\\soren\\.claude\\projects\\D--ReposFred-devthrottle-teams-2311-liveproof--liveproof-rig-work-a\\e7febcc2-96ca-447e-91b1-7c0bca484add.jsonl","name":"Team A proof session","missionId":null,"missionName":null,"workflowRunId":null,"workflowId":null,"workflowVersion":null,"number":937,"sortOrder":0,"statusColor":"red ...(trimmed)
+
+## Step 3: Team B's session, asked by Director A team key (Alice, Team A)
+07:56:34 GET /sessions/6e5ce7a5-b4d2-49ef-9bb7-dbb3994981f5  [bearer: Director A team key (Alice, Team A)]
+  -> 403 {"error":"DevThrottle cannot confirm that what this request touches is yours - your own sessions, computers, transcripts and prompts - so inside a team it refuses it. Nothing was done.","code":"team_action_refused"}
+
+## Step 3: Director A, asked by Director A team key (Alice, Team A)
+07:56:34 GET /directors/16081887-799c-402d-a010-06bfc6daef5b/agents  [bearer: Director A team key (Alice, Team A)]
+  -> 200 [{"type":"ClaudeCode","displayName":"Claude Code","defaultModel":"","modelLabel":""},{"type":"Pi","displayName":"Pi","defaultModel":"","modelLabel":""},{"type":"Codex","displayName":"Codex","defaultModel":"","modelLabel":""},{"type":"Gemini","displayName":"Gemini","defaultModel":"","modelLabel":""},{"type":"OpenCode","displayName":"OpenCode","defaultModel":"","modelLabel":""},{"type":"Grok","displayName":"Grok","defaultModel":"","modelLabel":""},{"type":"Copilot","displayName":"GitHub Copilot","defaultModel":"","modelLabel":""}]
+
+## Step 3: Director B, asked by Director A team key (Alice, Team A)
+07:56:34 GET /directors/977326fb-d7fe-482c-a867-c5f0d972e9c5/agents  [bearer: Director A team key (Alice, Team A)]
+  -> 403 {"error":"DevThrottle cannot confirm that what this request touches is yours - your own sessions, computers, transcripts and prompts - so inside a team it refuses it. Nothing was done.","code":"team_action_refused"}
+
+## Step 3: GET /directors as Director B team key (Bob, Team B)
+07:56:34 GET /directors  [bearer: Director B team key (Bob, Team B)]
+  -> 403 {"error":"In this team you are a Developer, and a Developer may see the team's Fleet Map only for their own. This answer covers the whole team, so it is refused.","code":"team_action_refused"}
+
+## Step 3: GET /sessions as Director B team key (Bob, Team B)
+07:56:34 GET /sessions  [bearer: Director B team key (Bob, Team B)]
+  -> 403 {"error":"DevThrottle cannot confirm that what this request touches is yours - your own sessions, computers, transcripts and prompts - so inside a team it refuses it. Nothing was done.","code":"team_action_refused"}
+
+## Step 3: Team A's session, asked by Director B team key (Bob, Team B)
+07:56:34 GET /sessions/b1e52eb0-6a95-4718-86bd-10eafe01f96e  [bearer: Director B team key (Bob, Team B)]
+  -> 403 {"error":"DevThrottle cannot confirm that what this request touches is yours - your own sessions, computers, transcripts and prompts - so inside a team it refuses it. Nothing was done.","code":"team_action_refused"}
+
+## Step 3: Team B's session, asked by Director B team key (Bob, Team B)
+07:56:34 GET /sessions/6e5ce7a5-b4d2-49ef-9bb7-dbb3994981f5  [bearer: Director B team key (Bob, Team B)]
+  -> 200 {"sessionId":"6e5ce7a5-b4d2-49ef-9bb7-dbb3994981f5","directorId":"977326fb-d7fe-482c-a867-c5f0d972e9c5","agent":"ClaudeCode","agentToolDisplay":"Claude Code","groupId":null,"groupRole":null,"repoPath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-b","pooledWorktree":null,"primaryRepoPath":null,"status":"Running","activityState":"WaitingForInput","assessedState":null,"createdAt":"2026-10-06T11:56:16.3816613Z","totalBufferBytes":1611,"isAlternateScreen":false,"claudeSessionId":"b8347f3a-40f2-401b-bcb3-277dea6c0fc3","claudeTranscriptPath":"C:\\Users\\soren\\.claude\\projects\\D--ReposFred-devthrottle-teams-2311-liveproof--liveproof-rig-work-b\\b8347f3a-40f2-401b-bcb3-277dea6c0fc3.jsonl","name":"Team B proof session","missionId":null,"missionName":null,"workflowRunId":null,"workflowId":null,"workflowVersion":null,"number":983,"sortOrder":0,"statusColor":"red ...(trimmed)
+
+## Step 3: Director A, asked by Director B team key (Bob, Team B)
+07:56:34 GET /directors/16081887-799c-402d-a010-06bfc6daef5b/agents  [bearer: Director B team key (Bob, Team B)]
+  -> 403 {"error":"DevThrottle cannot confirm that what this request touches is yours - your own sessions, computers, transcripts and prompts - so inside a team it refuses it. Nothing was done.","code":"team_action_refused"}
+
+## Step 3: Director B, asked by Director B team key (Bob, Team B)
+07:56:34 GET /directors/977326fb-d7fe-482c-a867-c5f0d972e9c5/agents  [bearer: Director B team key (Bob, Team B)]
+  -> 200 [{"type":"ClaudeCode","displayName":"Claude Code","defaultModel":"","modelLabel":""},{"type":"Pi","displayName":"Pi","defaultModel":"","modelLabel":""},{"type":"Codex","displayName":"Codex","defaultModel":"","modelLabel":""},{"type":"Gemini","displayName":"Gemini","defaultModel":"","modelLabel":""},{"type":"OpenCode","displayName":"OpenCode","defaultModel":"","modelLabel":""},{"type":"Grok","displayName":"Grok","defaultModel":"","modelLabel":""},{"type":"Copilot","displayName":"GitHub Copilot","defaultModel":"","modelLabel":""}]
+
+## Step 3: Team A's Fleet Map, asked by its Owner
+07:56:34 GET /teams/f96c8023-aa1f-49c5-850b-9945da11ed8f/fleet-map  [bearer: Olivia personal device key]
+  -> 200 {"teamId":"f96c8023-aa1f-49c5-850b-9945da11ed8f","teamName":"Team A","role":"Owner","scope":"everyone","summary":"Everyone's Directors on this team. Names and status only; sessions do not open.","layouts":["by-person","by-director"],"emptyText":"No Director is on this team yet. A Director appears here once it is set up for this team.","people":[{"person":"A member with no email recorded","isYou":false,"directors":[{"name":"SOREN_NORTH - Team A","machine":"SOREN_NORTH","sessions":[{"name":"Team A proof session","status":"waiting"}]}]}]}
+
+## Step 3: Team B's Fleet Map, asked by its Owner
+07:56:34 GET /teams/1a223ddf-1e2f-4b7c-bf5e-23bef903585a/fleet-map  [bearer: Olivia personal device key]
+  -> 200 {"teamId":"1a223ddf-1e2f-4b7c-bf5e-23bef903585a","teamName":"Team B","role":"Owner","scope":"everyone","summary":"Everyone's Directors on this team. Names and status only; sessions do not open.","layouts":["by-person","by-director"],"emptyText":"No Director is on this team yet. A Director appears here once it is set up for this team.","people":[{"person":"A member with no email recorded","isYou":false,"directors":[{"name":"SOREN_NORTH - Team B","machine":"SOREN_NORTH","sessions":[{"name":"Team B proof session","status":"waiting"}]}]}]}
+
+## Step 4 BEFORE (both bills live): Director A team key
+07:57:57 GET /gateway/skills  [bearer: Director A team key]
+  -> 200 {"skills":[{"id":"dev-throttle","name":"DevThrottle","summary":"The product itself - the app, the command line tools, and how an agent drives the fleet.","triggers":["devthrottle","cc-director","what cc tools","list tools","available tools","session manager","mission control"],"version":1,"isBuiltIn":true,"updatedUtc":"2026-10-06T11:46:49.0589482Z","hasDraft":false,"contentHash":"62cf25474da8632ed815dbb7dbfca59087216c378eee04e9c88b98146d2dffd2","fileCount":0,"enabled":true,"editable":false},{"id":"fleet-comms","name":"Fleet communication","summary":"List, rename and open sessions across the fleet, and the rare queued message: who you may message, the inbox, and replies.","triggers":["message another session","talk to another session","ask another session","rename this session","list sessions","what sessions are running","spawn a session","fleet messaging"],"version":1,"isBuiltIn ...(trimmed)
+
+## Step 4 BEFORE (both bills live): Director B team key
+07:57:57 GET /gateway/skills  [bearer: Director B team key]
+  -> 200 {"skills":[{"id":"dev-throttle","name":"DevThrottle","summary":"The product itself - the app, the command line tools, and how an agent drives the fleet.","triggers":["devthrottle","cc-director","what cc tools","list tools","available tools","session manager","mission control"],"version":1,"isBuiltIn":true,"updatedUtc":"2026-10-06T11:46:49.0589482Z","hasDraft":false,"contentHash":"62cf25474da8632ed815dbb7dbfca59087216c378eee04e9c88b98146d2dffd2","fileCount":0,"enabled":true,"editable":false},{"id":"fleet-comms","name":"Fleet communication","summary":"List, rename and open sessions across the fleet, and the rare queued message: who you may message, the inbox, and replies.","triggers":["message another session","talk to another session","ask another session","rename this session","list sessions","what sessions are running","spawn a session","fleet messaging"],"version":1,"isBuiltIn ...(trimmed)
+
+## Step 4 AFTER (Team A's bill ended, Team B's live): Director A team key
+07:58:56 GET /gateway/skills  [bearer: Director A team key]
+  -> 200 {"skills":[{"id":"dev-throttle","name":"DevThrottle","summary":"The product itself - the app, the command line tools, and how an agent drives the fleet.","triggers":["devthrottle","cc-director","what cc tools","list tools","available tools","session manager","mission control"],"version":1,"isBuiltIn":true,"updatedUtc":"2026-10-06T11:46:49.0589482Z","hasDraft":false,"contentHash":"62cf25474da8632ed815dbb7dbfca59087216c378eee04e9c88b98146d2dffd2","fileCount":0,"enabled":true,"editable":false},{"id":"fleet-comms","name":"Fleet communication","summary":"List, rename and open sessions across the fleet, and the rare queued message: who you may message, the inbox, and replies.","triggers":["message another session","talk to another session","ask another session","rename this session","list sessions","what sessions are running","spawn a session","fleet messaging"],"version":1,"isBuiltIn ...(trimmed)
+
+## Step 4 AFTER: own session read by Director A team key
+07:58:56 GET /sessions/b1e52eb0-6a95-4718-86bd-10eafe01f96e  [bearer: Director A team key]
+  -> 200 {"sessionId":"b1e52eb0-6a95-4718-86bd-10eafe01f96e","directorId":"16081887-799c-402d-a010-06bfc6daef5b","agent":"ClaudeCode","agentToolDisplay":"Claude Code","groupId":null,"groupRole":null,"repoPath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-a","pooledWorktree":null,"primaryRepoPath":null,"status":"Running","activityState":"WaitingForInput","assessedState":null,"createdAt":"2026-10-06T11:56:04.0154033Z","totalBufferBytes":1639,"isAlternateScreen":false,"claudeSessionId":"e7febcc2-96ca-447e-91b1-7c0bca484add","claudeTranscriptPath":"C:\\Users\\soren\\.claude\\projects\\D--ReposFred-devthrottle-teams-2311-liveproof--liveproof-rig-work-a\\e7febcc2-96ca-447e-91b1-7c0bca484add.jsonl","name":"Team A proof session","missionId":null,"missionName":null,"workflowRunId":null,"workflowId":null,"workflowVersion":null,"number":937,"sortOrder":0,"statusColor":"red ...(trimmed)
+
+## Step 4 AFTER (Team A's bill ended, Team B's live): Director B team key
+07:58:56 GET /gateway/skills  [bearer: Director B team key]
+  -> 200 {"skills":[{"id":"dev-throttle","name":"DevThrottle","summary":"The product itself - the app, the command line tools, and how an agent drives the fleet.","triggers":["devthrottle","cc-director","what cc tools","list tools","available tools","session manager","mission control"],"version":1,"isBuiltIn":true,"updatedUtc":"2026-10-06T11:46:49.0589482Z","hasDraft":false,"contentHash":"62cf25474da8632ed815dbb7dbfca59087216c378eee04e9c88b98146d2dffd2","fileCount":0,"enabled":true,"editable":false},{"id":"fleet-comms","name":"Fleet communication","summary":"List, rename and open sessions across the fleet, and the rare queued message: who you may message, the inbox, and replies.","triggers":["message another session","talk to another session","ask another session","rename this session","list sessions","what sessions are running","spawn a session","fleet messaging"],"version":1,"isBuiltIn ...(trimmed)
+
+## Step 4 AFTER: own session read by Director B team key
+07:58:56 GET /sessions/6e5ce7a5-b4d2-49ef-9bb7-dbb3994981f5  [bearer: Director B team key]
+  -> 200 {"sessionId":"6e5ce7a5-b4d2-49ef-9bb7-dbb3994981f5","directorId":"977326fb-d7fe-482c-a867-c5f0d972e9c5","agent":"ClaudeCode","agentToolDisplay":"Claude Code","groupId":null,"groupRole":null,"repoPath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-b","pooledWorktree":null,"primaryRepoPath":null,"status":"Running","activityState":"WaitingForInput","assessedState":null,"createdAt":"2026-10-06T11:56:16.3816613Z","totalBufferBytes":1639,"isAlternateScreen":false,"claudeSessionId":"b8347f3a-40f2-401b-bcb3-277dea6c0fc3","claudeTranscriptPath":"C:\\Users\\soren\\.claude\\projects\\D--ReposFred-devthrottle-teams-2311-liveproof--liveproof-rig-work-b\\b8347f3a-40f2-401b-bcb3-277dea6c0fc3.jsonl","name":"Team B proof session","missionId":null,"missionName":null,"workflowRunId":null,"workflowId":null,"workflowVersion":null,"number":983,"sortOrder":0,"statusColor":"red ...(trimmed)
+
+## Step 5: Team B's members, read by its Owner
+07:59:02 GET /teams/1a223ddf-1e2f-4b7c-bf5e-23bef903585a/members  [bearer: Olivia personal device key]
+  -> 200 {"team":{"id":"1a223ddf-1e2f-4b7c-bf5e-23bef903585a","name":"Team B","role":"Owner","memberCount":3,"people":"3 people","app":{"full":true,"pages":[{"id":"questions","label":"Questions","path":"/questions"},{"id":"requests","label":"Requests","path":"/requests"},{"id":"reports","label":"Reports","path":"/reports"}],"landing":null,"elsewhere":null}},"count":3,"members":[{"name":"olivia.owner@teams-proof.invalid","email":"olivia.owner@teams-proof.invalid","role":"Owner","isYou":true,"joinedAtUtc":"2026-10-06T11:47:31.0727962Z"},{"name":"An account with no email recorded","email":null,"role":"Developer","isYou":false,"joinedAtUtc":"2026-10-06T11:47:39.025831Z"},{"name":"An account with no email recorded","email":null,"role":"Developer","isYou":false,"joinedAtUtc":"2026-10-06T11:47:39.025831Z"}]}
+
+## Step 5: Team B's page, read by its Owner (member ids)
+07:59:09 GET /teams/1a223ddf-1e2f-4b7c-bf5e-23bef903585a/page  [bearer: Olivia personal device key]
+  -> 200 {"teamId":"1a223ddf-1e2f-4b7c-bf5e-23bef903585a","teamName":"Team B","yourRole":"Owner","summary":"3 paid seats, 0 Collaborators (free), 0 invitations waiting","canInvite":true,"members":[{"memberId":"0c9548f799a734512c25bad8dcd9ed4e","name":"olivia.owner@teams-proof.invalid","email":"olivia.owner@teams-proof.invalid","role":"Owner","seat":"Paid","isYou":true,"joinedAtUtc":"2026-10-06T11:47:31.0727962Z","canChangeRole":false,"roleChoices":[],"canRemove":false,"removeWarning":null},{"memberId":"01fd566e83a8af2b92ff78a95db65078","name":"An account with no email recorded","email":null,"role":"Developer","seat":"Paid","isYou":false,"joinedAtUtc":"2026-10-06T11:47:39.025831Z","canChangeRole":true,"roleChoices":["Manager","Developer","Collaborator"],"canRemove":true,"removeWarning":"An account with no email recorded will leave the team at once, and their paid seat comes off the team's ...(trimmed)
+
+## Step 5 BEFORE: Director B's key reads its own session
+07:59:26 GET /sessions/6e5ce7a5-b4d2-49ef-9bb7-dbb3994981f5  [bearer: Director B team key]
+  -> 200 {"sessionId":"6e5ce7a5-b4d2-49ef-9bb7-dbb3994981f5","directorId":"977326fb-d7fe-482c-a867-c5f0d972e9c5","agent":"ClaudeCode","agentToolDisplay":"Claude Code","groupId":null,"groupRole":null,"repoPath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-b","pooledWorktree":null,"primaryRepoPath":null,"status":"Running","activityState":"WaitingForInput","assessedState":null,"createdAt":"2026-10-06T11:56:16.3816613Z","totalBufferBytes":1639,"isAlternateScreen":false,"claudeSessionId":"b8347f3a-40f2-401b-bcb3-277dea6c0fc3","claudeTranscriptPath":"C:\\Users\\soren\\.claude\\projects\\D--ReposFred-devthrottle-teams-2311-liveproof--liveproof-rig-work-b\\b8347f3a-40f2-401b-bcb3-277dea6c0fc3.jsonl","name":"Team B proof session","missionId":null,"missionName":null,"workflowRunId":null,"workflowId":null,"workflowVersion":null,"number":983,"sortOrder":0,"statusColor":"red ...(trimmed)
+
+## Step 5 BEFORE: Director A's key reads its own session
+07:59:26 GET /sessions/b1e52eb0-6a95-4718-86bd-10eafe01f96e  [bearer: Director A team key]
+  -> 200 {"sessionId":"b1e52eb0-6a95-4718-86bd-10eafe01f96e","directorId":"16081887-799c-402d-a010-06bfc6daef5b","agent":"ClaudeCode","agentToolDisplay":"Claude Code","groupId":null,"groupRole":null,"repoPath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-a","pooledWorktree":null,"primaryRepoPath":null,"status":"Running","activityState":"WaitingForInput","assessedState":null,"createdAt":"2026-10-06T11:56:04.0154033Z","totalBufferBytes":1639,"isAlternateScreen":false,"claudeSessionId":"e7febcc2-96ca-447e-91b1-7c0bca484add","claudeTranscriptPath":"C:\\Users\\soren\\.claude\\projects\\D--ReposFred-devthrottle-teams-2311-liveproof--liveproof-rig-work-a\\e7febcc2-96ca-447e-91b1-7c0bca484add.jsonl","name":"Team A proof session","missionId":null,"missionName":null,"workflowRunId":null,"workflowId":null,"workflowVersion":null,"number":937,"sortOrder":0,"statusColor":"red ...(trimmed)
+
+## Step 5: the Owner removes Bob from Team B
+07:59:27 DELETE /teams/1a223ddf-1e2f-4b7c-bf5e-23bef903585a/members/24ef88d9908b5e4267fc8c84361c7e8c  [bearer: Olivia personal device key]
+  -> 200 {"done":true}
+
+## Step 5 AFTER: Director B's key (Bob, removed)
+07:59:27 GET /sessions/6e5ce7a5-b4d2-49ef-9bb7-dbb3994981f5  [bearer: Director B team key]
+  -> 401 {"error":"device credential revoked","code":"device_credential_revoked"}
+
+## Step 5 AFTER: Director B's key on another route
+07:59:27 GET /gateway/skills  [bearer: Director B team key]
+  -> 401 {"error":"device credential revoked","code":"device_credential_revoked"}
+
+## Step 5 AFTER: Director A's key (Alice, Team A) - unaffected
+07:59:27 GET /sessions/b1e52eb0-6a95-4718-86bd-10eafe01f96e  [bearer: Director A team key]
+  -> 200 {"sessionId":"b1e52eb0-6a95-4718-86bd-10eafe01f96e","directorId":"16081887-799c-402d-a010-06bfc6daef5b","agent":"ClaudeCode","agentToolDisplay":"Claude Code","groupId":null,"groupRole":null,"repoPath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-a","pooledWorktree":null,"primaryRepoPath":null,"status":"Running","activityState":"WaitingForInput","assessedState":null,"createdAt":"2026-10-06T11:56:04.0154033Z","totalBufferBytes":1639,"isAlternateScreen":false,"claudeSessionId":"e7febcc2-96ca-447e-91b1-7c0bca484add","claudeTranscriptPath":"C:\\Users\\soren\\.claude\\projects\\D--ReposFred-devthrottle-teams-2311-liveproof--liveproof-rig-work-a\\e7febcc2-96ca-447e-91b1-7c0bca484add.jsonl","name":"Team A proof session","missionId":null,"missionName":null,"workflowRunId":null,"workflowId":null,"workflowVersion":null,"number":937,"sortOrder":0,"statusColor":"red ...(trimmed)
+
+## Step 6: the move asked of the Gateway directly while Director A still has a session registered (server-side check)
+08:01:00 POST /devices/enroll-hosted/move  [bearer: Alice account token]
+  body: {"deviceId": "16081887-799c-402d-a010-06bfc6daef5b", "teamId": "1a223ddf-1e2f-4b7c-bf5e-23bef903585a"}
+  -> 409 {"error":"This Director still has sessions open. Close every session on it, then change its team. Nothing was changed."}
+
+## Step 6: close Director A's only session
+08:01:25 POST /sessions/b1e52eb0-6a95-4718-86bd-10eafe01f96e/stop  [bearer: Director A team key]
+  body: {"reason": "teams #2311 live proof: close the session so the Director can move teams"}
+  -> 200 {"verdict":"stopped","headline":"stopped b1e52eb0 - process 59336 ended, row removed","details":["the worktree D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-a was left untouched - it has uncommitted changes in it","reason: teams #2311 live proof: close the session so the Director can move teams"],"pooledWorktreeHeldReason":null,"sessionId":"b1e52eb0-6a95-4718-86bd-10eafe01f96e","shortId":"b1e52eb0","processId":59336,"processEnded":true,"rowRemoved":true,"worktreePath":"D:\\ReposFred\\devthrottle-teams-2311-liveproof\\.liveproof-rig\\work-a","worktreeHadUncommittedChanges":true,"reason":"teams #2311 live proof: close the session so the Director can move teams","stoppedBy":"device workstation cee45cd5c228fe0059a0464cafd096f02a01e4f757f5185f6a4ca93bbb2a3109|16081887-799c-402d-a010-06bfc6daef5b","killed":true,"removed":true}
+
+## Step 6 AFTER: Director A's OLD Team A key
+08:02:28 GET /gateway/skills  [bearer: Director A old Team A key]
+  -> 401 {"error":"device credential revoked","code":"device_credential_revoked"}
+
+## Step 6 AFTER: Director A's NEW Team B key, on its own Director
+08:02:28 GET /directors/16081887-799c-402d-a010-06bfc6daef5b/agents  [bearer: Director A new Team B key]
+  -> 200 [{"type":"ClaudeCode","displayName":"Claude Code","defaultModel":"","modelLabel":""},{"type":"Pi","displayName":"Pi","defaultModel":"","modelLabel":""},{"type":"Codex","displayName":"Codex","defaultModel":"","modelLabel":""},{"type":"Gemini","displayName":"Gemini","defaultModel":"","modelLabel":""},{"type":"OpenCode","displayName":"OpenCode","defaultModel":"","modelLabel":""},{"type":"Grok","displayName":"Grok","defaultModel":"","modelLabel":""},{"type":"Copilot","displayName":"GitHub Copilot","defaultModel":"","modelLabel":""}]
+
+## Step 6 AFTER: Team A's Fleet Map
+08:02:28 GET /teams/f96c8023-aa1f-49c5-850b-9945da11ed8f/fleet-map  [bearer: Olivia personal device key]
+  -> 200 {"teamId":"f96c8023-aa1f-49c5-850b-9945da11ed8f","teamName":"Team A","role":"Owner","scope":"everyone","summary":"Everyone's Directors on this team. Names and status only; sessions do not open.","layouts":["by-person","by-director"],"emptyText":"No Director is on this team yet. A Director appears here once it is set up for this team.","people":[]}
+
+## Step 6 AFTER: Team B's Fleet Map
+08:02:28 GET /teams/1a223ddf-1e2f-4b7c-bf5e-23bef903585a/fleet-map  [bearer: Olivia personal device key]
+  -> 200 {"teamId":"1a223ddf-1e2f-4b7c-bf5e-23bef903585a","teamName":"Team B","role":"Owner","scope":"everyone","summary":"Everyone's Directors on this team. Names and status only; sessions do not open.","layouts":["by-person","by-director"],"emptyText":"No Director is on this team yet. A Director appears here once it is set up for this team.","people":[{"person":"A member with no email recorded","isYou":false,"directors":[{"name":"SOREN_NORTH - Team A","machine":"SOREN_NORTH","sessions":[]}]}]}
