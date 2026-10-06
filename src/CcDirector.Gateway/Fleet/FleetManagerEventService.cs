@@ -439,10 +439,13 @@ public sealed class FleetManagerEventService : IDisposable
                 "the Gateway restarted before the Wingman's reading of this stop was stored").Count > 0;
         changed |= _store.ExpirePendingStops(tenant, now - PendingLimit, FleetManagerEventStore.PendingLimitReason).Count > 0;
 
+        // Only the HOLDER'S row (devthrottle_internal#2311, OR-F3): a colleague's Director that merely lists the id never
+        // becomes the Director the session is remembered on, so its later drop is never read as the session's death.
+        // Outside a team every row is the holder's.
         var marked = _env.MarkedFleetManager(tenant);
         if (!string.IsNullOrEmpty(marked))
             foreach (var (directorId, row) in _env.Roster(tenant))
-                if (IsOwnedBy(row, marked) && !IsExited(row))
+                if (IsOwnedBy(row, marked) && !IsExited(row) && _env.IsHoldersRow(tenant, directorId, row.SessionId))
                     NoteAlive(tenant, row, directorId, marked);
 
         foreach (var owned in _store.AllOwnedAlive(tenant))

@@ -1697,6 +1697,32 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Equal("marked", Assert.Single(Open()).Kind);
     }
 
+    // ---- devthrottle_internal#2311 OR-F3: the reconcile remembers an owned session only on its holder's row -----------
+
+    [Fact]
+    public async Task Reconcile_AColleaguesRowNamingTheFleetManager_NeverBecomesTheWorkersDirector_AndItsDropIsNoDeath()
+    {
+        // The store's one answer names dir-1 (Alice's) as worker-1's holder, and nobody when dir-1 does not list it.
+        _pushed.UseHolderRule(new HolderIs("worker-1", "dir-1"));
+        await _service.ReconcileAsync(Tenant);
+        Assert.Equal("dir-1", _events.OwnedAlive(Tenant, "worker-1")!.DirectorId);
+
+        // Alice's Director is not reporting (as after a Gateway restart, before it reconnects). Bob's Director lists
+        // worker-1, its row naming Alice's Fleet Manager - THE ONLY ROW of the id, and not the holder's - asserted.
+        _pushed.Forget(Tenant, "dir-1");
+        _pushed.RegisterConnection(Tenant, "dir-bob", "conn-bob");
+        Assert.True(_pushed.ApplySnapshot(Tenant, "dir-bob", "conn-bob", 1, new List<SessionDto> { Session("worker-1", controller: "fm") }));
+        Assert.False(_pushed.IsHoldersRow(Tenant, "dir-bob", "worker-1"));
+
+        await _service.ReconcileAsync(Tenant);
+        Assert.Equal("dir-1", _events.OwnedAlive(Tenant, "worker-1")!.DirectorId);
+
+        // Bob's Director drops the id. Alice's worker is not dead: its own Director has not said so.
+        Assert.True(_pushed.ApplySnapshot(Tenant, "dir-bob", "conn-bob", 2, new List<SessionDto>()));
+        await _service.ReconcileAsync(Tenant);
+        Assert.DoesNotContain(Open(), e => e.Kind == "died" && e.SessionId == "worker-1");
+    }
+
     /// <summary>A holder rule for one session: <paramref name="director"/> holds it when it lists it, otherwise nobody
     /// does. Every other session keeps the first row.</summary>
     private sealed class HolderIs(string sessionId, string director) : ISessionHolderRule
