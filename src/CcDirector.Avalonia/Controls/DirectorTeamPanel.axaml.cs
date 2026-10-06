@@ -3,6 +3,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Instances;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Teams;
 using CcDirector.Core.Utilities;
@@ -23,6 +24,8 @@ namespace CcDirector.Avalonia.Controls;
 /// <param name="PersistKey">Stores the new device key after a move.</param>
 /// <param name="PersistTeam">Stores the new team after a move; this is what redraws the title bar.</param>
 /// <param name="Reapply">Makes the running Gateway connection use the new key; null when there is none.</param>
+/// <param name="FollowName">Renames this Director for its new team when its name is still the suggested one, given the
+/// Gateway's answer to the move, and says what happened; null to leave its name alone.</param>
 internal sealed record DirectorTeamPanelDeps(
     IDirectorTeamService Service,
     Func<int> RunningSessions,
@@ -31,8 +34,9 @@ internal sealed record DirectorTeamPanelDeps(
     Func<CancellationToken, Task<OperationResult<DirectorTeam?>>> ResolveTeam,
     Func<bool> ConnectedToAGateway,
     Action<string> PersistKey,
-    Action<DirectorTeam> PersistTeam,
-    Func<Task>? Reapply);
+    Action<DirectorTeam, string> PersistTeam,
+    Func<Task>? Reapply,
+    Func<DirectorTeam, DirectorMoveAnswer, NameAfterMoveOutcome>? FollowName = null);
 
 /// <summary>
 /// Screen D3 (devthrottle_internal#2311): "This Director works for &lt;team&gt;", the other teams, and
@@ -63,7 +67,7 @@ public partial class DirectorTeamPanel : UserControl
     internal DirectorTeamPanel(DirectorTeamPanelDeps deps)
     {
         _deps = deps ?? throw new ArgumentNullException(nameof(deps));
-        _mover = new DirectorTeamMover(deps.Service, deps.HoldSessionCreation, deps.PersistTeam, deps.PersistKey, deps.Reapply);
+        _mover = new DirectorTeamMover(deps.Service, deps.HoldSessionCreation, deps.PersistTeam, deps.PersistKey, deps.Reapply, deps.FollowName);
         InitializeComponent();
 
         _lockTimer.Tick += (_, _) => RefreshLock();
@@ -91,8 +95,17 @@ public partial class DirectorTeamPanel : UserControl
             ResolveThisDirectorsTeamAsync,
             () => GatewayConfig.Load().IsEnabled,
             key => GatewayCredentialStore.SaveEnrolledKey(HostedGateway.ResolveUrl(), key),
-            DirectorTeamStore.Save,
-            app?.ControlApiHost is { } host ? host.ReapplyGatewayAsync : null);
+            (team, key) => DirectorTeamStore.Save(team, key),
+            app?.ControlApiHost is { } host ? host.ReapplyGatewayAsync : null,
+            // Live proof F4: a name that is still the suggestion "<computer> - <old team>" follows the move.
+            new DirectorNameFollower(
+                () => NamedInstanceRegistry.Get(InstanceContext.Slug)?.DisplayName,
+                // The key being left: the move stores the new key only after the name step (review RM-F8). The team
+                // being left is the Gateway's answer, never the local team file.
+                () => GatewayConfig.Load().Token,
+                name => NamedInstanceRegistry.Rename(InstanceContext.Slug, name),
+                DirectorNameSuggestionStore.Load,
+                DirectorNameSuggestionStore.Save).FollowMove);
     }
 
     /// <summary>

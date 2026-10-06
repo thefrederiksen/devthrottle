@@ -196,6 +196,12 @@ public partial class GatewayConnectionPanel : UserControl
             or GatewayConnectionStatus.SubscriptionRequired)
             return new GatewayConnectionPanel(GatewayPanelStep.Connect, repairMode: true, consumer, showChoiceFirst: false);
 
+        // A refused key cannot be repaired by reconnecting - the Gateway refuses it on every dial - so the Director is
+        // set up again from the gateway CHOICE step, which signs in and issues a new key (devthrottle_internal#2311,
+        // live proof F3).
+        if (status == GatewayConnectionStatus.KeyRefused)
+            return new GatewayConnectionPanel(GatewayPanelStep.Connect, repairMode: false, consumer, showChoiceFirst: true);
+
         // Otherwise a fresh connect: open on the gateway CHOICE step (#1808a).
         return new GatewayConnectionPanel(GatewayPanelStep.Connect, repairMode: false, consumer, showChoiceFirst: true);
     }
@@ -701,6 +707,7 @@ public partial class GatewayConnectionPanel : UserControl
         GatewayConnectionStatus.Failed => $"NOT CONNECTED - {m.FailureSummary}",
         GatewayConnectionStatus.NoTailnetIdentity => $"No tailnet identity - {m.FailureSummary}",
         GatewayConnectionStatus.SubscriptionRequired => $"SUBSCRIPTION REQUIRED - {m.FailureSummary}",
+        GatewayConnectionStatus.KeyRefused => $"KEY REFUSED - {m.FailureSummary}",
         GatewayConnectionStatus.Connecting => "Connecting - the tunnel is dialing. Re-open diagnostics in a few seconds.",
         _ => "No Gateway is configured.",
     };
@@ -1441,6 +1448,12 @@ public partial class GatewayConnectionPanel : UserControl
                 {
                     ShowFailure(monitor.FailureSummary ?? "The connection could not be completed.", DeriveFix(monitor));
                 }
+                break;
+            case GatewayConnectionStatus.KeyRefused:
+                // The key this attempt dialled with is refused for good: Sign in, which sets the Director up again
+                // with a new key (devthrottle_internal#2311, live proof F3).
+                FileLog.Write($"[GatewayConnectionPanel] key refused ({monitor.KeyRefusal?.Kind}) -> routing to Sign in");
+                ShowSignIn();
                 break;
             case GatewayConnectionStatus.Connecting:
             case GatewayConnectionStatus.NotConfigured:

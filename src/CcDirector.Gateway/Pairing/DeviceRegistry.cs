@@ -263,7 +263,8 @@ public sealed class DeviceRegistry : IDisposable
         if (invalidHostedBinding
             || !string.Equals(row.Status, StatusActive, StringComparison.Ordinal)
             || row.RevokedAtUtc is not null)
-            return new DeviceCredentialResolution(DeviceCredentialResolutionKind.Revoked, identity);
+            return new DeviceCredentialResolution(DeviceCredentialResolutionKind.Revoked, identity,
+                string.IsNullOrWhiteSpace(row.RevokedReason) ? null : row.RevokedReason);
 
         return new DeviceCredentialResolution(DeviceCredentialResolutionKind.Active, identity);
     }
@@ -1155,9 +1156,15 @@ public sealed record DeviceCredentialIdentity(
 }
 
 /// <summary>The typed result of one authoritative credential lookup.</summary>
+/// <param name="Kind">Whether the key is active, revoked, unknown, or could not be judged.</param>
+/// <param name="Identity">Who the key belongs to, for an active or revoked key.</param>
+/// <param name="RevokedReason">For a revoked key, the reason stored on its row (for example
+/// <c>team_member_removed</c>), or null when the row carries none - including a key judged revoked only because its
+/// hosted binding is no longer valid. Null for every other kind.</param>
 public readonly record struct DeviceCredentialResolution(
     DeviceCredentialResolutionKind Kind,
-    DeviceCredentialIdentity? Identity)
+    DeviceCredentialIdentity? Identity,
+    string? RevokedReason = null)
 {
     public static DeviceCredentialResolution Unknown { get; } =
         new(DeviceCredentialResolutionKind.Unknown, null);

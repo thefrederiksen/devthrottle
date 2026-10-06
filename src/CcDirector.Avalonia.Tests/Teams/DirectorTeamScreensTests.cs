@@ -266,9 +266,10 @@ public sealed class DirectorTeamScreensTests
             Task.FromResult(OperationResult<HostedTeamsAnswer>.Ok(new HostedTeamsAnswer(Released, Teams)));
 
         // What the Gateway answers to a move; a yes with a new key unless a test says otherwise.
-        public OperationResult<string> MoveAnswer { get; init; } = OperationResult<string>.Ok("new-team-key");
+        public OperationResult<DirectorMoveAnswer> MoveAnswer { get; init; } =
+            OperationResult<DirectorMoveAnswer>.Ok(new DirectorMoveAnswer("new-team-key", new DirectorMovedFrom(null)));
 
-        public Task<OperationResult<string>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
+        public Task<OperationResult<DirectorMoveAnswer>> MoveAsync(string directorId, string? teamId, CancellationToken ct)
         {
             Moves.Add((directorId, teamId));
             return Task.FromResult(MoveAnswer);
@@ -287,7 +288,8 @@ public sealed class DirectorTeamScreensTests
         public Exception? KeySaveFails { get; set; }
     }
 
-    private static Rig BuildPanel(DirectorTeam? current, int running, FakeService? service = null, bool connected = true)
+    private static Rig BuildPanel(DirectorTeam? current, int running, FakeService? service = null, bool connected = true,
+        Func<DirectorTeam, DirectorMoveAnswer, NameAfterMoveOutcome>? followName = null)
     {
         service ??= new FakeService();
         Rig? rig = null;
@@ -306,13 +308,14 @@ public sealed class DirectorTeamScreensTests
                 if (rig!.KeySaveFails is { } e) throw e;
                 rig.Keys.Add(k);
             },
-            t => rig!.Teams.Add(t),
+            (t, _) => rig!.Teams.Add(t),
             () =>
             {
                 if (rig!.ReapplyFails is { } e) throw e;
                 rig.Reapplied++;
                 return Task.CompletedTask;
-            });
+            },
+            followName);
         rig = new Rig { Panel = new DirectorTeamPanel(deps), Service = service, Running = running };
         return rig;
     }
@@ -361,6 +364,22 @@ public sealed class DirectorTeamScreensTests
         Assert.Equal(1, rig.Reapplied);
         Assert.Equal("This Director now works for DevThrottle.", rig.Panel.Status);
         Assert.Equal("DevThrottle", rig.Panel.CurrentTeamChip.Text);
+    }
+
+    // Live proof F4: the panel hands its name step to the move, so a suggested name follows the team the person chose.
+    [AvaloniaFact]
+    public async Task DirectorTeamPanel_Move_RunsTheNameStepForTheChosenTeam()
+    {
+        var named = new List<string>();
+        var rig = BuildPanel(DirectorTeam.Personal, running: 0,
+            followName: (team, _) => { named.Add(team.Name); return new NameAfterMoveOutcome("SOREN_NORTH - " + team.Name); });
+        await rig.Panel.LoadCurrentAsync();
+        await rig.Panel.ListTeamsAsync();
+
+        await rig.Panel.MoveAsync();
+
+        Assert.Equal(new[] { "DevThrottle" }, named);
+        Assert.Equal("This Director now works for DevThrottle.", rig.Panel.Status);
     }
 
     [AvaloniaFact]
@@ -438,7 +457,7 @@ public sealed class DirectorTeamScreensTests
     {
         const string refusal = "This Director already works for that team. Nothing was changed.";
         var rig = BuildPanel(DirectorTeam.Personal, running: 0,
-            new FakeService { MoveAnswer = OperationResult<string>.Fail(refusal) });
+            new FakeService { MoveAnswer = OperationResult<DirectorMoveAnswer>.Fail(refusal) });
         await rig.Panel.LoadCurrentAsync();
         await rig.Panel.ListTeamsAsync();
 

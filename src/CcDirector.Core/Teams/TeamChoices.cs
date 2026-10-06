@@ -140,8 +140,7 @@ public static class TeamChoices
     public static string SuggestDirectorName(string machineName, TeamChoice choice)
     {
         ArgumentNullException.ThrowIfNull(choice);
-        if (string.IsNullOrWhiteSpace(machineName))
-            throw new ArgumentException("machineName is required", nameof(machineName));
-        return $"{machineName.Trim()} - {choice.Name}";
+        // One builder for the suggestion, so the name a move follows (live proof F4) is the one this suggested.
+        return DirectorNameSuggestion.NameFor(machineName, choice.Name);
     }
 }

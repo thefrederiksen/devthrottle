@@ -1,3 +1,4 @@
+using CcDirector.Core.GatewayConnection;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -42,6 +43,14 @@ public enum GatewayConnectionStatus
     /// <see cref="Connecting"/>: a red, non-retrying "your subscription lapsed" state.
     /// </summary>
     SubscriptionRequired,
+
+    /// <summary>
+    /// The Gateway refused this Director's key with a TERMINAL 401 - removed from its team, revoked, or not known -
+    /// and the Director STOPPED reconnecting (devthrottle_internal#2311, live proof F3).
+    /// <see cref="GatewayConnectionMonitor.KeyRefusal"/> says which, and its words are what the status box and the
+    /// panel show, so the person reads what happened instead of a forever-yellow "Connecting...".
+    /// </summary>
+    KeyRefused,
 }
 
 /// <summary>
@@ -78,6 +87,10 @@ public sealed class GatewayConnectionMonitor
     /// <see cref="GatewayConnectionStatus.Failed"/>; null otherwise.</summary>
     public string? FailureSummary { get; private set; }
 
+    /// <summary>Why the Gateway refused this Director's key, while <see cref="Status"/> is
+    /// <see cref="GatewayConnectionStatus.KeyRefused"/>; null otherwise.</summary>
+    public GatewayKeyRefusal? KeyRefusal { get; private set; }
+
     /// <summary>Raised after every state change. May fire on any thread - UI subscribers dispatch.</summary>
     public event Action? Changed;
 
@@ -93,6 +106,7 @@ public sealed class GatewayConnectionMonitor
             Status = gatewayConfigured ? GatewayConnectionStatus.Connecting : GatewayConnectionStatus.NotConfigured;
             LastVerifiedAt = null;
             FailureSummary = null;
+            KeyRefusal = null;
         }
         FileLog.Write($"[GatewayConnectionMonitor] Reset: status={Status}");
         Changed?.Invoke();
@@ -114,6 +128,7 @@ public sealed class GatewayConnectionMonitor
             Status = GatewayConnectionStatus.Connected;
             LastVerifiedAt = DateTime.UtcNow;
             FailureSummary = null;
+            KeyRefusal = null;
         }
         FileLog.Write("[GatewayConnectionMonitor] tunnel connected (two-way stream up)");
         Changed?.Invoke();
@@ -131,6 +146,7 @@ public sealed class GatewayConnectionMonitor
             if (Status == GatewayConnectionStatus.NotConfigured) return;
             if (Status == GatewayConnectionStatus.Connecting) return; // no churn
             Status = GatewayConnectionStatus.Connecting;
+            KeyRefusal = null;
         }
         FileLog.Write("[GatewayConnectionMonitor] tunnel connecting/reconnecting");
         Changed?.Invoke();
@@ -151,6 +167,7 @@ public sealed class GatewayConnectionMonitor
             if (Status == GatewayConnectionStatus.Failed && FailureSummary == summary) return; // no churn
             Status = GatewayConnectionStatus.Failed;
             FailureSummary = summary;
+            KeyRefusal = null;
         }
         FileLog.Write($"[GatewayConnectionMonitor] Registration failure: {summary}");
         Changed?.Invoke();
@@ -173,6 +190,7 @@ public sealed class GatewayConnectionMonitor
             if (Status == GatewayConnectionStatus.NoTailnetIdentity && FailureSummary == summary) return; // no churn
             Status = GatewayConnectionStatus.NoTailnetIdentity;
             FailureSummary = summary;
+            KeyRefusal = null;
         }
         FileLog.Write($"[GatewayConnectionMonitor] Tailnet identity failure: {summary}");
         Changed?.Invoke();
@@ -195,8 +213,30 @@ public sealed class GatewayConnectionMonitor
             if (Status == GatewayConnectionStatus.SubscriptionRequired && FailureSummary == summary) return; // no churn
             Status = GatewayConnectionStatus.SubscriptionRequired;
             FailureSummary = summary;
+            KeyRefusal = null;
         }
-        FileLog.Write("[GatewayConnectionMonitor] subscription required - tunnel refused (terminal 401/402); reconnect stopped");
+        FileLog.Write("[GatewayConnectionMonitor] subscription required - tunnel refused (terminal 402); reconnect stopped");
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// The Gateway refused this Director's key with a TERMINAL 401 and the tunnel has STOPPED reconnecting
+    /// (devthrottle_internal#2311, live proof F3). Red, worded by <paramref name="refusal"/>: removed from the team
+    /// only when the Gateway said so. Sticky NotConfigured. Cleared by <see cref="Reset"/> when the Director is set up
+    /// again, which restarts the tunnel.
+    /// </summary>
+    public void MarkKeyRefused(GatewayKeyRefusal refusal)
+    {
+        ArgumentNullException.ThrowIfNull(refusal);
+        lock (_lock)
+        {
+            if (Status == GatewayConnectionStatus.NotConfigured) return;
+            if (Status == GatewayConnectionStatus.KeyRefused && KeyRefusal == refusal) return; // no churn
+            Status = GatewayConnectionStatus.KeyRefused;
+            KeyRefusal = refusal;
+            FailureSummary = refusal.Summary;
+        }
+        FileLog.Write($"[GatewayConnectionMonitor] key refused ({refusal.Kind}) - tunnel refused (terminal 401); reconnect stopped");
         Changed?.Invoke();
     }
 

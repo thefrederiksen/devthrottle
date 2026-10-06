@@ -18,6 +18,10 @@ public enum GatewayConnectionVerification
 
     /// <summary>The last handshake failed; <see cref="GatewayConnectionInputs.FailedLeg"/> names which leg.</summary>
     Failed,
+
+    /// <summary>The Gateway refused this Director's key with a 401 and the Director has stopped trying
+    /// (devthrottle_internal#2311, live proof F3); <see cref="GatewayConnectionInputs.Refusal"/> says why.</summary>
+    KeyRefused,
 }
 
 /// <summary>
@@ -70,13 +74,16 @@ public enum GatewayAccountSignInState
 /// "never set up" from "was working, now unreachable").</param>
 /// <param name="DeviceKeyPresent">Whether a per-device key is stored for this Director.</param>
 /// <param name="Account">The abstracted signed-in report from GatewayAccountStatusClient.</param>
+/// <param name="Refusal">When <paramref name="Connection"/> is KeyRefused, why the Gateway refused the key; null
+/// otherwise.</param>
 public readonly record struct GatewayConnectionInputs(
     bool GatewayConfigured,
     GatewayConnectionVerification Connection,
     GatewayConnectionFailedLeg FailedLeg,
     bool WasEverConnected,
     bool DeviceKeyPresent,
-    GatewayAccountSignInState Account);
+    GatewayAccountSignInState Account,
+    GatewayKeyRefusal? Refusal = null);
 
 /// <summary>
 /// The resolved overall state (spec section 4). Drives the status box color and which step the panel
@@ -101,6 +108,11 @@ public enum GatewayConnectionState
 
     /// <summary>Was green this run, now the handshake is failing. Red. Panel opens on Step 1 (repair).</summary>
     WasConnectedNowUnreachable,
+
+    /// <summary>The Gateway refused this Director's key and the Director stopped trying - removed from its team, or
+    /// its key revoked. Red, worded by the refusal itself, never "Connecting...". Panel opens on Step 1, where the
+    /// Director is set up again.</summary>
+    KeyRefused,
 }
 
 /// <summary>Which step of <c>GatewayConnectionPanel</c> a given state routes to (spec section 4, last column).</summary>
@@ -184,6 +196,15 @@ public static class GatewayConnectionStateResolver
     /// <summary>The overall six-state result (spec section 4). Public so the status box can read it directly.</summary>
     public static GatewayConnectionState ResolveState(GatewayConnectionInputs inputs)
     {
+        // A refused key outranks the rest: the Director has stopped trying, so nothing else here can change until it
+        // is set up again, and it must never read as "Connecting...".
+        if (inputs.Connection == GatewayConnectionVerification.KeyRefused)
+        {
+            if (inputs.Refusal is null)
+                throw new InvalidOperationException("A refused key was reported with no refusal to say why.");
+            return GatewayConnectionState.KeyRefused;
+        }
+
         // Connected outranks everything: the handshake is proven right now. Whether that is fully green or
         // still needs sign-in depends on the device key and the Gateway's account report.
         if (inputs.Connection == GatewayConnectionVerification.Connected)
@@ -232,6 +253,7 @@ public static class GatewayConnectionStateResolver
         GatewayConnectionVerification.Connected => GatewayCheckState.Passed,
         GatewayConnectionVerification.Verifying => GatewayCheckState.Working,
         GatewayConnectionVerification.Failed => GatewayCheckState.Failed,
+        GatewayConnectionVerification.KeyRefused => GatewayCheckState.Failed,
         _ => GatewayCheckState.Pending,
     };
 

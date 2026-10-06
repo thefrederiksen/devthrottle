@@ -98,6 +98,23 @@ public sealed class DeviceRegistrationResponse
 
     /// <summary>How many devices are registered after this enrollment (host confirmation message).</summary>
     public int DeviceCount { get; set; }
+
+    /// <summary>
+    /// Set ONLY by a move (<c>/devices/enroll-hosted/move</c>, devthrottle_internal#2311 review RM-F8): where the key
+    /// this move revoked for this caller was working. Absent from every other enrollment answer, and from a Gateway
+    /// older than this field - a Director then knows nothing about what it left.
+    /// </summary>
+    public MovedFromPlace? MovedFrom { get; set; }
+}
+
+/// <summary>
+/// Where the key a move revoked was working (devthrottle_internal#2311 review RM-F8). Only the Gateway knows this for
+/// certain: a Director whose local saves failed after an earlier move still believes it is where it was.
+/// </summary>
+public sealed class MovedFromPlace
+{
+    /// <summary>The team the revoked key was for, or null when it was for the person's own account.</summary>
+    public string? TeamId { get; set; }
 }
 
 /// <summary>

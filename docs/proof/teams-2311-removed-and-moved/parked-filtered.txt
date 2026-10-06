@@ -1,0 +1,10 @@
+Parked suites, filtered to what this change touches. Commit cd27bbb22, 2026-10-06.
+
+Core.Tests (parked for time, no lock), built from this source:
+  dotnet test src\CcDirector.Core.Tests --filter "FullyQualifiedName~GatewayStatusBoxPresenterTests|FullyQualifiedName~GatewayConnectionStateResolver"
+  Passed!  - Failed:     0, Passed:    35, Skipped:     0, Total:    35, Duration: 29 ms - CcDirector.Core.Tests.dll (net10.0)
+
+Gateway.Tests (parked, machine-wide lock), the classes that assert the revoked 401 body:
+  dotnet test src\CcDirector.Gateway.Tests --filter "FullyQualifiedName~ContextLessDatabaseRouteTenancyTests|FullyQualifiedName~HostedContentReadDenyTests|FullyQualifiedName~HostedTeamDirectorKeyTests"
+  Built from commit cd27bbb22 (round 0; round 1 changed no Gateway code). Waited about 75 minutes on the lock, then:
+  Passed!  - Failed:     0, Passed:    20, Skipped:     0, Total:    20, Duration: 1 m 30 s - CcDirector.Gateway.Tests.dll (net10.0)

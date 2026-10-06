@@ -52,6 +52,14 @@ public sealed class HostedTeamSetupTests
             persist: (_, key) => log.Add("key:" + key),
             persistTeam: persistTeam);
 
+    // Records what setup says about the name (live proof F4): the suggestion it carries, or none - and which key it is
+    // tied to (review RM-F8): the one the Gateway just issued, "team-key", by its fingerprint.
+    private static Action<DirectorNameSuggestion?> Suggest(List<string> log) =>
+        s => log.Add("suggestion:" + (s is null ? "none" : s.TeamId + "|" + KeyNamed(s.KeyFingerprint) + "|" + s.MachineName + "|" + s.Name));
+
+    private static string KeyNamed(string fingerprint) =>
+        fingerprint == DeviceKeyFingerprint.Of("team-key") ? "team-key" : "another key";
+
     private static Func<TeamQuestion, Task<TeamAnswer?>> Choose(int index, string name) =>
         q => Task.FromResult<TeamAnswer?>(new TeamAnswer(q.Choices[index], name));
 
@@ -61,12 +69,53 @@ public sealed class HostedTeamSetupTests
         var log = new List<string>();
 
         var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(0, "SOREN_NORTH - DevThrottle"),
-            name => log.Add("rename:" + name), team => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
+            name => log.Add("rename:" + name), Suggest(log), (team, key) => log.Add("team:" + team?.TeamId + " for " + key), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.Equal("team-key", result.Value!.DeviceKey);
         // The team is recorded last: that write redraws the title bar, and the name must already be saved.
-        Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - DevThrottle", "team:t-dev" }, log);
+        Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - DevThrottle",
+            "suggestion:t-dev|team-key|SOREN_NORTH|SOREN_NORTH - DevThrottle", "team:t-dev for team-key" }, log);
+    }
+
+    // Live proof F4: the person typed a name of their own on D1, so no suggestion is recorded and a move never renames it.
+    [AvaloniaFact]
+    public async Task RunAsync_TypedName_RecordsNoSuggestion()
+    {
+        var log = new List<string>();
+
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(1, "Build box"),
+            name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(new[] { "key:team-key", "rename:Build box", "suggestion:none", "team:t-acme" }, log);
+    }
+
+    // Review RM-F2: Personal chosen with its suggested name records nothing, so a personal Director is never renamed.
+    [AvaloniaFact]
+    public async Task RunAsync_PersonalWithItsSuggestedName_RecordsNoSuggestion()
+    {
+        var log = new List<string>();
+
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(2, "SOREN_NORTH - Personal"),
+            name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + (team is { IsPersonal: true } ? "personal" : team?.TeamId)),
+            "dir-1", "SOREN_NORTH", CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - Personal", "suggestion:none", "team:personal" }, log);
+    }
+
+    // The suggestion is the one for the team CHOSEN, not the first card's: D1 follows the selection.
+    [AvaloniaFact]
+    public async Task RunAsync_SecondTeamWithItsSuggestedName_RecordsThatSuggestion()
+    {
+        var log = new List<string>();
+
+        var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(1, "SOREN_NORTH - Acme"),
+            name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Contains("suggestion:t-acme|team-key|SOREN_NORTH|SOREN_NORTH - Acme", log);
     }
 
     // A person with one team is never asked (devthrottle_internal#2311): D1 is not shown, and the Director takes
@@ -78,10 +127,11 @@ public sealed class HostedTeamSetupTests
 
         var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log, OneTeam),
             _ => throw new InvalidOperationException("must not ask"),
-            name => log.Add("rename:" + name), team => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
+            name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
-        Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - DevThrottle", "team:t-dev" }, log);
+        Assert.Equal(new[] { "key:team-key", "rename:SOREN_NORTH - DevThrottle",
+            "suggestion:t-dev|team-key|SOREN_NORTH|SOREN_NORTH - DevThrottle", "team:t-dev" }, log);
     }
 
     [AvaloniaFact]
@@ -91,7 +141,7 @@ public sealed class HostedTeamSetupTests
 
         var result = await HostedTeamSetup.RunAsync(Runner(PreTeamsHealth, log),
             _ => throw new InvalidOperationException("must not ask"),
-            name => log.Add("rename:" + name), team => log.Add("team:" + (team is null ? "none" : team.TeamId)),
+            name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team:" + (team is null ? "none" : team.TeamId)),
             "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.True(result.Success, result.ErrorMessage);
@@ -104,8 +154,8 @@ public sealed class HostedTeamSetupTests
         var log = new List<string>();
 
         var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(0, "SOREN_NORTH - DevThrottle"),
-            _ => throw new InvalidOperationException("the instance registry is unreadable"),
-            team => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
+            _ => throw new InvalidOperationException("the instance registry is unreadable"), Suggest(log),
+            (team, _) => log.Add("team:" + team?.TeamId), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Equal(HostedTeamSetup.JoinedButNotNamed("DevThrottle", "the instance registry is unreadable"), result.ErrorMessage);
@@ -119,7 +169,7 @@ public sealed class HostedTeamSetupTests
         var log = new List<string>();
 
         var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), Choose(0, "SOREN_NORTH - DevThrottle"),
-            name => log.Add("rename:" + name), _ => throw new IOException("disk full"),
+            name => log.Add("rename:" + name), Suggest(log), (_, _) => throw new IOException("disk full"),
             "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.False(result.Success);
@@ -132,7 +182,7 @@ public sealed class HostedTeamSetupTests
         var log = new List<string>();
 
         var result = await HostedTeamSetup.RunAsync(Runner(TeamsHealth, log), _ => Task.FromResult<TeamAnswer?>(null),
-            name => log.Add("rename:" + name), team => log.Add("team"), "dir-1", "SOREN_NORTH", CancellationToken.None);
+            name => log.Add("rename:" + name), Suggest(log), (team, _) => log.Add("team"), "dir-1", "SOREN_NORTH", CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Empty(log);

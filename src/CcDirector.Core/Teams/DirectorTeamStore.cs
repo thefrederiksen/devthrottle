@@ -59,12 +59,51 @@ public static class DirectorTeamStore
     /// <summary>Record the team this Director works for, and tell the title bar.</summary>
     public static void Save(DirectorTeam team)
     {
-        SaveFile(TeamFile, team);
+        SaveFile(TeamFile, team, null);
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Record the team this Director works for together with the device key it was set up with for that team, and tell
+    /// the title bar. Only a fingerprint of the key is written, never the key. It is what lets a refusal of that key
+    /// name the team (review RM-F6).
+    /// </summary>
+    public static void Save(DirectorTeam team, string deviceKey)
+    {
+        SaveFile(TeamFile, team, Fingerprint(deviceKey));
         Changed?.Invoke();
     }
 
     /// <summary>Record the team of the Director whose storage home is <paramref name="storageRoot"/>.</summary>
-    public static void SaveAt(string storageRoot, DirectorTeam team) => SaveFile(TeamFileAt(storageRoot), team);
+    public static void SaveAt(string storageRoot, DirectorTeam team) => SaveFile(TeamFileAt(storageRoot), team, null);
+
+    /// <summary>Record the team, and the key it is for, of the Director whose storage home is <paramref name="storageRoot"/>.</summary>
+    public static void SaveAt(string storageRoot, DirectorTeam team, string deviceKey)
+        => SaveFile(TeamFileAt(storageRoot), team, Fingerprint(deviceKey));
+
+    /// <summary>
+    /// The name of the team recorded for exactly <paramref name="deviceKey"/>, or null when the recorded team was saved
+    /// for another key, for no key, or nothing is recorded. A refusal of a key names only a team known to be that key's
+    /// (review RM-F6): a team file left behind by a failed save says nothing about the key in use.
+    /// </summary>
+    public static string? TeamNameForKey(string deviceKey) => TeamNameForKeyIn(TeamFile, deviceKey);
+
+    /// <summary><see cref="TeamNameForKey"/> for the Director whose storage home is <paramref name="storageRoot"/>.</summary>
+    public static string? TeamNameForKeyAt(string storageRoot, string deviceKey) => TeamNameForKeyIn(TeamFileAt(storageRoot), deviceKey);
+
+    private static string? TeamNameForKeyIn(string path, string deviceKey)
+    {
+        if (string.IsNullOrEmpty(deviceKey) || !File.Exists(path))
+            return null;
+        var stored = JsonSerializer.Deserialize<StoredTeam>(File.ReadAllText(path), JsonOptions);
+        var matches = stored?.KeyFingerprint is { Length: > 0 } recorded
+            && string.Equals(recorded, Fingerprint(deviceKey), StringComparison.Ordinal);
+        FileLog.Write($"[DirectorTeamStore] TeamNameForKey: the recorded team {(matches ? "is" : "is NOT")} the one this key was set up for");
+        return matches ? stored!.TeamName : null;
+    }
+
+    // A one-way fingerprint of a device key: enough to tell two keys apart, useless for using either.
+    private static string Fingerprint(string deviceKey) => DeviceKeyFingerprint.Of(deviceKey);
 
     /// <summary>Forget this Director's team - its Gateway has no teams, or it was disconnected.</summary>
     public static void Clear()
@@ -94,7 +133,7 @@ public static class DirectorTeamStore
         return team;
     }
 
-    private static void SaveFile(string path, DirectorTeam team)
+    private static void SaveFile(string path, DirectorTeam team, string? keyFingerprint)
     {
         ArgumentNullException.ThrowIfNull(team);
         if (string.IsNullOrWhiteSpace(team.Name))
@@ -106,7 +145,7 @@ public static class DirectorTeamStore
 
         // Written to a temporary file and moved into place, so a crash mid-write never leaves half a team.
         var temp = path + ".tmp";
-        File.WriteAllText(temp, JsonSerializer.Serialize(new StoredTeam { TeamId = team.TeamId, TeamName = team.Name }, JsonOptions));
+        File.WriteAllText(temp, JsonSerializer.Serialize(new StoredTeam { TeamId = team.TeamId, TeamName = team.Name, KeyFingerprint = keyFingerprint }, JsonOptions));
         File.Move(temp, path, overwrite: true);
         FileLog.Write($"[DirectorTeamStore] Save: {Describe(team)} to {path}");
     }
@@ -129,5 +168,6 @@ public static class DirectorTeamStore
     {
         public string? TeamId { get; set; }
         public string? TeamName { get; set; }
+        public string? KeyFingerprint { get; set; }
     }
 }

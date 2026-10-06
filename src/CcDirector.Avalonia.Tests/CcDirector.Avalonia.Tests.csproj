@@ -27,4 +27,10 @@
     <ProjectReference Include="..\CcDirector.StateAgreementCheck\CcDirector.StateAgreementCheck.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- devthrottle_internal#2311 review RM-F1: a real SignalR hub on a loopback port, so the Director's tunnel client
+         is shown RECOVERING after a 401 that is not the Gateway's own answer (RemovedDirectorTunnelTests). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
 </Project>

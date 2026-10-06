@@ -702,13 +702,13 @@ public sealed class GatewayAccountEnrollRunner
     /// <param name="directorId">This Director's own id - the device id it was set up with.</param>
     /// <param name="teamId">The team to move to, or null for the personal account.</param>
     /// <param name="ct">Cancels the call.</param>
-    public async Task<OperationResult<string>> MoveHostedDirectorAsync(string directorId, string? teamId, CancellationToken ct = default)
+    public async Task<OperationResult<DirectorMoveAnswer>> MoveHostedDirectorAsync(string directorId, string? teamId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(directorId))
-            return OperationResult<string>.Fail("This Director has no id yet - it is still starting. Try again in a moment.");
+            return OperationResult<DirectorMoveAnswer>.Fail("This Director has no id yet - it is still starting. Try again in a moment.");
         var tokens = _pendingTokens;
         if (tokens is null || string.IsNullOrWhiteSpace(tokens.AccessToken))
-            return OperationResult<string>.Fail("Please sign in to DevThrottle first.");
+            return OperationResult<DirectorMoveAnswer>.Fail("Please sign in to DevThrottle first.");
 
         var hostedUrl = HostedGateway.ResolveUrl();
         EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync: hosted={hostedUrl}, director={directorId}, team={(teamId ?? "personal account")}");
@@ -724,33 +724,36 @@ public sealed class GatewayAccountEnrollRunner
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync transport FAILED: {ex.Message}");
-            return OperationResult<string>.Fail(
+            return OperationResult<DirectorMoveAnswer>.Fail(
                 $"Could not reach the DevThrottle hosted gateway at {hostedUrl}. Please check your connection and try again.");
         }
 
         if (resp.StatusCode == HttpStatusCode.Unauthorized)
         {
             EngineLog.Write("[GatewayAccountEnrollRunner] MoveHostedDirectorAsync refused: HTTP 401 (the held sign-in is no longer accepted)");
-            return OperationResult<string>.Fail(MoveSignInExpired);
+            return OperationResult<DirectorMoveAnswer>.Fail(MoveSignInExpired);
         }
         if (!resp.IsSuccessStatusCode)
         {
             var refusal = await ReadErrorAsync(resp, ct).ConfigureAwait(false);
             EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync refused: HTTP {(int)resp.StatusCode}");
-            return OperationResult<string>.Fail(MoveRefusalInPlainWords(resp.StatusCode, refusal));
+            return OperationResult<DirectorMoveAnswer>.Fail(MoveRefusalInPlainWords(resp.StatusCode, refusal));
         }
 
         // A 200 means the Gateway HAS moved the Director. A reply without a readable key is handed back as an empty
-        // key, so the mover tells the person the move happened and the key did not arrive.
+        // key, so the mover tells the person the move happened and the key did not arrive. Where the revoked key was
+        // working is passed on exactly as the Gateway said it, or as nothing when it did not (review RM-F8).
         var reply = await ReadJsonAsync<DeviceRegistrationResponse>(resp, ct).ConfigureAwait(false);
+        var movedFrom = reply?.MovedFrom is { } from ? new DirectorMovedFrom(string.IsNullOrWhiteSpace(from.TeamId) ? null : from.TeamId) : null;
         if (reply is null || string.IsNullOrWhiteSpace(reply.DeviceKey))
         {
             EngineLog.Write("[GatewayAccountEnrollRunner] MoveHostedDirectorAsync: 2xx with no readable device key in reply");
-            return OperationResult<string>.Ok("");
+            return OperationResult<DirectorMoveAnswer>.Ok(new DirectorMoveAnswer("", movedFrom));
         }
 
-        EngineLog.Write("[GatewayAccountEnrollRunner] MoveHostedDirectorAsync: moved; new device key received");
-        return OperationResult<string>.Ok(reply.DeviceKey);
+        EngineLog.Write($"[GatewayAccountEnrollRunner] MoveHostedDirectorAsync: moved; new device key received " +
+                        $"({(movedFrom is null ? "the Gateway did not say what it left" : movedFrom.TeamId is null ? "left the personal account" : "left a team")})");
+        return OperationResult<DirectorMoveAnswer>.Ok(new DirectorMoveAnswer(reply.DeviceKey, movedFrom));
     }
 
     // The hosted address and whether the Gateway there says it has Teams.

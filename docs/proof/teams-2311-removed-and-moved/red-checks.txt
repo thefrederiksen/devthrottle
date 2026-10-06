@@ -1,0 +1,90 @@
+== F3 Gateway: the 401 never carries the reason (today's body for every revoke)
+   mutated: src\CcDirector.Gateway\Util\AuthMiddleware.cs
+   tests:   src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~RevokedKeyReasonTests
+   verdict: RED (caught)
+   Failed!  - Failed:     1, Passed:     9, Skipped:     0, Total:    10, Duration: 12 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   Failed CcDirector.Gateway.Tests.Teams.RevokedKeyReasonTests.Run_KeyRevokedForTeamRemoval_Answers401WithTheTeamRemovalReason [207 ms]
+
+== F3 Director: a 401 is handled as today (stops as 'subscription required', which the status box shows as Connecting...)
+   mutated: src\CcDirector.ControlApi\GatewayStreamClient.cs
+   tests:   src\CcDirector.Avalonia.Tests --filter FullyQualifiedName~RemovedDirectorTunnelTests
+   verdict: RED (caught)
+   Failed!  - Failed:     3, Passed:     2, Skipped:     0, Total:     5, Duration: 1 m 7 s - CcDirector.Avalonia.Tests.dll (net10.0)
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.StatusBox_AfterTheTunnelStopsOnATeamRemoval_SaysRemovedFromTheTeam [20 s]
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.Tunnel_KeyRevokedForTeamRemoval_StopsInTheRemovedStateNamingTheTeam_AndStopsRetrying [20 s]
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.Tunnel_KeyRevokedForAnotherReason_StopsAsAPlainRevoke_NeverAsARemoval [20 s]
+
+== F3 Director: the status box maps a refused key as today (Unknown, so 'Connecting...')
+   mutated: src\CcDirector.Avalonia\MainWindow.axaml.cs
+   tests:   src\CcDirector.Avalonia.Tests --filter FullyQualifiedName~RemovedDirectorTunnelTests
+   verdict: RED (caught)
+   Failed!  - Failed:     1, Passed:     4, Skipped:     0, Total:     5, Duration: 12 s - CcDirector.Avalonia.Tests.dll (net10.0)
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.StatusBox_AfterTheTunnelStopsOnATeamRemoval_SaysRemovedFromTheTeam [147 ms]
+
+== F3 Director: a 401 is retried as a network problem
+   mutated: src\CcDirector.ControlApi\GatewayStreamClient.cs
+   tests:   src\CcDirector.Avalonia.Tests --filter FullyQualifiedName~RemovedDirectorTunnelTests
+   verdict: RED (caught)
+   Failed!  - Failed:     3, Passed:     2, Skipped:     0, Total:     5, Duration: 1 m 5 s - CcDirector.Avalonia.Tests.dll (net10.0)
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.StatusBox_AfterTheTunnelStopsOnATeamRemoval_SaysRemovedFromTheTeam [20 s]
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.Tunnel_KeyRevokedForTeamRemoval_StopsInTheRemovedStateNamingTheTeam_AndStopsRetrying [20 s]
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.Tunnel_KeyRevokedForAnotherReason_StopsAsAPlainRevoke_NeverAsARemoval [20 s]
+
+== F3 Director: any revoked code is read as a team removal, whatever the reason
+   mutated: src\CcDirector.Core\GatewayConnection\GatewayKeyRefusal.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~GatewayKeyRefusalTests
+   verdict: RED (caught)
+   Failed!  - Failed:     4, Passed:     8, Skipped:     0, Total:    12, Duration: 159 ms - CcDirector.Core.UnitTests.dll (net10.0)
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"...) [1 ms]
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"...) [< 1 ms]
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"...) [< 1 ms]
+   Failed CcDirector.Core.Tests.Teams.GatewayKeyRefusalTests.FromUnauthorizedBody_AnyOtherRevoke_IsAPlainRevoke_NeverARemoval(body: "{\"error\":\"device credential revoked\",\"code\":"...) [< 1 ms]
+
+== F4: a move never renames (today)
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: RED (caught)
+   Failed!  - Failed:     2, Passed:    10, Skipped:     0, Total:    12, Duration: 75 ms - CcDirector.Core.UnitTests.dll (net10.0)
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.Decide_NameIsTheRecordedSuggestion_FollowsToTheNewTeam [1 ms]
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.FollowMove_SuggestedName_RenamesAndRecordsTheNewSuggestion [3 ms]
+
+== F4: a move renames whatever the name is (a typed name too)
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: RED (caught)
+   Failed!  - Failed:     2, Passed:    10, Skipped:     0, Total:    12, Duration: 59 ms - CcDirector.Core.UnitTests.dll (net10.0)
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.FollowMove_RenamedSinceSetup_KeepsTheNameAndRemovesTheRecord [28 ms]
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.Decide_RenamedSinceSetup_KeepsTheNameAndDropsTheRecord [< 1 ms]
+
+== F4: setup records no suggestion (today)
+   mutated: src\CcDirector.Avalonia\HostedTeamSetup.cs
+   tests:   src\CcDirector.Avalonia.Tests --filter FullyQualifiedName~HostedTeamSetupTests
+   verdict: RED (caught)
+   Failed!  - Failed:     4, Passed:     6, Skipped:     0, Total:    10, Duration: 396 ms - CcDirector.Avalonia.Tests.dll (net10.0)
+   Failed CcDirector.Avalonia.Tests.Teams.HostedTeamSetupTests.RunAsync_OneTeam_NotAskedNamedForTheTeamAndTeamRecorded [7 ms]
+   Failed CcDirector.Avalonia.Tests.Teams.HostedTeamSetupTests.RunAsync_SecondTeamWithItsSuggestedName_RecordsThatSuggestion [3 ms]
+   Failed CcDirector.Avalonia.Tests.Teams.HostedTeamSetupTests.RunAsync_TypedName_RecordsNoSuggestion [1 ms]
+   Failed CcDirector.Avalonia.Tests.Teams.HostedTeamSetupTests.RunAsync_TeamChosen_KeyThenNameThenTeam [1 ms]
+
+== F4: the Settings Team panel does not pass its name step to the move
+   mutated: src\CcDirector.Avalonia\Controls\DirectorTeamPanel.axaml.cs
+   tests:   src\CcDirector.Avalonia.Tests --filter FullyQualifiedName~DirectorTeamScreensTests
+   verdict: RED (caught)
+   Failed!  - Failed:     1, Passed:    23, Skipped:     0, Total:    24, Duration: 2 s - CcDirector.Avalonia.Tests.dll (net10.0)
+   Failed CcDirector.Avalonia.Tests.Teams.DirectorTeamScreensTests.DirectorTeamPanel_Move_RunsTheNameStepForTheChosenTeam [6 ms]
+
+git status after every restore (must be empty):
+
+== F3 Gateway: any revoke reason is reported as a team removal
+   mutated: src\CcDirector.Gateway\Util\AuthMiddleware.cs
+   tests:   src\CcDirector.Gateway.UnitTests --filter FullyQualifiedName~RevokedKeyReasonTests
+   verdict: RED (caught)
+   Failed!  - Failed:     5, Passed:     5, Skipped:     0, Total:    10, Duration: 6 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+   Failed CcDirector.Gateway.Tests.Teams.RevokedKeyReasonTests.Run_KeyRevokedForAnotherReason_AnswersTodaysBodyByteForByte(reason: "TEAM_MEMBER_REMOVED") [318 ms]
+   Failed CcDirector.Gateway.Tests.Teams.RevokedKeyReasonTests.Run_KeyRevokedForAnotherReason_AnswersTodaysBodyByteForByte(reason: "team_member_removed_later") [213 ms]
+   Failed CcDirector.Gateway.Tests.Teams.RevokedKeyReasonTests.Run_KeyRevokedForAnotherReason_AnswersTodaysBodyByteForByte(reason: "team_role_cannot_run_sessions") [184 ms]
+   Failed CcDirector.Gateway.Tests.Teams.RevokedKeyReasonTests.Run_KeyRevokedForAnotherReason_AnswersTodaysBodyByteForByte(reason: "director_moved_to_another_team") [191 ms]
+   Failed CcDirector.Gateway.Tests.Teams.RevokedKeyReasonTests.Run_TwoRevokedKeysWithDifferentReasons_AnswersTodaysBody [203 ms]
+
+git status after every restore (must be empty):
+

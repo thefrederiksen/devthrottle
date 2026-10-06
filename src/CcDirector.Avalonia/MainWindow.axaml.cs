@@ -992,17 +992,23 @@ public partial class MainWindow : Window
     // full input snapshot. GatewayConfigured is true when either source says so, so the box resolves
     // correctly whichever attached first.
     private GatewayConnectionInputs BuildStatusBoxInputs()
+        => StatusBoxInputs(_gatewayMonitor, _boxGatewayConfigured, _boxWasEverConnected, _boxDeviceKeyPresent, _boxAccount);
+
+    /// <summary>The status box's input snapshot from the live monitor and the cached account poll. Internal and
+    /// static so a test reads exactly what the box is painted from.</summary>
+    internal static GatewayConnectionInputs StatusBoxInputs(GatewayConnectionMonitor? m, bool boxGatewayConfigured,
+        bool wasEverConnected, bool deviceKeyPresent, GatewayAccountSignInState account)
     {
-        var m = _gatewayMonitor;
         var (connection, leg) = MapMonitor(m);
-        var configured = _boxGatewayConfigured || (m is not null && m.Status != GatewayConnectionStatus.NotConfigured);
+        var configured = boxGatewayConfigured || (m is not null && m.Status != GatewayConnectionStatus.NotConfigured);
         return new GatewayConnectionInputs(
             GatewayConfigured: configured,
             Connection: connection,
             FailedLeg: leg,
-            WasEverConnected: _boxWasEverConnected,
-            DeviceKeyPresent: _boxDeviceKeyPresent,
-            Account: _boxAccount);
+            WasEverConnected: wasEverConnected,
+            DeviceKeyPresent: deviceKeyPresent,
+            Account: account,
+            Refusal: m?.Status == GatewayConnectionStatus.KeyRefused ? m.KeyRefusal : null);
     }
 
     // Map the monitor's raw status onto the resolver's connection verification plus the failing leg.
@@ -1020,6 +1026,9 @@ public partial class MainWindow : Window
             GatewayConnectionStatus.Connecting => (GatewayConnectionVerification.Verifying, GatewayConnectionFailedLeg.None),
             GatewayConnectionStatus.Failed => (GatewayConnectionVerification.Failed, GatewayConnectionFailedLeg.OutboundReach),
             GatewayConnectionStatus.NoTailnetIdentity => (GatewayConnectionVerification.Failed, GatewayConnectionFailedLeg.None),
+            // devthrottle_internal#2311, live proof F3: a refused key stopped the tunnel; it is said in the refusal's
+            // own words, never as "Connecting...".
+            GatewayConnectionStatus.KeyRefused => (GatewayConnectionVerification.KeyRefused, GatewayConnectionFailedLeg.None),
             _ => (GatewayConnectionVerification.Unknown, GatewayConnectionFailedLeg.None),
         };
     }

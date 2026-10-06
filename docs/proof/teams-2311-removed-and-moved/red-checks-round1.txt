@@ -1,0 +1,41 @@
+== RM-F1: the round 0 status-only rule - every 401 stops the tunnel, whatever its body
+   mutated: src\CcDirector.ControlApi\GatewayStreamClient.cs
+   tests:   src\CcDirector.Avalonia.Tests --filter FullyQualifiedName~RemovedDirectorTunnelTests
+   verdict: RED (caught)
+   Failed!  - Failed:     2, Passed:     5, Skipped:     0, Total:     7, Duration: 53 s - CcDirector.Avalonia.Tests.dll (net10.0)
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.Tunnel_EmptyUnauthorized_KeepsRetrying_AndRecoversWhenTheNextAttemptSucceeds [20 s]
+   Failed CcDirector.Avalonia.Tests.Teams.RemovedDirectorTunnelTests.Tunnel_HtmlUnauthorized_KeepsRetrying_AndRecoversWhenTheNextAttemptSucceeds [20 s]
+
+== RM-F2: setup records the suggestion for Personal too (round 0) - setup tests
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Avalonia.Tests --filter FullyQualifiedName~HostedTeamSetupTests
+   verdict: RED (caught)
+   Failed!  - Failed:     1, Passed:    10, Skipped:     0, Total:    11, Duration: 460 ms - CcDirector.Avalonia.Tests.dll (net10.0)
+   Failed CcDirector.Avalonia.Tests.Teams.HostedTeamSetupTests.RunAsync_PersonalWithItsSuggestedName_RecordsNoSuggestion [7 ms]
+
+== RM-F2: setup records the suggestion for Personal too (round 0) - rule and store tests
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: RED (caught)
+   Failed!  - Failed:     2, Passed:    16, Skipped:     0, Total:    18, Duration: 206 ms - CcDirector.Core.UnitTests.dll (net10.0)
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.IfSuggested_PersonalWithItsSuggestedName_IsNull [2 ms]
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.PersonalSetUpWithItsSuggestedName_ThenMovedToATeam_NameUnchanged [11 ms]
+
+== RM-F3: a failed save after the rename leaves the old record beside the new name
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: NOT RED - CHECK
+   D:\ReposFred\devthrottle-teams-2311-f3f4-red\src\CcDirector.Core\Teams\DirectorNameSuggestion.cs(136,23): error CS1519: Invalid token '$"[DirectorNameFollower] FollowMove: name kept ({(recorded is null ? "no suggestion recorded" : "renamed by the person since")})"' in a member declaration [D:\ReposFred\devthrottle-teams-2311-f3f4-red\src\CcDirector.Core\CcDirector.Core.csproj]
+   D:\ReposFred\devthrottle-teams-2311-f3f4-red\src\CcDirector.Core\Teams\DirectorNameSuggestion.cs(139,1): error CS1022: Type or namespace definition, or end-of-file expected [D:\ReposFred\devthrottle-teams-2311-f3f4-red\src\CcDirector.Core\CcDirector.Core.csproj]
+
+git status after every restore (must be empty):
+
+== RM-F3: a failed save after the rename leaves the old record beside the new name
+   mutated: src\CcDirector.Core\Teams\DirectorNameSuggestion.cs
+   tests:   src\CcDirector.Core.UnitTests --filter FullyQualifiedName~DirectorNameFollowsMoveTests
+   verdict: RED (caught)
+   Failed!  - Failed:     1, Passed:    17, Skipped:     0, Total:    18, Duration: 116 ms - CcDirector.Core.UnitTests.dll (net10.0)
+   Failed CcDirector.Core.Tests.Teams.DirectorNameFollowsMoveTests.FollowMove_RecordCannotBeSavedAfterTheRename_RemovesTheOldRecordAndTheNextMoveKeepsTheName [4 ms]
+
+git status after every restore (must be empty):
+

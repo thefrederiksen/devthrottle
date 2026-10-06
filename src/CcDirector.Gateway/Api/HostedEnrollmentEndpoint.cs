@@ -685,8 +685,11 @@ internal static class HostedEnrollmentEndpoint
 
         var response = devices.RegisterForTenant(to, subject, newDeviceId,
             display?.MachineName ?? "", display?.Platform, display?.DeviceType);
+        // Where the key this move revoked was working - this caller's one key for this Director, and nothing else - so
+        // the Director's name follows only out of the team it was really in (review RM-F8). Null for the personal account.
+        response.MovedFrom = new MovedFromPlace { TeamId = teams.Teams.IsTeam(from) ? from.Value : null };
         FileLog.Write($"[HostedEnrollment] Move: director={directorId} moved from tenant {from.ToLogString()} to {to.ToLogString()} " +
-                      "- the old key is revoked and its tunnel cut, a new key issued");
+                      $"- the old key is revoked and its tunnel cut, a new key issued (left {(response.MovedFrom.TeamId is null ? "the personal account" : "a team")})");
         return new EnrollResult(StatusCodes.Status200OK, response, "");
     }
 }

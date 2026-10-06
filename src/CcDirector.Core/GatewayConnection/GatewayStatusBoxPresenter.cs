@@ -83,8 +83,15 @@ public static class GatewayStatusBoxPresenter
     {
         var resolved = GatewayConnectionStateResolver.Resolve(inputs);
         var visual = VisualFor(resolved.State);
-        var connected = ConnectedLine(resolved, inputs.GatewayConfigured, gatewayHost);
+        var connected = ConnectedLine(resolved, inputs.GatewayConfigured, gatewayHost, inputs.Refusal);
         var signedIn = SignedInLine(resolved.SignedInCheck, accountEmail);
+        if (resolved.State == GatewayConnectionState.KeyRefused)
+        {
+            // The refusal words both: the chip says what happened where it said "Connecting...", and the tooltip
+            // says what happened and what to do (devthrottle_internal#2311, live proof F3).
+            var refusal = inputs.Refusal!;
+            return new GatewayStatusBoxContent(visual, connected, signedIn, refusal.Summary, refusal.ChipText);
+        }
         var tooltip = Tooltip(resolved.State, inputs.FailedLeg, gatewayHost, accountEmail);
         var chipText = ChipText(resolved.State);
         return new GatewayStatusBoxContent(visual, connected, signedIn, tooltip, chipText);
@@ -103,6 +110,8 @@ public static class GatewayStatusBoxPresenter
         GatewayConnectionState.WasConnectedNowUnreachable => "Unreachable",
         GatewayConnectionState.ConnectedNotSignedIn => "Sign in",
         GatewayConnectionState.AllGreen => "Connected",
+        GatewayConnectionState.KeyRefused => throw new InvalidOperationException(
+            "A refused key is worded by its refusal; use Describe, which has it."),
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Unknown gateway connection state"),
     };
 
@@ -113,6 +122,7 @@ public static class GatewayStatusBoxPresenter
         GatewayConnectionState.AllGreen => GatewayStatusBoxVisual.Green,
         GatewayConnectionState.ConnectFailed => GatewayStatusBoxVisual.Red,
         GatewayConnectionState.WasConnectedNowUnreachable => GatewayStatusBoxVisual.Red,
+        GatewayConnectionState.KeyRefused => GatewayStatusBoxVisual.Red,
         // NotConfigured and ConnectedNotSignedIn are both the amber needs-attention look.
         _ => GatewayStatusBoxVisual.Amber,
     };
@@ -122,7 +132,7 @@ public static class GatewayStatusBoxPresenter
     // No configured gateway means no line. A configured gateway without a displayable host is an invalid
     // presenter input and fails explicitly instead of silently painting the box as if it were brand new.
     private static GatewayStatusLine ConnectedLine(
-        GatewayConnectionResolved resolved, bool gatewayConfigured, string? gatewayHost)
+        GatewayConnectionResolved resolved, bool gatewayConfigured, string? gatewayHost, GatewayKeyRefusal? refusal)
     {
         if (!gatewayConfigured)
             return new GatewayStatusLine(resolved.ConnectedCheck, string.Empty);
@@ -138,6 +148,7 @@ public static class GatewayStatusBoxPresenter
             GatewayConnectionState.WasConnectedNowUnreachable => "Unreachable",
             GatewayConnectionState.ConnectedNotSignedIn => "Connected",
             GatewayConnectionState.AllGreen => "Connected",
+            GatewayConnectionState.KeyRefused => refusal!.ChipText,
             GatewayConnectionState.NotConfigured => throw new InvalidOperationException(
                 "A configured gateway cannot resolve to NotConfigured"),
             _ => throw new ArgumentOutOfRangeException(nameof(resolved), resolved.State, "Unknown gateway connection state"),
