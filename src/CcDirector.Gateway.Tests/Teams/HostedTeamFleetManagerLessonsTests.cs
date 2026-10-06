@@ -142,6 +142,38 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
         Assert.Null(await WaitForLessons(_seenByBob, null, seconds: 3));
     }
 
+    /// <summary>
+    /// FL-F1: the marked Fleet Manager EVENT carries the confirmed lessons, and its delivery typed into the first fresh
+    /// roster row for the marked id. The roster's order follows string hashes that change from run to run, so Bob's row
+    /// is made first the only certain way: at the first delivery attempt it is the ONLY row for Alice's marked id. A
+    /// first-row choice can then pick nothing but Bob's Director. The event must wait instead; then, once Alice's
+    /// Director lists her session too, it is typed into Alice's and still never Bob's. The rows are Idle, which is
+    /// delivered to at once (no Wingman reading is waited for), and a delivery is booked as a promotion books one.
+    /// </summary>
+    [Fact]
+    public async Task DeliverOnce_BobsDirectorsRowIsFirstForAlicesMarkedId_TheMarkedEventReachesAlicesDirector_NeverBobs()
+    {
+        _gateway.SeedStoredConversationForTest(_team, AliceDirector, _sessionId, ("User", "ask"), ("Assistant", "answered"));
+        // Both Directors say they check the session waits for a prompt before typing, as a current Director does.
+        _gateway.TurnPushCapabilities.Record(_team, AliceDirector, pushesTurns: true, checksIdleBeforeTyping: true);
+        _gateway.TurnPushCapabilities.Record(_team, BobDirector, pushesTurns: true, checksIdleBeforeTyping: true);
+        await _bobDirector.PushSnapshotAsync(Row(_sessionId, "Idle"));
+        var rows = _gateway.PushedSessions.SnapshotFresh(_team, TimeSpan.FromMinutes(5)).Where(r => r.Session.SessionId == _sessionId);
+        Assert.Equal(BobDirector, Assert.Single(rows).DirectorId);
+
+        // The marked event is owed and a delivery is booked: Bob's row is the only one, and it is never typed into.
+        Assert.NotNull(_gateway.FleetManagerEventStoreForTest!.RecordMarked(_team, _sessionId, DateTime.UtcNow));
+        _gateway.FleetManagerEventsForTest!.OnEventQueued(_team);
+        Assert.Null(await WaitForMarkedEvent(_seenByBob, seconds: 3));
+
+        // Alice's Director lists her session and a delivery is booked again. PRESENCE: Alice's Director types the
+        // marked event, lessons and all; Bob's still never does.
+        await _aliceDirector.PushSnapshotAsync(Row(_sessionId, "Idle"));
+        _gateway.FleetManagerEventsForTest!.OnEventQueued(_team);
+        Assert.NotNull(await WaitForMarkedEvent(_seenByAlice));
+        Assert.Null(await WaitForMarkedEvent(_seenByBob, seconds: 3));
+    }
+
     [Fact]
     public async Task Observe_APersonalTenant_TheOneDirectorListingTheMarkedSession_IsSentTheLessons()
     {
@@ -199,18 +231,33 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
         return null;
     }
 
+    /// <summary>Poll for a command on the marked session that carries the marked event and the lessons.</summary>
+    private async Task<DirectorCommand?> WaitForMarkedEvent(ConcurrentQueue<DirectorCommand> seen, int seconds = 15)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(seconds);
+        while (DateTime.UtcNow < deadline)
+        {
+            var hit = seen.FirstOrDefault(c => c.SessionId == _sessionId && c.Verb != FleetManagerLessonsObserver.Verb
+                && (c.PayloadJson ?? "").Contains("kind: marked", StringComparison.Ordinal)
+                && (c.PayloadJson ?? "").Contains("lesson one", StringComparison.Ordinal));
+            if (hit is not null) return hit;
+            await Task.Delay(50);
+        }
+        return null;
+    }
+
     private static string? Lessons(DirectorCommand command) =>
         JsonSerializer.Deserialize<SetFleetManagerLessonsRequest>(command.PayloadJson!,
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!.Lessons;
 
     private static DirectorCommandResult Ok() => FakeTunnelDirector.Ok(new { ok = true });
 
-    private static SessionDto Row(string sid) => new()
+    private static SessionDto Row(string sid, string state = "WaitingForInput") => new()
     {
         SessionId = sid,
         Agent = "claude",
         RepoPath = "/repo",
-        ActivityState = "WaitingForInput",
+        ActivityState = state,
         Status = "Running",
         CreatedAt = DateTime.UtcNow,
         LastActivityAt = DateTime.UtcNow,

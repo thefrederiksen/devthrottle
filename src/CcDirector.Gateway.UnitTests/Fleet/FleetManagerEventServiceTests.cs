@@ -1649,6 +1649,52 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Contains("what: " + FleetManagerEventStore.MarkedDetail + "\n" + lessons, sent.Text);
     }
 
+    // ---- devthrottle_internal#2311 FL-F1: the marked event goes only to the marked session's OWN Director ----------
+
+    private const string MarkedLessons = "[Fleet Manager lessons] 1 lesson from the owner's corrections.\n<<<Check first.>>>\n";
+
+    /// <summary>The marked Fleet Manager fm-2 on dir-1, its own Director, and a marked event owed to it; when
+    /// <paramref name="ownListsIt"/> is false only the colleague's Director lists the id.</summary>
+    private async Task MarkedEventOwedWithAColleagueListingTheIdAsync(bool ownListsIt)
+    {
+        _service = new FleetManagerEventService(_events, _env, _deliveryGate, lessons: _ => MarkedLessons,
+            isSessionOfDirector: (_, directorId, sid) => directorId == "dir-1" && sid == "fm-2");
+        // The colleague's Director lists the marked id; it pushes FIRST, so a first-row choice would be it.
+        _pushed.RegisterConnection(Tenant, "dir-colleague", "conn-colleague");
+        Assert.True(_pushed.ApplySnapshot(Tenant, "dir-colleague", "conn-colleague", 1, new List<SessionDto> { Session("fm-2") }));
+        _pendingSuccessors.Add("fm-2");
+        if (ownListsIt)
+        {
+            Push(Session("fm-2", state: "Working"));
+            await FleetManagerTurnEndAsync("fm-2");
+        }
+        _marked = "fm-2";
+        _pendingSuccessors.Remove("fm-2");
+        Assert.NotNull(_events.RecordMarked(Tenant, "fm-2", _now));
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+    }
+
+    [Fact]
+    public async Task DeliverOnce_AColleaguesDirectorAlsoListsTheMarkedId_TheMarkedEventAndLessonsGoOnlyToTheOwnDirector()
+    {
+        await MarkedEventOwedWithAColleagueListingTheIdAsync(ownListsIt: true);
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("dir-1", sent.DirectorId);
+        Assert.Equal("fm-2", sent.SessionId);
+        Assert.Contains(MarkedLessons, sent.Text);
+    }
+
+    [Fact]
+    public async Task DeliverOnce_OnlyAColleaguesDirectorListsTheMarkedId_NothingIsSent_AndTheEventWaits()
+    {
+        await MarkedEventOwedWithAColleagueListingTheIdAsync(ownListsIt: false);
+
+        Assert.Empty(_env.Sends);
+        Assert.Equal("marked", Assert.Single(Open()).Kind);
+    }
+
     /// <summary>The replacement moves the mark as production does: the mark, the waiting list and the one event
     /// together, then a delivery is booked.</summary>
     private void PromoteSuccessor(string sid)
