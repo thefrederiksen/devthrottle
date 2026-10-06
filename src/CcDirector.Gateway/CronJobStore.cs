@@ -157,6 +157,20 @@ public sealed class CronJobStore
         }
     }
 
+    /// <summary>One job of an account the CALLER names rather than the ambient one, or null if absent - for a route that
+    /// resolved its account itself (the Factories screen's Talk button reads the seat's schedule seed).</summary>
+    public CronJobDto? Get(TenantId tenant, string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var entity = ctx.CronJobs.AsNoTracking().FirstOrDefault(e => e.Id == id);
+            return entity is null ? null : ToDto(entity);
+        }
+    }
+
     /// <summary>One job by id as a defensive copy, or null if absent.</summary>
     public CronJobDto? Get(string id)
     {

@@ -116,9 +116,37 @@ public sealed class CronEngineTenancyTests : IDisposable
         Assert.Equal(1, starter.StartCount);   // only the first run ever started a session
     }
 
+    [Fact]
+    public void Get_ForANamedAccount_ReadsThatAccountsJob_WhateverTheAmbientAccount()
+    {
+        // The Factories screen's Talk button reads a seat's schedule seed for the account its route resolved, not
+        // whatever scope happens to be in effect: the same id in two accounts must answer with the named one's.
+        var ambient = new AsyncLocalTenantContext();
+        var db = _h.Open(ambient);
+        CronJobStore store;
+        using (ambient.Enter(TenantA))
+        {
+            WriteLegacyJob(_h.LegacyPath("a.json"), SharedId, seed: "seed of A");
+            store = new CronJobStore(db, _h.LegacyPath("a.json"));
+        }
+        using (ambient.Enter(TenantB))
+        {
+            WriteLegacyJob(_h.LegacyPath("b.json"), SharedId, seed: "seed of B");
+            _ = new CronJobStore(db, _h.LegacyPath("b.json"));
+        }
+
+        using (ambient.Enter(TenantA))
+        {
+            Assert.Equal("seed of B", store.Get(TenantB, SharedId)?.Action.Seed);
+            Assert.Equal("seed of A", store.Get(TenantA, SharedId)?.Action.Seed);
+            Assert.Null(store.Get(new TenantId("33333333-3333-3333-3333-333333333333"), SharedId));
+            Assert.Null(store.Get(TenantA, " "));
+        }
+    }
+
     // ---- helpers -----------------------------------------------------------------------------
 
-    private static void WriteLegacyJob(string path, string id)
+    private static void WriteLegacyJob(string path, string id, string seed = "/help")
     {
         var job = new CronJobDto
         {
@@ -129,7 +157,7 @@ public sealed class CronEngineTenancyTests : IDisposable
             CronExpression = "0 0 * * *",
             TimeZoneId = "America/Chicago",
             Target = new CronJobTarget { Machine = "workstation-A" },
-            Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
+            Action = new CronJobAction { RepoPath = @"D:\repo", Seed = seed },
             PreventOverlap = true,
         };
         var json = JsonSerializer.Serialize(
