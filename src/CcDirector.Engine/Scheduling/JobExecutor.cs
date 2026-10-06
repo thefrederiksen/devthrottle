@@ -18,12 +18,13 @@ public sealed class JobExecutor
     private readonly Action<int, int, DateTime> _recordChild;
 
     /// <summary>
-    /// Runs whose command was killed but not seen to exit. Their claims stay open, and every scheduler
-    /// tick (<see cref="ReleaseConfirmedStops"/>) asks whether the command is gone yet.
+    /// The jobs this executor is claiming or executing right now. It is the ONLY thing kept in memory:
+    /// every other decision about an open run is read from the database (see
+    /// <see cref="EngineDatabase.CleanupOrphanedRuns(DateTime, Func{int, bool})"/>), so an open run this
+    /// process owns but is not executing - a killed command not seen to exit, or a run left by an engine
+    /// restarted in this process - is judged from its row on every tick.
     /// </summary>
-    private readonly ConcurrentDictionary<int, UnconfirmedStop> _unconfirmed = new();
-
-    private sealed record UnconfirmedStop(RunRecord Run, EngineRunOwner Command, string Reason, bool TimedOut, DateTime StartedAt);
+    private readonly ConcurrentDictionary<int, byte> _inFlightJobs = new();
 
     public JobExecutor(EngineDatabase db)
         : this(db, ProcessJobs, db.RecordRunChild)
@@ -38,8 +39,8 @@ public sealed class JobExecutor
         _recordChild = recordChild;
     }
 
-    /// <summary>How many runs hold their claim while waiting to see a killed command exit.</summary>
-    public int UnconfirmedStopCount => _unconfirmed.Count;
+    /// <summary>Whether this executor is claiming or executing the job right now.</summary>
+    public bool IsInFlight(int jobId) => _inFlightJobs.ContainsKey(jobId);
 
     /// <summary>
     /// Claims a due job for this Director. Null means it is not ours to run: not due any more, or
@@ -47,14 +48,34 @@ public sealed class JobExecutor
     /// </summary>
     public RunRecord? TryClaim(JobRecord job)
     {
+        // In flight BEFORE the row exists, so a tick's cleanup never judges a run this executor is
+        // about to execute.
+        _inFlightJobs[job.Id] = 0;
         var run = _db.TryClaimRun(job.Id, DateTime.UtcNow);
         if (run is null)
+        {
+            _inFlightJobs.TryRemove(job.Id, out _);
             FileLog.Write($"[JobExecutor] Not claimed (not due, or another Director holds it): id={job.Id}, name={job.Name}");
+        }
         return run;
     }
 
     /// <summary>Runs a job whose run this Director has claimed with <see cref="TryClaim"/>.</summary>
     public async Task<RunRecord> ExecuteClaimedAsync(JobRecord job, RunRecord run, CancellationToken cancellationToken)
+    {
+        _inFlightJobs[job.Id] = 0;
+        try
+        {
+            return await ExecuteClaimedCoreAsync(job, run, cancellationToken);
+        }
+        finally
+        {
+            // From here on an open run is judged from its row on every tick.
+            _inFlightJobs.TryRemove(job.Id, out _);
+        }
+    }
+
+    private async Task<RunRecord> ExecuteClaimedCoreAsync(JobRecord job, RunRecord run, CancellationToken cancellationToken)
     {
         FileLog.Write($"[JobExecutor] Starting job: id={job.Id}, name={job.Name}, run={run.Id}");
 
@@ -70,6 +91,10 @@ public sealed class JobExecutor
 
         try
         {
+            // Before the process exists: from now on, losing the command's identity holds the claim
+            // to the deadline instead of releasing it.
+            _db.MarkCommandStarting(run.Id);
+
             var processJob = _createJob(job, timeoutSeconds, (pid, startedAtUtc) =>
             {
                 command = _db.Owner with { ProcessId = pid, ProcessStartedAtUtc = startedAtUtc };
@@ -82,7 +107,7 @@ public sealed class JobExecutor
             {
                 // Timed out, killed, and still not seen to exit: the command may be running. Keep the
                 // claim open so nobody starts it again, and watch for it to exit.
-                Watch(run, command, $"Timed out after {timeoutSeconds} seconds; the killed command exited only after the confirmation window.", timedOut: true);
+                KeepClaim(run, "timed out, killed, not seen to exit");
                 return run;
             }
 
@@ -102,10 +127,7 @@ public sealed class JobExecutor
             }
             else
             {
-                var unrecorded = ex.ProcessStartedAtUtc is { } started
-                    ? _db.Owner with { ProcessId = ex.ProcessId, ProcessStartedAtUtc = started }
-                    : null;
-                Watch(run, unrecorded, reason, timedOut: false);
+                KeepClaim(run, "not recorded, killed, not seen to exit");
             }
             return run;
         }
@@ -120,8 +142,8 @@ public sealed class JobExecutor
         }
         catch (OperationCanceledException)
         {
-            // Cancelled without proof the command stopped: the claim stays open and is watched.
-            Watch(run, command, "Cancelled: the killed command exited only after the confirmation window.", timedOut: false);
+            // Cancelled without proof the command stopped: the claim stays open.
+            KeepClaim(run, "cancelled, killed, not seen to exit");
             throw;
         }
         catch (Exception ex)
@@ -130,7 +152,7 @@ public sealed class JobExecutor
             {
                 // Failed after the command started, and it is not proven gone: never release a claim
                 // over a command that may still be running.
-                Watch(run, command, $"Failed while the command ran: {ex.Message}", timedOut: false);
+                KeepClaim(run, $"failed while the command ran ({ex.Message}), not proven gone");
                 return run;
             }
 
@@ -145,46 +167,13 @@ public sealed class JobExecutor
     }
 
     /// <summary>
-    /// Called every scheduler tick. For each run whose killed command was not seen to exit, asks
-    /// whether that command is gone now; when it is, ends the run and releases the claim exactly as a
-    /// confirmed cancellation (next_run is not moved, so the occurrence runs again). A command still
-    /// running, or one that cannot be decided, keeps its claim. Returns how many were released.
+    /// Leaves the run open: its command may still be running. Nothing here remembers it - once this
+    /// execution returns, every tick judges the run from its row (a recorded command proven gone ends it
+    /// at once; one that cannot be proven gone ends it at the stored deadline plus the margin).
     /// </summary>
-    public int ReleaseConfirmedStops()
+    private static void KeepClaim(RunRecord run, string why)
     {
-        var released = 0;
-        foreach (var (runId, stop) in _unconfirmed)
-        {
-            if (_db.ProbeOwner(stop.Command) != OwnerLiveness.Gone)
-                continue;
-
-            var run = stop.Run;
-            run.EndedAt = DateTime.UtcNow;
-            run.ExitCode = -1;
-            run.TimedOut = stop.TimedOut;
-            run.Stderr = stop.Reason;
-            run.DurationSeconds = (run.EndedAt.Value - stop.StartedAt).TotalSeconds;
-            _db.EndRunKeepingSchedule(run);
-            _unconfirmed.TryRemove(runId, out _);
-            released++;
-            FileLog.Write($"[JobExecutor] ReleaseConfirmedStops: command pid={stop.Command.ProcessId} is gone, run={runId} ended and its claim released");
-        }
-        return released;
-    }
-
-    private void Watch(RunRecord run, EngineRunOwner? command, string reason, bool timedOut)
-    {
-        if (command is null)
-        {
-            // Nothing identifies the process, so it can never be proven gone from here. The claim
-            // stays open until this Director exits; then cleanup releases it (owner gone, no command
-            // recorded).
-            FileLog.Write($"[JobExecutor] Command not proven stopped and not identifiable, claim kept until this Director exits: run={run.Id}");
-            return;
-        }
-
-        _unconfirmed[run.Id] = new UnconfirmedStop(run, command, reason, timedOut, DateTime.UtcNow);
-        FileLog.Write($"[JobExecutor] Command not proven stopped, claim kept and watched: run={run.Id}, pid={command.ProcessId}");
+        FileLog.Write($"[JobExecutor] Claim kept open, judged from the database every tick: run={run.Id}, {why}");
     }
 
     private static void RecordResult(RunRecord run, JobResult result, TimeSpan elapsed)

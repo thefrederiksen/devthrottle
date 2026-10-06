@@ -155,6 +155,9 @@ public sealed class EngineDatabase
         // The command process the run started, which must be proven gone before the claim is released.
         ("child_pid", "INTEGER"),
         ("child_process_started", "TEXT"),
+        // Written just BEFORE the command is started. With no child recorded, it separates a run whose
+        // command never started (no mark: nothing to wait for) from one whose command identity was lost.
+        ("command_starting_at", "TEXT"),
         // A result reported by an owner whose claim had already been released; kept, never applied.
         ("late_completion", "TEXT"),
     ];
@@ -439,6 +442,21 @@ public sealed class EngineDatabase
         };
     }
 
+    /// <summary>
+    /// Marks that this run's command is about to start. Written BEFORE the process starts: a run without
+    /// it provably never started a command; a run with it and no recorded command has lost the identity.
+    /// </summary>
+    public void MarkCommandStarting(int runId)
+    {
+        using var conn = CreateConnection();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE runs SET command_starting_at = @now WHERE id = @id AND ended_at IS NULL";
+        cmd.Parameters.AddWithValue("@id", runId);
+        cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("o"));
+        if (cmd.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException($"Run {runId} is no longer open; its command must not start");
+    }
+
     /// <summary>Records the command process a run started, which must be proven gone before its claim is released.</summary>
     public void RecordRunChild(int runId, int processId, DateTime processStartedAtUtc)
     {
@@ -606,30 +624,41 @@ public sealed class EngineDatabase
         return runs;
     }
 
-    public int CleanupOrphanedRuns() => CleanupOrphanedRuns(DateTime.UtcNow);
+    /// <summary>Cleanup by a caller that is running nothing itself: this process's own runs are not judged.</summary>
+    public int CleanupOrphanedRuns() => CleanupOrphanedRuns(DateTime.UtcNow, jobInFlightHere: null);
+
+    public int CleanupOrphanedRuns(DateTime nowUtc) => CleanupOrphanedRuns(nowUtc, jobInFlightHere: null);
 
     /// <summary>
-    /// Fails the unfinished runs that provably nobody is running, and leaves every other one alone.
-    /// For each unfinished run, by its owner (the Director process that claimed it):
+    /// Ends the unfinished runs that provably nobody is running, decided ONLY from what the database
+    /// records, so nothing is lost with an executor, an engine restart or a dead Director. For each
+    /// unfinished run, by its owner (the Director process that claimed it):
     /// <list type="bullet">
-    /// <item>This process, or an owner the probe shows RUNNING: kept, always. A live owner is never
-    /// aged out by another Director; its own executor ends the run at the run's timeout.</item>
-    /// <item>An owner proven GONE (no process with its id, or one that started at another time): failed
-    /// only when its command process is ALSO proven gone, or it never recorded one. A command that
-    /// outlived its Director keeps the claim until it ends.</item>
-    /// <item>An owner that cannot be decided (another machine, a process we may not inspect, a run
-    /// recorded before owners were kept): failed once open longer than the timeout STORED ON THE RUN
-    /// plus <see cref="AbandonedRunGrace"/>, never by the job's current, editable timeout.</item>
+    /// <item>This process: kept while its job is being executed here (<paramref name="jobInFlightHere"/>);
+    /// otherwise - a killed command that was not seen to exit, or a run left by an engine that was
+    /// restarted in this process - judged by its command, below. When <paramref name="jobInFlightHere"/>
+    /// is null the caller runs nothing and this process's runs are kept.</item>
+    /// <item>Another owner the probe shows RUNNING: kept. A live owner is never aged out by another
+    /// Director.</item>
+    /// <item>An owner proven GONE: judged by its command, below.</item>
+    /// <item>An owner that cannot be decided (another machine, an uninspectable process, a run from
+    /// before owners were kept): ended once past its deadline.</item>
     /// </list>
+    /// Judged by its command: a recorded command proven gone - ended at once; a recorded command still
+    /// running - kept; no command-starting mark - the command never started, ended at once; anything
+    /// that cannot be proven gone (the identity was never recorded, or the probe cannot decide) - ended
+    /// once past its deadline, never earlier. The deadline is the timeout STORED ON THE RUN plus
+    /// <see cref="AbandonedRunGrace"/>, never the job's current, editable timeout. Ending a run here
+    /// never moves next_run, so the occurrence runs again.
     /// </summary>
-    public int CleanupOrphanedRuns(DateTime nowUtc)
+    public int CleanupOrphanedRuns(DateTime nowUtc, Func<int, bool>? jobInFlightHere)
     {
         var open = new List<OpenRun>();
         using (var conn = CreateConnection())
         using (var cmd = conn.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT id, started_at, run_timeout_seconds, child_pid, child_process_started,
+                SELECT id, job_id, started_at, run_timeout_seconds, child_pid, child_process_started, command_starting_at,
                        owner_director, owner_machine, owner_pid, owner_process_started
                 FROM runs
                 WHERE ended_at IS NULL
@@ -639,11 +668,13 @@ public sealed class EngineDatabase
             {
                 open.Add(new OpenRun(
                     reader.GetInt32(0),
-                    DateTime.Parse(reader.GetString(1), null, System.Globalization.DateTimeStyles.AdjustToUniversal),
-                    reader.IsDBNull(2) ? null : reader.GetInt32(2),
+                    reader.GetInt32(1),
+                    DateTime.Parse(reader.GetString(2), null, System.Globalization.DateTimeStyles.AdjustToUniversal),
                     reader.IsDBNull(3) ? null : reader.GetInt32(3),
-                    reader.IsDBNull(4) ? null : DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.AdjustToUniversal),
-                    ReadOwner(reader, 5)));
+                    reader.IsDBNull(4) ? null : reader.GetInt32(4),
+                    reader.IsDBNull(5) ? null : DateTime.Parse(reader.GetString(5), null, System.Globalization.DateTimeStyles.AdjustToUniversal),
+                    !reader.IsDBNull(6),
+                    ReadOwner(reader, 7)));
             }
         }
 
@@ -653,7 +684,7 @@ public sealed class EngineDatabase
         var count = 0;
         foreach (var run in open)
         {
-            var reason = DecideOrphan(run, nowUtc);
+            var reason = DecideOrphan(run, nowUtc, jobInFlightHere);
             if (reason is null) continue;
 
             using var conn = CreateConnection();
@@ -673,40 +704,60 @@ public sealed class EngineDatabase
             count += update.ExecuteNonQuery();
         }
 
-        FileLog.Write($"[EngineDatabase] CleanupOrphanedRuns: open={open.Count}, failed={count}, kept={open.Count - count}");
+        if (count > 0)
+            FileLog.Write($"[EngineDatabase] CleanupOrphanedRuns: open={open.Count}, ended={count}, kept={open.Count - count}");
         return count;
     }
 
     private sealed record OpenRun(
-        int Id, DateTime StartedAt, int? TimeoutSeconds, int? ChildPid, DateTime? ChildStartedAt, EngineRunOwner? Owner);
+        int Id, int JobId, DateTime StartedAt, int? TimeoutSeconds, int? ChildPid, DateTime? ChildStartedAt,
+        bool CommandStarting, EngineRunOwner? Owner);
 
-    /// <summary>The reason to fail this unfinished run, or null to keep it. See <see cref="CleanupOrphanedRuns(DateTime)"/>.</summary>
-    private string? DecideOrphan(OpenRun run, DateTime nowUtc)
+    /// <summary>The reason to end this unfinished run, or null to keep it. See <see cref="CleanupOrphanedRuns(DateTime, Func{int, bool})"/>.</summary>
+    private string? DecideOrphan(OpenRun run, DateTime nowUtc, Func<int, bool>? jobInFlightHere)
     {
         if (run.Owner is not null && IsThisProcess(run.Owner))
-            return null;
+        {
+            if (jobInFlightHere is null || jobInFlightHere(run.JobId))
+                return null;
+            return DecideByCommand(run, nowUtc);
+        }
 
         var owner = run.Owner is null ? OwnerLiveness.Unknown : _probeOwner(run.Owner);
-        switch (owner)
+        return owner switch
         {
-            case OwnerLiveness.Running:
-                return null;
-
-            case OwnerLiveness.Gone:
-                if (run.ChildPid is null)
-                    return InterruptedRunMessage;
-                // The command ran on the owner's machine; it is judged by the same id-plus-start proof.
-                var child = run.Owner! with { ProcessId = run.ChildPid.Value, ProcessStartedAtUtc = run.ChildStartedAt!.Value };
-                return _probeOwner(child) == OwnerLiveness.Gone ? InterruptedRunMessage : null;
-
-            default:
-                if (run.TimeoutSeconds is null)
-                    return null;
-                return nowUtc - run.StartedAt > TimeSpan.FromSeconds(run.TimeoutSeconds.Value) + AbandonedRunGrace
-                    ? AbandonedRunMessage
-                    : null;
-        }
+            OwnerLiveness.Running => null,
+            OwnerLiveness.Gone => DecideByCommand(run, nowUtc),
+            _ => PastDeadline(run, nowUtc) ? AbandonedRunMessage : null,
+        };
     }
+
+    /// <summary>Judges a run nobody is executing any more by its command, as recorded on the row.</summary>
+    private string? DecideByCommand(OpenRun run, DateTime nowUtc)
+    {
+        if (run.ChildPid is not null && run.ChildStartedAt is not null)
+        {
+            // The command ran on the owner's machine; it is judged by the same id-plus-start proof.
+            var command = run.Owner! with { ProcessId = run.ChildPid.Value, ProcessStartedAtUtc = run.ChildStartedAt.Value };
+            return _probeOwner(command) switch
+            {
+                OwnerLiveness.Gone => InterruptedRunMessage,
+                OwnerLiveness.Running => null,
+                _ => PastDeadline(run, nowUtc) ? AbandonedRunMessage : null,
+            };
+        }
+
+        if (!run.CommandStarting)
+            return InterruptedRunMessage;
+
+        // The command may have started but its identity was never recorded: it cannot be proven gone,
+        // so the claim is held until the deadline - never released earlier, never held forever.
+        return PastDeadline(run, nowUtc) ? AbandonedRunMessage : null;
+    }
+
+    private static bool PastDeadline(OpenRun run, DateTime nowUtc) =>
+        run.TimeoutSeconds is { } timeout
+        && nowUtc - run.StartedAt > TimeSpan.FromSeconds(timeout) + AbandonedRunGrace;
 
     private bool IsThisProcess(EngineRunOwner owner) =>
         owner.ProcessId == _owner.ProcessId

@@ -33,7 +33,7 @@ public sealed class Scheduler : IDisposable
     {
         FileLog.Write("[Scheduler] Starting");
 
-        _db.CleanupOrphanedRuns();
+        _db.CleanupOrphanedRuns(DateTime.UtcNow, _executor.IsInFlight);
         InitializeNextRuns();
 
         _cts = new CancellationTokenSource();
@@ -93,14 +93,11 @@ public sealed class Scheduler : IDisposable
             {
                 RunPurgeIfNeeded();
 
-                // Another Director on the same engine.db may have died mid-run; its unfinished run
-                // would hold that job's claim until something fails it, so look every tick, not
-                // only at start. Runs of live owners are never touched.
-                _db.CleanupOrphanedRuns();
-
-                // This Director's own runs whose killed command was not seen to exit: release each
-                // claim once its command is proven gone, so the job does not stay held forever.
-                _executor.ReleaseConfirmedStops();
+                // Every tick, from the database: another Director's runs left by a death, and this
+                // Director's own open runs it is not executing (a killed command not seen to exit,
+                // or a run left by an engine restarted in this process). Runs of live owners, and
+                // runs being executed here, are never touched.
+                _db.CleanupOrphanedRuns(DateTime.UtcNow, _executor.IsInFlight);
 
                 // Candidates only: each one runs here only if this Director wins its claim.
                 var dueJobs = _db.GetDueJobs();

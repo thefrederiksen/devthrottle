@@ -80,7 +80,6 @@ public sealed class UnconfirmedStopTests : IDisposable
         Assert.Equal(-1, ended.ExitCode);
         Assert.Contains("could not be recorded", ended.Stderr);
         Assert.Equal(due, a.GetJob("unrecorded")!.NextRun!.Value.ToUniversalTime(), TimeSpan.FromSeconds(1));
-        Assert.Equal(0, executor.UnconfirmedStopCount);
     }
 
     // -- EN-F4 --
@@ -155,9 +154,8 @@ public sealed class UnconfirmedStopTests : IDisposable
             Assert.Equal(2, jobs.Executions);
             var released = a.GetRun(held.Id)!;
             Assert.NotNull(released.EndedAt);
-            Assert.True(released.TimedOut);
-            Assert.Contains("exited only after the confirmation window", released.Stderr);
-            Assert.Equal(0, executor.UnconfirmedStopCount);
+            // Decided from the row: the recorded command was proven gone.
+            Assert.Equal(EngineDatabase.InterruptedRunMessage, released.Stderr);
         }
         finally
         {
