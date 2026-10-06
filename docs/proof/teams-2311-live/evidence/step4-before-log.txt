@@ -1,0 +1,2 @@
+2026-10-06 07:57:49.505 [TeamMemberEntitlement] Decide: team t#016aeadc member=True outcome=Entitled tier=team
+2026-10-06 07:57:49.506 [TeamMemberEntitlement] Decide: team t#29fd7757 member=True outcome=Entitled tier=team

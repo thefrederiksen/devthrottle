@@ -1,0 +1,18 @@
+@echo off
+set "CC_GATEWAY_DB_CONNECTION="
+set "CC_GATEWAY_STATS_DB_CONNECTION="
+set "CC_GATEWAY_NO_AUTH="
+set "CC_GATEWAY_AUTH="
+set "CC_GATEWAY_URL="
+set "CC_GATEWAY_SESSION_KEY="
+set "CC_SESSION_ID="
+set "CC_COCKPIT_MANAGED="
+set "DEVTHROTTLE_JWT_PUBLIC_KEY_SET={"keys": [{"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig", "kid": "teams-2311-liveproof", "x": "5ogG37FJwJIJpTT-liljmWg6qAJ3VgL2hM5USanCRl0", "y": "cdtQ3orO5-hTDR6fLs1e-MFe5Tw91TPgoLcnyWpWbrc"}]}"
+set "DEVTHROTTLE_API_URL=http://127.0.0.1:7952/website-stub"
+set "DEVTHROTTLE_REFRESH_URL=http://127.0.0.1:7952/refresh-stub"
+set "CC_DIRECTOR_ROOT=D:\ReposFred\devthrottle-teams-2311-liveproof\.liveproof-rig\director-root"
+set "CC_AUTOUPDATE=0"
+set "DEVTHROTTLE_HOSTED_GATEWAY_URL=http://127.0.0.1:7951"
+set "DEVTHROTTLE_SIGNIN_URL=http://127.0.0.1:7952/signin"
+cd /d "D:\ReposFred\devthrottle-teams-2311-liveproof\scripts\local-build"
+"D:\ReposFred\devthrottle-teams-2311-liveproof\scripts\local-build\cc-director6.exe" --instance teams-proof-b

@@ -1,0 +1,17 @@
+{
+  "owner": {
+    "sub": "4b3a14b4-6714-4b04-8515-9d7ba91faf2d",
+    "email": "olivia.owner@teams-proof.invalid",
+    "display": "Olivia (Owner of both teams)"
+  },
+  "alice": {
+    "sub": "7eaf551b-e4e8-4191-bfe5-2da2535a606a",
+    "email": "alice.dev@teams-proof.invalid",
+    "display": "Alice (Developer in Team A and Team B)"
+  },
+  "bob": {
+    "sub": "f348c0ee-f406-4f06-a0c3-077b94eaf5c6",
+    "email": "bob.dev@teams-proof.invalid",
+    "display": "Bob (Developer in Team B)"
+  }
+}

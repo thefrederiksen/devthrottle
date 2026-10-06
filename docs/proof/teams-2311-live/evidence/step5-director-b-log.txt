@@ -1,0 +1,8 @@
+2026-10-06 07:59:42.640 [GatewayClient] what the session colours mean FAILED: device credential revoked
+2026-10-06 07:59:42.640 [SessionColourLegendCache] RefreshAsync FAILED (keeping the last-known words): device credential revoked
+2026-10-06 07:59:48.108 [GatewayStreamClient] re-push tick SKIPPED: connection state=Disconnected [memory at this moment: 10.1 GB available of 63.8 GB, the machine has memory to spare]
+2026-10-06 07:59:57.551 [GatewayAccountStatusClient] GetStatusAsync: response status=401
+2026-10-06 07:59:57.677 [GatewayClient] what the session colours mean FAILED: device credential revoked
+2026-10-06 07:59:57.678 [SessionColourLegendCache] RefreshAsync FAILED (keeping the last-known words): device credential revoked
+2026-10-06 07:59:58.110 [GatewayStreamClient] re-push tick SKIPPED: connection state=Disconnected [memory at this moment: 10.1 GB available of 63.8 GB, the machine has memory to spare]
+2026-10-06 08:00:08.110 [GatewayStreamClient] re-push tick SKIPPED: connection state=Disconnected [memory at this moment: 10.8 GB available of 63.8 GB, the machine has memory to spare]

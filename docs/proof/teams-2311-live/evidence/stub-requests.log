@@ -1,0 +1,7 @@
+2026-10-06 07:42:23 stub listening on 127.0.0.1:7952, issuer http://127.0.0.1:7952/auth/v1
+2026-10-06 07:49:43 POST /control/identity -> alice
+2026-10-06 07:49:52 GET /signin as alice -> http://127.0.0.1:59143/devthrottle-login-callback/
+2026-10-06 07:54:10 POST /control/identity -> bob
+2026-10-06 07:54:47 GET /signin as bob -> http://127.0.0.1:49174/devthrottle-login-callback/
+2026-10-06 08:00:39 POST /control/identity -> alice
+2026-10-06 08:00:42 GET /signin as alice -> http://127.0.0.1:62825/devthrottle-login-callback/

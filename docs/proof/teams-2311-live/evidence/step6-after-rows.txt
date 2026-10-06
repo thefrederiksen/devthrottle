@@ -1,0 +1,9 @@
+device_credentials after moving Director A to Team B:
+  cee45cd5c228fe0059a0464cafd096f02a01e4f757f5185f6a4ca93bbb2a3109|16081887-799c-402d-a010-06bfc6daef5b
+     tenant=Team A  person=alice  status=revoked  issued=2026-10-06 11:50:14.4567898  revokedAt=2026-10-06 12:01:43.1481763  reason=director_moved_to_another_team  key ...rb0g
+  45b28b545c78256764ea67bf7febaabd56b02fb1e002a3ebf1a08cb0a0c4d349|977326fb-d7fe-482c-a867-c5f0d972e9c5
+     tenant=Team B  person=bob  status=revoked  issued=2026-10-06 11:54:47.8829703  revokedAt=2026-10-06 11:59:27.062602  reason=team_member_removed  key ..._bf8
+  bc8e68eba3dc875dcb500ed139db6f46a1887f49302199d4c1c66a5ca6a7a1fd|16081887-799c-402d-a010-06bfc6daef5b
+     tenant=Team B  person=alice  status=active  issued=2026-10-06 12:01:43.2063554  revokedAt=None  reason=None  key ...A0SM
+Director A's stored key now ends ...A0SM
+Director A's gateway-team.json: {   "teamId": "1a223ddf-1e2f-4b7c-bf5e-23bef903585a",   "teamName": "Team B" }

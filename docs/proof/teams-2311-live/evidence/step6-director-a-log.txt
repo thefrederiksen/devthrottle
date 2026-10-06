@@ -1,0 +1,6 @@
+2026-10-06 07:50:14.490 [DirectorTeamStore] Save: team f96c8023-aa1f-49c5-850b-9945da11ed8f to D:\ReposFred\devthrottle-teams-2311-liveproof\.liveproof-rig\director-root\instances\teams-proof-a\config\director\gateway-team.json
+2026-10-06 08:01:42.846 [DirectorTeamMover] MoveAsync: director=16081887-799c-402d-a010-06bfc6daef5b, target=team 1a223ddf-1e2f-4b7c-bf5e-23bef903585a, sessionsAtHold=0
+2026-10-06 08:01:42.849 [GatewayAccountEnrollRunner] MoveHostedDirectorAsync: hosted=http://127.0.0.1:7951, director=16081887-799c-402d-a010-06bfc6daef5b, team=1a223ddf-1e2f-4b7c-bf5e-23bef903585a
+2026-10-06 08:01:43.406 [GatewayAccountEnrollRunner] MoveHostedDirectorAsync: moved; new device key received
+2026-10-06 08:01:43.411 [DirectorTeamStore] Save: team 1a223ddf-1e2f-4b7c-bf5e-23bef903585a to D:\ReposFred\devthrottle-teams-2311-liveproof\.liveproof-rig\director-root\instances\teams-proof-a\config\director\gateway-team.json
+2026-10-06 08:01:43.459 [DirectorTeamMover] MoveAsync: moved; team and new device key stored, connection re-applied
