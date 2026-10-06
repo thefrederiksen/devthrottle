@@ -1,0 +1,31 @@
+Test runs for the team Director routes change (devthrottle_internal#2311, live proof F1 and F2), 2026-10-06, on SOREN_NORTH,
+worktree D:\ReposFred\devthrottle-teams-2311-routes, branch teams/2311-team-director-routes, cut from origin/main 065689c24.
+
+1. The default local gate: .\scripts\test-local.ps1   (MSBUILDDISABLENODEREUSE=1)
+   CcDirector.Core.UnitTests                outcome=Completed    total=1289   executed=1289
+   CcDirector.Avalonia.Tests                outcome=Completed    total=923    executed=923
+   CcDirector.Engine.Tests                  outcome=Completed    total=102    executed=102
+   CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+   CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+   CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+   CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+   cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+   cc-director-setup-engine.Tests           outcome=Completed    total=711    executed=711
+   cc-director-setup-cli.Tests              outcome=Completed    total=59     executed=59
+   RESULT: all projects exited zero. (It names the parked Gateway suites as a coverage gap; runs 2 and 3 cover them.)
+
+2. The parked Gateway suite, Teams filter: .\scripts\test-local.ps1 -Gateway -Filter "FullyQualifiedName~Teams"
+   CcDirector.Gateway.Tests                 outcome=Completed    total=185    executed=185
+   Passed!  - Failed: 0, Passed: 185, Skipped: 0, Total: 185, Duration: 9 m 45 s
+   It includes the new HostedTeamDirectorRoutesTests (19), HostedTeamDirectorRoutesNoTeam{Released,Dark}Tests (5 each),
+   the route-table walk (TeamEndpointWalkTests) and every earlier hosted team test.
+   The walk: 516 endpoint-methods on the hosted route table: 273 state an action, 243 state none and are refused inside a
+   team (the list is evidence/undeclared-routes.txt).
+
+3. The Gateway unit suite, Teams filter: dotnet test src/CcDirector.Gateway.UnitTests -c Debug --filter "FullyQualifiedName~Teams"
+   Passed!  - Failed: 0, Passed: 1312, Skipped: 6, Total: 1318
+   It includes the new TeamDirectorRoutesTests (34 cases), the #2306 whole-table test (TeamEndpointGateTests) and
+   TeamEndpointRulesTests. The 6 skipped are pre-existing skips in this filter, unchanged by this change (the same 6 on
+   the first run before any edit: Failed 1 [the F1 refusal test, rewritten], Passed 1276, Skipped 6, Total 1283).
+
+No web or Python code was touched, so no web tests or tsc run applies.
