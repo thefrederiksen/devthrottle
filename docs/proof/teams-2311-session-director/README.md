@@ -79,17 +79,17 @@ How it is proved:
 | Fleet/FleetManagerHandOverService.cs:179 | first roster row with the id | holder's row only (hand-over target) |
 | Fleet/FleetManagerHandOverService.cs:162 | any row with the id owned by the caller | the holder's row only |
 | Api/GatewayEndpoints.cs:6110 (`LastKnownSession`, used by GatewayHost.cs:2287, 5041, 5088, 5104, 5115, 5157, 5170, 5193, Api/FleetManagerEndpoints.cs:924, FleetManagerPage/Walkthrough endpoints, FleetManagerWalkthroughFold.cs:122) | first Director's row with the id | first holder's row |
+| Fleet/FleetManagerEventService.cs:563-565 (`ReportedAliveElsewhere`, review OR-F2) | any other Director's live row of the id kept a worker's death from being recorded | only the holder's row counts as alive elsewhere; a colleague's listing never suppresses the death |
 | Wingman/GatewayTurnVerdictEnvironment.cs:252-256 (`ReadSessionState`) | session row from `SnapshotFresh`, first match | rows of that id kept only if `IsHoldersRow`; other rows unchanged |
 
 The environments the Fleet Manager services read through gained `IsHoldersRow` (`Api/FleetManagerPlacementEndpoints.cs:258`,
-`Api/FleetManagerHandOverEndpoints.cs:145`, both `Pushed.IsHoldersRow`); the test fakes answer `true`, as outside a team.
+`Api/FleetManagerHandOverEndpoints.cs:145`, `Fleet/FleetManagerEventService.cs` `GatewayFleetManagerEventEnvironment`, all `Pushed.IsHoldersRow`); the test fakes answer `true`, as outside a team.
 
 ### Pending #3583 (open, same area)
 
 | File:line | Lookup | Plan |
 |---|---|---|
-| Fleet/FleetManagerEventService.cs:917 | first roster row of the marked Fleet Manager - **the marked event** | #3583 adds an `isSessionOfDirector` filter here; when it merges, rebase and point that filter at `PushedSessions.IsHoldersRow` |
-| Fleet/FleetManagerEventService.cs:556 (`ReportedAliveElsewhere`) | any other Director's live row of the id | same: filter through `IsHoldersRow` once #3583's delegate is in |
+| Fleet/FleetManagerEventService.cs:925 | first roster row of the marked Fleet Manager - **the marked event** (review OR-F1) | #3583 adds an `isSessionOfDirector` filter here; when it merges, rebase and point that filter at `PushedSessions.IsHoldersRow` |
 | GatewayHost.cs:2035 | lessons `directorOf` | #3583 replaces it with `FleetManagerDirectorOf`; reconcile with the store's answer on rebase |
 
 ### Not per-session (whole fleet, one Director, a name, or the rule's own input)
@@ -128,7 +128,10 @@ first row again; nothing in code forbids it. The guard is the per-session method
   Alice's Director registers the session's key. Bob's Director's row is the ONLY row of the id - asserted with
   `DirectorsHoldingSession == [director-bob]` - then Alice's Director lists it too. Four tests: the typed prompt route,
   a held typed prompt driven by the Gateway, a dev report's note, the Fleet Manager's retirement close. Each asserts
-  Bob's Director receives nothing in both phases and Alice's receives it in the second.
+  Bob's Director receives nothing in both phases and Alice's receives it in the second. A fifth (OR-F2): Alice's
+  Director removes a worker of her Fleet Manager while Bob's still lists it alive (Bob's row then the only row,
+  asserted) - the death is recorded, addressed to and owed to Alice's Fleet Manager. Its DELIVERY into the Fleet
+  Manager is the marked-session selection (OR-F1, after #3583) and needs a Director that declares the idle check.
 
 ## Runs
 
@@ -137,7 +140,7 @@ first row again; nothing in code forbids it. The guard is the per-session method
 | Default gate `.\scripts\test-local.ps1` (own worktree, commit f5d38c11a) | all 10 suites outcome=Completed, exit 0 | `default-gate.txt` |
 | Gateway.UnitTests in full | 9,417 passed, 1 failed, 14 skipped of 9,432 | `gateway-unit-tests.txt` |
 | - the one failure, alone | 4/4 passed | `gateway-unit-tests-tenantscopedsweep-rerun.txt` |
-| Gateway.Tests filtered | PENDING: the machine-wide Gateway test lock has been held since 10:52 by another session's run (testhost pid 14904); queued | `gateway-tests-*.txt` |
+| Gateway.Tests filtered (`Teams.`, `StreamCommandTests`, `DevReport`, `GatewayDrivesHeldDeliveries`, `TypedPromptsAreResolvedByTheGateway`, `DeliveryIdIsGatewayAuthoritative`, `FleetManager`), commit 70838483b | 316 passed, 0 failed, 2 skipped | `gateway-tests-filtered.txt` |
 
 The one Gateway.UnitTests failure is `TenantScopedSweepTests.Hosted_OneTenantBodyThrowing_DoesNotAbortTheOthers`:
 `SQLite Error 14: unable to open database file` under another test's temporary root. It builds a `DeviceRegistry()`
@@ -149,5 +152,6 @@ and passes alone. This change does not touch it or anything it reads.
 | Bypass | Lines | Result | File |
 |---|---|---|---|
 | `GoverningRule` returns null (the single point bypassed: every lookup takes the first row again) | `Streaming/PushedSessionStore.cs:148` | 3 store-in-a-team unit tests red; rule-level and dark/personal tests stay green, as they should | `red-unit-single-point-bypassed.txt` |
+| Same bypass, over the wire, commit 98ac7a4cb | `Streaming/PushedSessionStore.cs:148` | all 5 host tests red, each at its Bob-only assertion: typed prompt line 132 (sent to Bob, not held), held prompt line 162 (Bob asked), dev report line 188 (note typed into Bob's Director), retirement close line 215 (`kill` sent to Bob), worker death line 259 (no death recorded: Bob's listing kept it alive) | `red-host-single-point-bypassed.txt` |
 
-Host red checks (the same bypass, over the wire): PENDING the Gateway test lock.
+After each red run the mutation was restored with `git checkout`, the tree confirmed clean, and the projects rebuilt.
