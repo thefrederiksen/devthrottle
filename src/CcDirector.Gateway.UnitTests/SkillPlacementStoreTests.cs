@@ -82,6 +82,111 @@ public sealed class SkillPlacementStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_skill_kept_by_another_Directors_library_says_so_and_not_could_not_be_linked()
+    {
+        // Two Directors on one computer share its skill folders (devthrottle_internal#2311). When a team
+        // Director yields a name to the person's own library, the sentence must say THAT - "could not be
+        // linked" would send somebody hunting for a broken link that does not exist.
+        var store = NewStore();
+        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        {
+            Report(held: 2, reachable: 1, problems: new[]
+            {
+                new SkillPlacementProblemDto
+                {
+                    SkillId = "fleet-comms", Target = @"C:\Users\x\.agents\skills", Fault = "HeldByAnotherSource",
+                },
+            }),
+        }, T0);
+
+        var row = Assert.Single(store.ReadAll(Alice).Rows);
+
+        Assert.Equal("broken", row.Status);
+        Assert.Contains("kept by another Director's library", row.Message);
+        Assert.Contains("fleet-comms", row.Message);
+        Assert.DoesNotContain("could not be linked", row.Message);
+    }
+
+    [Fact]
+    public void A_skills_folder_linked_to_nowhere_says_so_and_not_could_not_be_linked()
+    {
+        // The skills folder is a junction whose target is gone (devthrottle_internal#2311, review finding SK-F9):
+        // the Director changed nothing, and the sentence must name the link, not a skill link that failed.
+        var store = NewStore();
+        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        {
+            Report(held: 1, reachable: 0, problems: new[]
+            {
+                new SkillPlacementProblemDto
+                {
+                    SkillId = "fleet-comms", Target = @"C:\Users\x\.agents\skills", Fault = "FolderLinkUnresolved",
+                },
+            }),
+        }, T0);
+
+        var row = Assert.Single(store.ReadAll(Alice).Rows);
+
+        Assert.Equal("broken", row.Status);
+        Assert.Contains(@"C:\Users\x\.agents\skills is a link whose target cannot be found", row.Message);
+        Assert.DoesNotContain("could not be linked", row.Message);
+    }
+
+    [Fact]
+    public void A_staging_folder_inside_a_skills_folder_says_so_and_not_could_not_be_linked()
+    {
+        // The folder where copies are built would be inside a folder agents read (review finding SK-F11): the
+        // Director changed nothing, and the sentence must say where and why.
+        var store = NewStore();
+        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        {
+            Report(held: 1, reachable: 0, problems: new[]
+            {
+                new SkillPlacementProblemDto
+                {
+                    SkillId = "fleet-comms", Target = @"C:\Users\x\.agents\skills\claude-root.devthrottle-staging",
+                    Fault = "StagingFolderUnsafe",
+                },
+            }),
+        }, T0);
+
+        var row = Assert.Single(store.ReadAll(Alice).Rows);
+
+        Assert.Equal("broken", row.Status);
+        Assert.Contains(@"C:\Users\x\.agents\skills\claude-root.devthrottle-staging - the skills folder, or the folder " +
+                        "where copies are built - could not be resolved or is not safe to use", row.Message);
+        Assert.Contains("is inside a skills folder agents read", row.Message);
+        Assert.DoesNotContain("could not be linked", row.Message);
+    }
+
+    [Fact]
+    public void A_skills_folder_linked_to_nowhere_from_a_current_Director_names_the_skills_folder_as_unresolved()
+    {
+        // Since review round 6 (SK-F20) a current Director reports a skills folder that is a link to nothing as
+        // StagingFolderUnsafe, with the skills folder itself as the target (review finding SK-F22). The sentence
+        // must not call that path the folder where copies are built.
+        var store = NewStore();
+        store.StoreBatch(Alice, "director-1", "SOREN_NORTH", new[]
+        {
+            Report(held: 1, reachable: 0, problems: new[]
+            {
+                new SkillPlacementProblemDto
+                {
+                    SkillId = "fleet-comms", Target = @"C:\Users\x\.agents\skills", Fault = "StagingFolderUnsafe",
+                },
+            }),
+        }, T0);
+
+        var row = Assert.Single(store.ReadAll(Alice).Rows);
+
+        Assert.Equal("broken", row.Status);
+        Assert.Contains(@"because C:\Users\x\.agents\skills - the skills folder, or the folder where copies are built - " +
+                        "could not be resolved", row.Message);
+        Assert.Contains("a link whose target cannot be found", row.Message);
+        Assert.DoesNotContain(@"the folder where copies are built, C:", row.Message);
+        Assert.DoesNotContain("could not be linked", row.Message);
+    }
+
+    [Fact]
     public void A_healthy_machine_is_ok_and_does_not_raise_the_badge()
     {
         var store = NewStore();

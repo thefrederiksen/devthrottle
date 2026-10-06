@@ -104,6 +104,51 @@ public sealed class TenantSettingsStore
     }
 
     /// <summary>
+    /// The value of one tenant's key, creating it with <paramref name="create"/> when there is none - and NEVER
+    /// replacing one that exists. Unlike <see cref="Set"/> this does not upsert: when two processes create at the
+    /// same moment (two containers overlapping during a restart), the database's primary key lets exactly one
+    /// row in, the other insert fails, and the loser reads and returns the winner's value. So every caller gets
+    /// the one value that was stored.
+    /// </summary>
+    /// <exception cref="ArgumentException">The tenant is invalid or the key is not a setting key.</exception>
+    public string GetOrAdd(TenantId tenant, string key, Func<string> create, DateTime nowUtc)
+    {
+        RequireKey(key);
+        if (create is null) throw new ArgumentNullException(nameof(create));
+        lock (_gate)
+        {
+            using (var ctx = _db.CreateContext(tenant))
+            {
+                var existing = ctx.TenantSettings.AsNoTracking().FirstOrDefault(e => e.Key == key);
+                if (existing is not null)
+                    return existing.Value;
+
+                var value = create();
+                ctx.TenantSettings.Add(new TenantSettingEntity
+                {
+                    TenantId = tenant.Value,
+                    Key = key,
+                    Value = value,
+                    UpdatedAtUtc = nowUtc.ToUniversalTime(),
+                });
+                try
+                {
+                    ctx.SaveChanges();
+                    FileLog.Write($"[TenantSettingsStore] GetOrAdd: tenant={tenant.ToLogString()} key={key} created");
+                    return value;
+                }
+                catch (DbUpdateException ex)
+                {
+                    FileLog.Write($"[TenantSettingsStore] GetOrAdd: tenant={tenant.ToLogString()} key={key} was created " +
+                                  $"by another process at the same moment ({ex.InnerException?.Message ?? ex.Message}) - reading its value");
+                }
+            }
+            using var reread = _db.CreateContext(tenant);
+            return reread.TenantSettings.AsNoTracking().First(e => e.Key == key).Value;
+        }
+    }
+
+    /// <summary>
     /// Clear one tenant's override for a key so the resolver falls back to the operator global default. A no-op
     /// when no override exists. Returns true when a row was removed.
     /// </summary>

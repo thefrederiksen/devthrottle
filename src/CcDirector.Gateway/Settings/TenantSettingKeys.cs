@@ -262,6 +262,16 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FactoryMaps = "factory_maps";
 
+    /// <summary>
+    /// THIS GATEWAY's own stable id (devthrottle_internal#2311, review finding SK-F3), held ONLY under the
+    /// reserved <see cref="Core.Tenancy.TenantId.System"/> tenant - never a tenant's setting and never edited.
+    /// Created once, the first time it is asked for, and never regenerated (<see cref="GatewayInstanceIdentity"/>).
+    /// A Director names the library its skills came from by this id plus the tenant, so the same Gateway keeps
+    /// the same identity across a new domain, a move to TLS or a change of address. It lives in this table rather
+    /// than a new one because a new table needs the owner's approval and this is exactly one small value.
+    /// </summary>
+    public const string GatewayInstanceId = "gateway_instance_id";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -278,5 +288,6 @@ public static class TenantSettingKeys
         FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
         FleetManagerReplacementStartingAt,
         FactoryReports, FactoryAgentsSwitch, FactoryMaps,
+        GatewayInstanceId,
     };
 }

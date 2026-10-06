@@ -208,10 +208,28 @@ public sealed class SkillPlacementStore
 
         row.Status = "broken";
         var shadowed = problems.Where(p => p.Fault == "Shadowed").Select(p => p.SkillId).ToList();
+        var heldElsewhere = problems.Where(p => p.Fault == "HeldByAnotherSource").Select(p => p.SkillId).ToList();
         var detail = shadowed.Count > 0
             ? $"blocked by a directory DevThrottle did not write ({string.Join(", ", shadowed)}) in " +
               $"{problems.First(p => p.Fault == "Shadowed").Target}"
-            : "could not be linked";
+            : heldElsewhere.Count > 0
+                ? $"kept by another Director's library under the same name ({string.Join(", ", heldElsewhere)}) in " +
+                  $"{problems.First(p => p.Fault == "HeldByAnotherSource").Target}"
+                : problems.Any(p => p.Fault == "SourceUnknown")
+                    ? "nothing was placed because this Gateway does not say which account its skills belong to - update the Gateway"
+                    : problems.Any(p => p.Fault == "SourceMismatch")
+                        ? "nothing was placed because the skills were fetched for a different account than the Director is set up for"
+                        : problems.Any(p => p.Fault == "FolderBusy")
+                            ? "nothing was placed because another Director was placing skills in the same folder at that moment"
+                            : problems.Any(p => p.Fault == "FolderLinkUnresolved")
+                                ? $"nothing was placed because {problems.First(p => p.Fault == "FolderLinkUnresolved").Target} " +
+                                  "is a link whose target cannot be found - repair or remove the link"
+                                : problems.Any(p => p.Fault == "StagingFolderUnsafe")
+                                    ? $"nothing was placed because {problems.First(p => p.Fault == "StagingFolderUnsafe").Target} " +
+                                      "- the skills folder, or the folder where copies are built - could not be resolved " +
+                                      "or is not safe to use: it is a link whose target cannot be found, is inside a skills " +
+                                      "folder agents read, or was not made by DevThrottle - move or repair the link or the folder"
+                                    : "could not be linked";
         row.Message = $"Only {e.Reachable} of {e.Held} skill(s) reached {e.AgentKind} on {e.MachineName} - {detail}.";
         return row;
     }

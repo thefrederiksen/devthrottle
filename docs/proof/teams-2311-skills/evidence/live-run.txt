@@ -1,0 +1,616 @@
+﻿RIG D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig  (2026-10-06T10:26:51.1848539-04:00)
+ports 7811 and 7812: nothing listening (checked with Get-NetTCPConnection)
+USERPROFILE=D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home HOME=D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home LOCALAPPDATA=D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local APPDATA=D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+CC_* in this process: 0
+
+######## Scenario 1: the personal Director starts first
+---- before either Director
+  home\.agents\skills
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+  home\.claude\skills
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+==== 1.1 personal Director
+[1.1 personal Director] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[1.1 personal Director] gateway.url = http://localhost:7811; team = (no file: personal)
+[1.1 personal Director] port 7811 checked free on the loopback address
+[1.1 personal Director] stub Gateway serving http://localhost:7811/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+    stub: GET /gateway/skills/browsers/versions/1 (key ...-key)
+    stub: GET /gateway/skills/fleet-comms/versions/1 (key ...-key)
+    stub: GET /gateway/skills/dev-throttle/versions/1 (key ...-key)
+    stub: GET /gateway/skills/demo-mode/versions/1 (key ...-key)
+[1.1 personal Director] store refreshed: 4 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\skills\installed
+[1.1 personal Director] All 4 fleet skill(s) are in place for ClaudeCode.
+  first log lines of director-personal\logs\director\director-2026-10-06-68700.log:
+    2026-10-06 10:26:51.885 [1.1 personal Director] environment check, before anything else runs:
+    2026-10-06 10:26:51.906   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:51.906   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:51.906   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:51.906   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:51.906   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:51.906   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:51.906   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+    2026-10-06 10:26:51.906   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+    2026-10-06 10:26:51.906   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:51.906   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:51.906   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 1.1 personal Director
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    demo-mode      folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    demo-mode      link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+==== 1.2 team Director
+[1.2 team Director] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[1.2 team Director] gateway.url = http://localhost:7812; team = team-a
+[1.2 team Director] port 7812 checked free on the loopback address
+[1.2 team Director] stub Gateway serving http://localhost:7812/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+    stub: GET /gateway/skills/fleet-comms/versions/1 (key ...-key)
+    stub: GET /gateway/skills/dev-throttle/versions/1 (key ...-key)
+    stub: GET /gateway/skills/team-runbook/versions/1 (key ...-key)
+    stub: GET /gateway/skills/team-style/versions/1 (key ...-key)
+[1.2 team Director] store refreshed: 4 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\skills\installed
+[1.2 team Director] WARNING: only 2 of 4 fleet skill(s) reached ClaudeCode: 2 kept by another Director's library under the same name (dev-throttle, fleet-comms) in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills - the person's own account wins a name, and between teams the first installed keeps it.
+[1.2 team Director]   problem: dev-throttle HeldByAnotherSource in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+[1.2 team Director]   problem: fleet-comms HeldByAnotherSource in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  first log lines of director-team\logs\director\director-2026-10-06-57020.log:
+    2026-10-06 10:26:52.646 [1.2 team Director] environment check, before anything else runs:
+    2026-10-06 10:26:52.660   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:52.660   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:52.660   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:52.660   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:52.660   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:52.660   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:52.660   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+    2026-10-06 10:26:52.660   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+    2026-10-06 10:26:52.660   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:52.660   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:52.660   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 1.2 team Director
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    demo-mode      folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+    team-style     folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    demo-mode      link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+    team-style     link   account=team:team-a rig-gateway-7812          from the team library
+==== 1.3 personal Director again
+[1.3 personal Director again] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[1.3 personal Director again] gateway.url = http://localhost:7811; team = (no file: personal)
+[1.3 personal Director again] port 7811 checked free on the loopback address
+[1.3 personal Director again] stub Gateway serving http://localhost:7811/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+[1.3 personal Director again] store refreshed: 4 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\skills\installed
+[1.3 personal Director again] All 4 fleet skill(s) are in place for ClaudeCode.
+  first log lines of director-personal\logs\director\director-2026-10-06-56680.log:
+    2026-10-06 10:26:53.183 [1.3 personal Director again] environment check, before anything else runs:
+    2026-10-06 10:26:53.198   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:53.198   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:53.198   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:53.198   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:53.198   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:53.198   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:53.198   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+    2026-10-06 10:26:53.198   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+    2026-10-06 10:26:53.198   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:53.198   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:53.198   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 1.3 personal Director again
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    demo-mode      folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+    team-style     folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    demo-mode      link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+    team-style     link   account=team:team-a rig-gateway-7812          from the team library
+==== 1.4 team Director again
+[1.4 team Director again] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[1.4 team Director again] gateway.url = http://localhost:7812; team = team-a
+[1.4 team Director again] port 7812 checked free on the loopback address
+[1.4 team Director again] stub Gateway serving http://localhost:7812/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+[1.4 team Director again] store refreshed: 4 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\skills\installed
+[1.4 team Director again] WARNING: only 2 of 4 fleet skill(s) reached ClaudeCode: 2 kept by another Director's library under the same name (dev-throttle, fleet-comms) in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills - the person's own account wins a name, and between teams the first installed keeps it.
+[1.4 team Director again]   problem: dev-throttle HeldByAnotherSource in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+[1.4 team Director again]   problem: fleet-comms HeldByAnotherSource in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  first log lines of director-team\logs\director\director-2026-10-06-43308.log:
+    2026-10-06 10:26:53.747 [1.4 team Director again] environment check, before anything else runs:
+    2026-10-06 10:26:53.764   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:53.764   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:53.764   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:53.764   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:53.764   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:53.764   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:53.764   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+    2026-10-06 10:26:53.764   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+    2026-10-06 10:26:53.764   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:53.764   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:53.764   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 1.4 team Director again
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    demo-mode      folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+    team-style     folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    demo-mode      link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+    team-style     link   account=team:team-a rig-gateway-7812          from the team library
+==== 1.5 team Director, after its Gateway withdrew team-style
+[1.5 team Director, after its Gateway withdrew team-style] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[1.5 team Director, after its Gateway withdrew team-style] gateway.url = http://localhost:7812; team = team-a
+[1.5 team Director, after its Gateway withdrew team-style] port 7812 checked free on the loopback address
+[1.5 team Director, after its Gateway withdrew team-style] stub Gateway serving http://localhost:7812/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+[1.5 team Director, after its Gateway withdrew team-style] store refreshed: 3 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\skills\installed
+[1.5 team Director, after its Gateway withdrew team-style] WARNING: only 1 of 3 fleet skill(s) reached ClaudeCode: 2 kept by another Director's library under the same name (dev-throttle, fleet-comms) in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills - the person's own account wins a name, and between teams the first installed keeps it.
+[1.5 team Director, after its Gateway withdrew team-style]   problem: dev-throttle HeldByAnotherSource in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+[1.5 team Director, after its Gateway withdrew team-style]   problem: fleet-comms HeldByAnotherSource in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  first log lines of director-team\logs\director\director-2026-10-06-16448.log:
+    2026-10-06 10:26:54.161 [1.5 team Director, after its Gateway withdrew team-style] environment check, before anything else runs:
+    2026-10-06 10:26:54.174   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:54.174   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:54.174   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:54.174   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:54.174   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:54.174   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:54.174   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+    2026-10-06 10:26:54.174   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+    2026-10-06 10:26:54.174   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:54.174   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:54.174   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 1.5 team Director, after its Gateway withdrew team-style
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    demo-mode      folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    demo-mode      link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+==== 1.6 personal Director, after its Gateway withdrew demo-mode
+[1.6 personal Director, after its Gateway withdrew demo-mode] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[1.6 personal Director, after its Gateway withdrew demo-mode] gateway.url = http://localhost:7811; team = (no file: personal)
+[1.6 personal Director, after its Gateway withdrew demo-mode] port 7811 checked free on the loopback address
+[1.6 personal Director, after its Gateway withdrew demo-mode] stub Gateway serving http://localhost:7811/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+[1.6 personal Director, after its Gateway withdrew demo-mode] store refreshed: 3 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\skills\installed
+[1.6 personal Director, after its Gateway withdrew demo-mode] All 3 fleet skill(s) are in place for ClaudeCode.
+  first log lines of director-personal\logs\director\director-2026-10-06-70184.log:
+    2026-10-06 10:26:54.556 [1.6 personal Director, after its Gateway withdrew demo-mode] environment check, before anything else runs:
+    2026-10-06 10:26:54.569   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:54.569   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:54.569   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:54.570   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:54.570   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:54.570   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:54.570   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+    2026-10-06 10:26:54.570   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+    2026-10-06 10:26:54.570   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:54.570   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:54.570   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 1.6 personal Director, after its Gateway withdrew demo-mode
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+==== 1.7 team Director with its team file missing - must change nothing
+[1.7 team Director with its team file missing - must change nothing] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[1.7 team Director with its team file missing - must change nothing] gateway.url = http://localhost:7812; team = (no file: personal)
+[1.7 team Director with its team file missing - must change nothing] port 7812 checked free on the loopback address
+[1.7 team Director with its team file missing - must change nothing] stub Gateway serving http://localhost:7812/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+[1.7 team Director with its team file missing - must change nothing] store refreshed: 3 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\skills\installed
+[1.7 team Director with its team file missing - must change nothing] WARNING: only 0 of 3 fleet skill(s) reached ClaudeCode: 3 not placed because they were fetched for a different account than this Director is set up for - nothing was changed; check the Director's team in Settings.
+[1.7 team Director with its team file missing - must change nothing]   problem: dev-throttle SourceMismatch in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+[1.7 team Director with its team file missing - must change nothing]   problem: fleet-comms SourceMismatch in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+[1.7 team Director with its team file missing - must change nothing]   problem: team-runbook SourceMismatch in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  first log lines of director-team\logs\director\director-2026-10-06-62136.log:
+    2026-10-06 10:26:55.086 [1.7 team Director with its team file missing - must change nothing] environment check, before anything else runs:
+    2026-10-06 10:26:55.101   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:55.101   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:55.101   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:55.101   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:55.101   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:55.101   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:55.101   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+    2026-10-06 10:26:55.101   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+    2026-10-06 10:26:55.101   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:55.101   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:55.101   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 1.7 team Director with its team file missing - must change nothing
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+
+######## Scenario 2: the team Director starts first
+---- before either Director
+  home\.agents\skills
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+  home\.claude\skills
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+==== 2.1 team Director
+[2.1 team Director] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[2.1 team Director] gateway.url = http://localhost:7812; team = team-a
+[2.1 team Director] port 7812 checked free on the loopback address
+[2.1 team Director] stub Gateway serving http://localhost:7812/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+    stub: GET /gateway/skills/fleet-comms/versions/1 (key ...-key)
+    stub: GET /gateway/skills/dev-throttle/versions/1 (key ...-key)
+    stub: GET /gateway/skills/team-runbook/versions/1 (key ...-key)
+    stub: GET /gateway/skills/team-style/versions/1 (key ...-key)
+[2.1 team Director] store refreshed: 4 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\skills\installed
+[2.1 team Director] All 4 fleet skill(s) are in place for ClaudeCode.
+  first log lines of director-team\logs\director\director-2026-10-06-59356.log:
+    2026-10-06 10:26:55.468 [2.1 team Director] environment check, before anything else runs:
+    2026-10-06 10:26:55.481   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:55.481   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:55.481   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:55.481   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:55.481   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:55.481   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:55.481   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+    2026-10-06 10:26:55.481   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+    2026-10-06 10:26:55.481   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:55.481   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:55.481   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 2.1 team Director
+  home\.agents\skills
+    dev-throttle   folder account=team:team-a rig-gateway-7812          from the team library
+    fleet-comms    folder account=team:team-a rig-gateway-7812          from the team library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+    team-style     folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    dev-throttle   link   account=team:team-a rig-gateway-7812          from the team library
+    fleet-comms    link   account=team:team-a rig-gateway-7812          from the team library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+    team-style     link   account=team:team-a rig-gateway-7812          from the team library
+==== 2.2 personal Director
+[2.2 personal Director] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[2.2 personal Director] gateway.url = http://localhost:7811; team = (no file: personal)
+[2.2 personal Director] port 7811 checked free on the loopback address
+[2.2 personal Director] stub Gateway serving http://localhost:7811/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+    stub: GET /gateway/skills/browsers/versions/1 (key ...-key)
+    stub: GET /gateway/skills/fleet-comms/versions/1 (key ...-key)
+    stub: GET /gateway/skills/dev-throttle/versions/1 (key ...-key)
+    stub: GET /gateway/skills/demo-mode/versions/1 (key ...-key)
+[2.2 personal Director] store refreshed: 4 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\skills\installed
+[2.2 personal Director] All 4 fleet skill(s) are in place for ClaudeCode.
+  first log lines of director-personal\logs\director\director-2026-10-06-15720.log:
+    2026-10-06 10:26:55.964 [2.2 personal Director] environment check, before anything else runs:
+    2026-10-06 10:26:55.978   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:55.978   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:55.978   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:55.978   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:55.978   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:55.978   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:55.978   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+    2026-10-06 10:26:55.978   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+    2026-10-06 10:26:55.978   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:55.978   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:55.978   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 2.2 personal Director
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    demo-mode      folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+    team-style     folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    demo-mode      link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+    team-style     link   account=team:team-a rig-gateway-7812          from the team library
+==== 2.3 team Director again
+[2.3 team Director again] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[2.3 team Director again] gateway.url = http://localhost:7812; team = team-a
+[2.3 team Director again] port 7812 checked free on the loopback address
+[2.3 team Director again] stub Gateway serving http://localhost:7812/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+[2.3 team Director again] store refreshed: 4 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\skills\installed
+[2.3 team Director again] WARNING: only 2 of 4 fleet skill(s) reached ClaudeCode: 2 kept by another Director's library under the same name (dev-throttle, fleet-comms) in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills - the person's own account wins a name, and between teams the first installed keeps it.
+[2.3 team Director again]   problem: dev-throttle HeldByAnotherSource in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+[2.3 team Director again]   problem: fleet-comms HeldByAnotherSource in D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  first log lines of director-team\logs\director\director-2026-10-06-73812.log:
+    2026-10-06 10:26:56.506 [2.3 team Director again] environment check, before anything else runs:
+    2026-10-06 10:26:56.526   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:56.526   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:56.526   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:56.526   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:56.526   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:56.526   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team
+    2026-10-06 10:26:56.526   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\config
+    2026-10-06 10:26:56.526   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-team\logs\director
+    2026-10-06 10:26:56.526   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:56.526   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:56.526   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 2.3 team Director again
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    demo-mode      folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+    team-style     folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    demo-mode      link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+    team-style     link   account=team:team-a rig-gateway-7812          from the team library
+==== 2.4 personal Director again
+[2.4 personal Director again] environment check, before anything else runs:
+  OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+  OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+  OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+  OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+  OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+  OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+  NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+  OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+  OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+  CC_* variables present: CC_DIRECTOR_ROOT
+  CC_VAULT_PATH absent: OK
+[2.4 personal Director again] gateway.url = http://localhost:7811; team = (no file: personal)
+[2.4 personal Director again] port 7811 checked free on the loopback address
+[2.4 personal Director again] stub Gateway serving http://localhost:7811/gateway/skills for this run only
+    stub: GET /gateway/skills (key ...-key)
+[2.4 personal Director again] store refreshed: 4 skill(s) at D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\skills\installed
+[2.4 personal Director again] All 4 fleet skill(s) are in place for ClaudeCode.
+  first log lines of director-personal\logs\director\director-2026-10-06-37716.log:
+    2026-10-06 10:26:57.098 [2.4 personal Director again] environment check, before anything else runs:
+    2026-10-06 10:26:57.113   OK   CC_DIRECTOR_ROOT = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:57.113   OK   USERPROFILE = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:57.113   OK   HOME = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home
+    2026-10-06 10:26:57.113   OK   LOCALAPPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Local
+    2026-10-06 10:26:57.113   OK   APPDATA = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\AppData\Roaming
+    2026-10-06 10:26:57.113   OK   CcStorage.Root() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal
+    2026-10-06 10:26:57.114   OK   CcStorage.Config() = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\config
+    2026-10-06 10:26:57.114   OK   log folder = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\director-personal\logs\director
+    2026-10-06 10:26:57.114   NOTE home as .NET resolves it = C:\Users\soren (ignores USERPROFILE on Windows) - NOT used
+    2026-10-06 10:26:57.114   OK   skills folder (shared) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.agents\skills
+    2026-10-06 10:26:57.114   OK   skills folder (Claude Code) = D:\ReposFred\devthrottle-teams-2311-skills\.skills-rig\home\.claude\skills
+---- after 2.4 personal Director again
+  home\.agents\skills
+    browsers       folder account=personal rig-gateway-7811             from the personal library
+    demo-mode      folder account=personal rig-gateway-7811             from the personal library
+    dev-throttle   folder account=personal rig-gateway-7811             from the personal library
+    fleet-comms    folder account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   folder old marker, no source                         installed by the current release
+    team-runbook   folder account=team:team-a rig-gateway-7812          from the team library
+    team-style     folder account=team:team-a rig-gateway-7812          from the team library
+  home\.claude\skills
+    browsers       link   account=personal rig-gateway-7811             from the personal library
+    demo-mode      link   account=personal rig-gateway-7811             from the personal library
+    dev-throttle   link   account=personal rig-gateway-7811             from the personal library
+    fleet-comms    link   account=personal rig-gateway-7811             from the personal library
+    my-own-skill   folder no marker                                     written by hand
+    old-personal   link   old marker, no source                         installed by the current release
+    team-runbook   link   account=team:team-a rig-gateway-7812          from the team library
+    team-style     link   account=team:team-a rig-gateway-7812          from the team library
+
+Rig removed. Every process this script started was a foreground run that exited.

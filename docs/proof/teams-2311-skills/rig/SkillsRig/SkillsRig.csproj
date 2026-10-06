@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The live proof's stand-in for one Director's skill path (devthrottle_internal#2311, finding F7).
+       Not part of the solution and never shipped: it exists so the proof runs the REAL Core code. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\..\src\CcDirector.Core\CcDirector.Core.csproj" />
+  </ItemGroup>
+
+</Project>

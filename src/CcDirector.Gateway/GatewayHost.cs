@@ -4849,7 +4849,16 @@ public sealed class GatewayHost : IAsyncDisposable
             (doc, request, nowUtc) => DevReports.DevReportInheritance.Pass(doc, request, _devReports,
                 _tenantPass.Current ?? throw new InvalidOperationException("no account is bound to this request, so no dev report can pass."),
                 nowUtc));
-        Api.SkillEndpoints.Map(_app, _skills);
+        // The register names WHICH library it is for the caller's key - this Gateway's stable id, the tenant the
+        // store just answered for, and the team when that tenant is one - so a Director stamps its skills with an
+        // identity that never depends on the address it used (devthrottle_internal#2311, SK-F2/SK-F3).
+        var gatewayIdentity = new Settings.GatewayInstanceIdentity(_tenantSettings);
+        Api.SkillEndpoints.Map(_app, _skills, source: () =>
+        {
+            var tenant = _tenantContext.Current;
+            return new Api.SkillLibrarySource(
+                gatewayIdentity.Get(), tenant.Value, TeamRegistry.IsTeam(tenant) ? tenant.Value : null);
+        });
 
         // The standing instructions an account gives about its sessions, and the record of every firing
         // (Session Rules mission). A device-authed client route under the "/gateway/..." prefix, gated by

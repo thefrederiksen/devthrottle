@@ -1,0 +1,83 @@
+﻿Building once, then running 10 test project(s)...
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:06.06
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.55
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.49
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.61
+  started CcDirector.Core.UnitTests
+  started CcDirector.Avalonia.Tests
+  started CcDirector.Engine.Tests
+  started CcDirector.HostedAgent.Tests
+  started CcDirector.Launcher.Tests
+  started CcDirector.Terminal.Avalonia.Tests
+  started CcDirector.Reclaim.Tests
+  started cc-director-setup.Tests
+  started cc-director-setup-engine.Tests
+  started cc-director-setup-cli.Tests
+
+Waiting. No parked suite is in this run, so nothing here queues for the machine-wide lock.
+
+  PASS  CcDirector.Core.UnitTests  Passed!  - Failed:     0, Passed:  1232, Skipped:     0, Total:  1232, Duration: 1 
+m 11 s - CcDirector.Core.UnitTests.dll (net10.0)
+  PASS  CcDirector.Avalonia.Tests  Passed!  - Failed:     0, Passed:   908, Skipped:     0, Total:   908, Duration: 1 
+m 16 s - CcDirector.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Engine.Tests  Passed!  - Failed:     0, Passed:    68, Skipped:     0, Total:    68, Duration: 4 s 
+- CcDirector.Engine.Tests.dll (net10.0)
+  PASS  CcDirector.HostedAgent.Tests  Passed!  - Failed:     0, Passed:    88, Skipped:     0, Total:    88, Duration: 
+1 m 34 s - CcDirector.HostedAgent.Tests.dll (net10.0)
+  PASS  CcDirector.Launcher.Tests  Passed!  - Failed:     0, Passed:   197, Skipped:     0, Total:   197, Duration: 10 
+s - CcDirector.Launcher.Tests.dll (net10.0)
+  PASS  CcDirector.Terminal.Avalonia.Tests  Passed!  - Failed:     0, Passed:    82, Skipped:     0, Total:    82, 
+Duration: 14 s - CcDirector.Terminal.Avalonia.Tests.dll (net10.0)
+  PASS  CcDirector.Reclaim.Tests  Passed!  - Failed:     0, Passed:   310, Skipped:     0, Total:   310, Duration: 6 s 
+- CcDirector.Reclaim.Tests.dll (net10.0)
+  PASS  cc-director-setup.Tests  Passed!  - Failed:     0, Passed:    25, Skipped:     0, Total:    25, Duration: 1 s 
+- CcDirectorSetup.Tests.dll (net10.0)
+  PASS  cc-director-setup-engine.Tests  Passed!  - Failed:     0, Passed:   708, Skipped:     0, Total:   708, 
+Duration: 10 s - CcDirector.Setup.Engine.Tests.dll (net10.0)
+  PASS  cc-director-setup-cli.Tests  Passed!  - Failed:     0, Passed:    59, Skipped:     0, Total:    59, Duration: 
+1 s - CcDirector.Setup.Cli.Tests.dll (net10.0)
+
+TRX verdict - THIS is the gate. Every suite must report outcome=Completed:
+  CcDirector.Core.UnitTests                outcome=Completed    total=1232   executed=1232
+  CcDirector.Avalonia.Tests                outcome=Completed    total=908    executed=908
+  CcDirector.Engine.Tests                  outcome=Completed    total=68     executed=68
+  CcDirector.HostedAgent.Tests             outcome=Completed    total=88     executed=88
+  CcDirector.Launcher.Tests                outcome=Completed    total=197    executed=197
+  CcDirector.Terminal.Avalonia.Tests       outcome=Completed    total=82     executed=82
+  CcDirector.Reclaim.Tests                 outcome=Completed    total=310    executed=310
+  cc-director-setup.Tests                  outcome=Completed    total=25     executed=25
+  cc-director-setup-engine.Tests           outcome=Completed    total=708    executed=708
+  cc-director-setup-cli.Tests              outcome=Completed    total=59     executed=59
+
+TRX files: C:\Users\soren\AppData\Local\Temp\cc-test-local-dd46d94a
+
+
+COVERAGE GAP - this change touches code covered by PARKED suite(s) that did not run:
+  CcDirector.Core.Tests
+  CcDirector.Gateway.Tests
+  CcDirector.Gateway.UnitTests
+
+Run '.\scripts	est-local.ps1 -Parked' before merging, or say in the pull request why not.
+(Explain the reasoning with: .\scripts\select-tests.ps1 -Explain)
+RESULT: all projects exited zero. Check the TRX outcome and totals above before calling it green.
+This is the gate - you do not need to wait for GitHub CI to merge.

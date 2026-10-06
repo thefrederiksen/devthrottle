@@ -1,0 +1,156 @@
+Core skill tests after review round 6 - 2026-10-06T18:39:54Z - every class under CcDirector.Core.Tests.Skills, full build
+  Test run summary: 102 passed, 0 failed, 0 skipped (the 102 lines below).
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_same_version_of_a_skill_served_by_two_libraries_is_fetched_again_for_the_second [294 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_refresh_that_lands_while_placement_is_copying_never_gets_its_bytes_stamped_with_the_old_source [6 s]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_same_account_keeps_owning_its_skills_when_its_Gateway_address_changes(before: "https://devthrottle.mycompany.com", after: "https://devthrottle.com") [176 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_same_account_keeps_owning_its_skills_when_its_Gateway_address_changes(before: "http://gateway.example.com", after: "https://gateway.example.com") [161 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_same_account_keeps_owning_its_skills_when_its_Gateway_address_changes(before: "http://192.168.1.20:7878", after: "http://gateway-box.tailnet:7878") [158 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_Gateway_that_does_not_name_the_source_gets_nothing_placed_and_nothing_removed [95 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.Two_Directors_of_one_account_at_two_front_doors_share_its_skills_and_another_account_does_not [139 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_kept_skill_fetched_for_another_library_leaves_the_store_and_one_fetched_for_this_library_stays [22 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_skill_in_the_store_recorded_for_another_library_is_never_placed [86 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.The_refresh_records_the_source_the_Gateway_named_for_the_key [7 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_team_key_saved_without_its_team_record_removes_and_overwrites_nothing [252 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.Refresh_and_placement_racing_freely_for_many_rounds_never_relabel_a_librarys_bytes [1 s]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceEstablishmentTests.A_Director_moved_from_a_team_to_the_personal_account_never_places_the_team_bytes_as_personal [180 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillStoreRefreshTests.ASkillTheRegisterNoLongerServes_IsStillDroppedFromTheStore [30 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillStoreRefreshTests.ARegisterThatCannotBeRead_KeepsEverySkillInTheStore [7 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillStoreRefreshTests.ASkillWhoseDirectoryWasRemovedByHand_IsDownloadedAgain [12 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillStoreRefreshTests.ARegisterWithoutContentHashes_IsDecidedByVersionAlone [9 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillStoreRefreshTests.ASecondRefreshWithAnUnchangedRegister_DownloadsNothing_AndLeavesTheFilesAlone [98 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillStoreRefreshTests.TheSameVersionWithADifferentContentHash_IsDownloadedAgain [21 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillStoreRefreshTests.ABumpedVersion_IsDownloadedAndInstalled [19 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_record_that_cannot_be_written_changes_nothing_on_disk_and_says_so [378 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_recorded_link_the_person_replaced_with_one_to_the_same_place_survives_withdrawal [268 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.An_agent_folder_whose_PARENT_is_linked_into_the_shared_folder_stages_nothing [73 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_withdrawn_skills_link_is_left_in_place_and_reads_as_nothing [187 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_folder_already_at_the_staging_name_that_the_installer_did_not_make_is_left_untouched [22 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_persons_dangling_link_into_the_shared_folder_survives_a_launch_and_works_again_when_its_target_returns [163 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_persons_link_in_the_shared_folder_is_never_moved_overwritten_or_withdrawn [239 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_staging_root_the_installer_makes_carries_its_marker_and_is_used_again [116 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.An_agent_folder_linked_into_the_shared_folder_places_nothing_and_touches_nothing [66 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_recorded_link_the_person_replaced_with_one_to_another_place_survives_refresh_and_withdrawal [199 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_link_made_before_the_record_existed_is_left_alone_when_its_skill_is_withdrawn [158 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.Our_link_that_the_person_pointed_somewhere_else_is_left_alone [217 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillFolderConcurrencyTests.The_lock_has_one_name_per_folder_whatever_the_spelling_and_a_different_one_for_another_folder [2 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillFolderConcurrencyTests.A_Director_that_cannot_have_the_folder_in_time_changes_nothing_and_says_so [254 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillFolderConcurrencyTests.A_withdrawal_racing_a_takeover_never_deletes_or_overwrites_the_other_sources_folder [7 s]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.Every_folder_the_installer_makes_in_the_staging_folder_carries_its_marker_before_anything_else [157 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "copying") [98 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "staged") [81 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "swapped") [95 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_placing_a_new_skill_is_repaired_by_the_next_one(step: "copied") [90 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted(name: "somebody-elses-folder") [17 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted(name: "backup.0123456789abcdef0123456789abcdef.old") [14 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted(name: "notes.0123456789abcdef0123456789abcdef.withdrawn") [13 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_folder_in_the_staging_folder_without_this_installers_marker_is_never_deleted(name: "keeper.0123456789abcdef0123456789abcdef.staging") [14 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.Nothing_is_ever_built_inside_a_skills_folder [78 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "swapped") [230 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "copied") [220 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "copying") [210 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "staged") [207 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_at_any_step_of_replacing_a_skill_is_repaired_by_the_next_one(step: "moved-aside") [217 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_skills_folder_that_is_a_link_has_its_copies_built_beside_the_folder_it_points_at [208 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_reconcile_killed_while_withdrawing_a_skill_leaves_no_half_deleted_folder_and_the_next_one_finishes [169 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSwapTests.A_skills_folder_linked_to_nowhere_changes_nothing_and_says_why [48 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_NonClaudeDriverSession_ReturnsOwnCommandCatalog(agentKind: Gemini, expectedCommand: "theme") [14 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_NonClaudeDriverSession_ReturnsOwnCommandCatalog(agentKind: Codex, expectedCommand: "model") [1 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_NonClaudeDriverSession_ReturnsOwnCommandCatalog(agentKind: OpenCode, expectedCommand: "models") [< 1 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_NonClaudeDriverSession_ReturnsOwnCommandCatalog(agentKind: Cursor, expectedCommand: "model") [1 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_ClaudeSession_IncludesInteractiveCommandsInComposerList [14 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_RawCustomSession_ReturnsNoBuiltInCommands [1 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_PiSession_ReturnsPiCommandsWithoutClaudeCommands [7 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_ClaudeSession_PreservesClaudeCommands [8 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.InvalidateCache_PiPromptAddedAfterFirstRead_RefreshesCommands [14 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_PiSession_IncludesInteractiveCommandsInComposerList [5 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_PiSession_DiscoversProjectPromptsAndSkills [10 ms]
+  Passed CcDirector.Core.Tests.Skills.SlashCommandProviderDriverTests.GetCommands_GrokSession_ReturnsInteractiveSlashCommands_NotCliSubcommands [1 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.A_truncated_link_record_does_not_stop_a_missing_link_being_made [136 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.A_link_inside_our_own_folder_is_removed_as_a_link_and_its_target_survives_a_refresh_and_a_withdrawal [240 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.DeleteOwnTree_removes_nested_links_without_entering_them [61 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.A_persons_junction_at_a_retired_installer_name_is_never_reclaimed [86 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.An_envelope_that_cannot_be_deleted_does_not_stop_the_reconcile_and_is_cleaned_next_time [360 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.DeleteOwnTree_refuses_a_link_at_the_top [43 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_complete_placement_says_nothing_is_wrong [68 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.The_frontmatter_name_is_the_id_because_that_is_what_agents_validate [< 1 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.The_reclaim_runs_once_and_never_takes_a_name_again [78 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_migration_recorded_the_old_way_is_carried_over_and_moves_nothing [33 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.There_is_ONE_copy_and_the_agents_own_directory_holds_a_link_to_it [66 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.The_retired_installers_leftover_is_moved_aside_ONCE_so_the_fleet_copy_can_land [78 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_materialized_skill_is_a_standard_skill_directory [12 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.An_agent_with_no_skills_directory_installs_nothing [3 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_path_that_escapes_the_skill_directory_is_refused [3 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.Every_agent_kind_writes_to_the_one_shared_directory [< 1 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.Installing_twice_leaves_one_working_link_and_not_a_broken_one [82 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.The_reclaim_leaves_anything_that_is_not_the_retired_installers_shape [23 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_withdrawn_skill_is_removed_and_a_skill_that_is_not_ours_is_left_alone [162 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_skill_that_cannot_reach_the_agent_is_reported_not_swallowed [41 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_SessionManager_does_not_touch_the_running_users_skills_unless_told_to [8 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_skill_the_machine_already_had_is_never_overwritten [78 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.Installing_puts_the_skill_where_the_agent_looks_and_marks_it_as_ours [119 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_copy_left_by_the_previous_scheme_becomes_a_link [87 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_second_Director_never_moves_the_persons_own_folder_after_the_first_one_migrated [96 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.Nothing_is_installed_when_the_store_has_never_been_filled [1 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.A_file_removed_upstream_does_not_survive_inside_an_installed_skill [156 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillDirectoryInstallerTests.Removing_a_withdrawn_link_does_not_empty_the_one_real_copy [233 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.The_personal_account_on_another_Gateway_is_another_source [270 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.The_personal_account_wins_a_name_even_when_the_team_installed_it_first [142 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.Two_sources_never_remove_each_others_skills_in_any_order_and_repeatedly [1 s]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.A_withdrawal_removes_only_the_withdrawing_sources_own_skills [407 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.A_folder_with_no_marker_is_never_touched_by_any_source [76 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.A_marker_written_before_sources_were_recorded_belongs_to_the_personal_account [279 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.A_stamp_reads_back_and_one_without_a_Gateway_id_reads_as_unrecorded [1 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.A_stamp_naming_the_Gateway_by_address_is_taken_over_by_the_personal_account_and_never_removed [268 ms]
+  Passed CcDirector.Core.Tests.Skills.SkillSourceOwnershipTests.Between_two_teams_the_first_installed_keeps_the_name_until_it_withdraws_it [136 ms]
+
+Red checks - each restores the pre-round-6 behaviour with one mutation, rebuilds, and runs the WHOLE Core skill suite
+(not a filter), restoring the source in a finally block. The first attempt's script failed to apply its mutations
+(empty diffs, all green) and is not counted; the second ran F17 on a full C: drive (unrelated to this work - see the
+handback) and its 18 failures are not counted either; F16 and F17 were rerun with 26.7 GB free.
+
+Red checks for round 6, head 33b28275e, 2026-10-06T14:22:13.1533774-04:00. Each: one mutation that restores the pre-round-6 behaviour, a full build, the whole Core skill suite.
+---- F16 mutated; diff:
+-            if (IsLink(candidate))
++            if (false)
+D:\ReposFred\devthrottle-teams-2311-skills\src\CcDirector.Core\Skills\SkillDirectoryInstaller.cs(402,17): error CS0162: Unreachable code detected [D:\ReposFred\devthrottle-teams-2311-skills\src\CcDirector.Core\CcDirector.Core.csproj]
+---- F19 mutated; diff:
+-        catch (Exception ex) when (ex is JsonException or InvalidDataException or IOException or UnauthorizedAccessException)
++        catch (Exception ex) when (false && ex is JsonException or InvalidDataException or IOException or UnauthorizedAccessException)
+[xUnit.net 00:00:17.94]     CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.A_truncated_link_record_does_not_stop_a_missing_link_being_made [FAIL]
+Failed!  - Failed:     1, Passed:   101, Skipped:     0, Total:   102, Duration: 1 m 30 s - CcDirector.Core.Tests.dll (net10.0)
+Rerun of F16 (mutation now compiles) and F17 (first run was on a full C: drive). Head 33b28275e, 2026-10-06T14:33:11.4011905-04:00, C: free 26.7 GB
+---- F16 mutated; diff:
+-            if (IsLink(candidate))
++            if (candidate.Length < 0)
+[xUnit.net 00:00:50.81]     CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.A_persons_junction_at_a_retired_installer_name_is_never_reclaimed [FAIL]
+Failed!  - Failed:     1, Passed:   101, Skipped:     0, Total:   102, Duration: 54 s - CcDirector.Core.Tests.dll (net10.0)
+---- F17 mutated; diff:
+-            DeleteOwnTree(envelope);
++            Directory.Delete(envelope, recursive: true);
+-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
++        catch (Exception ex) when (false && ex is IOException)
+[xUnit.net 00:00:35.05]     CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.A_link_inside_our_own_folder_is_removed_as_a_link_and_its_target_survives_a_refresh_and_a_withdrawal [FAIL]
+[xUnit.net 00:00:35.51]     CcDirector.Core.Tests.Skills.SkillRound6BoundaryTests.An_envelope_that_cannot_be_deleted_does_not_stop_the_reconcile_and_is_cleaned_next_time [FAIL]
+System.UnauthorizedAccessException : Access to the path 'notes' is denied.
+System.UnauthorizedAccessException : Access to the path 'stuck.txt' is denied.
+Failed!  - Failed:     2, Passed:   100, Skipped:     0, Total:   102, Duration: 48 s - CcDirector.Core.Tests.dll (net10.0)
+---- restored; git status (empty = clean):
+C: free after: 26.7 GB
+
+After the restore, the same suite on the committed source, full build: 102 passed, 0 failed (listed at the top).
+
+Default gate (.\scripts\test-local.ps1), same head, rebased on origin/main 8669823a7: 10 of 10 suites outcome=Completed -
+Core.UnitTests 1232, Avalonia 908, Engine 102, HostedAgent 88, Launcher 197, Terminal.Avalonia 82, Reclaim 310,
+setup 25, setup-engine 708, setup-cli 59. Its coverage-gap line names Core.Tests (its skill classes ran above),
+Gateway.Tests and Gateway.UnitTests: this round changes no Gateway code, so the Gateway suites were not rerun.
+
+Out of scope, recorded as the round 6 rulings direct:
+- SK-F17: the person racing the installer between its check and its move (replacing a folder with a link in that
+  interval) is out of scope. Not handled; noted here.
+- SK-F18: a link planted in the installer's private store (<store>/<skill-id>) or over its own metadata files
+  (the link record, the store's source record) is not one of the person's skills. No change was made. For the record:
+  .NET's recursive delete removes a directory link as a link and does not enter it, so the store paths never delete
+  a link's target.
+- SK-F20: a LinkTarget/ResolveLinkTarget exception now returns null from ResolveFully and goes through the one
+  StagingFolderUnsafe refusal; there is no test that provokes such an exception (it needs a malformed reparse point
+  or a refused attribute read, neither of which a test can make portably). The missing-target path is tested.

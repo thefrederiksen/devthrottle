@@ -10,7 +10,10 @@ public sealed class SkillPlacementProblemDto
     /// round trip. A path, never any file's content.</summary>
     public string Target { get; set; } = "";
 
-    /// <summary>"Shadowed" (a directory DevThrottle did not write occupies the name) or "LinkFailed".</summary>
+    /// <summary>"Shadowed" (a directory DevThrottle did not write occupies the name), "HeldByAnotherSource"
+    /// (another Director's library installed the name and keeps it), "FolderBusy", "SourceUnknown", "SourceMismatch",
+    /// "FolderLinkUnresolved" (sent only by older Directors; a current one reports that cause as "StagingFolderUnsafe"),
+    /// "StagingFolderUnsafe" (placement changed nothing - see SkillPlacementFault in the Director) or "LinkFailed".</summary>
     public string Fault { get; set; } = "";
 }
 

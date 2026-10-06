@@ -1,0 +1,43 @@
+RED CHECKS, review round 5 - 2026-10-06T17:09:10.823197Z - built on 50450e90d plus the round 5 change
+Each: mutate, full build, run the named tests, record, restore the saved source.
+
+====================================================================================================
+SK-F12 (refresh): round 4 - a link at a wanted name pointing elsewhere is deleted and rebuilt
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++                Directory.Delete(destination, recursive: false); // RED CHECK: round 4 rebuilt it
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_recorded_link_the_person_replaced_with_one_to_another_place_survives_refresh_and_withdrawal [500 ms]
+first messages:
+     Assert.Equal() Failure: Strings differ
+
+====================================================================================================
+SK-F12/F13 (withdrawal): round 4 - a link at a withdrawn name that points at the recorded target is deleted
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++                if (SkillLinkRecord.PointsAt(existing, Path.Combine(sharedRoot, name))) { Directory.Delete(existing, recursive: false); continue; } // RED CHECK: round 4 withdrew it
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_record_that_cannot_be_written_changes_nothing_on_disk_and_says_so [464 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_recorded_link_the_person_replaced_with_one_to_the_same_place_survives_withdrawal [1 s]
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_withdrawn_skills_link_is_left_in_place_and_reads_as_nothing [283 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_persons_dangling_link_into_the_shared_folder_survives_a_launch_and_works_again_when_its_target_returns [279 ms]
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_link_made_before_the_record_existed_is_left_alone_when_its_skill_is_withdrawn [371 ms]
+first messages:
+     a link was removed although the record could not be written
+     the person's link at a recorded path was deleted on withdrawal
+     the installer deleted a link
+     the person's dangling link was deleted by a launch
+
+====================================================================================================
+SK-F15: a link in the shared folder is judged by the marker of what it points at
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++        // RED CHECK: a link is read through
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.A_persons_link_in_the_shared_folder_is_never_moved_overwritten_or_withdrawn [179 ms]
+first messages:
+     System.UnauthorizedAccessException : Access to the path 'keeper' is denied.
+
+====================================================================================================
+SK-F14: only the last part of a path is followed, as in round 4
++#pragma warning disable CS0162 // RED CHECK: a mutation may leave code unreachable
++            if (info.LinkTarget is not null && string.Equals(next, full, PathComparison)) // RED CHECK: the leaf only
+  Failed CcDirector.Core.Tests.Skills.SkillLinkAndStagingOwnershipTests.An_agent_folder_whose_PARENT_is_linked_into_the_shared_folder_stages_nothing [179 ms]
+first messages:
+     Assert.Single() Failure: The collection was empty
+
+Every mutation restored from the saved source.
