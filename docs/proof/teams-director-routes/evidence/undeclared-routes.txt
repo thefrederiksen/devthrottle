@@ -1,6 +1,7 @@
-Every hosted route still undeclared for teams after this change, as TeamEndpointWalkTests.EveryEndpoint_InATeam_IsRefusedUnlessItStatesAnAction listed it on 2026-10-06 (commit on branch teams/2311-team-director-routes).
+Every hosted route still undeclared for teams after this change, as TeamEndpointWalkTests.EveryEndpoint_InATeam_IsRefusedUnlessItStatesAnAction listed it
+in the final parked run on 2026-10-06 (branch teams/2311-team-director-routes, rebased onto origin/main 0fd6bf0ce).
 Each is refused inside a team with: This part of DevThrottle has not been opened to teams yet.
-516 endpoint-methods on the hosted route table: 273 state an action, 243 state none and are refused inside a team.
+518 endpoint-methods on the hosted route table: 275 state an action, 243 state none and are refused inside a team.
 
 GET /
 POST /
@@ -244,4 +245,4 @@ POST /voice-test/clip
 DELETE /voice-test/clips
 GET /voice-test/clips
 GET /{*path}
-POST /{*path}
+POST /{*path}</StdOut>
