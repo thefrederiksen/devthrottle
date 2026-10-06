@@ -51,6 +51,18 @@ under the `/gateway/skills` read row ("use the team's shared skills") and answer
 member. A machine is a person's own, so it now has its own exact rule and is cut to the caller's own machines, for every
 role. Told to the Tech Lead.
 
+## Folded in: the narration owner (late-pieces review, finding 1)
+
+Added to this task by the Delivery Lead. `TeamCallerOwnership.PersonOfSession`, which the Wingman's narration plan
+asks for a team session's owner (`GatewayHost.ResolveTeamNarrationPlan`), was a second "whose session" rule: it
+answered nobody whenever more than one Director listed the id, so a colleague's Director listing Alice's session id
+made her plan Unknown and her paid narration was silently not made. It now takes the owner from the one rule,
+`ClaimOf` and then `OwnerOf`, as #3589 did for every other per-session path: stored writers first, then the key row,
+then a sole lister. Tests: `HostedTeamSessionDirectorOneRuleTests.TheOwnersNarrationPlan_IsTheTeamTier_WhileAColleaguesDirectorListsTheSessionToo`
+(over the real tunnel: only Bob's row - Unknown, never Bob's; both rows - Allowed) and two unit tests in
+`TeamDirectorRoutesTests` (both listing - Alice's; only the colleague listing a keyed session - nobody's). The red run
+with the previous code is M13 in `evidence/red-runs.txt`.
+
 ## Gaps - owner decisions, not built
 
 - **Who may change a team's settings.** `PUT /gateway/snooze-presets`, `PUT /gateway/injected-text` and every other

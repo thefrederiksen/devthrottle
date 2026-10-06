@@ -259,6 +259,32 @@ public sealed class TeamDirectorRoutesTests : IDisposable
             TeamCallerChecks.RefuseActivityBatch(CallerOf(null, _aliceKey), new[] { ("director-alice", "session-alice") }));
     }
 
+    // ---- whose session it is, for the Wingman's narration plan (late-pieces review, finding 1) ----------------------
+
+    [Fact]
+    public void PersonOfSession_AKeyedSessionAColleaguesDirectorAlsoLists_IsStillItsOwners()
+    {
+        // Bob's Director lists Alice's session id beside his own; Alice's Director lists it too. Before, two listers made
+        // the session nobody's, and the narration plan for it was Unknown - no narration.
+        Assert.True(_sessions.ApplySnapshot(_tenant, "director-bob", "conn-director-bob", 2,
+            new[] { new SessionDto { SessionId = "session-bob" }, new SessionDto { SessionId = "session-alice" } }));
+        Assert.Equal(2, _sessions.DirectorsHoldingSession(_tenant, "session-alice").Count);
+
+        Assert.Equal(Alice, _ownership.PersonOfSession(_tenant, "session-alice"));
+        Assert.Equal(Bob, _ownership.PersonOfSession(_tenant, "session-bob"));
+    }
+
+    [Fact]
+    public void PersonOfSession_OnlyAColleagueListsAKeyedSession_IsNobodys_NeverTheColleagues()
+    {
+        Assert.True(_sessions.ApplySnapshot(_tenant, "director-alice", "conn-director-alice", 2, Array.Empty<SessionDto>()));
+        Assert.True(_sessions.ApplySnapshot(_tenant, "director-bob", "conn-director-bob", 2,
+            new[] { new SessionDto { SessionId = "session-bob" }, new SessionDto { SessionId = "session-alice" } }));
+        Assert.Equal(new[] { "director-bob" }, _sessions.DirectorsHoldingSession(_tenant, "session-alice").ToArray());
+
+        Assert.Null(_ownership.PersonOfSession(_tenant, "session-alice"));
+    }
+
     [Fact]
     public void RefusePlacement_NeedsACallerAndAKeyDirector()
     {
