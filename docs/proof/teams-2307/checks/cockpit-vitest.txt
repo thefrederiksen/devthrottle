@@ -14,18 +14,18 @@ stdout | src/sessions/composerSpeakSend.test.tsx > Cockpit Speak Send-direct (re
 stdout | src/sessions/composerSpeakSend.test.tsx > Cockpit Speak Send-direct (recording-stage) > editing the transcript before sending drops the spoken claim
 [capture-health] surface=cockpit recordedMs=1000 decodedSec=1.00 deficit=0.0% sourceBytes=1000
 
-stderr | src/fleetmanager/WalkthroughView.test.tsx > WalkthroughView > opens on the first open item and renders the reading, the advice and the round as sent
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
+ ✓ src/fleet/TeamFleetMapView.test.tsx (13 tests) 633ms
 stderr | src/mentor/MentorView.test.tsx > MentorView > MentorView_ScopeEveryone_ShowsEveryBlockSent_AndNothingAboutAnyoneWithNoBlock
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/fleet/TeamFleetMapView.test.tsx (13 tests) 676ms
- ✓ src/sessions/composerTypedHeld.test.tsx (8 tests) 588ms
- ✓ src/sessions/composerSpeakSend.test.tsx (9 tests) 597ms
-stderr | src/factory/FactoryAgentsView.test.tsx > Factory Agents - Factories tab (Screen 1) > renders the tabs, each card's status, numbers and factory agents in the Gateway's words
+stderr | src/fleetmanager/WalkthroughView.test.tsx > WalkthroughView > opens on the first open item and renders the reading, the advice and the round as sent
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/sessions/composerTypedHeld.test.tsx (8 tests) 674ms
+ ✓ src/sessions/composerSpeakSend.test.tsx (9 tests) 728ms
+stderr | src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Card_ShowsTheGatewaysWords_WhoAskedTheOptionsAndWhereTheWordsGo
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
@@ -33,11 +33,11 @@ stderr | src/factory/FactoryMemoryTab.test.tsx > The factory page's Memory tab (
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
-stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
+stderr | src/factory/FactoryAgentsView.test.tsx > Factory Agents - Factories tab (Screen 1) > renders the tabs, each card's status, numbers and factory agents in the Gateway's words
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
-stderr | src/fleetmanager/FleetManagerView.test.tsx > FleetManagerView > shows where it runs and the Gateway's state line under the title
+stderr | src/teams/collaborator/reportsPage.test.tsx > the list > List_ShowsWhatWasSent_InTheGatewaysOrder_WithFromWhenAndReadAsSent
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
@@ -66,7 +66,6 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/throttle/YourThrottleContract.test.tsx (7 tests) 966ms
 stderr | src/sessions/sessionTree.test.tsx > the Cockpit roster is the ownership tree > expands on the chevron, shows the children in their own desktop order, and remembers it
 [sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
 If you need to partially mock a module, you can use "importOriginal" helper inside:
@@ -136,6 +135,7 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
+ ✓ src/teams/collaborator/questionsPage.test.tsx (10 tests) 558ms
 stderr | src/sessions/sessionTree.test.tsx > the Cockpit roster is the ownership tree > keeps a Manager's Workers reachable one level down, and counts them on the Architect
 [sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
 If you need to partially mock a module, you can use "importOriginal" helper inside:
@@ -228,36 +228,22 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/sessionTree.test.tsx (8 tests) 677ms
- ✓ src/team/requests.test.tsx (9 tests) 629ms
- ✓ src/factory/FactoryAgentsView.test.tsx (13 tests) 842ms
- ✓ src/mentor/MentorView.test.tsx (25 tests) 1035ms
- ✓ src/fleetmanager/WalkthroughView.test.tsx (18 tests) 1100ms
- ✓ src/fleet/FleetMapView.test.tsx (19 tests) 1262ms
- ✓ src/teams/TeamLibraryView.test.tsx (20 tests) 1278ms
- ✓ src/teams/collaborator/reportsPage.test.tsx (31 tests) 1130ms
- ✓ src/sessions/stopSessionDialog.test.tsx (22 tests) 1291ms
- ✓ src/fleetmanager/FleetManagerView.test.tsx (17 tests) 1355ms
+ ✓ src/sessions/sessionTree.test.tsx (8 tests) 845ms
+   ✓ the Cockpit roster is the ownership tree > expands on the chevron, shows the children in their own desktop order, and remembers it 323ms
+ ✓ src/throttle/YourThrottleContract.test.tsx (7 tests) 1275ms
+   ✓ the Your Throttle contract, on the rendered Cockpit page - the whole answer > the headline is rendered not the counts 405ms
+   ✓ the Your Throttle contract, on the rendered Cockpit page - the whole answer > the percent field is printed not re rounded 357ms
+stderr | src/fleetmanager/FleetManagerView.test.tsx > FleetManagerView > offers the owner's lessons from the header: the mistake box, and the list beside the conversation
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/team/requests.test.tsx (9 tests) 937ms
 stderr | src/AppShell.test.tsx > Cockpit left rail > opens with the Fleet Manager, then Sessions, then Fleet Map
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/factory/FactoryMemoryTab.test.tsx (12 tests) 1571ms
- ✓ src/sessions/newSessionDialogOneList.test.tsx (32 tests) 2071ms
-   ✓ the Cockpit New Session dialog draws the desktop tab's repository table > returns to the Gateway's exact array after a round trip through Name and Path 344ms
-stderr | src/team/teamPage.test.tsx
-Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
-    at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
-    at HTMLCanvasElementImpl.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\nodes\HTMLCanvasElement-impl.js:42:5)
-    at HTMLCanvasElement.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\generated\HTMLCanvasElement.js:131:58)
-    at D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:127:24
-    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:118:1)
-    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
-    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRendererRowFactory.ts:11:1)
-    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
-    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRenderer.ts:6:1)
-    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32) undefined
-
+ ✓ src/mentor/MentorView.test.tsx (25 tests) 1420ms
+ ✓ src/factory/FactoryAgentsView.test.tsx (13 tests) 1219ms
 stderr | src/team/inviteRoutes.test.tsx
 Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
     at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
@@ -271,6 +257,31 @@ Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installi
     at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRenderer.ts:6:1)
     at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32) undefined
 
+stderr | src/team/teamPage.test.tsx
+Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
+    at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at HTMLCanvasElementImpl.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\nodes\HTMLCanvasElement-impl.js:42:5)
+    at HTMLCanvasElement.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\generated\HTMLCanvasElement.js:131:58)
+    at D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:127:24
+    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:118:1)
+    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
+    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRendererRowFactory.ts:11:1)
+    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
+    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRenderer.ts:6:1)
+    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32) undefined
+
+ ✓ src/fleetmanager/WalkthroughView.test.tsx (18 tests) 1751ms
+ ✓ src/fleet/FleetMapView.test.tsx (19 tests) 1802ms
+ ✓ src/teams/TeamLibraryView.test.tsx (20 tests) 1977ms
+   ✓ TeamLibraryView > TeamLibraryView_Owner_SeesTheListAndCanAddChangeAndRemove 400ms
+ ✓ src/teams/collaborator/reportsPage.test.tsx (31 tests) 2026ms
+stderr | src/sessions/wingmanTabSurface.test.tsx > the Wingman tab's own screen > has ONE message box, inside the card, in the Gateway's words, still carrying Speak and Attach
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/sessions/newSessionDialogOneList.test.tsx (32 tests) 2600ms
+   ✓ the Cockpit New Session dialog draws the desktop tab's repository table > returns to the Gateway's exact array after a round trip through Name and Path 469ms
+ ✓ src/sessions/stopSessionDialog.test.tsx (22 tests) 1988ms
 stderr | src/sessions/stopOutlivesTheRow.test.tsx > the stop survives the roster refresh that the stop itself caused > keeps the failure on screen after the row it was started from leaves the roster
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
@@ -280,10 +291,10 @@ stderr | src/sessions/stopOutlivesTheRow.test.tsx > the stop survives the roster
     at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:57:10)
     at processTicksAndRejections (node:internal/process/task_queues:105:5)
 
-stderr | src/sessions/wingmanTabSurface.test.tsx > the Wingman tab's own screen > has ONE message box, inside the card, in the Gateway's words, still carrying Speak and Attach
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
+ ✓ src/factory/FactoryMemoryTab.test.tsx (12 tests) 2412ms
+   ✓ The factory page's Memory tab (Factory Memory mission, phase 3b) > is a tab because the Gateway offers it, and ?tab=memory opens it on this factory's notes 480ms
+   ✓ The factory page's Memory tab (Factory Memory mission, phase 3b) > does NOT overwrite a newer version: it shows what is there now, keeps his text, and saves over it only when told 331ms
+   ✓ The factory page's Memory tab (Factory Memory mission, phase 3b) > restores exactly the version picked, after asking, and the note becomes that text as a new version by the person 398ms
 stderr | src/sessions/stopOutlivesTheRow.test.tsx > the stop survives the roster refresh that the stop itself caused > shows a failure that arrives AFTER the row has already gone
 [sessionColours] the colour legend could not be read MalformedColourLegendError: The Gateway's colour legend is missing its list of colours.
     at fail (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:66:11)
@@ -299,30 +310,25 @@ stderr | src/sessions/stopOutlivesTheRow.test.tsx > the stop survives the roster
     at parseSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:75:71)
     at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:57:10)
 
-stderr | src/sessions/wingmanTabSurface.test.tsx > the Wingman tab's own screen > asks once before it closes a session, and stops nothing until he answers
-No routes matched location "/sessions" 
-
- ✓ src/sessions/wingmanTabSurface.test.tsx (5 tests) 1144ms
-   ✓ the Wingman tab's own screen > has ONE message box, inside the card, in the Gateway's words, still carrying Speak and Attach 512ms
 stderr | src/sessions/stopOutlivesTheRow.test.tsx > the stop dialog is one owner above the roster, not one per row > puts a single dialog on screen no matter how many rows are listed
 [sessionColours] the colour legend could not be read MalformedColourLegendError: The Gateway's colour legend is missing its list of colours.
     at fail (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:66:11)
     at parseSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:75:71)
     at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:57:10)
 
- ✓ src/sessions/stopOutlivesTheRow.test.tsx (7 tests) 1164ms
-   ✓ the stop survives the roster refresh that the stop itself caused > keeps the failure on screen after the row it was started from leaves the roster 350ms
- ✓ src/AppShell.test.tsx (25 tests) 2560ms
- ✓ src/sessions/wingmanNowActions.test.tsx (11 tests) 48ms
-stderr | src/teams/collaborator/questionsPage.test.tsx > the questions waiting > Card_ShowsTheGatewaysWords_WhoAskedTheOptionsAndWhereTheWordsGo
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+ ✓ src/sessions/stopOutlivesTheRow.test.tsx (7 tests) 1105ms
+   ✓ the stop survives the roster refresh that the stop itself caused > keeps the failure on screen after the row it was started from leaves the roster 505ms
+ ✓ src/fleetmanager/FleetManagerView.test.tsx (20 tests) 2489ms
+   ✓ FleetManagerView > offers the owner's lessons from the header: the mistake box, and the list beside the conversation 522ms
+   ✓ FleetManagerView > after a lesson is kept, shows the Gateway's sentence, and clears it when the list is opened 339ms
+stderr | src/sessions/wingmanTabSurface.test.tsx > the Wingman tab's own screen > asks once before it closes a session, and stops nothing until he answers
+No routes matched location "/sessions" 
 
-stderr | src/history/HistoryLineage.test.tsx > History shows no written summaries > renders the sessions and none of an old Gateway's summary text
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
- ✓ src/teams/collaborator/questionsPage.test.tsx (10 tests) 382ms
+ ✓ src/sessions/wingmanTabSurface.test.tsx (5 tests) 1372ms
+   ✓ the Wingman tab's own screen > has ONE message box, inside the card, in the Gateway's words, still carrying Speak and Attach 561ms
+ ✓ src/AppShell.test.tsx (25 tests) 2777ms
+   ✓ Cockpit left rail > badges the Fleet Manager with the Gateway's count of what is waiting 332ms
+ ✓ src/sessions/wingmanNowActions.test.tsx (11 tests) 47ms
 stderr | src/missions/MissionsBoard.test.tsx > MissionsBoard > shows the mission's WHY, read off the mission record
 Gateway /sessions missing or unparseable effectiveColorHex (undefined) for session s-124. Rendering the magenta protocol-error sentinel. Redeploy Gateway and clients together.
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
@@ -331,7 +337,6 @@ Gateway /sessions missing or unparseable effectiveColorHex (undefined) for sessi
 stderr | src/missions/MissionsBoard.test.tsx > MissionsBoard > shows the loud flag when a mission genuinely has no WHY
 Gateway /sessions missing or unparseable effectiveColorHex (undefined) for session s-124. Rendering the magenta protocol-error sentinel. Redeploy Gateway and clients together.
 
- ✓ src/history/HistoryLineage.test.tsx (9 tests) 623ms
 stderr | src/missions/MissionsBoard.test.tsx > MissionsBoard > lists every attached session by NAME, with its role as a badge
 Gateway /sessions missing or unparseable effectiveColorHex (undefined) for session s-124. Rendering the magenta protocol-error sentinel. Redeploy Gateway and clients together.
 Gateway /sessions missing or unparseable effectiveColorHex (undefined) for session s-113. Rendering the magenta protocol-error sentinel. Redeploy Gateway and clients together.
@@ -353,61 +358,37 @@ stderr | src/missions/MissionsBoard.test.tsx > MissionsBoard > brings the hidden
 Gateway /sessions missing or unparseable effectiveColorHex (undefined) for session s-124. Rendering the magenta protocol-error sentinel. Redeploy Gateway and clients together.
 Gateway /sessions missing or unparseable effectiveColorHex (undefined) for session s-124. Rendering the magenta protocol-error sentinel. Redeploy Gateway and clients together.
 
- ✓ src/missions/MissionsBoard.test.tsx (12 tests) 283ms
+ ✓ src/missions/MissionsBoard.test.tsx (12 tests) 304ms
+stderr | src/history/HistoryLineage.test.tsx > History shows no written summaries > renders the sessions and none of an old Gateway's summary text
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
 stderr | src/throttle/YourThrottleView.test.tsx > YourThrottleView at the mentor report's link > asks the Gateway for exactly the week in the URL and shows the Gateway's label for it verbatim
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
+ ✓ src/history/HistoryLineage.test.tsx (9 tests) 876ms
+ ✓ src/throttle/YourThrottleView.test.tsx (3 tests) 795ms
+   ✓ YourThrottleView at the mentor report's link > asks the Gateway for exactly the week in the URL and shows the Gateway's label for it verbatim 306ms
+   ✓ YourThrottleView at the mentor report's link > choosing a length re-asks the Gateway with days=N, puts days=N in the URL, and marks the served choice 317ms
+ ✓ src/fleetmanager/StandingPanel.test.tsx (8 tests) 740ms
 stdout | src/sessions/composerSpokenSpans.test.tsx > the Cockpit composer says which characters were spoken > sends the dictation's character range when the person types around it - a turn that is typed and still says where the speech was
 [capture-health] surface=cockpit recordedMs=1000 decodedSec=1.00 deficit=0.0% sourceBytes=1000
 
- ✓ src/throttle/YourThrottleView.test.tsx (3 tests) 591ms
 stdout | src/sessions/composerSpokenSpans.test.tsx > the Cockpit composer says which characters were spoken > forgets the range when the person edits inside the dictated words
 [capture-health] surface=cockpit recordedMs=1000 decodedSec=1.00 deficit=0.0% sourceBytes=1000
 
 stdout | src/sessions/composerSpokenSpans.test.tsx > the Cockpit composer says which characters were spoken > keeps the range across a send that failed and was restored
 [capture-health] surface=cockpit recordedMs=1000 decodedSec=1.00 deficit=0.0% sourceBytes=1000
 
- ✓ src/sessions/composerSpokenSpans.test.tsx (4 tests) 691ms
-   ✓ the Cockpit composer says which characters were spoken > sends the dictation's character range when the person types around it - a turn that is typed and still says where the speech was 382ms
-stderr | src/teams/collaborator/collaboratorApp.test.tsx > The Collaborator's app > Navigation_Collaborator_HasExactlyTheThreePagesTheGatewayListsAndNothingElse
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
- ✓ src/sessions/compactButton.test.tsx (9 tests) 450ms
-stderr | src/sessions/dockCollapseAndFullScreen.test.tsx > the session queue dock > opens expanded, showing the queue
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
+ ✓ src/sessions/composerSpokenSpans.test.tsx (4 tests) 670ms
+   ✓ the Cockpit composer says which characters were spoken > sends the dictation's character range when the person types around it - a turn that is typed and still says where the speech was 348ms
 stderr | src/factory/FactoryPages.test.tsx > A factory agent's page (Screen 2) > says the definition is not stored yet, in exactly the Gateway's sentence
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/sessions/dockCollapseAndFullScreen.test.tsx (7 tests) 374ms
- ✓ src/skills/SkillsView.test.tsx (9 tests) 530ms
- ✓ src/factory/FactoryPages.test.tsx (12 tests) 689ms
-stderr | src/reportAddressRoute.test.tsx > the Cockpit report address > shows that report, at that address, from an address carrying nothing but the report id
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-
-stderr | src/team/teamPage.test.tsx > the Team page, per role > Owner: every role but their own is a dropdown, Remove on everyone but themselves, Invite someone shown
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-
-stderr | src/team/inviteRoutes.test.tsx > the accept page (S3) > sends a signed-out browser - a person with no account yet - to sign-in carrying the accept page's address
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-
- ✓ src/dictionary/DictionaryView.test.tsx (7 tests) 676ms
- ✓ src/fleetmanager/OutcomeCard.test.tsx (8 tests) 525ms
- ✓ src/sessions/messageLinkDialog.test.tsx (6 tests) 963ms
-   ✓ Let this session talk to... > offers every other session, never this one 321ms
- ✓ src/reportAddressRoute.test.tsx (5 tests) 402ms
-stderr | src/sessions/reportsDeepLink.test.tsx > the Cockpit session address > opens the Reports tab with that report already open, straight from the address
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
- ✓ src/sessions/reportsDeepLink.test.tsx (4 tests) 299ms
- ✓ src/team/teamPage.test.tsx (8 tests) 910ms
-   ✓ the Team page, per role > Owner: every role but their own is a dropdown, Remove on everyone but themselves, Invite someone shown 443ms
- ✓ src/team/inviteRoutes.test.tsx (9 tests) 985ms
+ ✓ src/sessions/chatTurnLayout.test.tsx (7 tests) 412ms
+ ✓ src/sessions/myPromptsIndex.test.tsx (8 tests) 246ms
 stderr | src/sessions/rosterPinnedFleetManager.test.tsx > the Cockpit pins the Fleet Manager first > draws the pinned row first, marked, with its team collapsed, then the heading and the rest (my-order)
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
@@ -525,10 +506,19 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/rosterPinnedFleetManager.test.tsx (5 tests) 495ms
- ✓ src/teams/collaborator/collaboratorApp.test.tsx (38 tests) 2775ms
- ✓ src/sessions/chatTurnLayout.test.tsx (7 tests) 298ms
- ✓ src/about/AboutView.test.tsx (10 tests) 189ms
+ ✓ src/sessions/rosterPinnedFleetManager.test.tsx (5 tests) 521ms
+stderr | src/sessions/dockCollapseAndFullScreen.test.tsx > the session queue dock > opens expanded, showing the queue
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/sessions/compactButton.test.tsx (9 tests) 539ms
+ ✓ src/sessions/dockCollapseAndFullScreen.test.tsx (7 tests) 387ms
+ ✓ src/dictionary/DictionaryView.test.tsx (7 tests) 541ms
+ ✓ src/sessions/messageLinkDialog.test.tsx (6 tests) 1035ms
+   ✓ Let this session talk to... > offers every other session, never this one 333ms
+ ✓ src/factory/FactoryPages.test.tsx (12 tests) 769ms
+ ✓ src/fleetmanager/OutcomeCard.test.tsx (8 tests) 530ms
+ ✓ src/skills/SkillsView.test.tsx (9 tests) 695ms
 stderr | src/sessions/attentionOrder.test.tsx > Attention first - the Needs you waiting line > puts the longest wait at the top and the newest at the bottom
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
@@ -555,30 +545,6 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
 }
 
 stderr | src/sessions/attentionOrder.test.tsx > Attention first - the Needs you waiting line > ignores the drag-to-reorder desktop order inside the group
-[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
-If you need to partially mock a module, you can use "importOriginal" helper inside:
-
-    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
-    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
-    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
-    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
-    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
-    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
-    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
-    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
-    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
-    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
-  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
-    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
-    '  \x1B[35mreturn\x1B[39m {\n' +
-    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
-    '    \x1B[90m// your mocked methods\x1B[39m\n' +
-    '  }\n' +
-    '})'
-}
-
- ✓ src/sessions/myPromptsIndex.test.tsx (8 tests) 310ms
-stderr | src/sessions/sessionsBadge.test.tsx > Cockpit needs-you badge > counts only the waiting sessions on machines the owner can act on
 [sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
 If you need to partially mock a module, you can use "importOriginal" helper inside:
 
@@ -670,7 +636,47 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/attentionOrder.test.tsx (5 tests) 379ms
+ ✓ src/sessions/attentionOrder.test.tsx (5 tests) 428ms
+stderr | src/sessions/reportsDeepLink.test.tsx > the Cockpit session address > opens the Reports tab with that report already open, straight from the address
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/sessions/reportsDeepLink.test.tsx (4 tests) 291ms
+ ✓ src/workflows/WorkflowsView.test.tsx (4 tests) 624ms
+ ✓ src/teams/TeamSwitcher.test.tsx (6 tests) 336ms
+ ✓ src/about/AboutView.test.tsx (10 tests) 273ms
+stderr | src/teams/collaborator/collaboratorApp.test.tsx > The Collaborator's app > Navigation_Collaborator_HasExactlyTheThreePagesTheGatewayListsAndNothingElse
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+stderr | src/sessions/verdictPanelMount.test.tsx > the Cockpit session view > does not show the verdict panel on the Terminal tab
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/sessions/verdictPanelMount.test.tsx (5 tests) 467ms
+stderr | src/sessions/sessionsBadge.test.tsx > Cockpit needs-you badge > counts only the waiting sessions on machines the owner can act on
+[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
+    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
+    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
+    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
+    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
+    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
+    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
+  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
+    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
+    '  \x1B[35mreturn\x1B[39m {\n' +
+    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
+    '    \x1B[90m// your mocked methods\x1B[39m\n' +
+    '  }\n' +
+    '})'
+}
+
 stderr | src/sessions/sessionsBadge.test.tsx > Cockpit needs-you badge > still counts a session the Gateway did not stamp at all (older Gateway)
 [sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
 If you need to partially mock a module, you can use "importOriginal" helper inside:
@@ -694,19 +700,135 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/sessionsBadge.test.tsx (2 tests) 164ms
- ✓ src/teams/TeamSwitcher.test.tsx (6 tests) 438ms
+ ✓ src/sessions/sessionsBadge.test.tsx (2 tests) 212ms
+stderr | src/reportAddressRoute.test.tsx > the Cockpit report address > shows that report, at that address, from an address carrying nothing but the report id
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+
 stderr | src/fleetmanager/HandOverList.test.tsx > the hand-over list on the Fleet Manager page > is closed until its control is pressed, then lists every session with its action, as sent
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/workflows/WorkflowsView.test.tsx (4 tests) 601ms
-stderr | src/sessions/verdictPanelMount.test.tsx > the Cockpit session view > does not show the verdict panel on the Terminal tab
+stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > shows the count for a session with uncommitted work
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
 
- ✓ src/sessions/verdictPanelMount.test.tsx (5 tests) 413ms
- ✓ src/fleetmanager/HandOverList.test.tsx (6 tests) 376ms
+    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
+    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
+    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
+    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
+    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
+    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
+    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
+  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
+    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
+    '  \x1B[35mreturn\x1B[39m {\n' +
+    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
+    '    \x1B[90m// your mocked methods\x1B[39m\n' +
+    '  }\n' +
+    '})'
+}
+
+stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > shows no badge for a verified-clean tree
+[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
+    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
+    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
+    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
+    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
+    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
+    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
+  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
+    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
+    '  \x1B[35mreturn\x1B[39m {\n' +
+    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
+    '    \x1B[90m// your mocked methods\x1B[39m\n' +
+    '  }\n' +
+    '})'
+}
+
+stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > shows no badge when the count is unknown, rather than reporting zero
+[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
+    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
+    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
+    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
+    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
+    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
+    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
+  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
+    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
+    '  \x1B[35mreturn\x1B[39m {\n' +
+    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
+    '    \x1B[90m// your mocked methods\x1B[39m\n' +
+    '  }\n' +
+    '})'
+}
+
+stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > shows no badge for a Director too old to send the field
+[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
+    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
+    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
+    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
+    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
+    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
+    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
+  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
+    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
+    '  \x1B[35mreturn\x1B[39m {\n' +
+    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
+    '    \x1B[90m// your mocked methods\x1B[39m\n' +
+    '  }\n' +
+    '})'
+}
+
+stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > badges each session with its own count
+[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
+    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
+    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
+    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
+    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
+    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
+    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
+  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
+    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
+    '  \x1B[35mreturn\x1B[39m {\n' +
+    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
+    '    \x1B[90m// your mocked methods\x1B[39m\n' +
+    '  }\n' +
+    '})'
+}
+
+ ✓ src/sessions/rosterChangesBadge.test.tsx (5 tests) 235ms
+stderr | src/team/teamPage.test.tsx > the Team page, per role > Owner: every role but their own is a dropdown, Remove on everyone but themselves, Invite someone shown
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+
 stderr | src/sessions/rosterSupervisionLine.test.tsx > the roster's supervision line > shows started, open, idle and turns for a fully-reporting session
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
@@ -824,10 +946,70 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/rosterSupervisionLine.test.tsx (5 tests) 187ms
+ ✓ src/fleetmanager/HandOverList.test.tsx (6 tests) 487ms
+ ✓ src/sessions/rosterSupervisionLine.test.tsx (5 tests) 205ms
+stderr | src/team/inviteRoutes.test.tsx > the accept page (S3) > sends a signed-out browser - a person with no account yet - to sign-in carrying the accept page's address
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+
+ ✓ src/reportAddressRoute.test.tsx (5 tests) 400ms
 stderr | src/factory/FactoryMap.test.tsx > A factory's page (issue #3383) > opens on the Map tab and draws every box and arrow the Gateway sent
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/sessions/sessionMenuOwnerChange.test.tsx (3 tests) 413ms
+ ✓ src/components/useDismissOnBackdrop.test.tsx (6 tests) 260ms
+stderr | src/sessions/wingmanTabMount.test.tsx > the Cockpit session view > offers Wingman as the fifth tab and mounts the shared tab only while it is selected
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/sessions/wingmanTabMount.test.tsx (1 test) 217ms
+stderr | src/sessions/rosterWingmanError.test.tsx > the Cockpit roster's Wingman error > shows the tag, the Gateway's sentence and the button on a session that is not in voice mode
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
+    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
+    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
+    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
+    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
+    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
+    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
+  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
+    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
+    '  \x1B[35mreturn\x1B[39m {\n' +
+    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
+    '    \x1B[90m// your mocked methods\x1B[39m\n' +
+    '  }\n' +
+    '})'
+}
+
+stderr | src/sessions/rosterWingmanError.test.tsx > the Cockpit roster's Wingman error > asks again for that session when the button is pressed
+[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
+If you need to partially mock a module, you can use "importOriginal" helper inside:
+
+    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
+    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
+    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
+    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
+    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
+    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
+    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
+    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
+    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
+    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
+  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
+    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
+    '  \x1B[35mreturn\x1B[39m {\n' +
+    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
+    '    \x1B[90m// your mocked methods\x1B[39m\n' +
+    '  }\n' +
+    '})'
+}
 
 stderr | src/sessions/rosterDeliveryBadge.test.tsx > the roster's not-delivered badge > shows the badge when the Gateway says a prompt was lost
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
@@ -946,206 +1128,7 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/rosterDeliveryBadge.test.tsx (5 tests) 191ms
-stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > shows the count for a session with uncommitted work
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
-If you need to partially mock a module, you can use "importOriginal" helper inside:
-
-    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
-    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
-    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
-    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
-    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
-    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
-    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
-    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
-    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
-    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
-  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
-    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
-    '  \x1B[35mreturn\x1B[39m {\n' +
-    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
-    '    \x1B[90m// your mocked methods\x1B[39m\n' +
-    '  }\n' +
-    '})'
-}
-
-stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > shows no badge for a verified-clean tree
-[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
-If you need to partially mock a module, you can use "importOriginal" helper inside:
-
-    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
-    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
-    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
-    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
-    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
-    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
-    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
-    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
-    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
-    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
-  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
-    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
-    '  \x1B[35mreturn\x1B[39m {\n' +
-    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
-    '    \x1B[90m// your mocked methods\x1B[39m\n' +
-    '  }\n' +
-    '})'
-}
-
-stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > shows no badge when the count is unknown, rather than reporting zero
-[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
-If you need to partially mock a module, you can use "importOriginal" helper inside:
-
-    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
-    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
-    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
-    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
-    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
-    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
-    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
-    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
-    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
-    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
-  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
-    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
-    '  \x1B[35mreturn\x1B[39m {\n' +
-    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
-    '    \x1B[90m// your mocked methods\x1B[39m\n' +
-    '  }\n' +
-    '})'
-}
-
-stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > shows no badge for a Director too old to send the field
-[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
-If you need to partially mock a module, you can use "importOriginal" helper inside:
-
-    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
-    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
-    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
-    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
-    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
-    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
-    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
-    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
-    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
-    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
-  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
-    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
-    '  \x1B[35mreturn\x1B[39m {\n' +
-    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
-    '    \x1B[90m// your mocked methods\x1B[39m\n' +
-    '  }\n' +
-    '})'
-}
-
-stderr | src/sessions/rosterChangesBadge.test.tsx > the roster's uncommitted-changes badge > badges each session with its own count
-[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
-If you need to partially mock a module, you can use "importOriginal" helper inside:
-
-    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
-    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
-    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
-    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
-    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
-    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
-    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
-    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
-    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
-    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
-  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
-    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
-    '  \x1B[35mreturn\x1B[39m {\n' +
-    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
-    '    \x1B[90m// your mocked methods\x1B[39m\n' +
-    '  }\n' +
-    '})'
-}
-
- ✓ src/sessions/rosterChangesBadge.test.tsx (5 tests) 230ms
- ✓ src/factory/FactoryMap.test.tsx (6 tests) 443ms
-stderr | src/teams/teamRoutes.test.tsx
-Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
-    at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
-    at HTMLCanvasElementImpl.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\nodes\HTMLCanvasElement-impl.js:42:5)
-    at HTMLCanvasElement.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\generated\HTMLCanvasElement.js:131:58)
-    at D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:127:24
-    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:118:1)
-    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
-    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRendererRowFactory.ts:11:1)
-    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
-    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRenderer.ts:6:1)
-    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32) undefined
-
-stderr | src/railCollapse.test.tsx > the Cockpit rail collapse > opens expanded, and the toggle says so
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
- ✓ src/railCollapse.test.tsx (5 tests) 629ms
- ✓ src/push/sw.test.ts (9 tests) 18ms
- ✓ src/sessions/linkRequestCards.test.tsx (7 tests) 362ms
- ✓ src/missions/missionGrouping.test.ts (18 tests) 31ms
- ✓ src/components/useDismissOnBackdrop.test.tsx (6 tests) 182ms
-stderr | src/teams/teamRoutes.test.tsx > team routes > Route_/skills_WithATeamOnScreen_OpensTheTeamsPage
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
-stderr | src/sessions/wingmanTabMount.test.tsx > the Cockpit session view > offers Wingman as the fifth tab and mounts the shared tab only while it is selected
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-
- ✓ src/sessions/wingmanTabMount.test.tsx (1 test) 222ms
- ✓ src/teams/teamRoutes.test.tsx (7 tests) 287ms
-stderr | src/sessions/rosterWingmanError.test.tsx > the Cockpit roster's Wingman error > shows the tag, the Gateway's sentence and the button on a session that is not in voice mode
-⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
-⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
-[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
-If you need to partially mock a module, you can use "importOriginal" helper inside:
-
-    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
-    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
-    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
-    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
-    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
-    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
-    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
-    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
-    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
-    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
-  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
-    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
-    '  \x1B[35mreturn\x1B[39m {\n' +
-    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
-    '    \x1B[90m// your mocked methods\x1B[39m\n' +
-    '  }\n' +
-    '})'
-}
-
-stderr | src/sessions/rosterWingmanError.test.tsx > the Cockpit roster's Wingman error > asks again for that session when the button is pressed
-[sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
-If you need to partially mock a module, you can use "importOriginal" helper inside:
-
-    at VitestMocker.createError (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:321:19)
-    at Object.get (file:///D:/ReposFred/devthrottle-teams-2307/node_modules/vitest/dist/chunks/execute.2pr0rHgK.js:389:22)
-    at getSessionColourLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:51:21)
-    at loadLegendOnce (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:143:3)
-    at subscribeLegend (D:\ReposFred\devthrottle-teams-2307\packages\client-core\src\sessions\sessionColours.ts:161:3)
-    at subscribeToStore (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:16139:10)
-    at commitHookEffectListMount (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:23189:26)
-    at commitPassiveMountOnFiber (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24970:11)
-    at commitPassiveMountEffects_complete (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24930:9)
-    at commitPassiveMountEffects_begin (D:\ReposFred\devthrottle-teams-2307\node_modules\react-dom\cjs\react-dom.development.js:24917:7) {
-  codeFrame: 'vi\x1B[33m.\x1B[39m\x1B[34mmock\x1B[39m(\x1B[35mimport\x1B[39m(\x1B[32m"@devthrottle/client-core/api/client"\x1B[39m)\x1B[33m,\x1B[39m \x1B[35masync\x1B[39m (importOriginal) \x1B[33m=>\x1B[39m {\n' +
-    '  \x1B[35mconst\x1B[39m actual \x1B[33m=\x1B[39m \x1B[35mawait\x1B[39m \x1B[34mimportOriginal\x1B[39m()\n' +
-    '  \x1B[35mreturn\x1B[39m {\n' +
-    '    \x1B[33m...\x1B[39mactual\x1B[33m,\x1B[39m\n' +
-    '    \x1B[90m// your mocked methods\x1B[39m\n' +
-    '  }\n' +
-    '})'
-}
-
+ ✓ src/sessions/rosterDeliveryBadge.test.tsx (5 tests) 250ms
 stderr | src/sessions/rosterWingmanError.test.tsx > the Cockpit roster's Wingman error > shows nothing on a card the Gateway stamped no error on
 [sessionColours] the colour legend could not be read Error: [vitest] No "gatewayFetch" export is defined on the "@devthrottle/client-core/api/client" mock. Did you forget to return it from "vi.mock"?
 If you need to partially mock a module, you can use "importOriginal" helper inside:
@@ -1169,33 +1152,23 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/rosterWingmanError.test.tsx (3 tests) 317ms
- ✓ src/sessions/sessionMenuOwnerChange.test.tsx (3 tests) 328ms
- ✓ src/schedule/scheduleFormat.test.ts (28 tests) 14ms
- ✓ src/sessions/newSessionDialogFactory.test.tsx (3 tests) 658ms
-   ✓ the Cockpit New Session dialog's factory field > is empty when the dialog opens, and a session started with it empty names no factory 345ms
- ✓ src/sessions/queueActions.test.ts (3 tests) 7ms
- ✓ src/components/dataTableCore.test.ts (14 tests) 23ms
- ✓ src/settings/injectedTextState.test.ts (12 tests) 7ms
- ✓ src/fleet/format.test.ts (17 tests) 8ms
- ✓ src/fleet/machinesFormat.test.ts (3 tests) 5ms
- ✓ src/fleetmanager/conversation.test.ts (3 tests) 6ms
- ✓ src/throttle/throttleTabs.test.ts (8 tests) 7ms
- ✓ src/sessions/composerInsert.test.ts (5 tests) 4ms
-stderr | src/routes.test.tsx
-Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
-    at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
-    at HTMLCanvasElementImpl.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\nodes\HTMLCanvasElement-impl.js:42:5)
-    at HTMLCanvasElement.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\generated\HTMLCanvasElement.js:131:58)
-    at D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:127:24
-    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:118:1)
-    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
-    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRendererRowFactory.ts:11:1)
-    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
-    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRenderer.ts:6:1)
-    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32) undefined
+ ✓ src/sessions/rosterWingmanError.test.tsx (3 tests) 537ms
+   ✓ the Cockpit roster's Wingman error > shows the tag, the Gateway's sentence and the button on a session that is not in voice mode 380ms
+ ✓ src/factory/FactoryMap.test.tsx (6 tests) 572ms
+ ✓ src/sessions/linkRequestCards.test.tsx (7 tests) 674ms
+stderr | src/railCollapse.test.tsx > the Cockpit rail collapse > opens expanded, and the toggle says so
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/fleet/directorsFormat.test.ts (14 tests) 10ms
+ ✓ src/sessions/newSessionDialogFactory.test.tsx (3 tests) 918ms
+   ✓ the Cockpit New Session dialog's factory field > is empty when the dialog opens, and a session started with it empty names no factory 450ms
+ ✓ src/team/teamPage.test.tsx (8 tests) 1064ms
+   ✓ the Team page, per role > Owner: every role but their own is a dropdown, Remove on everyone but themselves, Invite someone shown 555ms
+ ✓ src/team/inviteRoutes.test.tsx (9 tests) 1001ms
+ ✓ src/railCollapse.test.tsx (5 tests) 815ms
+   ✓ the Cockpit rail collapse > keeps every destination, and every destination's name, when it collapses 341ms
+ ✓ src/push/sw.test.ts (9 tests) 17ms
+ ✓ src/missions/missionGrouping.test.ts (18 tests) 30ms
 stderr | src/sessions/rosterInboxLine.test.tsx > the roster's row line > renders the Gateway's words verbatim
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
@@ -1290,13 +1263,43 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/rosterInboxLine.test.tsx (4 tests) 207ms
- ✓ src/fleet/fleetMapFormat.test.ts (49 tests) 40ms
- ✓ src/network/useNetStatus.test.tsx (2 tests) 46ms
- ✓ src/sessions/composerAttachErrors.test.tsx (4 tests) 7878ms
-   ✓ Cockpit composer: a failed Attach > shows the server's reason, not a bare status number 2730ms
-   ✓ Cockpit composer: a failed Attach > reports the failure to the Gateway, so it does not exist only on the screen 2568ms
-   ✓ Cockpit composer: a failed Attach > retries ONCE on a retryable failure and succeeds without bothering the user 2549ms
+ ✓ src/sessions/rosterInboxLine.test.tsx (4 tests) 217ms
+stderr | src/routes.test.tsx
+Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
+    at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at HTMLCanvasElementImpl.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\nodes\HTMLCanvasElement-impl.js:42:5)
+    at HTMLCanvasElement.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\generated\HTMLCanvasElement.js:131:58)
+    at D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:127:24
+    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:118:1)
+    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
+    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRendererRowFactory.ts:11:1)
+    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
+    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRenderer.ts:6:1)
+    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32) undefined
+
+ ✓ src/teams/collaborator/collaboratorApp.test.tsx (38 tests) 3007ms
+ ✓ src/schedule/scheduleFormat.test.ts (28 tests) 13ms
+ ✓ src/fleet/machinesFormat.test.ts (3 tests) 5ms
+ ✓ src/fleet/format.test.ts (17 tests) 9ms
+ ✓ src/sessions/queueActions.test.ts (3 tests) 5ms
+ ✓ src/components/dataTableCore.test.ts (14 tests) 24ms
+ ✓ src/fleetmanager/conversation.test.ts (3 tests) 5ms
+ ✓ src/throttle/throttleTabs.test.ts (8 tests) 6ms
+ ✓ src/settings/injectedTextState.test.ts (12 tests) 8ms
+ ✓ src/fleet/directorsFormat.test.ts (14 tests) 9ms
+stderr | src/teams/teamRoutes.test.tsx
+Error: Not implemented: HTMLCanvasElement.prototype.getContext (without installing the canvas npm package)
+    at module.exports (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\browser\not-implemented.js:9:17)
+    at HTMLCanvasElementImpl.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\nodes\HTMLCanvasElement-impl.js:42:5)
+    at HTMLCanvasElement.getContext (D:\ReposFred\devthrottle-teams-2307\node_modules\jsdom\lib\jsdom\living\generated\HTMLCanvasElement.js:131:58)
+    at D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:127:24
+    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\common\Color.ts:118:1)
+    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
+    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRendererRowFactory.ts:11:1)
+    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32)
+    at Object.call (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\src\browser\renderer\dom\DomRenderer.ts:6:1)
+    at i (D:\ReposFred\devthrottle-teams-2307\node_modules\@xterm\xterm\lib\webpack:\@xterm\xterm\webpack\bootstrap:19:32) undefined
+
 stderr | src/sessions/rosterFactoryAgentChip.test.tsx > the factory agent chip on a session row > draws the Gateway's chip on the session a factory agent started, and nothing on the others
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
@@ -1322,11 +1325,19 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/rosterFactoryAgentChip.test.tsx (1 test) 121ms
+ ✓ src/sessions/rosterFactoryAgentChip.test.tsx (1 test) 181ms
+ ✓ src/sessions/composerInsert.test.ts (5 tests) 5ms
+ ✓ src/fleet/fleetMapFormat.test.ts (49 tests) 42ms
+ ✓ src/network/useNetStatus.test.tsx (2 tests) 56ms
 stderr | src/schedule/pickerSession.test.ts > the schedule Director picker renders the Gateway's fold > fails loudly when the Gateway did not stamp the session
 Gateway /sessions missing or unparseable effectiveColorHex (undefined) for session s1. Rendering the magenta protocol-error sentinel. Redeploy Gateway and clients together.
 
- ✓ src/schedule/pickerSession.test.ts (5 tests) 8ms
+ ✓ src/schedule/pickerSession.test.ts (5 tests) 9ms
+ ✓ src/fleet/directorSessionRow.test.ts (6 tests) 6ms
+ ✓ src/sessions/composerAttachErrors.test.tsx (4 tests) 7947ms
+   ✓ Cockpit composer: a failed Attach > shows the server's reason, not a bare status number 2722ms
+   ✓ Cockpit composer: a failed Attach > reports the failure to the Gateway, so it does not exist only on the screen 2574ms
+   ✓ Cockpit composer: a failed Attach > retries ONCE on a retryable failure and succeeds without bothering the user 2627ms
 stderr | src/sessions/rosterVoiceAutoOffNote.test.tsx > the roster's voice button > shows the Gateway's line word for word beside the button
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
@@ -1375,16 +1386,20 @@ If you need to partially mock a module, you can use "importOriginal" helper insi
     '})'
 }
 
- ✓ src/sessions/rosterVoiceAutoOffNote.test.tsx (2 tests) 132ms
- ✓ src/fleet/directorSessionRow.test.ts (6 tests) 6ms
+ ✓ src/sessions/rosterVoiceAutoOffNote.test.tsx (2 tests) 160ms
 stderr | src/routes.test.tsx > Cockpit routes > opens on the Fleet Manager
 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- ✓ src/routes.test.tsx (4 tests) 87ms
+ ✓ src/routes.test.tsx (4 tests) 131ms
+stderr | src/teams/teamRoutes.test.tsx > team routes > Route_/skills_WithATeamOnScreen_OpensTheTeamsPage
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
 
- Test Files  80 passed (80)
-      Tests  796 passed (796)
-   Start at  17:14:03
-   Duration  21.20s (transform 55.73s, setup 3.92s, collect 153.88s, tests 50.50s, environment 161.26s, prepare 30.68s)
+ ✓ src/teams/teamRoutes.test.tsx (7 tests) 299ms
+
+ Test Files  81 passed (81)
+      Tests  807 passed (807)
+   Start at  07:47:43
+   Duration  39.64s (transform 49.88s, setup 3.42s, collect 296.27s, tests 62.56s, environment 436.76s, prepare 27.57s)
 

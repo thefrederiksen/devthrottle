@@ -68,6 +68,14 @@ MUTATIONS = {
         "new": "            if (words.Length > 0)\n                _store.AddReply(team, report.Id, words, _utcNow());\n            if (words.Length > 0)\n                _comments.Add(",
         "runs": [UNIT],
     },
+    "comment-to-the-team-session-over-the-wire": {
+        "rule": "Over the wire, a live TEAM session never reads the member's comment (here: written as a reply on the report).",
+        "file": TQ,
+        "old": "            if (words.Length > 0)\n                _comments.Add(",
+        "new": "            if (words.Length > 0)\n                _store.AddReply(team, report.Id, words, _utcNow());\n            if (words.Length > 0)\n                _comments.Add(",
+        "runs": [["dotnet", "test", "src/CcDirector.Gateway.Tests", "--filter",
+                  "FullyQualifiedName~HostedTeamQuestionsTests.Issue2307_TeamKeyVariant", "-nologo"]],
+    },
     "comment-not-to-the-person": {
         "rule": "The comment reaches the person who asked (their own report's page).",
         "file": TQ,

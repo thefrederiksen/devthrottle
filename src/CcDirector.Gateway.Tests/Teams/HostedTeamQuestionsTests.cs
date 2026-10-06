@@ -28,20 +28,20 @@ namespace CcDirector.Gateway.Tests.Teams;
 ///
 /// The team: the Owner, Alice (a Developer, who writes the reports), Mike and Nina (Collaborators).
 ///
-/// WHERE THE REPORT COMES FROM. As for the Reports page (devthrottle_internal#2309): a session in a team's tenant cannot
-/// reach the Gateway over the wire yet - its key authenticates and the request-path access lease then answers 402,
-/// because the lease reads a personal account's bill. So the team's report is written through the store the publish route
-/// writes with, carrying the author it would record, and every person-facing step after that is over the wire. The same
-/// 402 stops a team Director's tunnel, so a team session is never live here and a member's answer is HELD for it - which
-/// is exactly what the over-the-wire tests assert. <see cref="Issue2307_TeamKeyVariant_TheTeamsDirectorKeyIsStoppedAtTheLease_AndTheAnswerStaysHeld"/>
-/// records the 402.
+/// WHERE THE REPORT COMES FROM. The team pays (a live team bill, set up below), so a session on a Director set up for the
+/// team reaches the Gateway over the wire: the access lease reads the TEAM's bill (devthrottle_internal#2311 step 2,
+/// #3552). <see cref="Issue2307_TeamKeyVariant_AMembersAnswer_ReachesALiveTeamSessionOverTheWire_AndTheirCommentNever"/>
+/// runs the whole thing over the wire: the team session publishes, Alice sends the report, Mike answers through the
+/// answer route, and the settle pass and a real turn end deliver his choice to that session on the tunnel. The other tests
+/// write the team's report through the store the publish route writes with, carrying the author it records, and every
+/// person-facing step after that is over the wire; with no Director holding the session that asked, a member's answer is
+/// HELD for it.
 ///
-/// WHERE THE LIVE SESSION IS. For the same reason, a live session on the tunnel can only be a personal account's today.
-/// <see cref="Issue2307_AMembersAnswer_ReachesALiveSessionOnTheTunnel_AndTheirCommentNever"/> runs the real delivery -
-/// the item the answer route builds (<see cref="TeamQuestions.ChoiceItem"/>), the settle pass and a real turn end through a
-/// Director on the tunnel - with the member's comment stored exactly as the route stores it, and reads every command the
-/// Director received and every read the session's own key can make. The unit tests (TeamQuestionsTests) drive the same
-/// delivery through the answer route's own class.
+/// A PERSONAL ACCOUNT'S LIVE SESSION TOO. <see cref="Issue2307_AMembersAnswer_ReachesALiveSessionOnTheTunnel_AndTheirCommentNever"/>
+/// runs the same delivery for a session on a personal account's Director - the item the answer route builds
+/// (<see cref="TeamQuestions.ChoiceItem"/>), the settle pass and a real turn end - with the member's comment stored exactly
+/// as the route stores it. The unit tests (TeamQuestionsTests) drive the same delivery through the answer route's own
+/// class.
 ///
 /// PARKED SUITE. Gateway.Tests serializes machine-wide and does not run in the default gate.
 /// </summary>
@@ -90,6 +90,9 @@ public sealed class HostedTeamQuestionsTests : IAsyncLifetime
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _alice, TeamRole.Developer).IsDone);
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _mike, TeamRole.Collaborator).IsDone);
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _nina, TeamRole.Collaborator).IsDone);
+        // The team pays: a team key's access is read from the team's bill (devthrottle_internal#2311 step 2).
+        HostedTeamBill.CreateTable(_gateway);
+        HostedTeamBill.Start(_gateway, _team, seats: 5);
     }
 
     public async Task DisposeAsync()
@@ -197,7 +200,7 @@ public sealed class HostedTeamQuestionsTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, status);
         var answer = Json(text).GetProperty("question").GetProperty("answer");
         Assert.Equal("You chose \"30 days\"", answer.GetProperty("chosenLabel").GetString());
-        // No team session is live (the lease, above), so the choice waits for the session that asked - with no words in it.
+        // No Director holds the session that asked, so the choice waits for it - with no words in it.
         Assert.Equal("Delivered when the agent finishes its turn", answer.GetProperty("statusLabel").GetString());
         var item = Assert.Single(_gateway.DevReportsForTest.Items(new TenantId(_team), report));
         Assert.Equal((sessionId, "30", "30 days", "", ""), (item.SessionId, item.OptionValue, item.OptionLabel, item.Comment, item.Text));
@@ -210,17 +213,29 @@ public sealed class HostedTeamQuestionsTests : IAsyncLifetime
         Assert.Equal("mike@example.com", comment.GetProperty("from").GetString());
         Assert.Equal($"About \"{Question}\" - chose \"30 days\"", comment.GetProperty("aboutLabel").GetString());
 
-        // No read a session key can make carries them - the session's own reports route included.
+        // No read a session key can make carries them. Alice's team Director connects and registers the session's key
+        // through the hub; the session's own two routes answer 200 - the report is there, by its title, the positive
+        // control - and the words are absent. The person-facing routes refuse a session key outright.
+        var aliceDirectorKey = _gateway.Devices.RegisterForTenant(new TenantId(_team), _alice,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_team, _alice, "director-alice-team"), "M-alice").DeviceKey;
+        await using var aliceDirector = await FakeTunnelDirector.StartAsync(_gateway, aliceDirectorKey, "director-alice-team");
         var sessionKey = GatewaySessionKey.Mint();
-        Assert.True(_gateway.SessionKeys.Register(new TenantId(_team), "director-alice-team", sessionId, GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
+        await aliceDirector.RegisterSessionKeyAsync(sessionId, sessionKey, DateTime.UtcNow.AddHours(1));
+        foreach (var path in new[] { $"sessions/{sessionId}/dev-reports", $"sessions/{sessionId}/dev-reports/{report}" })
+        {
+            var (s, t) = await Call(HttpMethod.Get, path, sessionKey);
+            Assert.Equal(HttpStatusCode.OK, s);
+            Assert.Contains("Pricing", t);
+            Assert.DoesNotContain(marker, t);
+        }
         foreach (var path in new[]
                  {
-                     $"sessions/{sessionId}/dev-reports", $"sessions/{sessionId}/dev-reports/{report}", $"teams/{_team}/questions",
-                     $"teams/{_team}/reports/mine/{report}", $"teams/{_team}/reports/sent-to-me/{report}", $"dev-reports/{report}",
+                     $"teams/{_team}/questions", $"teams/{_team}/reports/mine/{report}",
+                     $"teams/{_team}/reports/sent-to-me/{report}", $"dev-reports/{report}",
                  })
         {
             var (s, t) = await Call(HttpMethod.Get, path, sessionKey);
-            Assert.NotEqual(HttpStatusCode.OK, s);
+            Assert.Equal(HttpStatusCode.Forbidden, s);
             Assert.DoesNotContain(marker, t);
         }
 
@@ -233,8 +248,8 @@ public sealed class HostedTeamQuestionsTests : IAsyncLifetime
     [Fact]
     public async Task Issue2307_AMembersAnswer_ReachesALiveSessionOnTheTunnel_AndTheirCommentNever()
     {
-        // A live session on a Director on the tunnel (a personal account's, the only kind that can run over the wire today),
-        // its report published through the real route with its own session key.
+        // A live session on a personal account's Director on the tunnel, its report published through the real route with
+        // its own session key.
         const string directorId = "director-alice-home";
         var sessionId = Guid.NewGuid().ToString("D");
         var sessionKey = GatewaySessionKey.Mint();
@@ -359,21 +374,85 @@ public sealed class HostedTeamQuestionsTests : IAsyncLifetime
         Assert.Empty(_gateway.DevReportsForTest.Items(new TenantId(_team), report));
     }
 
+    /// <summary>
+    /// THE TEAM KEY VARIANT, end to end over the wire. Alice's Director set up for the team connects on its team key and
+    /// registers a session's key through the hub; the session publishes the report with that key; Alice sends it to Mike;
+    /// Mike answers through the answer route with a choice and words carrying a unique marker. The settle pass while the
+    /// session works holds it; the turn end delivers it. The choice IS in the prompt the team session receives; the marker
+    /// is in no command toward the Director and no read the session's key can make, and it IS in what Alice reads.
+    /// </summary>
     [Fact]
-    public async Task Issue2307_TeamKeyVariant_TheTeamsDirectorKeyIsStoppedAtTheLease_AndTheAnswerStaysHeld()
+    public async Task Issue2307_TeamKeyVariant_AMembersAnswer_ReachesALiveTeamSessionOverTheWire_AndTheirCommentNever()
     {
-        // THE GAP, RECORDED. A Director set up for the team calls with a key bound to the team's tenant. Today that key
-        // authenticates and the request-path access lease refuses it (402) before any route or the tunnel runs, so no team
-        // session is live to take an answer: a member's answer waits, held, for the session that asked.
-        var (report, _) = TeamReport();
+        var team = new TenantId(_team);
+        const string directorId = "director-alice-team";
+        var aliceDirectorKey = _gateway.Devices.RegisterForTenant(team, _alice,
+            HostedEnrollmentEndpoint.TeamScopedDeviceId(_team, _alice, directorId), "M-alice").DeviceKey;
+        var commands = new ConcurrentQueue<string>();
+        await using var director = await FakeTunnelDirector.StartAsync(_gateway, aliceDirectorKey, directorId, "M-alice", cmd =>
+        {
+            // EVERY command toward the Director is recorded whole, whatever its verb.
+            commands.Enqueue(cmd.Verb + " " + cmd.SessionId + " " + cmd.PayloadJson);
+            return cmd.Verb == "prompt"
+                ? FakeTunnelDirector.Ok(new PromptResponse { Accepted = true, SentAt = DateTime.UtcNow, ActivityState = "Working" })
+                : DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"not served in this test: {cmd.Verb}");
+        });
+        var sessionId = Guid.NewGuid().ToString("D");
+        var sessionKey = GatewaySessionKey.Mint();
+        await director.RegisterSessionKeyAsync(sessionId, sessionKey, DateTime.UtcNow.AddHours(1));
+        await director.PushDeltaAsync(new SessionDto { SessionId = sessionId, Name = "alice", ActivityState = "Working", LastActivityAt = DateTime.UtcNow });
+
+        // The team session publishes over the wire, and the report is Alice's, in the team.
+        var (published, publishedText) = await Call(HttpMethod.Post, $"sessions/{sessionId}/dev-reports", sessionKey,
+            new { key = @"C:\work\team-live.html", html = Html() });
+        Assert.Equal(HttpStatusCode.OK, published);
+        var report = Guid.Parse(Json(publishedText).GetProperty("report").GetProperty("id").GetString()!);
+        Assert.Equal(_alice, _gateway.DevReportsForTest.Get(team, report)?.AuthorSubject);
         await SendTo(report, _mike);
-        Assert.Equal(HttpStatusCode.OK, (await Answer(_mikeKey, report, "14")).Status);
-        var teamDirectorKey = _gateway.Devices.RegisterForTenant(new TenantId(_team), _alice,
-            HostedEnrollmentEndpoint.TeamScopedDeviceId(_team, _alice, "director-alice-team"), "M-alice").DeviceKey;
 
-        var (status, _) = await Call(HttpMethod.Get, "dev-reports", teamDirectorKey);
+        // Mike answers through the answer route: a choice and his own words.
+        var marker = "MARKER-2307-TEAM-LIVE-" + Guid.NewGuid().ToString("N");
+        var (answered, _) = await Answer(_mikeKey, report, "30", "We trialled 14 days last year. " + marker);
+        Assert.Equal(HttpStatusCode.OK, answered);
 
-        Assert.Equal(HttpStatusCode.PaymentRequired, status);
-        Assert.Equal(DevReportItemStates.Held, Assert.Single(_gateway.DevReportsForTest.Items(new TenantId(_team), report)).Status);
+        // The settle pass while it works: held, no prompt yet.
+        await _gateway.DevReportDeliveryForTest.SettleAsync(team, sessionId, CancellationToken.None);
+        Assert.DoesNotContain(commands, c => c.StartsWith("prompt ", StringComparison.Ordinal));
+        var held = Assert.Single(_gateway.DevReportsForTest.Items(team, report));
+        Assert.Equal((DevReportItemStates.Held, "30", "", ""), (held.Status, held.OptionValue, held.Comment, held.Text));
+
+        // The turn end, through the push that carries it.
+        await director.PushDeltaAsync(new SessionDto { SessionId = sessionId, Name = "alice", ActivityState = "WaitingForInput", LastActivityAt = DateTime.UtcNow });
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (!commands.Any(c => c.StartsWith("prompt ", StringComparison.Ordinal)))
+        {
+            if (DateTime.UtcNow > deadline) Assert.Fail("Mike's choice never reached the team session - the harness would prove nothing.");
+            await Task.Delay(50);
+        }
+        await Task.Delay(1500); // anything else that would be sent has had its chance
+        await _gateway.DevReportDeliveryForTest.SettleAsync(team, sessionId, CancellationToken.None);
+
+        _out.WriteLine($"{commands.Count} command(s) reached the team Director.");
+        var prompt = Assert.Single(commands, c => c.StartsWith("prompt ", StringComparison.Ordinal));
+        Assert.Contains(sessionId, prompt);
+        // POSITIVE CONTROL: the choice IS what the team session received.
+        Assert.Contains("A person this report was sent to answered your dev report", prompt);
+        Assert.Contains("30 days", prompt);
+        Assert.All(commands, c => Assert.DoesNotContain(marker, c));
+
+        // Every read the session's own key can make: its own two routes answer, without the words.
+        foreach (var path in new[] { $"sessions/{sessionId}/dev-reports", $"sessions/{sessionId}/dev-reports/{report}" })
+        {
+            var (status, text) = await Call(HttpMethod.Get, path, sessionKey);
+            Assert.Equal(HttpStatusCode.OK, status);
+            Assert.Contains("Pricing", text);
+            Assert.DoesNotContain(marker, text);
+        }
+
+        // The words reach Alice, the person behind the session that asked.
+        var (_, mine) = await Call(HttpMethod.Get, $"teams/{_team}/reports/mine/{report}", _aliceKey);
+        var comment = Assert.Single(Json(mine).GetProperty("comments").EnumerateArray());
+        Assert.Contains(marker, comment.GetProperty("text").GetString());
+        Assert.Equal("mike@example.com", comment.GetProperty("from").GetString());
     }
 }

@@ -6,8 +6,8 @@
   CcDirector.TrayUi -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.TrayUi\bin\Debug\net10.0\CcDirector.TrayUi.dll
   CcDirector.Core -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Core\bin\Debug\net10.0\CcDirector.Core.dll
   CcDirector.Engine -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Engine\bin\Debug\net10.0\CcDirector.Engine.dll
-  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
   CcDirector.Setup.Engine -> D:\ReposFred\devthrottle-teams-2307\tools\cc-director-setup-engine\bin\Debug\net10.0\CcDirector.Setup.Engine.dll
+  CcDirector.HostedAgent -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.HostedAgent\bin\Debug\net10.0\CcDirector.HostedAgent.dll
   CcDirector.ControlApi -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.ControlApi\bin\Debug\net10.0\CcDirector.ControlApi.dll
   CcDirector.Gateway -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway\bin\Debug\net10.0\CcDirector.Gateway.dll
   CcDirector.Gateway.Migrations.Postgres -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.Migrations.Postgres\bin\Debug\net10.0\CcDirector.Gateway.Migrations.Postgres.dll
@@ -15,21 +15,21 @@
   CcDirector.Gateway.UnitTests -> D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll
 Test run for D:\ReposFred\devthrottle-teams-2307\src\CcDirector.Gateway.UnitTests\bin\Debug\net10.0\CcDirector.Gateway.UnitTests.dll (.NETCoreApp,Version=v10.0)
 A total of 1 test files matched the specified pattern.
-[xUnit.net 00:00:17.47]     CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [SKIP]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [1 ms]
-[xUnit.net 00:00:21.54]     CcDirector.Gateway.Tests.Teams.TeamReportsProofRig.ServeTheTeamReportsPage_UntilTheStopFileAppears [SKIP]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamReportsProofRig.ServeTheTeamReportsPage_UntilTheStopFileAppears [1 ms]
-[xUnit.net 00:00:32.10]     CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [SKIP]
-[xUnit.net 00:00:32.10]     CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [SKIP]
-[xUnit.net 00:00:32.10]     CcDirector.Gateway.Tests.Teams.Mentor.TeamMentorProofRig.WriteOneTeamWeek_AndDumpTheStoredRows [SKIP]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [1 ms]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [1 ms]
-  Skipped CcDirector.Gateway.Tests.Teams.Mentor.TeamMentorProofRig.WriteOneTeamWeek_AndDumpTheStoredRows [1 ms]
-[xUnit.net 00:00:33.87]     CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [SKIP]
-  Skipped CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [1 ms]
-[xUnit.net 00:00:41.68]     CcDirector.Gateway.Tests.Teams.TeamQuestionsProofRig.ServeTheQuestionsPage_UntilTheStopFileAppears [SKIP]
+[xUnit.net 00:00:25.32]     CcDirector.Gateway.Tests.Teams.TeamQuestionsProofRig.ServeTheQuestionsPage_UntilTheStopFileAppears [SKIP]
   Skipped CcDirector.Gateway.Tests.Teams.TeamQuestionsProofRig.ServeTheQuestionsPage_UntilTheStopFileAppears [1 ms]
-[xUnit.net 00:00:57.12]     CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [SKIP]
+[xUnit.net 00:00:28.88]     CcDirector.Gateway.Tests.Teams.TeamReportsProofRig.ServeTheTeamReportsPage_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamReportsProofRig.ServeTheTeamReportsPage_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:00:33.94]     CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamPageProofRig.ServeTheTeamPage_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:01:13.02]     CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [SKIP]
   Skipped CcDirector.Gateway.Tests.Data.GatewayHostBootSmokeTests.HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres [1 ms]
+[xUnit.net 00:01:16.01]     CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamRequestProofRig.ServeTheRequestScreens_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:01:17.33]     CcDirector.Gateway.Tests.Teams.Mentor.TeamMentorProofRig.WriteOneTeamWeek_AndDumpTheStoredRows [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.Mentor.TeamMentorProofRig.WriteOneTeamWeek_AndDumpTheStoredRows [1 ms]
+[xUnit.net 00:01:17.62]     CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamInvitationProofRig.ServeTheInvitationScreens_UntilTheStopFileAppears [1 ms]
+[xUnit.net 00:01:17.62]     CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [SKIP]
+  Skipped CcDirector.Gateway.Tests.Teams.TeamCollaboratorAppProofRig.ServeTheCollaboratorsApp_UntilTheStopFileAppears [1 ms]
 
-Passed!  - Failed:     0, Passed:  1445, Skipped:     8, Total:  1453, Duration: 1 m 14 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+Passed!  - Failed:     0, Passed:  1520, Skipped:     8, Total:  1528, Duration: 1 m 23 s - CcDirector.Gateway.UnitTests.dll (net10.0)

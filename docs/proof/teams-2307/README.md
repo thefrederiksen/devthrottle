@@ -49,11 +49,11 @@ PostgreSQL database.
 | Check | Result |
 |---|---|
 | `.\scripts\test-local.ps1` (the default gate) | 10 of 10 suites Completed |
-| `-Gateway -Filter "FullyQualifiedName~Teams"` | 142 of 142 executed, Completed |
+| `-Gateway -Filter "FullyQualifiedName~Teams"` | 153 of 153 executed, Completed |
 | `-Gateway -Filter "FullyQualifiedName~DevReport"` | 37 of 37 executed, Completed |
 | `-Gateway -Filter "FullyQualifiedName~Postgres\|FullyQualifiedName~Migration"` | 55 of 59 executed, Completed; see note 1 |
-| `dotnet test src\CcDirector.Gateway.UnitTests` with the Teams, DevReport, Migration and BootSmoke filter | 1,445 passed, 8 skipped; see note 2 |
-| Cockpit vitest | 80 files, 796 tests passed |
+| `dotnet test src\CcDirector.Gateway.UnitTests` with the Teams, DevReport, Migration and BootSmoke filter | 1,520 passed, 8 skipped; see note 2 |
+| Cockpit vitest | 81 files, 807 tests passed |
 | client-core vitest | 151 files, 1,788 tests passed |
 | `tsc` for the Cockpit, client-core and mobile | clean |
 
@@ -68,10 +68,13 @@ The Gateway run was split into these filters to keep each under ten minutes, as 
 
 1. **The chosen option reaches the session that asked, asserted on the prompt it receives.**
    - `TeamQuestionsTests.Issue2307_AnAnswerFromACollaborator_DeliversTheChosenOption_ToTheSessionThatAsked`
+   - Over the wire, a live TEAM session on its team Director (the team pays), answered through the answer route:
+     `HostedTeamQuestionsTests.Issue2307_TeamKeyVariant_AMembersAnswer_ReachesALiveTeamSessionOverTheWire_AndTheirCommentNever`
    - Over a live tunnel on a personal tenant: `HostedTeamQuestionsTests.Issue2307_AMembersAnswer_ReachesALiveSessionOnTheTunnel_AndTheirCommentNever`
 2. **The comment reaches a person and never a session.**
    - `TeamQuestionsTests.Issue2307_TheCollaboratorsComment_GoesToThePersonWhoAsked_AndIsNeverPlacedInAnySessionsInput`
    - `HostedTeamQuestionsTests.Issue2307_OverTheWire_MikesChoiceIsHeldForTheSessionThatAsked_AndHisWordsReachAlice_AndNoSessionRead`
+   - `HostedTeamQuestionsTests.Issue2307_TeamKeyVariant_AMembersAnswer_ReachesALiveTeamSessionOverTheWire_AndTheirCommentNever`
    - How the tests prove it, with a unique marker:
      - They run the settle pass and a turn end.
      - The choice is in the prompt.
@@ -84,7 +87,8 @@ The Gateway run was split into these filters to keep each under ten minutes, as 
 **Also covered:**
 - Tenant isolation: `Issue2307_TenantIsolation_AnotherTeam_SeesAndAnswersNothingOfThisOne`.
 - A session key is refused on both routes.
-- The team-key variant (see the gaps).
+- The team-key variant: since main's #3552 a paying team's own session reaches the Gateway, so the test runs a live
+  team session over the wire instead of recording the old 402.
 - The routes are dark with the switch off: `HostedTeamsDarkTests.SwitchUnset_TheQuestionsRoutesAreAbsent_AndNoAnswerOrCommentIsStored`.
 - The route-table walk.
 - The rules rows.
@@ -107,6 +111,7 @@ run `python docs/proof/teams-2307/red-proof.py <name>`. Every record below went 
 | store-takes-member-words | the store accepts a member's words | 2 |
 | fold-takes-member-words | the prompt fold accepts a member's words | 3 |
 | comment-to-the-session | the comment is written into the agent's conversation | 1 |
+| comment-to-the-team-session-over-the-wire | a live team session can read the comment (over the wire) | 1 |
 | comment-not-to-the-person | the comment never reaches the person who asked | 2 |
 | not-addressed-is-answered | someone the report was not sent to can answer | 1 |
 | version-not-checked | an answer to a version the person no longer holds is taken | 1 |
@@ -138,11 +143,9 @@ be 14 days or 30?" in a report sent to docs@mindzie.com and dev@mindzie.com (bot
 
 ## Gaps
 
-- **No team session can be live.** The access lease answers 402 for a team tenant, so a team's Director cannot connect.
-  - The live delivery is therefore proven on a personal tenant over a real tunnel.
-  - The team-key variant records the 402, with the answer still held:
-    `Issue2307_TeamKeyVariant_TheTeamsDirectorKeyIsStoppedAtTheLease_AndTheAnswerStaysHeld`.
-  - In a team today, an answer is held until team sessions can run.
+- **Closed: a team session can now be live.** The earlier gap (the access lease answered 402 for a team tenant) closed
+  when main gained #3552, which reads a team's own bill. The team-key test now runs the whole delivery to a live team
+  session over the wire. A team with no bill is still refused, by main's rule, not this change's.
 - **The per-person answer lock is in-process only.** Two Gateway processes running at once (during a deploy) could each
   pass the "already answered" check for the same person and question, so one person could end up with two answers on
   record. The second would reach the session either replacing the first or as a change to it. That is never another
