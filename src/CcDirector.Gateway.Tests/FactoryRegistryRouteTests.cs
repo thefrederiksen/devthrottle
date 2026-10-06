@@ -171,6 +171,38 @@ public sealed class FactoryRegistryRouteTests
     }
 
     [Fact]
+    public async Task The_owner_reads_the_Factories_screen_and_a_session_key_is_refused_it()
+    {
+        await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
+        var factory = "f-" + Guid.NewGuid().ToString("N")[..12];
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory))).StatusCode);
+        Assert.Equal(HttpStatusCode.Created, (await h.Owner.PostAsJsonAsync("gateway/factory/goal-numbers", Number(factory, by: "nora-hale"))).StatusCode);
+
+        var list = await Send(h.Owner.GetAsync("gateway/factories"));
+        Assert.True(list.Status == HttpStatusCode.OK, $"GET factories: {(int)list.Status} {list.Body}");
+        var row = Assert.Single(JsonSerializer.Deserialize<FactoriesListViewDto>(list.Body, Web)!.Rows, r => r.Id == factory);
+        Assert.Equal("RUNNING", row.StatusWord);
+        Assert.Equal("Talk to Nora Hale", row.Talk!.Label);
+
+        var page = await Send(h.Owner.GetAsync($"gateway/factories/{factory}"));
+        Assert.True(page.Status == HttpStatusCode.OK, $"GET page: {(int)page.Status} {page.Body}");
+        var dto = JsonSerializer.Deserialize<FactoryPageViewDto>(page.Body, Web)!;
+        Assert.Equal("A cash engine that runs without your time.", dto.Goal.Text);
+        Assert.Equal("Propane saved this season: not yet proven", dto.GoalNumber.ValueText);
+        Assert.Equal("None yet.", dto.LastTalk.Text);
+
+        var seats = await Send(h.Owner.GetAsync($"gateway/factories/{factory}/seats"));
+        Assert.True(seats.Status == HttpStatusCode.OK, $"GET seats: {(int)seats.Status} {seats.Body}");
+        Assert.Equal(new[] { "nora-hale", "savings-engineer" },
+            JsonSerializer.Deserialize<FactorySeatsViewDto>(seats.Body, Web)!.Rows.Select(r => r.SeatId));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factories/never-registered")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await h.Session.GetAsync("gateway/factories")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await h.Session.GetAsync($"gateway/factories/{factory}")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await h.Session.GetAsync($"gateway/factories/{factory}/seats")).StatusCode);
+    }
+
+    [Fact]
     public async Task Switch_off_every_registry_route_answers_404()
     {
         await using var h = await Host.StartAsync(factoryAgentsEnabled: false);
@@ -178,5 +210,6 @@ public sealed class FactoryRegistryRouteTests
         Assert.Equal(HttpStatusCode.NotFound, (await h.Session.GetAsync("gateway/factory/registry")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await h.Session.PostAsJsonAsync("gateway/factory/goal-numbers", Number("x", "nora-hale"))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factory/goal-numbers?factory=x")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factories")).StatusCode);
     }
 }

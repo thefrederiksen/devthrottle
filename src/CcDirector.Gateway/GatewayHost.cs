@@ -4857,6 +4857,11 @@ public sealed class GatewayHost : IAsyncDisposable
         Api.FactoryAgentsViewEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: FactoryAgentsViewSources());
+        // The Factories screen (Factories screen mission, phase B): the list, a factory's page and its Seats tab, built
+        // from the registry, the record and the schedules.
+        Api.FactoriesScreenEndpoints.Map(factoryGate,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant)));
         // Who the switch is on for: the administrator route that switches ONE account on or off, recording who and
         // why. Same admin service token as the turn-log switch; exact-match public in AuthMiddleware.
         Api.AdminFactoryAgentsEndpoint.Map(_app, FactoryAgentsSwitch, TenantRegistry);

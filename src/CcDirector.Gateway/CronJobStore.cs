@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
@@ -135,6 +136,20 @@ public sealed class CronJobStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
+            return ctx.CronJobs.AsNoTracking().ToList()
+                .Select(ToDto)
+                .OrderBy(j => j.Id, StringComparer.Ordinal)
+                .ToList();
+        }
+    }
+
+    /// <summary>All jobs of an account the CALLER names rather than the ambient one, id-sorted - for a view that
+    /// resolved its account itself (the Factories screen's Seats tab).</summary>
+    public IReadOnlyList<CronJobDto> ListAll(TenantId tenant)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
             return ctx.CronJobs.AsNoTracking().ToList()
                 .Select(ToDto)
                 .OrderBy(j => j.Id, StringComparer.Ordinal)
