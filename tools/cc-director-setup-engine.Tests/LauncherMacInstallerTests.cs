@@ -149,6 +149,62 @@ public class LauncherMacInstallerTests : IDisposable
         Assert.DoesNotContain("SECRET", body);
     }
 
+    [Fact]
+    public async Task InstallAsync_ReportBody_NeverCarriesTheFirstProgramArgumentOrAValueOfTheWrongKind()
+    {
+        // The whole path again, to the serialized request body, for the two property list shapes round four
+        // found: a planted value as the FIRST element of a valid ProgramArguments array, and the same value
+        // inside a dictionary where the array should be, with EnvironmentVariables an array instead of a
+        // dictionary. Neither may reach the body.
+        var binary = _layout.PathFor(ComponentRegistry.Launcher);
+        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+        File.WriteAllText(binary, "");
+        Directory.CreateDirectory(Path.Combine(_layout.LogsDir, "launcher"));
+        var reporter = new InstallFailureReporter(_layout, "setup-wizard", gatewayUrl: () => "http://127.0.0.1:9");
+        var shapes = new[]
+        {
+            LauncherLaunchdAutostart.PlistContent("hunter2", "--managed", Path.Combine(_layout.LogsDir, "launcher")),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict>"
+            + "<key>Label</key><string>com.devthrottle.cc-launcher</string>"
+            + "<key>ProgramArguments</key><dict><key>Program</key><string>hunter2</string></dict>"
+            + "<key>EnvironmentVariables</key><array><string>hunter2</string></array>"
+            + "<key>RunAtLoad</key><true/></dict></plist>",
+        };
+
+        foreach (var plist in shapes)
+        {
+            File.WriteAllText(_plistPath, plist);
+            var held = true;
+            var installer = new LauncherMacInstaller(_layout,
+                runCommand: (exe, args) =>
+                {
+                    if (exe == "/bin/launchctl" && args.StartsWith("bootout", StringComparison.Ordinal)) held = false;
+                    if (exe == "/bin/launchctl" && args.StartsWith("bootstrap", StringComparison.Ordinal)) held = true;
+                    return exe switch
+                    {
+                        "/usr/bin/id" => (0, "501"),
+                        "/usr/bin/stat" => (0, string.Join('\n', Enumerable.Repeat("501", args.Count(c => c == '"') / 2))),
+                        "/usr/bin/find" => (0, ""),
+                        "/bin/launchctl" when args.StartsWith("print gui/501/com.devthrottle", StringComparison.Ordinal) => held ? (0, "gui/501/com.devthrottle.cc-launcher = {\n\tstate = not running\n\tlast exit code = 78: EX_CONFIG\n\tjob state = spawn failed\n}\n") : (113, "Could not find service"),
+                        _ => (0, ""),
+                    };
+                },
+                startProcess: (_, _, _) => 1234,
+                launchAgentPlistPath: _plistPath,
+                healthTimeout: TimeSpan.FromSeconds(1),
+                registrationPath: _registrationPath,
+                launchdPidWait: TimeSpan.FromSeconds(1));
+
+            var result = await installer.InstallAsync();
+            var body = System.Text.Json.JsonSerializer.Serialize(reporter.BuildPayload("launcher", "start", result.Message, result.Diagnostics));
+
+            Assert.False(result.Success);
+            Assert.Contains("launch agent property list on disk", result.Diagnostics);
+            Assert.DoesNotContain("hunter2", result.Diagnostics);
+            Assert.DoesNotContain("hunter2", body);
+        }
+    }
+
     // RETIRED, deliberately: two tests here pinned the behaviour that broke a Mac.
     //
     // InstallAsync_FirstInstall_StartsDirectlyAndVerifiesPlist asserted that a first install starts the

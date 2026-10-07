@@ -70,25 +70,6 @@ public sealed class InstallCompletionTests
         Assert.False(InstallCompletion.CreatesDesktopShortcut(isUpdate: true));
     }
 
-    // A launcher that does not install is a WARNING for the install: the Director runs, signs in and enrolls
-    // without it, and the Director repairs it once connected. Five installs on one Mac placed a working
-    // Director and then read "Setup finished with problems" because launchd refused the launcher (#3411).
-    [Fact]
-    public void FailureIsWarning_Launcher_IsTrue()
-    {
-        Assert.True(InstallCompletion.FailureIsWarning(ComponentRegistry.Launcher.Id));
-        Assert.True(InstallCompletion.FailureIsWarning(ComponentRegistry.Launcher.Id.ToUpperInvariant()));
-    }
-
-    // The Director and the tools are not warnings: without the Director there is nothing to open.
-    [Fact]
-    public void FailureIsWarning_DirectorAndTools_IsFalse()
-    {
-        Assert.False(InstallCompletion.FailureIsWarning(ComponentRegistry.Director.Id));
-        Assert.False(InstallCompletion.FailureIsWarning("cc-tools"));
-        Assert.False(InstallCompletion.FailureIsWarning(""));
-    }
-
     // A warning does not count as skipped, so the classification and the ready-to-go verdict are unchanged
     // by it: the screen says the Director is installed, and the warning is said beside that, not instead.
     [Fact]
@@ -99,23 +80,62 @@ public sealed class InstallCompletionTests
         Assert.Equal(InstallCompletionKind.Success, InstallCompletion.Classify(skipped: 0, alreadyUpToDate: false));
     }
 
-    // What the person reads under the warning: what they lose (autostart), what to do (open the Director),
-    // and what happens next (the Director tries to repair it and reports). In plain words - no "launchd",
-    // no "launch agent", no "plist" - no promise the repair cannot keep, and no claim that THIS install's
-    // report was delivered: that is said on the reason line by the reporter, only when the Gateway accepted it.
-    [Fact]
-    public void LauncherWarningExplanation_SaysWhatIsLostAndWhatHappensNext()
+    // What the person reads under the warning depends on what is actually true: whether there is a Director
+    // to open, whether the launcher file is there for the Director to repair, and whether DevThrottle has the
+    // report. Every combination is rendered here as the screen renders it, in plain words - no "launchd", no
+    // "launch agent", no "plist" - and no promise the facts do not support (#3411, review round four).
+    [Theory]
+    [InlineData(true, "start", true)]
+    [InlineData(true, "start", false)]
+    [InlineData(true, "place", true)]
+    [InlineData(true, "place", false)]
+    [InlineData(false, "start", true)]
+    [InlineData(false, "start", false)]
+    [InlineData(false, "place", true)]
+    [InlineData(false, "place", false)]
+    public void WarningPanelText_SaysOnlyWhatTheFactsAllow(bool directorInstalled, string step, bool reportAccepted)
     {
-        var text = InstallCompletion.LauncherWarningExplanation;
+        var warning = new InstallWarning(ComponentRegistry.Launcher.Id, "macOS could not start the launcher at all: launchd reports 'spawn failed' (exit code 78: EX_CONFIG).", step, reportAccepted);
+
+        var text = InstallCompletion.WarningPanelText([warning], directorInstalled);
+        var explanation = InstallCompletion.LauncherWarningExplanation(directorInstalled, step == "start", reportAccepted);
+
+        // The reason line is the runner's own words, verbatim, and the explanation follows it.
+        Assert.StartsWith("Launcher: macOS could not start the launcher at all", text);
+        Assert.EndsWith("\n\n" + explanation, text);
         Assert.Contains("will not start by itself when you sign in", text);
-        Assert.Contains("The Director works without it", text);
-        Assert.Contains("tries to repair this", text);
-        Assert.Contains("reports to DevThrottle", text);
-        Assert.Contains("nothing for you to type or send", text);
-        Assert.DoesNotContain("was sent", text);
-        Assert.DoesNotContain("launchd", text);
-        Assert.DoesNotContain("launch agent", text);
-        Assert.DoesNotContain("plist", text);
-        Assert.DoesNotContain("will repair", text);
+        // The Director is the next step only when there is one.
+        Assert.Equal(directorInstalled, text.Contains("The Director works without it: open it now."));
+        Assert.Equal(!directorInstalled, text.Contains("The Director did not install either"));
+        // A later repair is promised only when the Director is there to do it AND the file is there to repair.
+        Assert.Equal(directorInstalled && step == "start", text.Contains("repairs it when it can"));
+        Assert.Equal(directorInstalled && step == "place", text.Contains("Running the installer again puts the missing part in place"));
+        // The report is with DevThrottle only when the Gateway accepted it.
+        Assert.Equal(reportAccepted, text.Contains("nothing for you to type or send"));
+        Assert.Equal(!reportAccepted, text.Contains("could not reach DevThrottle to report it"));
+        // The explanation itself is in plain words: the reason line above it may name launchd, this never does.
+        Assert.DoesNotContain("was sent", explanation);
+        Assert.DoesNotContain("reports to DevThrottle what it finds", explanation);
+        Assert.DoesNotContain("launchd", explanation);
+        Assert.DoesNotContain("launch agent", explanation);
+        Assert.DoesNotContain("plist", explanation);
+        Assert.DoesNotContain("will repair", explanation);
+    }
+
+    [Fact]
+    public void WarningPanelText_WithoutALauncherWarning_IsOnlyTheLines()
+    {
+        var text = InstallCompletion.WarningPanelText([new InstallWarning("cc-tools", "did not install", InstallWarning.PlaceStep, false)], directorInstalled: true);
+
+        Assert.Equal("Tools: did not install", text);
+    }
+
+    [Fact]
+    public void InstallWarning_PlacedMeansTheStepWasNotPlace()
+    {
+        Assert.True(new InstallWarning(ComponentRegistry.Launcher.Id, "r", InstallWarning.StartStep, true).Placed);
+        Assert.False(new InstallWarning(ComponentRegistry.Launcher.Id, "r", InstallWarning.PlaceStep, true).Placed);
+        Assert.True(new InstallWarning("CC-LAUNCHER", "r", InstallWarning.StartStep, true).IsLauncher);
+        Assert.False(new InstallWarning("cc-director", "r", InstallWarning.StartStep, true).IsLauncher);
     }
 }

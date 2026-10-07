@@ -54,9 +54,14 @@ public class LauncherLaunchdRebuildTests : IDisposable
         public bool InitialPrintTimesOut;
         public bool ThrowOnKickstart;
         public bool ThrowOnFinalPrint;
+        /// <summary>A non-zero answer for the FIRST print after the kickstart (113: the replacement vanished;
+        /// the timeout code: launchctl never answered). Later prints answer normally, so the roll back can be
+        /// seen to work. 113 also makes the replacement vanish from the fake launchd, as it would have.</summary>
+        public int FinalPrintExit;
         public TimeSpan BootstrapDelay = TimeSpan.Zero;
         private bool _bootstrapFailed;
         private bool _threw;
+        private bool _answeredFinal;
         private readonly object _gate = new();
 
         public (int Exit, string Output) Run(string exe, string args)
@@ -77,6 +82,12 @@ public class LauncherLaunchdRebuildTests : IDisposable
                     if (InitialPrintTimesOut && prints == 1) return (ProcessRunner.TimeoutExitCode, "TIMEOUT: '/bin/launchctl' exceeded 60s and was killed.");
                     if (ConfirmationTimesOut && afterBootout && !afterBootstrap) return (ProcessRunner.TimeoutExitCode, "TIMEOUT: '/bin/launchctl' exceeded 60s and was killed.");
                     if (ThrowOnFinalPrint && afterKickstart && !_threw) { _threw = true; throw new IOException("the runner broke on the last question"); }
+                    if (FinalPrintExit != 0 && afterKickstart && !_answeredFinal)
+                    {
+                        _answeredFinal = true;
+                        if (FinalPrintExit == 113) { Held = false; Started = false; }
+                        return (FinalPrintExit, FinalPrintExit == 113 ? NotFound : "TIMEOUT: '/bin/launchctl' exceeded 60s and was killed.");
+                    }
                     return Held ? (0, Started ? RunningAfter : Refused) : (113, NotFound);
                 }
                 if (args.StartsWith("bootout ", StringComparison.Ordinal))
@@ -150,11 +161,14 @@ public class LauncherLaunchdRebuildTests : IDisposable
     {
         var sawStagedFileAtFirstLaunchctlCall = false;
         var launchctlCalls = 0;
+        var kickstarted = false;
         LauncherLaunchdAutostart.CommandRunner run = (exe, args) =>
         {
             if (exe == "/bin/launchctl" && launchctlCalls++ == 0) sawStagedFileAtFirstLaunchctlCall = StagingFiles().Length == 1;
             if (exe == "/usr/bin/id") return (0, "501");
-            if (args.StartsWith("print ", StringComparison.Ordinal)) return (113, NotFound);
+            if (args.StartsWith("kickstart ", StringComparison.Ordinal)) kickstarted = true;
+            // Not held before; held and running after - the last answer must be exit 0 for the rebuild to succeed.
+            if (args.StartsWith("print ", StringComparison.Ordinal)) return kickstarted ? (0, RunningAfter) : (113, NotFound);
             return (0, "");
         };
 
@@ -207,6 +221,63 @@ public class LauncherLaunchdRebuildTests : IDisposable
         Assert.True(launchd.Held, "launchd holds the previous job again");
         Assert.False(launchd.Started, "the replacement that was started is gone");
         Assert.Contains(ex.Steps, s => s == "bootstrapped the launch agent");
+    }
+
+    // Round four: the last print's NON-ZERO answer was treated differently from an exception there. A final
+    // "could not find service" (the replacement vanished) and a final timeout were both returned as success
+    // with no print, leaving a property list on disk with no loaded job - the state the Director's repair
+    // deliberately leaves alone. Now Rebuild succeeds only on an exit-zero final answer; anything else rolls
+    // back: the previous definition restored and loaded again when there was one, the new file removed when
+    // there was not, and a replacement launchd still holds booted out first.
+    [Theory]
+    [InlineData(true, 113)]
+    [InlineData(false, 113)]
+    [InlineData(true, ProcessRunner.TimeoutExitCode)]
+    [InlineData(false, ProcessRunner.TimeoutExitCode)]
+    public void Rebuild_WhenTheFinalPrintIsNotExitZero_RollsBackAndNeverReturnsSuccess(bool loadedBefore, int finalPrintExit)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_plist)!);
+        if (loadedBefore) File.WriteAllText(_plist, "<old/>");
+        var launchd = new FakeLaunchd(loaded: loadedBefore) { FinalPrintExit = finalPrintExit };
+
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
+            LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, launchd.Run, _plist, _logDir));
+
+        if (finalPrintExit == 113)
+            Assert.Contains("launchd no longer holds the job after the bootstrap and kickstart", ex.Message);
+        else
+            Assert.Contains("launchd gave no usable answer for the job after the kickstart", ex.Message);
+        Assert.Contains("The replacement job was booted out first.", ex.Message);
+        Assert.Contains(ex.Steps, s => s == "bootstrapped the launch agent");
+        Assert.DoesNotContain(ex.Steps, s => s.StartsWith("launchd now reports:", StringComparison.Ordinal));
+        Assert.Empty(StagingFiles());
+        if (loadedBefore)
+        {
+            Assert.Contains("Rolled back: the previous launch agent is back on disk and loaded again.", ex.Message);
+            Assert.Equal("<old/>", File.ReadAllText(_plist));
+            Assert.Equal(["print", "bootout", "print", "bootstrap", "kickstart", "print", "bootout", "print", "bootstrap"], launchd.Launchctl());
+            Assert.True(launchd.Held, "launchd holds the previous job again");
+            Assert.False(launchd.Started, "the replacement that was started is gone");
+        }
+        else
+        {
+            Assert.Contains("Rolled back: the new launch agent was removed; there was none before.", ex.Message);
+            Assert.False(File.Exists(_plist), "the new file is removed when there was none before");
+            Assert.Equal(["print", "bootstrap", "kickstart", "print", "bootout", "print"], launchd.Launchctl());
+            Assert.False(launchd.Held, "launchd holds nothing, as before");
+        }
+    }
+
+    [Fact]
+    public void Rebuild_OnSuccess_AlwaysCarriesLaunchdsExitZeroAnswer()
+    {
+        var launchd = new FakeLaunchd(loaded: false);
+
+        var result = LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, launchd.Run, _plist, _logDir);
+
+        Assert.NotNull(result.AfterPrint);
+        Assert.Contains("pid = 777", result.AfterPrint);
+        Assert.Equal("print", launchd.Launchctl()[^1]);
     }
 
     [Fact]

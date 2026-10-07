@@ -260,7 +260,8 @@ public sealed class LaunchdDiagnosticsTests
         var text = LaunchdDiagnostics.PlistFacts(plist).Replace("\r\n", "\n");
 
         Assert.Contains("Label = com.devthrottle.cc-launcher", text);
-        Assert.Contains("ProgramArguments = 4 entries; program = /Users/robert/Library/Application Support/cc-director/launcher/cc-launcher; the arguments are not sent", text);
+        Assert.Contains("ProgramArguments = 4 entries (not sent)", text);
+        Assert.DoesNotContain("/Users/robert/Library/Application Support/cc-director/launcher/cc-launcher", text.Replace("StandardOutPath", "").Replace("StandardErrorPath", ""));
         Assert.Contains("RunAtLoad = true", text);
         Assert.Contains("KeepAlive = dict (SuccessfulExit = false)", text);
         Assert.Contains("ProcessType = Interactive", text);
@@ -274,6 +275,37 @@ public sealed class LaunchdDiagnosticsTests
         Assert.DoesNotContain("GITHUB_TOKEN", text);
         Assert.DoesNotContain("ghp_", text);
         Assert.DoesNotContain("top secret", text);
+    }
+
+    [Fact]
+    public void PlistFacts_NeverSendsAProgramArgumentsElement_AndChecksTheKindOfTheArgumentsAndTheEnvironment()
+    {
+        // The first ProgramArguments element used to travel as "program = ..." - a value-shaped hole: a planted
+        // "hunter2" as the first element of a valid array, or inside a dictionary where the array should be,
+        // went out in the report. Now the array is counted and nothing in it is sent, and a value of the wrong
+        // kind is named by its kind. EnvironmentVariables is counted only when it is a dictionary.
+        const string validArray = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict>"
+            + "<key>Label</key><string>com.devthrottle.cc-launcher</string>"
+            + "<key>ProgramArguments</key><array><string>hunter2</string><string>--managed</string></array>"
+            + "<key>EnvironmentVariables</key><dict><key>TOKEN</key><string>hunter2</string></dict>"
+            + "</dict></plist>";
+        const string wrongKinds = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict>"
+            + "<key>Label</key><string>com.devthrottle.cc-launcher</string>"
+            + "<key>ProgramArguments</key><dict><key>Program</key><string>hunter2</string></dict>"
+            + "<key>EnvironmentVariables</key><array><string>hunter2</string></array>"
+            + "</dict></plist>";
+
+        var array = LaunchdDiagnostics.PlistFacts(validArray);
+        var wrong = LaunchdDiagnostics.PlistFacts(wrongKinds);
+
+        Assert.Contains("ProgramArguments = 2 entries (not sent)", array);
+        Assert.Contains("EnvironmentVariables = present (1 entries, not sent)", array);
+        Assert.Contains("ProgramArguments = (a dict, not an array; not sent)", wrong);
+        Assert.Contains("EnvironmentVariables = (a array, not a dictionary; not sent)", wrong);
+        Assert.DoesNotContain("hunter2", array);
+        Assert.DoesNotContain("hunter2", wrong);
+        Assert.DoesNotContain("--managed", array);
+        Assert.DoesNotContain("TOKEN", array);
     }
 
     [Fact]

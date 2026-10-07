@@ -269,9 +269,11 @@ public static class LaunchdDiagnostics
     ];
 
     /// <summary>
-    /// Named facts from a launch agent property list, nothing else: the label, the program path, the log paths,
-    /// the start and keep-alive settings. The arguments are counted, never sent; environment variables are
-    /// noted as present, never sent; a key this does not know is named and not sent.
+    /// Named facts from a launch agent property list, nothing else: the label, the Program key, the log paths,
+    /// the start and keep-alive settings. ProgramArguments is counted when it is an array and no element of it
+    /// is sent - not the first one either, a value a person typed into the file like any other; environment
+    /// variables are counted when they are a dictionary and never sent; a value of the wrong kind is named by
+    /// its kind and not sent; a key this does not know is named and not sent.
     /// </summary>
     internal static string PlistFacts(string plistXml)
     {
@@ -301,12 +303,13 @@ public static class LaunchdDiagnostics
                     ? $"KeepAlive = dict ({string.Join(", ", Pairs(value).Select(KeepAliveFact))})"
                     : kind is "true" or "false" ? $"KeepAlive = {kind}" : $"KeepAlive = (a {kind}; not sent)");
             else if (key == "ProgramArguments")
-            {
-                var strings = value.Elements("string").Select(e => e.Value).ToList();
-                facts.Add($"ProgramArguments = {strings.Count} entries; program = {(strings.Count > 0 ? strings[0] : "(none)")}; the arguments are not sent");
-            }
+                facts.Add(kind == "array"
+                    ? $"ProgramArguments = {value.Elements().Count()} entries (not sent)"
+                    : $"ProgramArguments = (a {kind}, not an array; not sent)");
             else if (key == "EnvironmentVariables")
-                facts.Add($"EnvironmentVariables = present ({value.Elements("key").Count()} entries, not sent)");
+                facts.Add(kind == "dict"
+                    ? $"EnvironmentVariables = present ({Pairs(value).Count()} entries, not sent)"
+                    : $"EnvironmentVariables = (a {kind}, not a dictionary; not sent)");
             else
                 facts.Add($"{key} = (not sent)");
         }

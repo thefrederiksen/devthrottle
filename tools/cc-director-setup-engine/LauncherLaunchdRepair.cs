@@ -108,12 +108,13 @@ public static class LauncherLaunchdRepair
 
     /// <summary>
     /// Reads launchctl print-disabled's answer for the user domain, strictly. The answer is exactly one
-    /// dictionary - a header line ending in "= {" as the FIRST line, one <c>"label" => value</c> line per
-    /// service a person disabled (value disabled or true; enabled or false for one turned back on) and a
-    /// closing brace as the LAST line. Only a complete, recognisable dictionary is believed: an empty,
-    /// truncated or malformed answer, anything before the header or after the brace, a nested or second
-    /// dictionary, a value this does not know on ANY label, or the launcher named twice is Unknown, and
-    /// Unknown never repairs. A launcher a complete dictionary does not name is enabled. Pure.
+    /// dictionary - the header <c>disabled services = {</c> as the FIRST line, one <c>"label" => value</c>
+    /// line per service a person disabled (value disabled or true; enabled or false for one turned back on)
+    /// and a closing brace as the LAST line. Only a complete, recognisable dictionary is believed: an empty,
+    /// truncated or malformed answer, a header that merely contains the word, anything before the header or
+    /// after the brace, a nested or second dictionary, a value this does not know on ANY label, or ANY label
+    /// named twice is Unknown, and Unknown never repairs. A launcher a complete dictionary does not name is
+    /// enabled. Pure.
     /// </summary>
     internal static DisabledState ParseDisabled(string? printDisabledOutput)
     {
@@ -123,11 +124,12 @@ public static class LauncherLaunchdRepair
         // looks right followed by anything else - a second dictionary, trailing text, a nested block - is not
         // the answer this knows, and is Unknown.
         if (lines.Count < 2) return DisabledState.Unknown;
-        var header = lines[0];
-        if (!header.EndsWith("= {", StringComparison.Ordinal) || !header.Contains("disabled", StringComparison.OrdinalIgnoreCase)) return DisabledState.Unknown;
+        // The one header launchctl prints for this answer - not a line that merely contains the word.
+        if (!string.Equals(lines[0], "disabled services = {", StringComparison.OrdinalIgnoreCase)) return DisabledState.Unknown;
         if (lines[^1] != "}") return DisabledState.Unknown;
 
         var ours = "\"" + LauncherLaunchdAutostart.Label + "\"";
+        var labels = new HashSet<string>(StringComparer.Ordinal);
         DisabledState? found = null;
         for (var i = 1; i < lines.Count - 1; i++)
         {
@@ -145,9 +147,9 @@ public static class LauncherLaunchdRepair
                 _ => DisabledState.Unknown,
             };
             if (state == DisabledState.Unknown) return DisabledState.Unknown;
-            if (line[..(closingQuote + 1)] != ours) continue;
-            if (found is not null) return DisabledState.Unknown; // named twice: the answer is not one dictionary
-            found = state;
+            var label = line[..(closingQuote + 1)];
+            if (!labels.Add(label)) return DisabledState.Unknown; // any label named twice: this is not one dictionary
+            if (label == ours) found = state;
         }
         return found ?? DisabledState.Enabled;
     }
@@ -233,8 +235,8 @@ public static class LauncherLaunchdRepair
 
         // The kickstart is a request; the process comes a moment later. Success is a process launchd reports.
         var deadline = DateTime.UtcNow + startWait;
-        var after = result.AfterPrint;
-        var pid = LauncherMacInstaller.ParseLaunchdPid(after ?? "");
+        string? after = result.AfterPrint;
+        var pid = LauncherMacInstaller.ParseLaunchdPid(after);
         while (pid <= 0 && DateTime.UtcNow < deadline)
         {
             Thread.Sleep(pollInterval);

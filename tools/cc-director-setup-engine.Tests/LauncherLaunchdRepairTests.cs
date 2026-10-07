@@ -161,12 +161,13 @@ public class LauncherLaunchdRepairTests
 
     [Theory]
     [InlineData("disabled services = {\n\t\"com.apple.something\" => disabled\n\t\"com.devthrottle.cc-launcher\" => disabled\n}\n", "Disabled")]
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => true\n}\n", "Disabled")]
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => enabled\n}\n", "Enabled")]
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => false\n}\n", "Enabled")]
-    [InlineData("disabled = {\n\t\"com.apple.something\" => disabled\n}\n", "Enabled")]
-    [InlineData("disabled = {\n}\n", "Enabled")]
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher.helper\" => disabled\n}\n", "Enabled")]
+    [InlineData("disabled services = {\n\t\"com.devthrottle.cc-launcher\" => true\n}\n", "Disabled")]
+    [InlineData("Disabled Services = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n}\n", "Disabled")]
+    [InlineData("disabled services = {\n\t\"com.devthrottle.cc-launcher\" => enabled\n}\n", "Enabled")]
+    [InlineData("disabled services = {\n\t\"com.devthrottle.cc-launcher\" => false\n}\n", "Enabled")]
+    [InlineData("disabled services = {\n\t\"com.apple.something\" => disabled\n}\n", "Enabled")]
+    [InlineData("disabled services = {\n}\n", "Enabled")]
+    [InlineData("disabled services = {\n\t\"com.devthrottle.cc-launcher.helper\" => disabled\n}\n", "Enabled")]
     public void ParseDisabled_ReadsACompleteDisabledList(string output, string expected)
     {
         // The enum is internal, so the expectation travels as its name.
@@ -178,18 +179,22 @@ public class LauncherLaunchdRepairTests
     [InlineData("")]
     [InlineData("   \n")]
     [InlineData("nonsense\n")]
-    [InlineData("disabled = {\n\t\"com.apple.something\" => disabled\n")]                       // no closing brace: truncated
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\"\n}\n")]                        // our label with no value
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => maybe\n}\n")]               // a value this does not know
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n\t\"com.devthrottle.cc-launcher\" => enabled\n}\n")] // named twice
-    [InlineData("disabled = {\n\tsomething that is not an entry\n}\n")]                           // the format changed
+    [InlineData("disabled services = {\n\t\"com.apple.something\" => disabled\n")]                       // no closing brace: truncated
+    [InlineData("disabled services = {\n\t\"com.devthrottle.cc-launcher\"\n}\n")]                        // our label with no value
+    [InlineData("disabled services = {\n\t\"com.devthrottle.cc-launcher\" => maybe\n}\n")]               // a value this does not know
+    [InlineData("disabled services = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n\t\"com.devthrottle.cc-launcher\" => enabled\n}\n")] // our label named twice
+    [InlineData("disabled services = {\n\t\"com.example.other\" => disabled\n\t\"com.example.other\" => enabled\n}\n")] // ANOTHER label named twice: not one dictionary either
+    [InlineData("disabled services = {\n\tsomething that is not an entry\n}\n")]                           // the format changed
     [InlineData("disabled services = {\n}\ntruncated garbage\n")]                                 // a valid-looking prefix, then garbage
-    [InlineData("some preamble\ndisabled = {\n\t\"com.apple.something\" => disabled\n}\n")]     // leading material
-    [InlineData("disabled = {\n\t\"com.apple.something\" => disabled\n}\n\"trailing\" => disabled\n")] // trailing material
-    [InlineData("disabled = {\n}\nenabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n}\n")] // a second dictionary
-    [InlineData("disabled = {\n\tnested = {\n\t\t\"com.apple.something\" => disabled\n\t}\n}\n")]  // a nested dictionary
-    [InlineData("disabled = {\n\t\"com.apple.something\" => maybe\n}\n")]                       // an unknown value on another label
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher => disabled\n}\n")]              // a label whose quote never closes
+    [InlineData("some preamble\ndisabled services = {\n\t\"com.apple.something\" => disabled\n}\n")]     // leading material
+    [InlineData("disabled services = {\n\t\"com.apple.something\" => disabled\n}\n\"trailing\" => disabled\n")] // trailing material
+    [InlineData("disabled services = {\n}\nenabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n}\n")] // a second dictionary
+    [InlineData("disabled services = {\n\tnested = {\n\t\t\"com.apple.something\" => disabled\n\t}\n}\n")]  // a nested dictionary
+    [InlineData("disabled services = {\n\t\"com.apple.something\" => maybe\n}\n")]                       // an unknown value on another label
+    [InlineData("disabled services = {\n\t\"com.devthrottle.cc-launcher => disabled\n}\n")]              // a label whose quote never closes
+    [InlineData("not disabled services = {\n}\n")]                                                  // a header that merely CONTAINS the words
+    [InlineData("disabled = {\n}\n")]                                                               // the old, loose header: not launchctl's
+    [InlineData("services disabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n}\n")]        // the words in another order
     public void ParseDisabled_AnythingButACompleteRecognisableList_IsUnknown(string? output)
     {
         Assert.Equal(DisabledState.Unknown, ParseDisabled(output));
@@ -198,12 +203,14 @@ public class LauncherLaunchdRepairTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n")]
+    [InlineData("disabled services = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n")]
     [InlineData("disabled services = {\n}\ntruncated garbage\n")]
-    [InlineData("some preamble\ndisabled = {\n}\n")]
-    [InlineData("disabled = {\n}\n}\n")]
-    [InlineData("disabled = {\n}\nenabled = {\n}\n")]
-    [InlineData("disabled = {\n\t\"com.apple.something\" => maybe\n}\n")]
+    [InlineData("some preamble\ndisabled services = {\n}\n")]
+    [InlineData("disabled services = {\n}\n}\n")]
+    [InlineData("disabled services = {\n}\nenabled = {\n}\n")]
+    [InlineData("disabled services = {\n\t\"com.apple.something\" => maybe\n}\n")]
+    [InlineData("not disabled services = {\n}\n")]
+    [InlineData("disabled services = {\n\t\"com.example.other\" => disabled\n\t\"com.example.other\" => enabled\n}\n")]
     public void Decide_NeverRepairsWhenTheDisabledListIsUnknown(string? printDisabled)
     {
         var d = Decide(true, true, Refused, 0, ParseDisabled(printDisabled));

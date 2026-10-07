@@ -138,7 +138,7 @@ public static class LauncherLaunchdAutostart
     /// <param name="PreviousLoaded">Whether launchd held the job before the rebuild.</param>
     /// <param name="Steps">What was done, in order, for the install steps and the report.</param>
     /// <param name="AfterPrint">launchctl print's answer after the kickstart, when launchd answered.</param>
-    public sealed record RebuildResult(string? PreviousPrint, bool PreviousLoaded, IReadOnlyList<string> Steps, string? AfterPrint);
+    public sealed record RebuildResult(string? PreviousPrint, bool PreviousLoaded, IReadOnlyList<string> Steps, string AfterPrint);
 
     /// <summary>
     /// Define the launch agent from scratch and make launchd run it NOW, whatever it held before.
@@ -338,13 +338,19 @@ public static class LauncherLaunchdAutostart
                     : $"kickstart answered exit {kickExit}: {Trim(kickText)} (launchd's answer below is what counts)");
 
                 // 6. What launchd says now, so a caller reports a start that happened rather than one that was
-                //    asked for. A runner that breaks here is a failure of the rebuild like any other.
+                //    asked for. The rebuild succeeded only when launchd answers exit 0 for the job here: a
+                //    replacement launchd no longer knows ("could not find service"), a timeout, any other answer
+                //    is the transaction failing at its last step, and is rolled back like the others. A success
+                //    returned on any other last answer left a property list on disk with no loaded job - the one
+                //    state the Director's repair deliberately leaves alone - and nothing would ever have fixed it.
                 var (afterExit, afterPrint) = run("/bin/launchctl", $"print {target}");
-                steps.Add(afterExit == 0
-                    ? $"launchd now reports: {Summarize(afterPrint)}"
-                    : $"launchd did not answer for the job after the kickstart (exit {afterExit})");
+                if (afterExit != 0)
+                    throw new InvalidOperationException(ServiceNotFound(afterExit, afterPrint)
+                        ? $"launchd no longer holds the job after the bootstrap and kickstart (launchctl print answered exit {afterExit}: {Trim(afterPrint)})"
+                        : $"launchd gave no usable answer for the job after the kickstart (launchctl print answered exit {afterExit}: {Trim(afterPrint)})");
+                steps.Add($"launchd now reports: {Summarize(afterPrint)}");
 
-                return new RebuildResult(wasLoaded ? printOutput : null, wasLoaded, steps, afterExit == 0 ? afterPrint : null);
+                return new RebuildResult(wasLoaded ? printOutput : null, wasLoaded, steps, afterPrint);
             }
             catch (Exception ex)
             {

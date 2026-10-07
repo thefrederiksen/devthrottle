@@ -61,33 +61,50 @@ public static class InstallCompletion
     public const string WarningStatus = "Warning";
 
     /// <summary>
-    /// Is a failure of this component a WARNING for the install rather than a failure of the install?
-    ///
-    /// The launcher only adds autostart: the Director runs, signs in and enrolls the machine without it (on
-    /// macOS nothing in the Director's start-up, sign-in or Gateway connection reads the launcher). Five
-    /// installs on one Mac placed a working Director and then told the person "Setup finished with
-    /// problems" because launchd refused the launcher - and the person stopped there, with a Director that
-    /// would have worked a click away. A launcher failure is therefore reported to DevThrottle and shown as a
-    /// warning, and the install goes on to open the Director; once the Director is connected it is our
-    /// channel to that machine, and it repairs the launcher itself. The Director and the tools are not
-    /// warnings: without the Director there is nothing to open.
+    /// The text of the Complete screen's warning panel: one line per warning (the display name and the reason,
+    /// exactly as the install runner recorded it), and under a launcher warning the explanation, built from
+    /// the facts rather than from one sentence that is sometimes false. Pure; the screen renders it verbatim.
     /// </summary>
-    /// <param name="componentId">The component id (<see cref="ComponentRegistry.Launcher"/> etc.).</param>
-    public static bool FailureIsWarning(string componentId)
-        => string.Equals(componentId, ComponentRegistry.Launcher.Id, StringComparison.OrdinalIgnoreCase);
+    /// <param name="warnings">The components that did not install without failing the install.</param>
+    /// <param name="directorInstalled">This install placed the Director. When it did not, there is nothing to open.</param>
+    public static string WarningPanelText(IReadOnlyList<InstallWarning> warnings, bool directorInstalled)
+    {
+        ArgumentNullException.ThrowIfNull(warnings);
+        var text = string.Join("\n", warnings.Select(w => w.Line));
+        var launcher = warnings.FirstOrDefault(w => w.IsLauncher);
+        return launcher is null
+            ? text
+            : text + "\n\n" + LauncherWarningExplanation(directorInstalled, launcher.Placed, launcher.ReportAccepted);
+    }
 
     /// <summary>
-    /// What the Complete screen says under a launcher warning, after the reason. Said in the words of what the
-    /// person loses and what happens next, never "launchd" or "launch agent". It does not promise a repair,
-    /// because the repair only reaches a job launchd holds and refuses - the one state that cannot be a
-    /// person's choice. It does not claim a report was sent either: whether this install's report reached
-    /// DevThrottle is said on the reason line above it, by the code that knows (the reporter appends "A report
-    /// of this failure was sent to DevThrottle." only when the Gateway accepted it).
+    /// What the Complete screen says under a launcher warning, after the reason line, in the words of what the
+    /// person loses and what happens next - never "launchd" or "launch agent" - and only what the facts allow.
+    ///
+    /// The launcher only adds autostart: on macOS nothing in the Director's start-up, sign-in or Gateway
+    /// connection reads it, so a Director that is installed is the next step whatever the launcher did. The
+    /// Director checks the launcher each time it starts and rebuilds a job launchd holds and refuses - so a
+    /// later repair is said only when the launcher file is there for it to repair, and never when the Director
+    /// itself did not install. A report is said to be with DevThrottle only when the Gateway accepted it; the
+    /// Director does not send a report for a launcher it decides to leave alone, so none is promised.
     /// </summary>
-    public const string LauncherWarningExplanation =
-        "DevThrottle will not start by itself when you sign in to this Mac until this is repaired. "
-        + "The Director works without it: open it now. Once the Director is open and connected, it tries to repair this "
-        + "on its own and reports to DevThrottle what it finds - there is nothing for you to type or send.";
+    /// <param name="directorInstalled">This install placed the Director.</param>
+    /// <param name="launcherPlaced">The launcher file is on disk and only its start failed; one that was never placed is put there by another install, not by the Director.</param>
+    /// <param name="reportAccepted">DevThrottle accepted this install's report of the failure.</param>
+    public static string LauncherWarningExplanation(bool directorInstalled, bool launcherPlaced, bool reportAccepted)
+    {
+        var parts = new List<string> { "DevThrottle will not start by itself when you sign in to this Mac until this is repaired." };
+        if (!directorInstalled)
+            parts.Add("The Director did not install either, and that comes first: nothing can be opened or repaired until it does.");
+        else if (launcherPlaced)
+            parts.Add("The Director works without it: open it now. Each time the Director starts it checks this again and repairs it when it can.");
+        else
+            parts.Add("The Director works without it: open it now. Running the installer again puts the missing part in place.");
+        parts.Add(reportAccepted
+            ? "DevThrottle already has the details of this failure: there is nothing for you to type or send."
+            : "This install could not reach DevThrottle to report it, so the details are only in the setup log on this Mac.");
+        return string.Join(" ", parts);
+    }
 
     /// <summary>
     /// Does leaving the Complete screen WITHOUT clicking Open Director still open the Director?

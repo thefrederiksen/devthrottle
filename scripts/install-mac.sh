@@ -103,7 +103,7 @@ repair_owned() {
 # Are these paths (one per line) ALL launch agent paths - the folder launchd reads at sign-in and our property
 # list in it? Those two exist only for autostart: the Director runs, signs in and connects without them. A
 # repair that leaves only them behind is a warning for the install, not a stop (the Director does not need
-# them, and once it is connected it reports and repairs what it can); anything else left behind - the app, its
+# them, and once it is connected it reports and repairs what it can); anything else left behind - the application, its
 # data folder, the shell files - still stops the install, because the wizard could not write to it.
 launcher_only() { # paths
     local line any=""

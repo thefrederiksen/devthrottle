@@ -29,6 +29,12 @@ namespace SetupWizardRenderHarness;
 //                   and its launch agent where the shipped wizard puts them. For a disposable Mac
 //                   (a continuous-integration runner) only: this is how the shipped flow is proven
 //                   against the machine's own launchd.
+//   --prove-close-keeps-error
+//                   After the Complete screen: hide the Director the install placed, close the window
+//                   the way a person does, and print what happened - CLOSE-CANCELLED (the window is
+//                   still open), CLOSE-ERROR (the text on screen) and CLOSE-OPEN-ATTEMPTS (how many
+//                   times the wizard tried to open the Director). The Director is put back and the run
+//                   ends WITHOUT a second close, so nothing is opened.
 //
 // After the Complete screen is shown the run prints what it says, one fact per line, so a proof can
 // read the screen without a person: COMPLETE-HEADING, COMPLETE-DESCRIPTION, COMPLETE-WARNING (the text
@@ -124,8 +130,40 @@ internal static class Program
         var launch = FindDescendantButton(window, "LaunchButton");
         HoverAndCapture(window, launch, "complete-launch-hover");
 
+        if (Array.Exists(args, a => string.Equals(a, "--prove-close-keeps-error", StringComparison.OrdinalIgnoreCase)))
+            ProveCloseKeepsError(window);
+
         Console.WriteLine($"RENDER OK -> {_outDir}");
         return 0;
+    }
+
+    /// <summary>
+    /// The behaviour a source-reading test cannot prove: a first-install close that cannot open the Director
+    /// is refused, with the error on the screen, after ONE attempt. The Director the install placed is hidden
+    /// for the duration and put back; the window is not closed again, so the proof opens nothing.
+    /// </summary>
+    private static void ProveCloseKeepsError(MainWindow window)
+    {
+        var directorPath = CcDirector.Setup.Engine.InstallLayout.Default().PathFor(CcDirector.Setup.Engine.ComponentRegistry.Director);
+        var hidden = directorPath + ".hidden-for-proof";
+        var isBundle = Directory.Exists(directorPath);
+        if (isBundle) Directory.Move(directorPath, hidden); else File.Move(directorPath, hidden);
+        try
+        {
+            window.Close();
+            Thread.Sleep(1500); // the failure report leaves in the background; give it the moment it needs
+            Pump();
+            var summary = FindDescendant<TextBlock>(window, "SummaryLine");
+            var attempts = File.ReadLines(SetupLog.Path).Count(l => l.Contains("[CompleteStep] OpenDirector:", StringComparison.Ordinal));
+            Console.WriteLine($"CLOSE-CANCELLED: {window.IsVisible}");
+            Console.WriteLine($"CLOSE-ERROR: {(summary is { IsVisible: true } ? summary.Text : "(none)")}");
+            Console.WriteLine($"CLOSE-OPEN-ATTEMPTS: {attempts}");
+            if (window.IsVisible) Capture(window, "complete-close-refused");
+        }
+        finally
+        {
+            if (isBundle) Directory.Move(hidden, directorPath); else File.Move(hidden, directorPath);
+        }
     }
 
     /// <summary>What the Complete screen says, one fact per line, for a proof that has no eyes.</summary>
@@ -175,7 +213,7 @@ internal static class Program
                 installed: 1, skipped: 0, installPath: "/Users/you/Applications/DevThrottle.app",
                 isUpdate: false, alreadyUpToDate: false, version: "1.8.5",
                 agentNotice: null, skippedNames: null, readyToGo: true, skippedReasons: null,
-                warnings: ["Launcher: macOS could not start the launcher at all: launchd reports 'spawn failed' (exit code 78: EX_CONFIG). A report of this failure was sent to DevThrottle."])),
+                warnings: [new CcDirector.Setup.Engine.InstallWarning("cc-launcher", "macOS could not start the launcher at all: launchd reports 'spawn failed' (exit code 78: EX_CONFIG). A report of this failure was sent to DevThrottle.", CcDirector.Setup.Engine.InstallWarning.StartStep, ReportAccepted: true)])),
         };
 
         foreach (var (name, step) in states)

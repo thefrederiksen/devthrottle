@@ -36,6 +36,14 @@ public class ToolDownloadItem : INotifyPropertyChanged
         set { _sizeText = value; OnPropertyChanged(nameof(SizeText)); }
     }
 
+    /// <summary>Which step failed when the row is a warning or a failure: "place" (the file never reached the
+    /// disk) or "start" (it did, and did not start) - the same words the report carries. Not rendered.</summary>
+    public string FailedStep { get; set; } = "";
+
+    /// <summary>DevThrottle accepted the report of this row's failure. Set by the reporter, read by the
+    /// Complete screen so it says the report is with us only when it is. Not rendered.</summary>
+    public bool ReportAccepted { get; set; }
+
     public string StatusColor => Status switch
     {
         "Done" => "#22C55E",

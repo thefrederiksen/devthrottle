@@ -31,9 +31,10 @@ public partial class CompleteStep : UserControl
     }
 
     /// <param name="warnings">Components that did not install WITHOUT failing the install - the launcher, which
-    /// only adds autostart - each as "Name: reason". Shown in an amber panel under the Open Director button;
-    /// the heading still says the Director is installed, because it is.</param>
-    public CompleteStep(int installed, int skipped, string installPath, bool isUpdate, bool alreadyUpToDate = false, string? version = null, string? agentNotice = null, IReadOnlyList<string>? skippedNames = null, bool readyToGo = true, IReadOnlyList<string>? skippedReasons = null, IReadOnlyList<string>? warnings = null)
+    /// only adds autostart - with the facts the panel's words depend on. Shown in an amber panel under the Open
+    /// Director button; the heading still says the Director is installed when it is.</param>
+    /// <param name="directorInstalled">This install placed the Director; false when the Director is among the failures.</param>
+    public CompleteStep(int installed, int skipped, string installPath, bool isUpdate, bool alreadyUpToDate = false, string? version = null, string? agentNotice = null, IReadOnlyList<string>? skippedNames = null, bool readyToGo = true, IReadOnlyList<string>? skippedReasons = null, IReadOnlyList<InstallWarning>? warnings = null, bool directorInstalled = true)
     {
         InitializeComponent();
 
@@ -129,9 +130,8 @@ public partial class CompleteStep : UserControl
         // "Setup finished with problems" because launchd refused the launcher, and the person stopped there.
         if (warnings is { Count: > 0 })
         {
-            var text = string.Join("\n", warnings);
-            if (warnings.Any(w => w.StartsWith(ComponentDisplayName.For("cc-launcher") + ":", StringComparison.Ordinal)))
-                text += "\n\n" + InstallCompletion.LauncherWarningExplanation;
+            // One place composes the words from the facts (InstallCompletion.WarningPanelText); this renders them.
+            var text = InstallCompletion.WarningPanelText(warnings, directorInstalled);
             WarningText.Text = text;
             WarningPanel.IsVisible = true;
             if (skipped == 0 && !alreadyUpToDate)
@@ -243,7 +243,7 @@ public partial class CompleteStep : UserControl
     /// _installPath is the canonical Director path (InstallLayout.PathFor). On Windows that is the
     /// installed cc-director.exe; on macOS it is the ~/Applications/Director.app bundle. The two
     /// launch differently: run the exe directly on Windows, but on macOS hand the bundle to
-    /// /usr/bin/open so LaunchServices registers it - that is what gives the app its Dock icon and
+    /// /usr/bin/open so LaunchServices registers it - that is what gives the application its Dock icon and
     /// foreground activation. Launching the inner Mach-O binary directly gives neither.
     /// </summary>
     public bool OpenDirector()
@@ -279,7 +279,13 @@ public partial class CompleteStep : UserControl
                     psi.Environment["PATH"] = freshPath;
             }
 
-            Process.Start(psi);
+            // Process.Start answers null when no process was started and nothing threw (a reused process, a
+            // shell that declined): that is a failure here, not a launch.
+            if (Process.Start(psi) is null)
+            {
+                LaunchFailed($"The Director could not be started: no process was started for {_installPath}", null);
+                return false;
+            }
             DirectorOpened = true;
             SetupLog.Write("[CompleteStep] OpenDirector: Director launched");
             return true;
@@ -293,11 +299,12 @@ public partial class CompleteStep : UserControl
 
     /// <summary>
     /// A Launch click that fails used to do nothing at all: the button stayed, nothing was said, and the
-    /// reason went only to the setup log (#3311). Now it is said on screen and reported.
+    /// reason went only to the setup log (#3311). Now it is said on screen and reported - from the button and
+    /// from the window's closing alike.
     /// </summary>
     private void LaunchFailed(string message, Exception? ex)
     {
-        SetupLog.Write($"[CompleteStep] LaunchButton_Click FAILED: {message}{(ex is null ? "" : "\n" + ex)}");
+        SetupLog.Write($"[CompleteStep] OpenDirector FAILED: {message}{(ex is null ? "" : "\n" + ex)}");
         SummaryLine.Text = $"ERROR: {message}. The log is at {SetupLog.Path}";
         SummaryLine.IsVisible = true;
         _ = WizardErrorReport.SendAsync("wizard", "launch-director", message, ex);

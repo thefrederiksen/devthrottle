@@ -30,8 +30,20 @@ public sealed class MacWizardLauncherWarningTests
         // Both ways the launcher can fail - placement and start - carry the warning status and are reported.
         Assert.Equal(2, Regex.Matches(body, @"item\.Status = InstallCompletion\.WarningStatus").Count
                         + Regex.Matches(body, @"startResult\.Success \? ""Done"" : InstallCompletion\.WarningStatus").Count);
-        Assert.Contains("ReportFailureAsync(item, \"launcher\", \"place\", WarningMessage(", body);
-        Assert.Contains("ReportFailureAsync(item, \"launcher\", \"start\", WarningMessage(", body);
+        Assert.Contains("ReportFailureAsync(item, \"launcher\", InstallWarning.PlaceStep, WarningMessage(", body);
+        Assert.Contains("ReportFailureAsync(item, \"launcher\", InstallWarning.StartStep, WarningMessage(", body);
+        // The two facts the Complete screen's words turn on are recorded on the row, where they are known.
+        Assert.Contains("item.FailedStep = InstallWarning.PlaceStep", body);
+        Assert.Contains("item.FailedStep = InstallWarning.StartStep", body);
+    }
+
+    [Fact]
+    public void ReportFailureAsync_RecordsWhetherTheGatewayAcceptedTheReport()
+    {
+        var source = MacWizard("Services", "EngineInstallRunner.cs");
+        Assert.Contains("if (item is not null) item.ReportAccepted = sent;", source);
+        // The message builder is an implementation detail of this class, not a public rule.
+        Assert.Contains("private static string WarningMessage(string failure)", source);
     }
 
     [Fact]
@@ -53,7 +65,9 @@ public sealed class MacWizardLauncherWarningTests
     {
         var source = MacWizard("MainWindow.axaml.cs");
         Assert.Contains(".Where(i => i.Status == InstallCompletion.WarningStatus)", source);
-        Assert.Matches(@"new CompleteStep\([^;]*_warnings\)", source);
+        Assert.Contains("new InstallWarning(i.Name, string.IsNullOrWhiteSpace(i.StatusDetail) ? \"did not install\" : i.StatusDetail, i.FailedStep, i.ReportAccepted)", source);
+        Assert.Contains("_directorInstalled = prep.ItemsById.TryGetValue(\"director\", out var director) && director.Status == \"Done\";", source);
+        Assert.Matches(@"new CompleteStep\([^;]*_warnings, _directorInstalled\)", source);
     }
 
     // The Windows wizard's rule (#3503), now on the Mac too: closing the wizard on a first install opens the
@@ -64,7 +78,13 @@ public sealed class MacWizardLauncherWarningTests
         var source = MacWizard("MainWindow.axaml.cs");
         Assert.Contains("protected override void OnClosing(WindowClosingEventArgs e)", source);
         Assert.Contains("InstallCompletion.OpensDirectorOnClose(_isUpdate, complete.DirectorOpened,", source);
-        Assert.Contains("if (opens) complete.OpenDirector();", source);
+        // A failed open refuses the close ONCE, so the error it rendered stays visible; the next close is
+        // honoured without a second attempt. The behaviour itself is proven on a Mac by the render harness
+        // (--prove-close-keeps-error) in the proof workflow; this pins the wiring.
+        Assert.Contains("else if (opens && !complete.OpenDirector())", source);
+        Assert.Contains("_openOnCloseFailed = true;", source);
+        Assert.Contains("e.Cancel = true;", source);
+        Assert.Contains("if (opens && _openOnCloseFailed)", source);
     }
 
     [Fact]
@@ -74,10 +94,12 @@ public sealed class MacWizardLauncherWarningTests
         var code = MacWizard("Steps", "CompleteStep.axaml.cs");
         Assert.Contains("x:Name=\"WarningPanel\"", markup);
         Assert.Contains("x:Name=\"WarningText\"", markup);
-        Assert.Contains("InstallCompletion.LauncherWarningExplanation", code);
+        Assert.Contains("InstallCompletion.WarningPanelText(warnings, directorInstalled)", code);
         Assert.Contains("WarningPanel.IsVisible = true;", code);
         Assert.Contains("public bool DirectorOpened { get; private set; }", code);
         Assert.Contains("public bool OpenDirector()", code);
+        // No process started and nothing thrown is a failure, not a launch.
+        Assert.Contains("if (Process.Start(psi) is null)", code);
     }
 
     [Fact]

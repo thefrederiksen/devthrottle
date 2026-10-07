@@ -29,8 +29,14 @@ public partial class MainWindow : Window
     private IReadOnlyList<string> _skippedNames = [];
     private IReadOnlyList<string> _skippedReasons = [];
     // Components that did not install WITHOUT failing the install (the launcher): shown as a warning on the
-    // Complete screen, never as "finished with problems" (InstallCompletion.FailureIsWarning).
-    private IReadOnlyList<string> _warnings = [];
+    // Complete screen, never as "finished with problems" (EngineInstallRunner.InstallLauncherAsync says why).
+    private IReadOnlyList<InstallWarning> _warnings = [];
+    // This install placed the Director. The Complete screen's warning words turn on it: "open it now" is said
+    // only when there is one to open.
+    private bool _directorInstalled = true;
+    // Closing the Complete screen tried to open the Director and could not. The close was refused once so the
+    // error stays on screen; the next close is honoured without a second attempt, so the window never traps.
+    private bool _openOnCloseFailed;
     private string _installPath = "";
 
     private readonly bool _isUpdate;
@@ -121,7 +127,7 @@ public partial class MainWindow : Window
         {
             StepWelcome => _welcomeStep ??= BuildWelcomeStep(),
             StepInstall => _installStep ??= new InstallStep(),
-            StepComplete => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _isUpdate, _alreadyUpToDate, _latestVersion, BuildAgentNotice(), _skippedNames, IsReadyToGo(), _skippedReasons, _warnings),
+            StepComplete => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _isUpdate, _alreadyUpToDate, _latestVersion, BuildAgentNotice(), _skippedNames, IsReadyToGo(), _skippedReasons, _warnings, _directorInstalled),
             _ => null
         };
 
@@ -365,13 +371,14 @@ public partial class MainWindow : Window
             .ToList();
         _warnings = prep.Items
             .Where(i => i.Status == InstallCompletion.WarningStatus)
-            .Select(i => $"{ComponentDisplayName.For(i.Name)}: {(string.IsNullOrWhiteSpace(i.StatusDetail) ? "did not install" : i.StatusDetail)}")
+            .Select(i => new InstallWarning(i.Name, string.IsNullOrWhiteSpace(i.StatusDetail) ? "did not install" : i.StatusDetail, i.FailedStep, i.ReportAccepted))
             .ToList();
+        _directorInstalled = prep.ItemsById.TryGetValue("director", out var director) && director.Status == "Done";
 
         _installStep?.SetStatus(_warnings.Count > 0
             ? $"Done - {installed} installed, {skipped} skipped, {_warnings.Count} warning"
             : $"Done - {installed} installed, {skipped} skipped");
-        SetupLog.Write($"[MainWindow] ApplyAndFinishAsync: installed={installed}, skipped={skipped}, warnings={_warnings.Count}");
+        SetupLog.Write($"[MainWindow] ApplyAndFinishAsync: installed={installed}, skipped={skipped}, warnings={_warnings.Count}, directorInstalled={_directorInstalled}");
 
         NextButton.Content = "Next";
         NextButton.IsEnabled = true;
@@ -383,14 +390,25 @@ public partial class MainWindow : Window
     /// which this wizard never had: on a Mac a person who closed the window instead of pressing the green
     /// button was left with no window, no sign-in and a machine that never connected. The rule is
     /// <see cref="InstallCompletion.OpensDirectorOnClose"/>; this only gathers its facts.
+    ///
+    /// When that open FAILS, the close is refused once: OpenDirector has just put the error on the screen, and
+    /// a window that closes on top of it leaves the person with nothing to read. The next close is honoured
+    /// without a second attempt, so the window never traps and the failure is reported once.
     /// </summary>
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         if (_currentStep == StepComplete && _completeStep is { } complete)
         {
             var opens = InstallCompletion.OpensDirectorOnClose(_isUpdate, complete.DirectorOpened, Directory.Exists(_installPath) || File.Exists(_installPath));
-            SetupLog.Write($"[MainWindow] OnClosing on Complete: isUpdate={_isUpdate}, directorOpened={complete.DirectorOpened}, opensDirector={opens}");
-            if (opens) complete.OpenDirector();
+            SetupLog.Write($"[MainWindow] OnClosing on Complete: isUpdate={_isUpdate}, directorOpened={complete.DirectorOpened}, opensDirector={opens}, openOnCloseFailed={_openOnCloseFailed}");
+            if (opens && _openOnCloseFailed)
+                SetupLog.Write("[MainWindow] OnClosing on Complete: closing with the error shown; the Director is not tried again");
+            else if (opens && !complete.OpenDirector())
+            {
+                _openOnCloseFailed = true;
+                e.Cancel = true;
+                SetupLog.Write("[MainWindow] OnClosing on Complete: the Director could not be opened; the window stays open so the error is visible");
+            }
         }
         base.OnClosing(e);
     }
