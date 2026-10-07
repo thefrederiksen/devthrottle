@@ -632,25 +632,30 @@ public static class FactoryAgentsFold
     }
 
     /// <summary>
-    /// The row "I have handled it" appends: a NEW row correcting the escalation. The escalation itself is never
-    /// changed. Refused unless the row is an escalation nothing has corrected yet.
+    /// The row "Handled" appends: a NEW row correcting the waiting item. The item itself is never changed. Refused
+    /// unless the row is an escalation or a question (asked) nothing has corrected yet. The owner may mark a question
+    /// handled too (Factories screen mission, round 2): every item on the factory page has the button, and the bulk
+    /// "mark everything older than 7 days" writes this same row for each item. <paramref name="why"/>, when given, says
+    /// how it was marked ("in a bulk clear of ...").
     /// </summary>
     public static AppendFactoryActivityRequest HandledRow(FactoryActivityDto escalation, IReadOnlyList<FactoryActivityDto> corrections,
-        bool correctionsTruncated, string actor, DateTime nowUtc)
+        bool correctionsTruncated, string actor, DateTime nowUtc, string? why = null)
     {
         ArgumentNullException.ThrowIfNull(escalation);
-        if (!Is(escalation, FactoryActivityOutcome.Escalated))
-            throw new FactoryViewValidationException("Only an escalation can be marked handled; an asked item clears when the record notes it was handled.");
-        return CorrectingRow(escalation, corrections, correctionsTruncated, actor, nowUtc, "escalation");
+        if (!Is(escalation, FactoryActivityOutcome.Escalated) && !Is(escalation, FactoryActivityOutcome.Asked))
+            throw new FactoryViewValidationException("Only an escalation or a question waiting on you can be marked handled.");
+        return CorrectingRow(escalation, corrections, correctionsTruncated, actor, nowUtc,
+            Is(escalation, FactoryActivityOutcome.Escalated) ? "escalation" : "question", why);
     }
 
     /// <summary>
-    /// The NEW row that marks <paramref name="row"/> handled by correcting it - shared by an escalation's "I have
-    /// handled it" and a failure's "Handled" (Factories screen round 2). The row itself is never changed. Refused
-    /// when it is already corrected, or when a cut corrections list cannot prove it is not.
+    /// The NEW row that marks <paramref name="row"/> handled by correcting it - shared by a waiting item's "Handled"
+    /// (an escalation or a question, one at a time or in the owner's bulk clear) and a failure's "Handled" (Factories
+    /// screen round 2). The row itself is never changed. Refused when it is already corrected, or when a cut
+    /// corrections list cannot prove it is not. <paramref name="why"/>, when given, says how it was marked.
     /// </summary>
     internal static AppendFactoryActivityRequest CorrectingRow(FactoryActivityDto row, IReadOnlyList<FactoryActivityDto> corrections,
-        bool correctionsTruncated, string actor, DateTime nowUtc, string kind)
+        bool correctionsTruncated, string actor, DateTime nowUtc, string kind, string? why = null)
     {
         // A cut corrections list cannot prove the row is still open, and writing on a guess would correct it twice.
         if (correctionsTruncated)
@@ -658,7 +663,9 @@ public static class FactoryAgentsFold
         if (corrections.Any(c => c.CorrectsId == row.Id))
             throw new FactoryViewValidationException($"This {kind} is already handled.");
 
-        var what = $"Marked handled by {actor}: {row.What}";
+        var what = why is null
+            ? $"Marked handled by {actor}: {row.What}"
+            : $"Marked handled by {actor} {why}: {row.What}";
         if (what.Length > FactoryActivityMaxWhat) what = what[..(FactoryActivityMaxWhat - 3)] + "...";
         return new AppendFactoryActivityRequest
         {

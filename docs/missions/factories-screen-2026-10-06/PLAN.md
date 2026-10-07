@@ -127,3 +127,23 @@ exists"). The head: the manifest key `ceoSeat` is KEPT (registered data depends 
 head, whatever its title"; the page says the seat's own role and name ("CFO Ruth Calder"), the button its name ("Talk
 to Ruth Calder"), and a factory with none says "No head named". Center Consulting still needs re-registering with
 `"ceoSeat": "cfo"` (the Lead's data step).
+
+### Track R2-B rules, as built (factories-screen/r2-actions)
+
+- **Waiting order on the factory page:** decisions (escalated) before questions (asked); newest first within each.
+  Nothing is hidden or expires: an item leaves only when a row marks it handled. The page says the order once.
+- **Handled on every item:** the owner may mark a question handled as well as a decision (the same correcting row;
+  the route `POST /gateway/factory-agents/waiting/{id}/handled` now accepts either).
+- **Mark everything older than 7 days as handled** (`POST /gateway/factories/{id}/waiting/handled-older`): the
+  confirm states the count and cut-off the Gateway counted; the request sends both back, and a different count is a
+  409 with nothing written. One correcting row per item plus one owner row ("The owner marked N items ..."), recorded
+  as one write - all or none. The owner's rows are recorded under the factory agent `owner`.
+- **Archive** (`POST /gateway/factories/{id}/archive`): switches off the seat schedules that are on, names them, and
+  names those already off as left off; keeps the registry entry, history and memory; records the schedule ids it
+  switched off. Re-registering an archived factory keeps it archived. **Restore** switches back on only those ids
+  that are still off, and leaves alone anything the archive did not switch off. Both send back the schedules the
+  confirm named; a different set is a 409 with nothing done. Archived factories are left out of the list, its status
+  order and the duplicate-CEO-name check, and are listed under "Show archived (n)".
+- **Owner only:** all three refuse a session key, a Director's device key and the machine token
+  (`FleetManagerOwnerDevice.Require`, as Talk), and are mapped outside the factory gate like Talk so a switch-off
+  refusal carries a sentence.

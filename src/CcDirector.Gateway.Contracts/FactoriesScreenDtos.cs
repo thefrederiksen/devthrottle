@@ -45,6 +45,89 @@ public sealed class FactoriesListViewDto
 
     /// <summary>Set when the record held more rows than one read returns, so a status may be stale.</summary>
     public string? TruncatedText { get; set; }
+
+    /// <summary>"Show archived (1)": the control that opens the archived factories (round 2).</summary>
+    public string ShowArchivedLabel { get; set; } = "";
+
+    /// <summary>"Hide archived".</summary>
+    public string HideArchivedLabel { get; set; } = "";
+
+    /// <summary>The archived factories, by title. They are never in <see cref="Rows"/> nor in its status order.</summary>
+    public List<FactoryArchivedRowDto> ArchivedRows { get; set; } = new();
+
+    /// <summary>"No factory is archived." when <see cref="ArchivedRows"/> is empty, else null.</summary>
+    public string? ArchivedEmptyText { get; set; }
+}
+
+/// <summary>One archived factory: what it is, when and by whom it was archived, and its Restore.</summary>
+public sealed class FactoryArchivedRowDto
+{
+    public string Id { get; set; } = "";
+    public string Title { get; set; } = "";
+
+    /// <summary>The factory's page, which still opens.</summary>
+    public string Href { get; set; } = "";
+
+    /// <summary>"Archived 6 Oct 23:50 by the owner".</summary>
+    public string ArchivedText { get; set; } = "";
+
+    public FactoryOwnerActionDto Restore { get; set; } = new();
+}
+
+/// <summary>
+/// One owner-only action and the confirm it asks first (round 2): every word of the confirm is the Gateway's, and
+/// what the Cockpit sends back is exactly what the confirm described - the cut-off and count it showed, or the
+/// schedules it named - so the Gateway refuses rather than do something other than what the owner read.
+/// </summary>
+public sealed class FactoryOwnerActionDto
+{
+    /// <summary>"handled-older", "archive" or "restore".</summary>
+    public string Action { get; set; } = "";
+    public string FactoryId { get; set; } = "";
+
+    /// <summary>The button: "Mark everything older than 7 days as handled", "Archive factory", "Restore".</summary>
+    public string Label { get; set; } = "";
+
+    /// <summary>What the button says while the Gateway works.</summary>
+    public string BusyLabel { get; set; } = "";
+
+    /// <summary>The confirm's heading: "Archive Tallyhand?".</summary>
+    public string ConfirmTitle { get; set; } = "";
+
+    /// <summary>The confirm's sentences, in order: exactly what will happen.</summary>
+    public List<string> ConfirmLines { get; set; } = new();
+
+    /// <summary>The confirm's button: "Mark 61 handled", "Archive Tallyhand".</summary>
+    public string ConfirmLabel { get; set; } = "";
+
+    /// <summary>handled-older: items older than this are marked. Sent back unchanged.</summary>
+    public DateTime? CutoffUtc { get; set; }
+
+    /// <summary>handled-older: how many the confirm said. Sent back unchanged.</summary>
+    public int? ExpectedCount { get; set; }
+
+    /// <summary>archive and restore: the schedule ids the confirm said it switches. Sent back unchanged.</summary>
+    public List<string> Schedules { get; set; } = new();
+}
+
+/// <summary>The body of an owner action: what the confirm showed, sent back.</summary>
+public sealed class FactoryOwnerActionRequest
+{
+    public DateTime? CutoffUtc { get; set; }
+    public int? ExpectedCount { get; set; }
+    public List<string>? Schedules { get; set; }
+}
+
+/// <summary>What an owner action did, in one sentence the Cockpit shows.</summary>
+public sealed class FactoryOwnerActionResultDto
+{
+    public string Text { get; set; } = "";
+
+    /// <summary>handled-older: the rows written for the items (not counting the owner's own row).</summary>
+    public int Marked { get; set; }
+
+    /// <summary>archive and restore: the schedule ids actually switched.</summary>
+    public List<string> SchedulesSwitched { get; set; } = new();
 }
 
 /// <summary>One factory on the list: name, status, what is waiting on the owner, and the CEO's Talk button.</summary>
@@ -145,6 +228,15 @@ public sealed class FactoryPageViewDto
 
     /// <summary>Set when the record held more rows than one read returns.</summary>
     public string? TruncatedText { get; set; }
+
+    /// <summary>"Archive factory" with its confirm, or null when the factory is archived.</summary>
+    public FactoryOwnerActionDto? Archive { get; set; }
+
+    /// <summary>"Archived 6 Oct 23:50 by the owner. It is not on the Factories list." when archived, else null.</summary>
+    public string? ArchivedText { get; set; }
+
+    /// <summary>"Restore" with its confirm when archived, else null.</summary>
+    public FactoryOwnerActionDto? Restore { get; set; }
 }
 
 /// <summary>The goal, as the owner approved it.</summary>
@@ -193,6 +285,16 @@ public sealed class FactoryPageWaitingDto
 
     /// <summary>"Nothing is waiting on you." when empty, else null.</summary>
     public string? EmptyText { get; set; }
+
+    /// <summary>The order the items are in, said once: "Decisions first, then questions; newest first in each." Null
+    /// when empty.</summary>
+    public string? OrderText { get; set; }
+
+    /// <summary>"Mark everything older than 7 days as handled" with its confirm, or null when no item is that old.</summary>
+    public FactoryOwnerActionDto? BulkHandled { get; set; }
+
+    /// <summary>"Nothing here is older than 7 days." when there are items but none that old, else null.</summary>
+    public string? BulkHandledNote { get; set; }
 }
 
 /// <summary>The failures that still make a factory FAILING: none has been marked handled, and its seat has not

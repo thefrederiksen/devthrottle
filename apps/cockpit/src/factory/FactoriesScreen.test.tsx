@@ -23,6 +23,7 @@ const screenClient = vi.hoisted(() => ({
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),
   startFactoryTalk: vi.fn(),
+  runFactoryOwnerAction: vi.fn(),
 }));
 vi.mock("@devthrottle/client-core/factory/factoriesScreenClient", () => screenClient);
 
@@ -319,6 +320,89 @@ describe("The old Factory Agents addresses", () => {
   ])("%s lands on %s", async (from, to) => {
     renderAt(from);
     await waitFor(() => expect(where()).toBe(to));
+  });
+});
+
+describe("The owner's actions (round 2)", () => {
+  it("the bulk clear's confirm shows the Gateway's title, sentences and count verbatim, and sends back what it showed", async () => {
+    screenClient.runFactoryOwnerAction.mockResolvedValue({ text: "Marked 61 items handled. (fixture)", marked: 61, schedulesSwitched: [] });
+    renderAt("/factories/warmforward");
+
+    await screen.findByTestId("fa-overview");
+    expect(screen.getByText("Decisions first, then questions; newest first in each. (fixture)")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Mark everything older than 7 days as handled (fixture)" }));
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Mark 61 items handled? (fixture)" });
+    expect(within(dialog).getAllByText(/\(fixture\)$/).map((p) => p.textContent)).toEqual([
+      "Mark 61 items handled? (fixture)",
+      "This marks 61 items waiting on you from WarmForward as handled: every one from before 29 Sep 23:50, more than 7 days ago. (fixture)",
+      "Nothing is deleted. (fixture)",
+      "Mark 61 handled (fixture)",
+    ]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Mark 61 handled (fixture)" }));
+
+    await waitFor(() => expect(screenClient.runFactoryOwnerAction).toHaveBeenCalledWith(FACTORY_PAGE.waiting.bulkHandled));
+    expect((await screen.findByTestId("fa-notice")).textContent).toBe("Marked 61 items handled. (fixture)");
+    await waitFor(() => expect(screenClient.getFactoryPage).toHaveBeenCalledTimes(2));
+  });
+
+  it("the archive confirm lists exactly what happens, in the Gateway's words, and a refusal stays in the confirm verbatim", async () => {
+    screenClient.runFactoryOwnerAction.mockRejectedValue(
+      new GatewayError(409, "The schedules changed after the confirm was shown. Nothing was done. (fixture)", {
+        reason: "The schedules changed after the confirm was shown. Nothing was done. (fixture)",
+      }),
+    );
+    renderAt("/factories/warmforward");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Archive factory (fixture)" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Archive WarmForward? (fixture)" });
+    expect(Array.from(within(dialog).getByTestId("fa-confirm-lines").querySelectorAll("p")).map((p) => p.textContent)).toEqual(
+      FACTORY_PAGE.archive!.confirmLines,
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Archive WarmForward (fixture)" }));
+
+    expect(await within(dialog).findByText(/The schedules changed after the confirm was shown\. Nothing was done\. \(fixture\)/)).toBeTruthy();
+    expect(screenClient.runFactoryOwnerAction).toHaveBeenCalledWith(FACTORY_PAGE.archive);
+    expect(screen.queryByTestId("fa-notice")).toBeNull();
+  });
+
+  it("an archived factory's page says so and offers Restore instead of Archive", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({
+      ...FACTORY_PAGE,
+      archive: null,
+      archivedText: "Archived 6 Oct 23:50 by the owner. It is not on the Factories list. (fixture)",
+      restore: FACTORY_LIST.archivedRows[0].restore,
+    });
+    renderAt("/factories/warmforward");
+
+    const banner = await screen.findByTestId("fa-archived");
+    expect(within(banner).getByText("Archived 6 Oct 23:50 by the owner. It is not on the Factories list. (fixture)")).toBeTruthy();
+    expect(within(banner).getByRole("button", { name: "Restore (fixture)" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Archive factory (fixture)" })).toBeNull();
+  });
+
+  it("Show archived opens the archived factories, and Restore confirms in the Gateway's words", async () => {
+    screenClient.runFactoryOwnerAction.mockResolvedValue({ text: "Tallyhand is back on the Factories list. (fixture)", marked: 0, schedulesSwitched: [] });
+    renderAt("/factories");
+
+    await screen.findByTestId("fa-factories-list");
+    expect(screen.queryByTestId("fa-archived-list")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show archived (1) (fixture)" }));
+
+    const archived = screen.getByTestId("fa-archived-tallyhand");
+    expect(within(archived).getByText("Tallyhand").closest("a")?.getAttribute("href")).toBe("/factories/tallyhand");
+    expect(within(archived).getByText("Archived 6 Oct 23:50 by the owner (fixture)")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Hide archived (fixture)" })).toBeTruthy();
+
+    fireEvent.click(within(archived).getByRole("button", { name: "Restore (fixture)" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Restore Tallyhand? (fixture)" });
+    expect(Array.from(within(dialog).getByTestId("fa-confirm-lines").querySelectorAll("p")).map((p) => p.textContent)).toEqual(
+      FACTORY_LIST.archivedRows[0].restore.confirmLines,
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restore Tallyhand (fixture)" }));
+
+    expect((await screen.findByTestId("fa-notice")).textContent).toBe("Tallyhand is back on the Factories list. (fixture)");
+    expect(screenClient.runFactoryOwnerAction).toHaveBeenCalledWith(FACTORY_LIST.archivedRows[0].restore);
   });
 });
 

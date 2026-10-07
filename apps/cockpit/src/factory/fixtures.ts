@@ -294,6 +294,29 @@ export const FACTORY_LIST: FactoriesListView = {
   footerText: "Worst first: failing, then needs you, then paused, then running.",
   emptyText: null,
   truncatedText: null,
+  showArchivedLabel: "Show archived (1) (fixture)",
+  hideArchivedLabel: "Hide archived (fixture)",
+  archivedRows: [
+    {
+      id: "tallyhand",
+      title: "Tallyhand",
+      href: "/factories/tallyhand",
+      archivedText: "Archived 6 Oct 23:50 by the owner (fixture)",
+      restore: {
+        action: "restore",
+        factoryId: "tallyhand",
+        label: "Restore (fixture)",
+        busyLabel: "Restoring Tallyhand (fixture)...",
+        confirmTitle: "Restore Tallyhand? (fixture)",
+        confirmLines: ["Tallyhand returns to the Factories list. (fixture)", "The archive switched no schedule off, so none is switched on. (fixture)"],
+        confirmLabel: "Restore Tallyhand (fixture)",
+        cutoffUtc: null,
+        expectedCount: null,
+        schedules: [],
+      },
+    },
+  ],
+  archivedEmptyText: null,
 };
 
 export const FACTORY_PAGE: FactoryPageView = {
@@ -385,6 +408,23 @@ export const FACTORY_PAGE: FactoryPageView = {
       },
     ],
     emptyText: null,
+    orderText: "Decisions first, then questions; newest first in each. (fixture)",
+    bulkHandled: {
+      action: "handled-older",
+      factoryId: "warmforward",
+      label: "Mark everything older than 7 days as handled (fixture)",
+      busyLabel: "Marking 61 items handled (fixture)...",
+      confirmTitle: "Mark 61 items handled? (fixture)",
+      confirmLines: [
+        "This marks 61 items waiting on you from WarmForward as handled: every one from before 29 Sep 23:50, more than 7 days ago. (fixture)",
+        "Nothing is deleted. (fixture)",
+      ],
+      confirmLabel: "Mark 61 handled (fixture)",
+      cutoffUtc: "2026-09-29T23:50:00Z",
+      expectedCount: 61,
+      schedules: [],
+    },
+    bulkHandledNote: null,
   },
   ceoLatest: {
     heading: "Latest from the CEO",
@@ -399,6 +439,24 @@ export const FACTORY_PAGE: FactoryPageView = {
   lastTalk: { heading: "Last talk with you", text: "None yet." },
   documentsText: "The factory's documents are not on the Gateway yet (fixture).",
   truncatedText: null,
+  archive: {
+    action: "archive",
+    factoryId: "warmforward",
+    label: "Archive factory (fixture)",
+    busyLabel: "Archiving WarmForward (fixture)...",
+    confirmTitle: "Archive WarmForward? (fixture)",
+    confirmLines: [
+      "WarmForward leaves the Factories list. (fixture)",
+      "This Gateway schedule is switched off: \"WarmForward Factory - Nora Hale - morning run\" (cj_a721e6). (fixture)",
+      "All its history, its memory and its registry entry are kept. (fixture)",
+    ],
+    confirmLabel: "Archive WarmForward (fixture)",
+    cutoffUtc: null,
+    expectedCount: null,
+    schedules: ["cj_a721e6"],
+  },
+  archivedText: null,
+  restore: null,
 };
 
 export const FACTORY_SEATS: FactorySeatsView = {

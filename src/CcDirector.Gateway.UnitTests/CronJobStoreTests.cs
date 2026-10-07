@@ -1,3 +1,4 @@
+using CcDirector.Core.Tenancy;
 using System.Text.Json;
 using CcDirector.Gateway;
 using CcDirector.Gateway.Contracts;
@@ -55,6 +56,27 @@ public sealed class CronJobStoreTests : IDisposable
         Assert.Equal(@"D:\repo", reloaded.Action.RepoPath);
         Assert.False(reloaded.Action.AutoDismiss);
         Assert.Equal("workstation-A", reloaded.Target.Machine);
+    }
+
+    [Fact]
+    public void SetEnabled_SwitchesOnlyEnabled_AndAnUnknownIdIsNull()
+    {
+        var store = new CronJobStore(_h.Open(), LegacyPath());
+        var created = store.Create(ValidJob());
+
+        var off = store.SetEnabled(TenantId.Local, created.Id, false);
+        Assert.NotNull(off);
+        Assert.False(off.Enabled);
+        Assert.False(store.Get(created.Id)!.Enabled);
+        Assert.Equal("0 0 * * *", store.Get(created.Id)!.CronExpression);
+        Assert.Equal(ValidJob().Action.RepoPath, store.Get(created.Id)!.Action.RepoPath);
+
+        var on = store.SetEnabled(TenantId.Local, created.Id, true);
+        Assert.True(on!.Enabled);
+        Assert.NotNull(on.NextRunUtc);
+        Assert.True(on.NextRunUtc > DateTime.UtcNow);
+
+        Assert.Null(store.SetEnabled(TenantId.Local, "cj_nope", false));
     }
 
     [Fact]

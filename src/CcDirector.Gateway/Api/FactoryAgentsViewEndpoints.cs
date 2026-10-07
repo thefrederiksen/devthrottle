@@ -40,7 +40,7 @@ internal sealed record FactoryAgentsSources(
 ///   GET  /gateway/factory-agents/activity?factory=&amp;agent=&amp;outcome=&amp;window=&amp;from=&amp;to= -> FactoryActivityViewDto
 ///   GET  /gateway/factory-agents/activity.csv?(same)                  -> text/csv, every row
 ///   GET  /gateway/factory-agents/waiting?factory=                     -> FactoryWaitingViewDto
-///   POST /gateway/factory-agents/waiting/{id}/handled                 -> appends the correcting row
+///   POST /gateway/factory-agents/waiting/{id}/handled                 -> appends the correcting row (an escalation or a question)
 ///   GET  /gateway/factory-agents/reports?(same)&amp;report=               -> FactoryReportViewDto
 ///   POST /gateway/factory-agents/reports                              -> keeps the filter as a report
 ///   POST /gateway/factory-agents/factories/{factory}/pause|resume
@@ -171,13 +171,21 @@ internal static class FactoryAgentsViewEndpoints
             Owner(ctx, resolveTenant, $"POST handled {id}", tenant =>
             {
                 var now = sources.NowUtc();
-                var (escalations, escalationsTruncated) = ReadAll(sources, tenant, new FactoryRecordQuery(null, null, FactoryActivityOutcome.Escalated, null, null, false, 0, PageSize));
-                var escalation = escalations.FirstOrDefault(r => r.Id == id);
-                if (escalation is null && escalationsTruncated)
-                    return Results.Json(new { error = $"The record holds more than {MaxRowsPerRead} escalations, and this one is not among those one read returns. Nothing was written." },
+                // An escalation or a question: the owner may mark either handled (round 2).
+                FactoryActivityDto? escalation = null;
+                var waitingTruncated = false;
+                foreach (var outcome in new[] { FactoryActivityOutcome.Escalated, FactoryActivityOutcome.Asked })
+                {
+                    var (rows, cut) = ReadAll(sources, tenant, new FactoryRecordQuery(null, null, outcome, null, null, false, 0, PageSize));
+                    escalation = rows.FirstOrDefault(r => r.Id == id);
+                    waitingTruncated |= cut;
+                    if (escalation is not null) break;
+                }
+                if (escalation is null && waitingTruncated)
+                    return Results.Json(new { error = $"The record holds more than {MaxRowsPerRead} escalations or questions, and this one is not among those one read returns. Nothing was written." },
                         statusCode: StatusCodes.Status409Conflict);
                 if (escalation is null)
-                    return Results.Json(new { error = "There is no escalation with that id." }, statusCode: StatusCodes.Status404NotFound);
+                    return Results.Json(new { error = "There is no escalation or question with that id." }, statusCode: StatusCodes.Status404NotFound);
                 var (corrections, correctionsTruncated) = Corrections(sources, tenant);
                 var actor = OwnerActor(ctx);
                 var request = FactoryAgentsFold.HandledRow(escalation, corrections, correctionsTruncated, actor, now);

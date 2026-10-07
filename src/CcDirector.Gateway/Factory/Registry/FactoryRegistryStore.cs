@@ -90,12 +90,71 @@ public sealed partial class FactoryRegistryStore
             }
             else
             {
+                // An archived factory stays archived when it is registered again: only the owner's Restore brings
+                // it back, so a scheduled re-registration can never quietly return it to the list.
+                entity.ArchivedAtUtc = existing.ArchivedAtUtc;
+                entity.ArchivedBy = existing.ArchivedBy;
+                entity.ArchivedSchedulesJson = existing.ArchivedSchedulesJson;
                 ctx.Entry(existing).CurrentValues.SetValues(entity);
             }
             ctx.SaveChanges();
             FileLog.Write($"[FactoryRegistryStore] Register: {(existing is null ? "registered" : "replaced")} {entity.Factory}");
         }
         return ToDto(entity);
+    }
+
+    /// <summary>
+    /// Mark a registered factory archived, recording who did it and which schedules the archive switches off. The
+    /// row, its seats and its goal are kept. Throws <see cref="FactoryNotRegisteredException"/> when it is not
+    /// registered and <see cref="FactoryViewValidationException"/> when it is already archived.
+    /// </summary>
+    public RegisteredFactoryDto Archive(TenantId tenant, string factory, string archivedBy, IReadOnlyList<string> schedulesSwitchedOff, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(schedulesSwitchedOff);
+        FileLog.Write($"[FactoryRegistryStore] Archive: factory={factory}, by={archivedBy}, schedules={string.Join(",", schedulesSwitchedOff)}");
+        var by = Required(archivedBy, "archiving caller", 256);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = Row(ctx, factory);
+            if (row.ArchivedAtUtc is not null)
+                throw Refuse($"{row.Title} is already archived.");
+            row.ArchivedAtUtc = nowUtc;
+            row.ArchivedBy = by;
+            row.ArchivedSchedulesJson = JsonSerializer.Serialize(schedulesSwitchedOff, Json);
+            ctx.SaveChanges();
+            FileLog.Write($"[FactoryRegistryStore] Archive: archived {row.Factory}");
+            return ToDto(row);
+        }
+    }
+
+    /// <summary>
+    /// Return an archived factory to the list. Throws <see cref="FactoryNotRegisteredException"/> when it is not
+    /// registered and <see cref="FactoryViewValidationException"/> when it is not archived.
+    /// </summary>
+    public RegisteredFactoryDto Restore(TenantId tenant, string factory)
+    {
+        FileLog.Write($"[FactoryRegistryStore] Restore: factory={factory}");
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = Row(ctx, factory);
+            if (row.ArchivedAtUtc is null)
+                throw Refuse($"{row.Title} is not archived.");
+            row.ArchivedAtUtc = null;
+            row.ArchivedBy = null;
+            row.ArchivedSchedulesJson = null;
+            ctx.SaveChanges();
+            FileLog.Write($"[FactoryRegistryStore] Restore: restored {row.Factory}");
+            return ToDto(row);
+        }
+    }
+
+    private static FactoryRegistryEntity Row(GatewayDbContext ctx, string factory)
+    {
+        var id = FactoryNames.TryFactory(factory, out var folded, out _) ? folded : null;
+        return (id is null ? null : ctx.FactoryRegistry.FirstOrDefault(f => f.Factory == id))
+            ?? throw new FactoryNotRegisteredException($"No factory '{factory}' is registered in this account.");
     }
 
     /// <summary>Every registered factory in the account, by title.</summary>
@@ -331,6 +390,12 @@ public sealed partial class FactoryRegistryStore
                 ?? throw new InvalidOperationException($"The seats of factory '{e.Factory}' are stored as something other than a list."),
         RegisteredBy = e.RegisteredBy,
         RegisteredAtUtc = e.RegisteredAtUtc,
+        ArchivedAtUtc = e.ArchivedAtUtc,
+        ArchivedBy = e.ArchivedBy,
+        ArchivedSchedules = e.ArchivedSchedulesJson is null
+            ? new List<string>()
+            : JsonSerializer.Deserialize<List<string>>(e.ArchivedSchedulesJson, Json)
+              ?? throw new InvalidOperationException($"The archived schedules of factory '{e.Factory}' are stored as something other than a list."),
     };
 
     private static GoalNumberDto ToDto(FactoryGoalNumberEntity e) => new()

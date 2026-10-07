@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   getFactoryPage,
@@ -10,7 +10,7 @@ import { EmptyState, ErrorBanner, LoadingState } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { FailuresCard, useScrollToHash } from "./FactoryFailures";
 import { FactoryMemoryTab } from "./FactoryMemoryTab";
-import { TalkButton, ToneChip } from "./FactoryParts";
+import { OwnerActionButton, TalkButton, ToneChip } from "./FactoryParts";
 import { WaitingItem } from "./FactoryWaitingView";
 import "./factory.css";
 
@@ -30,6 +30,12 @@ export function factoryTabHref(factory: string, key: string): string {
 export function FactoryView() {
   const { factory = "", tab: requestedTab = "overview" } = useParams();
   const view = useView<FactoryPageView>((s) => getFactoryPage(factory, s), factory, "load this factory");
+  // What the owner's last action did, in the Gateway's words (round 2); it stays until the next one.
+  const [notice, setNotice] = useState<string | null>(null);
+  const done = (text: string) => {
+    setNotice(text);
+    view.reload();
+  };
   // The Seats tab is its own Gateway view; it is read only while that tab is open.
   const onSeats = requestedTab === "seats";
   const seats = useView<FactorySeatsView | null>(
@@ -70,8 +76,23 @@ export function FactoryView() {
             </span>
           </div>
         </div>
-        {page.talk !== null && <TalkButton talk={page.talk} />}
+        <div className="fa-head-actions">
+          {page.talk !== null && <TalkButton talk={page.talk} />}
+          {page.archive !== null && <OwnerActionButton action={page.archive} onDone={done} />}
+        </div>
       </header>
+
+      {notice !== null && (
+        <div className="fa-notice" role="status" data-testid="fa-notice">
+          {notice}
+        </div>
+      )}
+      {page.archivedText !== null && (
+        <div className="fa-archived" data-testid="fa-archived">
+          <span>{page.archivedText}</span>
+          {page.restore !== null && <OwnerActionButton action={page.restore} onDone={done} variant="primary" />}
+        </div>
+      )}
 
       <nav className="fa-tabs" aria-label={`${page.title} view`}>
         {page.tabs.map((t) => (
@@ -87,7 +108,7 @@ export function FactoryView() {
       </nav>
 
       {page.truncatedText !== null && <div className="fa-warn">{page.truncatedText}</div>}
-      {tab === "overview" && <Overview page={page} onChanged={view.reload} />}
+      {tab === "overview" && <Overview page={page} onChanged={view.reload} onDone={done} />}
       {tab === "seats" &&
         (seats.error !== null ? (
           <ErrorBanner message={seats.error} onRetry={seats.reload} />
@@ -128,7 +149,15 @@ function ComingLabel({ text }: { text: string }) {
   );
 }
 
-function Overview({ page, onChanged }: { page: FactoryPageView; onChanged: () => void }) {
+function Overview({
+  page,
+  onChanged,
+  onDone,
+}: {
+  page: FactoryPageView;
+  onChanged: () => void;
+  onDone: (resultText: string) => void;
+}) {
   const { goal, goalNumber, failures, waiting, ceoLatest, lastTalk } = page;
   return (
     <div className="fa-overview" data-testid="fa-overview">
@@ -162,6 +191,13 @@ function Overview({ page, onChanged }: { page: FactoryPageView; onChanged: () =>
 
       <section className="fa-panel" id="waiting" data-testid="fa-page-waiting">
         <h2 className="fa-section-title">{waiting.heading}</h2>
+        {waiting.orderText !== null && <p className="fa-dim">{waiting.orderText}</p>}
+        {waiting.bulkHandled !== null && (
+          <div className="fa-bulk">
+            <OwnerActionButton action={waiting.bulkHandled} onDone={onDone} />
+          </div>
+        )}
+        {waiting.bulkHandledNote !== null && <p className="fa-dim">{waiting.bulkHandledNote}</p>}
         {waiting.emptyText !== null ? (
           <p className="fa-dim">{waiting.emptyText}</p>
         ) : (

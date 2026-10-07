@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getFactoriesList, type FactoriesListView } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
-import { StatusWord, TalkButton } from "./FactoryParts";
+import { OwnerActionButton, StatusWord, TalkButton } from "./FactoryParts";
 import "./factory.css";
 
 // Factories (Factories screen mission, mockups 1 and 4): three tabs - Factories, Activity and Reports. The Factories
@@ -45,16 +46,61 @@ export function FactoriesView() {
       )}
       {frame.error !== null && <ErrorBanner message={frame.error} onRetry={frame.reload} />}
       {frame.data === null && frame.error === null && <LoadingState />}
-      {frame.data !== null && tab === "factories" && <FactoriesList view={frame.data} />}
+      {frame.data !== null && tab === "factories" && <FactoriesList view={frame.data} onChanged={frame.reload} />}
       {tab === "activity" && <ActivityTab />}
       {tab === "reports" && <ReportsTab />}
     </div>
   );
 }
 
-function FactoriesList({ view }: { view: FactoriesListView }) {
+function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged: () => void }) {
   const navigate = useNavigate();
-  if (view.emptyText !== null) return <EmptyState message={view.emptyText} />;
+  // Showing the archived factories is a layout choice; which are archived, and every word, are the Gateway's.
+  const [showArchived, setShowArchived] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const archived = (
+    <div className="fa-archived-section">
+      <button
+        type="button"
+        className="fa-link-button"
+        aria-expanded={showArchived}
+        data-testid="fa-show-archived"
+        onClick={() => setShowArchived((v) => !v)}
+      >
+        {showArchived ? view.hideArchivedLabel : view.showArchivedLabel}
+      </button>
+      {notice !== null && (
+        <div className="fa-notice" role="status" data-testid="fa-notice">
+          {notice}
+        </div>
+      )}
+      {showArchived && (
+        <div className="fa-archived-list" data-testid="fa-archived-list">
+          {view.archivedEmptyText !== null && <p className="fa-dim">{view.archivedEmptyText}</p>}
+          {view.archivedRows.map((row) => (
+            <div key={row.id} className="fa-archived-row" data-testid={`fa-archived-${row.id}`}>
+              <Link to={row.href}>{row.title}</Link>
+              <span className="fa-dim">{row.archivedText}</span>
+              <OwnerActionButton
+                action={row.restore}
+                onDone={(text) => {
+                  setNotice(text);
+                  onChanged();
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+  if (view.emptyText !== null)
+    return (
+      <div className="fa-tab-body">
+        <EmptyState message={view.emptyText} />
+        {archived}
+      </div>
+    );
   return (
     <div className="fa-tab-body">
       {view.truncatedText !== null && <div className="fa-warn">{view.truncatedText}</div>}
@@ -103,6 +149,7 @@ function FactoriesList({ view }: { view: FactoriesListView }) {
         ))}
       </div>
       {view.footerText !== null && <p className="fa-footnote">{view.footerText}</p>}
+      {archived}
     </div>
   );
 }

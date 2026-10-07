@@ -53,6 +53,59 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         Link = "https://github.com/thefrederiksen/websites/issues/276",
     };
 
+    // ---------- archive and restore (round 2) ----------
+
+    [Fact]
+    public void Archive_KeepsTheEntry_RecordsWhoWhenAndTheSchedules_AndRestoreClearsIt()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now.AddDays(-3));
+
+        var archived = store.Archive(A, "warmforward", "owner (browser)", new[] { "cj_a721e6" }, Now);
+
+        Assert.Equal(Now, archived.ArchivedAtUtc);
+        Assert.Equal("owner (browser)", archived.ArchivedBy);
+        Assert.Equal(new[] { "cj_a721e6" }, archived.ArchivedSchedules);
+        var listed = Assert.Single(store.List(A));
+        Assert.Equal(2, listed.Seats.Count);
+        Assert.Equal(Now, listed.ArchivedAtUtc);
+
+        var restored = store.Restore(A, "warmforward");
+        Assert.Null(restored.ArchivedAtUtc);
+        Assert.Null(restored.ArchivedBy);
+        Assert.Empty(restored.ArchivedSchedules);
+        Assert.Null(store.Find(A, "warmforward")!.ArchivedAtUtc);
+    }
+
+    [Fact]
+    public void Register_AgainWhileArchived_StaysArchived()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now.AddDays(-3));
+        store.Archive(A, "warmforward", "owner (browser)", new[] { "cj_a721e6" }, Now);
+
+        store.Register(A, WarmForward(), "session s-1", Now.AddMinutes(5));
+
+        var f = store.Find(A, "warmforward")!;
+        Assert.Equal(Now, f.ArchivedAtUtc);
+        Assert.Equal(new[] { "cj_a721e6" }, f.ArchivedSchedules);
+    }
+
+    [Fact]
+    public void Archive_Twice_Restore_WhenNotArchived_AndAnUnknownFactory_AreRefused()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now);
+        store.Archive(A, "warmforward", "owner", Array.Empty<string>(), Now);
+
+        Assert.Equal("WarmForward is already archived.",
+            Assert.Throws<FactoryViewValidationException>(() => store.Archive(A, "warmforward", "owner", Array.Empty<string>(), Now)).Message);
+        store.Restore(A, "warmforward");
+        Assert.Equal("WarmForward is not archived.",
+            Assert.Throws<FactoryViewValidationException>(() => store.Restore(A, "warmforward")).Message);
+        Assert.Throws<FactoryNotRegisteredException>(() => store.Archive(B, "warmforward", "owner", Array.Empty<string>(), Now));
+    }
+
     // ---------- the registry ----------
 
     [Fact]

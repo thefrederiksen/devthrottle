@@ -49,6 +49,18 @@ public sealed class FactoryRegistryEntity : TenantScopedEntity
 
     /// <summary>When it was last registered (UTC).</summary>
     public DateTime RegisteredAtUtc { get; set; }
+
+    /// <summary>When the owner archived it (UTC), or null while it is on the Factories list. An archived factory
+    /// keeps its row, its history and its memory; it only leaves the list (Factories screen mission, round 2).
+    /// Registering again does not restore it - only the owner's Restore does.</summary>
+    public DateTime? ArchivedAtUtc { get; set; }
+
+    /// <summary>Who archived it: <c>owner (&lt;credential&gt;)</c>. Null while not archived.</summary>
+    public string? ArchivedBy { get; set; }
+
+    /// <summary>The schedule ids the archive switched off, as JSON (a list of strings), so Restore switches back on
+    /// exactly those and never one somebody else switched off. Null while not archived.</summary>
+    public string? ArchivedSchedulesJson { get; set; }
 }
 
 /// <summary>
