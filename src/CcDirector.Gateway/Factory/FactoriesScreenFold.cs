@@ -25,14 +25,20 @@ public sealed record FactoriesScreenInputs(
 /// and the Cockpit renders the words, tones and order it is handed.
 ///
 /// A factory's status is exactly one of four words, worst first (decision 5 of the plan):
-///   FAILING   - something of it failed in the last 24 hours: ANY "failed" row of the factory that no row corrects,
-///               whoever wrote it, or a seat's schedule whose last firing failed (the engine records that as
-///               "not-started", or a work list that could not run).
+///   FAILING   - something of it failed in the last 24 hours and is not over: ANY "failed" row of the factory,
+///               whoever wrote it, that is neither marked handled (a row corrects it) nor followed by a later
+///               successful row of the same seat and subject (<see cref="IsOver"/>; round 2, PLAN.md); or a seat's
+///               schedule whose last firing failed (the engine records that as "not-started", or a work list that
+///               could not run).
 ///   NEEDS YOU - something it asked or escalated is waiting on the owner.
 ///   PAUSED    - nothing runs its seats on its own: no seat schedule is on and no seat trigger is live. A factory
-///               with no schedule at all is PAUSED too.
+///               with no schedule at all is PAUSED too, and says "Nothing scheduled" rather than "switched off".
 ///   RUNNING   - otherwise.
 /// (The two build rulings of 2026-10-06, PLAN.md "Decisions added during the build".)
+///
+/// Every status but RUNNING carries a one-line reason shown under the word, and a link to the items it is about on
+/// the factory's page (round 2, mandate item 1). The factory's head is the registry's <c>ceoSeat</c>, whatever its
+/// title: the page says that seat's own role ("CFO Ruth Calder").
 ///
 /// Only registry seats are seats. A row written by a session that is not a seat ("Owner Session") counts toward
 /// what is waiting on the owner and toward FAILING - both are the factory's - but it never becomes a row on the
@@ -87,10 +93,13 @@ public static class FactoriesScreenFold
                     StatusWord = status.Word,
                     StatusTone = status.Tone,
                     StatusReason = status.Reason,
+                    StatusLine = status.Line,
+                    StatusHref = status.Href,
                     WaitingText = WaitingText(open.Where(r => SameId(r.Factory, f.Factory)).ToList()),
+                    WaitingHref = open.Any(r => SameId(r.Factory, f.Factory)) ? WaitingHref(f.Factory) : null,
                     Href = PageHref(f.Factory),
                     Talk = talk,
-                    NoCeoText = talk is null ? "No CEO" : null,
+                    NoCeoText = talk is null ? NoHead : null,
                 });
             })
             .OrderBy(x => x.Rank)
@@ -144,7 +153,9 @@ public static class FactoriesScreenFold
             StatusWord = status.Word,
             StatusTone = status.Tone,
             StatusReason = status.Reason,
-            CeoText = ceo is null ? "No CEO" : $"CEO {ceo.Name}",
+            StatusLine = status.Line,
+            StatusHref = status.Href,
+            CeoText = ceo is null ? NoHead : HeadText(ceo),
             SeatCountText = Count(factory.Seats.Count, "seat"),
             ComputerText = $"runs on {factory.Computer}",
             ComputerChangeText = ChangeComing,
@@ -152,6 +163,7 @@ public static class FactoriesScreenFold
             Tabs = PageTabs(factory.Seats.Count),
             Goal = GoalCard(factory),
             GoalNumber = GoalNumberCard(number, factory, zone, now),
+            Failures = FailuresCard(factory, input),
             Waiting = new FactoryPageWaitingDto
             {
                 Heading = "Waiting on you",
@@ -207,12 +219,9 @@ public static class FactoriesScreenFold
     private static FactoryCeoLatestDto CeoLatest(RegisteredFactoryDto f, RegisteredFactorySeatDto? ceo, FactoriesScreenInputs input)
     {
         var a = input.Activity;
-        var dto = new FactoryCeoLatestDto { Heading = "Latest from the CEO" };
         if (ceo is null)
-        {
-            dto.EmptyText = "This factory has no CEO.";
-            return dto;
-        }
+            return new FactoryCeoLatestDto { Heading = "Latest from the head", EmptyText = "This factory has no head named." };
+        var dto = new FactoryCeoLatestDto { Heading = $"Latest from the {HeadRole(ceo)}" };
         var clock = SeatClock(SchedulesOf(ceo, input.Schedules), a.Zone);
         if (clock.ZoneName is not null) dto.Heading += $" ({clock.ZoneName} time)";
         var lines = a.WindowRows
@@ -338,43 +347,204 @@ public static class FactoriesScreenFold
     // ---------------------------------------------------------------------------------------------------------
     // Status
 
-    internal readonly record struct FactoryStatus(int Rank, string Word, string Tone, string Reason);
+    /// <summary>A factory's status: its rank (worst first), its word and tone, the full sentence of why (a
+    /// tooltip), the one short line shown under the word (null for RUNNING), and where clicking the word goes
+    /// (null for RUNNING).</summary>
+    internal readonly record struct FactoryStatus(int Rank, string Word, string Tone, string Reason, string? Line, string? Href);
+
+    /// <summary>How long a quoted row's text may run in a status line before it is cut with "...".</summary>
+    public const int LineWhatChars = 90;
+
+    public const string NothingScheduled = "Nothing scheduled";
 
     internal static FactoryStatus Status(RegisteredFactoryDto f, FactoriesScreenInputs input, IReadOnlyList<FactoryActivityDto> open)
     {
         var a = input.Activity;
-        var since = a.NowUtc - FailingWindow;
         var seatIds = f.Seats.Select(s => s.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var corrected = FactoryAgentsFold.AllCorrections(a).Where(r => r.CorrectsId is not null).Select(r => r.CorrectsId!.Value).ToHashSet();
 
-        var failedRow = a.WindowRows
-            .Where(r => SameId(r.Factory, f.Factory)
-                        && r.Outcome == FactoryActivityOutcome.Failed && r.OccurredUtc >= since && !corrected.Contains(r.Id))
-            .OrderByDescending(r => r.OccurredUtc).FirstOrDefault();
-        if (failedRow is not null)
-            return new(0, StatusFailing, FactoryTone.Red,
-                $"A run of {SeatName(f, failedRow.FactoryAgent)} failed {SeatClockOf(f, failedRow.FactoryAgent, input.Schedules, a.Zone).When(failedRow.OccurredUtc, a.NowUtc, capital: false)}: {failedRow.What}");
+        var failures = OpenFailures(f, a);
+        if (failures.Count > 0)
+        {
+            var newest = failures[0];
+            var who = SeatName(f, newest.FactoryAgent);
+            var when = SeatClockOf(f, newest.FactoryAgent, input.Schedules, a.Zone).When(newest.OccurredUtc, a.NowUtc, capital: false);
+            var seats = failures.Select(r => r.FactoryAgent.Trim().ToLowerInvariant()).Distinct().Count();
+            string Say(string what) => failures.Count == 1
+                ? $"{who} failed {when}: {what}"
+                : seats == 1
+                    ? $"{who}: {failures.Count} failures, newest {when}: {what}"
+                    : $"{failures.Count} failures from {seats} seats, newest {who} {when}: {what}";
+            return new(0, StatusFailing, FactoryTone.Red, Say(newest.What), Say(Shorten(newest.What)), FailingHref(f.Factory));
+        }
 
-        var seatSchedules = f.Seats.SelectMany(s => SchedulesOf(s, input.Schedules).Select(j => (Seat: s, Job: j))).ToList();
-        var notStarted = seatSchedules
-            .Where(x => x.Job.LastStatus is { } st && ScheduleFailedStatuses.Contains(st) && x.Job.LastFiredUtc is { } t && t >= since)
-            .OrderByDescending(x => x.Job.LastFiredUtc).FirstOrDefault();
-        if (notStarted.Job is not null)
-            return new(0, StatusFailing, FactoryTone.Red,
-                $"The schedule for {notStarted.Seat.Name} could not start its run {SeatClock(new[] { notStarted.Job }, a.Zone).When(notStarted.Job.LastFiredUtc!.Value, a.NowUtc, capital: false)}.");
+        var notStarted = NotStarted(f, input);
+        if (notStarted.Count > 0)
+        {
+            var text = NotStartedText(notStarted[0], a);
+            return new(0, StatusFailing, FactoryTone.Red, text, text, FailingHref(f.Factory));
+        }
 
-        var waiting = open.Where(r => SameId(r.Factory, f.Factory)).ToList();
+        var waiting = open.Where(r => SameId(r.Factory, f.Factory)).OrderByDescending(r => r.OccurredUtc).ToList();
         if (waiting.Count > 0)
-            return new(1, StatusNeedsYou, FactoryTone.Amber, $"{WaitingText(waiting)} waiting on you.");
+        {
+            var newest = waiting[0];
+            var oldest = waiting[^1];
+            var whenNewest = When(newest.OccurredUtc, a.Zone, a.NowUtc, capital: false);
+            var head = waiting.Count == 1
+                ? $"{SeatName(f, newest.FactoryAgent)}, {whenNewest}"
+                : $"{WaitingText(waiting)} since {When(oldest.OccurredUtc, a.Zone, a.NowUtc, capital: false)}; newest {SeatName(f, newest.FactoryAgent)}, {whenNewest}";
+            return new(1, StatusNeedsYou, FactoryTone.Amber, $"{head}: {newest.What}", $"{head}: {Shorten(newest.What)}", WaitingHref(f.Factory));
+        }
 
+        var seatSchedules = f.Seats.SelectMany(s => SchedulesOf(s, input.Schedules)).ToList();
         var triggers = a.Triggers.Where(t => SameId(t.Factory, f.Factory) && seatIds.Contains(t.FactoryAgent)).ToList();
-        if (!seatSchedules.Any(x => x.Job.Enabled) && !triggers.Any(t => !t.Paused))
-            return new(2, StatusPaused, FactoryTone.Paused,
-                seatSchedules.Count + triggers.Count == 0
-                    ? "No schedule or trigger runs its seats."
-                    : "Every schedule and trigger of its seats is off.");
+        if (!seatSchedules.Any(j => j.Enabled) && !triggers.Any(t => !t.Paused))
+        {
+            var line = PausedText(f, seatSchedules.Select(j => j.Id).Distinct(StringComparer.Ordinal).Count(), triggers.Count, input.Schedules);
+            return new(2, StatusPaused, FactoryTone.Paused, line, line, $"{PageHref(f.Factory)}/seats");
+        }
 
-        return new(3, StatusRunning, FactoryTone.Ok, "Nothing failed and nothing is waiting on you.");
+        return new(3, StatusRunning, FactoryTone.Ok, "Nothing failed and nothing is waiting on you.", null, null);
+    }
+
+    /// <summary>
+    /// Why a PAUSED factory is paused (round 2, mandate item 5). "Nothing scheduled" when no seat names a schedule
+    /// the Gateway has and no trigger runs one - nothing was ever set to run it - which is a different thing from
+    /// schedules the owner switched off, so that says how many: "3 schedules switched off", "1 schedule switched
+    /// off, 1 trigger paused". A seat that names a schedule the Gateway no longer has says so, rather than reading as
+    /// switched off or as never scheduled.
+    /// </summary>
+    internal static string PausedText(RegisteredFactoryDto f, int offSchedules, int pausedTriggers, IReadOnlyList<CronJobDto> all)
+    {
+        var known = all.Select(j => j.Id).ToHashSet(StringComparer.Ordinal);
+        var missing = f.Seats.SelectMany(s => s.Schedules).Distinct(StringComparer.Ordinal).Count(id => !known.Contains(id));
+        var parts = new List<string>();
+        if (offSchedules > 0) parts.Add($"{Count(offSchedules, "schedule")} switched off");
+        if (pausedTriggers > 0) parts.Add($"{Count(pausedTriggers, "trigger")} paused");
+        if (missing > 0) parts.Add(missing == 1 ? "1 named schedule no longer exists" : $"{missing} named schedules no longer exist");
+        return parts.Count == 0 ? NothingScheduled : string.Join(", ", parts);
+    }
+
+    /// <summary>
+    /// The failed rows that still make the factory FAILING, newest first: a failed row in the last 24 hours counts
+    /// until it is over (<see cref="IsOver"/>).
+    /// </summary>
+    internal static List<FactoryActivityDto> OpenFailures(RegisteredFactoryDto f, FactoryFoldInputs a)
+    {
+        var since = a.NowUtc - FailingWindow;
+        var corrected = FactoryAgentsFold.AllCorrections(a).Where(r => r.CorrectsId is not null).Select(r => r.CorrectsId!.Value).ToHashSet();
+        var mine = a.WindowRows.Where(r => SameId(r.Factory, f.Factory)).ToList();
+        return mine
+            .Where(r => r.Outcome == FactoryActivityOutcome.Failed && r.OccurredUtc >= since && !IsOver(r, mine, corrected))
+            .GroupBy(r => r.Id).Select(g => g.First())
+            .OrderByDescending(r => r.OccurredUtc)
+            .ToList();
+    }
+
+    /// <summary>
+    /// THE CLEARING RULE (round 2, mandate item 2; written into PLAN.md "Round 2"). A failed row is over when
+    ///   - the owner marked it handled: a row corrects it (a NEW row, the same mechanism as an escalation's
+    ///     "I have handled it"; the failed row is never edited), or
+    ///   - the failed row HAS a subject, and a LATER successful row exists from the same seat about that subject: same
+    ///     factory, the same factory agent (trimmed, ignoring case), the same subject (trimmed, ignoring case), an
+    ///     outcome of "done" or "nothing-to-do", a later time, and not itself a correction of another row (a
+    ///     correction says something about an older row, not that the work succeeded).
+    /// A failed row with NO subject clears only by Handled. On the live record a seat writes the start of its next
+    /// run ("run.start (done): scout run 12 started") and its own failure notice ("run.notify (done): emailed the
+    /// owner: ... failed") as "done" rows with no subject, so a subject-less "done" row says nothing about whether the
+    /// failed thing now works (review of pull request 3607).
+    /// On the live record a subject clears, for example, Sender's "keep.page (failed): ... answers 404" for All Types
+    /// Fence and Deck at 12:02, followed by Sender's "keep.export (done)" for the same business at 12:10; and a
+    /// trigger check that failed, followed by the same trigger's "nothing to do" check. "started" rows (a step it
+    /// intends to take) and "escalated" rows never clear a failure.
+    /// </summary>
+    internal static bool IsOver(FactoryActivityDto failed, IReadOnlyList<FactoryActivityDto> factoryRows, IReadOnlySet<Guid> corrected)
+    {
+        if (corrected.Contains(failed.Id)) return true;
+        if (string.IsNullOrWhiteSpace(failed.Subject)) return false;
+        return factoryRows.Any(r => r.Id != failed.Id
+                                    && r.CorrectsId is null
+                                    && r.Outcome is FactoryActivityOutcome.Done or FactoryActivityOutcome.NothingToDo
+                                    && r.OccurredUtc > failed.OccurredUtc
+                                    && SameId(r.FactoryAgent?.Trim(), failed.FactoryAgent?.Trim())
+                                    && SameSubject(r.Subject, failed.Subject));
+    }
+
+    private static bool SameSubject(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
+        && string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The seat schedules whose last firing in the last 24 hours could not start its run, newest first.
+    /// These clear by themselves: the schedule's next good firing replaces its last status.</summary>
+    private static List<(RegisteredFactorySeatDto Seat, CronJobDto Job)> NotStarted(RegisteredFactoryDto f, FactoriesScreenInputs input)
+    {
+        var since = input.Activity.NowUtc - FailingWindow;
+        return f.Seats.SelectMany(s => SchedulesOf(s, input.Schedules).Select(j => (Seat: s, Job: j)))
+            .Where(x => x.Job.LastStatus is { } st && ScheduleFailedStatuses.Contains(st) && x.Job.LastFiredUtc is { } t && t >= since)
+            .OrderByDescending(x => x.Job.LastFiredUtc)
+            .ToList();
+    }
+
+    private static string NotStartedText((RegisteredFactorySeatDto Seat, CronJobDto Job) x, FactoryFoldInputs a) =>
+        $"The schedule for {x.Seat.Name} could not start its run {SeatClock(new[] { x.Job }, a.Zone).When(x.Job.LastFiredUtc!.Value, a.NowUtc, capital: false)}.";
+
+    /// <summary>
+    /// The failures card on a factory's page, where the FAILING word links to: every failure still counting, each
+    /// with its text, which seat and when, its evidence, and "Handled". Null when nothing is failing, so a healthy
+    /// factory's page carries no empty card.
+    /// </summary>
+    private static FactoryPageFailuresDto? FailuresCard(RegisteredFactoryDto f, FactoriesScreenInputs input)
+    {
+        var a = input.Activity;
+        var rows = OpenFailures(f, a);
+        var schedules = NotStarted(f, input);
+        if (rows.Count == 0 && schedules.Count == 0) return null;
+        var items = schedules.Select(x => new FactoryFailureItemDto
+            {
+                What = NotStartedText(x, a),
+                By = $"{x.Seat.Name}'s schedule",
+                Note = "This clears when the schedule next starts its run.",
+            })
+            .Concat(rows.Select(r => new FactoryFailureItemDto
+            {
+                Id = r.Id,
+                Subject = r.Subject,
+                What = r.What,
+                By = $"{SeatName(f, r.FactoryAgent)}, {SeatClockOf(f, r.FactoryAgent, input.Schedules, a.Zone).When(r.OccurredUtc, a.NowUtc, capital: false)}",
+                SessionId = r.SessionId,
+                SessionLabel = FactoryAgentsFold.SessionLabel(r.SessionId),
+                Link = r.Link,
+                LinkLabel = r.Link is null ? null : "Open",
+                HandledLabel = "Handled",
+                HandledBusyLabel = "Marking it handled...",
+            }))
+            .ToList();
+        return new FactoryPageFailuresDto
+        {
+            Heading = "Failing",
+            Note = "A failure stops counting when the same seat later succeeds at the same thing, or when you mark it handled. "
+                   + "Handled adds a row to the activity record; the failure itself is kept.",
+            Items = items,
+        };
+    }
+
+    /// <summary>
+    /// The row "Handled" appends for a failure: a NEW row correcting it, the same mechanism as an escalation's
+    /// "I have handled it". Refused unless the row is a failure of this factory nothing has corrected yet.
+    /// </summary>
+    public static AppendFactoryActivityRequest FailureHandledRow(string factory, FactoryActivityDto failed,
+        IReadOnlyList<FactoryActivityDto> corrections, bool correctionsTruncated, string actor, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(failed);
+        if (failed.Outcome != FactoryActivityOutcome.Failed || !SameId(failed.Factory, factory))
+            throw new FactoryViewValidationException($"That row is not a failure of '{factory}'. Nothing was written.");
+        return FactoryAgentsFold.CorrectingRow(failed, corrections, correctionsTruncated, actor, nowUtc, "failure");
+    }
+
+    private static string Shorten(string what)
+    {
+        var t = (what ?? "").Trim();
+        return t.Length <= LineWhatChars ? t : t[..(LineWhatChars - 3)].TrimEnd() + "...";
     }
 
     /// <summary>"1 question", "2 decisions", "1 question, 1 decision", or "-". An asked row is a question, an
@@ -396,15 +566,31 @@ public static class FactoriesScreenFold
 
     public static string PageHref(string factory) => $"{ListHref}/{Uri.EscapeDataString(factory)}";
 
+    /// <summary>The failures card on the factory's page - where FAILING links to.</summary>
+    public static string FailingHref(string factory) => $"{PageHref(factory)}#failing";
+
+    /// <summary>The waiting items on the factory's page - where NEEDS YOU and the waiting count link to.</summary>
+    public static string WaitingHref(string factory) => $"{PageHref(factory)}#waiting";
+
+    /// <summary>What a factory with no head says where the head's Talk button would be.</summary>
+    public const string NoHead = "No head named";
+
+    /// <summary>"CFO Ruth Calder", "CEO Nora Hale": the head's own role, then its name.</summary>
+    private static string HeadText(RegisteredFactorySeatDto head) => $"{HeadRole(head)} {head.Name}";
+
+    private static string HeadRole(RegisteredFactorySeatDto head) =>
+        string.IsNullOrWhiteSpace(head.Role) ? "head" : head.Role.Trim();
+
     /// <summary>
-    /// The CEO's Talk button: "Talk to Nora Hale", or "Talk to the CEO" when another registered factory's CEO has the
-    /// same name, so two buttons on one list never read alike. Null when the factory has no CEO.
+    /// The head's Talk button: "Talk to Ruth Calder", or "Talk to the CEO" (the head's own role) when another
+    /// registered factory's head has the same name, so two buttons on one list never read alike. Null when the
+    /// factory has no head.
     /// </summary>
     private static FactoryTalkDto? CeoTalk(RegisteredFactoryDto f, IReadOnlySet<string> duplicateNames)
     {
         var ceo = Ceo(f);
         if (ceo is null) return null;
-        var who = duplicateNames.Contains(ceo.Name) ? "the CEO" : ceo.Name;
+        var who = duplicateNames.Contains(ceo.Name) ? $"the {HeadRole(ceo)}" : ceo.Name;
         return new FactoryTalkDto
         {
             Label = $"Talk to {who}",

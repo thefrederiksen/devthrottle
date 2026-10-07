@@ -2,7 +2,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getFactoriesList, type FactoriesListView } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
-import { TalkButton, ToneChip } from "./FactoryParts";
+import { StatusWord, TalkButton } from "./FactoryParts";
 import "./factory.css";
 
 // Factories (Factories screen mission, mockups 1 and 4): three tabs - Factories, Activity and Reports. The Factories
@@ -81,10 +81,16 @@ function FactoriesList({ view }: { view: FactoriesListView }) {
               </Link>
             </span>
             <span className="fa-flist-waiting" role="cell">
-              {row.waitingText}
+              {row.waitingHref !== null ? (
+                <Link to={row.waitingHref} onClick={(e) => e.stopPropagation()} data-testid="fa-waiting-link">
+                  {row.waitingText}
+                </Link>
+              ) : (
+                row.waitingText
+              )}
             </span>
             <span className="fa-flist-status" role="cell">
-              <ToneChip word={row.statusWord} tone={row.statusTone} title={row.statusReason} />
+              <StatusWord word={row.statusWord} tone={row.statusTone} reason={row.statusReason} line={row.statusLine} href={row.statusHref} />
             </span>
             <span className="fa-flist-talk" role="cell">
               {row.talk !== null ? (

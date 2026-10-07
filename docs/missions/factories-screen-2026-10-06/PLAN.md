@@ -65,3 +65,65 @@ A then B on one Developer; C and D start once B's DTOs are merged.
   names a factory to a Director older than 2.13.0, with a sentence, instead of the factory vanishing silently.
 - **6 Oct, live QA:** the Seats tab showed a run time in UTC beside a schedule in Toronto time; fixed in the same
   pull request as the refusal.
+
+## Round 2 - the owner's feedback on the live list (6 Oct, 23:39; MANDATE-round-2-owner-feedback.md)
+
+Two tracks, each its own worktree, pull request and review:
+
+- **Track R2-A, the status explains itself** (mandate items 1, 2, 5, 6): a one-line reason under every
+  non-RUNNING status, folded on the Gateway, opening the items on the factory page; FAILING clears when a later
+  successful row exists for the same seat and subject, or when the owner marks the failure handled; PAUSED says
+  "Nothing scheduled" when a factory has no schedule at all; the factory's head may carry any title (the registry's
+  `ceoSeat` is the head; the page shows that seat's role, e.g. "CFO Ruth Calder").
+- **Track R2-B, act on it** (items 3, 4): each waiting item with its text, time, seat, evidence link and Handled;
+  an owner-only bulk "mark everything older than 7 days as handled" with a confirm that states the count, recorded
+  as the owner's act; owner-only Archive factory (confirm lists exactly what happens: off the list, its own named
+  schedules disabled, history kept), recorded; a Show archived view with Restore.
+- **Data, by the Lead after deploy:** re-register Center Consulting with Ruth Calder as head; archive Tallyhand
+  (closed 4 Oct, moved into mindzie AI Reports; registered by mistake) as the archive action's first use. The bulk
+  clear is NOT used until the owner says so in the report.
+
+### Round 2 - the rule for when FAILING clears (track R2-A, checked on the live record 7 Oct)
+
+**What "subject" and "successful" mean on real rows.** Read with `cc-devthrottle factory activity --factory
+website-business --json`: a seat's rows name the business or the thing they are about in `subject` (the Sender's
+four "keep.page (failed): https://centerconsulting.com/websites/keep/<slug> answers 404 after 20 min" rows at
+12:02 UTC carry subjects "All Types Fence & Deck", "Sooner Excavation LLC", "Reynolds Pumping and Septic Services",
+"Alderson and Sons Tree Service"); a trigger's check rows carry the trigger's name ("website-new-mail"). The same
+seat then wrote "keep.export (done)" for each of the same four subjects at 12:10 (the first row that clears them; a
+different step about the same business clears the failed step - the rule is at the level of the subject), and the Front Desk trigger's
+failed checks of 5 Oct were followed by "nothing to do" checks of the same subject. Steps a seat only intends are
+`started` ("draft.outreach (intended)"), never success.
+
+**The rule.** A `failed` row of a factory, in the last 24 hours, counts toward FAILING until it is over. It is over when
+EITHER
+
+- **the owner marks it handled**: "Handled" on the failures card writes a NEW row (outcome `done`, `correctsId` = the
+  failed row, actor = the owner) through `POST /gateway/factories/{factory}/failures/{id}/handled` - the same
+  correction mechanism as an escalation's "I have handled it"; the failed row is never edited; OR
+- **the failed row has a subject, and a later successful row exists from the same seat about that subject**: same
+  factory; same factory agent (trimmed, ignoring case); same subject (trimmed, ignoring case); outcome `done` or
+  `nothing-to-do`; a later time; and not itself a correction of another row (a "Marked handled" row says an older
+  row is over, not that the work succeeded).
+
+**A failed row with NO subject clears only by the owner's Handled** (review of pull request 3607, accepted by the
+Lead). On the live record seats write the START of a run as `done` ("run.start (done): scout run 12 started", 46
+rows) and the chain writes its failure notice as `done` ("run.notify (done): emailed the owner: ... failed", three
+seconds after "run.sweep (failed): ... no ceo run had started by 02:00 Eastern"). A subject-less `done` row therefore
+says nothing about whether the failed thing now works; six of the thirty live failures have no subject.
+
+`started`, `escalated` and `asked` rows never clear a failure, nor does another seat's success or a success about
+another subject. A schedule whose last firing could not start its run is not a row: it cannot be marked handled and
+clears when the schedule's next firing starts its run. Tested in `FactoriesScreenRound2Tests` (both clearing paths,
+a partial clear, six rows that must NOT clear a failure, and a subject-less failure that stays FAILING after a later
+subject-less `run.start (done)`, `run.notify (done)` or `run.finish (done)` row but clears on Handled) and, on a real
+host, in `FactoryRegistryRouteTests`.
+
+**The other R2-A rulings.** The status line under each word is folded on the Gateway (`StatusLine`, `StatusHref`,
+`WaitingHref`); RUNNING has none. FAILING links to `#failing` on the factory page, NEEDS YOU and the waiting count to
+`#waiting`, PAUSED to the Seats tab. PAUSED says "Nothing scheduled" when no seat names a schedule the Gateway has and
+no trigger runs one; otherwise it counts ("2 schedules switched off", "1 trigger paused", "1 named schedule no longer
+exists"). The head: the manifest key `ceoSeat` is KEPT (registered data depends on it) and now means "the factory's
+head, whatever its title"; the page says the seat's own role and name ("CFO Ruth Calder"), the button its name ("Talk
+to Ruth Calder"), and a factory with none says "No head named". Center Consulting still needs re-registering with
+`"ceoSeat": "cfo"` (the Lead's data step).

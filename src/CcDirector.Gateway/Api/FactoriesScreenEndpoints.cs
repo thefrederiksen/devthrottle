@@ -22,6 +22,7 @@ internal sealed record FactoriesScreenSources(
 ///   GET /gateway/factories                       -> FactoriesListViewDto   (the Factories tab)
 ///   GET /gateway/factories/{factory}             -> FactoryPageViewDto     (header, tabs and Overview)
 ///   GET /gateway/factories/{factory}/seats       -> FactorySeatsViewDto    (the Seats tab)
+///   POST /gateway/factories/{factory}/failures/{id}/handled -> appends the row that marks a failure handled
 ///
 /// Behind the factory agents switch like every factory route, and the OWNER's pages: a session key is refused (the
 /// same guard as the Factory Agents pages, and SessionKeyGuard names none of these). The old
@@ -65,7 +66,30 @@ internal static class FactoriesScreenEndpoints
                 return Results.Json(dto);
             }));
 
-        FileLog.Write($"[FactoriesScreenEndpoints] mapped {Prefix}, its factory page and its Seats tab");
+        // "Handled" on a failure (round 2): a NEW row correcting it, as an escalation's "I have handled it" is. The
+        // failed row itself is never changed, so the record keeps what went wrong and who said it was over.
+        app.MapPost(Prefix + "/{factory}/failures/{id:guid}/handled", (HttpContext ctx, string factory, Guid id) =>
+            FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"POST failure handled {factory} {id}", tenant =>
+            {
+                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                var a = sources.Activity;
+                var (failed, truncated) = FactoryAgentsViewEndpoints.ReadAll(a, tenant,
+                    new FactoryRecordQuery(registered.Factory, null, FactoryActivityOutcome.Failed, null, null, false, 0, FactoryAgentsViewEndpoints.PageSize));
+                var row = failed.FirstOrDefault(r => r.Id == id);
+                if (row is null && truncated)
+                    return Results.Json(new { error = $"The record holds more than {FactoryAgentsViewEndpoints.MaxRowsPerRead} failures of this factory, and this one is not among those one read returns. Nothing was written." },
+                        statusCode: StatusCodes.Status409Conflict);
+                if (row is null)
+                    return Results.Json(new { error = $"There is no failure of '{registered.Factory}' with that id." }, statusCode: StatusCodes.Status404NotFound);
+                var (corrections, correctionsTruncated) = FactoryAgentsViewEndpoints.Corrections(a, tenant);
+                var actor = FactoryAgentsViewEndpoints.OwnerActor(ctx);
+                var request = FactoriesScreenFold.FailureHandledRow(registered.Factory, row, corrections, correctionsTruncated, actor, a.NowUtc());
+                var written = a.Append(tenant, request, actor);
+                FileLog.Write($"[FactoriesScreenEndpoints] POST failure handled: {registered.Factory} failure={id} corrected by row {written.Id}, actor={actor}");
+                return Results.Json(written, statusCode: StatusCodes.Status201Created);
+            }));
+
+        FileLog.Write($"[FactoriesScreenEndpoints] mapped {Prefix}, its factory page, its Seats tab and a failure's Handled");
     }
 
     /// <summary>Everything a view reads, in one pass. The list reads the last 24 hours (all a status needs); a

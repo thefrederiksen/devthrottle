@@ -205,6 +205,45 @@ public sealed class FactoryRegistryRouteTests
     }
 
     [Fact]
+    public async Task The_owner_marks_a_failure_handled_with_a_new_row_and_it_stops_counting_and_a_session_key_may_not()
+    {
+        await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
+        var factory = "f-" + Guid.NewGuid().ToString("N")[..12];
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory, "Nora " + factory))).StatusCode);
+        var wrote = await Send(h.Owner.PostAsJsonAsync("gateway/factory/activity", new
+        {
+            factory, factoryAgent = "nora-hale", outcome = FactoryActivityOutcome.Failed, subject = "Zone 8",
+            what = "Meter read failed.", actor = "test",
+        }));
+        Assert.True(wrote.Status == HttpStatusCode.Created, $"POST activity: {(int)wrote.Status} {wrote.Body}");
+        var failed = JsonSerializer.Deserialize<FactoryActivityDto>(wrote.Body, Web)!;
+
+        var before = JsonSerializer.Deserialize<FactoryPageViewDto>((await Send(h.Owner.GetAsync($"gateway/factories/{factory}"))).Body, Web)!;
+        Assert.Equal("FAILING", before.StatusWord);
+        Assert.Equal($"/factories/{factory}#failing", before.StatusHref);
+        Assert.Equal(failed.Id, Assert.Single(before.Failures!.Items).Id);
+
+        var url = $"gateway/factories/{factory}/failures/{failed.Id}/handled";
+        Assert.Equal(HttpStatusCode.Forbidden, (await h.Session.PostAsync(url, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.PostAsync($"gateway/factories/{factory}/failures/{Guid.NewGuid()}/handled", null)).StatusCode);
+
+        var handled = await Send(h.Owner.PostAsync(url, null));
+        Assert.True(handled.Status == HttpStatusCode.Created, $"POST handled: {(int)handled.Status} {handled.Body}");
+        var row = JsonSerializer.Deserialize<FactoryActivityDto>(handled.Body, Web)!;
+        Assert.Equal(failed.Id, row.CorrectsId);
+        Assert.NotEqual(failed.Id, row.Id);
+
+        var after = JsonSerializer.Deserialize<FactoryPageViewDto>((await Send(h.Owner.GetAsync($"gateway/factories/{factory}"))).Body, Web)!;
+        Assert.NotEqual("FAILING", after.StatusWord);
+        Assert.Null(after.Failures);
+        Assert.Equal(HttpStatusCode.BadRequest, (await h.Owner.PostAsync(url, null)).StatusCode);
+
+        // The failed row is still in the record, unchanged.
+        var kept = await Send(h.Owner.GetAsync($"gateway/factory/activity?factory={factory}&outcome=failed"));
+        Assert.Contains(failed.Id.ToString(), kept.Body);
+    }
+
+    [Fact]
     public async Task Switch_off_every_registry_route_answers_404()
     {
         await using var h = await Host.StartAsync(factoryAgentsEnabled: false);

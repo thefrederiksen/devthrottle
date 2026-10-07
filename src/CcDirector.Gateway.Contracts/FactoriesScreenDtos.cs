@@ -57,19 +57,33 @@ public sealed class FactoryListRowDto
     public string StatusWord { get; set; } = "";
     public string StatusTone { get; set; } = "";
 
-    /// <summary>Why the status is what it is, for a tooltip ("A run of Nora Hale failed at 06:20.").</summary>
+    /// <summary>Why the status is what it is, in full, for a tooltip ("Nora Hale failed today 06:20: ...").</summary>
     public string StatusReason { get; set; } = "";
+
+    /// <summary>The one short line shown under the status word: "Sender: 4 failures, newest today 12:02: keep.page
+    /// (failed): ...", "2 decisions since 21 Sep 10:00; newest ...", "Nothing scheduled", "3 schedules switched off".
+    /// Null for RUNNING, which needs no explaining.</summary>
+    public string? StatusLine { get; set; }
+
+    /// <summary>Where clicking the status word goes: the failures on the factory's page for FAILING, its waiting
+    /// items for NEEDS YOU, its Seats tab for PAUSED. Null for RUNNING.</summary>
+    public string? StatusHref { get; set; }
 
     /// <summary>"1 question", "2 decisions", "1 question, 1 decision", or "-".</summary>
     public string WaitingText { get; set; } = "";
 
+    /// <summary>Where clicking the waiting count goes - the waiting items on the factory's page. Null when nothing
+    /// is waiting.</summary>
+    public string? WaitingHref { get; set; }
+
     /// <summary>The factory's page.</summary>
     public string Href { get; set; } = "";
 
-    /// <summary>The CEO's Talk button, or null when the factory has no CEO.</summary>
+    /// <summary>The factory head's Talk button ("Talk to Ruth Calder"), or null when the factory has no head.
+    /// The head is the registry's <c>ceoSeat</c>, whatever its title.</summary>
     public FactoryTalkDto? Talk { get; set; }
 
-    /// <summary>"No CEO" when <see cref="Talk"/> is null, else null.</summary>
+    /// <summary>"No head named" when <see cref="Talk"/> is null, else null.</summary>
     public string? NoCeoText { get; set; }
 }
 
@@ -87,7 +101,16 @@ public sealed class FactoryPageViewDto
     public string StatusTone { get; set; } = "";
     public string StatusReason { get; set; } = "";
 
-    /// <summary>"CEO Nora Hale", or "No CEO".</summary>
+    /// <summary>The one short line shown under the status word: "Sender: 4 failures, newest today 12:02: keep.page
+    /// (failed): ...", "2 decisions since 21 Sep 10:00; newest ...", "Nothing scheduled", "3 schedules switched off".
+    /// Null for RUNNING, which needs no explaining.</summary>
+    public string? StatusLine { get; set; }
+
+    /// <summary>Where clicking the status word goes: the failures on the factory's page for FAILING, its waiting
+    /// items for NEEDS YOU, its Seats tab for PAUSED. Null for RUNNING.</summary>
+    public string? StatusHref { get; set; }
+
+    /// <summary>The head's own role and name - "CEO Nora Hale", "CFO Ruth Calder" - or "No head named".</summary>
     public string CeoText { get; set; } = "";
 
     /// <summary>"4 seats".</summary>
@@ -108,6 +131,10 @@ public sealed class FactoryPageViewDto
 
     public FactoryGoalCardDto Goal { get; set; } = new();
     public FactoryGoalNumberCardDto GoalNumber { get; set; } = new();
+
+    /// <summary>What is failing now, where FAILING links to (<c>#failing</c>). Null when nothing is.</summary>
+    public FactoryPageFailuresDto? Failures { get; set; }
+
     public FactoryPageWaitingDto Waiting { get; set; } = new();
     public FactoryCeoLatestDto CeoLatest { get; set; } = new();
     public FactoryLastTalkDto LastTalk { get; set; } = new();
@@ -166,6 +193,52 @@ public sealed class FactoryPageWaitingDto
 
     /// <summary>"Nothing is waiting on you." when empty, else null.</summary>
     public string? EmptyText { get; set; }
+}
+
+/// <summary>The failures that still make a factory FAILING: none has been marked handled, and its seat has not
+/// since succeeded at the same subject (Factories screen round 2).</summary>
+public sealed class FactoryPageFailuresDto
+{
+    /// <summary>"Failing".</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>How a failure stops counting, and that Handled adds a row rather than changing one.</summary>
+    public string Note { get; set; } = "";
+
+    /// <summary>Newest first: any schedule that could not start its run, then the failed rows.</summary>
+    public List<FactoryFailureItemDto> Items { get; set; } = new();
+}
+
+/// <summary>One failure on a factory's page.</summary>
+public sealed class FactoryFailureItemDto
+{
+    /// <summary>The failed row; Handled sends it back. Null for a schedule that could not start its run, which is
+    /// not a row and clears by itself.</summary>
+    public Guid? Id { get; set; }
+
+    public string? Subject { get; set; }
+
+    /// <summary>The row's own words.</summary>
+    public string What { get; set; } = "";
+
+    /// <summary>"Sender, today 12:02".</summary>
+    public string By { get; set; } = "";
+
+    public string? SessionId { get; set; }
+
+    /// <summary>The session's short label, as the waiting items show it. Null when there is no session.</summary>
+    public string? SessionLabel { get; set; }
+
+    /// <summary>The evidence the row links to, and its words ("Open"). Null when it has none.</summary>
+    public string? Link { get; set; }
+    public string? LinkLabel { get; set; }
+
+    /// <summary>"Handled", and what it says while it is written. Null when the item cannot be marked handled.</summary>
+    public string? HandledLabel { get; set; }
+    public string? HandledBusyLabel { get; set; }
+
+    /// <summary>Set when the item cannot be marked handled: how it clears instead.</summary>
+    public string? Note { get; set; }
 }
 
 /// <summary>The CEO's latest lines in the activity record.</summary>

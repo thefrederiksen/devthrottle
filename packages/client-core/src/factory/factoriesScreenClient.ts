@@ -24,11 +24,18 @@ export interface FactoryListRow {
   statusWord: string;
   statusTone: FactoryTone;
   statusReason: string;
+  /** The one short line under the status word ("Nothing scheduled", "Sender: 4 failures, ..."); null for RUNNING. */
+  statusLine: string | null;
+  /** Where clicking the status word goes (the failures, the waiting items, or the Seats tab); null for RUNNING. */
+  statusHref: string | null;
   /** "1 question", "2 decisions", or "-". */
   waitingText: string;
+  /** Where clicking the waiting count goes; null when nothing is waiting. */
+  waitingHref: string | null;
   href: string;
+  /** The factory head's Talk button ("Talk to Ruth Calder"), whatever the head's title. */
   talk: FactoryTalkTarget | null;
-  /** "No CEO" when talk is null. */
+  /** "No head named" when talk is null. */
   noCeoText: string | null;
 }
 
@@ -68,6 +75,32 @@ export interface FactoryPageWaiting {
   emptyText: string | null;
 }
 
+/** One failure that still makes the factory FAILING. */
+export interface FactoryFailureItem {
+  /** The failed row; null for a schedule that could not start its run, which clears by itself. */
+  id: string | null;
+  subject: string | null;
+  what: string;
+  /** "Sender, today 12:02". */
+  by: string;
+  sessionId: string | null;
+  sessionLabel: string | null;
+  link: string | null;
+  linkLabel: string | null;
+  /** "Handled", or null when the item cannot be marked handled. */
+  handledLabel: string | null;
+  handledBusyLabel: string | null;
+  /** How the item clears when it cannot be marked handled. */
+  note: string | null;
+}
+
+export interface FactoryPageFailures {
+  /** "Failing". */
+  heading: string;
+  note: string;
+  items: FactoryFailureItem[];
+}
+
 export interface FactoryCeoLatest {
   heading: string;
   lines: string[];
@@ -90,7 +123,11 @@ export interface FactoryPageView {
   statusWord: string;
   statusTone: FactoryTone;
   statusReason: string;
-  /** "CEO Nora Hale" or "No CEO". */
+  /** The one short line under the status word ("Nothing scheduled", "Sender: 4 failures, ..."); null for RUNNING. */
+  statusLine: string | null;
+  /** Where clicking the status word goes (the failures, the waiting items, or the Seats tab); null for RUNNING. */
+  statusHref: string | null;
+  /** The head's own role and name - "CEO Nora Hale", "CFO Ruth Calder" - or "No head named". */
   ceoText: string;
   /** "4 seats". */
   seatCountText: string;
@@ -103,6 +140,8 @@ export interface FactoryPageView {
   tabs: FactoryTab[];
   goal: FactoryGoalCard;
   goalNumber: FactoryGoalNumberCard;
+  /** What is failing now (where FAILING links to); null when nothing is. */
+  failures: FactoryPageFailures | null;
   waiting: FactoryPageWaiting;
   ceoLatest: FactoryCeoLatest;
   lastTalk: FactoryLastTalk;
@@ -197,6 +236,17 @@ export function getFactoryPage(factory: string, signal?: AbortSignal): Promise<F
 
 export function getFactorySeats(factory: string, signal?: AbortSignal): Promise<FactorySeatsView> {
   return getJson<FactorySeatsView>(`${PREFIX}/${encodeURIComponent(factory)}/seats`, "load this factory's seats", signal);
+}
+
+/**
+ * "Handled" on a failure: the Gateway appends a NEW row that corrects it; the failed row is never changed. A refusal
+ * throws a GatewayError carrying the Gateway's own sentence.
+ */
+export async function markFactoryFailureHandled(factory: string, id: string, signal?: AbortSignal): Promise<void> {
+  const path = `${PREFIX}/${encodeURIComponent(factory)}/failures/${encodeURIComponent(id)}/handled`;
+  const res = await fetch(path, { method: "POST", headers: { Accept: "application/json", ...authHeaders() }, signal });
+  if (!res.ok) throw await GatewayError.from(res, "mark it handled");
+  assertJson(res);
 }
 
 /**
