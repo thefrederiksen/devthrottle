@@ -455,6 +455,16 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
+    public void Page_LastTalk_IsToldInTheTalkingSeatsClock_LikeItsLinesAbove()
+    {
+        // Live, 7 Oct 2026: the CEO card said "Today 17:18" (Toronto) and the last talk said "today 21:18" (UTC).
+        var jobs = new[] { Job("cj_ceo", "0 5 * * *", zone: Toronto) };
+        var talks = new[] { Row("warmforward", "nora-hale", FactoryActivityOutcome.Talked, "decided: bunkie back to 13 C.", Now.AddHours(-1).AddMinutes(-50)) };
+        var page = FactoriesScreenFold.Page(WarmForward(), Inputs(new[] { WarmForward() }, jobs: jobs, talks: talks));
+        Assert.Equal("Talked with you, today 04:10 (America/Toronto) - decided: bunkie back to 13 C.", page.LastTalk.Text);
+    }
+
+    [Fact]
     public void Status_AScheduleThatCouldNotStart_IsToldInItsOwnZone()
     {
         var jobs = new[] { Job("cj_save", "0 5 * * *", lastFired: Now.AddHours(-1), lastStatus: "not-started", zone: Toronto) };
