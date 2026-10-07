@@ -346,6 +346,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "fleet-advise",
     # Issue #3559: the Fleet Manager keeps a lesson from the owner's correction.
     "fleet-lesson",
+    # Issue #3622: the planned fire times of a random schedule.
+    "schedule-plan",
     # The Fleet Manager mission, step 8.
     "session-hand-over",
     # The mission "Smart Director Restart", section 5.3 item 12: the command line door onto the

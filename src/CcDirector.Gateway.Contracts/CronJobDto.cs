@@ -23,12 +23,17 @@ public sealed class CronJobDto
     public bool Enabled { get; set; } = true;
 
     /// <summary>
-    /// The schedule kind: <c>recurring</c> (uses <see cref="CronExpression"/>) or <c>oneOff</c>
-    /// (uses <see cref="RunAt"/>). See <c>CronSchedule</c> for the accepted values.
+    /// The schedule kind: <c>recurring</c> (uses <see cref="CronExpression"/>), <c>oneOff</c>
+    /// (uses <see cref="RunAt"/>) or <c>random</c> (issue #3622: its settings are text in
+    /// <see cref="CronExpression"/>, e.g. <c>window=07:00-01:00 perDay=4 minGap=45 shape=human</c>).
+    /// See <c>CronSchedule</c> for the accepted values.
     /// </summary>
     public string ScheduleKind { get; set; } = "";
 
-    /// <summary>Standard 5-field cron expression; required when <see cref="ScheduleKind"/> is recurring.</summary>
+    /// <summary>
+    /// Standard 5-field cron expression; required when <see cref="ScheduleKind"/> is recurring. For a random
+    /// schedule it holds the random settings text instead, so that kind needs no new column.
+    /// </summary>
     public string? CronExpression { get; set; }
 
     /// <summary>
@@ -98,6 +103,19 @@ public sealed class CronJobDto
 
     /// <summary>Outcome of the most recent run, or null. Written by the firing engine (#483).</summary>
     public string? LastStatus { get; set; }
+
+    /// <summary>
+    /// A random schedule in words (issue #3622), e.g. "About 4 times a day at random, 07:00 to 01:00 (at least
+    /// 45 min apart)", folded by the Gateway so no client reads the settings text. Null for the other kinds.
+    /// Read-only: computed on every read, ignored on a write.
+    /// </summary>
+    public string? ScheduleText { get; set; }
+
+    /// <summary>
+    /// A random schedule's fire times still to come in today's window, as local <c>HH:mm</c> in
+    /// <see cref="TimeZoneId"/> (issue #3622). Null for the other kinds. Read-only, like <see cref="ScheduleText"/>.
+    /// </summary>
+    public List<string>? RemainingToday { get; set; }
 }
 
 /// <summary>
@@ -229,4 +247,44 @@ public sealed class CronRunCompletedPayload
 
     /// <summary>When the run fired (UTC).</summary>
     public DateTime FiredUtc { get; set; }
+}
+
+/// <summary>
+/// The planned fires of a <c>random</c> schedule (issue #3622), as <c>GET /cron/jobs/{id}/plan?days=N</c> returns
+/// them: every fire still to come in the windows that open on today's local date and the next N-1 dates (plus
+/// what remains of a window that opened yesterday and crosses midnight). The plan is derived, never stored, so
+/// this is exactly what the engine will fire - it is how the schedule is proven from outside.
+/// </summary>
+public sealed class CronPlanDto
+{
+    /// <summary>The schedule's id.</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>The schedule's zone; every <see cref="CronPlanFire.Local"/> time is in it.</summary>
+    public string TimeZoneId { get; set; } = "";
+
+    /// <summary>The schedule in words, e.g. "About 4 times a day at random, 07:00 to 01:00 (at least 45 min apart)".</summary>
+    public string Description { get; set; } = "";
+
+    /// <summary>The number of windows asked for (1 to 14).</summary>
+    public int Days { get; set; }
+
+    /// <summary>The instant the plan was read; only fires after it are listed.</summary>
+    public DateTime GeneratedUtc { get; set; }
+
+    /// <summary>The fires to come, in time order.</summary>
+    public List<CronPlanFire> Fires { get; set; } = new();
+}
+
+/// <summary>One planned fire of a random schedule (issue #3622).</summary>
+public sealed class CronPlanFire
+{
+    /// <summary>The local date the fire's window opened (<c>yyyy-MM-dd</c>); a fire after midnight belongs to the day before.</summary>
+    public string WindowDate { get; set; } = "";
+
+    /// <summary>The instant the engine fires it.</summary>
+    public DateTime Utc { get; set; }
+
+    /// <summary>The same instant as wall-clock time in the schedule's zone (<c>yyyy-MM-dd HH:mm</c>).</summary>
+    public string Local { get; set; } = "";
 }

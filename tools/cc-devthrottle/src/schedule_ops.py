@@ -25,6 +25,10 @@ from . import axi_cli  # noqa: E402
 TIMEOUT_SECONDS = 10
 SCHEDULE_RECURRING = "recurring"
 SCHEDULE_ONE_OFF = "oneOff"
+SCHEDULE_RANDOM = "random"
+SCHEDULE_KINDS = (SCHEDULE_RECURRING, SCHEDULE_ONE_OFF, SCHEDULE_RANDOM)
+SHAPE_HUMAN = "human"
+PLAN_MAX_DAYS = 14
 NOTIFY_NONE = "none"
 NOTIFY_ALWAYS = "always"
 NOTIFY_FAILURE = "failure"
@@ -151,6 +155,9 @@ class ScheduleClient:
         data = self._ok_or_raise(self._request("GET", f"/cron/jobs/{job_id}/runs"))
         return list(data.get("runs", []))
 
+    def get_plan(self, job_id: str, days: int) -> Dict[str, Any]:
+        return self._ok_or_raise(self._request("GET", f"/cron/jobs/{job_id}/plan?days={days}"))
+
     def set_enabled(self, job_id: str, enabled: bool) -> Dict[str, Any]:
         job = self.get_job(job_id)
         job["enabled"] = enabled
@@ -165,6 +172,10 @@ _CREATE_USAGE = (
     'cc-devthrottle schedule create --name "<name>" --machine <machine> --repo "<path>" '
     '--cron "<expr>" --tz <time-zone> --seed "<prompt>"'
 )
+_CREATE_RANDOM_USAGE = (
+    'cc-devthrottle schedule create --name "<name>" --machine <machine> --repo "<path>" '
+    '--random "07:00-01:00" --per-day 4 --min-gap 45 --tz <time-zone> --seed "<prompt>"'
+)
 
 
 def _fail(message: str, next_commands: List[str]) -> None:
@@ -174,7 +185,7 @@ def _fail(message: str, next_commands: List[str]) -> None:
 
 def _create_usage_error(message: str) -> None:
     """A schedule create flag is wrong or missing. Exit 2 and show the full form of the command."""
-    axi_cli.usage_error(f"{message} Full form: {_CREATE_USAGE}")
+    axi_cli.usage_error(f"{message} Full form: {_CREATE_USAGE} - or, at random times: {_CREATE_RANDOM_USAGE}")
 
 
 # The issue #2201 scope guard that used to sit here (assert_scope_is_unambiguous, reading the
@@ -202,6 +213,8 @@ def _schedule_label(job: dict) -> str:
     kind = (job.get("scheduleKind") or "").lower()
     if kind == SCHEDULE_RECURRING.lower():
         return f"cron {_fmt(job.get('cronExpression'))}"
+    if kind == SCHEDULE_RANDOM.lower():
+        return f"random {_fmt(job.get('cronExpression'))}"
     return f"once @ {_fmt(job.get('runAt'))}"
 
 
@@ -228,7 +241,7 @@ SCHEDULE_LIST_FIELDS = (
     "id", "name", "enabled", "next-run", "machine", "kind", "cron", "run-at", "time-zone",
     "work-list", "path", "last-fired", "last-status", "notify", "created",
 )
-SCHEDULE_LIST_DEFAULT_FIELDS = ("id", "name", "enabled", "next-run")
+SCHEDULE_LIST_DEFAULT_FIELDS = ("id", "name", "enabled", "kind", "next-run")
 
 
 _usage_error = usage_errors.usage_error
@@ -313,17 +326,18 @@ def _job_field(
 
 
 def _job_kind(job: Dict[str, Any]) -> str:
-    """The schedule kind as sent. The Gateway accepts recurring or oneOff, ignoring case and spaces."""
+    """The schedule kind as sent. The Gateway accepts recurring, oneOff or random, ignoring case and spaces."""
     kind = _job_field(job, "scheduleKind", nullable=False, blank_ok=False)
-    if kind.strip().lower() not in (SCHEDULE_RECURRING.lower(), SCHEDULE_ONE_OFF.lower()):
+    if kind.strip().lower() not in tuple(k.lower() for k in SCHEDULE_KINDS):
         _bad_job(job["id"], f"scheduleKind {axi_output.format_value(kind)}; "
-                            f"this tool knows only {SCHEDULE_RECURRING} and {SCHEDULE_ONE_OFF}")
+                            f"this tool knows only {', '.join(SCHEDULE_KINDS)}")
     return kind
 
 
-def _job_timing(job: Dict[str, Any], key: str, needed_by: str) -> Optional[str]:
-    """The cron expression or the run-at time: nullable, but required by the kind that uses it."""
-    needed = _job_kind(job).strip().lower() == needed_by.lower()
+def _job_timing(job: Dict[str, Any], key: str, *needed_by: str) -> Optional[str]:
+    """The cron expression or the run-at time: nullable, but required by the kinds that use it. A random
+    schedule keeps its settings where a cron expression goes (issue #3622)."""
+    needed = _job_kind(job).strip().lower() in tuple(k.lower() for k in needed_by)
     return _job_field(job, key, nullable=not needed, blank_ok=not needed)
 
 
@@ -346,7 +360,7 @@ _JOB_READERS = {
     "next-run": lambda j: _job_field(j, "nextRunUtc", nullable=True, blank_ok=False),
     "machine": _job_machine,
     "kind": _job_kind,
-    "cron": lambda j: _job_timing(j, "cronExpression", SCHEDULE_RECURRING),
+    "cron": lambda j: _job_timing(j, "cronExpression", SCHEDULE_RECURRING, SCHEDULE_RANDOM),
     "run-at": lambda j: _job_timing(j, "runAt", SCHEDULE_ONE_OFF),
     "time-zone": lambda j: _job_field(j, "timeZoneId", nullable=False, blank_ok=False),
     # A seed job may carry an empty work list name; the Gateway requires a seed or a work list, not both.
@@ -509,9 +523,17 @@ def create_job(
     notify_on: str,
     notify_webhook: Optional[str],
     json_output: bool,
+    random_window: Optional[str] = None,
+    per_day: Optional[int] = None,
+    min_gap: Optional[int] = None,
+    shape: Optional[str] = None,
 ) -> None:
-    if bool(at) == bool(cron):
-        _create_usage_error("specify exactly one of --at (one-off) or --cron (recurring).")
+    if sum(1 for timing in (at, cron, random_window) if timing) != 1:
+        _create_usage_error(
+            "specify exactly one of --at (one-off), --cron (recurring) or --random (about --per-day times a day "
+            "at random inside a daily window)."
+        )
+    random_settings = _random_settings(random_window, per_day, min_gap, shape)
     if not seed and not worklist:
         _create_usage_error("specify what to run: either --seed <text> or --worklist <name>.")
     if seed and worklist:
@@ -527,8 +549,8 @@ def create_job(
     job = {
         "name": name,
         "enabled": True,
-        "scheduleKind": SCHEDULE_ONE_OFF if at else SCHEDULE_RECURRING,
-        "cronExpression": cron if cron else None,
+        "scheduleKind": SCHEDULE_ONE_OFF if at else SCHEDULE_RANDOM if random_window else SCHEDULE_RECURRING,
+        "cronExpression": cron if cron else random_settings,
         "runAt": at if at else None,
         "timeZoneId": tz,
         "target": {"machine": machine},
@@ -556,6 +578,7 @@ def create_job(
         "Created schedule.",
         f"  Id:        {_fmt(created.get('id'))}",
         f"  Name:      {_fmt(created.get('name'))}",
+        f"  Schedule:  {_schedule_label(created)}",
         f"  Next run:  {_fmt(created.get('nextRunUtc'))} UTC",
         # Say WHERE it landed. A scheduled job runs an agent unattended, so "which fleet did
         # that just go to" must be answerable from this output rather than by cross-checking
@@ -565,9 +588,66 @@ def create_job(
     job_ref = axi_cli.bare(created.get("id"), "<schedule-id>")
     axi_cli.print_next([
         f"cc-devthrottle schedule get {job_ref}",
+        *([f"cc-devthrottle schedule plan {job_ref}"] if random_window else []),
         f"cc-devthrottle schedule run {job_ref}",
         f"cc-devthrottle schedule disable {job_ref}",
     ])
+
+
+def _random_settings(
+    window: Optional[str], per_day: Optional[int], min_gap: Optional[int], shape: Optional[str]
+) -> Optional[str]:
+    """The settings text a random schedule stores (issue #3622), e.g. 'window=07:00-01:00 perDay=4 minGap=45
+    shape=human'. The Gateway checks the values and answers each bad one with its own reason; this only
+    checks that the flags belong together."""
+    if not window:
+        given = [flag for flag, value in (("--per-day", per_day), ("--min-gap", min_gap), ("--shape", shape))
+                 if value is not None]
+        if given:
+            _create_usage_error(f"{', '.join(given)} only go with --random.")
+        return None
+    if per_day is None or min_gap is None:
+        _create_usage_error("--random needs --per-day <average fires a day> and --min-gap <minutes>.")
+    shape_text = (shape if shape is not None else SHAPE_HUMAN).strip().replace(" ", "")
+    if not shape_text:
+        _create_usage_error(f"--shape needs a value: {SHAPE_HUMAN}, or 24 comma-separated hourly weights.")
+    return f"window={window.strip()} perDay={per_day} minGap={min_gap} shape={shape_text}"
+
+
+def show_plan(job_id: str, days: int, json_output: bool) -> None:
+    """The planned fires of a random schedule (issue #3622), straight from the Gateway's own plan."""
+    if days < 1 or days > PLAN_MAX_DAYS:
+        _usage_error(f"--days must be from 1 to {PLAN_MAX_DAYS}, not {days}.")
+    job_ref = axi_cli.bare(job_id, "<schedule-id>")
+    try:
+        plan = _client().get_plan(job_id, days)
+    except GatewayError as ex:
+        _fail(str(ex), [_FIND_A_SCHEDULE, f"cc-devthrottle schedule get {job_ref}"])
+        return
+
+    if json_output:
+        print(json.dumps(plan, indent=2))
+        return
+
+    fires = plan.get("fires") if isinstance(plan, dict) else None
+    if not isinstance(fires, list):
+        # Absent is not empty: an answer with no list of fires must never read as "nothing planned".
+        _fail("the Gateway answered the plan with no list of fires; --json shows the raw answer.",
+              [f"cc-devthrottle schedule plan {job_ref} --json"])
+        return
+    records = [{"window-date": f.get("windowDate"), "local": f.get("local"), "utc": f.get("utc")} for f in fires]
+    blocks = [
+        f"{_fmt(plan.get('description'))} ({_fmt(plan.get('timeZoneId'))})",
+        axi_output.format_count(len(records)),
+        axi_output.render_list("fires", ["window-date", "local", "utc"], records),
+    ]
+    if not records:
+        blocks.append(f"No fires left in the next {days} day(s).")
+    blocks.append(axi_output.format_help([
+        f"cc-devthrottle schedule plan {job_ref} --days {PLAN_MAX_DAYS}",
+        f"cc-devthrottle schedule runs {job_ref}",
+    ]))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def run_now(job_id: str, json_output: bool) -> None:

@@ -25,6 +25,8 @@ public static class FactoryScheduleText
         string text;
         if (string.Equals(job.ScheduleKind, CronSchedule.KindOneOff, StringComparison.Ordinal))
             text = string.IsNullOrWhiteSpace(job.RunAt) ? "Once" : $"Once, {OneOffText(job.RunAt)}";
+        else if (CronSchedule.IsRandom(job.ScheduleKind))
+            text = RandomText(job.CronExpression);
         else
             text = Cron(job.CronExpression);
 
@@ -108,6 +110,14 @@ public static class FactoryScheduleText
         1 => items[0],
         _ => string.Join(", ", items.Take(items.Count - 1)) + " and " + items[^1],
     };
+
+    // A random schedule's settings in words, or the stored text itself when it does not parse (shown exactly,
+    // for the same reason as a cron expression that is not a named shape).
+    private static string RandomText(string? settingsText)
+    {
+        var (settings, _) = RandomSchedule.Parse(settingsText);
+        return settings is null ? $"Random {(settingsText ?? "").Trim()}" : RandomSchedule.Describe(settings);
+    }
 
     private static string Exact(string raw) => raw.Length == 0 ? "No schedule expression" : $"Cron {raw}";
 

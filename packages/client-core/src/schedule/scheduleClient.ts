@@ -38,7 +38,7 @@ export interface CronJob {
   id: string;
   name: string;
   enabled: boolean;
-  /** "recurring" (uses cronExpression) or "oneOff" (uses runAt). */
+  /** "recurring" (uses cronExpression), "oneOff" (uses runAt) or "random" (its settings in cronExpression). */
   scheduleKind: string;
   cronExpression?: string | null;
   runAt?: string | null;
@@ -56,6 +56,10 @@ export interface CronJob {
   nextRunUtc?: string | null;
   /** Outcome of the most recent run, or null. */
   lastStatus?: string | null;
+  /** A random schedule in words, folded by the Gateway (issue #3622); null for the other kinds. Read-only. */
+  scheduleText?: string | null;
+  /** A random schedule's fire times still to come today, local "HH:mm" (issue #3622); null otherwise. Read-only. */
+  remainingToday?: string[] | null;
 }
 
 /** One execution of a cron job. The two status fields are deliberately separate: infraStatus is

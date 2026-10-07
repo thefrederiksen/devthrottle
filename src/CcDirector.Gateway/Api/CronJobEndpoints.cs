@@ -17,6 +17,7 @@ namespace CcDirector.Gateway.Api;
 ///   POST   /cron/jobs            body CronJobDto    -> 201 CronJobDto | 400
 ///   GET    /cron/jobs            -> { jobs: [ CronJobDto ] }
 ///   GET    /cron/jobs/{id}       -> CronJobDto | 404
+///   GET    /cron/jobs/{id}/plan?days=N -> CronPlanDto | 400 (not random, bad days) | 404   (issue #3622)
 ///   PUT    /cron/jobs/{id}       body CronJobDto    -> 200 CronJobDto | 400 | 404
 ///   DELETE /cron/jobs/{id}       -> { id, deleted } | 404
 /// </summary>
@@ -62,17 +63,55 @@ internal static class CronJobEndpoints
             job.Factory = settledFactory;
 
             var created = store.Create(job);
-            return Results.Json(created, statusCode: StatusCodes.Status201Created);
+            return Results.Json(CronSchedule.StampDisplay(created, DateTime.UtcNow), statusCode: StatusCodes.Status201Created);
         });
 
-        app.MapGet("/cron/jobs", () => Results.Json(new { jobs = store.ListAll() }));
+        app.MapGet("/cron/jobs", () =>
+        {
+            var now = DateTime.UtcNow;
+            return Results.Json(new { jobs = store.ListAll().Select(j => CronSchedule.StampDisplay(j, now)).ToList() });
+        });
 
         app.MapGet("/cron/jobs/{id}", (string id) =>
         {
             var job = store.Get(id);
             return job is null
                 ? Results.NotFound(new { error = "no such cron job", id })
-                : Results.Json(job);
+                : Results.Json(CronSchedule.StampDisplay(job, DateTime.UtcNow));
+        });
+
+        // The planned fires of a random schedule (issue #3622). The plan is derived from the job id, the date and
+        // the settings, never stored, so this is exactly what the engine will fire. The HttpContext is taken to
+        // read ?days=N; the store read below is tenant-scoped like every other read here.
+        app.MapGet("/cron/jobs/{id}/plan", (string id, HttpContext ctx) =>
+        {
+            var job = store.Get(id);
+            if (job is null)
+                return Results.NotFound(new { error = "no such cron job", id });
+            if (!CronSchedule.IsRandom(job.ScheduleKind))
+                return Results.BadRequest(new
+                {
+                    error = $"a plan exists only for a random schedule; this one is {job.ScheduleKind}, and its next run is nextRunUtc",
+                    id,
+                });
+
+            // A stored job was valid when written; this only answers when the host no longer agrees (a zone it
+            // cannot find), and says why instead of failing inside the plan.
+            var (valid, invalidReason) = CronSchedule.Validate(job);
+            if (!valid)
+                return Results.Conflict(new { error = $"this schedule no longer validates: {invalidReason}", id });
+
+            var days = 1;
+            var daysText = ctx.Request.Query["days"].ToString();
+            if (daysText.Length > 0
+                && (!int.TryParse(daysText, System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture, out days)
+                    || days < 1 || days > CronSchedule.MaxPlanDays))
+                return Results.BadRequest(new { error = $"days must be a whole number from 1 to {CronSchedule.MaxPlanDays}, not '{daysText}'", id });
+
+            var plan = CronSchedule.BuildPlan(job, DateTime.UtcNow, days);
+            FileLog.Write($"[CronJobEndpoints] GET /cron/jobs/{id}/plan: days={days}, fires={plan.Fires.Count}");
+            return Results.Json(plan);
         });
 
         app.MapPut("/cron/jobs/{id}", async (string id, HttpContext ctx) =>
@@ -116,7 +155,7 @@ internal static class CronJobEndpoints
             var updated = store.Update(id, incoming);
             return updated is null
                 ? Results.NotFound(new { error = "no such cron job", id })
-                : Results.Json(updated);
+                : Results.Json(CronSchedule.StampDisplay(updated, DateTime.UtcNow));
         });
 
         app.MapDelete("/cron/jobs/{id}", (string id, HttpContext ctx) =>

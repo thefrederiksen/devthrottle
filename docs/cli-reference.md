@@ -696,7 +696,7 @@ COMMANDS:
   settings get     Get a specific setting value.
   settings set     Set a configuration value.
   schedule list    List every schedule on the Gateway.
-  schedule create  Create a schedule, one-off with --at or recurring with --cron.
+  schedule create  Create a schedule: --at once, --cron recurring, --random random.
   schedule run     Fire a schedule immediately.
   setup status     Show local DevThrottle setup status.
   setup install    Install DevThrottle from the latest GitHub release.
@@ -924,16 +924,16 @@ OPTIONS:
   --json     -j           Output raw JSON: every field, a bare array. Filters still apply.
   --enabled / --disabled  Only enabled schedules, or only disabled ones.
   --machine               Only schedules that run on this machine.
-  --fields                Fields to show, comma separated. Default: id,name,enabled,next-run.
+  --fields                Fields to show, comma separated. Default: id,name,enabled,kind,next-run.
                           Valid: id, name, enabled, next-run, machine, kind, cron, run-at,
                           time-zone, work-list, path, last-fired, last-status, notify, created.
 ```
 
 ```
 count: 39 (enabled 23, disabled 16)
-schedules[39]{id,name,enabled,next-run}:
-  cj_1a10c4,SmartScreen + winget follow-up,no,
-  cj_33022a,Monday business finance run,yes,2026-09-21T11:01:00Z
+schedules[39]{id,name,enabled,kind,next-run}:
+  cj_1a10c4,SmartScreen + winget follow-up,no,oneOff,
+  cj_33022a,Monday business finance run,yes,recurring,2026-09-21T11:01:00Z
   ...
 help[5]:
   cc-devthrottle schedule list --enabled
@@ -953,8 +953,8 @@ help[5]:
   for, and a broken one exits 1 rather than being listed, filtered out or shown blank: no id, or an id
   another row already has; an enabled flag that is not true or false; any field missing or of the
   wrong kind; a blank name, time zone, target machine or repo path (the Gateway refuses each); a kind
-  other than recurring or oneOff; no cron expression on a recurring schedule or no run-at time on a
-  one-off; or a notify policy other than none, always or failure. With no filter, `--json` prints the
+  other than recurring, oneOff or random; no cron expression on a recurring schedule, no settings on
+  a random one (they travel in the cron expression's place), or no run-at time on a one-off; or a notify policy other than none, always or failure. With no filter, `--json` prints the
   rows as the Gateway sent them.
 - **An empty answer says so**: `count: 0`, or `count: 0 of N total` when a filter matched nothing.
 
@@ -1631,7 +1631,8 @@ COMMANDS:
   list
   get ID
   runs ID
-  create --name NAME --machine MACHINE --repo REPO (--at WHEN | --cron EXPR) --tz TZ (--seed TEXT | --worklist NAME)
+  create --name NAME --machine MACHINE --repo REPO (--at WHEN | --cron EXPR | --random HH:mm-HH:mm --per-day N --min-gap MIN [--shape human|W0,...,W23]) --tz TZ (--seed TEXT | --worklist NAME)
+  plan ID [--days N]
   run ID
   enable ID
   disable ID
@@ -1639,8 +1640,16 @@ COMMANDS:
   endpoint
 ```
 
-`--json` is available on `list`, `get`, `runs`, `create`, `run`, and `endpoint`.
+`--json` is available on `list`, `get`, `runs`, `plan`, `create`, `run`, and `endpoint`.
 `--notify-on none|always|failure` and `--notify-webhook URL` are available on `create`.
+
+**Random schedules (issue #3622).** `--random 07:00-01:00 --per-day 4 --min-gap 45` fires about four
+times a day at random times inside that local window (an end at or before the start crosses
+midnight), never closer than 45 minutes. `--shape` says how likely each local hour is: `human` (the
+default, the owner's own posting hours) or 24 comma-separated weights. The day's times are derived
+from the schedule id and the date, never stored, so a restart gives the same times. `plan ID --days N`
+prints the times still to come in today's window and the next N-1 (N up to 14), from the Gateway's
+own plan - the same times the engine will fire.
 
 ### Factory
 

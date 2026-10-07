@@ -64,7 +64,9 @@ interface FormState {
   actionKind: "worklist" | "seed";
   workListName: string;
   seed: string;
-  scheduleKind: "oneOff" | "recurring";
+  // "random" (issue #3622) is never offered for a new job here; it appears only when editing one made from
+  // the command line, so an edit keeps the kind and its settings text rather than turning it into a one-off.
+  scheduleKind: "oneOff" | "recurring" | "random";
   cron: string;
   runAt: string;
   timeZone: string;
@@ -92,6 +94,8 @@ function validateForm(f: FormState): FormErrors {
   if (f.repoPath.trim().length === 0) errors.repoPath = "Enter the repository path the session opens in.";
   if (f.scheduleKind === "recurring") {
     if (f.cron.trim().length === 0) errors.schedule = "Enter a 5-field cron expression, for example 0 0 * * *.";
+  } else if (f.scheduleKind === "random") {
+    if (f.cron.trim().length === 0) errors.schedule = "Enter the random settings, for example window=07:00-01:00 perDay=4 minGap=45.";
   } else {
     if (f.runAt.trim().length === 0) errors.schedule = "Enter the local date and time to run once.";
   }
@@ -253,7 +257,7 @@ export function ScheduleView() {
         actionKind: job.action.workListName && job.action.workListName.length > 0 ? "worklist" : "seed",
         workListName: job.action.workListName ?? "",
         seed: job.action.seed,
-        scheduleKind: job.scheduleKind.toLowerCase() === "recurring" ? "recurring" : "oneOff",
+        scheduleKind: formKind(job.scheduleKind),
         cron: job.cronExpression ?? "",
         runAt: job.runAt ?? "",
         timeZone: job.timeZoneId,
@@ -272,7 +276,7 @@ export function ScheduleView() {
       name: f.name.trim(),
       enabled: f.enabled,
       scheduleKind: f.scheduleKind,
-      cronExpression: f.scheduleKind === "recurring" ? f.cron.trim() : null,
+      cronExpression: f.scheduleKind === "oneOff" ? null : f.cron.trim(),
       runAt: f.scheduleKind === "oneOff" ? f.runAt.trim() : null,
       timeZoneId: f.timeZone.trim(),
       target: { machine: f.machine.trim() },
@@ -611,7 +615,18 @@ export function ScheduleView() {
             <dd>
               {scheduleEnglish(job)}
               {scheduleCron(job) !== null && <span className="sched-detail-cron">({scheduleCron(job)})</span>}
+              {isRandom(job) && <span className="sched-detail-cron">({job.cronExpression})</span>}
             </dd>
+            {isRandom(job) && (
+              <>
+                <dt>Still today</dt>
+                <dd className="mono">
+                  {job.remainingToday && job.remainingToday.length > 0
+                    ? job.remainingToday.join(", ")
+                    : "No more runs today"}
+                </dd>
+              </>
+            )}
             <dt>Next run</dt>
             <dd>
               {relativeUntil(job.nextRunUtc)}{" "}
@@ -813,15 +828,27 @@ export function ScheduleView() {
                     <select
                       value={form.scheduleKind}
                       onChange={(e) =>
-                        setForm((f) => ({ ...f, scheduleKind: e.target.value as "oneOff" | "recurring" }))
+                        setForm((f) => ({ ...f, scheduleKind: e.target.value as FormState["scheduleKind"] }))
                       }
                     >
                       <option value="oneOff">Run once</option>
                       <option value="recurring">Recurring (cron)</option>
+                      {form.scheduleKind === "random" && <option value="random">At random times</option>}
                     </select>
                   </div>
 
-                  {form.scheduleKind === "recurring" ? (
+                  {form.scheduleKind === "random" ? (
+                    <div className="sched-fld">
+                      <label className="sched-fld-label">Random settings</label>
+                      <input
+                        className={`mono${formErrors.schedule ? " invalid" : ""}`}
+                        value={form.cron}
+                        placeholder="window=07:00-01:00 perDay=4 minGap=45 shape=human"
+                        onChange={(e) => setForm((f) => ({ ...f, cron: e.target.value }))}
+                      />
+                      {formErrors.schedule && <div className="sched-fld-err">{formErrors.schedule}</div>}
+                    </div>
+                  ) : form.scheduleKind === "recurring" ? (
                     <div className="sched-fld">
                       <label className="sched-fld-label">Cron expression (5-field)</label>
                       <input
@@ -1121,8 +1148,21 @@ function scheduleCron(j: CronJob): string | null {
 
 // The schedule in plain English: a recurring job reads its cron ("At 8:14 AM and 2:14 PM, Monday
 // through Friday"); a one-off reads its run-at instant ("Once at ...").
+// The form's kind for a stored job. An unknown kind reads as one-off, as it always has.
+function formKind(kind: string): FormState["scheduleKind"] {
+  const k = kind.trim().toLowerCase();
+  return k === "recurring" ? "recurring" : k === "random" ? "random" : "oneOff";
+}
+
+function isRandom(j: CronJob): boolean {
+  return j.scheduleKind.trim().toLowerCase() === "random";
+}
+
 function scheduleEnglish(j: CronJob): string {
   if (j.scheduleKind.toLowerCase() === "recurring") return cronToEnglish(j.cronExpression);
+  // A random schedule's words are folded by the Gateway (issue #3622); its settings text is shown as stored
+  // only when the Gateway sent no words, which it does for settings that no longer validate.
+  if (isRandom(j)) return j.scheduleText ?? `Random: ${j.cronExpression ?? ""}`;
   const runAt = (j.runAt ?? "").trim();
   return runAt.length > 0 ? `Once at ${runAt}` : "Once (no time set)";
 }
