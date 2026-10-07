@@ -4,6 +4,7 @@ import {
   listMessageLinkRequests,
   listMessageLinks,
   removeMessageLink,
+  requestedAmountWords,
   setUpMessageLink,
 } from "./messageLinksClient";
 import { GatewayError } from "../api/client";
@@ -102,6 +103,18 @@ describe("messageLinksClient requests", () => {
     expect(url).toBe("/fleet/link-requests/r%2F1/answer");
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toEqual({ amount: "ongoing" });
+  });
+
+  it("approves what was asked with { approve: true } (issue #3631)", async () => {
+    const fetchMock = stubFetch(jsonResponse(200, { request: { requestId: "r1", status: "allowed" }, link: { linkId: "l1" } }));
+    await answerMessageLinkRequest("r1", { approve: true });
+    expect(JSON.parse(String(call(fetchMock).init.body))).toEqual({ approve: true });
+  });
+
+  it("words what a request asked for, and a request that named nothing as one message and a reply", () => {
+    expect(requestedAmountWords({ requestedAmount: "ongoing" })).toBe("as much as they need");
+    expect(requestedAmountWords({ requestedAmount: "once" })).toBe("one message");
+    expect(requestedAmountWords({ requestedAmount: null })).toBe("one message and a reply");
   });
 
   it("declines with { decline: true }", async () => {

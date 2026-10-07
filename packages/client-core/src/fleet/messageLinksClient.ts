@@ -79,6 +79,9 @@ export interface MessageLinkRequest {
   targetSessionId: string;
   /** Why the session asked, in its own words. */
   reason: string;
+  /** How much talking the session asked for (issue #3631) - what the owner approves or denies. Null on a request
+   *  asked before a session could name one. */
+  requestedAmount?: MessageLinkAmount | string | null;
   /** pending, allowed, declined or ended. */
   status: string;
   askedAtUtc: string;
@@ -98,10 +101,19 @@ export async function listMessageLinkRequests(signal?: AbortSignal): Promise<Mes
   return ((await res.json()) as { requests: MessageLinkRequest[] }).requests;
 }
 
-/** POST /fleet/link-requests/{id}/answer: allow with an amount, or decline. A refusal throws the Gateway's sentence. */
+/** What the session asked for, in the words the owner reads: "one message and a reply". A request from before sessions
+ *  named an amount asked for what the Gateway gives one by default. */
+export function requestedAmountWords(request: Pick<MessageLinkRequest, "requestedAmount">): string {
+  const known = MESSAGE_LINK_AMOUNTS.find((a) => a.amount === request.requestedAmount)
+    ?? MESSAGE_LINK_AMOUNTS.find((a) => a.amount === "once-with-reply")!;
+  return known.label.toLowerCase();
+}
+
+/** POST /fleet/link-requests/{id}/answer: approve what was asked (issue #3631), allow another amount, or decline. A
+ *  refusal throws the Gateway's sentence. */
 export async function answerMessageLinkRequest(
   requestId: string,
-  answer: { amount: MessageLinkAmount } | { decline: true },
+  answer: { approve: true } | { amount: MessageLinkAmount } | { decline: true },
 ): Promise<{ request: MessageLinkRequest; link?: MessageLink | null }> {
   const res = await gatewayFetch(`/fleet/link-requests/${encodeURIComponent(requestId)}/answer`, {
     method: "POST",

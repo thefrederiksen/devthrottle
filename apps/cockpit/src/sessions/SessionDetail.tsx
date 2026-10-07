@@ -7,6 +7,7 @@ import type { SessionsOutletContext } from "./SessionsView";
 import { SessionActionBar } from "./SessionActionBar";
 import { SessionComposer } from "./SessionComposer";
 import { SessionMenu } from "./SessionMenu";
+import { LinkRequestChip } from "./LinkRequests";
 import { ChatTab } from "./ChatTab";
 import { VoiceTab } from "./VoiceTab";
 import { SourceControlTab } from "./SourceControlTab";
@@ -247,6 +248,8 @@ export function SessionDetail() {
               the tooltip are the Gateway's fold, read through the same shared reader the roster and the
               Fleet Map use. */}
           {selected && <SessionModelChip session={selected} />}
+          {/* This session asked to talk to another (issue #3631): a chip whose popover approves or denies it. */}
+          {sessionId && <LinkRequestChip sessionId={sessionId} />}
           {/* The session menu (issue #1214): Rename, Hold/Resume, Handover info, Close - top right of
               the session header, driving the shared Gateway calls. */}
           {selected && <SessionMenu session={selected} variant="page" onClosed={() => navigate("/sessions")} />}

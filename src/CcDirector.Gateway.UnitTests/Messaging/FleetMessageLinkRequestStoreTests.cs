@@ -49,6 +49,19 @@ public sealed class FleetMessageLinkRequestStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_request_keeps_the_amount_the_session_asked_for()
+    {
+        var store = Open();
+        var named = store.Ask(TenantA, Investigator, Coordinator, "the cutover", T0, " Ongoing ").Request!;
+        var unnamed = store.Ask(TenantA, Investigator, Session(3), "the tickets", T0).Request!;
+
+        Assert.Equal(FleetMessageLinkAmounts.Ongoing, named.RequestedAmount);
+        Assert.Equal(FleetMessageLinkAmounts.OnceWithReply, unnamed.RequestedAmount);
+        Assert.Equal(FleetMessageLinkAmounts.Ongoing, store.Find(TenantA, named.RequestId)!.RequestedAmount);
+        Assert.Throws<ArgumentException>(() => store.Ask(TenantA, Investigator, Session(4), "x", T0, "forever"));
+    }
+
+    [Fact]
     public void Asking_again_for_the_same_session_returns_the_waiting_request_and_changes_nothing()
     {
         var store = Open();

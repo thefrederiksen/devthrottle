@@ -89,6 +89,12 @@ public static class FleetMessageLinkRequestEndpoints
             var targetId = t.ToString("D");
             if (targetId == requesterId)
                 return Refuse(StatusCodes.Status400BadRequest, "same_session", "A session does not ask to talk to itself.");
+            var requestedAmount = string.IsNullOrWhiteSpace(body.Amount)
+                ? FleetMessageLinkAmounts.OnceWithReply
+                : body.Amount.Trim().ToLowerInvariant();
+            if (!FleetMessageLinkAmounts.IsKnown(requestedAmount))
+                return Refuse(StatusCodes.Status400BadRequest, "invalid_amount",
+                    $"amount must be one of {string.Join(", ", FleetMessageLinkAmounts.All)}; '{body.Amount}' was given.");
             if (string.IsNullOrWhiteSpace(body.Reason))
                 return Refuse(StatusCodes.Status400BadRequest, "reason_required",
                     "Say why you need to talk to that session, in one sentence the user can decide on.");
@@ -107,7 +113,7 @@ public static class FleetMessageLinkRequestEndpoints
                 return Refuse(StatusCodes.Status409Conflict, "already_linked",
                     "A message link already lets you message that session. Send the message instead of asking.");
 
-            var asked = requests.Ask(tenant, requesterId, targetId, body.Reason, nowUtc());
+            var asked = requests.Ask(tenant, requesterId, targetId, body.Reason, nowUtc(), requestedAmount);
             if (asked.Refused)
                 return Refuse(StatusCodes.Status429TooManyRequests, "too_many_requests",
                     $"You already have {FleetMessageLinkRequestStore.MaxPendingPerSession} requests waiting for the user. "
@@ -192,13 +198,14 @@ public static class FleetMessageLinkRequestEndpoints
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_body", $"The body is not valid JSON: {ex.Message}");
             }
             if (body is null)
-                return Refuse(StatusCodes.Status400BadRequest, "invalid_body", "A body is required: { amount } to allow, or { decline: true }.");
+                return Refuse(StatusCodes.Status400BadRequest, "invalid_body", "A body is required: { approve: true }, { amount } to allow, or { decline: true }.");
 
             var amount = (body.Amount ?? "").Trim().ToLowerInvariant();
-            if (body.Decline == (amount.Length > 0))
+            if ((body.Decline ? 1 : 0) + (body.Approve ? 1 : 0) + (amount.Length > 0 ? 1 : 0) != 1)
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_answer",
-                    "Answer with an amount to allow it, or with decline: true to say no - one of the two.");
-            if (!body.Decline && !FleetMessageLinkAmounts.IsKnown(amount))
+                    "Answer with approve: true to allow what was asked, an amount to allow that instead, or decline: true "
+                    + "to say no - exactly one of the three.");
+            if (amount.Length > 0 && !FleetMessageLinkAmounts.IsKnown(amount))
                 return Refuse(StatusCodes.Status400BadRequest, "invalid_amount",
                     $"amount must be one of {string.Join(", ", FleetMessageLinkAmounts.All)}; '{body.Amount}' was given.");
 
@@ -207,6 +214,12 @@ public static class FleetMessageLinkRequestEndpoints
                 return Refuse(StatusCodes.Status404NotFound, "request_not_found", $"No request {id} is known in this account.");
             if (request.Status != FleetMessageLinkRequestStatuses.Pending)
                 return AlreadyAnswered(request);
+            // Approve allows exactly what the session asked for; a request from before sessions named an amount asked
+            // for what a session now gets by default.
+            if (body.Approve)
+                amount = FleetMessageLinkAmounts.IsKnown(request.RequestedAmount)
+                    ? request.RequestedAmount!
+                    : FleetMessageLinkAmounts.OnceWithReply;
 
             var now = nowUtc();
             if (body.Decline)
@@ -319,6 +332,7 @@ public static class FleetMessageLinkRequestEndpoints
         RequesterSessionId = r.RequesterSessionId,
         TargetSessionId = r.TargetSessionId,
         Reason = r.Reason,
+        RequestedAmount = r.RequestedAmount,
         Status = r.Status,
         AskedAtUtc = r.AskedAtUtc,
         AnsweredBy = r.AnsweredBy,

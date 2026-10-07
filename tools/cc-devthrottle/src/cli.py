@@ -2969,15 +2969,22 @@ def message_reply(
 def message_request(
     target: str = typer.Argument(..., help="The session you need to talk to: its number, an id prefix, or its name."),
     reason: str = typer.Argument(..., help="Why, in one sentence the user can decide on."),
+    amount: str = typer.Option(
+        "once-with-reply", "--amount",
+        help="How much talking you need: once (one message, no reply), once-with-reply (one message and its "
+        "reply), or ongoing (both ways, until removed or either session ends). The user approves or denies "
+        "exactly this.",
+    ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
     """Ask the user for a message link to a session you may not message.
 
     Use it when a send was refused because the other session neither started you nor was started by
-    you. Nothing is allowed until the user answers; the answer arrives in your inbox. Do not wait for
+    you. Ask for the amount of talking the work needs (--amount); the user only approves or denies it.
+    Nothing is allowed until the user answers; the answer arrives in your inbox. Do not wait for
     it, and do not ask twice: asking again for the same session changes nothing.
     """
-    link_ops.request(target, reason, json_output)
+    link_ops.request(target, reason, amount, json_output)
 
 
 @link_app.command("add")
@@ -3031,16 +3038,17 @@ def message_link_requests(
 @link_app.command("answer")
 def message_link_answer(
     request_id: str = typer.Argument(..., metavar="ID", help="The request id, from 'message link requests'."),
-    amount: str = typer.Option("", "--amount", help="Allow it: once, once-with-reply, or ongoing."),
+    approve: bool = typer.Option(False, "--approve", help="Allow exactly what the session asked for."),
+    amount: str = typer.Option("", "--amount", help="Allow it with this amount instead: once, once-with-reply, or ongoing."),
     decline: bool = typer.Option(False, "--decline", help="Say no."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
-    """Allow a request for a link (with --amount) or decline it (--decline).
+    """Allow a request for a link (--approve, or --amount) or decline it (--decline).
 
     The owner's own phone or browser, or a session the owner has raised (the Fleet Manager), only.
     Allowing sets up the link and tells the asking session; declining tells it no.
     """
-    link_ops.answer(request_id, amount, decline, json_output)
+    link_ops.answer(request_id, amount, decline, json_output, approve=approve)
 
 
 @message_app.command("inbox")

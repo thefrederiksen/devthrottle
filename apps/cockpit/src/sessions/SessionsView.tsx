@@ -8,7 +8,7 @@ import { needsYouBadgeCount } from "@devthrottle/client-core/sessions/ordering";
 import { reconcileBadge } from "@devthrottle/client-core/push/register";
 import { SessionRoster, type RosterView } from "./SessionRoster";
 import { NewSessionDialog } from "./NewSessionDialog";
-import { LinkRequestCards } from "./LinkRequestCards";
+import { LinkRequestsProvider } from "./LinkRequests";
 
 // The Sessions experience (issue #972): the core driving loop - see every session, select one,
 // answer it. This layout route renders the roster on the left and routes the selected session's detail
@@ -113,24 +113,27 @@ export function SessionsView() {
 
   const context: SessionsOutletContext = { sessions, directors };
 
+  // Requests to talk to another session (issue #3631) are read once here and shown on the session that asked - its
+  // roster card and its header - never as a band above the detail.
   return (
-    <div className="sessions-screen">
-      <SessionRoster
-        sessions={sessions}
-        directors={directors}
-        portByDirector={portByDirector}
-        selectedId={selectedId}
-        view={view}
-        onView={onView}
-        error={error}
-        onNewSession={() => setShowNew(true)}
-      />
-      <div className="sessions-detail">
-        <LinkRequestCards sessions={sessions} />
-        <Outlet context={context} />
+    <LinkRequestsProvider sessions={sessions}>
+      <div className="sessions-screen">
+        <SessionRoster
+          sessions={sessions}
+          directors={directors}
+          portByDirector={portByDirector}
+          selectedId={selectedId}
+          view={view}
+          onView={onView}
+          error={error}
+          onNewSession={() => setShowNew(true)}
+        />
+        <div className="sessions-detail">
+          <Outlet context={context} />
+        </div>
+        {showNew && <NewSessionDialog onClose={() => setShowNew(false)} onCreated={onCreated} />}
       </div>
-      {showNew && <NewSessionDialog onClose={() => setShowNew(false)} onCreated={onCreated} />}
-    </div>
+    </LinkRequestsProvider>
   );
 }
 

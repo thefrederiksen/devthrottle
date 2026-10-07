@@ -253,6 +253,59 @@ public sealed class FleetMessageLinkRequestHostTests : IAsyncLifetime
         Assert.Single(Root((await Send(_ownerA, "GET", "fleet/links")).Body).GetProperty("links").EnumerateArray());
     }
 
+    // ---- the session names what it needs; the owner approves it (issue #3631) ---------------------------
+
+    [Fact]
+    public async Task Approve_allows_exactly_the_amount_the_session_asked_for()
+    {
+        var (askStatus, askBody) = await Send(_investigator, "POST", "fleet/link-requests",
+            new { targetSessionId = _coordinatorId, reason = "We need to work the cutover together", amount = "ongoing" });
+        Assert.Equal(HttpStatusCode.Created, askStatus);
+        Assert.Equal("ongoing", Root(askBody).GetProperty("request").GetProperty("requestedAmount").GetString());
+        var requestId = RequestIdOf(askBody);
+
+        var waiting = Assert.Single(await Requests(_ownerA));
+        Assert.Equal("ongoing", waiting.GetProperty("requestedAmount").GetString());
+
+        var (status, body) = await Answer(_ownerA, requestId, new { approve = true });
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("allowed", Root(body).GetProperty("request").GetProperty("status").GetString());
+        Assert.Equal("ongoing", Root(body).GetProperty("request").GetProperty("amount").GetString());
+        Assert.Equal("ongoing", Root(body).GetProperty("link").GetProperty("amount").GetString());
+    }
+
+    [Fact]
+    public async Task A_request_that_names_no_amount_asks_for_one_message_and_a_reply()
+    {
+        var (status, body) = await Ask(_investigator, _coordinatorId);
+        Assert.Equal(HttpStatusCode.Created, status);
+        Assert.Equal("once-with-reply", Root(body).GetProperty("request").GetProperty("requestedAmount").GetString());
+
+        var (answerStatus, answerBody) = await Answer(_ownerA, RequestIdOf(body), new { approve = true });
+        Assert.Equal(HttpStatusCode.OK, answerStatus);
+        Assert.Equal("once-with-reply", Root(answerBody).GetProperty("link").GetProperty("amount").GetString());
+    }
+
+    [Fact]
+    public async Task An_unknown_amount_is_refused_and_nothing_is_asked()
+    {
+        var (status, body) = await Send(_investigator, "POST", "fleet/link-requests",
+            new { targetSessionId = _coordinatorId, reason = "why", amount = "forever" });
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("invalid_amount", CodeOf(body));
+        Assert.Empty(await Requests(_ownerA));
+    }
+
+    [Fact]
+    public async Task An_answer_that_both_approves_and_declines_is_refused()
+    {
+        var requestId = RequestIdOf((await Ask(_investigator, _coordinatorId)).Body);
+        var (status, body) = await Answer(_ownerA, requestId, new { approve = true, decline = true });
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Equal("invalid_answer", CodeOf(body));
+        Assert.Equal("pending", Assert.Single(await Requests(_ownerA)).GetProperty("status").GetString());
+    }
+
     [Fact]
     public async Task Asking_twice_for_the_same_session_changes_nothing()
     {

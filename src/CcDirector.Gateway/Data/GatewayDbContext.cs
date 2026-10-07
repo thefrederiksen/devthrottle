@@ -1109,6 +1109,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Reason).HasMaxLength(500);
             b.Property(e => e.Status).HasMaxLength(16);
             b.Property(e => e.AnsweredBy).HasMaxLength(256);
+            b.Property(e => e.RequestedAmount).HasMaxLength(32);
             b.Property(e => e.Amount).HasMaxLength(32);
             b.Property(e => e.LinkId).HasMaxLength(32);
             // A request is addressed by its id.

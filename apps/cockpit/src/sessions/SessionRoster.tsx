@@ -25,6 +25,7 @@ import {
   type SessionTree,
 } from "@devthrottle/client-core/sessions/tree";
 import { changesBadge, changesTitle } from "@devthrottle/client-core/sessions/changes";
+import { RosterLinkBadge, RosterLinkLine } from "./LinkRequests";
 import { splitPinned, type PinnedSplit } from "@devthrottle/client-core/sessions/pinning";
 import {
   DELIVERY_BADGE_TEXT,
@@ -524,6 +525,8 @@ function RosterRow({
           <span className="roster-name">
             {hasNum && <span className="num-badge">{num}</span>}
             <span className="roster-name-text">{name}</span>
+            {/* This session asked to talk to another (issue #3631): the amber phone, apart from the red queue dot. */}
+            <RosterLinkBadge sessionId={sid} />
             {session.pin && (
               <span className="roster-pin-mark" title={session.pin.title}>
                 {session.pin.mark}
@@ -543,6 +546,7 @@ function RosterRow({
           {/* Line 2a (only when something waits): the row line - what waits in this session's fleet inbox,
               in the Gateway's words, rendered verbatim (Message Load mission, slice 4). */}
           {session.inboxLine && <span className="roster-inbox">{session.inboxLine}</span>}
+          <RosterLinkLine sessionId={sid} />
           {/* Line 2b: the supervision facts (internal#625) - started / open / idle / turns, from the
               ONE shared formatter, ticking on the shared one-second clock. Stats a Director does not
               report are omitted, never shown as zero. */}
