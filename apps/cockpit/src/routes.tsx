@@ -103,9 +103,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
       {
         element: <AppShell />,
         children: [
-          // The default landing is the Fleet Manager (the Fleet Manager mission, step 6; it was the Fleet
-          // Map): a fresh boot at "/" opens on the one place the owner talks to about all the work.
-          { index: true, element: <Navigate to="/fleet-manager" replace /> },
+          // The default landing is Sessions (owner, 7 Oct 2026; it was the Fleet Manager, and before that the
+          // Fleet Map): a fresh boot at "/" opens on the sessions, which are what the owner uses every day. The
+          // sign-in round trip with no page to return to lands on "/" too, so it ends here as well.
+          { index: true, element: <Navigate to="/sessions" replace /> },
           // The Fleet Manager page (step 6): the conversation with the account's Fleet Manager session, the
           // cards drawn from its outcome records, and the live panel of what is waiting, under way and answered.
           { path: "/fleet-manager", element: <FleetManagerView /> },

@@ -20,7 +20,7 @@ import { fleetManagerPageStore } from "./pageStore";
 import { MistakeBox, StandingPanel } from "./StandingPanel";
 import { fleetStandingStore } from "./standingStore";
 
-// THE FLEET MANAGER PAGE (the Fleet Manager mission, step 6) - the page the Cockpit opens on.
+// THE FLEET MANAGER PAGE (the Fleet Manager mission, step 6).
 //
 // Two regions, each reading its own Gateway answer and each failing on its own with the Gateway's words:
 //

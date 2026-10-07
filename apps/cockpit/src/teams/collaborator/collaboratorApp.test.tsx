@@ -297,7 +297,8 @@ describe("The Collaborator's app", () => {
     expect(railLabels()).toContain("Skills");
     expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]);
     expect(document.querySelector(".nav-list-foot")).not.toBeNull();
-    expect(await screen.findByText("fleet manager page")).toBeTruthy();
+    expect(await screen.findByText("sessions page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/sessions");
     expect(screen.queryByTestId("team-page-not-available")).toBeNull();
   });
 
@@ -455,7 +456,7 @@ describe("The Collaborator's app", () => {
     await whenRailIs(["Questions", "Requests", "Reports"]);
     expect(await screen.findByTestId("team-page-questions")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/questions");
-    expect(screen.queryByText("fleet manager page")).toBeNull();
+    expect(screen.queryByText("sessions page")).toBeNull();
   });
 
   it("FirstArrival_SeveralTeams_NoDirector_OffersTheChooser_AndOpensThePickedTeam", async () => {
@@ -466,7 +467,7 @@ describe("The Collaborator's app", () => {
     expect(chooser.textContent).toContain("You are signed in as mike@example.com");
     expect(chooser.textContent).toContain("Collaborator - 5 people");
     expect(chooser.textContent).toContain("Developer - 2 people");
-    expect(screen.queryByText("fleet manager page")).toBeNull();
+    expect(screen.queryByText("sessions page")).toBeNull();
     expect(railLabels()).toEqual([]);
     expect(screen.queryByTestId("team-switcher")).toBeNull();
     // The chooser takes the short rail: a bar at phone width, never collapsed.
@@ -483,7 +484,8 @@ describe("The Collaborator's app", () => {
     myTeams.start = { where: "own-account" };
     renderAt("/");
 
-    expect(await screen.findByText("fleet manager page")).toBeTruthy();
+    expect(await screen.findByText("sessions page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/sessions");
     expect(railLabels()[0]).toBe("Sessions");
   });
 

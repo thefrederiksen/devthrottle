@@ -3,8 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { MemoryRouter, Outlet, useLocation, useRoutes } from "react-router-dom";
 
-// The Cockpit opens on the Fleet Manager (the Fleet Manager mission, step 6), and the Assistant's old address lands
-// there too. The REAL route table the app mounts is driven here (COCKPIT_ROUTES), so the sign-in gate and the shell
+// The Cockpit opens on Sessions (owner, 7 Oct 2026), and the Assistant's old address still lands on the Fleet
+// Manager. The REAL route table the app mounts is driven here (COCKPIT_ROUTES), so the sign-in gate and the shell
 // layout are the app's own; only the pages themselves are stood in for, because just where each address goes is
 // under test. (A memory DATA router is not used: its navigation builds a fetch Request that jsdom's abort signal
 // cannot satisfy.)
@@ -20,6 +20,7 @@ vi.mock("@devthrottle/client-core/auth/deviceKey", () => ({
 // pages route into, so it stands in as that outlet.
 vi.mock("./AppShell", () => ({ AppShell: () => <Outlet /> }));
 vi.mock("./fleetmanager/FleetManagerView", () => ({ FleetManagerView: () => <div>fleet manager page</div> }));
+vi.mock("./sessions/SessionsView", () => ({ SessionsView: () => <Outlet />, SessionsEmpty: () => <div>sessions page</div> }));
 vi.mock("./fleet/FleetMapView", () => ({ FleetMapView: () => <div>fleet map page</div> }));
 vi.mock("./fleetmanager/WalkthroughView", () => ({ WalkthroughView: () => <div>walkthrough page</div> }));
 
@@ -47,8 +48,15 @@ function renderAt(path: string) {
 describe("Cockpit routes", () => {
   beforeEach(() => cleanup());
 
-  it("opens on the Fleet Manager", async () => {
+  it("opens on Sessions", async () => {
     renderAt("/");
+
+    expect(await screen.findByText("sessions page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/sessions");
+  });
+
+  it("still serves the Fleet Manager at its own address", async () => {
+    renderAt("/fleet-manager");
 
     expect(await screen.findByText("fleet manager page")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/fleet-manager");
