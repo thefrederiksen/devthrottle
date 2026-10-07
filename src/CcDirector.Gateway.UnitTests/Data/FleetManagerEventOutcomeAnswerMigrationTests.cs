@@ -68,7 +68,9 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
             Assert.Equal("20261006140613_AddFactoryRegistry", all[index + 21]);
             // A team member's answer and the question a person's comment is about (devthrottle_internal#2307), after that.
             Assert.Equal("20261006171223_AddTeamQuestionAnswers", all[index + 22]);
-            Assert.Equal(index + 23, all.Count);
+            // Archiving a factory (Factories screen mission, round 2), after that.
+            Assert.Equal("20261007035034_ArchiveFactories", all[index + 23]);
+            Assert.Equal(index + 24, all.Count);
 
             // From an EMPTY database to the schema just before, with a stop stored as step 4 stores it.
             Assert.Empty(context.Database.GetAppliedMigrations());
