@@ -8,6 +8,7 @@ import {
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { EmptyState, ErrorBanner, LoadingState } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
+import { FailuresCard, useScrollToHash } from "./FactoryFailures";
 import { FactoryMemoryTab } from "./FactoryMemoryTab";
 import { TalkButton, ToneChip } from "./FactoryParts";
 import { WaitingItem } from "./FactoryWaitingView";
@@ -37,6 +38,8 @@ export function FactoryView() {
     "load this factory's seats",
   );
 
+  useScrollToHash(view.data !== null);
+
   if (view.error !== null) return <ErrorBanner message={view.error} onRetry={view.reload} />;
   if (view.data === null) return <LoadingState />;
   const page = view.data;
@@ -54,6 +57,11 @@ export function FactoryView() {
           <h1 className="ui-page-title">
             {page.title} <ToneChip word={page.statusWord} tone={page.statusTone} title={page.statusReason} />
           </h1>
+          {page.statusLine !== null && (
+            <p className="fa-status-line" data-testid="fa-page-status-line">
+              {page.statusHref !== null ? <Link to={page.statusHref}>{page.statusLine}</Link> : page.statusLine}
+            </p>
+          )}
           <div className="fa-factory-facts" data-testid="fa-factory-facts">
             <span>{page.ceoText}</span>
             <span>{page.seatCountText}</span>
@@ -121,9 +129,11 @@ function ComingLabel({ text }: { text: string }) {
 }
 
 function Overview({ page, onChanged }: { page: FactoryPageView; onChanged: () => void }) {
-  const { goal, goalNumber, waiting, ceoLatest, lastTalk } = page;
+  const { goal, goalNumber, failures, waiting, ceoLatest, lastTalk } = page;
   return (
     <div className="fa-overview" data-testid="fa-overview">
+      {failures !== null && <FailuresCard factory={page.id} failures={failures} onChanged={onChanged} />}
+
       <section className="fa-panel" data-testid="fa-goal">
         <h2 className="fa-section-title">{goal.heading}</h2>
         {goal.text !== null && <p className="fa-goal-text">{goal.text}</p>}
@@ -150,7 +160,7 @@ function Overview({ page, onChanged }: { page: FactoryPageView; onChanged: () =>
         {goalNumber.emptyText !== null && <p className="fa-dim">{goalNumber.emptyText}</p>}
       </section>
 
-      <section className="fa-panel" data-testid="fa-page-waiting">
+      <section className="fa-panel" id="waiting" data-testid="fa-page-waiting">
         <h2 className="fa-section-title">{waiting.heading}</h2>
         {waiting.emptyText !== null ? (
           <p className="fa-dim">{waiting.emptyText}</p>

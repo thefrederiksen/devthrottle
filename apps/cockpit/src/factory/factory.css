@@ -520,7 +520,7 @@
 .fa-flist-head,
 .fa-flist-row {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1.4fr) 120px minmax(160px, 1fr);
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 2.4fr) minmax(160px, 1fr);
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
@@ -566,6 +566,35 @@
 
 .fa-flist-talk {
   justify-self: end;
+}
+
+/* The status word, and under it the Gateway's one-line reason (round 2). The word links to the items it is about. */
+.fa-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.fa-status-link {
+  text-decoration: none;
+}
+
+.fa-status-line {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.fa-status-line a,
+.fa-flist-waiting a {
+  color: inherit;
+}
+
+.fa-factory-id .fa-status-line {
+  margin-top: 4px;
+  font-size: 13px;
 }
 
 .fa-talk {
@@ -688,11 +717,12 @@ a.fa-tab {
     display: none;
   }
   .fa-flist-row {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
-      "name status"
-      "waiting waiting"
-      "talk talk";
+      "name"
+      "status"
+      "waiting"
+      "talk";
     gap: 6px 8px;
     background: var(--surface);
     border: 1px solid var(--border);

@@ -169,10 +169,17 @@ public sealed class FactoriesScreenFoldTests
     [Fact]
     public void Status_NoScheduleAtAll_IsPaused_AndSaysSo()
     {
-        // Ruling of 2026-10-06: a factory whose seats have no enabled schedule at all (Tallyhand) is PAUSED.
+        // Ruling of 2026-10-06: a factory whose seats have no enabled schedule at all (Tallyhand) is PAUSED. Here every
+        // seat names a schedule the Gateway does not have, and round 2 says so rather than "Nothing scheduled".
         var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() })).Rows[0];
         Assert.Equal("PAUSED", row.StatusWord);
-        Assert.Equal("No schedule or trigger runs its seats.", row.StatusReason);
+        Assert.Equal("4 named schedules no longer exist", row.StatusLine);
+
+        var unscheduled = Factory("tallyhand", "Tallyhand", "max", Seat("max", "Max Ridley", "CEO"));
+        var bare = FactoriesScreenFold.List(Inputs(new[] { unscheduled })).Rows[0];
+        Assert.Equal("PAUSED", bare.StatusWord);
+        Assert.Equal("Nothing scheduled", bare.StatusReason);
+        Assert.Equal("Nothing scheduled", bare.StatusLine);
     }
 
     // ---------- waiting on you ----------
@@ -219,7 +226,7 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal("Starting the talk with the CEO...", rows["tallyhand"].Talk!.BusyLabel);
         Assert.Equal("Talk to the CEO", rows["mindzie-ai-reports"].Talk!.Label);
         Assert.Null(rows["machine-care"].Talk);
-        Assert.Equal("No CEO", rows["machine-care"].NoCeoText);
+        Assert.Equal("No head named", rows["machine-care"].NoCeoText);
         Assert.Equal("/factories/warmforward", rows["warmforward"].Href);
     }
 
@@ -442,7 +449,7 @@ public sealed class FactoriesScreenFoldTests
         };
         var page = FactoriesScreenFold.Page(WarmForward(), Inputs(new[] { WarmForward() }, rows, jobs));
 
-        Assert.Equal("A run of Nora Hale failed today 05:09 (America/Toronto): Meter read failed.", page.StatusReason);
+        Assert.Equal("Nora Hale failed today 05:09 (America/Toronto): Meter read failed.", page.StatusReason);
         Assert.Equal("Latest from the CEO (America/Toronto time)", page.CeoLatest.Heading);
         Assert.Equal(new[] { "Today 05:09 - Meter read failed." }, page.CeoLatest.Lines);
     }

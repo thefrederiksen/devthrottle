@@ -220,6 +220,7 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
         Assert.Contains("GET /gateway/factories", names);
         Assert.Contains("GET /gateway/factories/{factory}", names);
         Assert.Contains("GET /gateway/factories/{factory}/seats", names);
+        Assert.Contains("POST /gateway/factories/{factory}/failures/{id:guid}/handled", names);
         Assert.Contains("GET /gateway/factory-agents/factories/{factory}/map", names);
         Assert.True(gated.Count >= 20, $"expected every factory route, found {gated.Count}: {string.Join(", ", names)}");
 

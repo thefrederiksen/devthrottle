@@ -641,24 +641,35 @@ public static class FactoryAgentsFold
         ArgumentNullException.ThrowIfNull(escalation);
         if (!Is(escalation, FactoryActivityOutcome.Escalated))
             throw new FactoryViewValidationException("Only an escalation can be marked handled; an asked item clears when the record notes it was handled.");
-        // A cut corrections list cannot prove the escalation is still open, and writing on a guess would correct it twice.
-        if (correctionsTruncated)
-            throw new FactoryViewValidationException("The record holds more correcting rows than one read returns, so it cannot be told whether this escalation is already handled. Nothing was written.");
-        if (corrections.Any(c => c.CorrectsId == escalation.Id))
-            throw new FactoryViewValidationException("This escalation is already handled.");
+        return CorrectingRow(escalation, corrections, correctionsTruncated, actor, nowUtc, "escalation");
+    }
 
-        var what = $"Marked handled by {actor}: {escalation.What}";
+    /// <summary>
+    /// The NEW row that marks <paramref name="row"/> handled by correcting it - shared by an escalation's "I have
+    /// handled it" and a failure's "Handled" (Factories screen round 2). The row itself is never changed. Refused
+    /// when it is already corrected, or when a cut corrections list cannot prove it is not.
+    /// </summary>
+    internal static AppendFactoryActivityRequest CorrectingRow(FactoryActivityDto row, IReadOnlyList<FactoryActivityDto> corrections,
+        bool correctionsTruncated, string actor, DateTime nowUtc, string kind)
+    {
+        // A cut corrections list cannot prove the row is still open, and writing on a guess would correct it twice.
+        if (correctionsTruncated)
+            throw new FactoryViewValidationException($"The record holds more correcting rows than one read returns, so it cannot be told whether this {kind} is already handled. Nothing was written.");
+        if (corrections.Any(c => c.CorrectsId == row.Id))
+            throw new FactoryViewValidationException($"This {kind} is already handled.");
+
+        var what = $"Marked handled by {actor}: {row.What}";
         if (what.Length > FactoryActivityMaxWhat) what = what[..(FactoryActivityMaxWhat - 3)] + "...";
         return new AppendFactoryActivityRequest
         {
-            Factory = escalation.Factory,
-            FactoryAgent = escalation.FactoryAgent,
-            FactoryAgentVersion = escalation.FactoryAgentVersion,
+            Factory = row.Factory,
+            FactoryAgent = row.FactoryAgent,
+            FactoryAgentVersion = row.FactoryAgentVersion,
             What = what,
             Outcome = FactoryActivityOutcome.Done,
-            Subject = escalation.Subject,
+            Subject = row.Subject,
             Actor = actor,
-            CorrectsId = escalation.Id,
+            CorrectsId = row.Id,
             OccurredUtc = nowUtc,
         };
     }
@@ -982,7 +993,7 @@ public static class FactoryAgentsFold
         _ => FactoryTone.Grey,
     };
 
-    private static string? SessionLabel(string? sessionId) =>
+    internal static string? SessionLabel(string? sessionId) =>
         string.IsNullOrEmpty(sessionId) ? null : "#" + (sessionId.Length > 8 ? sessionId[..8] : sessionId);
 
     // An empty check a trigger wrote: the outcome "nothing to do" and an actor naming a trigger. Only these collapse;

@@ -57,7 +57,7 @@ internal static class FactoryAgentsViewEndpoints
     /// <summary>The most rows one view reads from the record before it says the window was cut.</summary>
     public const int MaxRowsPerRead = 20_000;
 
-    private const int PageSize = 1000;
+    internal const int PageSize = 1000;
 
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -329,7 +329,7 @@ internal static class FactoryAgentsViewEndpoints
     // correction can carry a time earlier than the row it corrects, and a bound on it would keep a handled item on
     // the list for ever. The rows read are the few non-quiet ones, never the empty checks. The second value is true
     // when any outcome's read was cut, so a caller never treats a partial list of corrections as the whole one.
-    private static (List<FactoryActivityDto> Rows, bool Truncated) Corrections(FactoryAgentsSources sources, TenantId tenant)
+    internal static (List<FactoryActivityDto> Rows, bool Truncated) Corrections(FactoryAgentsSources sources, TenantId tenant)
     {
         var all = new List<FactoryActivityDto>();
         var truncated = false;
@@ -375,7 +375,7 @@ internal static class FactoryAgentsViewEndpoints
     }
 
     // Who pressed the button, as the record stores it: the owner, and the credential the request came in on.
-    private static string OwnerActor(HttpContext ctx) =>
+    internal static string OwnerActor(HttpContext ctx) =>
         "owner (" + (AuthMiddleware.RegisteringCredential(ctx) ?? AuthMiddleware.IdentityKind(ctx)) + ")";
 
     private static bool SameId(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);

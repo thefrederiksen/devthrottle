@@ -36,6 +36,42 @@ export function ToneChip({ word, tone, title }: { word: string; tone: FactoryTon
   );
 }
 
+/**
+ * A status word with the Gateway's one-line reason under it (round 2). The word links where the Gateway says it
+ * opens - the failures, the waiting items, or the Seats tab - and RUNNING, which has neither, is the bare word.
+ */
+export function StatusWord({
+  word,
+  tone,
+  reason,
+  line,
+  href,
+}: {
+  word: string;
+  tone: FactoryTone;
+  reason: string;
+  line: string | null;
+  href: string | null;
+}) {
+  const chip = <ToneChip word={word} tone={tone} title={reason} />;
+  return (
+    <span className="fa-status" data-testid="fa-status">
+      {href !== null ? (
+        <Link className="fa-status-link" to={href} onClick={(e) => e.stopPropagation()} data-testid="fa-status-link">
+          {chip}
+        </Link>
+      ) : (
+        chip
+      )}
+      {line !== null && (
+        <span className="fa-status-line" data-testid="fa-status-line">
+          {line}
+        </span>
+      )}
+    </span>
+  );
+}
+
 /** One number from the Gateway, linked where the Gateway says it opens. */
 export function NumberPill({ n }: { n: FactoryNumber }) {
   const body = <span className={`fa-number ${toneClass(n.tone)}`}>{n.text}</span>;
