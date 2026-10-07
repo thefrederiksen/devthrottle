@@ -37,6 +37,8 @@ public partial class MainWindow : Window
     // Closing the Complete screen tried to open the Director and could not. The close was refused once so the
     // error stays on screen; the next close is honoured without a second attempt, so the window never traps.
     private bool _openOnCloseFailed;
+    // A close is waiting for the Director's open to answer; a second close meanwhile changes nothing.
+    private bool _openOnClosePending;
     private string _installPath = "";
 
     private readonly bool _isUpdate;
@@ -391,26 +393,57 @@ public partial class MainWindow : Window
     /// button was left with no window, no sign-in and a machine that never connected. The rule is
     /// <see cref="InstallCompletion.OpensDirectorOnClose"/>; this only gathers its facts.
     ///
-    /// When that open FAILS, the close is refused once: OpenDirector has just put the error on the screen, and
-    /// a window that closes on top of it leaves the person with nothing to read. The next close is honoured
-    /// without a second attempt, so the window never traps and the failure is reported once.
+    /// The open answers a moment later (on macOS it is LaunchServices that answers, not the process that
+    /// started), so the close is held while the answer is awaited: the window closes itself when the Director
+    /// is open. When the open FAILS, the close is refused: OpenDirectorAsync has just put the error on the
+    /// screen, and a window that closes on top of it leaves the person with nothing to read. The next close is
+    /// honoured without a second attempt, so the window never traps and the failure is reported once.
     /// </summary>
     protected override void OnClosing(WindowClosingEventArgs e)
     {
         if (_currentStep == StepComplete && _completeStep is { } complete)
         {
             var opens = InstallCompletion.OpensDirectorOnClose(_isUpdate, complete.DirectorOpened, Directory.Exists(_installPath) || File.Exists(_installPath));
-            SetupLog.Write($"[MainWindow] OnClosing on Complete: isUpdate={_isUpdate}, directorOpened={complete.DirectorOpened}, opensDirector={opens}, openOnCloseFailed={_openOnCloseFailed}");
+            SetupLog.Write($"[MainWindow] OnClosing on Complete: isUpdate={_isUpdate}, directorOpened={complete.DirectorOpened}, opensDirector={opens}, openOnCloseFailed={_openOnCloseFailed}, openOnClosePending={_openOnClosePending}");
             if (opens && _openOnCloseFailed)
                 SetupLog.Write("[MainWindow] OnClosing on Complete: closing with the error shown; the Director is not tried again");
-            else if (opens && !complete.OpenDirector())
+            else if (opens)
             {
-                _openOnCloseFailed = true;
                 e.Cancel = true;
-                SetupLog.Write("[MainWindow] OnClosing on Complete: the Director could not be opened; the window stays open so the error is visible");
+                if (!_openOnClosePending)
+                {
+                    _openOnClosePending = true;
+                    _ = CloseAfterOpeningDirectorAsync(complete);
+                }
             }
         }
         base.OnClosing(e);
+    }
+
+    /// <summary>The held close: open the Director, then close for real; or leave the window and its error.</summary>
+    private async Task CloseAfterOpeningDirectorAsync(CompleteStep complete)
+    {
+        try
+        {
+            var opened = await complete.OpenDirectorAsync();
+            _openOnClosePending = false;
+            if (opened)
+            {
+                SetupLog.Write("[MainWindow] CloseAfterOpeningDirectorAsync: the Director is open; closing");
+                Close(); // DirectorOpened is true now, so OnClosing lets this one through
+            }
+            else
+            {
+                _openOnCloseFailed = true;
+                SetupLog.Write("[MainWindow] CloseAfterOpeningDirectorAsync: the Director could not be opened; the window stays open so the error is visible");
+            }
+        }
+        catch (Exception ex)
+        {
+            _openOnClosePending = false;
+            _openOnCloseFailed = true;
+            SetupLog.Write($"[MainWindow] CloseAfterOpeningDirectorAsync FAILED: {ex}");
+        }
     }
 
     /// <summary>Build the Welcome step and wire its Uninstall request (issue #257). The step

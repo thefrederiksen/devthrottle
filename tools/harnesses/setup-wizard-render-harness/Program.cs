@@ -30,11 +30,12 @@ namespace SetupWizardRenderHarness;
 //                   (a continuous-integration runner) only: this is how the shipped flow is proven
 //                   against the machine's own launchd.
 //   --prove-close-keeps-error
-//                   After the Complete screen: hide the Director the install placed, close the window
-//                   the way a person does, and print what happened - CLOSE-CANCELLED (the window is
-//                   still open), CLOSE-ERROR (the text on screen) and CLOSE-OPEN-ATTEMPTS (how many
-//                   times the wizard tried to open the Director). The Director is put back and the run
-//                   ends WITHOUT a second close, so nothing is opened.
+//                   After the Complete screen (macOS only): take the executable out of the Director
+//                   bundle the install placed, so LaunchServices refuses to open it, close the window the
+//                   way a person does, and print what happened - CLOSE-CANCELLED (the window is still
+//                   open), CLOSE-ERROR (the text on screen) and CLOSE-OPEN-ATTEMPTS (how many times the
+//                   wizard tried to open the Director). The executable is put back and the run ends
+//                   WITHOUT a second close, so nothing is opened.
 //
 // After the Complete screen is shown the run prints what it says, one fact per line, so a proof can
 // read the screen without a person: COMPLETE-HEADING, COMPLETE-DESCRIPTION, COMPLETE-WARNING (the text
@@ -144,16 +145,26 @@ internal static class Program
     /// </summary>
     private static void ProveCloseKeepsError(MainWindow window)
     {
+        if (!OperatingSystem.IsMacOS())
+        {
+            Console.WriteLine("note: --prove-close-keeps-error is a macOS proof (it needs LaunchServices to refuse a bundle); skipped here");
+            return;
+        }
+        // The bundle stays where the install put it, so the close rule still opens it; what goes is the
+        // executable LaunchServices would run, so /usr/bin/open answers with an error instead of a launch.
         var directorPath = CcDirector.Setup.Engine.InstallLayout.Default().PathFor(CcDirector.Setup.Engine.ComponentRegistry.Director);
-        var hidden = directorPath + ".hidden-for-proof";
-        var isBundle = Directory.Exists(directorPath);
-        if (isBundle) Directory.Move(directorPath, hidden); else File.Move(directorPath, hidden);
+        var executable = IoPath.Combine(directorPath, "Contents", "MacOS", "launch");
+        var hidden = executable + ".hidden-for-proof";
+        File.Move(executable, hidden);
         try
         {
             window.Close();
+            // The answer comes from LaunchServices a moment later; the window closes itself or shows the error.
+            var summary = FindDescendant<TextBlock>(window, "SummaryLine");
+            PumpUntil(() => !window.IsVisible || (summary is { IsVisible: true } && (summary.Text ?? "").StartsWith("ERROR:", StringComparison.Ordinal)),
+                TimeSpan.FromSeconds(30), "the held close to open the Director or show the error");
             Thread.Sleep(1500); // the failure report leaves in the background; give it the moment it needs
             Pump();
-            var summary = FindDescendant<TextBlock>(window, "SummaryLine");
             var attempts = File.ReadLines(SetupLog.Path).Count(l => l.Contains("[CompleteStep] OpenDirector:", StringComparison.Ordinal));
             Console.WriteLine($"CLOSE-CANCELLED: {window.IsVisible}");
             Console.WriteLine($"CLOSE-ERROR: {(summary is { IsVisible: true } ? summary.Text : "(none)")}");
@@ -162,7 +173,7 @@ internal static class Program
         }
         finally
         {
-            if (isBundle) Directory.Move(hidden, directorPath); else File.Move(hidden, directorPath);
+            File.Move(hidden, executable);
         }
     }
 

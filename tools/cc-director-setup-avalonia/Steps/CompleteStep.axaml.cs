@@ -225,35 +225,54 @@ public partial class CompleteStep : UserControl
         }
     }
 
-    private void LaunchButton_Click(object? sender, RoutedEventArgs e)
+    private async void LaunchButton_Click(object? sender, RoutedEventArgs e)
     {
         SetupLog.Write("[CompleteStep] LaunchButton_Click");
-        if (!OpenDirector()) return;
+        try
+        {
+            if (!await OpenDirectorAsync()) return;
 
-        // Close the setup wizard. DirectorOpened is already set, so OnClosing does not open a second one.
-        var window = this.VisualRoot as Window;
-        window?.Close();
+            // Close the setup wizard. DirectorOpened is already set, so OnClosing does not open a second one.
+            var window = this.VisualRoot as Window;
+            window?.Close();
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[CompleteStep] LaunchButton_Click FAILED: {ex}");
+        }
     }
 
+    /// <summary>How long LaunchServices is given to answer /usr/bin/open before the launch is counted as handed
+    /// off: open normally answers within a second; a first launch that Gatekeeper is assessing can hold it.</summary>
+    internal static readonly TimeSpan OpenAnswerWait = TimeSpan.FromSeconds(15);
+
     /// <summary>
-    /// Start the installed Director. Returns true when the process was started; a failure is said on
-    /// screen and reported, and returns false. Called by the green button and, on a first install that is
-    /// closed without it, by the window's closing (<see cref="InstallCompletion.OpensDirectorOnClose"/>).
+    /// Start the installed Director and answer whether it was started. A failure is said on screen and reported,
+    /// and answers false. Called by the green button and, on a first install that is closed without it, by the
+    /// window's closing (<see cref="InstallCompletion.OpensDirectorOnClose"/>).
     ///
     /// _installPath is the canonical Director path (InstallLayout.PathFor). On Windows that is the
     /// installed cc-director.exe; on macOS it is the ~/Applications/Director.app bundle. The two
     /// launch differently: run the exe directly on Windows, but on macOS hand the bundle to
     /// /usr/bin/open so LaunchServices registers it - that is what gives the application its Dock icon and
     /// foreground activation. Launching the inner Mach-O binary directly gives neither.
+    ///
+    /// On macOS the process that starts is /usr/bin/open, not the Director, so a started process proves
+    /// nothing: open answers for LaunchServices a moment later - exit 0 when the bundle was handed off, a
+    /// non-zero exit with the reason on standard error when it was not (a damaged bundle, a missing
+    /// executable). That answer is awaited off the UI thread and believed. One that has not come after
+    /// <see cref="OpenAnswerWait"/> means LaunchServices is still at it (a Gatekeeper assessment of a first
+    /// launch), which is a launch in progress, and is logged as such.
     /// </summary>
-    public bool OpenDirector()
+    public async Task<bool> OpenDirectorAsync()
     {
         SetupLog.Write($"[CompleteStep] OpenDirector: {_installPath}");
         try
         {
             ProcessStartInfo psi;
+            var mac = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            if (mac)
             {
                 if (!Directory.Exists(_installPath))
                 {
@@ -261,7 +280,7 @@ public partial class CompleteStep : UserControl
                     return false;
                 }
 
-                psi = new ProcessStartInfo("/usr/bin/open") { UseShellExecute = false };
+                psi = new ProcessStartInfo("/usr/bin/open") { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
                 psi.ArgumentList.Add(_installPath);
             }
             else
@@ -281,11 +300,34 @@ public partial class CompleteStep : UserControl
 
             // Process.Start answers null when no process was started and nothing threw (a reused process, a
             // shell that declined): that is a failure here, not a launch.
-            if (Process.Start(psi) is null)
+            var process = Process.Start(psi);
+            if (process is null)
             {
                 LaunchFailed($"The Director could not be started: no process was started for {_installPath}", null);
                 return false;
             }
+
+            if (mac)
+            {
+                using var answerWait = new CancellationTokenSource(OpenAnswerWait);
+                var stderr = process.StandardError.ReadToEndAsync(answerWait.Token);
+                try
+                {
+                    await process.WaitForExitAsync(answerWait.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    SetupLog.Write($"[CompleteStep] OpenDirector: open has not answered after {OpenAnswerWait.TotalSeconds:F0}s; LaunchServices is still launching the Director");
+                    DirectorOpened = true;
+                    return true;
+                }
+                if (process.ExitCode != 0)
+                {
+                    LaunchFailed($"The Director could not be started: open answered exit {process.ExitCode}: {(await stderr).Trim()}", null);
+                    return false;
+                }
+            }
+
             DirectorOpened = true;
             SetupLog.Write("[CompleteStep] OpenDirector: Director launched");
             return true;
