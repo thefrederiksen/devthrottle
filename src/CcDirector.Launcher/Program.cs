@@ -16,9 +16,54 @@ public static class Program
     private static string SingleInstanceMutexName =>
         $"CcDirector.Launcher.SingleInstance.{CcDirector.Core.Lifecycle.LifecycleSignalNames.RootKey()}";
 
+    /// <summary>
+    /// What <c>--version</c> prints and returns: the informational version on standard output and exit 0, or,
+    /// when the build carries no version metadata, an error on standard error and exit 1 - never "unknown" with
+    /// a success. Logged both ways. Pure apart from the writers, so the test covers both paths.
+    /// </summary>
+    internal static int AnswerVersion(string? informationalVersion, TextWriter stdout, TextWriter stderr)
+    {
+        FileLog.Write("[Program] --version");
+        if (string.IsNullOrWhiteSpace(informationalVersion))
+        {
+            const string error = "ERROR: this launcher build carries no version metadata (AssemblyInformationalVersion); the build is broken.";
+            FileLog.Write($"[Program] --version FAILED: {error}");
+            stderr.WriteLine(error);
+            return 1;
+        }
+        FileLog.Write($"[Program] --version -> {informationalVersion}");
+        stdout.WriteLine(informationalVersion);
+        return 0;
+    }
+
     [STAThread]
     public static int Main(string[] args)
     {
+        // --version answers and exits before anything else runs: no mutex, no tray, no registration - but it is
+        // logged like every other entry. The macOS installer runs the placed binary this way when launchd will
+        // not start it, to learn whether macOS executes the program at all (a refused job and a refused program
+        // look the same from launchd). A build with no version metadata is a broken build, and says so. The one
+        // thing that may not stop the answer is the log itself: on the Mac this exists for, the log folder may
+        // belong to root (that is one way launchd comes to refuse the job), and the answer is still owed.
+        if (Array.IndexOf(args, "--version") >= 0)
+        {
+            try
+            {
+                FileLog.UseLogDirectory(CcDirector.Core.Storage.CcStorage.ToolLogs("launcher"), "launcher");
+                FileLog.Start();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"note: the launcher log could not be started ({ex.GetType().Name}: {ex.Message}); answering without it.");
+            }
+            var exit = AnswerVersion(typeof(Program).Assembly
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                .FirstOrDefault()?.InformationalVersion, Console.Out, Console.Error);
+            FileLog.Stop();
+            return exit;
+        }
+
         // The launcher's record lives in logs/launcher/, beside the launchd output and where every message the
         // installer shows points (issue #3311, B4). It used to land in logs/director/ as director-*.log.
         FileLog.UseLogDirectory(CcDirector.Core.Storage.CcStorage.ToolLogs("launcher"), "launcher");

@@ -20,12 +20,21 @@ public partial class CompleteStep : UserControl
     private IReadOnlyList<string> _skippedNames = [];
     private IReadOnlyList<string> _skippedReasons = [];
 
+    /// <summary>Did this screen open the Director (the green button)? Read when the window closes, so a
+    /// first install that is closed without the button still opens it, and one that used the button does
+    /// not open it twice (<see cref="InstallCompletion.OpensDirectorOnClose"/>).</summary>
+    public bool DirectorOpened { get; private set; }
+
     public CompleteStep()
     {
         InitializeComponent();
     }
 
-    public CompleteStep(int installed, int skipped, string installPath, bool isUpdate, bool alreadyUpToDate = false, string? version = null, string? agentNotice = null, IReadOnlyList<string>? skippedNames = null, bool readyToGo = true, IReadOnlyList<string>? skippedReasons = null)
+    /// <param name="warnings">Components that did not install WITHOUT failing the install - the launcher, which
+    /// only adds autostart - with the facts the panel's words depend on. Shown in an amber panel under the Open
+    /// Director button; the heading still says the Director is installed when it is.</param>
+    /// <param name="directorInstalled">This install placed the Director; false when the Director is among the failures.</param>
+    public CompleteStep(int installed, int skipped, string installPath, bool isUpdate, bool alreadyUpToDate = false, string? version = null, string? agentNotice = null, IReadOnlyList<string>? skippedNames = null, bool readyToGo = true, IReadOnlyList<string>? skippedReasons = null, IReadOnlyList<InstallWarning>? warnings = null, bool directorInstalled = true)
     {
         InitializeComponent();
 
@@ -106,8 +115,11 @@ public partial class CompleteStep : UserControl
                 _ => string.Join(", ", _skippedNames),
             };
             var why = _skippedReasons.Count > 0 ? "\n" + string.Join("\n", _skippedReasons) : "";
-            DescriptionText.Text =
-                $"{what} did not install. The Director may still work, but please report this.{why}";
+            // "The Director may still work" is said only when there IS a Director: under a failed placement it
+            // contradicts every other line on the screen.
+            DescriptionText.Text = directorInstalled
+                ? $"{what} did not install. The Director may still work, but please report this.{why}"
+                : $"{what} did not install. Please report this.{why}";
             SummaryLine.IsVisible = false;
             FailurePanel.IsVisible = true;
             if (_skippedNames.Count > 0) SkippedText.Text = $"{skipped} ({string.Join(", ", _skippedNames)})";
@@ -116,7 +128,33 @@ public partial class CompleteStep : UserControl
             DetailsExpander.IsExpanded = true;
         }
 
-        SetupLog.Write($"[CompleteStep] Created: installed={installed}, skipped={skipped}, isUpdate={isUpdate}, alreadyUpToDate={alreadyUpToDate}, version={version}");
+        // A Director this install did not place is not offered: the button would start nothing, and the words
+        // under it say so. The heading and description already say what failed (skipped > 0 above).
+        if (!directorInstalled)
+        {
+            LaunchButton.IsVisible = false;
+            LaunchButton.IsEnabled = false;
+        }
+
+        // A warning is said in full, in its own panel, under the button that is still the next step. It is
+        // not a failure of the install: five installs on one Mac placed a working Director and then read
+        // "Setup finished with problems" because launchd refused the launcher, and the person stopped there.
+        if (warnings is { Count: > 0 })
+        {
+            // One place composes the words from the facts (InstallCompletion.WarningPanelText); this renders them.
+            var text = InstallCompletion.WarningPanelText(warnings, directorInstalled);
+            WarningText.Text = text;
+            WarningPanel.IsVisible = true;
+            if (skipped == 0 && !alreadyUpToDate)
+            {
+                DescriptionText.Text = readyToGo
+                    ? "The Director is installed and ready to open. One thing to know is below."
+                    : "The Director is installed. Two things below still need a look.";
+            }
+            SetupLog.Write($"[CompleteStep] warning shown: {text.Replace("\n", " | ")}");
+        }
+
+        SetupLog.Write($"[CompleteStep] Created: installed={installed}, skipped={skipped}, warnings={warnings?.Count ?? 0}, directorInstalled={directorInstalled}, isUpdate={isUpdate}, alreadyUpToDate={alreadyUpToDate}, version={version}");
     }
 
     private void OpenLogButton_Click(object? sender, RoutedEventArgs e)
@@ -198,28 +236,62 @@ public partial class CompleteStep : UserControl
         }
     }
 
-    private void LaunchButton_Click(object? sender, RoutedEventArgs e)
+    private async void LaunchButton_Click(object? sender, RoutedEventArgs e)
     {
         SetupLog.Write("[CompleteStep] LaunchButton_Click");
+        try
+        {
+            if (!await OpenDirectorAsync()) return;
 
-        // _installPath is the canonical Director path (InstallLayout.PathFor). On Windows that is the
-        // installed cc-director.exe; on macOS it is the ~/Applications/Director.app bundle. The two
-        // launch differently: run the exe directly on Windows, but on macOS hand the bundle to
-        // /usr/bin/open so LaunchServices registers it - that is what gives the app its Dock icon and
-        // foreground activation. Launching the inner Mach-O binary directly gives neither.
+            // Close the setup wizard. DirectorOpened is already set, so OnClosing does not open a second one.
+            var window = this.VisualRoot as Window;
+            window?.Close();
+        }
+        catch (Exception ex)
+        {
+            SetupLog.Write($"[CompleteStep] LaunchButton_Click FAILED: {ex}");
+        }
+    }
+
+    /// <summary>How long LaunchServices is given to answer /usr/bin/open before the launch is counted as handed
+    /// off: open normally answers within a second; a first launch that Gatekeeper is assessing can hold it.</summary>
+    internal static readonly TimeSpan OpenAnswerWait = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// Start the installed Director and answer whether it was started. A failure is said on screen and reported,
+    /// and answers false. Called by the green button and, on a first install that is closed without it, by the
+    /// window's closing (<see cref="InstallCompletion.OpensDirectorOnClose"/>).
+    ///
+    /// _installPath is the canonical Director path (InstallLayout.PathFor). On Windows that is the
+    /// installed cc-director.exe; on macOS it is the ~/Applications/Director.app bundle. The two
+    /// launch differently: run the exe directly on Windows, but on macOS hand the bundle to
+    /// /usr/bin/open so LaunchServices registers it - that is what gives the application its Dock icon and
+    /// foreground activation. Launching the inner Mach-O binary directly gives neither.
+    ///
+    /// On macOS the process that starts is /usr/bin/open, not the Director, so a started process proves
+    /// nothing: open answers for LaunchServices a moment later - exit 0 when the bundle was handed off, a
+    /// non-zero exit with the reason on standard error when it was not (a damaged bundle, a missing
+    /// executable). That answer is awaited off the UI thread and believed. One that has not come after
+    /// <see cref="OpenAnswerWait"/> means LaunchServices is still at it (a Gatekeeper assessment of a first
+    /// launch), which is a launch in progress, and is logged as such.
+    /// </summary>
+    public async Task<bool> OpenDirectorAsync()
+    {
+        SetupLog.Write($"[CompleteStep] OpenDirector: {_installPath}");
         try
         {
             ProcessStartInfo psi;
+            var mac = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            if (mac)
             {
                 if (!Directory.Exists(_installPath))
                 {
                     LaunchFailed($"The Director was not found at {_installPath}", null);
-                    return;
+                    return false;
                 }
 
-                psi = new ProcessStartInfo("/usr/bin/open") { UseShellExecute = false };
+                psi = new ProcessStartInfo("/usr/bin/open") { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
                 psi.ArgumentList.Add(_installPath);
             }
             else
@@ -227,7 +299,7 @@ public partial class CompleteStep : UserControl
                 if (!File.Exists(_installPath))
                 {
                     LaunchFailed($"The Director was not found at {_installPath}", null);
-                    return;
+                    return false;
                 }
 
                 psi = new ProcessStartInfo { FileName = _installPath, UseShellExecute = false };
@@ -237,26 +309,55 @@ public partial class CompleteStep : UserControl
                     psi.Environment["PATH"] = freshPath;
             }
 
-            Process.Start(psi);
-            SetupLog.Write("[CompleteStep] LaunchButton_Click: Director launched");
+            // Process.Start answers null when no process was started and nothing threw (a reused process, a
+            // shell that declined): that is a failure here, not a launch.
+            var process = Process.Start(psi);
+            if (process is null)
+            {
+                LaunchFailed($"The Director could not be started: no process was started for {_installPath}", null);
+                return false;
+            }
 
-            // Close the setup wizard
-            var window = this.VisualRoot as Window;
-            window?.Close();
+            if (mac)
+            {
+                using var answerWait = new CancellationTokenSource(OpenAnswerWait);
+                var stderr = process.StandardError.ReadToEndAsync(answerWait.Token);
+                try
+                {
+                    await process.WaitForExitAsync(answerWait.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    SetupLog.Write($"[CompleteStep] OpenDirector: open has not answered after {OpenAnswerWait.TotalSeconds:F0}s; LaunchServices is still launching the Director");
+                    DirectorOpened = true;
+                    return true;
+                }
+                if (process.ExitCode != 0)
+                {
+                    LaunchFailed($"The Director could not be started: open answered exit {process.ExitCode}: {(await stderr).Trim()}", null);
+                    return false;
+                }
+            }
+
+            DirectorOpened = true;
+            SetupLog.Write("[CompleteStep] OpenDirector: Director launched");
+            return true;
         }
         catch (Exception ex)
         {
             LaunchFailed($"The Director could not be started: {ex.GetType().Name}: {ex.Message}", ex);
+            return false;
         }
     }
 
     /// <summary>
     /// A Launch click that fails used to do nothing at all: the button stayed, nothing was said, and the
-    /// reason went only to the setup log (#3311). Now it is said on screen and reported.
+    /// reason went only to the setup log (#3311). Now it is said on screen and reported - from the button and
+    /// from the window's closing alike.
     /// </summary>
     private void LaunchFailed(string message, Exception? ex)
     {
-        SetupLog.Write($"[CompleteStep] LaunchButton_Click FAILED: {message}{(ex is null ? "" : "\n" + ex)}");
+        SetupLog.Write($"[CompleteStep] OpenDirector FAILED: {message}{(ex is null ? "" : "\n" + ex)}");
         SummaryLine.Text = $"ERROR: {message}. The log is at {SetupLog.Path}";
         SummaryLine.IsVisible = true;
         _ = WizardErrorReport.SendAsync("wizard", "launch-director", message, ex);

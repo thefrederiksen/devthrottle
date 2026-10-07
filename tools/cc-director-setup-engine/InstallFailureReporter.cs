@@ -1,5 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.ErrorReports;
@@ -64,17 +66,40 @@ public sealed class InstallFailureReporter
         }
     }
 
-    internal InstallReportPayload BuildPayload(string component, string step, string message, string? diagnostics) => new(
-        InstallId: InstallId(),
-        Installer: _installer,
-        Component: component,
-        Step: step,
-        Message: Scrub(message),
-        Diagnostics: Scrub(diagnostics ?? ""),
-        Os: OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsLinux() ? "linux" : "other",
-        OsVersion: Environment.OSVersion.Version.ToString(),
-        Arch: RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
-        ProductVersion: ProductVersion());
+    /// <summary>
+    /// The report as it will be sent, inside every limit the Gateway enforces: the message and the diagnostics
+    /// cut to their field limits AFTER everything a caller appended and after scrubbing, and the serialized
+    /// body measured in bytes against the Gateway's body limit, with the diagnostics giving way until it fits.
+    /// A report over a limit is not a report with less detail; it is a 413 and nothing stored.
+    /// </summary>
+    internal InstallReportPayload BuildPayload(string component, string step, string message, string? diagnostics)
+    {
+        var payload = new InstallReportPayload(
+            InstallId: InstallId(),
+            Installer: _installer,
+            Component: component,
+            Step: step,
+            Message: Cut(Scrub(message), InstallReportLimits.MaxMessage),
+            Diagnostics: Cut(Scrub(diagnostics ?? ""), InstallReportLimits.MaxDiagnostics),
+            Os: OperatingSystem.IsMacOS() ? "macos" : OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsLinux() ? "linux" : "other",
+            OsVersion: Environment.OSVersion.Version.ToString(),
+            Arch: RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
+            ProductVersion: ProductVersion());
+        while (BodyBytes(payload) > InstallReportLimits.MaxBodyBytes && payload.Diagnostics.Length > 200)
+            payload = payload with { Diagnostics = Cut(payload.Diagnostics, payload.Diagnostics.Length * 4 / 5) };
+        return payload;
+    }
+
+    /// <summary>The bytes of the body as the client serializes it.</summary>
+    internal static int BodyBytes(InstallReportPayload payload) => Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(payload));
+
+    /// <summary>The text within <paramref name="max"/> characters, and a note where it was cut.</summary>
+    internal static string Cut(string text, int max)
+    {
+        const string note = "\n(cut to fit the report)";
+        if (text.Length <= max) return text;
+        return max > note.Length ? text[..(max - note.Length)] + note : text[..Math.Max(0, max)];
+    }
 
     /// <summary>Reduce every home folder in the text to "~".</summary>
     public static string Scrub(string text)

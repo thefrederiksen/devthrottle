@@ -36,11 +36,26 @@ public class ToolDownloadItem : INotifyPropertyChanged
         set { _sizeText = value; OnPropertyChanged(nameof(SizeText)); }
     }
 
+    /// <summary>Which step failed when the row is a warning or a failure: "place" (the file never reached the
+    /// disk) or "start" (it did, and did not start) - the same words the report carries. Not rendered.</summary>
+    public string FailedStep { get; set; } = "";
+
+    /// <summary>DevThrottle accepted the report of this row's failure. Set by the reporter, read by the
+    /// Complete screen so it says the report is with us only when it is. Not rendered.</summary>
+    public bool ReportAccepted { get; set; }
+
+    /// <summary>The launcher's launch agent property list is on disk after its start failed: the Director's start-up
+    /// check has something to repair. A first install that launchd refuses rolls back by deleting the file, so this
+    /// is read from the disk after the failure, never assumed from the step. Not rendered.</summary>
+    public bool LaunchAgentPresent { get; set; }
+
     public string StatusColor => Status switch
     {
         "Done" => "#22C55E",
         "Skipped" => "#888888",
         "Failed" => "#CC4444",
+        // Did not install, but did not fail the install (InstallCompletion.WarningStatus): amber, not red.
+        "Warning" => "#E0A030",
         "Locked" => "#E5A100",
         // Live download statuses carry a byte counter (e.g. "Downloading 12.3 MB / 45.6 MB"),
         // so match the prefix rather than the exact word.

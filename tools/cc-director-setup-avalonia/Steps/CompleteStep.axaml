@@ -76,6 +76,26 @@
                     Content="Open Director"
                     Click="LaunchButton_Click" />
 
+            <!-- A WARNING: something that did not install without failing the install (the launcher,
+                 which only adds autostart). The install finished and the Director opens; this says what
+                 the person loses and what happens next. Never rendered as "finished with problems". -->
+            <Border x:Name="WarningPanel" Background="#2A2D2E" BorderBrush="#E0A030" BorderThickness="1"
+                    CornerRadius="6" Padding="12" Margin="0,0,0,12" IsVisible="False">
+                <StackPanel>
+                    <TextBlock x:Name="WarningHeader"
+                               Text="One thing to know"
+                               Foreground="#E0A030"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,6" />
+                    <TextBlock x:Name="WarningText"
+                               Foreground="#CCCCCC"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               LineHeight="18" />
+                </StackPanel>
+            </Border>
+
             <!-- One quiet summary line on success -->
             <TextBlock x:Name="SummaryLine"
                        Foreground="#888888"

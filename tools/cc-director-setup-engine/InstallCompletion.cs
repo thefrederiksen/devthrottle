@@ -55,6 +55,59 @@ public static class InstallCompletion
         => skipped == 0 && anyCodingAgentPresent;
 
     /// <summary>
+    /// The status a component row carries when it did not install and the install is NOT failed by it:
+    /// the install finished, and this is the one thing to know about it.
+    /// </summary>
+    public const string WarningStatus = "Warning";
+
+    /// <summary>
+    /// The text of the Complete screen's warning panel: one line per warning (the display name and the reason,
+    /// exactly as the install runner recorded it), and under a launcher warning the explanation, built from
+    /// the facts rather than from one sentence that is sometimes false. Pure; the screen renders it verbatim.
+    /// </summary>
+    /// <param name="warnings">The components that did not install without failing the install.</param>
+    /// <param name="directorInstalled">This install placed the Director. When it did not, there is nothing to open.</param>
+    public static string WarningPanelText(IReadOnlyList<InstallWarning> warnings, bool directorInstalled)
+    {
+        ArgumentNullException.ThrowIfNull(warnings);
+        var text = string.Join("\n", warnings.Select(w => w.Line));
+        var launcher = warnings.FirstOrDefault(w => w.IsLauncher);
+        return launcher is null
+            ? text
+            : text + "\n\n" + LauncherWarningExplanation(directorInstalled, launcher.DirectorCanRepair, launcher.ReportAccepted);
+    }
+
+    /// <summary>
+    /// What the Complete screen says under a launcher warning, after the reason line, in the words of what the
+    /// person loses and what happens next - never "launchd" or "launch agent" - and only what the facts allow.
+    ///
+    /// The launcher only adds autostart: on macOS nothing in the Director's start-up, sign-in or Gateway
+    /// connection reads it, so a Director that is installed is the next step whatever the launcher did. The
+    /// Director checks the launcher each time it starts and rebuilds a job launchd holds and refuses - but only
+    /// when the launch agent property list is on disk, so a later repair is said only when the launcher AND its
+    /// property list are there for it to repair, and never when the Director itself did not install. Anything
+    /// less is put right by running the installer again, which writes both. A report is said to be with DevThrottle only when the Gateway accepted it; the
+    /// Director does not send a report for a launcher it decides to leave alone, so none is promised.
+    /// </summary>
+    /// <param name="directorInstalled">This install placed the Director.</param>
+    /// <param name="directorCanRepair">The launcher is on disk and so is its launch agent property list (<see cref="InstallWarning.DirectorCanRepair"/>); without both the Director's check leaves it alone, and only another install puts it right.</param>
+    /// <param name="reportAccepted">DevThrottle accepted this install's report of the failure.</param>
+    public static string LauncherWarningExplanation(bool directorInstalled, bool directorCanRepair, bool reportAccepted)
+    {
+        var parts = new List<string> { "DevThrottle will not start by itself when you sign in to this Mac until this is repaired." };
+        if (!directorInstalled)
+            parts.Add("The Director did not install either, and that comes first: nothing can be opened or repaired until it does.");
+        else if (directorCanRepair)
+            parts.Add("The Director works without it: open it now. Each time the Director starts it checks this again and repairs it when it can.");
+        else
+            parts.Add("The Director works without it: open it now. Running the installer again puts the missing part in place.");
+        parts.Add(reportAccepted
+            ? "DevThrottle already has the details of this failure: there is nothing for you to type or send."
+            : "This install could not reach DevThrottle to report it, so the details are only in the setup log on this Mac.");
+        return string.Join(" ", parts);
+    }
+
+    /// <summary>
     /// Does leaving the Complete screen WITHOUT clicking Open Director still open the Director?
     ///
     /// On a first install, yes. Close used to close the wizard and nothing else, so a person who
@@ -67,7 +120,7 @@ public static class InstallCompletion
     /// </summary>
     /// <param name="isUpdate">Was the product already installed when the wizard started?</param>
     /// <param name="directorAlreadyOpened">Did Open Director already start it?</param>
-    /// <param name="directorInstalled">Is the Director's executable on disk? A failed Director install has nothing to open.</param>
+    /// <param name="directorInstalled">Did this install place the Director? The recorded fact, never re-derived from a path existing: a failed placement can leave a path behind, and has nothing to open.</param>
     public static bool OpensDirectorOnClose(bool isUpdate, bool directorAlreadyOpened, bool directorInstalled)
         => !isUpdate && !directorAlreadyOpened && directorInstalled;
 

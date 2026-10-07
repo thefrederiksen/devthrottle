@@ -100,17 +100,53 @@ repair_owned() {
     sudo /bin/sh -c "$CHOWN_FOLDERS" "$(id -u):$(id -g)" "${FOLDER_CANDIDATES[@]}" || return 1
     sudo /bin/sh -c "$CHOWN_TREES" "$(id -u):$(id -g)" "${TREE_CANDIDATES[@]}" || return 1
 }
+# Are these paths (one per line) ALL launch agent paths - the folder launchd reads at sign-in and our property
+# list in it? Those two exist only for autostart: the Director runs, signs in and connects without them. A
+# repair that leaves only them behind is a warning for the install, not a stop (the Director does not need
+# them, and once it is connected it reports and repairs what it can); anything else left behind - the application, its
+# data folder, the shell files - still stops the install, because the wizard could not write to it.
+launcher_only() { # paths
+    local line any=""
+    while IFS= read -r line; do
+        if [[ -z "$line" ]]; then continue; fi
+        any=1
+        case "$line" in
+            "$HOME/Library/LaunchAgents"|"$HOME/Library/LaunchAgents/"*) ;;
+            *) return 1 ;;
+        esac
+    done <<<"$1"
+    [[ -n "$any" ]]
+}
 check_owned || exit 1
+REPAIRED_OWNERSHIP=""
+OWNERSHIP_WARNING=""
 if [[ -n "$NOT_OWNED" ]]; then
+    NOT_OWNED_BEFORE="$NOT_OWNED"
     printf 'Some DevThrottle files belong to another user, usually because an earlier install was run with sudo.\n'
     printf 'macOS will not start DevThrottle until they belong to you again. Enter your Mac password to repair them.\n'
-    if ! repair_owned || ! check_owned || [[ -n "$NOT_OWNED" ]]; then
-        printf 'ERROR: the files could not be repaired. Run this, then run the install again:\n\n' >&2
-        printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_FOLDERS" >&2; printf ' %q' "${FOLDER_CANDIDATES[@]}" >&2; printf '\n' >&2
-        printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_TREES" >&2; printf ' %q' "${TREE_CANDIDATES[@]}" >&2; printf '\n' >&2
-        exit 1
+    repaired=1
+    repair_owned || repaired=0
+    # The check after the repair must itself succeed: a check that could not run is never read as "all owned".
+    if [[ $repaired -eq 1 ]]; then check_owned || exit 1; fi
+    if [[ $repaired -eq 0 || -n "$NOT_OWNED" ]]; then
+        if launcher_only "$NOT_OWNED"; then
+            # Only autostart is lost. The Director installs and runs; say so, and carry it to DevThrottle below.
+            printf 'WARNING: these could not be handed back to you: %s\n' "$(printf '%s' "$NOT_OWNED" | tr '\n' ' ')"
+            printf 'The install continues. DevThrottle will not start by itself when you sign in to this Mac until they belong to you;\n'
+            printf 'the Director works without them. To repair them later, run:\n\n'
+            printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_FOLDERS"; printf ' %q' "${FOLDER_CANDIDATES[@]}"; printf '\n'
+            printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_TREES"; printf ' %q' "${TREE_CANDIDATES[@]}"; printf '\n\n'
+            OWNERSHIP_WARNING="$NOT_OWNED"
+        else
+            printf 'ERROR: the files could not be repaired. Run this, then run the install again:\n\n' >&2
+            printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_FOLDERS" >&2; printf ' %q' "${FOLDER_CANDIDATES[@]}" >&2; printf '\n' >&2
+            printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_TREES" >&2; printf ' %q' "${TREE_CANDIDATES[@]}" >&2; printf '\n' >&2
+            exit 1
+        fi
+    else
+        printf 'Repaired.\n'
+        REPAIRED_OWNERSHIP="$NOT_OWNED_BEFORE"
     fi
-    printf 'Repaired.\n'
 fi
 
 # Every line this script prints also goes to a log file the user (and support) can find, next to the
@@ -127,28 +163,60 @@ log() {
     if [[ -n "$LOG_FILE" ]]; then printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG_FILE" 2>/dev/null || true; fi
 }
 
-# Send a failed step to DevThrottle (issue #3311), so the failure is not only on this screen. No sign-in
-# exists yet, and none is needed. It sends the error text (home folder reduced to "~"), the macOS version,
-# the architecture, and the same per-machine install id the setup wizard uses. The install has already
-# failed when this runs, so a report that cannot be delivered changes nothing: the error above stands.
-report_failure() {
-    local message="$1" id_dir="$HOME/Library/Application Support/cc-director" id=""
+# Send one step to DevThrottle (issue #3311), so what happened is not only on this screen. No sign-in
+# exists yet, and none is needed. It sends the step, the message (home folder reduced to "~"), the macOS
+# version, the architecture, the same per-machine install identifier the setup wizard uses, and the log of
+# this run so far as diagnostics - a failed install used to arrive as one line, and the five lines before it,
+# which said what the script had done, stayed on the user's Mac. A report that cannot be delivered changes
+# nothing. The Gateway's limits are kept here, before sending: 4000 characters of message, and a body under
+# 64 kilobytes - a report over either is refused outright, and then it is gone.
+MAX_MESSAGE_CHARS=4000
+MAX_BODY_BYTES=60000
+json_string() { # text -> one quoted string in the notation the Gateway reads, home folder reduced to ~
+    # JavaScript for Automation's JSON.stringify, which every Mac has and which the hash check above already
+    # relies on: it escapes every control byte, quote and backslash correctly. A bash encoder cannot be written
+    # once for both bash versions - the Mac's bash 3.2 keeps the quote characters of a quoted replacement
+    # literally, bash 5.2 strips backslashes from an unquoted one - and one unescaped carriage return (curl
+    # writes its progress with them) makes the whole report unreadable to the Gateway, which refuses it.
+    local text="$1" tilde='~'
+    # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
+    text="${text//"$HOME"/$tilde}"
+    osascript -l JavaScript -e 'function run(argv) { return JSON.stringify(argv[0]); }' -- "$text"
+}
+report_step() { # message
+    local message="${1:0:$MAX_MESSAGE_CHARS}" id_dir="$HOME/Library/Application Support/cc-director" id="" run_log=""
     if [[ -s "$id_dir/install-id" ]]; then
         id="$(cat "$id_dir/install-id")"
     else
         id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
         { mkdir -p "$id_dir" && printf '%s' "$id" > "$id_dir/install-id"; } 2>/dev/null || true
     fi
-    # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
-    local tilde='~'
-    message="${message//"$HOME"/$tilde}"
-    message="${message//$'\n'/ }"
-    message="${message//$'\t'/ }"
-    message="${message//\\/\\\\}"
-    message="${message//\"/\\\"}"
-    local body
-    body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":\"$message\",\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
-    if curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1; then
+    if [[ -n "$LOG_FILE" && -s "$LOG_FILE" ]]; then
+        if [[ "$(wc -c < "$LOG_FILE")" -gt 12000 ]]; then
+            # The cut lands on a line boundary: tail -c can split a multi-byte character, and half a
+            # character is not valid text for the report.
+            run_log="$(tail -c 12000 "$LOG_FILE" 2>/dev/null | tail -n +2 || true)"
+        else
+            run_log="$(cat "$LOG_FILE" 2>/dev/null || true)"
+        fi
+    fi
+    local diagnostics message_json diagnostics_json body
+    message_json="$(json_string "$message")" || return 1
+    # The Gateway refuses a body over 64 kilobytes outright, and the report is gone. The body is measured in
+    # bytes, as sent; when it is too big the run log gives way from the top, twenty lines at a time, and a body
+    # still too big with no run log left is not sent at all - the measurement is the last word before curl.
+    while :; do
+        diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
+        diagnostics_json="$(json_string "$diagnostics")" || return 1
+        body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":$message_json,\"diagnostics\":$diagnostics_json,\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
+        if [[ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -le $MAX_BODY_BYTES || -z "$run_log" ]]; then break; fi
+        run_log="$(printf '%s\n' "$run_log" | tail -n +21)"
+    done
+    if [[ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -gt $MAX_BODY_BYTES ]]; then return 1; fi
+    curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1
+}
+report_failure() {
+    if report_step "$1"; then
         printf 'A report of this failure was sent to DevThrottle.\n' >&2
     fi
 }
@@ -165,6 +233,24 @@ fail() {
     if [[ -n "$LOG_FILE" ]]; then printf 'The log of this run is in %s\n' "$LOG_FILE" >&2; fi
     exit 1
 }
+
+# The ownership check ran before the log existed; its outcome goes into the log and to DevThrottle now, so a
+# repair that happened on a user's Mac is known on our side and not inferred from the next failure.
+if [[ -n "$REPAIRED_OWNERSHIP" ]]; then
+    STEP="repair-ownership"
+    log "Repaired the ownership of: $(printf '%s' "$REPAIRED_OWNERSHIP" | tr '\n' ' ')"
+    report_step "Repaired DevThrottle files that belonged to another user: $(printf '%s' "$REPAIRED_OWNERSHIP" | tr '\n' ' ')" || true
+    STEP="preconditions"
+fi
+# A launch agent path that stayed with another user is reported as the warning it is, with the same step name,
+# so the machine's story on our side says "autostart is lost on this Mac" before the wizard's own launcher
+# report arrives - and says the install went on.
+if [[ -n "$OWNERSHIP_WARNING" ]]; then
+    STEP="repair-ownership"
+    log "WARNING: could not hand these back to the user (the install continues without autostart): $(printf '%s' "$OWNERSHIP_WARNING" | tr '\n' ' ')"
+    report_step "WARNING (the install continued without autostart): the launch agent files could not be handed back to the user: $(printf '%s' "$OWNERSHIP_WARNING" | tr '\n' ' ')" || true
+    STEP="preconditions"
+fi
 
 # A command that fails without its own "|| fail" (mkdir, mv, open, shasum...) stops the script through
 # set -e. Without this trap that stop was silent to us: no report, and no ERROR line of our own.
@@ -247,3 +333,10 @@ else
     log "Opening the setup wizard..."
     open "$DESTINATION_DIR/$APP_NAME"
 fi
+
+# The script's part is done. Say so to DevThrottle as well: a machine whose script finished and whose wizard
+# then said nothing is a different story from one whose script never got this far, and until now both were
+# silence on our side.
+STEP="done"
+log "install-mac.sh finished; the setup wizard takes over."
+report_step "OK: install-mac.sh completed and $( [[ "${DEVTHROTTLE_NO_OPEN:-}" == "1" ]] && printf 'did not open the wizard (DEVTHROTTLE_NO_OPEN=1)' || printf 'opened the setup wizard')" || true

@@ -35,6 +35,10 @@ public static class InstallReportLimits
 
     public const int MaxMessage = 4000;
     public const int MaxDiagnostics = 16000;
+
+    /// <summary>The most bytes the Gateway reads of one report's body; a larger one is refused outright (413)
+    /// and never stored. A sender measures the body it is about to send against this.</summary>
+    public const int MaxBodyBytes = 64 * 1024;
 }
 
 /// <summary>

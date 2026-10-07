@@ -39,8 +39,57 @@ jobs:
           fi
           echo "OK: /usr/bin/python3 fails, as on a Mac with broken developer tools."
 
+      - name: Prove the report encoder on this Mac
+        # install-mac.sh builds the text of its reports with JavaScript for Automation. Fed every control byte,
+        # quotes, backslashes and non-seven-bit text, the result must parse in an independent parser (Ruby's
+        # parser for that notation: /usr/bin/ruby is a real system binary, not an Xcode stub, so it works on this
+        # broken-tools runner); a report must stay inside the Gateway's limits whatever it is given; and when
+        # osascript fails no report may be sent at all.
+        run: |
+          eval "$(sed -n '/^json_string() {/,/^}/p' scripts/install-mac.sh)"
+          ctl=""
+          for ((i = 1; i < 32; i++)); do printf -v c "$(printf '\\%03o' "$i")"; ctl="$ctl$c"; done
+          sample="$(printf 'quote " backslash \\ two \\\\ slash / utf8 caf\303\251 home %s ctl[%s] end' "$HOME" "$ctl")"
+          printf '{"x":%s}' "$(json_string "$sample")" > "$RUNNER_TEMP/report.json"
+          /usr/bin/ruby -rjson -e '
+            v = JSON.parse(File.read(ARGV[0]))["x"]
+            expected_controls = (1..31).map { |i| i.chr }.join
+            abort("ERROR: the home folder was not reduced to ~, or the text did not round-trip: #{v.inspect}") unless v.include?("home ~ ctl[" + expected_controls + "] end")
+            abort("ERROR: quotes or backslashes did not round-trip: #{v.inspect}") unless v.include?("quote \" backslash \\ two \\\\ slash / utf8 caf\u00e9 home")
+            puts "OK: parsed back #{v.length} characters; every control byte, quotes, backslashes and non-seven-bit text intact."
+          ' "$RUNNER_TEMP/report.json"
+          eval "$(sed -n '/^MAX_MESSAGE_CHARS=/p; /^MAX_BODY_BYTES=/p; /^report_step() {/,/^}/p' scripts/install-mac.sh)"
+          # The body bound: an empty run log and a message far past the Gateway's limit. The fake curl keeps the
+          # body it was handed; it must be under the Gateway's 65536 bytes with the message cut to 4000 characters.
+          capture="$RUNNER_TEMP/capture"; mkdir -p "$capture"
+          printf '#!/bin/bash\nfor ((i = 1; i <= $#; i++)); do if [[ "${!i}" == "-d" ]]; then j=$((i + 1)); printf "%%s" "${!j}" > "%s/body.json"; fi; done\n' "$RUNNER_TEMP" > "$capture/curl"
+          chmod +x "$capture/curl"
+          big="$(head -c 70000 /dev/zero | tr '\0' 'm')"
+          STEP=test LOG_FILE="" GATEWAY_URL=http://127.0.0.1:9 PATH="$capture:$PATH" report_step "$big"
+          [[ -s "$RUNNER_TEMP/body.json" ]] || { echo "ERROR: the fake curl was not handed a body."; exit 1; }
+          /usr/bin/ruby -rjson -e '
+            raw = File.read(ARGV[0])
+            abort("ERROR: the body is #{raw.bytesize} bytes; the Gateway refuses anything over 65536.") if raw.bytesize > 65536
+            m = JSON.parse(raw)["message"]
+            abort("ERROR: the message is #{m.length} characters; the Gateway keeps 4000.") if m.length > 4000
+            puts "OK: a 70000-character message became a #{raw.bytesize}-byte body with a #{m.length}-character message."
+          ' "$RUNNER_TEMP/body.json"
+          fake="$RUNNER_TEMP/fakebin"; mkdir -p "$fake"
+          printf '#!/bin/bash\nexit 1\n' > "$fake/osascript"
+          printf '#!/bin/bash\ntouch "%s/curl-was-called"\n' "$RUNNER_TEMP" > "$fake/curl"
+          chmod +x "$fake"/*
+          if STEP=test LOG_FILE="" GATEWAY_URL=http://127.0.0.1:9 PATH="$fake:$PATH" report_step "hello"; then
+            echo "ERROR: report_step succeeded although osascript failed."; exit 1
+          fi
+          if [[ -e "$RUNNER_TEMP/curl-was-called" ]]; then
+            echo "ERROR: curl was called although the report text could not be built."; exit 1
+          fi
+          echo "OK: when osascript fails, no report is sent."
+
       - name: Run the installer
-        run: DEVTHROTTLE_NO_OPEN=1 bash scripts/install-mac.sh
+        # The hosted Gateway is pointed at a closed local port: the script now reports what it did to
+        # DevThrottle, and a runner's install is not a user's. The report must fail fast and quietly here.
+        run: DEVTHROTTLE_NO_OPEN=1 DEVTHROTTLE_HOSTED_GATEWAY_URL=http://127.0.0.1:9 bash scripts/install-mac.sh
 
       - name: Check the wizard was installed
         run: |
