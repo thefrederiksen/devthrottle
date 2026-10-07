@@ -143,7 +143,7 @@ def test_list_jobs_DefaultOutput_EveryIdNameAndEnabledReadBackExactly(serve, cap
     assert out.isascii()
     _check_recoverable(out, JOBS)
     fields, records = parse_list(out, "schedules")
-    assert fields == ["id", "name", "enabled", "next-run"]
+    assert fields == ["id", "name", "enabled", "kind", "next-run"]
     # Pinned independently of the check's own mapping.
     assert [r["enabled"] for r in records] == ENABLED
     assert [r["name"] for r in records][5:] == ["null", "0"]
@@ -270,7 +270,7 @@ def test_list_jobs_NoSchedules_PrintsCountZero(serve, capsys):
 
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == "count: 0"
-    assert "schedules[0]{id,name,enabled,next-run}:" in lines
+    assert "schedules[0]{id,name,enabled,kind,next-run}:" in lines
     assert "No schedules on the Gateway." in lines
     assert "  cc-devthrottle schedule create --help" in lines
 
@@ -546,6 +546,8 @@ def _broken(changes, **job_args):
 
 
 ONE_OFF = {"kind": "oneOff", "cron": None, "run_at": "2026-10-01 18:00", "next_run": None}
+# A random schedule (issue #3622) keeps its settings where a cron expression goes, so it needs that field.
+RANDOM = {"kind": "random", "cron": "window=07:00-01:00 perDay=4 minGap=45 shape=human"}
 
 # (field, value, job arguments, what the error names)
 BROKEN_JOB_FIELDS = [
@@ -568,6 +570,8 @@ BROKEN_JOB_FIELDS = [
     ("cronExpression", 7, {}, "cronExpression a int"),
     ("cronExpression", _MISSING, ONE_OFF, "no cronExpression"),
     ("cronExpression", 7, ONE_OFF, "cronExpression a int"),
+    ("cronExpression", None, RANDOM, "cronExpression null"),
+    ("cronExpression", "", RANDOM, "a blank cronExpression"),
     ("runAt", _MISSING, {}, "no runAt"),
     ("runAt", 7, {}, "runAt a int"),
     ("runAt", None, ONE_OFF, "runAt null"),
@@ -636,6 +640,8 @@ SOUND_JOB_VARIANTS = [
     ({"action.workListName": "", "lastStatus": ""}, {}),
     ({"scheduleKind": " Recurring "}, {}),
     ({"scheduleKind": "ONEOFF"}, ONE_OFF),
+    ({"runAt": None}, RANDOM),
+    ({"scheduleKind": " Random "}, RANDOM),
 ]
 
 

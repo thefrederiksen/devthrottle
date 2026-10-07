@@ -20,6 +20,13 @@ public static class CronSchedule
     public const string KindOneOff = "oneOff";
 
     /// <summary>
+    /// A random job (issue #3622): about N fires a day at random times inside a daily local window, its settings
+    /// held as text in <see cref="CronJobDto.CronExpression"/> (see <see cref="RandomSchedule"/>). The engine
+    /// treats it as recurring in every respect: it advances after each fire and a missed fire is not replayed.
+    /// </summary>
+    public const string KindRandom = "random";
+
+    /// <summary>
     /// Validate a job's definition (required fields + schedule grammar + time zone). Returns
     /// (true, null) when the job is well-formed, otherwise (false, reason) with a single
     /// human-readable reason suitable for a 400 response. Does not mutate the job.
@@ -61,7 +68,13 @@ public static class CronSchedule
             return (true, null);
         }
 
-        return (false, $"scheduleKind must be '{KindRecurring}' or '{KindOneOff}'");
+        if (IsRandom(job.ScheduleKind))
+        {
+            var (settings, error) = RandomSchedule.Parse(job.CronExpression);
+            return settings is null ? (false, error) : (true, null);
+        }
+
+        return (false, $"scheduleKind must be '{KindRecurring}', '{KindOneOff}' or '{KindRandom}'");
     }
 
     /// <summary>
@@ -88,6 +101,14 @@ public static class CronSchedule
                 return null;
             var fromUtcKind = DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc);
             return expr.GetNextOccurrence(fromUtcKind, zone, inclusive: false);
+        }
+
+        if (IsRandom(job.ScheduleKind))
+        {
+            var (settings, _) = RandomSchedule.Parse(job.CronExpression);
+            if (settings is null)
+                return null;
+            return RandomSchedule.NextAfter(job.Id, settings, zone, fromUtc);
         }
 
         // One-off: the RunAt wall-clock time in the job's zone, converted to UTC.
@@ -122,6 +143,103 @@ public static class CronSchedule
 
     private static bool IsOneOff(string? kind) =>
         string.Equals(kind?.Trim(), KindOneOff, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>True when the kind is <see cref="KindRandom"/>, ignoring case and surrounding spaces.</summary>
+    public static bool IsRandom(string? kind) =>
+        string.Equals(kind?.Trim(), KindRandom, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The planned fires of a random job for the windows opening on the local dates <paramref name="fromDate"/>
+    /// through <paramref name="toDate"/>, each with the local date its window opened. Throws when the job is
+    /// not a valid random job - the caller checks the kind first.
+    /// </summary>
+    public static IReadOnlyList<(DateOnly WindowDate, DateTime Utc)> RandomPlan(
+        CronJobDto job, DateOnly fromDate, DateOnly toDate)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (!IsRandom(job.ScheduleKind))
+            throw new ArgumentException($"job {job.Id} is a {job.ScheduleKind} schedule, not random", nameof(job));
+        var (settings, error) = RandomSchedule.Parse(job.CronExpression);
+        if (settings is null)
+            throw new ArgumentException($"job {job.Id} has invalid random settings: {error}", nameof(job));
+        var zone = TryFindTimeZone(job.TimeZoneId)
+            ?? throw new ArgumentException($"job {job.Id} has an unknown timeZoneId: {job.TimeZoneId}", nameof(job));
+
+        var plan = new List<(DateOnly, DateTime)>();
+        for (var d = fromDate; d <= toDate; d = d.AddDays(1))
+            foreach (var utc in RandomSchedule.PlanUtc(job.Id, d, settings, zone))
+                plan.Add((d, utc));
+        return plan;
+    }
+
+    /// <summary>The job's zone, or null when the system does not know its id.</summary>
+    public static TimeZoneInfo? FindZone(string? id) => TryFindTimeZone(id);
+
+    /// <summary>
+    /// Stamp a random job's display fields (<see cref="CronJobDto.ScheduleText"/> and
+    /// <see cref="CronJobDto.RemainingToday"/>) as of <paramref name="nowUtc"/>, so a client shows them as given.
+    /// Leaves every other kind, and a random job whose stored settings no longer validate, untouched.
+    /// Returns the same job.
+    /// </summary>
+    public static CronJobDto StampDisplay(CronJobDto job, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (!IsRandom(job.ScheduleKind) || !Validate(job).Ok)
+            return job;
+        var plan = BuildPlan(job, nowUtc, days: 1);
+        job.ScheduleText = plan.Description;
+        // "Today" is the local calendar date of the fire, not the date its window opened: at 00:15 a fire at 00:30
+        // from last night's window is still today, and one after tonight's midnight is not.
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
+            DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc), TryFindTimeZone(job.TimeZoneId)!));
+        var todayText = today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        job.RemainingToday = plan.Fires.Where(f => f.Local.StartsWith(todayText, StringComparison.Ordinal))
+            .Select(f => f.Local[11..]).ToList();
+        return job;
+    }
+
+    /// <summary>The most windows <see cref="BuildPlan"/> will list.</summary>
+    public const int MaxPlanDays = 14;
+
+    /// <summary>
+    /// The plan of a random job as the plan route returns it: every fire after <paramref name="nowUtc"/> in the
+    /// windows opening yesterday (what remains of one crossing midnight), today and the next
+    /// <paramref name="days"/> - 1 local dates. The caller checks the kind and the day count first.
+    /// </summary>
+    public static CronPlanDto BuildPlan(CronJobDto job, DateTime nowUtc, int days)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (days < 1 || days > MaxPlanDays)
+            throw new ArgumentOutOfRangeException(nameof(days), days, $"days must be 1 to {MaxPlanDays}");
+        var zone = TryFindTimeZone(job.TimeZoneId)
+            ?? throw new ArgumentException($"job {job.Id} has an unknown timeZoneId: {job.TimeZoneId}", nameof(job));
+        var (settings, error) = RandomSchedule.Parse(job.CronExpression);
+        if (settings is null)
+            throw new ArgumentException($"job {job.Id} has invalid random settings: {error}", nameof(job));
+
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(now, zone));
+        var plan = new CronPlanDto
+        {
+            Id = job.Id,
+            TimeZoneId = job.TimeZoneId,
+            Description = RandomSchedule.Describe(settings),
+            Days = days,
+            GeneratedUtc = now,
+        };
+        foreach (var (windowDate, utc) in RandomPlan(job, today.AddDays(-1), today.AddDays(days - 1)))
+        {
+            if (utc <= now)
+                continue;
+            plan.Fires.Add(new CronPlanFire
+            {
+                WindowDate = windowDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                Utc = utc,
+                Local = LocalRunLabel(job, utc),
+            });
+        }
+        return plan;
+    }
 
     /// <summary>Parse a standard 5-field cron expression, or null if it is not valid.</summary>
     private static CronExpression? TryParseCron(string? expression)

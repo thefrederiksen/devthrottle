@@ -1098,11 +1098,12 @@ public static class SessionKeyGuard
         // /cron/jobs/{id} - read, update, delete.
         if (s.Length == 3) return verb is "GET" or "HEAD" or "PUT" or "DELETE";
 
-        // /cron/jobs/{id}/run - run it now. /cron/jobs/{id}/runs - its history.
+        // /cron/jobs/{id}/run - run it now. /cron/jobs/{id}/runs - its history. /cron/jobs/{id}/plan - a random
+        // schedule's planned fires (#3622).
         if (s.Length == 4)
         {
             if (s[3] == "run") return verb == "POST";
-            if (s[3] == "runs") return verb is "GET" or "HEAD";
+            if (s[3] is "runs" or "plan") return verb is "GET" or "HEAD";
         }
 
         return false;

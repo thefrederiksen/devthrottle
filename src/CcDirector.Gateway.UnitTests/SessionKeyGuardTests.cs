@@ -233,6 +233,7 @@ public sealed class SessionKeyGuardTests
     [InlineData("DELETE", "/cron/jobs/cj_abc")]
     [InlineData("POST", "/cron/jobs/cj_abc/run")]
     [InlineData("GET", "/cron/jobs/cj_abc/runs")]
+    [InlineData("GET", "/cron/jobs/cj_abc/plan")]
     // Factory triggers: `cc-devthrottle trigger add|list|show|pause|resume|runs`.
     [InlineData("GET", "/triggers")]
     [InlineData("POST", "/triggers")]

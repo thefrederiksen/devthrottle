@@ -923,6 +923,13 @@ _ACTIONS = [
         ],
     },
     {
+        "id": "schedule-plan",
+        "description": "Show the planned fire times of a random Gateway schedule.",
+        "command": "cc-devthrottle schedule plan <id> --days <n>",
+        "mutatesState": False,
+        "args": [{"name": "id", "required": True}, {"name": "days", "required": False}],
+    },
+    {
         "id": "schedule-run",
         "description": "Fire a Gateway schedule immediately.",
         "command": "cc-devthrottle schedule run <id>",
@@ -3434,7 +3441,7 @@ def schedule_list(
     fields: Optional[str] = typer.Option(
         None,
         "--fields",
-        help="Fields to show, comma separated. Default: id,name,enabled,next-run. "
+        help="Fields to show, comma separated. Default: id,name,enabled,kind,next-run. "
         "Valid: id, name, enabled, next-run, machine, kind, cron, run-at, time-zone, work-list, path, "
         "last-fired, last-status, notify, created.",
     ),
@@ -3461,6 +3468,16 @@ def schedule_runs(
     schedule_ops.list_runs(job_id, json_output)
 
 
+@schedule_app.command("plan")
+def schedule_plan(
+    job_id: str = typer.Argument(..., help="The schedule id (a random schedule)."),
+    days: int = typer.Option(1, "--days", help="Windows to show, today first: 1 to 14."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's plan as JSON."),
+) -> None:
+    """Show the fire times still to come of a random schedule."""
+    schedule_ops.show_plan(job_id, days, json_output)
+
+
 @schedule_app.command("create")
 def schedule_create(
     name: str = typer.Option(..., "--name", help="Human-readable label for the schedule."),
@@ -3468,6 +3485,21 @@ def schedule_create(
     repo: str = typer.Option(..., "--repo", help="Working directory the fired session runs in."),
     at: Optional[str] = typer.Option(None, "--at", help="One-off local timestamp."),
     cron: Optional[str] = typer.Option(None, "--cron", help="Recurring 5-field cron expression."),
+    random_window: Optional[str] = typer.Option(
+        None,
+        "--random",
+        help="Fire at random times inside this daily local window, HH:mm-HH:mm (an end at or before the "
+        "start crosses midnight). Needs --per-day and --min-gap.",
+    ),
+    per_day: Optional[int] = typer.Option(None, "--per-day", help="With --random: average fires a day, 1 to 24."),
+    min_gap: Optional[int] = typer.Option(
+        None, "--min-gap", help="With --random: minutes that must separate any two fires, 10 to 240."
+    ),
+    shape: Optional[str] = typer.Option(
+        None,
+        "--shape",
+        help="With --random: how likely each local hour is - 'human' (the default), or 24 comma-separated weights.",
+    ),
     tz: str = typer.Option(..., "--tz", help="IANA/Windows time zone id."),
     seed: Optional[str] = typer.Option(None, "--seed", help="Skill or prompt the session runs."),
     worklist: Optional[str] = typer.Option(None, "--worklist", help="Named work list to drain."),
@@ -3483,7 +3515,7 @@ def schedule_create(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the created schedule as JSON."),
 ) -> None:
-    """Create a schedule, one-off with --at or recurring with --cron."""
+    """Create a schedule: --at once, --cron recurring, --random random."""
     schedule_ops.create_job(
         name,
         machine,
@@ -3496,6 +3528,10 @@ def schedule_create(
         notify_on,
         notify_webhook,
         json_output,
+        random_window=random_window,
+        per_day=per_day,
+        min_gap=min_gap,
+        shape=shape,
     )
 
 

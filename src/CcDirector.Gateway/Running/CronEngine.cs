@@ -158,7 +158,7 @@ public sealed class CronEngine
 
         if (job.PreventOverlap && !TryEnterFlight(tenant, job.Id))
         {
-            FileLog.Write($"[CronEngine] skip overlap: tenant={tenant.ToLogString()} job={job.Id} (a prior run is still in flight)");
+            FileLog.Write($"[CronEngine] skip overlap: tenant={tenant.ToLogString()} job={job.Id} kind={job.ScheduleKind} (a prior run is still in flight)");
             return new CronRunNowResult(CronFireOutcome.SkippedOverlap, null);
         }
 
@@ -216,8 +216,9 @@ public sealed class CronEngine
             }
             else
             {
-                // Recurring: advance to the next FUTURE occurrence from now - this is what makes a
-                // missed fire a single catch-up rather than a replay of every missed interval.
+                // Recurring, and random (#3622), which walks its day plan the same way: advance to the next
+                // FUTURE occurrence from now - this is what makes a missed fire a single catch-up rather than a
+                // replay of every missed interval.
                 var next = CronSchedule.ComputeNextRunUtc(job, firedUtc);
                 _store.MarkFired(job.Id, firedUtc, infraStatus, next, enabled: true);
             }
