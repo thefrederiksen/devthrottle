@@ -232,6 +232,23 @@
             </StackPanel>
             <ProgressBar IsIndeterminate="True" Height="3" Margin="0,6,0,0"
                          Foreground="#007ACC" Background="#2A2A2A" />
+            <!-- The hosted sign-in's address, shown as soon as it exists (issue #3504). Opening a link goes
+                 through Windows, and with a newly installed second browser Windows answers with an app chooser
+                 that vanishes when focus moves - no browser opens, and without this the panel waits with
+                 nothing to sign in to. Hidden whenever the panel changes view, so a Join never shows it. -->
+            <StackPanel x:Name="SignInAddressRow" IsVisible="False" Spacing="6" Margin="0,10,0,0">
+                <TextBlock Classes="body"
+                           Text="Browser did not open? Copy this address into the browser you use, or open it again." />
+                <TextBox x:Name="SignInAddressBox" Classes="input" IsReadOnly="True" TextWrapping="Wrap"
+                         FontSize="12" AutomationProperties.Name="Sign-in address" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="CopySignInAddressButton" Classes="secondaryButton" Content="Copy"
+                            Click="CopySignInAddress_Click" />
+                    <Button x:Name="OpenSignInAddressButton" Classes="secondaryButton" Content="Open in browser"
+                            Click="OpenSignInAddress_Click" />
+                </StackPanel>
+                <TextBlock x:Name="SignInAddressStatus" Classes="body" IsVisible="False" />
+            </StackPanel>
         </StackPanel>
 
         <!-- STEP 2: sign in with DevThrottle (once connected). Signing in issues this device its token. -->

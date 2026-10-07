@@ -128,15 +128,24 @@ public sealed class GatewayAccountEnrollRunner
     /// Null uses <see cref="DirectorTeamStore"/> in this process's own storage home.</param>
     /// <param name="teamsSignal">Asks the hosted Gateway whether it has Teams released; null reads its anonymous
     /// health answer through the same HTTP handler.</param>
+    /// <param name="showSignInAddress">Given the sign-in address the moment the loopback listener is up and
+    /// BEFORE the browser is asked to open it, so a screen can show it with Copy and Open in browser (issue
+    /// #3504). Opening a link goes through the Windows shell, and on a machine with a newly installed second
+    /// browser the shell answers with an app chooser that disappears when focus moves - then no browser opens
+    /// and the person has nothing to sign in to. Null means nobody shows the address (the command line).</param>
+    /// <param name="openBrowser">Opens the system browser at the sign-in address; null shell-executes it.</param>
     public GatewayAccountEnrollRunner(
         Func<CancellationToken, Task<DevThrottleTokens>>? signIn = null,
         Func<HttpMessageHandler>? handlerFactory = null,
         Action<string, string>? persist = null,
         TimeSpan? httpTimeout = null,
         Action<DirectorTeam?>? persistTeam = null,
-        IHostedTeamsSignal? teamsSignal = null)
+        IHostedTeamsSignal? teamsSignal = null,
+        Action<string>? showSignInAddress = null,
+        Action<string>? openBrowser = null)
     {
-        _signIn = signIn ?? SignInViaBrowserAsync;
+        var open = openBrowser ?? OpenSystemBrowser;
+        _signIn = signIn ?? (ct => SignInViaBrowserAsync(showSignInAddress, open, ct));
         _handlerFactory = handlerFactory ?? (() => new HttpClientHandler());
         _persist = persist ?? GatewayCredentialStore.SaveEnrolledKey;
         _persistTeam = persistTeam ?? PersistTeamInThisHome;
@@ -1066,17 +1075,27 @@ public sealed class GatewayAccountEnrollRunner
     /// <c>redirect_uri</c>, and wait for the browser to hand the account token pair back. Honors the
     /// caller's cancellation (the Cancel button) and a <see cref="DefaultSignInTimeout"/> deadline so an
     /// abandoned sign-in is never a dead end. The token value is never logged.
+    ///
+    /// The address is handed to <paramref name="showSignInAddress"/> before the browser is asked to open it, so
+    /// it is on screen even when the shell opens nothing (issue #3504). The listener is already accepting at that
+    /// point, so a person who pastes the address into any browser completes the same sign-in.
     /// </summary>
-    private static async Task<DevThrottleTokens> SignInViaBrowserAsync(CancellationToken ct)
+    private static async Task<DevThrottleTokens> SignInViaBrowserAsync(
+        Action<string>? showSignInAddress, Action<string> openBrowser, CancellationToken ct)
     {
         using var listener = new LoopbackLoginListener();
         var signInUrl = FirstRunLoginCoordinator.BuildSignInUrl(listener.CallbackUrl);
         EngineLog.Write($"[GatewayAccountEnrollRunner] SignInViaBrowserAsync: sign-in url={signInUrl}");
 
-        Process.Start(new ProcessStartInfo(signInUrl) { UseShellExecute = true });
+        showSignInAddress?.Invoke(signInUrl);
+        openBrowser(signInUrl);
 
         using var timeoutSource = new CancellationTokenSource(DefaultSignInTimeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutSource.Token);
         return await listener.WaitForCredentialAsync(linked.Token).ConfigureAwait(false);
     }
+
+    /// <summary>Opens the user's default browser at the given address via the shell.</summary>
+    private static void OpenSystemBrowser(string url) =>
+        Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 }

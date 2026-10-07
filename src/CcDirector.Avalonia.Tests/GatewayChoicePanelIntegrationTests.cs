@@ -182,7 +182,7 @@ public class GatewayChoicePanelIntegrationTests
 
             var seen = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             // Injected hosted-enroll seam: no browser, no network. Fail so nothing re-applies or handshakes.
-            panel.HostedEnrollSeam = (deviceId, _, _) =>
+            panel.HostedEnrollSeam = (deviceId, _, _, _) =>
             {
                 seen.TrySetResult(deviceId);
                 return Task.FromResult(OperationResult<MobileEnrollmentResponse>.Fail("not this time"));
@@ -212,7 +212,7 @@ public class GatewayChoicePanelIntegrationTests
             var reapplied = false;
             panel.DirectorIdOverride = "test-director-id";
             panel.ReapplyGatewaySeam = () => { reapplied = true; return Task.CompletedTask; };
-            panel.HostedEnrollSeam = (_, _, _) =>
+            panel.HostedEnrollSeam = (_, _, _, _) =>
                 Task.FromResult(OperationResult<MobileEnrollmentResponse>.Fail("hosted enroll failed"));
 
             await panel.HostedEnrollAndHandshakeAsync();
@@ -242,7 +242,7 @@ public class GatewayChoicePanelIntegrationTests
             panel.DirectorIdOverride = "test-director-id";
             panel.ReapplyGatewaySeam = () => { reapplied = true; return Task.CompletedTask; };
             // Mirror the runner's verified-success persistence (it owns the atomic hosted-url+key write).
-            panel.HostedEnrollSeam = (_, _, _) =>
+            panel.HostedEnrollSeam = (_, _, _, _) =>
             {
                 CcDirectorConfigService.MergePatch(new JsonObject
                 {
@@ -267,7 +267,7 @@ public class GatewayChoicePanelIntegrationTests
             var panel = GatewayConnectionPanel.CreateForCurrentState(GatewayChoiceConsumer.Settings);
             panel.DirectorIdOverride = "test-director-id";
             // The enroll SUCCEEDS (the credential is persisted), but the live re-apply faults afterwards.
-            panel.HostedEnrollSeam = (_, _, _) =>
+            panel.HostedEnrollSeam = (_, _, _, _) =>
                 Task.FromResult(OperationResult<MobileEnrollmentResponse>.Ok(
                     new MobileEnrollmentResponse { DeviceKey = "hosted-verified-key" }));
             panel.ReapplyGatewaySeam = () => throw new InvalidOperationException("reapply boom");
@@ -280,6 +280,45 @@ public class GatewayChoicePanelIntegrationTests
             Assert.True(panel.IsShowingFailureForTests, "a reapply fault after enroll must show the failure panel");
             Assert.False(panel.IsShowingConnectingForTests, "the panel must not be stuck on Connecting after a reapply fault");
             Assert.Contains("could not apply", panel.FailureSummaryForTests);
+        });
+    }
+
+    /// <summary>
+    /// Issue #3504: while the hosted sign-in waits for the browser, the connecting view shows the sign-in address
+    /// with Copy and Open in browser - because Windows can open no browser at all, and then the address is the
+    /// only way in. Driven through the real hosted path; the seam reports the address exactly as the real
+    /// sign-in does, then holds the wait open so the waiting screen can be read.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task HostedChoice_WhileWaitingForTheBrowser_ShowsTheSignInAddress_WithCopyAndOpen()
+    {
+        await WithTempRootAsync(async () =>
+        {
+            const string address = "https://devthrottle.com/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A49174%2Fdevthrottle-login-callback%2F";
+            var panel = GatewayConnectionPanel.CreateForCurrentState(GatewayChoiceConsumer.Settings);
+            panel.DirectorIdOverride = "test-director-id";
+            var waiting = new TaskCompletionSource<OperationResult<MobileEnrollmentResponse>>();
+            panel.HostedEnrollSeam = (_, _, showSignInAddress, _) =>
+            {
+                showSignInAddress(address);
+                return waiting.Task;
+            };
+
+            var attempt = panel.HostedEnrollAndHandshakeAsync();
+
+            var (row, box, copy, open) = panel.SignInAddressForTests;
+            Assert.True(panel.IsShowingConnectingForTests);
+            Assert.True(row.IsVisible, "the sign-in address must be on the waiting screen");
+            Assert.Equal(address, box.Text);
+            Assert.True(box.IsReadOnly);
+            Assert.Equal("Copy", copy.Content);
+            Assert.Equal("Open in browser", open.Content);
+
+            // The attempt ends: the address leaves with the waiting view, so no later view offers a dead one.
+            waiting.SetResult(OperationResult<MobileEnrollmentResponse>.Fail("not this time"));
+            await attempt;
+            Assert.False(row.IsVisible, "an ended sign-in must not leave its address offered");
+            Assert.Equal("", box.Text);
         });
     }
 

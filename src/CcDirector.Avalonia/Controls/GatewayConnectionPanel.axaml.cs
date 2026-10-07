@@ -107,7 +107,12 @@ public partial class GatewayConnectionPanel : UserControl
     // network. Defaults to null -> the real GatewayAccountEnrollRunner.SignInAndEnrollHostedAsync (the exact
     // path the CLI's `enroll --hosted` uses). Tests inject a fake so ActivateChoiceForTests(UseHosted) can
     // prove the enabled card runs the hosted enroll with this device's id, without a real network enroll.
-    internal Func<string, string, CancellationToken, Task<OperationResult<MobileEnrollmentResponse>>>? HostedEnrollSeam;
+    // The third argument shows the sign-in address on the waiting view (issue #3504), as the real sign-in does.
+    internal Func<string, string, Action<string>, CancellationToken, Task<OperationResult<MobileEnrollmentResponse>>>? HostedEnrollSeam;
+
+    // The hosted sign-in's address while it waits for the browser, behind Copy and Open in browser (issue
+    // #3504). Cleared whenever the panel changes view, so no other view can offer a stale address.
+    private string? _signInAddress;
 
     // Which step the panel opens on (spec section 6: the status-box click opens the panel on the resolver's
     // current step). Connect (the default) starts the auto-scan; SignIn/Done skip the scan and read the
@@ -513,6 +518,10 @@ public partial class GatewayConnectionPanel : UserControl
     // rather than just inspecting hidden state - so removing ShowFailure / ShowChoice reddens.
     internal bool IsShowingChoiceForTests => ChoicePanel.IsVisible;
     internal bool IsShowingConnectingForTests => ConnectingPanel.IsVisible;
+
+    /// <summary>The connecting view's sign-in address row, its address box, and its two buttons.</summary>
+    internal (Control Row, TextBox Address, Button Copy, Button Open) SignInAddressForTests =>
+        (SignInAddressRow, SignInAddressBox, CopySignInAddressButton, OpenSignInAddressButton);
     internal bool IsShowingFailureForTests => FailedPanel.IsVisible;
     internal string FailureSummaryForTests => FailureSummaryText.Text ?? string.Empty;
 
@@ -1298,7 +1307,7 @@ public partial class GatewayConnectionPanel : UserControl
             // Gateway, which mints and returns this machine's tenant-scoped device key. It persists hosted
             // url + key on verified success ONLY, so a cancel/failure never mutates the saved connection.
             var enroll = HostedEnrollSeam ?? DefaultHostedEnroll;
-            result = await enroll(directorId, Environment.MachineName, ct);
+            result = await enroll(directorId, Environment.MachineName, ShowSignInAddress, ct);
         }
         catch (OperationCanceledException)
         {
@@ -1356,11 +1365,69 @@ public partial class GatewayConnectionPanel : UserControl
     // one to choose (screen D1, devthrottle_internal#2311), and enroll at the hosted Gateway for that team's device
     // key, persisting the hosted url + key + team on success only.
     private Task<OperationResult<MobileEnrollmentResponse>> DefaultHostedEnroll(
-        string deviceId, string machineName, CancellationToken ct)
+        string deviceId, string machineName, Action<string> showSignInAddress, CancellationToken ct)
     {
         var owner = TopLevel.GetTopLevel(this) as Window
             ?? throw new InvalidOperationException("The Gateway connection panel is not in a window, so it cannot ask which team.");
-        return HostedTeamSetup.SignInChooseTeamAndEnrollAsync(owner, deviceId, machineName, ct);
+        return HostedTeamSetup.SignInChooseTeamAndEnrollAsync(owner, deviceId, machineName, showSignInAddress, ct);
+    }
+
+    /// <summary>
+    /// Put the sign-in address on the connecting view with Copy and Open in browser (issue #3504). The sign-in
+    /// calls this before it asks Windows to open the browser, so the address is there even when nothing opens.
+    /// </summary>
+    private void ShowSignInAddress(string address)
+    {
+        FileLog.Write("[GatewayConnectionPanel] ShowSignInAddress");
+        _signInAddress = address;
+        SignInAddressBox.Text = address;
+        SignInAddressStatus.IsVisible = false;
+        SignInAddressRow.IsVisible = true;
+    }
+
+    private void ClearSignInAddress()
+    {
+        _signInAddress = null;
+        SignInAddressBox.Text = "";
+        SignInAddressStatus.IsVisible = false;
+        SignInAddressRow.IsVisible = false;
+    }
+
+    private async void CopySignInAddress_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[GatewayConnectionPanel] CopySignInAddress_Click");
+        if (_signInAddress is null) return;
+        try
+        {
+            await SignInAddressActions.CopyAsync(this, _signInAddress);
+            ShowSignInAddressStatus(SignInAddressActions.CopiedMessage);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayConnectionPanel] CopySignInAddress_Click FAILED: {ex.Message}");
+            ShowSignInAddressStatus($"Could not copy the address: {ex.Message}. Select it above and copy it by hand.");
+        }
+    }
+
+    private void OpenSignInAddress_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[GatewayConnectionPanel] OpenSignInAddress_Click");
+        if (_signInAddress is null) return;
+        try
+        {
+            SignInAddressActions.Open(_signInAddress);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayConnectionPanel] OpenSignInAddress_Click FAILED: {ex.Message}");
+            ShowSignInAddressStatus($"Could not open a browser: {ex.Message}. Copy the address instead.");
+        }
+    }
+
+    private void ShowSignInAddressStatus(string message)
+    {
+        SignInAddressStatus.Text = message;
+        SignInAddressStatus.IsVisible = true;
     }
 
     private enum EnrollFirst { Enrolled, SignInNeeded, RemoteNotSupported, FellThrough }
@@ -1846,6 +1913,7 @@ public partial class GatewayConnectionPanel : UserControl
     // Show exactly one of the step sub-panels.
     private void ShowOnly(Control panel)
     {
+        ClearSignInAddress();
         ChoicePanel.IsVisible = ReferenceEquals(panel, ChoicePanel);
         ConnectPanel.IsVisible = ReferenceEquals(panel, ConnectPanel);
         ConnectingPanel.IsVisible = ReferenceEquals(panel, ConnectingPanel);

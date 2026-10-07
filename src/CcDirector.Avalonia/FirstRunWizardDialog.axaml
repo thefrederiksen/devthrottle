@@ -673,6 +673,27 @@
                                    Foreground="#16181D" HorizontalAlignment="Center" />
                         <TextBlock Classes="hint" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="440"
                                    Text="We opened your browser to sign you in with Google, GitHub, or email. This window continues automatically when you are done." />
+                        <!-- The way in that does not depend on the shell (issue #3504). Opening a link goes
+                             through Windows, and with a newly installed second browser Windows answers with an
+                             app chooser that vanishes when focus moves - no browser opens and this screen would
+                             otherwise wait with nothing to sign in to. Shown as soon as the address exists. -->
+                        <StackPanel x:Name="GatewaySignInAddressRow" IsVisible="False" Spacing="6"
+                                    MaxWidth="440" Margin="0,4,0,0">
+                            <TextBlock Classes="hint" TextAlignment="Center"
+                                       Text="Browser did not open? Copy this address into the browser you use, or open it again." />
+                            <TextBox x:Name="GatewaySignInAddressBox" IsReadOnly="True" TextWrapping="Wrap"
+                                     FontSize="12" Foreground="#16181D" Background="#F5F6F8"
+                                     BorderBrush="#E6E8EC" CornerRadius="8"
+                                     AutomationProperties.Name="Sign-in address" />
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                                <Button x:Name="GatewayCopySignInAddressButton" Classes="dialogButton"
+                                        Content="Copy" Click="GatewayCopySignInAddress_Click" />
+                                <Button x:Name="GatewayOpenSignInAddressButton" Classes="dialogButton"
+                                        Content="Open in browser" Click="GatewayOpenSignInAddress_Click" />
+                            </StackPanel>
+                            <TextBlock x:Name="GatewaySignInAddressStatus" Classes="hint" TextAlignment="Center"
+                                       IsVisible="False" />
+                        </StackPanel>
                         <Button Classes="quietLink" Content="Cancel sign-in" HorizontalAlignment="Center"
                                 Click="GatewayCancelSignIn_Click" />
                     </StackPanel>

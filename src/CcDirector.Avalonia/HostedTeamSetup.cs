@@ -27,13 +27,19 @@ internal static class HostedTeamSetup
     /// <param name="owner">The window D1 opens over.</param>
     /// <param name="deviceId">This Director's id.</param>
     /// <param name="machineName">This computer's name.</param>
+    /// <param name="showSignInAddress">Shows the sign-in address on the waiting screen, called on the UI thread
+    /// before the browser is asked to open it, so the person has a way in when the browser never opens (issue
+    /// #3504).</param>
     /// <param name="ct">Cancels the sign-in or the enrollment.</param>
     public static Task<OperationResult<MobileEnrollmentResponse>> SignInChooseTeamAndEnrollAsync(
-        Window owner, string deviceId, string machineName, CancellationToken ct)
+        Window owner, string deviceId, string machineName, Action<string> showSignInAddress, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(owner);
+        ArgumentNullException.ThrowIfNull(showSignInAddress);
         return RunAsync(
-            persistTeam => new GatewayAccountEnrollRunner(persistTeam: persistTeam),
+            persistTeam => new GatewayAccountEnrollRunner(
+                persistTeam: persistTeam,
+                showSignInAddress: url => Dispatcher.UIThread.Post(() => showSignInAddress(url))),
             question => AskAsync(owner, question),
             name => NamedInstanceRegistry.Rename(InstanceContext.Slug, name),
             DirectorNameSuggestionStore.Save,
