@@ -213,6 +213,39 @@ public class GatewayStepOptionsTests
         });
     }
 
+    /// <summary>
+    /// Issue #3504: "Finish signing in in your browser" must offer a way in that does not depend on Windows
+    /// opening a browser. With a newly installed second browser, Windows answers the sign-in link with an app
+    /// chooser that vanishes when focus moves, and the screen then waited with nothing to sign in to. The
+    /// address the sign-in reports is shown, selectable, beside Copy and Open in browser - and Copy really puts
+    /// that address on the clipboard.
+    /// </summary>
+    [AvaloniaFact]
+    public void TheWaitingScreen_ShowsTheSignInAddress_AndCopyPutsItOnTheClipboard()
+    {
+        WithCleanMachine(dialog =>
+        {
+            const string address = "https://devthrottle.com/signin?redirect_uri=http%3A%2F%2F127.0.0.1%3A49174%2Fdevthrottle-login-callback%2F";
+            dialog.Show();
+
+            dialog.ShowSignInAddressForTests(address);
+
+            var (row, box, copy, open) = dialog.SignInAddressForTests;
+            Assert.True(dialog.GatewayConnectingViewForTests.IsVisible);
+            Assert.True(row.IsVisible, "the sign-in address must be on the waiting screen");
+            Assert.Equal(address, box.Text);
+            Assert.True(box.IsReadOnly);
+            Assert.Equal("Copy", copy.Content);
+            Assert.Equal("Open in browser", open.Content);
+
+            copy.RaiseEvent(new global::Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            global::Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            var onClipboard = global::Avalonia.Input.Platform.ClipboardExtensions.TryGetTextAsync(dialog.Clipboard!).GetAwaiter().GetResult();
+            Assert.Equal(address, onClipboard);
+            dialog.Close();
+        });
+    }
+
     [AvaloniaFact]
     public void TheFailureMessage_NamesNoControlThatIsNotOnTheScreen()
     {

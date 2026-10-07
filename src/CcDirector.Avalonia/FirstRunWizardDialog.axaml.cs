@@ -41,7 +41,7 @@ namespace CcDirector.Avalonia;
 /// finishing on Done, the whole-wizard skip on Welcome, or closing the window - the completion marker
 /// is written so the wizard never auto-opens again.
 /// </summary>
-public partial class FirstRunWizardDialog : Window
+public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
 {
     private readonly AgentOptions _options;
     private readonly ToolDetectionWizardModel _toolModel = new(new ToolDetectionService());
@@ -69,6 +69,11 @@ public partial class FirstRunWizardDialog : Window
     private GatewayChoice _gatewayChoice = GatewayChoice.Hosted;
     private bool _gatewayConnected;
     private CancellationTokenSource? _hostedEnrollCts;
+
+    // The sign-in address of the attempt in flight, shown under "Finish signing in in your browser" so the
+    // person can copy it or open it again when Windows opened no browser (issue #3504). Null until the
+    // sign-in has an address, and cleared at the start of every attempt so an old address is never offered.
+    private string? _signInAddress;
 
     // True while RefreshGatewayChoiceUi is pushing _gatewayChoice INTO the cards' IsChecked. The cards
     // are RadioButtons now, so writing IsChecked raises IsCheckedChanged, which would call straight back
@@ -2306,6 +2311,7 @@ public partial class FirstRunWizardDialog : Window
         // A new attempt supersedes the last one's reason; leaving it up would let a stale cancellation sit
         // above a sign-in that is in flight right now.
         ClearGatewayFailure();
+        ClearSignInAddress();
         ShowGatewayView(GatewayConnectingView);
         PrimaryButton.IsEnabled = false;
 
@@ -2326,7 +2332,7 @@ public partial class FirstRunWizardDialog : Window
             // Signs in, asks which team this Director is for when there is one to choose (screen D1,
             // devthrottle_internal#2311), and enrolls for that team.
             var result = await HostedTeamSetup.SignInChooseTeamAndEnrollAsync(
-                this, directorId, Environment.MachineName, ct);
+                this, directorId, Environment.MachineName, this, ct);
 
             if (!result.Success)
             {
@@ -2389,6 +2395,75 @@ public partial class FirstRunWizardDialog : Window
     {
         FileLog.Write("[FirstRunWizardDialog] GatewayCancelSignIn_Click");
         _hostedEnrollCts?.Cancel();
+    }
+
+    /// <summary>
+    /// Put the sign-in address on the waiting screen with Copy and Open in browser (issue #3504). The sign-in
+    /// calls this before it asks Windows to open the browser, so the address is there even when nothing opens.
+    /// </summary>
+    private void ShowSignInAddress(string address)
+    {
+        FileLog.Write("[FirstRunWizardDialog] ShowSignInAddress");
+        _signInAddress = address;
+        GatewaySignInAddressBox.Text = address;
+        GatewaySignInAddressStatus.IsVisible = false;
+        GatewaySignInAddressRow.IsVisible = true;
+    }
+
+    void ISignInAddressDisplay.Show(string address) => ShowSignInAddress(address);
+
+    void ISignInAddressDisplay.BrowserDidNotOpen(string reason)
+    {
+        FileLog.Write($"[FirstRunWizardDialog] BrowserDidNotOpen: {reason}");
+        ShowSignInAddressStatus(SignInAddressActions.BrowserDidNotOpenMessage(reason));
+    }
+
+    // The sign-in stopped waiting, so nothing answers at the address any more (issue #3504 review).
+    void ISignInAddressDisplay.Withdraw() => ClearSignInAddress();
+
+    private void ClearSignInAddress()
+    {
+        _signInAddress = null;
+        GatewaySignInAddressBox.Text = "";
+        GatewaySignInAddressStatus.IsVisible = false;
+        GatewaySignInAddressRow.IsVisible = false;
+    }
+
+    private async void GatewayCopySignInAddress_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[FirstRunWizardDialog] GatewayCopySignInAddress_Click");
+        if (_signInAddress is null) return;
+        try
+        {
+            await SignInAddressActions.CopyAsync(this, _signInAddress);
+            ShowSignInAddressStatus(SignInAddressActions.CopiedMessage);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FirstRunWizardDialog] GatewayCopySignInAddress_Click FAILED: {ex.Message}");
+            ShowSignInAddressStatus($"Could not copy the address: {ex.Message}. Select it above and copy it by hand.");
+        }
+    }
+
+    private void GatewayOpenSignInAddress_Click(object? sender, RoutedEventArgs e)
+    {
+        FileLog.Write("[FirstRunWizardDialog] GatewayOpenSignInAddress_Click");
+        if (_signInAddress is null) return;
+        try
+        {
+            SignInAddressActions.Open(_signInAddress);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FirstRunWizardDialog] GatewayOpenSignInAddress_Click FAILED: {ex.Message}");
+            ShowSignInAddressStatus($"Could not open a browser: {ex.Message}. Copy the address instead.");
+        }
+    }
+
+    private void ShowSignInAddressStatus(string message)
+    {
+        GatewaySignInAddressStatus.Text = message;
+        GatewaySignInAddressStatus.IsVisible = true;
     }
 
     // There is no GatewayTryAgain_Click any more. Its only caller was the failure view's "Try again"
@@ -2719,6 +2794,27 @@ public partial class FirstRunWizardDialog : Window
 
     /// <summary>Which gateway option is selected, named as the user would name it.</summary>
     internal string GatewayChoiceForTests => _gatewayChoice.ToString();
+
+    /// <summary>
+    /// Hand the waiting screen a sign-in address through the REAL path the sign-in uses
+    /// (<see cref="ShowSignInAddress"/>), with the connecting view up as it is during a sign-in.
+    /// </summary>
+    internal void ShowSignInAddressForTests(string address)
+    {
+        ClearSignInAddress();
+        ShowGatewayView(GatewayConnectingView);
+        ShowSignInAddress(address);
+    }
+
+    /// <summary>The waiting screen's sign-in address row, its address box, and its two buttons.</summary>
+    internal (Control Row, TextBox Address, Button Copy, Button Open) SignInAddressForTests =>
+        (GatewaySignInAddressRow, GatewaySignInAddressBox, GatewayCopySignInAddressButton, GatewayOpenSignInAddressButton);
+
+    /// <summary>The line under the address that says it was copied, or that Windows could not open a browser.</summary>
+    internal TextBlock SignInAddressStatusForTests => GatewaySignInAddressStatus;
+
+    /// <summary>The connecting view, so a test can tell whether the address row would actually be seen.</summary>
+    internal Control GatewayConnectingViewForTests => GatewayConnectingView;
 
     private static SolidColorBrush Brush(string hex) => new(Color.Parse(hex));
 }
