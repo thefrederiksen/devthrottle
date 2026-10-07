@@ -147,3 +147,16 @@ to Ruth Calder"), and a factory with none says "No head named". Center Consultin
 - **Owner only:** all three refuse a session key, a Director's device key and the machine token
   (`FleetManagerOwnerDevice.Require`, as Talk), and are mapped outside the factory gate like Talk so a switch-off
   refusal carries a sentence.
+
+### Round 2 - incident and live data steps (the Lead)
+
+- **7 Oct, 05:25 UTC - incident:** the round 2 deploy (ca403bd) broke the Factories area on the hosted Gateway: track
+  B's `ArchiveFactories` migration existed only for the local database, not for PostgreSQL, so every registry query
+  failed. Neither review nor the Lead caught it; the deploy log said "No Postgres migration change". Rolled back to
+  43fe9b6 with the rollback workflow at ~05:45; the Factories page works again. Fix: the PostgreSQL migration in its
+  own pull request, plus a note on #3608 not to deploy main until it lands. Lesson for every later review here: a
+  pull request that adds a migration must show it in BOTH migration projects.
+- **7 Oct, ~06:40 UTC - live data:** redeployed with the PostgreSQL migration (ec2f995, outage 4.6 seconds);
+  Center Consulting re-registered with `"ceoSeat": "cfo"` (the list now offers Talk to Ruth Calder); Tallyhand
+  archived through the Cockpit's own Archive button (no schedule to switch off; restorable under Show archived). The
+  bulk clear was opened on Website Business (43 items) and cancelled - it waits for the owner's word in the report.
