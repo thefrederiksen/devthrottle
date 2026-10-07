@@ -298,9 +298,9 @@ public class GatewayChoicePanelIntegrationTests
             var panel = GatewayConnectionPanel.CreateForCurrentState(GatewayChoiceConsumer.Settings);
             panel.DirectorIdOverride = "test-director-id";
             var waiting = new TaskCompletionSource<OperationResult<MobileEnrollmentResponse>>();
-            panel.HostedEnrollSeam = (_, _, showSignInAddress, _) =>
+            panel.HostedEnrollSeam = (_, _, display, _) =>
             {
-                showSignInAddress(address);
+                display.Show(address);
                 return waiting.Task;
             };
 

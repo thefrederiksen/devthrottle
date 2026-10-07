@@ -41,7 +41,7 @@ namespace CcDirector.Avalonia;
 /// finishing on Done, the whole-wizard skip on Welcome, or closing the window - the completion marker
 /// is written so the wizard never auto-opens again.
 /// </summary>
-public partial class FirstRunWizardDialog : Window
+public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
 {
     private readonly AgentOptions _options;
     private readonly ToolDetectionWizardModel _toolModel = new(new ToolDetectionService());
@@ -2332,7 +2332,7 @@ public partial class FirstRunWizardDialog : Window
             // Signs in, asks which team this Director is for when there is one to choose (screen D1,
             // devthrottle_internal#2311), and enrolls for that team.
             var result = await HostedTeamSetup.SignInChooseTeamAndEnrollAsync(
-                this, directorId, Environment.MachineName, ShowSignInAddress, ct);
+                this, directorId, Environment.MachineName, this, ct);
 
             if (!result.Success)
             {
@@ -2409,6 +2409,17 @@ public partial class FirstRunWizardDialog : Window
         GatewaySignInAddressStatus.IsVisible = false;
         GatewaySignInAddressRow.IsVisible = true;
     }
+
+    void ISignInAddressDisplay.Show(string address) => ShowSignInAddress(address);
+
+    void ISignInAddressDisplay.BrowserDidNotOpen(string reason)
+    {
+        FileLog.Write($"[FirstRunWizardDialog] BrowserDidNotOpen: {reason}");
+        ShowSignInAddressStatus(SignInAddressActions.BrowserDidNotOpenMessage(reason));
+    }
+
+    // The sign-in stopped waiting, so nothing answers at the address any more (issue #3504 review).
+    void ISignInAddressDisplay.Withdraw() => ClearSignInAddress();
 
     private void ClearSignInAddress()
     {
@@ -2798,6 +2809,9 @@ public partial class FirstRunWizardDialog : Window
     /// <summary>The waiting screen's sign-in address row, its address box, and its two buttons.</summary>
     internal (Control Row, TextBox Address, Button Copy, Button Open) SignInAddressForTests =>
         (GatewaySignInAddressRow, GatewaySignInAddressBox, GatewayCopySignInAddressButton, GatewayOpenSignInAddressButton);
+
+    /// <summary>The line under the address that says it was copied, or that Windows could not open a browser.</summary>
+    internal TextBlock SignInAddressStatusForTests => GatewaySignInAddressStatus;
 
     /// <summary>The connecting view, so a test can tell whether the address row would actually be seen.</summary>
     internal Control GatewayConnectingViewForTests => GatewayConnectingView;

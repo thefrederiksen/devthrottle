@@ -14,6 +14,10 @@ internal static class SignInAddressActions
     /// <summary>The line shown once the address is on the clipboard.</summary>
     public const string CopiedMessage = "Copied. Paste it into your browser's address bar to sign in.";
 
+    /// <summary>The line shown when Windows could not open a browser at all; the address above still works.</summary>
+    public static string BrowserDidNotOpenMessage(string reason) =>
+        $"Windows could not open a browser ({reason}). Copy the address into the browser you use - this window is still waiting.";
+
     /// <summary>Put the sign-in address on the clipboard of the window that shows it.</summary>
     public static async Task CopyAsync(Control owner, string address)
     {

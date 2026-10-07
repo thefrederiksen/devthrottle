@@ -25,62 +25,115 @@ public class GatewaySignInAddressTests
     private const string MachineName = "WORKSTATION-1";
 
     /// <summary>
-    /// The address reaches the screen BEFORE the browser is asked to open it, and it is the same address. The
-    /// order is the point: the shell call is the step that can leave nothing behind, so the address must already
-    /// be on screen when it runs.
+    /// The address reaches the screen BEFORE the browser is asked to open it, it is the same address, and it is
+    /// withdrawn when the wait ends. The order is the point: the shell call is the step that can leave nothing
+    /// behind, so the address must already be on screen when it runs.
     /// </summary>
     [Fact]
-    public async Task DefaultSignIn_ShowsTheSignInAddress_BeforeAskingTheBrowserToOpenIt()
+    public async Task DefaultSignIn_ShowsTheAddressBeforeOpeningTheBrowser_AndWithdrawsItWhenTheWaitEnds()
     {
         var events = new List<string>();
         using var stop = new CancellationTokenSource();
         var runner = new GatewayAccountEnrollRunner(
-            handlerFactory: () => new NoHttpHandler(),
+            handlerFactory: () => new RecordingHandler(events, succeed: false),
             persist: (_, _) => throw new InvalidOperationException("nothing may be saved"),
-            showSignInAddress: url => events.Add("shown " + url),
+            signInAddressDisplay: new RecordingDisplay(events),
             // Windows' chooser was dismissed: the open call returns and no browser ever arrives.
             openBrowser: url => { events.Add("opened " + url); stop.Cancel(); });
 
         var result = await runner.VerifyAndSaveAsync(GatewayUrl, DeviceId, MachineName, stop.Token);
 
         Assert.False(result.Success);
-        Assert.Equal(2, events.Count);
+        Assert.Equal(3, events.Count);
         Assert.StartsWith("shown ", events[0]);
-        Assert.StartsWith("opened ", events[1]);
         var shown = events[0]["shown ".Length..];
-        Assert.Equal(shown, events[1]["opened ".Length..]);
+        Assert.Equal("opened " + shown, events[1]);
+        Assert.Equal("withdrawn", events[2]);
         Assert.StartsWith("http://127.0.0.1:", RedirectUriOf(shown));
     }
 
     /// <summary>
-    /// The address on screen is a working way in, not a decoration: with NO browser opened by the shell, a
-    /// person who takes the shown address to a browser of their own completes the sign-in, and the machine
-    /// enrolls. The "browser" here follows the shown address's own callback, exactly as devthrottle.com does
-    /// after a sign-in.
+    /// With NO browser opened by the shell, the loopback listener behind the shown address is live: a hand-back
+    /// to the shown address's own callback - what devthrottle.com sends after a person signs in there -
+    /// completes the sign-in and the machine enrolls. The address is withdrawn as soon as the hand-back lands,
+    /// BEFORE enrollment goes on, because the listener closes then and the address would be a dead way in.
+    /// (This proves the listener the address names; the devthrottle.com page itself is outside this repository.)
     /// </summary>
     [Fact]
-    public async Task DefaultSignIn_WhenNoBrowserOpens_TheShownAddressStillCompletesTheSignIn()
+    public async Task DefaultSignIn_WhenNoBrowserOpens_AHandBackToTheShownAddressCompletesTheSignIn()
     {
+        var events = new List<string>();
         var saved = new List<(string url, string key)>();
-        var shownAddress = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var display = new RecordingDisplay(events);
         var runner = new GatewayAccountEnrollRunner(
-            handlerFactory: () => new EnrollSucceedsHandler(),
+            handlerFactory: () => new RecordingHandler(events, succeed: true),
             persist: (url, key) => saved.Add((url, key)),
-            showSignInAddress: url => shownAddress.TrySetResult(url),
+            signInAddressDisplay: display,
             openBrowser: _ => { /* the chooser was dismissed: nothing opens */ });
 
         var enrolling = runner.VerifyAndSaveAsync(GatewayUrl, DeviceId, MachineName, CancellationToken.None);
-
-        var address = await shownAddress.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        using (var personsBrowser = new HttpClient())
-        {
-            var callback = RedirectUriOf(address) + "?access_token=access-xyz&refresh_token=refresh-xyz";
-            using var landed = await personsBrowser.GetAsync(callback);
-        }
+        await HandBackToTheShownAddressAsync(display);
         var result = await enrolling.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.Equal(new[] { (GatewayUrl, "local-key-abc") }, saved);
+        var withdrawn = events.IndexOf("withdrawn");
+        var firstCall = events.FindIndex(e => e.StartsWith("http "));
+        Assert.True(withdrawn >= 0 && firstCall > withdrawn,
+            "the address must be withdrawn before enrollment goes on: " + string.Join(" | ", events));
+    }
+
+    /// <summary>
+    /// Windows cannot open a browser at all (no handler for the link). With the address on screen that is NOT the
+    /// end of the sign-in: the screen is told the browser did not open, the wait goes on, and the address still
+    /// completes the sign-in. This is the case the address exists for.
+    /// </summary>
+    [Fact]
+    public async Task DefaultSignIn_WhenWindowsCannotOpenABrowser_TheScreenIsToldAndTheAddressStillWorks()
+    {
+        var events = new List<string>();
+        var display = new RecordingDisplay(events);
+        var runner = new GatewayAccountEnrollRunner(
+            handlerFactory: () => new RecordingHandler(events, succeed: true),
+            persist: (_, _) => { },
+            signInAddressDisplay: display,
+            openBrowser: _ => throw new System.ComponentModel.Win32Exception("No application is associated with the specified file"));
+
+        var enrolling = runner.VerifyAndSaveAsync(GatewayUrl, DeviceId, MachineName, CancellationToken.None);
+        await HandBackToTheShownAddressAsync(display);
+        var result = await enrolling.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.Contains("browser did not open: No application is associated with the specified file", events);
+    }
+
+    /// <summary>
+    /// With no screen to show the address (the command line), a browser that cannot be opened ends the sign-in
+    /// at once - waiting five minutes for an address nobody can see would be the original defect.
+    /// </summary>
+    [Fact]
+    public async Task DefaultSignIn_WithNoScreen_ABrowserThatCannotOpenEndsTheSignIn()
+    {
+        var events = new List<string>();
+        var runner = new GatewayAccountEnrollRunner(
+            handlerFactory: () => new RecordingHandler(events, succeed: true),
+            persist: (_, _) => throw new InvalidOperationException("nothing may be saved"),
+            openBrowser: _ => throw new System.ComponentModel.Win32Exception("No application is associated with the specified file"));
+
+        var result = await runner.VerifyAndSaveAsync(GatewayUrl, DeviceId, MachineName, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.False(result.Success);
+        Assert.Contains("Sign-in did not complete", result.ErrorMessage);
+        Assert.Empty(events);
+    }
+
+    private static async Task HandBackToTheShownAddressAsync(RecordingDisplay display)
+    {
+        var address = await display.Shown.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        using var browser = new HttpClient();
+        var callback = RedirectUriOf(address) + "?access_token=access-xyz&refresh_token=refresh-xyz";
+        using var landed = await browser.GetAsync(callback);
     }
 
     private static string RedirectUriOf(string signInAddress)
@@ -95,18 +148,25 @@ public class GatewaySignInAddressTests
         throw new InvalidOperationException("The sign-in address carries no redirect_uri: " + signInAddress);
     }
 
-    private sealed class NoHttpHandler : HttpMessageHandler
+    private sealed class RecordingDisplay(List<string> events) : ISignInAddressDisplay
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
-            throw new InvalidOperationException("No HTTP call is expected: " + request.RequestUri);
+        public TaskCompletionSource<string> Shown { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Show(string address) { lock (events) events.Add("shown " + address); Shown.TrySetResult(address); }
+        public void BrowserDidNotOpen(string reason) { lock (events) events.Add("browser did not open: " + reason); }
+        public void Withdraw() { lock (events) events.Add("withdrawn"); }
     }
 
-    /// <summary>The cloud registers the device and the gateway exchanges its key for a local one.</summary>
-    private sealed class EnrollSucceedsHandler : HttpMessageHandler
+    /// <summary>Records each HTTP call; when <c>succeed</c>, the cloud registers the device and the gateway
+    /// exchanges its key for a local one.</summary>
+    private sealed class RecordingHandler(List<string> events, bool succeed) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             var path = request.RequestUri!.AbsolutePath;
+            lock (events) events.Add("http " + path);
+            if (!succeed)
+                throw new InvalidOperationException("No HTTP call is expected: " + request.RequestUri);
             if (path.EndsWith("/devices/register"))
                 return Task.FromResult(Json(HttpStatusCode.Created,
                     "{\"data\":{\"device_key\":\"cloud-key-abc\",\"record\":{\"id\":\"cloud-dev-1\",\"name\":\"" + MachineName + "\"}}}"));

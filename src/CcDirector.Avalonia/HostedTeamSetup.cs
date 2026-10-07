@@ -27,24 +27,44 @@ internal static class HostedTeamSetup
     /// <param name="owner">The window D1 opens over.</param>
     /// <param name="deviceId">This Director's id.</param>
     /// <param name="machineName">This computer's name.</param>
-    /// <param name="showSignInAddress">Shows the sign-in address on the waiting screen, called on the UI thread
-    /// before the browser is asked to open it, so the person has a way in when the browser never opens (issue
-    /// #3504).</param>
+    /// <param name="addressDisplay">The waiting screen that shows the sign-in address, so the person has a way in
+    /// when the browser never opens (issue #3504).</param>
     /// <param name="ct">Cancels the sign-in or the enrollment.</param>
     public static Task<OperationResult<MobileEnrollmentResponse>> SignInChooseTeamAndEnrollAsync(
-        Window owner, string deviceId, string machineName, Action<string> showSignInAddress, CancellationToken ct)
+        Window owner, string deviceId, string machineName, ISignInAddressDisplay addressDisplay, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(owner);
-        ArgumentNullException.ThrowIfNull(showSignInAddress);
+        ArgumentNullException.ThrowIfNull(addressDisplay);
         return RunAsync(
-            persistTeam => new GatewayAccountEnrollRunner(
-                persistTeam: persistTeam,
-                showSignInAddress: url => Dispatcher.UIThread.Post(() => showSignInAddress(url))),
+            persistTeam => CreateRunner(persistTeam, addressDisplay),
             question => AskAsync(owner, question),
             name => NamedInstanceRegistry.Rename(InstanceContext.Slug, name),
             DirectorNameSuggestionStore.Save,
             RecordTeamInThisHome,
             deviceId, machineName, ct);
+    }
+
+    /// <summary>
+    /// The runner both surfaces sign in with: the real browser sign-in, with its address shown on
+    /// <paramref name="addressDisplay"/> through <see cref="UiThreadSignInAddressDisplay"/>.
+    /// <paramref name="openBrowser"/> replaces the shell call in tests only.
+    /// </summary>
+    internal static GatewayAccountEnrollRunner CreateRunner(
+        Action<DirectorTeam?> persistTeam, ISignInAddressDisplay addressDisplay, Action<string>? openBrowser = null) =>
+        new(persistTeam: persistTeam,
+            signInAddressDisplay: new UiThreadSignInAddressDisplay(addressDisplay),
+            openBrowser: openBrowser);
+
+    /// <summary>
+    /// Runs each display call on the UI thread and returns only once it has run. The sign-in calls
+    /// <see cref="ISignInAddressDisplay.Show"/> and then asks Windows to open the browser, so a queued update
+    /// would let that shell call run - and, if it blocks the UI thread, block - before the address is on screen.
+    /// </summary>
+    private sealed class UiThreadSignInAddressDisplay(ISignInAddressDisplay screen) : ISignInAddressDisplay
+    {
+        public void Show(string address) => Dispatcher.UIThread.Invoke(() => screen.Show(address));
+        public void BrowserDidNotOpen(string reason) => Dispatcher.UIThread.Invoke(() => screen.BrowserDidNotOpen(reason));
+        public void Withdraw() => Dispatcher.UIThread.Invoke(screen.Withdraw);
     }
 
     /// <summary>The words for a join whose name could not be saved afterwards.</summary>

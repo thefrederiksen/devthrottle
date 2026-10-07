@@ -128,11 +128,9 @@ public sealed class GatewayAccountEnrollRunner
     /// Null uses <see cref="DirectorTeamStore"/> in this process's own storage home.</param>
     /// <param name="teamsSignal">Asks the hosted Gateway whether it has Teams released; null reads its anonymous
     /// health answer through the same HTTP handler.</param>
-    /// <param name="showSignInAddress">Given the sign-in address the moment the loopback listener is up and
-    /// BEFORE the browser is asked to open it, so a screen can show it with Copy and Open in browser (issue
-    /// #3504). Opening a link goes through the Windows shell, and on a machine with a newly installed second
-    /// browser the shell answers with an app chooser that disappears when focus moves - then no browser opens
-    /// and the person has nothing to sign in to. Null means nobody shows the address (the command line).</param>
+    /// <param name="signInAddressDisplay">The screen that shows the sign-in address while the sign-in waits, so
+    /// the person has a way in when Windows opens no browser (issue #3504). Null means nobody shows the address
+    /// (the command line), and then a browser that cannot be opened fails the sign-in.</param>
     /// <param name="openBrowser">Opens the system browser at the sign-in address; null shell-executes it.</param>
     public GatewayAccountEnrollRunner(
         Func<CancellationToken, Task<DevThrottleTokens>>? signIn = null,
@@ -141,11 +139,11 @@ public sealed class GatewayAccountEnrollRunner
         TimeSpan? httpTimeout = null,
         Action<DirectorTeam?>? persistTeam = null,
         IHostedTeamsSignal? teamsSignal = null,
-        Action<string>? showSignInAddress = null,
+        ISignInAddressDisplay? signInAddressDisplay = null,
         Action<string>? openBrowser = null)
     {
         var open = openBrowser ?? OpenSystemBrowser;
-        _signIn = signIn ?? (ct => SignInViaBrowserAsync(showSignInAddress, open, ct));
+        _signIn = signIn ?? (ct => SignInViaBrowserAsync(signInAddressDisplay, open, ct));
         _handlerFactory = handlerFactory ?? (() => new HttpClientHandler());
         _persist = persist ?? GatewayCredentialStore.SaveEnrolledKey;
         _persistTeam = persistTeam ?? PersistTeamInThisHome;
@@ -1076,20 +1074,49 @@ public sealed class GatewayAccountEnrollRunner
     /// caller's cancellation (the Cancel button) and a <see cref="DefaultSignInTimeout"/> deadline so an
     /// abandoned sign-in is never a dead end. The token value is never logged.
     ///
-    /// The address is handed to <paramref name="showSignInAddress"/> before the browser is asked to open it, so
-    /// it is on screen even when the shell opens nothing (issue #3504). The listener is already accepting at that
-    /// point, so a person who pastes the address into any browser completes the same sign-in.
+    /// With a <paramref name="display"/>, the address is shown before the browser is asked to open it, so it is
+    /// on screen even when the shell opens nothing (issue #3504). The listener is already accepting at that point,
+    /// so a person who takes the address to any browser completes the same sign-in - which is also why a shell
+    /// that cannot open a browser at all does not end the sign-in when the address is on screen: the address is
+    /// still a working way in, and the screen says the browser did not open. With no display the address is
+    /// nowhere a person can see it, so that same failure ends the sign-in. The address is withdrawn when the wait
+    /// ends, before the listener closes, because nothing answers at it after that.
     /// </summary>
     private static async Task<DevThrottleTokens> SignInViaBrowserAsync(
-        Action<string>? showSignInAddress, Action<string> openBrowser, CancellationToken ct)
+        ISignInAddressDisplay? display, Action<string> openBrowser, CancellationToken ct)
     {
         using var listener = new LoopbackLoginListener();
         var signInUrl = FirstRunLoginCoordinator.BuildSignInUrl(listener.CallbackUrl);
         EngineLog.Write($"[GatewayAccountEnrollRunner] SignInViaBrowserAsync: sign-in url={signInUrl}");
 
-        showSignInAddress?.Invoke(signInUrl);
-        openBrowser(signInUrl);
+        if (display is null)
+        {
+            openBrowser(signInUrl);
+            return await WaitForBrowserHandBackAsync(listener, ct).ConfigureAwait(false);
+        }
 
+        display.Show(signInUrl);
+        try
+        {
+            try
+            {
+                openBrowser(signInUrl);
+            }
+            catch (Exception ex)
+            {
+                EngineLog.Write($"[GatewayAccountEnrollRunner] SignInViaBrowserAsync: Windows could not open a browser: {ex.Message}; waiting for the address on screen");
+                display.BrowserDidNotOpen(ex.Message);
+            }
+            return await WaitForBrowserHandBackAsync(listener, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            display.Withdraw();
+        }
+    }
+
+    private static async Task<DevThrottleTokens> WaitForBrowserHandBackAsync(LoopbackLoginListener listener, CancellationToken ct)
+    {
         using var timeoutSource = new CancellationTokenSource(DefaultSignInTimeout);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutSource.Token);
         return await listener.WaitForCredentialAsync(linked.Token).ConfigureAwait(false);
