@@ -345,3 +345,77 @@
   font-size: 15px;
   font-weight: 600;
 }
+
+/* ---- teams (Teams v1): the person's teams and Create a team. Drawn only when the Gateway offers teams. ---- */
+.acct-teams {
+  margin: 24px 0 28px;
+}
+.acct-teams h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.acct-teams-none {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.acct-teams-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+}
+.acct-team-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.acct-team-name {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.acct-team-role {
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+.acct-team-create h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.acct-team-create-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.acct-team-create-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 240px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.acct-team-name-input {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 13px;
+}
+.acct-team-create-error {
+  margin-top: 10px;
+  background: #3a1b1b;
+  color: #f1a0a0;
+  border: 1px solid #5a2a2a;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+}

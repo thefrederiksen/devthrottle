@@ -114,6 +114,32 @@ export async function getMyTeams(signal?: AbortSignal): Promise<MyTeamsAnswer> {
   return { kind: "teams", teams, start: readStart((body as { start?: unknown }).start, teams) };
 }
 
+/**
+ * Create a team named `name` (POST /teams). The person who creates it becomes its Owner - the Gateway decides that,
+ * and answers the new team as the person now sees it, read the same way as one row of GET /teams. A refusal (an empty
+ * or over-long name, say) is thrown as a GatewayError carrying the Gateway's own sentence.
+ */
+export async function createTeam(name: string, signal?: AbortSignal): Promise<TeamSummary> {
+  const res = await gatewayFetch("/teams", {
+    method: "POST",
+    headers: { ...authHeaders(), Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, "create the team");
+  if (contentType(res) !== "application/json") {
+    throw new GatewayError(
+      502,
+      `The Gateway answered the new team with ${contentType(res) || "an unlabelled body"} instead of team data.`,
+    );
+  }
+  const body = (await res.json()) as { team?: unknown };
+  if (body.team === undefined || body.team === null) {
+    throw new GatewayError(502, "The Gateway said the team was created but did not send the team back.");
+  }
+  return readTeam(body.team);
+}
+
 function readTeam(raw: unknown): TeamSummary {
   const t = raw as Partial<Record<keyof TeamSummary, unknown>>;
   if (

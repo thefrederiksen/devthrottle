@@ -39,7 +39,7 @@
 // later answer replaces it - so a person who had no team when this browser first opened, and was invited later,
 // starts in their team on the next load here. A stored answer that names a team waits for the list like a picked
 // team does (`resolving`); a stored own-account answer draws at once.
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { gatewayErrorMessage } from "../api/client";
 import { activeAccount } from "../auth/accountStore";
 import { getMyTeams, type MyTeamsAnswer, type TeamStart, type TeamSummary } from "./teamsClient";
@@ -74,6 +74,10 @@ export interface CurrentTeamState {
    *  be opened (round 3 review, R3). Stored as a pick, one click during a Gateway restart would pin the browser to the
    *  whole Cockpit for good; unstored, the next load tries the remembered team again. */
   openOwnAccountForThisLoad: () => void;
+  /** Read the teams again now, and resolve once the Gateway's answer is in `teams` - used after the person creates a
+   *  team, so the switcher shows it at once and `choose` can put it on screen. Throws when the read fails; the list on
+   *  screen is then left as it was. */
+  refresh: () => Promise<void>;
 }
 
 const CurrentTeamContext = createContext<CurrentTeamState | null>(null);
@@ -173,6 +177,16 @@ export function CurrentTeamProvider({
 }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading", teams: [], start: null, error: null });
   const [choice, setChoice] = useState<Choice>(readRemembered);
+  // The latest teams read, kept beside the state so `choose` can pick a team a `refresh` has just added in the same
+  // tick, before React has drawn the new list.
+  const teamsRef = useRef<TeamSummary[]>([]);
+  teamsRef.current = loaded.teams;
+  const unmounted = useRef(new AbortController());
+  useEffect(() => {
+    const controller = new AbortController();
+    unmounted.current = controller;
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -234,15 +248,27 @@ export function CurrentTeamProvider({
         setChoice(own);
         return null;
       }
-      const team = loaded.teams.find((t) => t.id === teamId);
+      const team = teamsRef.current.find((t) => t.id === teamId);
       if (team === undefined) throw new Error("That team is not one of yours, so it cannot be put on screen.");
       const picked: Choice = { kind: "team", id: teamId, picked: true };
       remember(picked);
       setChoice(picked);
       return team;
     },
-    [loaded.teams],
+    [],
   );
+
+  const refresh = useCallback(async () => {
+    const signal = unmounted.current.signal;
+    const answer = await load(signal);
+    if (signal.aborted) return;
+    const next: Loaded =
+      answer.kind === "teams"
+        ? { status: "ready", teams: answer.teams, start: answer.start, error: null }
+        : { status: "not-offered", teams: [], start: null, error: null };
+    teamsRef.current = next.teams;
+    setLoaded(next);
+  }, [load]);
 
   // A pick held in memory only: nothing replaces it during this load, and nothing of it reaches storage.
   const openOwnAccountForThisLoad = useCallback(() => setChoice({ kind: "own", picked: true }), []);
@@ -264,8 +290,9 @@ export function CurrentTeamProvider({
       error: loaded.error,
       choose,
       openOwnAccountForThisLoad,
+      refresh,
     };
-  }, [loaded, choice, choose, openOwnAccountForThisLoad]);
+  }, [loaded, choice, choose, openOwnAccountForThisLoad, refresh]);
 
   return <CurrentTeamContext.Provider value={value}>{children}</CurrentTeamContext.Provider>;
 }

@@ -70,6 +70,7 @@ function renderAt(path: string, onTeam: boolean) {
     error: null,
     choose: () => null,
     openOwnAccountForThisLoad: () => {},
+    refresh: async () => {},
   };
   render(<MemoryRouter initialEntries={[path]}><Shell /></MemoryRouter>);
 }

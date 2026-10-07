@@ -56,6 +56,7 @@ function state(overrides: Partial<CurrentTeamState>): CurrentTeamState {
     error: null,
     choose: () => null,
     openOwnAccountForThisLoad: () => {},
+    refresh: async () => {},
     ...overrides,
   };
 }

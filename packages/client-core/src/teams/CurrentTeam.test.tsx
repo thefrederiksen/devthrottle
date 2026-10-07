@@ -59,6 +59,43 @@ describe("CurrentTeam", () => {
     expect(seen!.current).toBeNull();
   });
 
+  // Teams v1: a team created on the Account page is read in at once and can be put on screen in the same tick.
+  it("Refresh_AfterATeamIsCreated_ListsItAndChooseCanPickItAtOnce", async () => {
+    const load = vi
+      .fn<() => Promise<MyTeamsAnswer>>()
+      .mockResolvedValueOnce({ kind: "teams", teams: [], start: { where: "own-account" } })
+      .mockResolvedValue({ kind: "teams", teams: [TEAM_A], start: { where: "own-account" } });
+    mount(load);
+    await waitFor(() => expect(seen!.status).toBe("ready"));
+    expect(seen!.teams).toEqual([]);
+
+    await act(async () => {
+      await seen!.refresh();
+      // Before React draws the new list: choose must already know the team.
+      expect(seen!.choose("team-a")).toEqual(TEAM_A);
+    });
+
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(seen!.teams.map((t) => t.id)).toEqual(["team-a"]);
+    expect(seen!.current?.id).toBe("team-a");
+    expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("team-a");
+  });
+
+  it("Refresh_ReadFails_ThrowsAndLeavesTheListAsItWas", async () => {
+    const load = vi
+      .fn<() => Promise<MyTeamsAnswer>>()
+      .mockResolvedValueOnce({ kind: "teams", teams: [TEAM_B], start: { where: "own-account" } })
+      .mockRejectedValue(new Error("boom"));
+    mount(load);
+    await waitFor(() => expect(seen!.status).toBe("ready"));
+
+    await act(async () => {
+      await expect(seen!.refresh()).rejects.toThrow("boom");
+    });
+    expect(seen!.status).toBe("ready");
+    expect(seen!.teams.map((t) => t.id)).toEqual(["team-b"]);
+  });
+
   it("CurrentTeamProvider_NotOffered_HasNoTeams", async () => {
     mount(() => Promise.resolve<MyTeamsAnswer>({ kind: "not-offered", reason: "dark" }));
     await waitFor(() => expect(seen!.status).toBe("not-offered"));
