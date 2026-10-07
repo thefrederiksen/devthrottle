@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getMyTeams, getPageCount, TEAMS_NOT_RELEASED_REASON, TEAMS_READ_TIMEOUT_MS } from "./teamsClient";
+import { createTeam, getMyTeams, getPageCount, TEAMS_NOT_RELEASED_REASON, TEAMS_READ_TIMEOUT_MS } from "./teamsClient";
 
 // GET /teams (devthrottle_internal#2300) as the team switcher reads it (#2312). Three Gateways answer it three ways,
 // and only one of them has teams: a released hosted Gateway answers JSON; a Gateway with Teams dark maps no route,
@@ -234,5 +234,45 @@ describe("getPageCount", () => {
     await expect(getPageCount("/teams/t2/questions")).rejects.toThrow(/no count/);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond('{"error":"gone"}', "application/json", 500)));
     await expect(getPageCount("/teams/t2/questions")).rejects.toThrow();
+  });
+});
+
+describe("createTeam", () => {
+  it("CreateTeam_Created_PostsTheNameAndReturnsTheTeamAsThePersonSeesIt", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      respond(
+        JSON.stringify({ team: { id: "t9", name: "Soren Test Team", role: "Owner", memberCount: 1, people: "1 person", app: FULL } }),
+        "application/json",
+        201,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const team = await createTeam("Soren Test Team");
+
+    expect(team).toEqual({ id: "t9", name: "Soren Test Team", role: "Owner", memberCount: 1, people: "1 person", app: FULL });
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/teams");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ name: "Soren Test Team" });
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+  });
+
+  it("CreateTeam_Refused_ThrowsWithTheGatewaysOwnSentence", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(JSON.stringify({ error: "A team needs a name." }), "application/json", 400)));
+
+    await expect(createTeam("")).rejects.toMatchObject({ status: 400, serverReason: "A team needs a name." });
+  });
+
+  it("CreateTeam_AnswerIsTheAppShell_ThrowsRatherThanReadingHtmlAsATeam", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond(APP_SHELL, "text/html")));
+
+    await expect(createTeam("Soren Test Team")).rejects.toMatchObject({ status: 502 });
+  });
+
+  it("CreateTeam_AnswerHasNoTeam_Throws", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(respond("{}", "application/json", 201)));
+
+    await expect(createTeam("Soren Test Team")).rejects.toMatchObject({ status: 502 });
   });
 });

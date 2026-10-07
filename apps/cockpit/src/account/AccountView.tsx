@@ -13,6 +13,7 @@ import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { AccountsPanel } from "@devthrottle/client-core/auth/AccountsPanel";
 import { useNavigate } from "react-router-dom";
 import { ErrorBanner, LoadingState, PageHeader } from "../components";
+import { TeamsSection } from "./TeamsSection";
 
 // The Account page (issue #978, epic #967) - the React port of the Blazor Cockpit Account.razor
 // (#853/#648/#854). A pure client of the Gateway account endpoints: the credential lives on the
@@ -198,6 +199,9 @@ export function AccountView() {
         <h2>Signed in on this browser</h2>
         <AccountsPanel onAddAccount={() => navigate("/signin")} />
       </section>
+
+      {/* The person's teams and Create a team (Teams v1). Nothing at all when this Gateway offers no teams. */}
+      <TeamsSection />
 
       <h2 className="acct-gateway-head">This Gateway's account</h2>
 
