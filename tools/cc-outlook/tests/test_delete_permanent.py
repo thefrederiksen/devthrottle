@@ -1,9 +1,11 @@
-"""Regression tests for issue #3604: delete --permanent was ignored and always
-moved the message to Deleted Items."""
+"""Regression tests for issue #3604: delete --permanent was ignored, so it did a
+plain Graph DELETE, which leaves the message restorable (measured: Recoverable
+Items, Deletions) instead of purging it."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 from typer.testing import CliRunner
 
 from src.cli import app
@@ -22,7 +24,7 @@ def _client_with_message():
 
 
 class TestDeleteMessage:
-    def test_delete_message_Default_MovesToDeletedItems(self):
+    def test_delete_message_Default_UsesGraphDelete(self):
         client, message = _client_with_message()
 
         client.delete_message("msg-1")
@@ -63,3 +65,14 @@ class TestDeleteMessage:
 
         assert result.exit_code == 0, result.output
         assert client.delete_message.call_args.kwargs["permanent"] is expected
+
+    def test_delete_cli_GraphHttpError_ExitsOneWithMessage(self):
+        # O365 raises on a 4xx/5xx by default (raise_http_errors=True), so this
+        # is the shape a real refusal takes.
+        client = MagicMock()
+        client.delete_message.side_effect = requests.HTTPError("404 Client Error: Not Found")
+        with patch("src.cli.get_client", return_value=client):
+            result = runner.invoke(app, ["delete", "msg-1", "-y", "--permanent"])
+
+        assert result.exit_code == 1
+        assert "404 Client Error" in result.output
