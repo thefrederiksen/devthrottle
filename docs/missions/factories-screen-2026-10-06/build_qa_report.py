@@ -31,7 +31,7 @@ HTML = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport
 </section>
 
 <section data-dev-report="summary">
-<p><b>Round 2, your feedback, is live:</b> every FAILING, NEEDS YOU and PAUSED row now says why; a failure stops counting once it is over; waiting items can be handled one by one or in bulk; a factory can be archived and restored, and Tallyhand is archived. Center Consulting offers Talk to Ruth Calder. Two questions below: the Director update, and whether I clear the 44 stale waiting items for you.</p>
+<p><b>Round 2, your feedback, is live:</b> every FAILING, NEEDS YOU and PAUSED row now says why; a failure stops counting once it is over; waiting items can be handled one by one or in bulk; a factory can be archived and restored, and Tallyhand is archived. Center Consulting offers Talk to Ruth Calder. At your word I marked the stale waiting items handled: 44 on Website Business and 1 on Machine Care, each recorded as your act; 19 newer decisions on Website Business stay, the Gmail sign-in among them. One question remains below: the Director update.</p>
 <p><b>The Factories screen is live and you can use it now.</b> The sidebar says Factories. The list shows all ten
 factories as one row each - name, what is waiting on you, one status word, and a Talk button for the CEO - worst
 first. Each factory has its own page with the goal, the goal number, what waits on you, the CEO's latest work, the
@@ -52,12 +52,6 @@ scheduled runs are in their factory today. Once you update it, I re-run the Talk
 <label><input type="radio" name="update-director" value="later"> Leave it for now; close the mission with Talk proved only up to the refusal.</label>
 <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
 </div>
-<div data-dev-report-question="bulk-clear" data-dev-report-question-text="Shall I mark the stale waiting items handled for you?">
-<h3>Website Business has 43 waiting items older than 7 days (since 21 September), Machine Care has 1 (23 September). Shall I mark them handled?</h3>
-<label><input type="radio" name="bulk-clear" value="lead-does-it" data-recommended> Yes, use "Mark everything older than 7 days as handled" on both for me - the newer items, including the Gmail sign-in, stay on the list.</label>
-<label><input type="radio" name="bulk-clear" value="owner-does-it"> No, I will look through them and press it myself.</label>
-<textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
-</div>
 </section>
 
 <section data-dev-report="detail">
@@ -67,10 +61,11 @@ scheduled runs are in their factory today. Once you update it, I re-run the Talk
 <ul>
 <li><b>A failure clears when it is over.</b> Yesterday's four keep-page 404s (12:02) no longer count: the same seat later succeeded for the same businesses. A failure that names no subject (for example "no CEO run had started") clears only when you press Handled - the review caught that such failures were vanishing three seconds later on the seat's own "I emailed the owner" row.</li>
 <li><b>Waiting on you is actionable:</b> each item with its text, time, seat, link and Handled; decisions first, newest first. The Gmail sign-in item is now second from the top on Website Business instead of buried.</li>
-<li><b>Bulk clear</b>, owner only, with a confirm that counts on the Gateway: 43 items on Website Business. I opened it and cancelled - it is your act (question above).</li>
+<li><b>Bulk clear</b>, owner only, with a confirm that counts on the Gateway. On your answer I used it on 7 October at 12:05 UTC: Website Business 44 items (one more had passed the 7-day line since I first opened it), Machine Care 1. Each item got its handled row and one row records your act and the count. Website Business keeps 19 newer decisions. Machine Care now shows FAILING for a new, real failure: its cleaner hit its one-hour run limit at 04:54 today.</li>
 <li><b>Archive a factory</b>, owner only. I archived Tallyhand as its first use, as asked: it is off the list, under Show archived with Restore, nothing deleted, recorded as your act. mindzie AI Reports now reads Talk to Max Ridley, since the name is no longer shared.</li>
 </ul>
-{img("r2-07-bulk-clear-confirm.png", "The bulk clear's confirm on Website Business, opened and cancelled.")}
+{img("r2-07-bulk-clear-confirm.png", "The bulk clear's confirm on Website Business (first opened and cancelled; used on your answer).")}
+{img("r2-11-list-after-bulk.png", "The list after the bulk clear: Website Business 19 decisions, Machine Care failing for today's cleaner run.")}
 {img("r2-02-archive-confirm.png", "Archive's confirm for Tallyhand: exactly what happens, before it happens.")}
 {img("r2-05-show-archived.png", "Tallyhand under Show archived, with Restore.")}
 <p><b>An incident on the way:</b> the first round 2 deploy broke the Factories area for about 25 minutes - the archive change added its database column for the local database only, not for the hosted one. I rolled production back with the rollback workflow, a fix added the hosted database's migration (proved on a real PostgreSQL), and it was redeployed. A guard for exactly this exists but sits in a test suite the default run skips; the fix's pull request proposes moving it.</p>
