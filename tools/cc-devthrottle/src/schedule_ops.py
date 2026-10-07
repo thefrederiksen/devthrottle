@@ -126,7 +126,9 @@ class ScheduleClient:
         raise GatewayError(self._gateway_message(resp))
 
     def list_jobs(self) -> List[Dict[str, Any]]:
-        data = self._ok_or_raise(self._request("GET", "/cron/jobs"))
+        # include=random: the Gateway lists random schedules (issue #3622) only to a caller that knows the kind,
+        # because a tool released before it refuses the whole list over one row it cannot read.
+        data = self._ok_or_raise(self._request("GET", "/cron/jobs?include=random"))
         # Absent is not empty: an answer with no list of jobs must never read as "no schedules".
         jobs = data.get("jobs") if isinstance(data, dict) else None
         if not isinstance(jobs, list):

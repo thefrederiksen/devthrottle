@@ -15,7 +15,7 @@ namespace CcDirector.Gateway.Api;
 /// cross-machine like the rest of the Gateway.
 ///
 ///   POST   /cron/jobs            body CronJobDto    -> 201 CronJobDto | 400
-///   GET    /cron/jobs            -> { jobs: [ CronJobDto ] }
+///   GET    /cron/jobs[?include=random] -> { jobs: [ CronJobDto ] } (random jobs only with the opt-in)
 ///   GET    /cron/jobs/{id}       -> CronJobDto | 404
 ///   GET    /cron/jobs/{id}/plan?days=N -> CronPlanDto | 400 (not random, bad days) | 404   (issue #3622)
 ///   PUT    /cron/jobs/{id}       body CronJobDto    -> 200 CronJobDto | 400 | 404
@@ -66,10 +66,19 @@ internal static class CronJobEndpoints
             return Results.Json(CronSchedule.StampDisplay(created, DateTime.UtcNow), statusCode: StatusCodes.Status201Created);
         });
 
-        app.MapGet("/cron/jobs", () =>
+        // RANDOM SCHEDULES ARE LISTED ONLY TO A CALLER THAT ASKS (issue #3622). Every cc-devthrottle released before
+        // the random kind refuses a whole `schedule list` when one row has a kind it does not know, so listing a
+        // random job to it would break the command for every agent until it is updated. A caller that knows the
+        // kind - the current CLI and the Cockpit - sends ?include=random; anyone else sees the list as it was.
+        app.MapGet("/cron/jobs", (HttpContext ctx) =>
         {
             var now = DateTime.UtcNow;
-            return Results.Json(new { jobs = store.ListAll().Select(j => CronSchedule.StampDisplay(j, now)).ToList() });
+            var includeRandom = IncludesRandom(ctx.Request.Query["include"].ToString());
+            var jobs = store.ListAll()
+                .Where(j => includeRandom || !CronSchedule.IsRandom(j.ScheduleKind))
+                .Select(j => CronSchedule.StampDisplay(j, now))
+                .ToList();
+            return Results.Json(new { jobs });
         });
 
         app.MapGet("/cron/jobs/{id}", (string id) =>
@@ -172,4 +181,9 @@ internal static class CronJobEndpoints
 
         FileLog.Write("[CronJobEndpoints] mapped /cron/jobs routes");
     }
+
+    /// <summary>True when the list's <c>include</c> query (comma-separated) names the random kind.</summary>
+    internal static bool IncludesRandom(string? include) =>
+        (include ?? "").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Any(CronSchedule.IsRandom);
 }

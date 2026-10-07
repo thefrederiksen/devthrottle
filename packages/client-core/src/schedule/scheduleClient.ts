@@ -90,7 +90,8 @@ async function gatewayErrorFrom(res: Response, label: string): Promise<GatewayEr
 
 // GET /cron/jobs -> { jobs: [ CronJobDto ] }. Read path: an empty list on a null/absent body.
 export async function getCronJobs(signal?: AbortSignal): Promise<CronJob[]> {
-  const res = await fetch("/cron/jobs", {
+  // include=random: random schedules (issue #3622) are listed only to a caller that knows the kind.
+  const res = await fetch("/cron/jobs?include=random", {
     method: "GET",
     headers: { Accept: "application/json", ...authHeaders() },
     signal,

@@ -147,7 +147,7 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         Assert.Equal("About 4 times a day at random, 07:00 to 01:00 (at least 45 min apart)", created.ScheduleText);
         Assert.NotNull(created.RemainingToday);
 
-        var listJson = await _http.GetStringAsync("cron/jobs");
+        var listJson = await _http.GetStringAsync("cron/jobs?include=random");
         Assert.Contains(created.Id, listJson);
         Assert.Contains("About 4 times a day at random", listJson);
 
@@ -164,6 +164,53 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, runResp.StatusCode);
         var run = JsonSerializer.Deserialize<CronRunRecord>(await runResp.Content.ReadAsStringAsync(), JsonOpts)!;
         Assert.False(string.IsNullOrEmpty(run.SessionId));
+    }
+
+    [Fact]
+    public async Task Rest_List_WithoutTheOptIn_LeavesRandomJobsOut_AndStillParses()
+    {
+        var random = _store.Create(RandomJob());
+        var recurring = RandomJob("nightly");
+        recurring.ScheduleKind = CronSchedule.KindRecurring;
+        recurring.CronExpression = "0 0 * * *";
+        var cron = _store.Create(recurring);
+
+        // A command-line tool released before the random kind calls the plain route and must see what it always did.
+        var plain = await ListAsync("cron/jobs");
+        Assert.Equal(new[] { cron.Id }, plain.Select(j => j.Id));
+        Assert.All(plain, j => Assert.Contains(j.ScheduleKind, new[] { "recurring", "oneOff" }));
+
+        // An opt-in naming some other word is no opt-in.
+        Assert.Equal(new[] { cron.Id }, (await ListAsync("cron/jobs?include=everything")).Select(j => j.Id));
+    }
+
+    [Fact]
+    public async Task Rest_List_WithTheOptIn_IncludesRandomJobs()
+    {
+        var random = _store.Create(RandomJob());
+        var recurring = RandomJob("nightly");
+        recurring.ScheduleKind = CronSchedule.KindRecurring;
+        recurring.CronExpression = "0 0 * * *";
+        var cron = _store.Create(recurring);
+
+        foreach (var url in new[] { "cron/jobs?include=random", "cron/jobs?include=other,Random" })
+        {
+            var listed = await ListAsync(url);
+            Assert.Equal(new[] { cron.Id, random.Id }.OrderBy(i => i), listed.Select(j => j.Id).OrderBy(i => i));
+            Assert.Equal("About 4 times a day at random, 07:00 to 01:00 (at least 45 min apart)",
+                listed.Single(j => j.Id == random.Id).ScheduleText);
+        }
+
+        // A direct read of a random job needs no opt-in.
+        Assert.Equal(HttpStatusCode.OK, (await _http.GetAsync($"cron/jobs/{random.Id}")).StatusCode);
+    }
+
+    private async Task<List<CronJobDto>> ListAsync(string url)
+    {
+        var resp = await _http.GetAsync(url);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        return JsonSerializer.Deserialize<List<CronJobDto>>(doc.RootElement.GetProperty("jobs").GetRawText(), JsonOpts)!;
     }
 
     [Fact]
