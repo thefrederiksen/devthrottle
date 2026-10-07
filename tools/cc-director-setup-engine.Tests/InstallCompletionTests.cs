@@ -60,4 +60,13 @@ public sealed class InstallCompletionTests
     [Fact]
     public void OpensDirectorOnClose_DirectorNotInstalled_IsFalse()
         => Assert.False(InstallCompletion.OpensDirectorOnClose(isUpdate: false, directorAlreadyOpened: false, directorInstalled: false));
+
+    // Issue #3503: a desktop shortcut on a first install, never on an update - an update must not
+    // put back an icon the person deleted.
+    [Fact]
+    public void CreatesDesktopShortcut_FirstInstallOnly()
+    {
+        Assert.True(InstallCompletion.CreatesDesktopShortcut(isUpdate: false));
+        Assert.False(InstallCompletion.CreatesDesktopShortcut(isUpdate: true));
+    }
 }

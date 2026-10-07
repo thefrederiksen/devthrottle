@@ -67,4 +67,43 @@ public sealed class DesktopShortcutTests : IDisposable
 
         Assert.Contains(plan, t => t.Kind == UninstallKind.Shortcut && t.Path == InstallFinalizer.DesktopShortcutPath());
     }
+
+    // The plan and the removal read ONE list; the desktop shortcut has to be on it, or uninstall
+    // leaves it behind.
+    [Fact]
+    public void ShortcutFiles_Windows_IncludesTheDesktopShortcut()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        Assert.Contains(Uninstaller.ShortcutFiles(), f => f.Path == InstallFinalizer.DesktopShortcutPath());
+        Assert.Contains(Uninstaller.ShortcutFiles(), f => f.Path == InstallFinalizer.StartMenuShortcutPath());
+    }
+
+    // Removal actually deletes the file - proven on a temp file, never the real desktop.
+    [Fact]
+    public void RemoveShortcutFile_Present_DeletesItAndSaysSo()
+    {
+        var lnk = Path.Combine(_dir, "DevThrottle.lnk");
+        File.WriteAllText(lnk, "stand-in shortcut");
+        var steps = new List<string>();
+        var errors = new List<string>();
+
+        Uninstaller.RemoveShortcutFile("Desktop shortcut", lnk, steps, errors);
+
+        Assert.False(File.Exists(lnk));
+        Assert.Empty(errors);
+        Assert.Contains(steps, s => s.StartsWith("removed Desktop shortcut", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RemoveShortcutFile_Absent_ReportsNotPresent()
+    {
+        var steps = new List<string>();
+        var errors = new List<string>();
+
+        Uninstaller.RemoveShortcutFile("Desktop shortcut", Path.Combine(_dir, "missing.lnk"), steps, errors);
+
+        Assert.Empty(errors);
+        Assert.Contains("Desktop shortcut: not present", steps);
+    }
 }

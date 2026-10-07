@@ -70,4 +70,12 @@ public static class InstallCompletion
     /// <param name="directorInstalled">Is the Director's executable on disk? A failed Director install has nothing to open.</param>
     public static bool OpensDirectorOnClose(bool isUpdate, bool directorAlreadyOpened, bool directorInstalled)
         => !isUpdate && !directorAlreadyOpened && directorInstalled;
+
+    /// <summary>
+    /// Does this pass put a DevThrottle shortcut on the desktop? On a first install, yes: the Start Menu
+    /// alone left a person who closed the wizard with no icon to find their way back by (issue #3503).
+    /// An update does not, so it can never put back an icon the person deleted.
+    /// </summary>
+    /// <param name="isUpdate">Was the product already installed when the wizard started?</param>
+    public static bool CreatesDesktopShortcut(bool isUpdate) => !isUpdate;
 }

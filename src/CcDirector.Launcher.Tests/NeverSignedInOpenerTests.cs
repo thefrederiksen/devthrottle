@@ -10,8 +10,11 @@ namespace CcDirector.Launcher.Tests;
 /// screen - the launcher autostarted into the tray overflow and never opened the Director. The
 /// launcher now opens it at sign-in to Windows until the machine signs in, and only then.
 /// </summary>
-public sealed class NeverSignedInOpenerTests
+[Collection(LauncherOptionsCollection.Name)]
+public sealed class NeverSignedInOpenerTests : IDisposable
 {
+    public void Dispose() => LauncherAppOptions.Parse([]);
+
     [Fact]
     public void ShouldOpen_AtLoginAndNeverSignedIn_IsTrue()
         => Assert.True(NeverSignedInOpener.ShouldOpen(startedAtLogin: true, signedIn: false));
@@ -32,8 +35,9 @@ public sealed class NeverSignedInOpenerTests
     {
         var supervisor = new DirectorSupervisor(TempLayout());
         var config = new GatewayConfig { Url = "https://gateway.example", Token = "device-key" };
+        LauncherAppOptions.Parse(["--managed", "--at-login"]);
 
-        Assert.False(NeverSignedInOpener.OpenIfNeverSignedIn(startedAtLogin: true, config, supervisor));
+        Assert.False(NeverSignedInOpener.OpenIfNeverSignedIn(config, supervisor));
     }
 
     // Never signed in but the Director is not on disk: there is nothing to open, and it must not throw
@@ -42,8 +46,9 @@ public sealed class NeverSignedInOpenerTests
     public void OpenIfNeverSignedIn_NoDirectorInstalled_StartsNothing()
     {
         var supervisor = new DirectorSupervisor(TempLayout());
+        LauncherAppOptions.Parse(["--managed", "--at-login"]);
 
-        Assert.False(NeverSignedInOpener.OpenIfNeverSignedIn(startedAtLogin: true, new GatewayConfig(), supervisor));
+        Assert.False(NeverSignedInOpener.OpenIfNeverSignedIn(new GatewayConfig(), supervisor));
     }
 
     // The Windows autostart entry is what tells the launcher it was started at sign-in. Without the

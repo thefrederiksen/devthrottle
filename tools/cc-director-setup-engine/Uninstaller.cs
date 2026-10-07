@@ -65,7 +65,18 @@ public sealed class Uninstaller
         return dirs;
     }
 
-    private static string ShortcutPath() => InstallFinalizer.StartMenuShortcutPath();
+    /// <summary>
+    /// Every shortcut the install writes on Windows and macOS: the Start Menu one, plus the desktop one a
+    /// first install adds on Windows (issue #3503). The plan and the removal both read this one list,
+    /// so a shortcut cannot be planned and then not removed.
+    /// </summary>
+    internal static IReadOnlyList<(string What, string Path)> ShortcutFiles()
+    {
+        var files = new List<(string, string)> { ("Start Menu shortcut", InstallFinalizer.StartMenuShortcutPath()) };
+        if (OperatingSystem.IsWindows())
+            files.Add(("Desktop shortcut", InstallFinalizer.DesktopShortcutPath()));
+        return files;
+    }
 
     /// <summary>What an uninstall would remove (existence-checked). Pure: no side effects.</summary>
     public IReadOnlyList<UninstallTarget> Plan(InstallRole role)
@@ -97,14 +108,8 @@ public sealed class Uninstaller
         }
         else
         {
-            var lnk = ShortcutPath();
-            targets.Add(new UninstallTarget(UninstallKind.Shortcut, "Start Menu shortcut", lnk, File.Exists(lnk)));
-            // A first install also puts one on the desktop (issue #3503); uninstall takes it away again.
-            if (OperatingSystem.IsWindows())
-            {
-                var desktop = InstallFinalizer.DesktopShortcutPath();
-                targets.Add(new UninstallTarget(UninstallKind.Shortcut, "Desktop shortcut", desktop, File.Exists(desktop)));
-            }
+            foreach (var (what, lnk) in ShortcutFiles())
+                targets.Add(new UninstallTarget(UninstallKind.Shortcut, what, lnk, File.Exists(lnk)));
         }
 
         // Add/Remove Programs registration (issue #257), Windows only. Cheap registry read.
@@ -593,12 +598,11 @@ public sealed class Uninstaller
 
     private void RemoveShortcut(List<string> steps, List<string> errors)
     {
-        RemoveShortcutFile("Start Menu shortcut", ShortcutPath(), steps, errors);
-        if (OperatingSystem.IsWindows())
-            RemoveShortcutFile("Desktop shortcut", InstallFinalizer.DesktopShortcutPath(), steps, errors);
+        foreach (var (what, lnk) in ShortcutFiles())
+            RemoveShortcutFile(what, lnk, steps, errors);
     }
 
-    private static void RemoveShortcutFile(string what, string lnk, List<string> steps, List<string> errors)
+    internal static void RemoveShortcutFile(string what, string lnk, List<string> steps, List<string> errors)
     {
         if (!File.Exists(lnk)) { steps.Add($"{what}: not present"); return; }
         try { File.Delete(lnk); steps.Add($"removed {what}: {lnk}"); }

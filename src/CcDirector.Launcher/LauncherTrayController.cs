@@ -77,7 +77,7 @@ public sealed class LauncherTrayController : IDisposable
     {
         try
         {
-            NeverSignedInOpener.OpenIfNeverSignedIn(LauncherAppOptions.AtLogin, GatewayConfig.Load(), new DirectorSupervisor());
+            NeverSignedInOpener.OpenIfNeverSignedIn(GatewayConfig.Load(), new DirectorSupervisor());
         }
         catch (Exception ex)
         {

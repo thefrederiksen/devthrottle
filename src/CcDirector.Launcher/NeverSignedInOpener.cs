@@ -23,18 +23,27 @@ public static class NeverSignedInOpener
     public static bool ShouldOpen(bool startedAtLogin, bool signedIn) => startedAtLogin && !signedIn;
 
     /// <summary>
+    /// The rule for THIS launch: whether the parsed command line (<see cref="LauncherAppOptions.AtLogin"/>)
+    /// says it was started at sign-in to Windows, against this machine's credential.
+    /// </summary>
+    public static bool ShouldOpenForThisLaunch(GatewayConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return ShouldOpen(LauncherAppOptions.AtLogin, config.HasCredential);
+    }
+
+    /// <summary>
     /// Apply the rule to this machine. Returns true when a Director was started. Does file reads and
     /// starts a process, so callers run it off the user-interface thread.
     /// </summary>
-    public static bool OpenIfNeverSignedIn(bool startedAtLogin, GatewayConfig config, DirectorSupervisor supervisor)
+    public static bool OpenIfNeverSignedIn(GatewayConfig config, DirectorSupervisor supervisor)
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(supervisor);
 
-        var signedIn = config.HasCredential;
-        if (!ShouldOpen(startedAtLogin, signedIn))
+        if (!ShouldOpenForThisLaunch(config))
         {
-            FileLog.Write($"[NeverSignedInOpener] not opening the Director: startedAtLogin={startedAtLogin}, signedIn={signedIn}");
+            FileLog.Write($"[NeverSignedInOpener] not opening the Director: startedAtLogin={LauncherAppOptions.AtLogin}, signedIn={config.HasCredential}");
             return false;
         }
 

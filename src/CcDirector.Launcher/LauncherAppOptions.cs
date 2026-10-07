@@ -47,6 +47,11 @@ public static class LauncherAppOptions
     /// autostart entry written by an older build (which could carry --port) still starts this one.</summary>
     public static void Parse(string[] args)
     {
+        // Every flag starts from its default, so the options always describe THESE arguments and
+        // nothing left over from an earlier parse.
+        RegisterAutostart = true;
+        Managed = false;
+        AtLogin = false;
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--no-autostart")

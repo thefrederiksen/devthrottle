@@ -327,7 +327,7 @@ public partial class MainWindow : Window
         var runner = new EngineInstallRunner
         {
             OnProcessBlocking = OnProcessBlockingAsync,
-            CreateDesktopShortcut = !_isUpdate,
+            CreateDesktopShortcut = InstallCompletion.CreatesDesktopShortcut(_isUpdate),
         };
         _installPath = runner.BinDir;
         _directorExePath = runner.AppExePath;
@@ -441,7 +441,7 @@ public partial class MainWindow : Window
         var runner = new EngineInstallRunner
         {
             OnProcessBlocking = OnProcessBlockingAsync,
-            CreateDesktopShortcut = !_isUpdate,
+            CreateDesktopShortcut = InstallCompletion.CreatesDesktopShortcut(_isUpdate),
         };
         _installPath = runner.BinDir;
         _directorExePath = runner.AppExePath;
