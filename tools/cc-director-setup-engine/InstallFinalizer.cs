@@ -87,18 +87,55 @@ public static class InstallFinalizer
         }
     }
 
+    /// <summary>The Director's Start Menu shortcut. The uninstaller removes exactly this file.</summary>
+    public static string StartMenuShortcutPath() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "DevThrottle.lnk");
+
+    /// <summary>The Director's desktop shortcut. The uninstaller removes exactly this file.</summary>
+    public static string DesktopShortcutPath() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "DevThrottle.lnk");
+
     /// <summary>Create (or overwrite) the Start Menu shortcut for the Director. No-op if its exe is absent.</summary>
     [SupportedOSPlatform("windows")]
     public static bool CreateDirectorShortcut(InstallLayout layout)
     {
         ArgumentNullException.ThrowIfNull(layout);
-        var exe = layout.PathFor(ComponentRegistry.Director);
-        if (!File.Exists(exe)) return false;
+        return WriteDirectorShortcut(layout, StartMenuShortcutPath());
+    }
 
-        var programsDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs");
-        Directory.CreateDirectory(programsDir);
-        var lnk = Path.Combine(programsDir, "DevThrottle.lnk");
+    /// <summary>
+    /// Create (or overwrite) a desktop shortcut for the Director. No-op if its exe is absent.
+    ///
+    /// The Start Menu shortcut alone left a person who closed the wizard with nothing they could SEE
+    /// (issue #3503): the only way back was to know to search the Start menu. Every other app on the
+    /// machine puts an icon on the desktop at install time, and so does this one now.
+    ///
+    /// Only the wizard calls this, and only on a first install. An update must not put back an icon
+    /// the person deleted, and the setup command line serves agents and scripts, not a person
+    /// looking at a desktop.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static bool CreateDesktopShortcut(InstallLayout layout) => CreateDesktopShortcut(layout, DesktopShortcutPath());
+
+    /// <summary><see cref="CreateDesktopShortcut(InstallLayout)"/> at a chosen path, so a test never writes to the real desktop.</summary>
+    [SupportedOSPlatform("windows")]
+    internal static bool CreateDesktopShortcut(InstallLayout layout, string lnk)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        return WriteDirectorShortcut(layout, lnk);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool WriteDirectorShortcut(InstallLayout layout, string lnk)
+    {
+        var exe = layout.PathFor(ComponentRegistry.Director);
+        if (!File.Exists(exe))
+        {
+            EngineLog.Write($"[InstallFinalizer] no shortcut written, the Director is not installed at {exe}: {lnk}");
+            return false;
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(lnk)!);
 
         var shellType = Type.GetTypeFromProgID("WScript.Shell")
             ?? throw new InvalidOperationException("WScript.Shell COM object not available.");

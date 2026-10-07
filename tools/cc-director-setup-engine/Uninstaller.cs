@@ -65,9 +65,7 @@ public sealed class Uninstaller
         return dirs;
     }
 
-    private string ShortcutPath() =>
-        System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "DevThrottle.lnk");
+    private static string ShortcutPath() => InstallFinalizer.StartMenuShortcutPath();
 
     /// <summary>What an uninstall would remove (existence-checked). Pure: no side effects.</summary>
     public IReadOnlyList<UninstallTarget> Plan(InstallRole role)
@@ -101,6 +99,12 @@ public sealed class Uninstaller
         {
             var lnk = ShortcutPath();
             targets.Add(new UninstallTarget(UninstallKind.Shortcut, "Start Menu shortcut", lnk, File.Exists(lnk)));
+            // A first install also puts one on the desktop (issue #3503); uninstall takes it away again.
+            if (OperatingSystem.IsWindows())
+            {
+                var desktop = InstallFinalizer.DesktopShortcutPath();
+                targets.Add(new UninstallTarget(UninstallKind.Shortcut, "Desktop shortcut", desktop, File.Exists(desktop)));
+            }
         }
 
         // Add/Remove Programs registration (issue #257), Windows only. Cheap registry read.
@@ -216,7 +220,7 @@ public sealed class Uninstaller
         }
         else
         {
-            progress?.Report("Removing the Start Menu shortcut");
+            progress?.Report("Removing the shortcuts");
             RemoveShortcut(steps, errors);
         }
 
@@ -589,10 +593,16 @@ public sealed class Uninstaller
 
     private void RemoveShortcut(List<string> steps, List<string> errors)
     {
-        var lnk = ShortcutPath();
-        if (!File.Exists(lnk)) { steps.Add("Start Menu shortcut: not present"); return; }
-        try { File.Delete(lnk); steps.Add($"removed Start Menu shortcut: {lnk}"); }
-        catch (Exception ex) { errors.Add($"shortcut ({lnk}): {ex.Message}"); }
+        RemoveShortcutFile("Start Menu shortcut", ShortcutPath(), steps, errors);
+        if (OperatingSystem.IsWindows())
+            RemoveShortcutFile("Desktop shortcut", InstallFinalizer.DesktopShortcutPath(), steps, errors);
+    }
+
+    private static void RemoveShortcutFile(string what, string lnk, List<string> steps, List<string> errors)
+    {
+        if (!File.Exists(lnk)) { steps.Add($"{what}: not present"); return; }
+        try { File.Delete(lnk); steps.Add($"removed {what}: {lnk}"); }
+        catch (Exception ex) { errors.Add($"{what} ({lnk}): {ex.Message}"); }
     }
 
     /// <summary>Return <paramref name="path"/> with <paramref name="dir"/> removed (case-insensitive). Pure.</summary>

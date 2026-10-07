@@ -148,6 +148,13 @@ public sealed class GatewayConfig
     public bool IsEnabled => !string.IsNullOrWhiteSpace(Url);
 
     /// <summary>
+    /// Has this machine signed in: a Gateway to talk to AND a credential to present to it. A machine
+    /// that installed but never signed in has neither. The error reporter decides where errors go by
+    /// this, and the launcher decides whether to open the Director at sign-in to Windows by it.
+    /// </summary>
+    public bool HasCredential => IsEnabled && !string.IsNullOrWhiteSpace(Token);
+
+    /// <summary>
     /// Read the gateway block from <c>config.json</c>. Returns a disabled config
     /// (IsEnabled = false) when the file is missing, malformed, or has no gateway block.
     /// </summary>

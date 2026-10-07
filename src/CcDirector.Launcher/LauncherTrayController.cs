@@ -66,6 +66,23 @@ public sealed class LauncherTrayController : IDisposable
 
         if (LauncherAppOptions.Managed)
             _ = LauncherCore.RunUpdateLoopAsync(_lifetime.Token);
+
+        // A machine that has never signed in gets its Director opened at sign-in to Windows, so the
+        // sign-in screen is on screen instead of nothing (issue #3503). Off the UI thread: it reads
+        // the config and the instance registration and starts a process.
+        _ = Task.Run(OpenDirectorIfNeverSignedIn);
+    }
+
+    private static void OpenDirectorIfNeverSignedIn()
+    {
+        try
+        {
+            NeverSignedInOpener.OpenIfNeverSignedIn(LauncherAppOptions.AtLogin, GatewayConfig.Load(), new DirectorSupervisor());
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[LauncherTrayController] OpenDirectorIfNeverSignedIn FAILED: {ex}");
+        }
     }
 
     /// <summary>

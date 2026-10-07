@@ -327,6 +327,7 @@ public partial class MainWindow : Window
         var runner = new EngineInstallRunner
         {
             OnProcessBlocking = OnProcessBlockingAsync,
+            CreateDesktopShortcut = !_isUpdate,
         };
         _installPath = runner.BinDir;
         _directorExePath = runner.AppExePath;
@@ -440,6 +441,7 @@ public partial class MainWindow : Window
         var runner = new EngineInstallRunner
         {
             OnProcessBlocking = OnProcessBlockingAsync,
+            CreateDesktopShortcut = !_isUpdate,
         };
         _installPath = runner.BinDir;
         _directorExePath = runner.AppExePath;
@@ -579,6 +581,25 @@ public partial class MainWindow : Window
     {
         if (_currentStep > 1)
             ShowStep(PrevStep(_currentStep));
+    }
+
+    /// <summary>
+    /// Closing the wizard on the Complete screen of a first install opens the Director, by whatever
+    /// route the window is closed - the Close button or the title bar. Close used to end the install
+    /// with nothing on screen and the machine never signed in (issue #3503). The rule is
+    /// <see cref="InstallCompletion.OpensDirectorOnClose"/>; this only gathers its facts.
+    /// </summary>
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        if (_currentStep == StepComplete && _completeStep is { } complete)
+        {
+            var opens = InstallCompletion.OpensDirectorOnClose(
+                _isUpdate, complete.DirectorOpened, File.Exists(_directorExePath));
+            SetupLog.Write($"[MainWindow] OnClosing on Complete: isUpdate={_isUpdate}, " +
+                           $"directorOpened={complete.DirectorOpened}, opensDirector={opens}");
+            if (opens) complete.OpenDirector();
+        }
+        base.OnClosing(e);
     }
 
     private void NextButton_Click(object sender, RoutedEventArgs e)

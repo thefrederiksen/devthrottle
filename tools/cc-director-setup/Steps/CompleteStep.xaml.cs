@@ -202,16 +202,31 @@ public partial class CompleteStep : UserControl
         }
     }
 
+    /// <summary>True once this screen has started the Director, by the button or on close.</summary>
+    public bool DirectorOpened { get; private set; }
+
     private void LaunchButton_Click(object sender, RoutedEventArgs e)
     {
         SetupLog.Write("[CompleteStep] LaunchButton_Click");
+        if (OpenDirector())
+            Window.GetWindow(this)?.Close();
+    }
+
+    /// <summary>
+    /// Start the installed Director with a PATH read fresh from the registry, so it sees the tools
+    /// directory this install just added. Returns whether it was started. Used by the Open Director
+    /// button and, on a first install, by the wizard closing (issue #3503).
+    /// </summary>
+    public bool OpenDirector()
+    {
+        SetupLog.Write($"[CompleteStep] OpenDirector: {_directorExePath}");
 
         // The Director installs to the app dir (app\cc-director.exe), not the tools bin dir.
         var exePath = _directorExePath;
         if (!File.Exists(exePath))
         {
             SetupLog.Write($"[CompleteStep] cc-director.exe not found at {exePath}");
-            return;
+            return false;
         }
 
         try
@@ -231,14 +246,14 @@ public partial class CompleteStep : UserControl
             }
 
             Process.Start(psi);
-            SetupLog.Write("[CompleteStep] LaunchButton_Click: cc-director launched");
-
-            // Close the setup wizard
-            Window.GetWindow(this)?.Close();
+            DirectorOpened = true;
+            SetupLog.Write("[CompleteStep] OpenDirector: cc-director launched");
+            return true;
         }
         catch (Exception ex)
         {
-            SetupLog.Write($"[CompleteStep] LaunchButton_Click FAILED: {ex.Message}");
+            SetupLog.Write($"[CompleteStep] OpenDirector FAILED: {ex.Message}");
+            return false;
         }
     }
 

@@ -39,4 +39,25 @@ public sealed class InstallCompletionTests
     {
         Assert.False(InstallCompletion.IsReadyToGo(skipped: 1, anyCodingAgentPresent: true));
     }
+
+    // Issue #3503: Close on a first install used to end with nothing on screen and a machine that
+    // never signed in. On a first install, closing the wizard opens the Director.
+    [Fact]
+    public void OpensDirectorOnClose_FirstInstallNotYetOpened_IsTrue()
+        => Assert.True(InstallCompletion.OpensDirectorOnClose(isUpdate: false, directorAlreadyOpened: false, directorInstalled: true));
+
+    // Open Director already started it - closing must not start a second one.
+    [Fact]
+    public void OpensDirectorOnClose_AlreadyOpened_IsFalse()
+        => Assert.False(InstallCompletion.OpensDirectorOnClose(isUpdate: false, directorAlreadyOpened: true, directorInstalled: true));
+
+    // An update: the person knows where the app is, and may have closed it on purpose.
+    [Fact]
+    public void OpensDirectorOnClose_Update_IsFalse()
+        => Assert.False(InstallCompletion.OpensDirectorOnClose(isUpdate: true, directorAlreadyOpened: false, directorInstalled: true));
+
+    // The Director failed to install: nothing to open.
+    [Fact]
+    public void OpensDirectorOnClose_DirectorNotInstalled_IsFalse()
+        => Assert.False(InstallCompletion.OpensDirectorOnClose(isUpdate: false, directorAlreadyOpened: false, directorInstalled: false));
 }
