@@ -21,10 +21,16 @@ name: Deploy hosted Gateway
 # The way back to zero-outage deploys is a slot-capable plan (Premium v3 P0v3, 4 GB, $57 a month) plus the
 # warmed-swap version of this file, which is in git history before this change.
 #
-# It does NOT provision resources or set app settings (the resource group, ACR, plan, storage mount and the
+# It does NOT provision resources (the resource group, ACR, plan, storage mount and the
 # CC_GATEWAY_DB_CONNECTION are already provisioned - see docs/architecture/step3-azure-deploy in
 # devthrottle_internal - and persist across deploys), so this workflow needs NO stored secrets - only an
 # Azure OIDC federated login as the devthrottle-hosted-gateway service principal.
+#
+# It sets EXACTLY TWO app settings, and only when asked: the Teams switches CC_GATEWAY_TEAMS and
+# CC_GATEWAY_TEAM_MENTOR, through the `teams` and `team_mentor` inputs below. Each input is on, off or
+# unchanged (the default); unchanged writes nothing. This is the only supported way to change those two
+# settings - never `az` by hand and never the Portal. The write happens inside the measured deploy step,
+# just before the new image is pinned, so the outage this run reports covers the settings change too.
 #
 # If a deploy ships bad code, rollback-hosted-gateway.yml pins a previous commit's image the same way.
 #
@@ -52,6 +58,20 @@ on:
   # `gh workflow run`. Nothing here deploys on a push; committing to main never touches production.
   # The branch/tag picked when starting the run is the commit that ships.
   workflow_dispatch:
+    inputs:
+      # The Teams switches (devthrottle_internal#2311). The Gateway turns a switch on only for the exact
+      # value 1 (TeamsReleaseSwitch.Parse, TeamMentorSwitch.Decide); on writes 1, off writes 0, and
+      # unchanged writes nothing at all. Example: gh workflow run deploy-hosted-gateway.yml --ref main -f teams=on
+      teams:
+        description: 'Teams (CC_GATEWAY_TEAMS): on writes 1, off writes 0, unchanged leaves the setting alone.'
+        type: choice
+        options: [unchanged, 'on', 'off']
+        default: unchanged
+      team_mentor:
+        description: 'Team Mentor weekly writer (CC_GATEWAY_TEAM_MENTOR): on writes 1, off writes 0, unchanged leaves it alone. Does nothing unless Teams is also on.'
+        type: choice
+        options: [unchanged, 'on', 'off']
+        default: unchanged
 
 permissions:
   id-token: write   # required for the Azure OIDC login
@@ -323,6 +343,43 @@ jobs:
           echo "image=$IMG" >> "$GITHUB_OUTPUT"
           echo "Outgoing live image: $IMG"
 
+      # THE TEAMS SWITCHES, BEFORE. Reads the two settings production has now and turns each input into the
+      # value to write (on -> 1, off -> 0, unchanged -> nothing). This step only READS; the write is inside
+      # the deploy step below, so the restart that pins the new image is the one that applies the settings
+      # and the outage measured there covers both. ONLY these two names are read and printed: every other
+      # app setting on this site may be a secret, and this repository is public.
+      - name: Read the Teams switches before the deploy
+        id: teams_before
+        env:
+          TEAMS_INPUT: ${{ inputs.teams }}
+          MENTOR_INPUT: ${{ inputs.team_mentor }}
+        run: |
+          set -euo pipefail
+          to_value() {
+            case "$1" in
+              on) echo 1 ;;
+              off) echo 0 ;;
+              unchanged) echo '' ;;
+              *) echo "REFUSED: '$1' is not one of on, off, unchanged." >&2; return 1 ;;
+            esac
+          }
+          read_setting() {
+            az webapp config appsettings list --resource-group "$AZURE_RG" --name "$APP" \
+              --query "[?name=='$1'].value | [0]" --output tsv
+          }
+          teams_new=$(to_value "${TEAMS_INPUT:-unchanged}")
+          mentor_new=$(to_value "${MENTOR_INPUT:-unchanged}")
+          teams_old=$(read_setting CC_GATEWAY_TEAMS)
+          mentor_old=$(read_setting CC_GATEWAY_TEAM_MENTOR)
+          {
+            echo "teams_new=$teams_new"
+            echo "mentor_new=$mentor_new"
+            echo "teams_old=$teams_old"
+            echo "mentor_old=$mentor_old"
+          } >> "$GITHUB_OUTPUT"
+          echo "CC_GATEWAY_TEAMS now: ${teams_old:-<unset>}; requested: ${TEAMS_INPUT:-unchanged}${teams_new:+ (write $teams_new)}"
+          echo "CC_GATEWAY_TEAM_MENTOR now: ${mentor_old:-<unset>}; requested: ${MENTOR_INPUT:-unchanged}${mentor_new:+ (write $mentor_new)}"
+
       # Deploy IN PLACE and MEASURE the outage the way a user experiences it. Pinning the new digest on the
       # production site makes the platform pull the image and restart the site on it, so the outage IS the
       # new container's start-up. A background poller on the production URL runs across the whole change,
@@ -365,6 +422,28 @@ jobs:
           fi
 
           t_deploy=$(date +%s)
+
+          # The Teams switches, written HERE - after every refusal, inside the serialisation group, with the
+          # poller already running and immediately before the image pin - so the outage measured below
+          # covers the settings change as well as the new container. Both changed switches go in ONE call.
+          # An unchanged input contributes nothing; when both are unchanged there is no appsettings call at
+          # all. Writing an app setting restarts the site by itself, so the old container may be recycled
+          # seconds before the pin replaces it; that falls inside the measured gap, not after it.
+          SETTINGS=()
+          if [ -n "${{ steps.teams_before.outputs.teams_new }}" ]; then
+            SETTINGS+=("CC_GATEWAY_TEAMS=${{ steps.teams_before.outputs.teams_new }}")
+          fi
+          if [ -n "${{ steps.teams_before.outputs.mentor_new }}" ]; then
+            SETTINGS+=("CC_GATEWAY_TEAM_MENTOR=${{ steps.teams_before.outputs.mentor_new }}")
+          fi
+          if [ "${#SETTINGS[@]}" -gt 0 ]; then
+            az webapp config appsettings set --resource-group "$AZURE_RG" --name "$APP" \
+              --settings "${SETTINGS[@]}" --output none
+            echo "Teams switches written: ${SETTINGS[*]}"
+          else
+            echo "Teams switches: both unchanged, no app setting written."
+          fi
+
           az webapp config container set --resource-group "$AZURE_RG" --name "$APP" \
             --docker-custom-image-name "$REF" --output none
           echo "Production pinned to $REF at $(date -u +%H:%M:%S); waiting for it to serve commit $TARGET..."
@@ -443,6 +522,48 @@ jobs:
             echo "for the next ten minutes, and that number is real."
           fi
           curl -s -m 15 "${GATEWAY_URL}/healthz"; echo
+
+      # THE TEAMS SWITCHES, AFTER. Reads the same two settings back and writes before, requested and after to
+      # the run summary - values of these two names only. A switch that was asked for and is not what
+      # production now holds fails the run. Runs even when the deploy step failed, so a half-done run still
+      # says what production's switches are.
+      - name: Report the Teams switches
+        if: always() && steps.teams_before.outcome == 'success'
+        env:
+          TEAMS_INPUT: ${{ inputs.teams }}
+          MENTOR_INPUT: ${{ inputs.team_mentor }}
+          TEAMS_OLD: ${{ steps.teams_before.outputs.teams_old }}
+          MENTOR_OLD: ${{ steps.teams_before.outputs.mentor_old }}
+          TEAMS_NEW: ${{ steps.teams_before.outputs.teams_new }}
+          MENTOR_NEW: ${{ steps.teams_before.outputs.mentor_new }}
+        run: |
+          set -euo pipefail
+          read_setting() {
+            az webapp config appsettings list --resource-group "$AZURE_RG" --name "$APP" \
+              --query "[?name=='$1'].value | [0]" --output tsv
+          }
+          teams_after=$(read_setting CC_GATEWAY_TEAMS)
+          mentor_after=$(read_setting CC_GATEWAY_TEAM_MENTOR)
+          {
+            echo "### Teams switches"
+            echo ""
+            echo "| Setting | Before | Requested | After |"
+            echo "|---|---|---|---|"
+            echo "| CC_GATEWAY_TEAMS | ${TEAMS_OLD:-unset} | ${TEAMS_INPUT:-unchanged} | ${teams_after:-unset} |"
+            echo "| CC_GATEWAY_TEAM_MENTOR | ${MENTOR_OLD:-unset} | ${MENTOR_INPUT:-unchanged} | ${mentor_after:-unset} |"
+            echo ""
+            echo "The Gateway reads a switch as on only when it is exactly 1. The Mentor's writer runs only when both are 1."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "CC_GATEWAY_TEAMS: before ${TEAMS_OLD:-<unset>}, after ${teams_after:-<unset>}"
+          echo "CC_GATEWAY_TEAM_MENTOR: before ${MENTOR_OLD:-<unset>}, after ${mentor_after:-<unset>}"
+          bad=0
+          if [ -n "$TEAMS_NEW" ] && [ "$teams_after" != "$TEAMS_NEW" ]; then
+            echo "ERROR: CC_GATEWAY_TEAMS was requested as $TEAMS_NEW and production holds '${teams_after}'."; bad=1
+          fi
+          if [ -n "$MENTOR_NEW" ] && [ "$mentor_after" != "$MENTOR_NEW" ]; then
+            echo "ERROR: CC_GATEWAY_TEAM_MENTOR was requested as $MENTOR_NEW and production holds '${mentor_after}'."; bad=1
+          fi
+          exit "$bad"
 
       # The watch job runs on a DIFFERENT runner, so it cannot see this runner's /tmp or reach into the
       # background poller. Stop the poller and hand its log over as an artifact; the watch job starts its

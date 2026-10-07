@@ -82,6 +82,32 @@ gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --re
 A human can do the same thing by hand: GitHub -> Actions -> "Deploy hosted
 Gateway" -> "Run workflow". Both are the same trigger.
 
+#### Turning Teams on or off (the Teams switch)
+
+The deploy is also the ONLY way to change the two Teams app settings on the live
+Gateway: `CC_GATEWAY_TEAMS` (releases the team routes) and `CC_GATEWAY_TEAM_MENTOR`
+(the Mentor's weekly writer, which does nothing unless Teams is also on). Never set
+them with `az` by hand and never in the Azure Portal.
+
+The run takes two inputs, `teams` and `team_mentor`, each `on`, `off` or
+`unchanged`. The default is `unchanged`, which writes nothing, so a plain deploy
+leaves both settings exactly as they are. `on` writes `1` (the only value the
+Gateway reads as on), `off` writes `0`.
+
+```
+gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --ref main -f teams=on
+gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --ref main -f teams=on -f team_mentor=on
+gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --ref main -f teams=off -f team_mentor=off
+```
+
+The settings are written after every refusal, inside the same deploy step and just
+before the new image is pinned, so the outage the run reports covers the settings
+change too. The run summary has a "Teams switches" table with each setting's value
+before, what was requested, and after - only these two settings, never any other.
+If a switch that was asked for does not hold the requested value afterwards, the run
+fails. Changing a switch is the owner's decision; get the go for it as part of the
+go for the deploy.
+
 ### 3. Watch it run to the end
 
 Find the run that just started and watch it. The whole thing takes roughly five
@@ -173,6 +199,7 @@ healthy. Describe what changed, not run numbers.
 ## What this skill does not do
 
 - It does not release the desktop app (`release-manager`).
-- It does not provision or change Azure infrastructure or app settings.
+- It does not provision or change Azure infrastructure, and it changes no app setting
+  except the two Teams switches, and those only when asked (see "Turning Teams on or off").
 - It does not auto-deploy on a commit. The live Gateway updates only when a person
   deliberately runs this. Committing to main never touches the live service.
