@@ -17,10 +17,12 @@ public interface ITeamInvitationMailer
 /// <summary>Tells a team's Owner that the team's bill has ended. The Gateway names the team, never an address.</summary>
 public interface ITeamBillEndedMailer
 {
-    /// <summary>Ask the website to email the Owner of <paramref name="teamId"/> that its bill has ended, keyed by the
+    /// <summary>Ask the website to email the Owner of <paramref name="teamId"/> - the account named by
+    /// <paramref name="ownerSubject"/>, whose address the website reads itself - that its bill has ended, keyed by the
     /// ended bill row's <paramref name="billFingerprint"/>. Never throws for a refusal or an unreachable website: the
     /// result says the email was not sent, and why.</summary>
-    Task<TeamInvitationMailResult> TellOwnerBillEndedAsync(string teamId, string billFingerprint, CancellationToken ct = default);
+    Task<TeamInvitationMailResult> TellOwnerBillEndedAsync(string teamId, string ownerSubject, string billFingerprint,
+        CancellationToken ct = default);
 }
 
 /// <summary>
@@ -71,10 +73,13 @@ public sealed class TeamInvitationMailer : ITeamInvitationMailer, ITeamBillEnded
         }
     }
 
-    public async Task<TeamInvitationMailResult> TellOwnerBillEndedAsync(string teamId, string billFingerprint, CancellationToken ct = default)
+    public async Task<TeamInvitationMailResult> TellOwnerBillEndedAsync(string teamId, string ownerSubject, string billFingerprint,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(teamId))
             throw new ArgumentException("A team id is required", nameof(teamId));
+        if (string.IsNullOrWhiteSpace(ownerSubject))
+            throw new ArgumentException("The team's Owner's account subject is required", nameof(ownerSubject));
         if (string.IsNullOrWhiteSpace(billFingerprint))
             throw new ArgumentException("The ended bill's fingerprint is required", nameof(billFingerprint));
 
@@ -89,7 +94,7 @@ public sealed class TeamInvitationMailer : ITeamInvitationMailer, ITeamBillEnded
 
         try
         {
-            return await _client.SendBillEndedAsync(token, teamId, billFingerprint, ct).ConfigureAwait(false);
+            return await _client.SendBillEndedAsync(token, teamId, ownerSubject, billFingerprint, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException) && !ct.IsCancellationRequested)
         {
