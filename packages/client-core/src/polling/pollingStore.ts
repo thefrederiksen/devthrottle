@@ -9,7 +9,10 @@
 //  - Lazy: the loop starts when the first subscriber arrives and stops when the last one leaves, so a
 //    store nobody is reading costs nothing.
 //  - Visibility-aware: while the page is hidden the loop is paused and the in-flight request cancelled;
-//    on return to visible it refetches immediately and resumes. A backgrounded tab makes zero requests.
+//    on return to visible it refetches immediately and resumes. A backgrounded tab makes zero requests
+//    after its first load: a store that starts while the page is already hidden (a tab opened in the
+//    background) still takes ONE first fetch, so the page has something to show instead of "Loading..."
+//    forever (issue #3603), and then stays quiet until the page is visible.
 //  - Keep-last-on-error: a failed poll raises the error but keeps the last good data on screen, so a
 //    transient Gateway blip never blanks the roster.
 //
@@ -140,6 +143,7 @@ export function createPollingStore<T>(options: PollingStoreOptions<T>): PollingS
   function start(): void {
     unsubscribeVisibility = visibility.subscribe(onVisibilityChange);
     if (visibility.isVisible()) resume();
+    else if (state.data === null) void poll(); // hidden from the start: one first load, no interval (#3603)
   }
 
   function stop(): void {
