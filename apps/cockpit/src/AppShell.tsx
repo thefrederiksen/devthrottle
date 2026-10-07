@@ -50,11 +50,9 @@ import { useMentorEntry } from "./mentor/useMentorEntry";
 // DEVELOPER page (the Director processes on the Gateway's own machine, and the local_builds slots), so
 // putting it in an end-user rail was the mistake, not leaving it out.
 //
-// Sessions is first, then Fleet Map, then the Fleet Manager: what the owner uses every day comes first. The Fleet
-// Manager is still the default landing (step 6 of its mission; it was the Fleet Map, issue #1303): a fresh boot at "/"
-// redirects to it (routes.tsx) - the rail's order and the landing page are separate decisions. Sessions
-// lives at its own /sessions
-// home. `subtree` marks a destination active for a route family that does NOT share its path prefix:
+// Sessions is first, then Fleet Map, then the Fleet Manager: what the owner uses every day comes first. Sessions is
+// also the default landing (owner, 7 Oct 2026; it was the Fleet Manager, and before that the Fleet Map, issue #1303):
+// a fresh boot at "/" redirects to its own /sessions home (routes.tsx). `subtree` marks a destination active for a route family that does NOT share its path prefix:
 // the session detail routes into "/session/:id" - a different path from "/sessions" - so Sessions
 // needs an explicit subtree to stay highlighted while a session is being driven (the Directors item
 // does not, because "/directors/:id" already shares the "/directors" prefix NavLink matches by
@@ -81,8 +79,8 @@ interface NavItem {
 // it: skills, then workflows, then the schedule that runs them, then whole factories. The voice and network tools sit
 // after that.
 //
-// The Fleet Manager is the page the Cockpit opens on (the Fleet Manager mission, step 6), but it is not first in the
-// rail: the sessions are what you maintain and monitor. It replaced the Assistant, which step 9 removed from the
+// The Cockpit opens on Sessions, the first item here: the sessions are what you maintain and monitor. The Fleet
+// Manager replaced the Assistant, which step 9 removed from the
 // product; the old /assistant address redirects here. Its red badge is the Gateway's count of what is waiting on the
 // owner.
 const NAV_MAIN: ReadonlyArray<NavItem> = [
