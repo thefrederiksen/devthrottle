@@ -100,6 +100,10 @@ public sealed class FactoryOwnerActionDto
     /// <summary>The confirm's button: "Mark 61 handled", "Archive Tallyhand".</summary>
     public string ConfirmLabel { get; set; } = "";
 
+    /// <summary>True when the confirm's button is drawn as destructive (red): the bulk clear and Archive. Restore is
+    /// not. Decided here so the Cockpit never branches on the action's kind (critical rule 7).</summary>
+    public bool Danger { get; set; }
+
     /// <summary>handled-older: items older than this are marked. Sent back unchanged.</summary>
     public DateTime? CutoffUtc { get; set; }
 

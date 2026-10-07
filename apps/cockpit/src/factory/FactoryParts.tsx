@@ -479,7 +479,7 @@ export function OwnerActionButton({
         }
         confirmLabel={action.confirmLabel}
         busyLabel={action.busyLabel}
-        danger={action.action !== "restore"}
+        danger={action.danger}
         action={action.label.toLowerCase()}
         onConfirm={async () => {
           const result = await runFactoryOwnerAction(action);

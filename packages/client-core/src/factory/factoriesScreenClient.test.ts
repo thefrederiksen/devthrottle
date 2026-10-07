@@ -79,6 +79,7 @@ describe("runFactoryOwnerAction", () => {
     confirmTitle: "Archive Tallyhand?",
     confirmLines: [],
     confirmLabel: "Archive Tallyhand",
+    danger: true,
     cutoffUtc: null,
     expectedCount: null,
     schedules: ["cj_a"],

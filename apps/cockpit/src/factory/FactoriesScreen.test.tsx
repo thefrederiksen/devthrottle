@@ -359,11 +359,21 @@ describe("The owner's actions (round 2)", () => {
     expect(Array.from(within(dialog).getByTestId("fa-confirm-lines").querySelectorAll("p")).map((p) => p.textContent)).toEqual(
       FACTORY_PAGE.archive!.confirmLines,
     );
+    expect(within(dialog).getByRole("button", { name: "Archive WarmForward (fixture)" }).className).toContain("ui-btn-danger");
     fireEvent.click(within(dialog).getByRole("button", { name: "Archive WarmForward (fixture)" }));
 
     expect(await within(dialog).findByText(/The schedules changed after the confirm was shown\. Nothing was done\. \(fixture\)/)).toBeTruthy();
     expect(screenClient.runFactoryOwnerAction).toHaveBeenCalledWith(FACTORY_PAGE.archive);
     expect(screen.queryByTestId("fa-notice")).toBeNull();
+  });
+
+  it("draws the confirm's button as the Gateway says, never by the action's kind", async () => {
+    screenClient.getFactoryPage.mockResolvedValue({ ...FACTORY_PAGE, archive: { ...FACTORY_PAGE.archive!, danger: false } });
+    renderAt("/factories/warmforward");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Archive factory (fixture)" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Archive WarmForward? (fixture)" });
+    expect(within(dialog).getByRole("button", { name: "Archive WarmForward (fixture)" }).className).not.toContain("ui-btn-danger");
   });
 
   it("an archived factory's page says so and offers Restore instead of Archive", async () => {
@@ -399,6 +409,7 @@ describe("The owner's actions (round 2)", () => {
     expect(Array.from(within(dialog).getByTestId("fa-confirm-lines").querySelectorAll("p")).map((p) => p.textContent)).toEqual(
       FACTORY_LIST.archivedRows[0].restore.confirmLines,
     );
+    expect(within(dialog).getByRole("button", { name: "Restore Tallyhand (fixture)" }).className).not.toContain("ui-btn-danger");
     fireEvent.click(within(dialog).getByRole("button", { name: "Restore Tallyhand (fixture)" }));
 
     expect((await screen.findByTestId("fa-notice")).textContent).toBe("Tallyhand is back on the Factories list. (fixture)");

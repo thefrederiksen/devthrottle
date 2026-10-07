@@ -202,6 +202,36 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task HandledOlder_LeavesAnotherFactorysOldItemsOpen()
+    {
+        await StartAsync();
+        _registry!.Register(TenantId.Local, new RegisterFactoryRequest
+        {
+            Factory = "machine-care",
+            Title = "Machine Care",
+            Folder = @"D:\ReposFred\machine-care",
+            Computer = "SOREN_NORTH",
+            Seats = { new FactorySeatManifest { Id = "caretaker", Name = "Caretaker", Role = "CEO", BriefFile = "agents/ceo.yaml" } },
+        }, "the owner (test)", Now.AddDays(-20));
+        var ours = Waiting("malik", "escalated", "Old website decision", Now.AddDays(-13));
+        var theirs = _record!.Append(TenantId.Local, new AppendFactoryActivityRequest
+        {
+            Factory = "machine-care", FactoryAgent = "caretaker", Outcome = "escalated",
+            What = "C has 55.3 GB free, below the 60 GB line", OccurredUtc = Now.AddDays(-13),
+        }, "session:test");
+        var bulk = Page().Waiting.BulkHandled!;
+        Assert.Equal(1, bulk.ExpectedCount);
+
+        var response = await Post("waiting/handled-older", new FactoryOwnerActionRequest { CutoffUtc = bulk.CutoffUtc, ExpectedCount = bulk.ExpectedCount });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var corrected = _record.Query(TenantId.Local, limit: 1000).Rows.Where(r => r.CorrectsId is not null).Select(r => r.CorrectsId!.Value).ToList();
+        Assert.Equal(new[] { ours.Id }, corrected);
+        Assert.DoesNotContain(theirs.Id, corrected);
+        Assert.DoesNotContain(_record.Query(TenantId.Local, factory: "machine-care", limit: 1000).Rows, r => r.FactoryAgent == "owner");
+    }
+
+    [Fact]
     public async Task HandledOlder_WhenTheCountChanged_Is409_AndWritesNothing()
     {
         await StartAsync();

@@ -32,6 +32,8 @@ export interface FactoryOwnerAction {
   /** The confirm's sentences, in order. */
   confirmLines: string[];
   confirmLabel: string;
+  /** True when the confirm's button is destructive (red); the Gateway decides. */
+  danger: boolean;
   cutoffUtc: string | null;
   expectedCount: number | null;
   schedules: string[];

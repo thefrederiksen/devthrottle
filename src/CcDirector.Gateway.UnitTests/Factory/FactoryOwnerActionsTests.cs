@@ -121,6 +121,7 @@ public sealed class FactoryOwnerActionsTests
             "Nothing is deleted. Items from the last 7 days stay on the list.",
         }, bulk.ConfirmLines);
         Assert.Equal("Mark 2 handled", bulk.ConfirmLabel);
+        Assert.True(bulk.Danger);
         Assert.Equal(2, bulk.ExpectedCount);
         Assert.Equal(Now.AddDays(-7), bulk.CutoffUtc);
         Assert.Null(waiting.BulkHandledNote);
@@ -230,6 +231,7 @@ public sealed class FactoryOwnerActionsTests
             "This is recorded in its activity record as your act.",
         }, action.ConfirmLines);
         Assert.Equal("Archive Website Business", action.ConfirmLabel);
+        Assert.True(action.Danger);
         Assert.Equal(new[] { "cj_ceo", "cj_send" }, action.Schedules);
     }
 
@@ -288,6 +290,7 @@ public sealed class FactoryOwnerActionsTests
         var action = FactoryOwnerActions.RestoreAction(f, jobs);
 
         Assert.Equal("Restore", action.Label);
+        Assert.False(action.Danger);
         Assert.Equal(new[]
         {
             "Website Business returns to the Factories list.",

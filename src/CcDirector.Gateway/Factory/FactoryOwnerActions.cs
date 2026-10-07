@@ -81,6 +81,7 @@ public static class FactoryOwnerActions
                 "Nothing is deleted. Items from the last 7 days stay on the list.",
             },
             ConfirmLabel = $"Mark {count} handled",
+            Danger = true,
             CutoffUtc = cutoff,
             ExpectedCount = count,
         };
@@ -200,6 +201,7 @@ public static class FactoryOwnerActions
             ConfirmTitle = $"Archive {f.Title}?",
             ConfirmLines = lines,
             ConfirmLabel = $"Archive {f.Title}",
+            Danger = true,
             Schedules = plan.SwitchIds,
         };
     }
@@ -231,6 +233,7 @@ public static class FactoryOwnerActions
             ConfirmTitle = $"Restore {f.Title}?",
             ConfirmLines = lines,
             ConfirmLabel = $"Restore {f.Title}",
+            Danger = false,
             Schedules = plan.SwitchIds,
         };
     }
