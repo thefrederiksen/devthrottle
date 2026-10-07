@@ -1527,6 +1527,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(32)")
                         .UseCollation("C");
 
+                    b.Property<string>("RequestedAmount")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
                     b.Property<string>("RequesterSessionId")
                         .IsRequired()
                         .HasMaxLength(64)

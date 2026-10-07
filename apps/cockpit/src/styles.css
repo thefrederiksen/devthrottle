@@ -3277,29 +3277,89 @@ body {
   color: var(--text-dim);
 }
 
-/* A session asking to talk to another (issue #3548): one card per waiting request, above the session detail. */
-.link-requests {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 12px 0;
+/* A session asking to talk to another (issue #3631): shown on the session that asked, in amber - never red, which is the
+   queue dot's - and never as a band that takes room from the session. */
+.link-ask-badge {
+  flex: 0 0 auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--warn);
+  background: #3a2c0b;
+  border: 1px solid #6b5115;
+  border-radius: 10px;
+  padding: 0 6px;
 }
-.link-request-card {
-  background: var(--surface);
-  border: 1px solid var(--accent);
+.roster-link-ask {
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--warn);
+  word-break: break-word;
+}
+.link-ask-wrap {
+  position: relative;
+  align-self: center;
+  margin: 0 0 6px 8px;
+}
+.link-ask-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 10px;
+  border: 1px solid #6b5115;
+  background: #3a2c0b;
+  color: var(--warn);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.link-ask-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  background: var(--surface-2);
+  border: 1px solid #6b5115;
   border-radius: 8px;
   padding: 10px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   color: var(--text);
   font-size: 13px;
 }
-.link-request-reason {
-  color: var(--text-dim);
-  margin: 4px 0 8px;
+.link-ask-item + .link-ask-item {
+  border-top: 1px solid var(--border);
+  margin-top: 10px;
+  padding-top: 10px;
 }
-.link-request-actions {
+.link-ask-reason {
+  color: var(--text-dim);
+  font-style: italic;
+  margin: 4px 0 6px;
+}
+.link-ask-amount {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.link-ask-amount-words {
+  color: var(--warn);
+  font-weight: 600;
+}
+.link-ask-actions {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
+}
+.link-ask-approve {
+  background: #1f6f3a;
+  border-color: #2e8b4a;
+  color: #fff;
 }
 
 /* "Let this session talk to..." (issue #3548). */

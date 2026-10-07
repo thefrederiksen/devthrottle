@@ -46,7 +46,7 @@ def _stub(monkeypatch, refuse=None):
         if path.endswith("/answer"):
             if body.get("decline"):
                 return {"request": _request(status="declined")}
-            return {"request": _request(status="allowed", amount=body["amount"], link_id="l1"),
+            return {"request": _request(status="allowed", amount=body.get("amount", "once-with-reply"), link_id="l1"),
                     "link": {"linkId": "l1", "status": "live", "summary": "One message and a reply. Live."}}
         return {"request": _request(), "created": True,
                 "note": "Asked. The user decides, and the answer arrives in your inbox."}
@@ -68,12 +68,42 @@ def test_request_resolves_the_target_by_name_and_posts_the_reason(monkeypatch, p
 
     assert result.exit_code == 0, result.output
     assert calls == [("POST", "fleet/link-requests", {
-        "targetSessionId": COORDINATOR, "reason": "I need the open tickets list",
+        "targetSessionId": COORDINATOR, "reason": "I need the open tickets list", "amount": "once-with-reply",
     })]
     out = plain(result.output)
     assert f"id: {REQUEST_ID}" in out
     assert "status: pending" in out
     assert "the answer arrives in your inbox" in out
+
+
+def test_request_asks_for_the_amount_the_session_names(monkeypatch, plain):
+    calls = _stub(monkeypatch)
+
+    result = runner.invoke(app, ["message", "request", "Cube Coordinator", "the cutover", "--amount", "ongoing"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("POST", "fleet/link-requests", {
+        "targetSessionId": COORDINATOR, "reason": "the cutover", "amount": "ongoing",
+    })]
+
+
+def test_request_with_an_unknown_amount_is_refused_before_calling_the_gateway(monkeypatch, plain):
+    calls = _stub(monkeypatch)
+
+    result = runner.invoke(app, ["message", "request", "Cube Coordinator", "why", "--amount", "forever"])
+
+    assert result.exit_code == 1
+    assert calls == []
+    assert "amount must be one of" in plain(result.output)
+
+
+def test_answer_approve_sends_approve(monkeypatch, plain):
+    calls = _stub(monkeypatch)
+
+    result = runner.invoke(app, ["message", "link", "answer", REQUEST_ID, "--approve"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("POST", f"fleet/link-requests/{REQUEST_ID}/answer", {"approve": True})]
 
 
 def test_request_without_a_reason_is_refused_before_calling_the_gateway(monkeypatch, plain):

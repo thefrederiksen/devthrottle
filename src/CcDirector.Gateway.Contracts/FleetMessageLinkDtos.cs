@@ -78,6 +78,10 @@ public sealed class FleetMessageLinkRequestAskRequest
 
     /// <summary>Why, in a sentence the owner reads as written. Required; at most 380 characters are kept.</summary>
     public string Reason { get; set; } = "";
+
+    /// <summary>How much talking it needs (issue #3631): <c>once</c>, <c>once-with-reply</c> or <c>ongoing</c>. The owner
+    /// approves or denies exactly this. Optional; missing means <c>once-with-reply</c>.</summary>
+    public string? Amount { get; set; }
 }
 
 /// <summary>One request for a message link, as the owner and the asking session read it.</summary>
@@ -90,6 +94,10 @@ public sealed class FleetMessageLinkRequestDto
     public string TargetSessionId { get; set; } = "";
 
     public string Reason { get; set; } = "";
+
+    /// <summary>How much talking the session asked for: <c>once</c>, <c>once-with-reply</c> or <c>ongoing</c>. Null on a
+    /// request asked before a session could name one.</summary>
+    public string? RequestedAmount { get; set; }
 
     /// <summary><c>pending</c>, <c>allowed</c>, <c>declined</c> or <c>ended</c>.</summary>
     public string Status { get; set; } = "";
@@ -129,8 +137,9 @@ public sealed class FleetMessageLinkRequestListResponse
 }
 
 /// <summary>
-/// <c>POST /fleet/link-requests/{id}/answer</c>: the owner's answer. Either an <see cref="Amount"/>, which allows the
-/// request and sets up a link from the asking session to the one it asked for, or <see cref="Decline"/>.
+/// <c>POST /fleet/link-requests/{id}/answer</c>: the owner's answer - exactly one of <see cref="Approve"/>, which allows
+/// what the session asked for, an <see cref="Amount"/>, which allows that amount instead, or <see cref="Decline"/>.
+/// Allowing sets up a link from the asking session to the one it asked for.
 /// </summary>
 public sealed class FleetMessageLinkRequestAnswerRequest
 {
@@ -139,6 +148,9 @@ public sealed class FleetMessageLinkRequestAnswerRequest
 
     /// <summary>True to say no.</summary>
     public bool Decline { get; set; }
+
+    /// <summary>True to allow the amount the session asked for (issue #3631) - the Cockpit's one-tap answer.</summary>
+    public bool Approve { get; set; }
 }
 
 /// <summary>The answer to <c>POST /fleet/link-requests/{id}/answer</c>.</summary>

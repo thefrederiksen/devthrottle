@@ -33,7 +33,8 @@ public sealed record FleetMessageLinkRequest(
     string? AnsweredBy,
     DateTime? AnsweredAtUtc,
     string? Amount,
-    string? LinkId);
+    string? LinkId,
+    string? RequestedAmount = null);
 
 /// <summary>What one ask did.</summary>
 /// <param name="Request">The request that now waits: the new one, or the one already waiting for the same pair.</param>
@@ -83,11 +84,13 @@ public sealed class FleetMessageLinkRequestStore
         _db = db ?? throw new ArgumentNullException(nameof(db));
     }
 
-    /// <summary>Ask, for <paramref name="requesterSessionId"/>, to talk to <paramref name="targetSessionId"/>.</summary>
-    /// <exception cref="ArgumentException">An id is not a session id, the two are the same session, or the reason is
-    /// empty.</exception>
+    /// <summary>Ask, for <paramref name="requesterSessionId"/>, to talk to <paramref name="targetSessionId"/>, for
+    /// <paramref name="requestedAmount"/> of talking - <see cref="FleetMessageLinkAmounts.OnceWithReply"/> when it names
+    /// none, which is what a session asking before it could name one meant.</summary>
+    /// <exception cref="ArgumentException">An id is not a session id, the two are the same session, the reason is
+    /// empty, or the amount is not one of <see cref="FleetMessageLinkAmounts.All"/>.</exception>
     public FleetMessageLinkAsk Ask(TenantId tenant, string requesterSessionId, string targetSessionId, string reason,
-        DateTime nowUtc)
+        DateTime nowUtc, string? requestedAmount = null)
     {
         FileLog.Write($"[FleetMessageLinkRequestStore] Ask: tenant={tenant.ToLogString()}, from={requesterSessionId}, to={targetSessionId}");
         try
@@ -100,6 +103,11 @@ public sealed class FleetMessageLinkRequestStore
             if (why.Length == 0)
                 throw new ArgumentException("A request says why the session needs to talk.", nameof(reason));
             if (why.Length > MaxReasonLength) why = why[..MaxReasonLength];
+            var asked = string.IsNullOrWhiteSpace(requestedAmount)
+                ? FleetMessageLinkAmounts.OnceWithReply
+                : requestedAmount.Trim().ToLowerInvariant();
+            if (!FleetMessageLinkAmounts.IsKnown(asked))
+                throw new ArgumentException($"'{requestedAmount}' is not an amount.", nameof(requestedAmount));
 
             lock (_gate)
             {
@@ -133,6 +141,7 @@ public sealed class FleetMessageLinkRequestStore
                     RequesterSessionId = from,
                     TargetSessionId = to,
                     Reason = why,
+                    RequestedAmount = asked,
                     Status = FleetMessageLinkRequestStatuses.Pending,
                     AskedAtUtc = Utc(nowUtc),
                 };
@@ -273,5 +282,6 @@ public sealed class FleetMessageLinkRequestStore
 
     private static FleetMessageLinkRequest ToRecord(FleetMessageLinkRequestEntity e) => new(
         e.RequestId, e.RequesterSessionId, e.TargetSessionId, e.Reason, e.Status,
-        DateTime.SpecifyKind(e.AskedAtUtc, DateTimeKind.Utc), e.AnsweredBy, AsUtc(e.AnsweredAtUtc), e.Amount, e.LinkId);
+        DateTime.SpecifyKind(e.AskedAtUtc, DateTimeKind.Utc), e.AnsweredBy, AsUtc(e.AnsweredAtUtc), e.Amount, e.LinkId,
+        e.RequestedAmount);
 }

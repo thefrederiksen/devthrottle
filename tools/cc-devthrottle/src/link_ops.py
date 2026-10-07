@@ -127,6 +127,8 @@ def _print_request(req: Dict[str, Any], indent: str = "  ") -> None:
     console.print(f"{indent}from: {req.get('requesterSessionId', '')}")
     console.print(f"{indent}to: {req.get('targetSessionId', '')}")
     console.print(f"{indent}reason: {req.get('reason', '')}")
+    if req.get("requestedAmount"):
+        console.print(f"{indent}asks for: {req.get('requestedAmount')}")
     console.print(f"{indent}status: {req.get('status', '')}")
     if req.get("amount"):
         console.print(f"{indent}amount: {req.get('amount')}")
@@ -134,13 +136,19 @@ def _print_request(req: Dict[str, Any], indent: str = "  ") -> None:
         console.print(f"{indent}link: {req.get('linkId')}")
 
 
-def request(target: str, reason: str, json_output: bool) -> None:
-    """Ask the owner for a message link from THIS session to TARGET."""
+def request(target: str, reason: str, amount: str, json_output: bool) -> None:
+    """Ask the owner for a message link from THIS session to TARGET, for AMOUNT of talking (issue #3631).
+
+    The owner approves or denies exactly what is asked for, so ask for what the work needs.
+    """
     if not (reason or "").strip():
         _fail("say why you need to talk to that session, in one sentence the user can decide on.")
+    amount = (amount or "").strip().lower()
+    if amount not in AMOUNTS:
+        _fail(f"amount must be one of {', '.join(AMOUNTS)}; '{amount}' was given.")
     target_id = gateway.field(_resolve(target, "cc-devthrottle message request"), "sessionId", "SessionId")
     try:
-        payload = gateway.post_json(REQUESTS_PATH, {"targetSessionId": target_id, "reason": reason}) or {}
+        payload = gateway.post_json(REQUESTS_PATH, {"targetSessionId": target_id, "reason": reason, "amount": amount}) or {}
     except gateway.GatewayError as err:
         _fail(str(err))
     if json_output:
@@ -169,17 +177,24 @@ def list_requests(json_output: bool) -> None:
         console.print("  -")
         _print_request(req, indent="    ")
     console.print("help[1]:")
-    console.print("  cc-devthrottle message link answer <id> --amount once|once-with-reply|ongoing  (or --decline)")
+    console.print("  cc-devthrottle message link answer <id> --approve  (or --amount once|once-with-reply|ongoing, or --decline)")
 
 
-def answer(request_id: str, amount: str, decline: bool, json_output: bool) -> None:
-    """Allow a request with an amount, or decline it."""
+def answer(request_id: str, amount: str, decline: bool, json_output: bool, approve: bool = False) -> None:
+    """Allow what a request asked for, allow it with another amount, or decline it."""
     amount = (amount or "").strip().lower()
-    if decline == bool(amount):
-        _fail("answer with --amount to allow it, or with --decline to say no - one of the two.")
+    if int(decline) + int(approve) + int(bool(amount)) != 1:
+        _fail("answer with --approve to allow what was asked, --amount to allow that instead, or --decline to say no "
+              "- exactly one of the three.")
     if amount and amount not in AMOUNTS:
         _fail(f"amount must be one of {', '.join(AMOUNTS)}; '{amount}' was given.")
-    body: Dict[str, Any] = {"decline": True} if decline else {"amount": amount}
+    body: Dict[str, Any]
+    if decline:
+        body = {"decline": True}
+    elif approve:
+        body = {"approve": True}
+    else:
+        body = {"amount": amount}
     try:
         payload = gateway.post_json(f"{REQUESTS_PATH}/{gateway.path_segment(request_id)}/answer", body) or {}
     except gateway.GatewayError as err:

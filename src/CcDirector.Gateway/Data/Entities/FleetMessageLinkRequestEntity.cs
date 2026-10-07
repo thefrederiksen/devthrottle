@@ -40,6 +40,10 @@ public sealed class FleetMessageLinkRequestEntity : GatewayMintedKeyEntity
     /// <summary>When it was answered or ended (UTC), or null.</summary>
     public DateTime? AnsweredAtUtc { get; set; }
 
+    /// <summary>How much talking the session asked for (<c>Messaging.FleetMessageLinkAmounts</c>), so the owner only
+    /// approves or denies it (issue #3631). Null on a request asked before the session could name one.</summary>
+    public string? RequestedAmount { get; set; }
+
     /// <summary>For an allowed request, how much the owner allowed (<c>Messaging.FleetMessageLinkAmounts</c>).</summary>
     public string? Amount { get; set; }
 
