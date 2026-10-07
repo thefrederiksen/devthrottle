@@ -173,7 +173,7 @@ public static class FactoriesScreenFold
             SeatCountText = Count(factory.Seats.Count, "seat"),
             ComputerText = $"runs on {factory.Computer}",
             ComputerChangeText = ChangeComing,
-            Talk = CeoTalk(factory, DuplicateCeoNames(input.Registry)),
+            Talk = CeoTalk(factory, DuplicateCeoNames(input.Registry.Where(f => f.ArchivedAtUtc is null).ToList())),
             Tabs = PageTabs(factory.Seats.Count),
             Goal = GoalCard(factory),
             GoalNumber = GoalNumberCard(number, factory, zone, now),
