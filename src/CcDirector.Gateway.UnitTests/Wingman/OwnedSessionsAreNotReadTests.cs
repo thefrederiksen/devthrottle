@@ -74,8 +74,8 @@ public sealed class OwnedSessionsAreNotReadTests : IDisposable
 
     private readonly GatewayDbTestHarness _harness = new();
     private int _screenReads;
-    private readonly CountingBrain _brain = new(() => FakeTurnVerdictEnvironment.Finished(
-        "I have pushed the branch.", "The branch is pushed and nothing is waiting."));
+    private const string Spoken = "The branch is pushed and nothing is waiting.";
+    private readonly CountingBrain _brain = new(() => FakeTurnVerdictEnvironment.Finished("I have pushed the branch.", Spoken), Spoken);
 
     public void Dispose() => _harness.Dispose();
 
