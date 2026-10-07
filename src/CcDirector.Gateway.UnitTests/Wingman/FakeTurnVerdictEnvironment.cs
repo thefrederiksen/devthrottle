@@ -419,13 +419,31 @@ internal static class TurnVerdictTestDoubles
 /// judge being asked for JSON and the narrator for words between two markers. A brain that returned the judge
 /// answer to both would leave every reading with no words, and <see cref="Asks"/> would count two where the
 /// question a test is asking - "was this screen judged again?" - has the answer one.
+///
+/// ITS NARRATION WORDS ARE ITS OWN (issue #3630). It used to answer the narration call from the shared static the
+/// canned judge answers write (<see cref="FakeTurnVerdictEnvironment.DefaultNarration"/>). Since Call A is decided by
+/// code first, many readings never ask the judge at all, so that static held whatever an EARLIER test had left in it:
+/// run alone, or in the order continuous integration happens to use, it was empty, the narration came back empty, the
+/// voice session's reattempt asked again, and a count of one read two. A brain now answers the narration call with the
+/// words it was built with - <paramref name="spoken"/> - and nothing another test wrote can reach it.
 /// </summary>
 internal sealed class CountingBrain : IAgentBrain
 {
+    /// <summary>What a brain built without words of its own narrates: a reading the narration call answered.</summary>
+    public const string DefaultSpoken = "The session stopped and the Wingman read it.";
+
     private readonly Func<string> _answer;
     private int _asks;
     private int _narrations;
-    public CountingBrain(Func<string> answer) => _answer = answer;
+
+    /// <param name="answer">What the judge is answered with.</param>
+    /// <param name="spoken">The words the narration call is answered with. A test that wants the call to produce NO
+    /// words sets <see cref="NarrationAnswer"/> to return "".</param>
+    public CountingBrain(Func<string> answer, string spoken = DefaultSpoken)
+    {
+        _answer = answer;
+        NarrationAnswer = () => FakeTurnVerdictEnvironment.NarratedAnswer(spoken);
+    }
 
     /// <summary>How many JUDGEMENTS were asked for - never the narration calls beside them.</summary>
     public int Asks => _asks;
@@ -433,9 +451,9 @@ internal sealed class CountingBrain : IAgentBrain
     /// <summary>How many narration calls were made.</summary>
     public int Narrations => _narrations;
 
-    /// <summary>What the narration call is answered with. The default is the words the last canned judge answer
-    /// was built with, so a reading ends up with the text the test named.</summary>
-    public Func<string> NarrationAnswer { get; set; } = FakeTurnVerdictEnvironment.DefaultNarration;
+    /// <summary>What the narration call is answered with: the brain's own words (the constructor's
+    /// <c>spoken</c>), never anything another test wrote.</summary>
+    public Func<string> NarrationAnswer { get; set; }
 
     public string? SessionId => "counting-brain";
 
