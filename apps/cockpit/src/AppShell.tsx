@@ -89,7 +89,7 @@ const NAV_MAIN: ReadonlyArray<NavItem> = [
   { to: "/sessions", label: "Sessions", icon: "sessions", subtree: "/session" },
   { to: "/fleet-map", label: "Fleet Map", icon: "fleet-map" },
   { to: "/fleet-manager", label: "Fleet Manager", icon: "fleet-manager" },
-  // History sits right behind the live views: Sessions and the Fleet Map are "what is happening",
+  // History sits right behind the live views: Sessions, the Fleet Map and the Fleet Manager are "what is happening",
   // History is "what happened" (issue #2194) - the same record, one step back in time.
   { to: "/history", label: "History", icon: "history" },
   { to: "/directors", label: "Directors", icon: "directors" },
