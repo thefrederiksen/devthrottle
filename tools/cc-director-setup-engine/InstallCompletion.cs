@@ -80,12 +80,14 @@ public static class InstallCompletion
     /// What the Complete screen says under a launcher warning, after the reason. Said in the words of what the
     /// person loses and what happens next, never "launchd" or "launch agent". It does not promise a repair,
     /// because the repair only reaches a job launchd holds and refuses - the one state that cannot be a
-    /// person's choice - and a report is sent so the cause is known on our side either way.
+    /// person's choice. It does not claim a report was sent either: whether this install's report reached
+    /// DevThrottle is said on the reason line above it, by the code that knows (the reporter appends "A report
+    /// of this failure was sent to DevThrottle." only when the Gateway accepted it).
     /// </summary>
     public const string LauncherWarningExplanation =
         "DevThrottle will not start by itself when you sign in to this Mac until this is repaired. "
         + "The Director works without it: open it now. Once the Director is open and connected, it tries to repair this "
-        + "on its own, and a report of what went wrong was sent to DevThrottle - there is nothing for you to type or send.";
+        + "on its own and reports to DevThrottle what it finds - there is nothing for you to type or send.";
 
     /// <summary>
     /// Does leaving the Complete screen WITHOUT clicking Open Director still open the Director?

@@ -100,8 +100,9 @@ public sealed class InstallCompletionTests
     }
 
     // What the person reads under the warning: what they lose (autostart), what to do (open the Director),
-    // and what happens next (the Director tries to repair it; a report was sent). In plain words - no
-    // "launchd", no "launch agent", no "plist" - and no promise the repair cannot keep.
+    // and what happens next (the Director tries to repair it and reports). In plain words - no "launchd",
+    // no "launch agent", no "plist" - no promise the repair cannot keep, and no claim that THIS install's
+    // report was delivered: that is said on the reason line by the reporter, only when the Gateway accepted it.
     [Fact]
     public void LauncherWarningExplanation_SaysWhatIsLostAndWhatHappensNext()
     {
@@ -109,8 +110,9 @@ public sealed class InstallCompletionTests
         Assert.Contains("will not start by itself when you sign in", text);
         Assert.Contains("The Director works without it", text);
         Assert.Contains("tries to repair this", text);
-        Assert.Contains("report", text);
+        Assert.Contains("reports to DevThrottle", text);
         Assert.Contains("nothing for you to type or send", text);
+        Assert.DoesNotContain("was sent", text);
         Assert.DoesNotContain("launchd", text);
         Assert.DoesNotContain("launch agent", text);
         Assert.DoesNotContain("plist", text);
