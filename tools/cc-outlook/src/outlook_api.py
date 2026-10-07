@@ -756,7 +756,9 @@ class OutlookClient:
         if not saved:
             raise ConnectionError(
                 f"Graph refused to {'send' if send else 'save'} the reply "
-                f"to message {message_id}")
+                f"to message {message_id}. Graph had already created draft "
+                f"{reply.object_id} holding only the quoted original; delete it "
+                f"from Drafts before retrying.")
 
         status = 'sent' if send else 'draft'
 
@@ -800,7 +802,6 @@ class OutlookClient:
             # body_type aligned so the note renders as written.
             body_type = str(getattr(forward, "body_type", "") or "")
             if body_type.lower() == "html":
-                import html as _html
                 note = _html.escape(body).replace("\n", "<br>")
                 forward.body = note + "<br><br>" + existing
                 forward.body_type = "HTML"
