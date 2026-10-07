@@ -4935,9 +4935,17 @@ public sealed class GatewayHost : IAsyncDisposable
             sources: FactoryAgentsViewSources());
         // The Factories screen (Factories screen mission, phase B): the list, a factory's page and its Seats tab, built
         // from the registry, the record and the schedules.
+        var factoriesScreenSources = new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant));
         Api.FactoriesScreenEndpoints.Map(factoryGate,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-            sources: new Api.FactoriesScreenSources(FactoryAgentsViewSources(), FactoryRegistry, tenant => _cronJobs.ListAll(tenant)));
+            sources: factoriesScreenSources);
+        // The owner's actions on a factory (round 2): mark old waiting items handled, archive, restore. Owner-only,
+        // and mapped OUTSIDE the gate's group like Talk, so a switch-off refusal can carry a sentence.
+        Api.FactoryOwnerActionEndpoints.Map(_app, FactoryAgentsSwitch,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            sources: factoriesScreenSources,
+            appendRows: (tenant, rows, actor) => FactoryActivity.Append(tenant, rows, actor),
+            setScheduleEnabled: (tenant, id, enabled) => _cronJobs.SetEnabled(tenant, id, enabled));
         // The Talk button (Factories screen mission, phase C): a session seated as one seat, started down the same
         // path a person's New Session takes, built from the same stores GatewayEndpoints.Map was handed above.
         var talkSpawnDoor = new Api.DirectorSpawnDoor(_tenantBoundary, Registry, _sessionHistory.FactoryOf, SendCommandAsync,

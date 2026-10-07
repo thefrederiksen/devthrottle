@@ -77,6 +77,15 @@ public sealed class RegisteredFactoryDto
     public string RegisteredBy { get; set; } = "";
 
     public DateTime RegisteredAtUtc { get; set; }
+
+    /// <summary>When the owner archived it, or null while it is on the Factories list (round 2).</summary>
+    public DateTime? ArchivedAtUtc { get; set; }
+
+    /// <summary>Who archived it, or null.</summary>
+    public string? ArchivedBy { get; set; }
+
+    /// <summary>The schedule ids the archive switched off - what Restore switches back on. Empty while not archived.</summary>
+    public List<string> ArchivedSchedules { get; set; } = new();
 }
 
 /// <summary>One registered seat. Its computer is always set: a seat registered without one runs on the

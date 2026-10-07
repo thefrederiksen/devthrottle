@@ -17,6 +17,45 @@ export interface FactoryTalkTarget {
   seatId: string;
 }
 
+/**
+ * One owner-only action and the confirm it asks first (round 2): every word is the Gateway's. What the Cockpit sends
+ * back is exactly what the confirm showed - the cut-off and count, or the schedules it named - so the Gateway can
+ * refuse rather than do something other than what the owner read.
+ */
+export interface FactoryOwnerAction {
+  /** "handled-older", "archive" or "restore". */
+  action: "handled-older" | "archive" | "restore";
+  factoryId: string;
+  label: string;
+  busyLabel: string;
+  confirmTitle: string;
+  /** The confirm's sentences, in order. */
+  confirmLines: string[];
+  confirmLabel: string;
+  /** True when the confirm's button is destructive (red); the Gateway decides. */
+  danger: boolean;
+  cutoffUtc: string | null;
+  expectedCount: number | null;
+  schedules: string[];
+}
+
+/** What an owner action did, in one sentence. */
+export interface FactoryOwnerActionResult {
+  text: string;
+  marked: number;
+  schedulesSwitched: string[];
+}
+
+/** One archived factory, under Show archived. */
+export interface FactoryArchivedRow {
+  id: string;
+  title: string;
+  href: string;
+  /** "Archived 6 Oct 23:50 by the owner". */
+  archivedText: string;
+  restore: FactoryOwnerAction;
+}
+
 export interface FactoryListRow {
   id: string;
   title: string;
@@ -51,6 +90,14 @@ export interface FactoriesListView {
   footerText: string | null;
   emptyText: string | null;
   truncatedText: string | null;
+  /** "Show archived (1)". */
+  showArchivedLabel: string;
+  /** "Hide archived". */
+  hideArchivedLabel: string;
+  /** The archived factories; never in rows. */
+  archivedRows: FactoryArchivedRow[];
+  /** "No factory is archived." when there are none. */
+  archivedEmptyText: string | null;
 }
 
 export interface FactoryGoalCard {
@@ -73,6 +120,12 @@ export interface FactoryPageWaiting {
   heading: string;
   items: FactoryWaitingItem[];
   emptyText: string | null;
+  /** The order the items are in, said once. */
+  orderText: string | null;
+  /** "Mark everything older than 7 days as handled", or null when nothing is that old. */
+  bulkHandled: FactoryOwnerAction | null;
+  /** "Nothing here is older than 7 days." */
+  bulkHandledNote: string | null;
 }
 
 /** One failure that still makes the factory FAILING. */
@@ -148,6 +201,12 @@ export interface FactoryPageView {
   /** What the Documents tab says: the definitions are not on the Gateway yet. */
   documentsText: string;
   truncatedText: string | null;
+  /** "Archive factory", or null when it is archived. */
+  archive: FactoryOwnerAction | null;
+  /** Set when it is archived. */
+  archivedText: string | null;
+  /** "Restore", when it is archived. */
+  restore: FactoryOwnerAction | null;
 }
 
 export interface FactorySeatRow {
@@ -278,4 +337,28 @@ export async function startFactoryTalk(target: FactoryTalkTarget, signal?: Abort
   }
   assertJson(res);
   return (await res.json()) as FactoryTalkStarted;
+}
+
+const OWNER_ACTION_PATH: Record<FactoryOwnerAction["action"], string> = {
+  "handled-older": "waiting/handled-older",
+  archive: "archive",
+  restore: "restore",
+};
+
+/**
+ * Carry out an owner action the owner confirmed: the body is what the confirm showed, sent back unchanged. A refusal
+ * (another caller than the owner's own browser or phone, a count or schedules that changed since the confirm) throws
+ * a GatewayError carrying the Gateway's own sentence.
+ */
+export async function runFactoryOwnerAction(action: FactoryOwnerAction, signal?: AbortSignal): Promise<FactoryOwnerActionResult> {
+  const path = `${PREFIX}/${encodeURIComponent(action.factoryId)}/${OWNER_ACTION_PATH[action.action]}`;
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ cutoffUtc: action.cutoffUtc, expectedCount: action.expectedCount, schedules: action.schedules }),
+    signal,
+  });
+  if (!res.ok) throw await GatewayError.from(res, action.label.toLowerCase());
+  assertJson(res);
+  return (await res.json()) as FactoryOwnerActionResult;
 }

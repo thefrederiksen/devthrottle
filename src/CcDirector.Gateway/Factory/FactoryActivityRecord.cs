@@ -79,9 +79,48 @@ public sealed class FactoryActivityRecord
     public FactoryActivityDto Append(TenantId tenant, AppendFactoryActivityRequest request, string? callingActor)
         => AppendIn(() => _db.CreateContext(tenant), request, callingActor);
 
+    /// <summary>
+    /// Append several rows for an EXPLICITLY named tenant as ONE write: every row is checked first, and either all of
+    /// them are recorded or - when any is refused - none is. For an owner's act that writes a row per item and one
+    /// row saying what the owner did (the bulk "mark handled", Factories screen mission round 2): a half-written act
+    /// would leave the record claiming a count it does not hold. Same rules, same refusals, as one row's Append.
+    /// </summary>
+    public IReadOnlyList<FactoryActivityDto> Append(TenantId tenant, IReadOnlyList<AppendFactoryActivityRequest> requests, string? callingActor)
+    {
+        ArgumentNullException.ThrowIfNull(requests);
+        FileLog.Write($"[FactoryActivityRecord] Append many: rows={requests.Count}");
+        if (requests.Count == 0)
+            throw new FactoryActivityValidationException("There are no rows to record.");
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var now = DateTime.UtcNow;
+            var entities = requests.Select(r => Build(ctx, r, callingActor, now)).ToList();
+            ctx.FactoryActivity.AddRange(entities);
+            ctx.SaveChanges();
+            FileLog.Write($"[FactoryActivityRecord] Append many: recorded {entities.Count} rows, first={entities[0].Id}");
+            return entities.Select(ToDto).ToList();
+        }
+    }
+
     private FactoryActivityDto AppendIn(Func<GatewayDbContext> openContext, AppendFactoryActivityRequest request, string? callingActor)
     {
         FileLog.Write($"[FactoryActivityRecord] Append: factory={request?.Factory}, agent={request?.FactoryAgent}, outcome={request?.Outcome}");
+        lock (_gate)
+        {
+            using var ctx = openContext();
+            var entity = Build(ctx, request, callingActor, DateTime.UtcNow);
+            ctx.FactoryActivity.Add(entity);
+            ctx.SaveChanges();
+            FileLog.Write($"[FactoryActivityRecord] Append: id={entity.Id}, factory={entity.Factory}, agent={entity.FactoryAgent}, " +
+                          $"outcome={entity.Outcome}, actor={entity.Actor}, corrects={entity.CorrectsId?.ToString() ?? "-"}");
+            return ToDto(entity);
+        }
+    }
+
+    // Every rule a row must meet, checked against the context it will be written in; the row to add, or a refusal.
+    private static FactoryActivityEntity Build(GatewayDbContext ctx, AppendFactoryActivityRequest? request, string? callingActor, DateTime now)
+    {
         if (request is null)
             throw new FactoryActivityValidationException("A factory activity body is required.");
 
@@ -105,43 +144,31 @@ public sealed class FactoryActivityRecord
             ?? throw new FactoryActivityValidationException(
                 "Who acted is not known: name an actor, or call with a session key so the Gateway can stamp the session.");
 
-        lock (_gate)
+        if (request.CorrectsId is { } correctsId
+            && !ctx.FactoryActivity.AsNoTracking().Any(e => e.Id == correctsId))
+            throw new FactoryActivityValidationException(
+                $"There is no factory activity row {correctsId} to correct.");
+
+        var occurred = request.OccurredUtc.HasValue
+            ? DateTime.SpecifyKind(request.OccurredUtc.Value.ToUniversalTime(), DateTimeKind.Utc)
+            : now;
+
+        return new FactoryActivityEntity
         {
-            using var ctx = openContext();
-
-            if (request.CorrectsId is { } correctsId
-                && !ctx.FactoryActivity.AsNoTracking().Any(e => e.Id == correctsId))
-                throw new FactoryActivityValidationException(
-                    $"There is no factory activity row {correctsId} to correct.");
-
-            var now = DateTime.UtcNow;
-            var occurred = request.OccurredUtc.HasValue
-                ? DateTime.SpecifyKind(request.OccurredUtc.Value.ToUniversalTime(), DateTimeKind.Utc)
-                : now;
-
-            var entity = new FactoryActivityEntity
-            {
-                TenantId = ctx.ActiveTenant!,
-                Factory = factory,
-                FactoryAgent = agent,
-                FactoryAgentVersion = version,
-                SessionId = sessionId,
-                What = what,
-                Outcome = outcome,
-                Subject = subject,
-                Link = link,
-                Actor = actor,
-                CorrectsId = request.CorrectsId,
-                OccurredUtc = occurred,
-                RecordedUtc = now,
-            };
-            ctx.FactoryActivity.Add(entity);
-            ctx.SaveChanges();
-
-            FileLog.Write($"[FactoryActivityRecord] Append: id={entity.Id}, factory={factory}, agent={agent}, " +
-                          $"outcome={outcome}, actor={actor}, corrects={entity.CorrectsId?.ToString() ?? "-"}");
-            return ToDto(entity);
-        }
+            TenantId = ctx.ActiveTenant!,
+            Factory = factory,
+            FactoryAgent = agent,
+            FactoryAgentVersion = version,
+            SessionId = sessionId,
+            What = what,
+            Outcome = outcome,
+            Subject = subject,
+            Link = link,
+            Actor = actor,
+            CorrectsId = request.CorrectsId,
+            OccurredUtc = occurred,
+            RecordedUtc = now,
+        };
     }
 
     /// <summary>

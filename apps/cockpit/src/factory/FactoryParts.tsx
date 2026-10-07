@@ -15,7 +15,9 @@ import {
   type SavedFactoryReport,
 } from "@devthrottle/client-core/factory/factoryAgentsClient";
 import {
+  runFactoryOwnerAction,
   startFactoryTalk,
+  type FactoryOwnerAction,
   type FactoryTalkTarget,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { Button, ConfirmDialog } from "../components";
@@ -433,6 +435,58 @@ export function TalkButton({ talk, variant = "primary" }: { talk: FactoryTalkTar
           {error}
         </span>
       )}
+    </span>
+  );
+}
+
+/**
+ * An owner-only action (round 2: mark old items handled, archive, restore): its button opens the shared confirm with
+ * the Gateway's own title, sentences and confirm label, verbatim; confirming sends back what the confirm showed. On
+ * success the Gateway's sentence saying what was done goes to the caller, which shows it and reloads. A refusal stays
+ * in the confirm, in the Gateway's words.
+ */
+export function OwnerActionButton({
+  action,
+  onDone,
+  variant = "secondary",
+}: {
+  action: FactoryOwnerAction;
+  onDone: (resultText: string) => void;
+  variant?: "primary" | "secondary";
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="fa-inline-action">
+      <Button
+        variant={variant}
+        data-testid={`fa-owner-${action.action}-${action.factoryId}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
+      >
+        {action.label}
+      </Button>
+      <ConfirmDialog
+        open={open}
+        title={action.confirmTitle}
+        message={
+          <div className="fa-confirm-lines" data-testid="fa-confirm-lines">
+            {action.confirmLines.map((line, i) => (
+              <p key={i}>{line}</p>
+            ))}
+          </div>
+        }
+        confirmLabel={action.confirmLabel}
+        busyLabel={action.busyLabel}
+        danger={action.danger}
+        action={action.label.toLowerCase()}
+        onConfirm={async () => {
+          const result = await runFactoryOwnerAction(action);
+          onDone(result.text);
+        }}
+        onClose={() => setOpen(false)}
+      />
     </span>
   );
 }

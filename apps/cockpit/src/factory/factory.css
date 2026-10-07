@@ -790,3 +790,77 @@ a.fa-tab {
     padding-top: 6px;
   }
 }
+
+/* Round 2: the owner's actions - the header's actions, the notice saying what an action did, the archived banner,
+   the bulk "mark handled" button, and the archived factories under the list. */
+.fa-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.fa-notice {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.fa-archived {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: var(--needsyou-fyi-bg);
+  color: var(--needsyou-fyi-text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.fa-bulk {
+  margin: 8px 0;
+}
+
+.fa-confirm-lines p {
+  margin: 0 0 8px;
+}
+
+.fa-archived-section {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fa-link-button {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+
+.fa-archived-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fa-archived-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}

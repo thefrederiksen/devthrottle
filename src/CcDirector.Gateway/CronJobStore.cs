@@ -219,6 +219,34 @@ public sealed class CronJobStore
         }
     }
 
+    /// <summary>
+    /// Switch one job of an account the CALLER names on or off, and nothing else about it - for the owner's Archive
+    /// and Restore of a factory (Factories screen mission, round 2), which switch exactly the schedules its seats name.
+    /// Switching on recomputes the next run from now, so a schedule that was off does not fire the runs it missed.
+    /// Returns the updated copy, or null if the account has no job with that id.
+    /// </summary>
+    public CronJobDto? SetEnabled(TenantId tenant, string id, bool enabled)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var entity = ctx.CronJobs.FirstOrDefault(e => e.Id == id);
+            if (entity is null)
+            {
+                FileLog.Write($"[CronJobStore] SetEnabled: no such job id={id}");
+                return null;
+            }
+            entity.Enabled = enabled;
+            entity.NextRunUtc = CronSchedule.ComputeNextRunUtc(ToDto(entity), DateTime.UtcNow);
+            ctx.SaveChanges();
+            var stored = ToDto(entity);
+            FileLog.Write($"[CronJobStore] SetEnabled: id={id}, enabled={enabled}, nextRunUtc={stored.NextRunUtc:o}");
+            return stored;
+        }
+    }
+
     /// <summary>Delete the job with the given id. Returns true if a job was removed, false if none existed.</summary>
     public bool Delete(string id)
     {

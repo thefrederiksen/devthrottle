@@ -80,9 +80,12 @@ public static class FactoriesScreenFold
     {
         ArgumentNullException.ThrowIfNull(input);
         var open = OpenWaiting(input.Activity);
-        var duplicateCeoNames = DuplicateCeoNames(input.Registry);
+        // An archived factory is not on the list, nor in its status order (round 2); it is under Show archived.
+        var listed = input.Registry.Where(f => f.ArchivedAtUtc is null).ToList();
+        var archived = input.Registry.Where(f => f.ArchivedAtUtc is not null).ToList();
+        var duplicateCeoNames = DuplicateCeoNames(listed);
 
-        var rows = input.Registry.Select(f =>
+        var rows = listed.Select(f =>
             {
                 var status = Status(f, input, open);
                 var talk = CeoTalk(f, duplicateCeoNames);
@@ -120,6 +123,17 @@ public static class FactoriesScreenFold
                 ? "No factory is registered yet. A factory appears here when it is registered with cc-devthrottle factory register."
                 : null,
             TruncatedText = Truncated(input.Activity),
+            ShowArchivedLabel = $"Show archived ({archived.Count})",
+            HideArchivedLabel = "Hide archived",
+            ArchivedRows = archived.Select(f => new FactoryArchivedRowDto
+            {
+                Id = f.Factory,
+                Title = f.Title,
+                Href = PageHref(f.Factory),
+                ArchivedText = FactoryOwnerActions.ArchivedText(f, input.Activity.Zone),
+                Restore = FactoryOwnerActions.RestoreAction(f, input.Schedules),
+            }).ToList(),
+            ArchivedEmptyText = archived.Count == 0 ? "No factory is archived." : null,
         };
     }
 
@@ -159,7 +173,7 @@ public static class FactoriesScreenFold
             SeatCountText = Count(factory.Seats.Count, "seat"),
             ComputerText = $"runs on {factory.Computer}",
             ComputerChangeText = ChangeComing,
-            Talk = CeoTalk(factory, DuplicateCeoNames(input.Registry)),
+            Talk = CeoTalk(factory, DuplicateCeoNames(input.Registry.Where(f => f.ArchivedAtUtc is null).ToList())),
             Tabs = PageTabs(factory.Seats.Count),
             Goal = GoalCard(factory),
             GoalNumber = GoalNumberCard(number, factory, zone, now),
@@ -167,15 +181,38 @@ public static class FactoriesScreenFold
             Waiting = new FactoryPageWaitingDto
             {
                 Heading = "Waiting on you",
-                Items = open.OrderBy(r => r.Outcome == FactoryActivityOutcome.Escalated ? 0 : 1).ThenBy(r => r.OccurredUtc)
-                    .Select(r => FactoryAgentsFold.WaitingItem(r, zone)).ToList(),
+                Items = FactoryOwnerActions.WaitingOrder(open).Select(r => PageWaitingItem(factory, r, input)).ToList(),
                 EmptyText = open.Count == 0 ? "Nothing is waiting on you." : null,
+                OrderText = open.Count == 0 ? null : FactoryOwnerActions.WaitingOrderText,
+                BulkHandled = FactoryOwnerActions.BulkHandledAction(factory, open, zone, now),
+                BulkHandledNote = FactoryOwnerActions.BulkHandledNote(open, now),
             },
             CeoLatest = CeoLatest(factory, ceo, input),
             LastTalk = LastTalk(factory, input.Talks, zone, now),
             DocumentsText = DocumentsText,
             TruncatedText = Truncated(input.Activity),
+            Archive = factory.ArchivedAtUtc is null ? FactoryOwnerActions.ArchiveAction(factory, input.Schedules) : null,
+            ArchivedText = factory.ArchivedAtUtc is null
+                ? null
+                : $"{FactoryOwnerActions.ArchivedText(factory, zone)}. It is not on the Factories list.",
+            Restore = factory.ArchivedAtUtc is null ? null : FactoryOwnerActions.RestoreAction(factory, input.Schedules),
         };
+    }
+
+    /// <summary>
+    /// One item waiting on the owner, on the factory's page (round 2): its text, when, which seat - by the seat's
+    /// registered name, in the seat's clock - the link to its evidence when the row has one, and Handled on every
+    /// item, a question as much as a decision.
+    /// </summary>
+    private static FactoryWaitingItemDto PageWaitingItem(RegisteredFactoryDto f, FactoryActivityDto r, FactoriesScreenInputs input)
+    {
+        var a = input.Activity;
+        var item = FactoryAgentsFold.WaitingItem(r, a.Zone);
+        item.By = $"{SeatName(f, r.FactoryAgent)}, {SeatClockOf(f, r.FactoryAgent, input.Schedules, a.Zone).When(r.OccurredUtc, a.NowUtc, capital: false)}";
+        item.LinkLabel = r.Link is null ? null : "Evidence";
+        item.HandledLabel = FactoryOwnerActions.HandledLabel;
+        item.HandledBusyLabel = FactoryOwnerActions.HandledBusyLabel;
+        return item;
     }
 
     public static List<FactoryTabDto> PageTabs(int seats) => new()

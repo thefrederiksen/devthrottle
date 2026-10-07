@@ -251,11 +251,32 @@ public sealed class FactoryAgentsFoldTests
     }
 
     [Fact]
-    public void HandledRow_OnAnAskedRowOrAnAlreadyHandledEscalation_IsRefused()
+    public void HandledRow_OnAQuestion_CorrectsIt_TheOwnerMayMarkAQuestionHandledToo()
     {
         var asked = Row("front-desk", "asked", "Draft", Now);
+
+        var handled = FactoryAgentsFold.HandledRow(asked, Array.Empty<FactoryActivityDto>(), false, "me", Now);
+
+        Assert.Equal(asked.Id, handled.CorrectsId);
+        Assert.Equal("Marked handled by me: Draft", handled.What);
+    }
+
+    [Fact]
+    public void HandledRow_WithAWhy_SaysHowItWasMarked()
+    {
+        var asked = Row("front-desk", "asked", "Draft", Now);
+
+        var handled = FactoryAgentsFold.HandledRow(asked, Array.Empty<FactoryActivityDto>(), false, "me", Now, "in a bulk clear");
+
+        Assert.Equal("Marked handled by me in a bulk clear: Draft", handled.What);
+    }
+
+    [Fact]
+    public void HandledRow_OnARowThatIsNotWaiting_OrAnAlreadyHandledEscalation_IsRefused()
+    {
+        var done = Row("front-desk", "done", "Sent", Now);
         Assert.Throws<FactoryViewValidationException>(() =>
-            FactoryAgentsFold.HandledRow(asked, Array.Empty<FactoryActivityDto>(), false, "me", Now));
+            FactoryAgentsFold.HandledRow(done, Array.Empty<FactoryActivityDto>(), false, "me", Now));
 
         var escalation = Row("front-desk", "escalated", "Money", Now);
         var fix = Row("front-desk", "done", "handled", Now, corrects: escalation.Id);

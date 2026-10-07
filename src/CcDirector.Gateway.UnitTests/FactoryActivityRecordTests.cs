@@ -67,6 +67,30 @@ public sealed class FactoryActivityRecordTests : IDisposable
         Assert.Empty(settable);
     }
 
+    [Fact]
+    public void AppendMany_RecordsEveryRow_AsOneWrite()
+    {
+        var record = NewRecord();
+        var first = record.Append(Row(FactoryActivityOutcome.Escalated, "Money"), "session:abc");
+
+        var written = record.Append(TenantId.Local, new[] { Row(corrects: first.Id), Row(agent: "owner", what: "The owner marked 1 item.") }, "owner (browser)");
+
+        Assert.Equal(2, written.Count);
+        Assert.Equal(first.Id, written[0].CorrectsId);
+        Assert.Equal(3, CountAll(record));
+    }
+
+    [Fact]
+    public void AppendMany_WhenOneRowIsRefused_WritesNone()
+    {
+        var record = NewRecord();
+
+        Assert.Throws<FactoryActivityValidationException>(() =>
+            record.Append(TenantId.Local, new[] { Row(), Row(outcome: "not-an-outcome") }, "owner (browser)"));
+
+        Assert.Equal(0, CountAll(record));
+    }
+
     // ---------------------------------------------------------------------------------------------------
     // Append then query, and corrections.
     // ---------------------------------------------------------------------------------------------------

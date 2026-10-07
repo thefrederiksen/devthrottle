@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { gatewayErrorMessage, GatewayError } from "../api/client";
-import { getFactoriesList, startFactoryTalk, talkRefusalReason } from "./factoriesScreenClient";
+import {
+  getFactoriesList,
+  runFactoryOwnerAction,
+  startFactoryTalk,
+  talkRefusalReason,
+  type FactoryOwnerAction,
+} from "./factoriesScreenClient";
 
 // The Factories screen's client. What is held down:
 //   * a Talk refusal shows every sentence the Gateway wrote: the Talk route's `{ error }`, the session create's
@@ -61,5 +67,62 @@ describe("startFactoryTalk", () => {
 
     answer(200, "<!doctype html><html></html>", "text/html");
     await expect(getFactoriesList()).rejects.toThrow(/does not serve the Factories screen/);
+  });
+});
+
+describe("runFactoryOwnerAction", () => {
+  const ARCHIVE: FactoryOwnerAction = {
+    action: "archive",
+    factoryId: "tallyhand",
+    label: "Archive factory",
+    busyLabel: "Archiving Tallyhand...",
+    confirmTitle: "Archive Tallyhand?",
+    confirmLines: [],
+    confirmLabel: "Archive Tallyhand",
+    danger: true,
+    cutoffUtc: null,
+    expectedCount: null,
+    schedules: ["cj_a"],
+  };
+
+  it("posts what the confirm showed to the action's own route", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ text: "Tallyhand is archived.", marked: 0, schedulesSwitched: ["cj_a"] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runFactoryOwnerAction(ARCHIVE);
+
+    expect(result.text).toBe("Tallyhand is archived.");
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/gateway/factories/tallyhand/archive");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ cutoffUtc: null, expectedCount: null, schedules: ["cj_a"] });
+  });
+
+  it("sends the bulk clear to its route with the cut-off and count", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ text: "Marked 2 items handled.", marked: 2, schedulesSwitched: [] }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runFactoryOwnerAction({ ...ARCHIVE, action: "handled-older", cutoffUtc: "2026-09-29T10:00:00Z", expectedCount: 2, schedules: [] });
+
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/gateway/factories/tallyhand/waiting/handled-older");
+    expect(JSON.parse(init.body as string)).toEqual({ cutoffUtc: "2026-09-29T10:00:00Z", expectedCount: 2, schedules: [] });
+  });
+
+  it("keeps the Gateway's own sentence on a refusal", async () => {
+    answer(409, JSON.stringify({ error: "The schedules changed after the confirm was shown. Nothing was done." }));
+    const err = await runFactoryOwnerAction(ARCHIVE).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GatewayError);
+    expect(gatewayErrorMessage(err, "archive")).toContain("The schedules changed after the confirm was shown. Nothing was done.");
   });
 });
