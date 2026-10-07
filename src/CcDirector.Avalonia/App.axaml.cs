@@ -483,6 +483,7 @@ public partial class App : Application
         StartEngine(log);
 
         StartLifecycleSignals(log);
+        StartLauncherRepair(log);
 
         UpdateSplashStatus(splash, "Starting control API...");
         StartControlApi(log);
@@ -775,6 +776,34 @@ public partial class App : Application
     ///
     /// Never throws: this is called from a background loop and from a signal handler.
     /// </summary>
+    /// <summary>
+    /// On macOS, once, shortly after start-up: if launchd holds a launcher job it refused to run, rebuild the
+    /// job (<see cref="CcDirector.Setup.Engine.LauncherLaunchdRepair"/>). The delay gives launchd its own
+    /// chance first - at login the agent starts on its own and a look taken too early would find nothing
+    /// running and call that a refusal. A launcher somebody closed, or a launch agent somebody turned off, is
+    /// left alone; the decision and its reasons are the engine's, and are logged. A FAILED line reaches the
+    /// Gateway like every other, so a repair that did not work is seen on our side.
+    /// </summary>
+    private static void StartLauncherRepair(Action<string> log)
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(45));
+                if (!OperatingSystem.IsMacOS()) return;
+                var layout = new CcDirector.Setup.Engine.InstallLayout(InstanceContext.SharedRoot);
+                var outcome = CcDirector.Setup.Engine.LauncherLaunchdRepair.RunOnce(layout);
+                log($"launcher repair: {outcome}");
+            }
+            catch (Exception ex)
+            {
+                log($"launcher repair FAILED: {ex.GetType().Name}: {ex.Message}");
+            }
+        });
+    }
+
     private static async Task RunLauncherUpdatePassAsync()
     {
         try

@@ -9,12 +9,12 @@ namespace CcDirector.Setup.Engine;
 /// <see cref="LauncherTrayInstaller"/>. The generic <see cref="UpdateRunner"/> places the
 /// cc-launcher binary but never starts it, so on a fresh install the launcher would sit dormant
 /// and its launch agent would never be registered. This:
-///   1. restarts the launcher under launchd ("launchctl kickstart -k") when its launch agent is
-///      already registered (a reinstall or repair), so the newly placed binary takes over,
-///   2. otherwise registers the launch agent here and lets launchd start it,
-///   3. waits for the launcher's registration file to name the process launchd reports
+///   1. rebuilds the launch agent from scratch on EVERY install - boots out whatever job launchd held,
+///      writes the current property list, bootstraps and kickstarts it (<see cref="LauncherLaunchdAutostart.Rebuild"/>),
+///   2. waits for the launcher's registration file to name the process launchd reports
 ///      (the launcher listens on nothing - remove-the-network-port mission, phase 6),
-///   4. confirms the launch agent property list exists.
+///   3. confirms the launch agent property list exists,
+///   4. and when launchd will not run it, gathers everything macOS knows about why, for the report.
 ///
 /// Everything is per-user (the launch agent lives in the user's LaunchAgents folder and the
 /// binary under the per-user install root): no elevation, no system daemon. macOS-only.
@@ -101,51 +101,29 @@ public sealed class LauncherMacInstaller
         if (EnsureOwnedByUser(steps) is { } ownershipFailure)
             return Fail(steps, ownershipFailure);
 
-        // 0 means "no process to expect": on the launchd branch launchd owns the process and its id
-        // is never learned here.
-        var startedPid = 0;
-
-        if (File.Exists(_launchAgentPlistPath))
+        // THE JOB IS REBUILT ON EVERY INSTALL - never restarted as found. The install used to kickstart a
+        // job whose property list was already on disk, and on one user's Mac that job was the one the first
+        // install had registered and launchd refused to spawn ("78: EX_CONFIG", "spawn failed"); five installs
+        // over two weeks restarted that same refused job, so no later change to registration could ever reach
+        // the machine. Rebuild boots the old job out, writes the current definition, creates the log folder,
+        // bootstraps and kickstarts (the kickstart is what starts a job in an "on-demand-only" user domain,
+        // which that Mac's log named). What launchd held before is kept for the report.
+        try
         {
-            // Reinstall or repair: the agent is registered, so launchd owns the process. A
-            // kickstart restart makes launchd stop the old instance and start the newly placed
-            // binary - never an in-place overwrite of a running file (the placement was
-            // rename-based), and the restart hands over cleanly.
-            RestartUnderLaunchd(steps);
+            var rebuilt = LauncherLaunchdAutostart.Rebuild(launcherBinary, LauncherTrayInstaller.InstalledArguments,
+                new LauncherLaunchdAutostart.CommandRunner(_runCommand), _launchAgentPlistPath, LauncherLogDir);
+            _previousLaunchdPrint = rebuilt.PreviousPrint;
+            steps.AddRange(rebuilt.Steps);
         }
-        else
+        catch (Exception ex)
         {
-            // FIRST INSTALL: register the launch agent here and let launchd start it.
-            //
-            // This used to start the launcher directly and rely on the launcher registering its own
-            // agent afterwards. That is where every unmanageable launcher came from: a process launchd
-            // does not own, which the uninstall could not stop because it only asked launchd - so the
-            // machine kept an orphan holding the launcher port and no later install could succeed. On
-            // the machine where this was found the self-registration had also failed silently, so the
-            // direct start was the only thing that ran, and it created exactly the process nothing
-            // could clean up.
-            //
-            // Registering first inverts that: launchd owns the launcher from the very first install,
-            // the property-list check below passes for a real reason, and the uninstall's launchd path
-            // is sufficient for launchers created this way.
-            steps.Add("registering the launch agent so launchd owns the launcher from the first install");
-            try
-            {
-                if (!LauncherLaunchdAutostart.EnsureRegistered(launcherBinary, LauncherTrayInstaller.InstalledArguments))
-                    return Fail(steps, "Could not register the launcher launch agent, so launchd would not own it. "
-                                       + "Refusing to start it directly: that is what leaves a launcher no uninstall can stop.");
-                steps.Add($"registered and bootstrapped the launch agent ({LauncherLaunchdAutostart.Label})");
-            }
-            catch (Exception ex)
-            {
-                return Fail(steps, $"Could not register the launcher launch agent: {ex.Message}");
-            }
+            steps.Add($"could NOT rebuild the launch agent: {ex.Message}");
+            return Fail(steps, $"Could not register the launcher with macOS: {ex.Message}. {HowToOpenTheLogs}");
         }
 
         // Ask launchd which process it is running, so the health check below can demand an answer from
-        // THAT process. Both branches now end with launchd owning the launcher, so both can do this -
-        // previously the kickstart branch had no process to expect and trusted the version alone.
-        startedPid = TryGetLaunchdPid(steps);
+        // THAT process. 0 means "no process to expect".
+        var startedPid = TryGetLaunchdPid(steps);
 
         // Identity-verified health: the registration must name THE PROCESS WE JUST STARTED, not
         // whatever launcher was already on the machine. This is the check that failed on
@@ -192,53 +170,6 @@ public sealed class LauncherMacInstaller
         EngineLog.Write("[LauncherMacInstaller] InstallAsync success");
         return new LauncherInstallResult(true,
             "Launcher installed, running, and registered as a launch agent.", steps);
-    }
-
-    /// <summary>
-    /// Restart the launcher under launchd so the newly placed binary takes over. When the agent
-    /// is not actually loaded (a property list left behind without a bootstrap - for example a
-    /// crash between writing the file and loading it), kickstart fails; the launcher is then
-    /// started directly, and on startup it re-bootstraps its own agent. That direct start is the
-    /// A registered agent that refuses to start is a real failure and is reported as one - it is
-    /// never worked around by starting the launcher outside launchd.
-    /// </summary>
-    [SupportedOSPlatform("macos")]
-    private void RestartUnderLaunchd(List<string> steps)
-    {
-        var (uidExit, uidOutput) = _runCommand("/usr/bin/id", "-u");
-        if (uidExit != 0 || !int.TryParse(uidOutput.Trim(), out var uid))
-        {
-            // No silent direct start. Falling back to one is precisely how a launcher launchd does
-            // not own comes into existence, and nothing can stop those afterwards. The property-list
-            // check that follows fails this install with a reason the user can read.
-            steps.Add($"could not resolve the user id (exit {uidExit}) - cannot restart the launch agent");
-            return;
-        }
-
-        var serviceTarget = $"gui/{uid}/{LauncherLaunchdAutostart.Label}";
-        var (kickExit, kickOutput) = _runCommand("/bin/launchctl", $"kickstart -k {serviceTarget}");
-        if (kickExit == 0)
-        {
-            steps.Add($"restarted the launch agent with launchctl kickstart ({serviceTarget})");
-            return;
-        }
-
-        // A registered agent that will not start is a real failure. Re-register, which bootstraps it,
-        // and if that will not work either say so rather than starting an unmanaged process.
-        EngineLog.Write($"[LauncherMacInstaller] launchctl kickstart failed (exit {kickExit}): {kickOutput.Trim()}");
-        steps.Add($"launchctl kickstart failed (exit {kickExit}) - re-registering the launch agent");
-        try
-        {
-            if (LauncherLaunchdAutostart.EnsureRegistered(
-                    _layout.PathFor(ComponentRegistry.Launcher), LauncherTrayInstaller.InstalledArguments))
-                steps.Add("re-registered and bootstrapped the launch agent");
-            else
-                steps.Add("could NOT re-register the launch agent");
-        }
-        catch (Exception ex)
-        {
-            steps.Add($"could NOT re-register the launch agent: {ex.Message}");
-        }
     }
 
     /// <summary>
@@ -328,6 +259,10 @@ public sealed class LauncherMacInstaller
     private int _lastLaunchdPrintExit = -1;
     private string? _lastLaunchdPrint;
 
+    // What launchd held for the label BEFORE this install rebuilt the job (null when it held nothing): the
+    // history of every earlier attempt on this machine, gone from launchd the moment the job was booted out.
+    private string? _previousLaunchdPrint;
+
     private LauncherInstallResult Fail(List<string> steps, string message)
     {
         EngineLog.Write($"[LauncherMacInstaller] FAILED: {message}");
@@ -338,9 +273,15 @@ public sealed class LauncherMacInstaller
 
     /// <summary>
     /// Everything that explains a failure, gathered at the moment it happens: launchd's view of the job
-    /// (asked afresh, because the job may have changed since the wait gave up), the tail of the launcher's
-    /// launchd stderr and stdout, the tail of the launcher's own log, and the steps taken. Gathering is itself fallible - launchctl can be
-    /// missing or refuse - and when it is, the report SAYS so rather than going quiet.
+    /// (asked afresh, because the job may have changed since the wait gave up) and of the job this install
+    /// REPLACED, the launch agent as written on disk, the tail of the launcher's launchd stderr and stdout,
+    /// the tail of the launcher's own log, the steps taken, and what macOS itself says about the binary and
+    /// the folders launchd opens. Gathering is itself fallible - launchctl can be missing or refuse - and
+    /// when it is, the report SAYS so rather than going quiet.
+    ///
+    /// Everything here is for the reader on OUR side: one user's Mac failed five installs in a row (#3411)
+    /// and each report answered fewer questions than the next round trip needed. A report must settle the
+    /// cause without another message to the user.
     /// </summary>
     private string GatherDiagnostics(List<string> steps)
     {
@@ -376,20 +317,31 @@ public sealed class LauncherMacInstaller
             ("launcher log (last lines)", LaunchdDiagnostics.LauncherLogTail(LauncherLogDir, 60)),
         ]);
         var header = gatherError is null ? "" : $"launchd query failed: {gatherError}\n";
-        // The binary checks go LAST: the Gateway keeps the first 16,000 characters of a report, and the
-        // system log is the only part long enough to be cut.
-        return header + composed + "\nsteps:\n  " + string.Join("\n  ", steps) + "\n" + GatherBinaryChecks(uid);
+        var previous = _previousLaunchdPrint is null
+            ? "launchd held no job for the launcher before this install\n"
+            : "launchd held this job BEFORE this install rebuilt it (useful lines):\n  "
+              + string.Join("\n  ", LaunchdDiagnostics.UsefulLines(_previousLaunchdPrint)) + "\n";
+        // The binary and folder checks go LAST: the Gateway keeps the first 16,000 characters of a report, and
+        // the system log is the only part long enough to be cut.
+        return header + composed + "\n" + previous + "steps:\n  " + string.Join("\n  ", steps) + "\n"
+               + GatherMachineChecks(uid, print);
     }
 
     /// <summary>
-    /// What macOS itself thinks of the launcher. launchd only knows THAT it refused the program
-    /// ("78: EX_CONFIG", "spawn failed"); the reason sits elsewhere - the file's quarantine flag and
-    /// signature, a switched-off background item, a device-management policy, the security log. A
-    /// user's Mac failed three installs in a row with nothing else to go on (#3411), so these answers
-    /// travel with every failure.
+    /// What macOS itself thinks of the launcher and of the places launchd touches to start it. launchd only
+    /// knows THAT it refused the program ("78: EX_CONFIG", "spawn failed"); the reason sits elsewhere - who
+    /// owns the files it opens, whether the log folder exists at all, the file's quarantine flag and
+    /// signature, Gatekeeper's verdict, a switched-off background item, a device-management policy, the
+    /// domain's own mode, the security log. Each answer travels with every failure, with its exit code, so an
+    /// empty answer and a failed command read differently.
+    ///
+    /// The direct run is the one check that separates the two halves of a refusal: a launcher that prints its
+    /// version when run by hand is a program macOS WILL execute, so a launchd refusal is about the job (its
+    /// log paths, its folders, the domain); one that is killed when run by hand is refused as a program.
     /// </summary>
     /// <param name="uid">The user id GatherDiagnostics resolved, or null when it could not.</param>
-    private string GatherBinaryChecks(int? uid)
+    /// <param name="launchctlPrint">launchd's current answer for the job, for the full-text block.</param>
+    private string GatherMachineChecks(int? uid, string? launchctlPrint)
     {
         var binary = _layout.PathFor(ComponentRegistry.Launcher);
         var checks = new List<(string Name, int Exit, string Output)>();
@@ -407,15 +359,52 @@ public sealed class LauncherMacInstaller
             }
         }
 
+        static string Quote(string p) => "\"" + p + "\"";
+
+        // launchd's whole answer, not only the useful lines: a field nobody thought to keep is exactly the one
+        // the next failure turns on.
+        checks.Add(("launchctl print (full)", launchctlPrint is null ? -1 : 0, launchctlPrint ?? "(launchd was not asked)"));
+
+        // The user domain itself. A domain in "on-demand-only" mode starts nothing by itself; one user's Mac
+        // logged "pending spawn, domain in on-demand-only mode" at every install.
+        if (uid is { } domainUid)
+            Check("launchctl print gui/<uid> (the domain, first lines)", "/bin/launchctl", $"print gui/{domainUid}",
+                output => string.Join('\n', output.Split('\n').TakeWhile(l => !l.TrimStart().StartsWith("services = {", StringComparison.Ordinal)).Take(40)));
+
+        // The launch agent as it is on disk, so the report never has to guess which paths launchd was given.
+        Check("launch agent property list on disk", "/bin/cat", Quote(_launchAgentPlistPath));
+
         // launchd opens the log files as the user before it starts the program: a root-owned one is refused
-        // with the same "78: EX_CONFIG" and empty stderr as a refused program (#3411).
+        // with the same "78: EX_CONFIG" and empty stderr as a refused program (#3411). A log folder that does
+        // not exist is refused the same way.
         string[] owned = [_layout.LocalRoot, _layout.LogsDir, LauncherLogDir,
             Path.Combine(LauncherLogDir, "launchd-stdout.log"), Path.Combine(LauncherLogDir, "launchd-stderr.log"),
             Path.GetDirectoryName(binary)!, binary, _launchAgentPlistPath];
-        Check("ls -ld (who owns the files launchd opens)", "/bin/ls",
-            "-ld " + string.Join(' ', owned.Where(p => File.Exists(p) || Directory.Exists(p)).Select(p => $"\"{p}\"")));
-        Check("xattr -l (quarantine flag)", "/usr/bin/xattr", $"-l \"{binary}\"");
-        Check("codesign -dv (signature)", "/usr/bin/codesign", $"-dv --verbose=2 \"{binary}\"");
+        var missing = owned.Where(p => !File.Exists(p) && !Directory.Exists(p)).ToList();
+        Check("ls -ldO (who owns the files launchd opens, and their flags)", "/bin/ls",
+            "-ldO " + string.Join(' ', owned.Where(p => File.Exists(p) || Directory.Exists(p)).Select(Quote)));
+        checks.Add(("paths launchd would open that do NOT exist", 0, missing.Count == 0 ? "(none - every path exists)" : string.Join('\n', missing)));
+        Check("ls -la (the launcher log folder)", "/bin/ls", "-la " + Quote(LauncherLogDir));
+
+        // Where the home folder really is: a home on an external or network volume, or behind a symbolic
+        // link, is one launchd's pre-start file opens can be refused on.
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        Check("home folder (stat: name, link target, device, flags, owner)", "/usr/bin/stat",
+            "-f \"%N -> %Y | device %Sd | flags %Sf | owner %u\" " + Quote(home) + " " + Quote(Path.Combine(home, "Library")) + " " + Quote(_layout.LocalRoot));
+        Check("df -h (the volume the home folder is on)", "/bin/df", "-h " + Quote(home));
+
+        Check("xattr -l (quarantine flag)", "/usr/bin/xattr", "-l " + Quote(binary));
+        Check("codesign -dv (signature)", "/usr/bin/codesign", "-dv --verbose=2 " + Quote(binary));
+        Check("codesign --verify (does the signature still match the file)", "/usr/bin/codesign", "--verify --verbose=2 " + Quote(binary));
+        Check("spctl --assess (Gatekeeper's verdict on running it)", "/usr/sbin/spctl", "--assess --type execute --verbose=2 " + Quote(binary));
+
+        // Does the program run at all when asked directly? Only a launcher build that answers --version is
+        // asked (an older one would start for real and leave a process nothing owns).
+        var version = new InstalledStateReader(_layout).Read(ComponentRegistry.Launcher).Version;
+        if (AnswersVersionFlag(version))
+            Check("run the launcher directly: cc-launcher --version (does macOS execute the program at all)", binary, "--version");
+        else
+            checks.Add(("run the launcher directly: cc-launcher --version", -1, $"not run: launcher {version ?? "(unknown)"} predates --version ({FirstVersionAnsweringVersionFlag})"));
 
         // A background item the user (or macOS) switched off is refused without a word from launchd.
         // The list names every service on the machine; only ours matters.
@@ -433,9 +422,27 @@ public sealed class LauncherMacInstaller
 
         // A company-managed Mac can refuse unsigned background programs by policy.
         Check("profiles status (device management)", "/usr/bin/profiles", "status -type enrollment");
-        Check("log show (last 3 minutes mentioning cc-launcher)", "/usr/bin/log",
-            "show --last 3m --style compact --predicate \"eventMessage CONTAINS 'cc-launcher'\"");
+        Check("sw_vers", "/usr/bin/sw_vers", "");
+
+        // The security and launch subsystems' own words. The predicate used to match only lines naming the
+        // binary, and launchd's refusal ("Service could not initialize", from xpcproxy) and the kernel's
+        // code-signing kill do not always name it. Everything xpcproxy, amfid and syspolicyd said in the last
+        // minutes is kept, plus every launchd and kernel line that names us.
+        Check("log show (last 3 minutes: launchd and kernel lines naming us, and all of xpcproxy, amfid, syspolicyd)", "/usr/bin/log",
+            "show --last 3m --style compact --predicate \"((process == 'launchd' OR process == 'kernel') AND (eventMessage CONTAINS 'cc-launcher' OR eventMessage CONTAINS 'devthrottle')) OR process == 'xpcproxy' OR process == 'amfid' OR process == 'syspolicyd' OR eventMessage CONTAINS 'cc-launcher'\"",
+            output => string.Join('\n', output.Split('\n').Where(l => !l.Contains("log run noninteractively", StringComparison.Ordinal))));
 
         return LaunchdDiagnostics.ComposeBinaryChecks(checks);
+    }
+
+    /// <summary>The first launcher build that answers <c>--version</c> and exits (nothing else is started).</summary>
+    internal const string FirstVersionAnsweringVersionFlag = "2.17.0";
+
+    /// <summary>Whether an installed launcher of this version answers <c>--version</c>. Unknown is no.</summary>
+    internal static bool AnswersVersionFlag(string? installedVersion)
+    {
+        var installed = VersionUtil.TryParse(installedVersion);
+        var first = VersionUtil.TryParse(FirstVersionAnsweringVersionFlag);
+        return installed is not null && first is not null && installed >= first;
     }
 }

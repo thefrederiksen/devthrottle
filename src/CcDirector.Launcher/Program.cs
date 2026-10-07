@@ -19,6 +19,18 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        // --version answers and exits before anything else runs: no log, no mutex, no tray, no registration.
+        // The macOS installer runs the placed binary this way when launchd will not start it, to learn whether
+        // macOS executes the program at all (a refused job and a refused program look the same from launchd).
+        if (Array.IndexOf(args, "--version") >= 0)
+        {
+            Console.WriteLine(typeof(Program).Assembly
+                .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                .FirstOrDefault()?.InformationalVersion ?? "unknown");
+            return 0;
+        }
+
         // The launcher's record lives in logs/launcher/, beside the launchd output and where every message the
         // installer shows points (issue #3311, B4). It used to land in logs/director/ as director-*.log.
         FileLog.UseLogDirectory(CcDirector.Core.Storage.CcStorage.ToolLogs("launcher"), "launcher");

@@ -70,6 +70,23 @@ public static class LaunchdDiagnostics
         var signal = Field(launchctlPrintOutput, "last terminating signal");
         var state = Field(launchctlPrintOutput, "state");
         var runs = Field(launchctlPrintOutput, "runs");
+        var jobState = Field(launchctlPrintOutput, "job state");
+
+        // "spawn failed" is launchd saying the program NEVER RAN: it could not set the job up (open its log
+        // files, enter its folders, execute the file). The sentence used to say "started but did not stay
+        // running", which sent a user looking at logs a program that never ran could not have written.
+        // Exit 78 (EX_CONFIG) is the code launchd's spawner answers with when the job could not be set up, and it
+        // is a refusal whatever "job state" says beside it: a Mac whose domain schedules a retry shows "spawn
+        // scheduled", one whose domain does not shows "spawn failed", and the program ran in neither.
+        var refused = string.Equals(jobState, "spawn failed", StringComparison.OrdinalIgnoreCase)
+                      || (exitCode is not null && exitCode.StartsWith("78", StringComparison.Ordinal));
+        if (refused)
+        {
+            var tried = string.IsNullOrEmpty(runs) ? "" : $" macOS tried {runs} time(s)";
+            var code = string.IsNullOrEmpty(exitCode) || exitCode == "(never exited)" ? "" : $" ({exitCode})";
+            var says = string.Equals(jobState, "spawn failed", StringComparison.OrdinalIgnoreCase) ? "\"spawn failed\"" : $"\"{jobState ?? state ?? "not running"}\"";
+            return $"macOS could not start the launcher at all: launchd reports {says}{code}, so the program never ran a line.{tried}";
+        }
 
         var parts = new List<string>();
         if (!string.IsNullOrEmpty(signal)) parts.Add($"it was stopped by {signal}");

@@ -101,7 +101,9 @@ repair_owned() {
     sudo /bin/sh -c "$CHOWN_TREES" "$(id -u):$(id -g)" "${TREE_CANDIDATES[@]}" || return 1
 }
 check_owned || exit 1
+REPAIRED_OWNERSHIP=""
 if [[ -n "$NOT_OWNED" ]]; then
+    NOT_OWNED_BEFORE="$NOT_OWNED"
     printf 'Some DevThrottle files belong to another user, usually because an earlier install was run with sudo.\n'
     printf 'macOS will not start DevThrottle until they belong to you again. Enter your Mac password to repair them.\n'
     if ! repair_owned || ! check_owned || [[ -n "$NOT_OWNED" ]]; then
@@ -111,6 +113,7 @@ if [[ -n "$NOT_OWNED" ]]; then
         exit 1
     fi
     printf 'Repaired.\n'
+    REPAIRED_OWNERSHIP="$NOT_OWNED_BEFORE"
 fi
 
 # Every line this script prints also goes to a log file the user (and support) can find, next to the
@@ -127,28 +130,40 @@ log() {
     if [[ -n "$LOG_FILE" ]]; then printf '%s %s\n' "$(date +%H:%M:%S)" "$*" >> "$LOG_FILE" 2>/dev/null || true; fi
 }
 
-# Send a failed step to DevThrottle (issue #3311), so the failure is not only on this screen. No sign-in
-# exists yet, and none is needed. It sends the error text (home folder reduced to "~"), the macOS version,
-# the architecture, and the same per-machine install id the setup wizard uses. The install has already
-# failed when this runs, so a report that cannot be delivered changes nothing: the error above stands.
-report_failure() {
-    local message="$1" id_dir="$HOME/Library/Application Support/cc-director" id=""
+# Send one step to DevThrottle (issue #3311), so what happened is not only on this screen. No sign-in
+# exists yet, and none is needed. It sends the step, the message (home folder reduced to "~"), the macOS
+# version, the architecture, the same per-machine install id the setup wizard uses, and the log of this run
+# so far as diagnostics - a failed install used to arrive as one line, and the five lines before it, which
+# said what the script had done, stayed on the user's Mac. A report that cannot be delivered changes nothing.
+json_escape() {
+    local text="$1" tilde='~'
+    # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
+    text="${text//"$HOME"/$tilde}"
+    text="${text//\\/\\\\}"
+    text="${text//\"/\\\"}"
+    text="${text//$'\t'/\\t}"
+    text="${text//$'\n'/\\n}"
+    printf '%s' "$text"
+}
+report_step() { # message
+    local message="$1" id_dir="$HOME/Library/Application Support/cc-director" id="" run_log=""
     if [[ -s "$id_dir/install-id" ]]; then
         id="$(cat "$id_dir/install-id")"
     else
         id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
         { mkdir -p "$id_dir" && printf '%s' "$id" > "$id_dir/install-id"; } 2>/dev/null || true
     fi
-    # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
-    local tilde='~'
-    message="${message//"$HOME"/$tilde}"
-    message="${message//$'\n'/ }"
-    message="${message//$'\t'/ }"
-    message="${message//\\/\\\\}"
-    message="${message//\"/\\\"}"
+    if [[ -n "$LOG_FILE" && -s "$LOG_FILE" ]]; then
+        run_log="$(tail -c 12000 "$LOG_FILE" 2>/dev/null || true)"
+    fi
+    local diagnostics
+    diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
     local body
-    body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":\"$message\",\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
-    if curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1; then
+    body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":\"$(json_escape "$message")\",\"diagnostics\":\"$(json_escape "$diagnostics")\",\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
+    curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1
+}
+report_failure() {
+    if report_step "$1"; then
         printf 'A report of this failure was sent to DevThrottle.\n' >&2
     fi
 }
@@ -165,6 +180,15 @@ fail() {
     if [[ -n "$LOG_FILE" ]]; then printf 'The log of this run is in %s\n' "$LOG_FILE" >&2; fi
     exit 1
 }
+
+# The ownership check ran before the log existed; its outcome goes into the log and to DevThrottle now, so a
+# repair that happened on a user's Mac is known on our side and not inferred from the next failure.
+if [[ -n "$REPAIRED_OWNERSHIP" ]]; then
+    STEP="repair-ownership"
+    log "Repaired the ownership of: $(printf '%s' "$REPAIRED_OWNERSHIP" | tr '\n' ' ')"
+    report_step "Repaired DevThrottle files that belonged to another user: $(printf '%s' "$REPAIRED_OWNERSHIP" | tr '\n' ' ')" || true
+    STEP="preconditions"
+fi
 
 # A command that fails without its own "|| fail" (mkdir, mv, open, shasum...) stops the script through
 # set -e. Without this trap that stop was silent to us: no report, and no ERROR line of our own.
@@ -247,3 +271,10 @@ else
     log "Opening the setup wizard..."
     open "$DESTINATION_DIR/$APP_NAME"
 fi
+
+# The script's part is done. Say so to DevThrottle as well: a machine whose script finished and whose wizard
+# then said nothing is a different story from one whose script never got this far, and until now both were
+# silence on our side.
+STEP="done"
+log "install-mac.sh finished; the setup wizard takes over."
+report_step "OK: install-mac.sh completed and $( [[ "${DEVTHROTTLE_NO_OPEN:-}" == "1" ]] && printf 'did not open the wizard (DEVTHROTTLE_NO_OPEN=1)' || printf 'opened the setup wizard')" || true

@@ -40,7 +40,9 @@ jobs:
           echo "OK: /usr/bin/python3 fails, as on a Mac with broken developer tools."
 
       - name: Run the installer
-        run: DEVTHROTTLE_NO_OPEN=1 bash scripts/install-mac.sh
+        # The hosted Gateway is pointed at a closed local port: the script now reports what it did to
+        # DevThrottle, and a runner's install is not a user's. The report must fail fast and quietly here.
+        run: DEVTHROTTLE_NO_OPEN=1 DEVTHROTTLE_HOSTED_GATEWAY_URL=http://127.0.0.1:9 bash scripts/install-mac.sh
 
       - name: Check the wizard was installed
         run: |

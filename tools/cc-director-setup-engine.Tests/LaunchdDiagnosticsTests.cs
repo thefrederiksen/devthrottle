@@ -55,6 +55,38 @@ public sealed class LaunchdDiagnosticsTests
     }
 
     [Fact]
+    public void Explain_SpawnFailed_SaysTheProgramNeverRan()
+    {
+        // The user's Mac (#3411): launchd could not even start the program. The old sentence said it "started
+        // but did not stay running" and pointed at logs a program that never ran could not have written.
+        const string refused = "state = not running\nruns = 6\nlast exit code = 78: EX_CONFIG\njob state = spawn failed\n";
+
+        var sentence = LaunchdDiagnostics.Explain(refused, jobLoaded: true);
+
+        Assert.NotNull(sentence);
+        Assert.Contains("could not start the launcher at all", sentence);
+        Assert.Contains("spawn failed", sentence);
+        Assert.Contains("78: EX_CONFIG", sentence);
+        Assert.Contains("never ran a line", sentence);
+        Assert.Contains("tried 6 time(s)", sentence);
+        Assert.DoesNotContain("did not stay running", sentence);
+    }
+
+    [Fact]
+    public void Explain_Exit78WithARetryScheduled_StillSaysTheProgramNeverRan()
+    {
+        // A GitHub macOS 26 runner, 7 October 2026: the same refusal, but the domain schedules a retry, so the
+        // job state reads "spawn scheduled" rather than "spawn failed". Exit 78 is the refusal either way.
+        const string refused = "state = spawn scheduled\nruns = 5\nlast exit code = 78: EX_CONFIG\n";
+
+        var sentence = LaunchdDiagnostics.Explain(refused, jobLoaded: true);
+
+        Assert.Contains("could not start the launcher at all", sentence);
+        Assert.Contains("78: EX_CONFIG", sentence);
+        Assert.Contains("\"spawn scheduled\"", sentence);
+    }
+
+    [Fact]
     public void Explain_PrefersTheTerminatingSignalOverTheExitCode()
     {
         const string killed = "state = not running\nlast exit code = (never exited)\nlast terminating signal = Killed: 9\n";

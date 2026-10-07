@@ -129,6 +129,105 @@ public static class LauncherLaunchdAutostart
         return true;
     }
 
+    /// <summary>Runs a short command and returns its exit code and combined output. Injectable so the
+    /// rebuild can be exercised without a real launchd.</summary>
+    public delegate (int Exit, string Output) CommandRunner(string executable, string arguments);
+
+    /// <summary>What launchd held for the label before a rebuild, and what the rebuild did.</summary>
+    public sealed record RebuildResult(string? PreviousPrint, bool PreviousLoaded, IReadOnlyList<string> Steps);
+
+    /// <summary>
+    /// Define the launch agent from scratch and make launchd run it NOW, whatever it held before.
+    ///
+    /// WHY NOT KICKSTART WHAT IS THERE. An install used to look for the property list on disk and, finding
+    /// one, only ask launchd to restart the job it already had. On one user's Mac that job was the one the
+    /// very first install had registered, and launchd refused to spawn it ("78: EX_CONFIG", "spawn failed")
+    /// on 23 September, 24 September, 25 September, 28 September and 6 October 2026 - every install after
+    /// the first restarted the same refused job, and nothing any later installer did to registration could
+    /// reach the machine, because registration was never run again. A job launchd holds is not evidence
+    /// that it is a job launchd will run.
+    ///
+    /// So this boots the old job out (whoever submitted it: our bootstrap, or the system's own login
+    /// loading of the property list), writes the property list the current build defines, makes sure the
+    /// folder its log paths point into exists, bootstraps it, and then kickstarts it. The kickstart matters:
+    /// a user domain can be in launchd's "on-demand-only" mode, in which RunAtLoad at bootstrap only leaves a
+    /// "pending spawn" and nothing starts - the user's Mac logged exactly that line. A kickstart is an
+    /// explicit demand and is honoured in that mode.
+    ///
+    /// NEVER FROM INSIDE THE JOB: booting out one's own job ends the caller before the bootstrap (#3575).
+    /// The installer and the Director call this; the launcher keeps <see cref="EnsureRegistered"/>.
+    /// </summary>
+    /// <param name="run">How launchctl and id are run; <see cref="DefaultRunner"/> in production.</param>
+    /// <param name="plistPath">The property list path; the user's launch agent in production.</param>
+    /// <param name="logDir">Where the launchd stdout and stderr files go; the launcher log folder in production.</param>
+    [SupportedOSPlatform("macos")]
+    public static RebuildResult Rebuild(string exePath, string? arguments, CommandRunner? run = null,
+        string? plistPath = null, string? logDir = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(exePath);
+        if (!MayReload(Environment.GetEnvironmentVariable("XPC_SERVICE_NAME")))
+            throw new InvalidOperationException("Rebuild must not run inside the launcher's own launchd job: booting the job out would end this process (#3575).");
+
+        run ??= DefaultRunner;
+        plistPath ??= PlistPath;
+        logDir ??= Path.Combine(InstallLayout.Default().LogsDir, "launcher");
+        var steps = new List<string>();
+
+        var (uidExit, uidOutput) = run("/usr/bin/id", "-u");
+        if (uidExit != 0 || !int.TryParse(uidOutput.Trim(), out var uid))
+            throw new InvalidOperationException($"could not resolve the current user id (id -u exit {uidExit}): {Trim(uidOutput)}");
+        var target = $"gui/{uid}/{Label}";
+
+        // What launchd had, kept for the report: the state the user's Mac was in BEFORE this install is the
+        // history of every earlier attempt, and it is gone the moment the job is booted out.
+        var (printExit, printOutput) = run("/bin/launchctl", $"print {target}");
+        var wasLoaded = printExit == 0;
+        steps.Add(wasLoaded
+            ? $"launchd already held the job: {Summarize(printOutput)}"
+            : "launchd did not hold the job");
+
+        if (wasLoaded)
+        {
+            var (outExit, outText) = run("/bin/launchctl", $"bootout {target}");
+            EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: bootout -> exit={outExit} {Trim(outText)}");
+            steps.Add(outExit == 0 ? "booted the old job out" : $"bootout of the old job answered exit {outExit}: {Trim(outText)}");
+        }
+
+        Directory.CreateDirectory(Path.GetDirectoryName(plistPath)!);
+        Directory.CreateDirectory(logDir);
+        var desired = PlistContent(exePath, arguments, logDir);
+        File.WriteAllText(plistPath, desired);
+        EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: wrote {plistPath}");
+        steps.Add($"wrote the launch agent ({Label}) and created {logDir}");
+
+        var (bootExit, bootText) = run("/bin/launchctl", $"bootstrap gui/{uid} \"{plistPath}\"");
+        EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: bootstrap -> exit={bootExit} {Trim(bootText)}");
+        if (bootExit != 0)
+            throw new InvalidOperationException($"launchctl bootstrap failed (exit {bootExit}): {Trim(bootText)}");
+        steps.Add("bootstrapped the launch agent");
+
+        var (kickExit, kickText) = run("/bin/launchctl", $"kickstart -k {target}");
+        EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: kickstart -k -> exit={kickExit} {Trim(kickText)}");
+        steps.Add(kickExit == 0
+            ? "kickstarted the launch agent (an explicit demand, honoured even in an on-demand-only domain)"
+            : $"kickstart answered exit {kickExit}: {Trim(kickText)}");
+
+        return new RebuildResult(wasLoaded ? printOutput : null, wasLoaded, steps);
+    }
+
+    /// <summary>The runner for production use: launchctl and id, with the engine's default bound.</summary>
+    public static readonly CommandRunner DefaultRunner = (exe, args) => ProcessRunner.Run(exe, args);
+
+    /// <summary>One line of the fields that say what became of a job: state, runs, last exit, job state.</summary>
+    private static string Summarize(string launchctlPrint)
+    {
+        var fields = new[] { "state", "runs", "last exit code", "last exit reason", "job state" };
+        var parts = new List<string>();
+        foreach (var f in fields)
+            if (LaunchdDiagnostics.Field(launchctlPrint, f) is { } v) parts.Add($"{f} = {v}");
+        return parts.Count == 0 ? "(no state fields)" : string.Join(", ", parts);
+    }
+
     /// <summary>
     /// Whether a process may boot out and re-bootstrap the job. launchd sets XPC_SERVICE_NAME to
     /// the job's label in every process the job starts (and its children inherit it), so a match

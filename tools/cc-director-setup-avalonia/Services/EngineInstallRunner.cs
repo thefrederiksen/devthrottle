@@ -310,7 +310,22 @@ public sealed class EngineInstallRunner
                 SetupLog.Write($"[EngineInstallRunner]   launcher diagnostics:\n{startResult.Diagnostics}");
             await ReportFailureAsync(item, "launcher", "start", startResult.Message, startResult.Diagnostics, ct);
         }
+        else
+        {
+            // A SUCCESS is reported too, on macOS. Five failed installs on one Mac arrived as five reports and
+            // the sixth, if it works, must arrive as well: a machine that only ever reports failure cannot
+            // be told apart from one that gave up. The steps say what launchd held before and what was done.
+            await ReportOutcomeAsync("launcher", "started", "OK: " + startResult.Message, string.Join("\n", startResult.Steps), ct);
+        }
         return startResult.Success;
+    }
+
+    /// <summary>A step that WORKED, sent the same way a failure is, so the machine's story on the Gateway has an
+    /// ending. Nothing on screen changes.</summary>
+    private async Task ReportOutcomeAsync(string component, string step, string message, string diagnostics, CancellationToken ct)
+    {
+        var sent = await _reporter.ReportAsync(component, step, message, diagnostics + "\n" + WizardErrorReport.Diagnostics(null), ct);
+        SetupLog.Write($"[EngineInstallRunner] outcome report {component}/{step}: {(sent ? "sent" : "NOT sent")}");
     }
 
     /// <summary>
@@ -333,6 +348,12 @@ public sealed class EngineInstallRunner
 
     private void FinalizeInstall()
     {
+        // The machine's install id exists from the first install that WORKS, not only from the first that
+        // fails (#3438). Without this a clean install could not be found on the Gateway by its id, and the
+        // id a person later quoted had been minted by a failure.
+        var installId = CcDirector.Core.ErrorReports.InstallId.ReadOrCreate(_layout.LocalRoot);
+        SetupLog.Write($"[EngineInstallRunner] FinalizeInstall: install id {installId}");
+
         if (OperatingSystem.IsWindows())
         {
             InstallFinalizer.AddBinToPath(_layout);
