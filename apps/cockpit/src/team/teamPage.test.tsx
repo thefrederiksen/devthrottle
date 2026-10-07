@@ -74,6 +74,7 @@ function ownerPage(): TeamPage {
     yourRole: "Owner",
     summary: "3 paid seats, 2 Collaborators (no charge), 1 invitation waiting",
     canInvite: true,
+    billNotice: null,
     members: [
       member("soren", "Owner", { isYou: true }),
       member("priya", "Manager", { ...dropdown, ...removable("priya") }),
@@ -273,5 +274,37 @@ describe("changing the team on the page", () => {
 
     await waitFor(() => expect(client.removeMember).toHaveBeenCalledWith(TEAM, "id-mike"));
     await screen.findByText("mike@devthrottle.com has been removed from the team.");
+  });
+});
+
+// THE TEAM'S BILL HAS ENDED (owner rulings, 7 October): the Gateway's notice is shown verbatim, whoever reads it. Teams
+// v1 has no outside payment provider, so the page offers no link away - the way back is renewing the team plan here.
+describe("the Team page when the team's bill has ended", () => {
+  const OWNER_NOTICE = "The team's bill has ended. Nobody can join the team. To let people join again, renew the team plan on the Team page.";
+  const OTHER_NOTICE = "The team's bill has ended. Nobody can join the team. Only the team's Owner can renew the team plan.";
+
+  it("shows the Owner the notice as the Gateway wrote it, with no link to another site", async () => {
+    client.getTeamPage.mockResolvedValue({ ...ownerPage(), billNotice: OWNER_NOTICE });
+    renderAt(PATH);
+
+    const notice = await screen.findByRole("note", { name: "The team's bill" });
+    expect(within(notice).getByText(OWNER_NOTICE)).toBeTruthy();
+    expect(within(notice).queryByRole("link")).toBeNull();
+  });
+
+  it("shows a Manager the notice as the Gateway wrote it", async () => {
+    client.getTeamPage.mockResolvedValue({ ...managerPage(), billNotice: OTHER_NOTICE });
+    renderAt(PATH);
+
+    const notice = await screen.findByRole("note", { name: "The team's bill" });
+    expect(within(notice).getByText(OTHER_NOTICE)).toBeTruthy();
+  });
+
+  it("shows no notice while the bill runs", async () => {
+    client.getTeamPage.mockResolvedValue(ownerPage());
+    renderAt(PATH);
+
+    await screen.findByText("soren@devthrottle.com");
+    expect(screen.queryByRole("note", { name: "The team's bill" })).toBeNull();
   });
 });

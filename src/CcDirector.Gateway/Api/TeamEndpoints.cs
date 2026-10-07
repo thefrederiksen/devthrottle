@@ -244,6 +244,7 @@ internal static class TeamEndpoints
             yourRole = page.YourRole,
             summary = page.Summary,
             canInvite = page.CanInvite,
+            billNotice = page.BillNotice,
             members = page.Members.Select(m => new
             {
                 memberId = m.MemberId,

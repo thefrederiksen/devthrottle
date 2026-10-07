@@ -83,8 +83,11 @@ public sealed partial class TeamRegistry
             if (address is null)
                 return InvitationRefused("CreateInvitation", TeamInvitationOutcome.Refused, RefusalKinds.BadEmail, TeamInvitationRefusals.BadEmail);
 
-            if (BillRefusal(team.Id) is { } bill)
+            if (BillGate(team.Id) is { Refusal: { } bill } gate)
+            {
+                TellOwnerWhenBillEnded(ctx, team.Id, inviter, gate.Bill);
                 return InvitationRefused("CreateInvitation", BillOutcome(bill), BillKind(bill), bill);
+            }
 
             var now = _utcNow();
             if (AddressRefusal(ctx, team.Id, address, now, exceptInvitationId: null) is { } taken)
@@ -165,8 +168,11 @@ public sealed partial class TeamRegistry
 
             if (row!.State != TeamInvitationStates.Sent)
                 return InvitationRefused("ResendInvitation", TeamInvitationOutcome.Refused, RefusalKinds.NoLongerWaiting, TeamInvitationRefusals.NoLongerWaiting);
-            if (BillRefusal(team!.Id) is { } bill)
+            if (BillGate(team!.Id) is { Refusal: { } bill } gate)
+            {
+                TellOwnerWhenBillEnded(ctx, team.Id, caller, gate.Bill);
                 return InvitationRefused("ResendInvitation", BillOutcome(bill), BillKind(bill), bill);
+            }
 
             var now = _utcNow();
             // Resend makes the same two checks as create (review F4): an expired invitation that was since replaced by a
@@ -335,7 +341,9 @@ public sealed partial class TeamRegistry
     /// <summary>
     /// Why this invitation cannot be accepted by this caller now, or null when it can: its state, the caller already
     /// being a member, or the team's bill (Tech Lead ruling on review F5) - an invitation sent while the bill ran
-    /// cannot add a member once the bill has stopped. The same gate as inviting: active or past_due passes.
+    /// cannot add a member once the bill has stopped. The same gate as inviting: active or past_due passes. Asked by both
+    /// the accept page and the accept itself, so the Owner is told whichever the invitee reaches - the page hides the
+    /// Accept button once it says no.
     /// </summary>
     private InvitationRefusal? AcceptRefusal(GatewayDbContext ctx, TeamInvitationEntity row, TeamInvitation view, string caller)
     {
@@ -343,10 +351,13 @@ public sealed partial class TeamRegistry
             return new InvitationRefusal(TeamInvitationOutcome.Refused, view.State, refusal);
         if (ctx.TeamMembers.AsNoTracking().Any(m => m.TeamId == row.TeamId && m.AccountSubject == caller))
             return new InvitationRefusal(TeamInvitationOutcome.Refused, RefusalKinds.CallerAlreadyMember, TeamInvitationRefusals.CallerAlreadyMember);
-        if (BillRefusal(row.TeamId) is { } bill)
+        if (BillGate(row.TeamId) is { Refusal: { } bill } gate)
+        {
+            TellOwnerWhenBillEnded(ctx, row.TeamId, caller, gate.Bill);
             return bill == TeamInvitationRefusals.BillUnreadable
                 ? new InvitationRefusal(TeamInvitationOutcome.Unavailable, RefusalKinds.BillUnreadable, TeamInvitationRefusals.BillUnreadableOnAccept)
                 : new InvitationRefusal(TeamInvitationOutcome.Refused, RefusalKinds.BillStopped, TeamInvitationRefusals.BillStopped);
+        }
         return null;
     }
 
@@ -394,20 +405,58 @@ public sealed partial class TeamRegistry
     /// payment stops nothing), otherwise the plain-words refusal. A read that failed refuses too: it is not evidence
     /// that the bill has started.
     /// </summary>
-    private string? BillRefusal(string teamId)
+    private string? BillRefusal(string teamId) => BillGate(teamId).Refusal;
+
+    /// <summary>The bill gate's refusal (see <see cref="BillRefusal"/>) together with the bill row it was read from.</summary>
+    private (string? Refusal, TeamBill Bill) BillGate(string teamId)
     {
         var bill = _readTeamBill(teamId);
         if (!bill.Known)
-            return TeamInvitationRefusals.BillUnreadable;
+            return (TeamInvitationRefusals.BillUnreadable, bill);
         if (!bill.HasBill)
-            return TeamInvitationRefusals.BillNotStarted;
+            return (TeamInvitationRefusals.BillNotStarted, bill);
         if (string.Equals(bill.Status, EntitlementRegistry.StatusActive, StringComparison.Ordinal)
             || string.Equals(bill.Status, EntitlementRegistry.StatusPastDue, StringComparison.Ordinal))
-            return null;
-        if (string.Equals(bill.Status, EntitlementRegistry.StatusCanceled, StringComparison.Ordinal))
-            return TeamInvitationRefusals.BillCancelled;
+            return (null, bill);
+        if (IsEnded(bill))
+            return (TeamInvitationRefusals.BillCancelled, bill);
         FileLog.Write($"[TeamRegistry] BillRefusal: team {LogTeam(teamId)} bill status is not one this Gateway knows - treated as not started");
-        return TeamInvitationRefusals.BillNotStarted;
+        return (TeamInvitationRefusals.BillNotStarted, bill);
+    }
+
+    /// <summary>Whether this bill row says the team's bill has ENDED: a bill that ran and was cancelled. A team with no
+    /// bill yet, or one that could not be read, has not ended.</summary>
+    private static bool IsEnded(TeamBill bill) =>
+        bill.Known && bill.HasBill && string.Equals(bill.Status, EntitlementRegistry.StatusCanceled, StringComparison.Ordinal);
+
+    /// <summary>
+    /// Someone was just refused by the bill gate. When the refusal is because the bill has ENDED and the person refused
+    /// is not the Owner - a Manager sending or resending, or an invitee opening or accepting - the Owner is told, once per
+    /// ended bill (<see cref="TeamBillEndedNotice"/>). The Owner refused themselves already sees the reason on screen.
+    /// Never changes the refusal.
+    /// </summary>
+    private void TellOwnerWhenBillEnded(GatewayDbContext ctx, string teamId, string refusedSubject, TeamBill bill)
+    {
+        if (!IsEnded(bill))
+            return;
+        if (string.Equals(OwnerSubject(ctx, teamId), refusedSubject, StringComparison.Ordinal))
+        {
+            FileLog.Write($"[TeamRegistry] TellOwnerWhenBillEnded: team {LogTeam(teamId)} - the Owner was refused themselves, so no email");
+            return;
+        }
+        if (_billEndedNotice is null)
+        {
+            FileLog.Write($"[TeamRegistry] TellOwnerWhenBillEnded: team {LogTeam(teamId)} - this Gateway has no team emails, so the Owner was NOT told the bill has ended");
+            return;
+        }
+        // Every bill row the one reader counts carries a fingerprint, so this is a reader that broke its promise. The
+        // refusal has already been decided and must reach its caller unchanged, so it is logged, not thrown.
+        if (string.IsNullOrWhiteSpace(bill.Fingerprint))
+        {
+            FileLog.Write($"[TeamRegistry] TellOwnerWhenBillEnded: team {LogTeam(teamId)} - the ended bill was read WITHOUT a fingerprint, so the Owner could not be told once per ended bill; nobody was told");
+            return;
+        }
+        _billEndedNotice.TellOwnerOnce(teamId, bill.Fingerprint);
     }
 
     /// <summary>The team, the invitation and no denial - or the denial - for a caller acting on an invitation as the
