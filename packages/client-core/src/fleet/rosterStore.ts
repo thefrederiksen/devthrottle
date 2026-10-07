@@ -4,7 +4,8 @@
 // backgrounded Cockpit kept all of them hammering the Gateway forever. This module is the single source
 // of truth: every fleet-reading page subscribes to `rosterStore`, so there is exactly ONE roster poll
 // loop no matter how many of those pages are mounted, they all read the identical roster at the same
-// moment, and a hidden tab makes zero roster requests (returning to it refreshes within one interval).
+// moment, and a hidden tab makes no roster requests after its one first load (returning to it refreshes
+// within one interval).
 //
 // Follow-on (noted in the issue, not built here): once this store is the single reader, the Gateway can
 // push roster deltas over the existing GET /events Server-Sent Events stream instead of the store

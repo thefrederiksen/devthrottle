@@ -86,7 +86,7 @@ const FleetTreeContext = createContext<SessionTree | null>(null);
 // envelope Sessions and Directors read, from a single poll loop - never a Director address - and reuses
 // the ONE shared effective-color rule so a node's dot matches every other Cockpit surface. Because every
 // fleet page reads that one store, this map and the Sessions roster always agree on the fleet at the
-// same moment, and a hidden tab makes no roster requests at all.
+// same moment, and a hidden tab makes no roster requests after its one first load.
 
 type Pivot = "machine" | "director" | "repo" | "worktree" | "agent" | "model" | "list" | "mission";
 

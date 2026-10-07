@@ -155,7 +155,7 @@ describe("createPollingStore", () => {
     expect(store.isPolling()).toBe(true);
   });
 
-  it("does not poll when it starts hidden, until the page becomes visible", async () => {
+  it("takes exactly one first fetch when it starts hidden, then none until the page becomes visible (#3603)", async () => {
     const timers = fakeTimers();
     const f = fakeFetcher();
     const visibility = fakeVisibility(false);
@@ -163,12 +163,39 @@ describe("createPollingStore", () => {
 
     store.subscribe(() => {});
     await settle();
-    expect(f.calls()).toBe(0); // hidden at subscribe time: no fetch
+    // A tab opened in the background must still load once, or the page says "Loading..." forever.
+    expect(f.calls()).toBe(1);
+    expect(store.getSnapshot()).toEqual({ data: 1, error: null, loading: false });
+    // ...but it does not start polling while hidden.
+    expect(store.isPolling()).toBe(false);
+    timers.tick();
+    timers.tick();
+    await settle();
+    expect(f.calls()).toBe(1);
+
+    visibility.set(true);
+    await settle();
+    expect(f.calls()).toBe(2);
+    expect(store.isPolling()).toBe(true);
+  });
+
+  it("shows the error, not Loading, when the first fetch fails while hidden, and retries only once visible (#3603)", async () => {
+    const timers = fakeTimers();
+    const f = fakeFetcher();
+    f.queueError(new Error("Gateway down"));
+    const visibility = fakeVisibility(false);
+    const store = createPollingStore({ fetcher: f.fetcher, intervalMs: 1000, visibility, timers });
+
+    store.subscribe(() => {});
+    await settle();
+    expect(f.calls()).toBe(1);
+    expect(store.getSnapshot()).toEqual({ data: null, error: "Gateway down", loading: false });
     expect(store.isPolling()).toBe(false);
 
     visibility.set(true);
     await settle();
-    expect(f.calls()).toBe(1);
+    expect(f.calls()).toBe(2);
+    expect(store.getSnapshot().data).toBe(2);
     expect(store.isPolling()).toBe(true);
   });
 
