@@ -12,6 +12,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
+from O365.connection import MSGraphProtocol
+from O365.message import Message
+
 from src.cli import app
 from src.outlook_api import OutlookClient
 
@@ -26,7 +29,8 @@ def _recipient(address):
 
 def _client_with_original():
     account = MagicMock()
-    original = MagicMock(spec=["reply", "object_id"])
+    original = MagicMock(spec=["reply", "object_id", "is_draft"])
+    original.is_draft = False
     reply = MagicMock()
     reply.object_id = "draft-1"
     reply.subject = "RE: hello"
@@ -64,15 +68,27 @@ class TestReplyModes:
         with pytest.raises(ConnectionError):
             client.reply_message("msg-1", body="hi")
 
-    def test_reply_message_PlainText_SetsTextBodyType(self):
+    def test_reply_message_GraphRefusesSave_RaisesConnectionError(self):
         client, _, reply = _client_with_original()
-        client.reply_message("msg-1", body="hi", html=False)
-        assert reply.body_type == "text"
+        reply.save_draft.return_value = False
 
-    def test_reply_message_Html_SetsHtmlBodyType(self):
+        with pytest.raises(ConnectionError):
+            client.reply_message("msg-1", body="hi")
+
+    def test_reply_message_GraphRefusesSend_RaisesConnectionError(self):
         client, _, reply = _client_with_original()
-        client.reply_message("msg-1", body="<p>hi</p>", html=True)
-        assert reply.body_type == "HTML"
+        reply.send.return_value = False
+
+        with pytest.raises(ConnectionError):
+            client.reply_message("msg-1", body="hi", send=True)
+
+    def test_reply_message_OriginalIsDraft_RaisesValueError(self):
+        client, original, _ = _client_with_original()
+        original.is_draft = True
+
+        with pytest.raises(ValueError, match="draft"):
+            client.reply_message("msg-1", body="hi")
+        original.reply.assert_not_called()
 
     @pytest.mark.parametrize("args,expected", [([], False), (["--all"], True), (["-a"], True)])
     def test_reply_cli_AllFlag_ReachesClient(self, args, expected):
@@ -97,6 +113,58 @@ class TestReplyModes:
         result = runner.invoke(app, ["reply", "--help"], env={"COLUMNS": "200"})
         assert "sender only" in result.output
         assert "Reply all" in result.output
+
+
+def _graph_reply(content_type, content):
+    """A real O365 Message shaped like Graph's createReply answer: a draft that
+    already holds the quoted original."""
+    data = {"id": "r1", "isDraft": True, "subject": "RE: x",
+            "body": {"contentType": content_type, "content": content},
+            "toRecipients": [{"emailAddress": {"address": "s@example.com"}}],
+            "ccRecipients": []}
+    reply = Message(con=MagicMock(), protocol=MSGraphProtocol(), main_resource="me",
+                    **{Message._cloud_data_key: data})
+    reply.save_draft = MagicMock(return_value=True)
+    return reply
+
+
+def _saved_body(content_type, content, body, html):
+    """Run reply_message over a real reply and return the body it would PATCH."""
+    reply = _graph_reply(content_type, content)
+    client, original, _ = _client_with_original()
+    original.reply.return_value = reply
+    client.reply_message("msg-1", body=body, html=html)
+    return reply.to_api_data(restrict_keys=reply._track_changes)["body"]
+
+
+HTML_QUOTE = "<html><head></head><body><div>quoted &amp; original</div></body></html>"
+
+
+class TestReplyBodyAsSaved:
+    def test_reply_message_PlainTextOverHtmlQuote_StaysHtmlAndEscaped(self):
+        saved = _saved_body("html", HTML_QUOTE, "a < b\nline two", html=False)
+
+        assert saved["contentType"] == "html"
+        assert "a &lt; b<br/>line two" in saved["content"]
+        assert "quoted &amp; original" in saved["content"]
+
+    def test_reply_message_HtmlOverHtmlQuote_InsertsMarkup(self):
+        saved = _saved_body("html", HTML_QUOTE, "<p>hi</p>", html=True)
+
+        assert saved["contentType"] == "html"
+        assert saved["content"].index("<p>hi</p>") < saved["content"].index("quoted")
+
+    def test_reply_message_HtmlOverTextQuote_RebuildsAsHtml(self):
+        saved = _saved_body("text", "From: s\nquoted <original>", "<p>hi</p>", html=True)
+
+        assert saved["contentType"] == "html"
+        assert saved["content"] == "<p>hi</p><br><br>From: s<br>quoted &lt;original&gt;"
+
+    def test_reply_message_PlainTextOverTextQuote_StaysText(self):
+        saved = _saved_body("text", "quoted", "hi", html=False)
+
+        assert saved["contentType"] == "text"
+        assert saved["content"] == "hi\nquoted"
 
 
 def _msg(is_draft):

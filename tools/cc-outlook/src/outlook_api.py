@@ -1,5 +1,6 @@
 """Outlook API wrapper using O365 library."""
 
+import html as _html
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -723,6 +724,9 @@ class OutlookClient:
 
         if not message:
             raise ValueError(f"Message not found: {message_id}")
+        if message.is_draft:
+            raise ValueError(
+                f"Message {message_id} is a draft; a draft cannot be replied to")
 
         # O365's Message has no reply_all(); reply() takes to_all and DEFAULTS
         # it to True, so the mode must always be passed explicitly or a plain
@@ -732,14 +736,27 @@ class OutlookClient:
             raise ConnectionError(
                 f"Graph did not create the reply for message {message_id}")
 
-        reply.body = body
-        # O365 defaults body_type to HTML, so set it explicitly both ways.
-        reply.body_type = 'HTML' if html else 'text'
-
-        if send:
-            reply.send()
+        # Graph returns the reply already holding the quoted original, and the
+        # O365 body setter MERGES what is assigned into it according to the
+        # reply's current body_type. So the new text must be shaped to match
+        # that type rather than the type being changed afterwards: a text type
+        # over the merged HTML document shows the recipient raw markup.
+        if str(reply.body_type).lower() == 'html':
+            reply.body = body if html else _html.escape(body).replace("\n", "<br>")
+        elif html:
+            # The original was plain text: rebuild the whole body as HTML.
+            quoted = _html.escape(reply.body or "").replace("\n", "<br>")
+            reply.body = ""
+            reply.body_type = 'html'
+            reply.body = body + "<br><br>" + quoted
         else:
-            reply.save_draft()
+            reply.body = body
+
+        saved = reply.send() if send else reply.save_draft()
+        if not saved:
+            raise ConnectionError(
+                f"Graph refused to {'send' if send else 'save'} the reply "
+                f"to message {message_id}")
 
         status = 'sent' if send else 'draft'
 
