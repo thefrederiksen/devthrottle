@@ -188,7 +188,7 @@ public static class FactoriesScreenFold
                 BulkHandledNote = FactoryOwnerActions.BulkHandledNote(open, now),
             },
             CeoLatest = CeoLatest(factory, ceo, input),
-            LastTalk = LastTalk(factory, input.Talks, zone, now),
+            LastTalk = LastTalk(factory, input.Talks, input.Schedules, zone, now),
             DocumentsText = DocumentsText,
             TruncatedText = Truncated(input.Activity),
             Archive = factory.ArchivedAtUtc is null ? FactoryOwnerActions.ArchiveAction(factory, input.Schedules) : null,
@@ -276,14 +276,20 @@ public static class FactoriesScreenFold
         return dto;
     }
 
-    private static FactoryLastTalkDto LastTalk(RegisteredFactoryDto f, IReadOnlyList<FactoryActivityDto> talks, TimeZoneInfo zone, DateTime now)
+    /// <summary>The newest talk, told in the clock of the seat that talked - the same clock as that seat's lines on
+    /// the page, named when it is not the account's. Before this (live QA, 7 Oct 2026) the CEO card above said
+    /// "Today 17:18" in Toronto time and this line said "today 21:18", the UTC time of the same talk.</summary>
+    private static FactoryLastTalkDto LastTalk(RegisteredFactoryDto f, IReadOnlyList<FactoryActivityDto> talks,
+        IReadOnlyList<CronJobDto> schedules, TimeZoneInfo zone, DateTime now)
     {
         var last = talks.Where(r => SameId(r.Factory, f.Factory) && r.Outcome == FactoryActivityOutcome.Talked)
             .OrderByDescending(r => r.OccurredUtc).FirstOrDefault();
         return new FactoryLastTalkDto
         {
             Heading = "Last talk with you",
-            Text = last is null ? "None yet." : $"Talked with you, {When(last.OccurredUtc, zone, now, capital: false)} - {last.What}",
+            Text = last is null
+                ? "None yet."
+                : $"Talked with you, {SeatClockOf(f, last.FactoryAgent, schedules, zone).When(last.OccurredUtc, now, capital: false)} - {last.What}",
         };
     }
 
