@@ -135,33 +135,16 @@ log() {
 # version, the architecture, the same per-machine install id the setup wizard uses, and the log of this run
 # so far as diagnostics - a failed install used to arrive as one line, and the five lines before it, which
 # said what the script had done, stayed on the user's Mac. A report that cannot be delivered changes nothing.
-json_escape() {
-    # Turns text into the inside of a JSON string. Every control byte is escaped, not only tab and newline:
-    # curl writes its progress with carriage returns, and one unescaped carriage return in the run log makes
-    # the whole report invalid JSON, which the Gateway refuses - and the one report that mattered is lost.
-    local text="$1" tilde='~' quote='"' i c esc
-    # Patterns and replacements are QUOTED variables: a bare ~ in a replacement is tilde-expanded straight
-    # back into $HOME, and bash 5.2 strips backslashes from an unquoted replacement while the Mac's bash 3.2
-    # does not.
-    text="${text//"$HOME"/"$tilde"}"
-    # Backslashes go first and through sed: bash 5.2 turns a backslash pair in ANY replacement into one
-    # backslash (patsub_replacement) and bash 3.2 keeps both, so no bash substitution doubles them the same
-    # way on both. sed is on every Mac.
-    text="$(printf '%s' "$text" | LC_ALL=C sed 's/\\/\\\\/g')"
-    esc='\"'; text="${text//"$quote"/"$esc"}"
-    for ((i = 1; i < 32; i++)); do
-        printf -v c "$(printf '\\%03o' "$i")"
-        case "$i" in
-            8)  esc='\b' ;;
-            9)  esc='\t' ;;
-            10) esc='\n' ;;
-            12) esc='\f' ;;
-            13) esc='\r' ;;
-            *)  printf -v esc '%s%04x' '\u' "$i" ;;
-        esac
-        text="${text//"$c"/"$esc"}"
-    done
-    printf '%s' "$text"
+json_string() { # text -> one JSON string literal, quotes included, home folder reduced to ~
+    # JavaScript for Automation's JSON.stringify, which every Mac has and which the hash check above already
+    # relies on: it escapes every control byte, quote and backslash correctly. A bash encoder cannot be written
+    # once for both bash versions - the Mac's bash 3.2 keeps the quote characters of a quoted replacement
+    # literally, bash 5.2 strips backslashes from an unquoted one - and one unescaped carriage return (curl
+    # writes its progress with them) makes the whole report invalid JSON, which the Gateway refuses.
+    local text="$1" tilde='~'
+    # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
+    text="${text//"$HOME"/$tilde}"
+    osascript -l JavaScript -e 'function run(argv) { return JSON.stringify(argv[0]); }' -- "$text"
 }
 report_step() { # message
     local message="$1" id_dir="$HOME/Library/Application Support/cc-director" id="" run_log=""
@@ -182,8 +165,10 @@ report_step() { # message
     fi
     local diagnostics
     diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
-    local body
-    body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":\"$(json_escape "$message")\",\"diagnostics\":\"$(json_escape "$diagnostics")\",\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
+    local message_json diagnostics_json body
+    message_json="$(json_string "$message")" || return 1
+    diagnostics_json="$(json_string "$diagnostics")" || return 1
+    body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":$message_json,\"diagnostics\":$diagnostics_json,\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
     curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1
 }
 report_failure() {

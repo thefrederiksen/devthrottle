@@ -195,6 +195,33 @@ public static class LauncherLaunchdAutostart
         if (!MayReload(Environment.GetEnvironmentVariable("XPC_SERVICE_NAME")))
             throw new InvalidOperationException("Rebuild must not run inside the launcher's own launchd job: booting the job out would end this process (#3575).");
         var steps = new List<string>();
+        string? previousPrint = null;
+        try
+        {
+            return RebuildSteps(exePath, arguments, run, plistPath, logDir, steps, print => previousPrint = print);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // The steps taken and launchd's answer before the rebuild travel with the failure: a report that
+            // says only "bootstrap failed" has thrown away the history of every earlier attempt on that Mac.
+            throw new RebuildException(ex.Message, steps, previousPrint, ex);
+        }
+    }
+
+    /// <summary>A rebuild that did not finish, with what it did and what launchd held before it started.</summary>
+    public sealed class RebuildException(string message, IReadOnlyList<string> steps, string? previousPrint, Exception inner)
+        : InvalidOperationException(message, inner)
+    {
+        /// <summary>What was done before the failure, in order.</summary>
+        public IReadOnlyList<string> Steps { get; } = steps;
+
+        /// <summary>launchctl print's answer before the rebuild, when launchd held the job.</summary>
+        public string? PreviousPrint { get; } = previousPrint;
+    }
+
+    private static RebuildResult RebuildSteps(string exePath, string? arguments, CommandRunner run, string plistPath, string logDir,
+        List<string> steps, Action<string> keepPreviousPrint)
+    {
 
         var (uidExit, uidOutput) = run("/usr/bin/id", "-u");
         if (uidExit != 0 || !int.TryParse(uidOutput.Trim(), out var uid))
@@ -217,6 +244,7 @@ public static class LauncherLaunchdAutostart
         //    history of every earlier attempt, and it is gone the moment the job is booted out.
         var (printExit, printOutput) = run("/bin/launchctl", $"print {target}");
         var wasLoaded = printExit == 0;
+        if (wasLoaded) keepPreviousPrint(printOutput);
         steps.Add(wasLoaded
             ? $"launchd already held the job: {Summarize(printOutput)}"
             : "launchd did not hold the job");
@@ -251,12 +279,14 @@ public static class LauncherLaunchdAutostart
         }
         steps.Add("bootstrapped the launch agent");
 
-        // 5. The explicit start. A kickstart launchd refuses is a failure, not a step.
+        // 5. The explicit start. Its exit code is recorded, never believed on its own: on a real Mac a kickstart
+        //    of a job whose program macOS refuses to run does not answer at all - launchd keeps the request
+        //    open until our bound kills launchctl (seen on the macOS runner: 60 seconds, then a timeout exit) -
+        //    and the only honest answer is what launchd reports afterwards (step 6), which the callers read.
         var (kickExit, kickText) = run("/bin/launchctl", $"kickstart -k {target}");
-        if (kickExit != 0)
-            throw new InvalidOperationException(
-                $"launchctl kickstart failed (exit {kickExit}): {Trim(kickText)}; the new launch agent is bootstrapped but was not started");
-        steps.Add("kickstarted the launch agent (an explicit demand, honoured even in an on-demand-only domain)");
+        steps.Add(kickExit == 0
+            ? "kickstarted the launch agent (an explicit demand, honoured even in an on-demand-only domain)"
+            : $"kickstart answered exit {kickExit}: {Trim(kickText)} (launchd's answer below is what counts)");
 
         // 6. What launchd says now, so a caller reports a start that happened rather than one that was asked for.
         var (afterExit, afterPrint) = run("/bin/launchctl", $"print {target}");

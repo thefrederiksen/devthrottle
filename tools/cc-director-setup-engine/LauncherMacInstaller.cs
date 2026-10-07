@@ -115,6 +115,14 @@ public sealed class LauncherMacInstaller
             _previousLaunchdPrint = rebuilt.PreviousPrint;
             steps.AddRange(rebuilt.Steps);
         }
+        catch (LauncherLaunchdAutostart.RebuildException ex)
+        {
+            // What the rebuild managed, and what launchd held before it, still reach the report.
+            _previousLaunchdPrint = ex.PreviousPrint;
+            steps.AddRange(ex.Steps);
+            EngineLog.Write($"[LauncherMacInstaller] FAILED: rebuild stopped after {ex.Steps.Count} step(s): {ex.Message}");
+            return Fail(steps, $"Could not register the launcher with macOS: {ex.Message}. {HowToOpenTheLogs}");
+        }
         catch (Exception ex)
         {
             steps.Add($"could NOT rebuild the launch agent: {ex.Message}");

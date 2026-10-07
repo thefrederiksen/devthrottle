@@ -129,7 +129,7 @@ public class LauncherLaunchdRebuildTests : IDisposable
         File.WriteAllText(_plist, "<old/>");
         var calls = new List<string>();
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
             LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, Fake(calls, loaded: true, bootoutExit: 36, bootoutReleases: false), _plist, _logDir));
 
         Assert.Contains("launchd still holds the job", ex.Message);
@@ -157,7 +157,7 @@ public class LauncherLaunchdRebuildTests : IDisposable
         File.WriteAllText(_plist, "<old/>");
         var calls = new List<string>();
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
             LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, Fake(calls, loaded: true, bootstrapExit: 5), _plist, _logDir));
 
         Assert.Contains("bootstrap failed (exit 5)", ex.Message);
@@ -173,7 +173,7 @@ public class LauncherLaunchdRebuildTests : IDisposable
     {
         var calls = new List<string>();
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
             LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, Fake(calls, loaded: false, bootstrapExit: 5), _plist, _logDir));
 
         Assert.Contains("there was none before", ex.Message);
@@ -182,15 +182,31 @@ public class LauncherLaunchdRebuildTests : IDisposable
     }
 
     [Fact]
-    public void Rebuild_WhenKickstartFails_Throws()
+    public void Rebuild_WhenKickstartAnswersNonZero_RecordsItAndStillAsksLaunchdWhatItHolds()
+    {
+        // On a real Mac a kickstart of a program macOS refuses hangs until it is killed; the exit code says
+        // nothing reliable, so it is recorded and launchd's answer afterwards is what the callers read.
+        var calls = new List<string>();
+
+        var result = LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, Fake(calls, loaded: false, kickstartExit: 125), _plist, _logDir);
+
+        Assert.Contains(result.Steps, s => s.Contains("kickstart answered exit 125", StringComparison.Ordinal));
+        Assert.Equal(["print", "bootstrap", "kickstart", "print"], Launchctl(calls));
+        Assert.DoesNotContain("pid =", result.AfterPrint ?? "");
+    }
+
+    [Fact]
+    public void Rebuild_WhenItFails_TheExceptionCarriesTheStepsAndThePreviousAnswer()
     {
         var calls = new List<string>();
 
-        var ex = Assert.Throws<InvalidOperationException>(() =>
-            LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, Fake(calls, loaded: false, kickstartExit: 125), _plist, _logDir));
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
+            LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, Fake(calls, loaded: true, bootstrapExit: 5), _plist, _logDir));
 
-        Assert.Contains("kickstart failed (exit 125)", ex.Message);
-        Assert.Contains("was not started", ex.Message);
+        Assert.Contains("78: EX_CONFIG", ex.PreviousPrint);
+        Assert.Contains(ex.Steps, s => s.Contains("already held the job", StringComparison.Ordinal));
+        Assert.Contains(ex.Steps, s => s == "booted the old job out");
+        Assert.IsAssignableFrom<InvalidOperationException>(ex);
     }
 
     [Fact]
