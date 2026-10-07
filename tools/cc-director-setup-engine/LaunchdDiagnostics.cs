@@ -14,38 +14,8 @@ namespace CcDirector.Setup.Engine;
 /// </summary>
 public static class LaunchdDiagnostics
 {
-    /// <summary>The launchctl print fields that explain a job with no process. Everything else in that
-    /// output (endpoints, environment, spawn flags) is noise for this question and is left out.</summary>
-    private static readonly string[] UsefulFields =
-    [
-        "state", "pid", "runs", "last exit code", "last exit reason", "last terminating signal",
-        "job state", "spawn type", "immediate reason", "program", "path",
-    ];
-
-    /// <summary>The lines of a launchctl print block worth showing: the fields above, and any line
-    /// that mentions a failure.</summary>
-    public static IReadOnlyList<string> UsefulLines(string? launchctlPrintOutput)
-    {
-        var lines = new List<string>();
-        if (string.IsNullOrWhiteSpace(launchctlPrintOutput)) return lines;
-        foreach (var raw in launchctlPrintOutput.Split('\n'))
-        {
-            var line = raw.Trim();
-            if (line.Length == 0) continue;
-            var eq = line.IndexOf('=');
-            var key = eq > 0 ? line[..eq].Trim() : "";
-            var isField = key.Length > 0 && UsefulFields.Contains(key, StringComparer.OrdinalIgnoreCase);
-            var mentionsFailure = line.Contains("error", StringComparison.OrdinalIgnoreCase)
-                                  || line.Contains("fail", StringComparison.OrdinalIgnoreCase)
-                                  || line.Contains("denied", StringComparison.OrdinalIgnoreCase)
-                                  || line.Contains("throttl", StringComparison.OrdinalIgnoreCase);
-            if (isField || mentionsFailure) lines.Add(line);
-        }
-        return lines;
-    }
-
     /// <summary>The value of one "key = value" field, or null.</summary>
-    public static string? Field(string? launchctlPrintOutput, string key)
+    internal static string? Field(string? launchctlPrintOutput, string key)
     {
         if (string.IsNullOrWhiteSpace(launchctlPrintOutput)) return null;
         foreach (var raw in launchctlPrintOutput.Split('\n'))
@@ -63,7 +33,7 @@ public static class LaunchdDiagnostics
     /// One plain sentence for the person at the screen: what launchd says happened to the launcher.
     /// Null when launchd said nothing we can put into words.
     /// </summary>
-    public static string? Explain(string? launchctlPrintOutput, bool jobLoaded)
+    internal static string? Explain(string? launchctlPrintOutput, bool jobLoaded)
     {
         if (!jobLoaded)
             return "macOS no longer has the launcher registered: it was unloaded after it was registered";
@@ -114,7 +84,7 @@ public static class LaunchdDiagnostics
     /// only knows THAT it did (issue #3311, B4). Read with write sharing, because a launcher that is still
     /// running holds the file open. Null when there is no such log.
     /// </summary>
-    public static string? LauncherLogTail(string launcherLogDir, int maxLines)
+    internal static string? LauncherLogTail(string launcherLogDir, int maxLines)
     {
         if (!Directory.Exists(launcherLogDir)) return null;
         var newest = new DirectoryInfo(launcherLogDir).GetFiles("launcher-*.log")
@@ -150,13 +120,13 @@ public static class LaunchdDiagnostics
     /// diagnostics and drops the rest WITHOUT a word, so anything past that line never existed as far as the
     /// reader is concerned. The setup wizard appends its own log after this text; the reserve keeps room for it.
     /// </summary>
-    public const int DiagnosticsBudget = CcDirector.Core.ErrorReports.InstallReportLimits.MaxDiagnostics - WizardAppendixReserve;
+    internal const int DiagnosticsBudget = CcDirector.Core.ErrorReports.InstallReportLimits.MaxDiagnostics - WizardAppendixReserve;
 
     /// <summary>Room left after the engine's text for the wizard's exception and setup log tail.</summary>
-    public const int WizardAppendixReserve = 2500;
+    internal const int WizardAppendixReserve = 2500;
 
     /// <summary>No section is cut below this many characters: its first or last lines always survive.</summary>
-    public const int MinSectionChars = 240;
+    internal const int MinSectionChars = 240;
 
     /// <summary>Characters a cut note takes, so one cut lands under the budget instead of needing another.</summary>
     private const int CutNoteRoom = 80;
@@ -323,13 +293,13 @@ public static class LaunchdDiagnostics
         {
             var kind = value.Name.LocalName;
             if (PlistScalarKeys.Contains(key))
-                facts.Add($"{key} = {value.Value.Trim()}");
-            else if (key is "RunAtLoad" or "Disabled" or "EnableTransactions" or "LaunchOnlyOnce")
-                facts.Add($"{key} = {kind}");
+                facts.Add(kind == "string" ? $"{key} = {value.Value.Trim()}" : $"{key} = (a {kind}, not a string; not sent)");
+            else if (PlistBooleanKeys.Contains(key))
+                facts.Add(kind is "true" or "false" ? $"{key} = {kind}" : $"{key} = (a {kind}, not a boolean; not sent)");
             else if (key == "KeepAlive")
                 facts.Add(kind == "dict"
-                    ? $"KeepAlive = dict ({string.Join(", ", Pairs(value).Select(p => $"{p.Key} = {(p.Value.Name.LocalName is "string" or "integer" ? p.Value.Value.Trim() : p.Value.Name.LocalName)}"))})"
-                    : $"KeepAlive = {kind}");
+                    ? $"KeepAlive = dict ({string.Join(", ", Pairs(value).Select(KeepAliveFact))})"
+                    : kind is "true" or "false" ? $"KeepAlive = {kind}" : $"KeepAlive = (a {kind}; not sent)");
             else if (key == "ProgramArguments")
             {
                 var strings = value.Elements("string").Select(e => e.Value).ToList();
@@ -343,55 +313,25 @@ public static class LaunchdDiagnostics
         return facts.Count == 0 ? "(an empty property list)" : string.Join('\n', facts);
     }
 
+    /// <summary>The start settings whose value is a boolean element (<c>&lt;true/&gt;</c> or <c>&lt;false/&gt;</c>).</summary>
+    private static readonly string[] PlistBooleanKeys = ["RunAtLoad", "Disabled", "EnableTransactions", "LaunchOnlyOnce"];
+
+    /// <summary>The KeepAlive children launchd defines as booleans. Any other child is named and not sent: a
+    /// dictionary an allowed key holds is not a licence to send what is inside it.</summary>
+    private static readonly string[] KeepAliveBooleanKeys = ["SuccessfulExit", "Crashed", "AfterInitialDemand"];
+
+    private static string KeepAliveFact((string Key, XElement Value) pair)
+    {
+        var kind = pair.Value.Name.LocalName;
+        if (KeepAliveBooleanKeys.Contains(pair.Key))
+            return kind is "true" or "false" ? $"{pair.Key} = {kind}" : $"{pair.Key} = (a {kind}, not a boolean; not sent)";
+        return $"{pair.Key} = (not sent)";
+    }
+
     private static IEnumerable<(string Key, XElement Value)> Pairs(XElement dict)
     {
         var nodes = dict.Elements().ToList();
         for (var i = 0; i + 1 < nodes.Count; i += 2)
             yield return (nodes[i].Value.Trim(), nodes[i + 1]);
-    }
-
-    /// <summary>The most lines of one binary check kept in a report. The security log can run to
-    /// thousands of lines; the refusal is at the end.</summary>
-    public const int MaxBinaryCheckLines = 25;
-
-    /// <summary>
-    /// The answers macOS gave about the launcher binary (quarantine flag, signature, security log), one
-    /// labelled block each, with the exit code, so an empty answer and a failed command read differently.
-    /// </summary>
-    public static string ComposeBinaryChecks(IEnumerable<(string Name, int Exit, string Output)> checks)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("launcher binary:");
-        foreach (var (name, exit, output) in checks)
-        {
-            sb.AppendLine($"  {name} -> exit {exit}:");
-            var lines = (output ?? "").Split('\n').Select(l => l.TrimEnd('\r')).Where(l => l.Trim().Length > 0).ToList();
-            if (lines.Count == 0)
-            {
-                sb.AppendLine("    (no output)");
-                continue;
-            }
-            if (lines.Count > MaxBinaryCheckLines)
-            {
-                sb.AppendLine($"    ({lines.Count - MaxBinaryCheckLines} earlier lines left out)");
-                lines = lines.Skip(lines.Count - MaxBinaryCheckLines).ToList();
-            }
-            foreach (var line in lines) sb.AppendLine("    " + line);
-        }
-        return sb.ToString().TrimEnd();
-    }
-
-    /// <summary>Everything gathered, as one block of text for the report.</summary>
-    public static string Compose(string? launchctlPrintOutput, bool jobLoaded, IEnumerable<(string Name, string? Text)> logTails)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine(jobLoaded ? "launchctl print (useful lines):" : "launchctl print: the job is NOT loaded");
-        foreach (var line in UsefulLines(launchctlPrintOutput)) sb.AppendLine("  " + line);
-        foreach (var (name, text) in logTails)
-        {
-            sb.AppendLine($"{name}:");
-            sb.AppendLine(string.IsNullOrEmpty(text) ? "  (missing or empty)" : "  " + text.Replace("\n", "\n  "));
-        }
-        return sb.ToString().TrimEnd();
     }
 }

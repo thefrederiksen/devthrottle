@@ -107,37 +107,47 @@ public static class LauncherLaunchdRepair
     }
 
     /// <summary>
-    /// Reads launchctl print-disabled's answer for the user domain, strictly. The answer is one dictionary -
-    /// a header line ending in "= {", one <c>"label" => value</c> line per service a person disabled (value
-    /// disabled or true; enabled or false for one turned back on) and a closing brace. Only a complete,
-    /// recognisable dictionary is believed: an empty, truncated or malformed answer, a value this does not
-    /// know, or the launcher named twice is Unknown, and Unknown never repairs. A launcher a complete
-    /// dictionary does not name is enabled. Pure.
+    /// Reads launchctl print-disabled's answer for the user domain, strictly. The answer is exactly one
+    /// dictionary - a header line ending in "= {" as the FIRST line, one <c>"label" => value</c> line per
+    /// service a person disabled (value disabled or true; enabled or false for one turned back on) and a
+    /// closing brace as the LAST line. Only a complete, recognisable dictionary is believed: an empty,
+    /// truncated or malformed answer, anything before the header or after the brace, a nested or second
+    /// dictionary, a value this does not know on ANY label, or the launcher named twice is Unknown, and
+    /// Unknown never repairs. A launcher a complete dictionary does not name is enabled. Pure.
     /// </summary>
     internal static DisabledState ParseDisabled(string? printDisabledOutput)
     {
         if (string.IsNullOrWhiteSpace(printDisabledOutput)) return DisabledState.Unknown;
         var lines = printDisabledOutput.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
-        var open = lines.FindIndex(l => l.EndsWith("= {", StringComparison.Ordinal) && l.Contains("disabled", StringComparison.OrdinalIgnoreCase));
-        if (open < 0) return DisabledState.Unknown;
-        var close = lines.FindIndex(open + 1, l => l == "}");
-        if (close < 0) return DisabledState.Unknown;
+        // Exactly one dictionary: the header is the first line and the closing brace is the last. A prefix that
+        // looks right followed by anything else - a second dictionary, trailing text, a nested block - is not
+        // the answer this knows, and is Unknown.
+        if (lines.Count < 2) return DisabledState.Unknown;
+        var header = lines[0];
+        if (!header.EndsWith("= {", StringComparison.Ordinal) || !header.Contains("disabled", StringComparison.OrdinalIgnoreCase)) return DisabledState.Unknown;
+        if (lines[^1] != "}") return DisabledState.Unknown;
 
         var ours = "\"" + LauncherLaunchdAutostart.Label + "\"";
         DisabledState? found = null;
-        for (var i = open + 1; i < close; i++)
+        for (var i = 1; i < lines.Count - 1; i++)
         {
             var line = lines[i];
-            var arrow = line.IndexOf("=>", StringComparison.Ordinal);
-            if (arrow < 0 || !line.StartsWith('"')) return DisabledState.Unknown; // not an entry: the format changed
-            if (!line.StartsWith(ours, StringComparison.Ordinal) || line.Length <= ours.Length || !char.IsWhiteSpace(line[ours.Length])) continue;
-            if (found is not null) return DisabledState.Unknown; // named twice: the answer is not one dictionary
-            found = line[(arrow + 2)..].Trim().ToLowerInvariant() switch
+            // Every inner line is one entry: a quoted label, an arrow, and one of the four known values.
+            if (!line.StartsWith('"')) return DisabledState.Unknown;
+            var closingQuote = line.IndexOf('"', 1);
+            if (closingQuote < 0) return DisabledState.Unknown;
+            var rest = line[(closingQuote + 1)..].TrimStart();
+            if (!rest.StartsWith("=>", StringComparison.Ordinal)) return DisabledState.Unknown;
+            var state = rest[2..].Trim().ToLowerInvariant() switch
             {
                 "disabled" or "true" => DisabledState.Disabled,
                 "enabled" or "false" => DisabledState.Enabled,
                 _ => DisabledState.Unknown,
             };
+            if (state == DisabledState.Unknown) return DisabledState.Unknown;
+            if (line[..(closingQuote + 1)] != ours) continue;
+            if (found is not null) return DisabledState.Unknown; // named twice: the answer is not one dictionary
+            found = state;
         }
         return found ?? DisabledState.Enabled;
     }
@@ -155,7 +165,7 @@ public static class LauncherLaunchdRepair
     /// claimed only when launchd reports a process for the rebuilt job within <paramref name="startWait"/>.
     /// </summary>
     /// <param name="layout">Where the launcher is installed.</param>
-    /// <param name="run">How launchctl and id are run; the bounded <see cref="LauncherLaunchdAutostart.DefaultRunner"/> in production.</param>
+    /// <param name="run">How launchctl and the id command (which answers the user identifier) are run; the bounded <see cref="LauncherLaunchdAutostart.DefaultRunner"/> in production.</param>
     /// <param name="startWait">How long to wait for launchd to report a process after the rebuild.</param>
     /// <param name="pollInterval">How often to ask launchd again while waiting.</param>
     /// <param name="installedLaunchersRunning">How many launcher processes run from the install folder; the process list in production.</param>

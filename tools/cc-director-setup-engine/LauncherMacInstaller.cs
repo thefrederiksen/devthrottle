@@ -42,10 +42,10 @@ public sealed class LauncherMacInstaller
     /// respawn throttle: a launcher that died at start-up was restarted just after the window closed, so
     /// the wait could not see it even once. Twenty-five seconds covers the first start and two respawns.
     /// </summary>
-    public static readonly TimeSpan DefaultLaunchdPidWait = TimeSpan.FromSeconds(25);
+    internal static readonly TimeSpan DefaultLaunchdPidWait = TimeSpan.FromSeconds(25);
 
     /// <summary>The bound on any one command this step runs.</summary>
-    public static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(60);
+    internal static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(60);
 
     public LauncherMacInstaller(
         InstallLayout layout,
@@ -320,8 +320,10 @@ public sealed class LauncherMacInstaller
 
         var sections = new List<LaunchdDiagnostics.Section>();
         if (gatherError is not null) sections.Add(new("launchd query failed", gatherError, false));
-        sections.Add(new(loaded ? "launchctl print (useful lines)" : "launchctl print: the job is NOT loaded",
-            string.Join('\n', LaunchdDiagnostics.UsefulLines(print)), false));
+        // Whether launchd holds the job, as one line. launchd's answer itself is sent ONLY as named fields,
+        // in the machine checks below (JobFacts): the old "useful lines" kept any line that mentioned a
+        // failure, nested environment lines included, and so could carry whatever a stale job's environment held.
+        sections.Add(new("launchd holds the job", loaded ? "yes (its named fields are below)" : "NO (launchctl print did not answer 0; its named fields, if any, are below)", false));
         sections.Add(new("launchd-stderr.log (last lines)",
             LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stderr.log"), 40) ?? "(missing or empty)", true));
         sections.Add(new("launchd-stdout.log (last lines)",
@@ -329,8 +331,8 @@ public sealed class LauncherMacInstaller
         sections.Add(new("launcher log (last lines)", LaunchdDiagnostics.LauncherLogTail(LauncherLogDir, 60) ?? "(missing or empty)", true));
         sections.Add(_previousLaunchdPrint is null
             ? new("launchd held no job for the launcher before this install", "(nothing was registered)", false)
-            : new("launchd held this job BEFORE this install rebuilt it (useful lines)",
-                string.Join('\n', LaunchdDiagnostics.UsefulLines(_previousLaunchdPrint)), false));
+            : new("launchd held this job BEFORE this install rebuilt it (named fields)",
+                LaunchdDiagnostics.JobFacts(_previousLaunchdPrint), false));
         sections.Add(new("steps", string.Join('\n', steps), true));
         sections.AddRange(GatherMachineChecks(uid, print));
         // One budget for the whole text. The Gateway keeps the first characters of a report and drops the

@@ -51,6 +51,9 @@ public class LauncherLaunchdRebuildTests : IDisposable
         public bool BootstrapFailsOnce;
         public bool ThrowOnBootstrapOnce;
         public int KickstartExit;
+        public bool InitialPrintTimesOut;
+        public bool ThrowOnKickstart;
+        public bool ThrowOnFinalPrint;
         public TimeSpan BootstrapDelay = TimeSpan.Zero;
         private bool _bootstrapFailed;
         private bool _threw;
@@ -67,9 +70,13 @@ public class LauncherLaunchdRebuildTests : IDisposable
                 if (exe != "/bin/launchctl") return (0, "");
                 if (args.StartsWith("print ", StringComparison.Ordinal))
                 {
+                    var prints = Calls.Count(c => c.Contains(" print ", StringComparison.Ordinal));
                     var afterBootout = Calls.Any(c => c.Contains(" bootout ", StringComparison.Ordinal));
                     var afterBootstrap = Calls.Any(c => c.Contains(" bootstrap ", StringComparison.Ordinal));
+                    var afterKickstart = Calls.Any(c => c.Contains(" kickstart ", StringComparison.Ordinal));
+                    if (InitialPrintTimesOut && prints == 1) return (ProcessRunner.TimeoutExitCode, "TIMEOUT: '/bin/launchctl' exceeded 60s and was killed.");
                     if (ConfirmationTimesOut && afterBootout && !afterBootstrap) return (ProcessRunner.TimeoutExitCode, "TIMEOUT: '/bin/launchctl' exceeded 60s and was killed.");
+                    if (ThrowOnFinalPrint && afterKickstart && !_threw) { _threw = true; throw new IOException("the runner broke on the last question"); }
                     return Held ? (0, Started ? RunningAfter : Refused) : (113, NotFound);
                 }
                 if (args.StartsWith("bootout ", StringComparison.Ordinal))
@@ -88,6 +95,7 @@ public class LauncherLaunchdRebuildTests : IDisposable
                 }
                 if (args.StartsWith("kickstart ", StringComparison.Ordinal))
                 {
+                    if (ThrowOnKickstart) throw new IOException("the runner broke on the kickstart");
                     if (KickstartExit == 0) Started = true;
                     return (KickstartExit, KickstartExit == 0 ? "" : "Could not kickstart service: 125");
                 }
@@ -154,6 +162,100 @@ public class LauncherLaunchdRebuildTests : IDisposable
 
         Assert.True(sawStagedFileAtFirstLaunchctlCall, "the replacement must be on disk before launchd is asked anything");
         Assert.Empty(StagingFiles());
+    }
+
+    [Fact]
+    public void Rebuild_WhenTheFirstPrintTimesOut_StopsAndChangesNothing()
+    {
+        // A timeout is not "could not find service". The old answer took every non-zero exit as proof that no
+        // job existed and went on to replace the file over a job launchd may still hold; now an answer that is
+        // neither "held" nor "not found" stops the rebuild before anything is touched.
+        Directory.CreateDirectory(Path.GetDirectoryName(_plist)!);
+        File.WriteAllText(_plist, "<old/>");
+        var launchd = new FakeLaunchd(loaded: true) { InitialPrintTimesOut = true };
+
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
+            LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, launchd.Run, _plist, _logDir));
+
+        Assert.Contains("could not learn whether launchd holds the job", ex.Message);
+        Assert.Contains("nothing was changed", ex.Message);
+        Assert.Equal(["print"], launchd.Launchctl());
+        Assert.Equal("<old/>", File.ReadAllText(_plist));
+        Assert.Empty(StagingFiles());
+        Assert.True(launchd.Held);
+        Assert.Null(ex.PreviousPrint);
+    }
+
+    [Fact]
+    public void Rebuild_WhenTheRunnerThrowsOnTheLastQuestion_BootsTheReplacementOutAndReloadsThePrevious()
+    {
+        // The last print used to sit outside the transaction: a runner that broke there left the replacement
+        // loaded and the old file gone. It is inside now, and the roll back boots the replacement out BEFORE
+        // the previous file comes back, so launchd and the disk agree at the end.
+        Directory.CreateDirectory(Path.GetDirectoryName(_plist)!);
+        File.WriteAllText(_plist, "<old/>");
+        var launchd = new FakeLaunchd(loaded: true) { ThrowOnFinalPrint = true };
+
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
+            LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, launchd.Run, _plist, _logDir));
+
+        Assert.Contains("the runner broke on the last question", ex.Message);
+        Assert.Contains("Rolled back: the previous launch agent is back on disk and loaded again. The replacement job was booted out first.", ex.Message);
+        Assert.Equal(["print", "bootout", "print", "bootstrap", "kickstart", "print", "bootout", "print", "bootstrap"], launchd.Launchctl());
+        Assert.Equal("<old/>", File.ReadAllText(_plist));
+        Assert.Empty(StagingFiles());
+        Assert.True(launchd.Held, "launchd holds the previous job again");
+        Assert.False(launchd.Started, "the replacement that was started is gone");
+        Assert.Contains(ex.Steps, s => s == "bootstrapped the launch agent");
+    }
+
+    [Fact]
+    public void Rebuild_WhenTheRunnerThrowsOnTheKickstart_BootsTheReplacementOutBeforeRestoring()
+    {
+        // The replacement was bootstrapped and launchd holds it. Restoring the old file and bootstrapping it
+        // over a held replacement was refused ("already in progress") and left the two disagreeing; the roll
+        // back now boots the replacement out and confirms it gone first.
+        Directory.CreateDirectory(Path.GetDirectoryName(_plist)!);
+        File.WriteAllText(_plist, "<old/>");
+        var launchd = new FakeLaunchd(loaded: true) { ThrowOnKickstart = true };
+
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
+            LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, launchd.Run, _plist, _logDir));
+
+        Assert.Contains("the runner broke on the kickstart", ex.Message);
+        Assert.Contains("loaded again. The replacement job was booted out first.", ex.Message);
+        Assert.Equal(["print", "bootout", "print", "bootstrap", "kickstart", "bootout", "print", "bootstrap"], launchd.Launchctl());
+        Assert.Equal("<old/>", File.ReadAllText(_plist));
+        Assert.Empty(StagingFiles());
+        Assert.True(launchd.Held, "launchd holds the previous job again");
+    }
+
+    [Fact]
+    public void Rebuild_WhenTheReplacementCannotBeBootedOutDuringRollBack_LeavesTheReplacementAndSaysSo()
+    {
+        // launchd will not let go of the replacement: putting the old file back would make the disk and launchd
+        // disagree, so the roll back stops and says which definition is in force.
+        Directory.CreateDirectory(Path.GetDirectoryName(_plist)!);
+        File.WriteAllText(_plist, "<old/>");
+        var launchd = new FakeLaunchd(loaded: true) { ThrowOnKickstart = true };
+        var bootouts = 0;
+        LauncherLaunchdAutostart.CommandRunner run = (exe, args) =>
+        {
+            if (exe == "/bin/launchctl" && args.StartsWith("bootout ", StringComparison.Ordinal) && ++bootouts == 2)
+            {
+                launchd.Calls.Add($"{exe} {args}");
+                return (36, "Boot-out failed: 36: Operation now in progress"); // the replacement stays held
+            }
+            return launchd.Run(exe, args);
+        };
+
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
+            LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, run, _plist, _logDir));
+
+        Assert.Contains("Roll back stopped: launchd still holds the replacement job", ex.Message);
+        Assert.Equal(LauncherLaunchdAutostart.PlistContent("/tmp/x/cc-launcher", null, _logDir), File.ReadAllText(_plist));
+        Assert.Empty(StagingFiles());
+        Assert.True(launchd.Held);
     }
 
     [Fact]
@@ -320,6 +422,101 @@ public class LauncherLaunchdRebuildTests : IDisposable
         Assert.True(launchd.Held && launchd.Started);
         Assert.Equal(2, launchd.Launchctl().Count(v => v == "bootout"));
         Assert.Equal(2, launchd.Launchctl().Count(v => v == "bootstrap"));
+    }
+
+    [Fact]
+    public void Rebuild_WaitsForALockHeldByAnotherProcess()
+    {
+        // The lock is the operating system's: a second PROCESS holding the lock file with no sharing keeps a
+        // rebuild waiting until it lets go. The holder here is a real child process - PowerShell on Windows,
+        // python3 elsewhere - not a second thread, so what is proven is the cross-process boundary itself. The
+        // child writes a marker file once it holds the lock, so this test never probes the lock itself (a
+        // probe could collide with the child's own attempt).
+        Directory.CreateDirectory(Path.GetDirectoryName(_plist)!);
+        var lockPath = _plist + ".lock";
+        var marker = lockPath + ".held";
+        var holdFor = TimeSpan.FromSeconds(3);
+        using var holder = StartLockHolder(lockPath, marker, holdFor);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (!File.Exists(marker))
+        {
+            if (holder.HasExited)
+                throw new InvalidOperationException("the lock holder exited before it took the lock: " + holder.StandardError.ReadToEnd() + holder.StandardOutput.ReadToEnd());
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("the lock holder did not take the lock in time");
+            Thread.Sleep(50);
+        }
+        var heldAt = DateTime.UtcNow;
+        var launchd = new FakeLaunchd(loaded: false);
+
+        var result = LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, launchd.Run, _plist, _logDir);
+
+        var waited = DateTime.UtcNow - heldAt;
+        Assert.True(waited >= TimeSpan.FromSeconds(1), $"the rebuild did not wait for the other process (waited {waited.TotalMilliseconds:0} ms)");
+        Assert.Equal(["print", "bootstrap", "kickstart", "print"], launchd.Launchctl());
+        Assert.NotNull(result.AfterPrint);
+        holder.WaitForExit(10000);
+    }
+
+    /// <summary>A real second process that opens <paramref name="lockPath"/> with no sharing, writes
+    /// <paramref name="marker"/> once it holds it, and holds it for <paramref name="holdFor"/>. Fails loudly
+    /// when the machine has no program to do it with; it never passes by not running.</summary>
+    private static System.Diagnostics.Process StartLockHolder(string lockPath, string marker, TimeSpan holdFor)
+    {
+        var seconds = (int)holdFor.TotalSeconds;
+        System.Diagnostics.ProcessStartInfo psi;
+        if (OperatingSystem.IsWindows())
+        {
+            var script = Path.Combine(Path.GetDirectoryName(lockPath)!, "hold-lock.ps1");
+            File.WriteAllText(script, """
+                param([string]$LockPath, [string]$Marker, [int]$Seconds)
+                $f = $null
+                while ($null -eq $f) {
+                    try { $f = [System.IO.File]::Open($LockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
+                    catch [System.IO.IOException] { Start-Sleep -Milliseconds 50 }
+                }
+                [System.IO.File]::WriteAllText($Marker, 'held')
+                Start-Sleep -Seconds $Seconds
+                $f.Dispose()
+                """);
+            psi = new System.Diagnostics.ProcessStartInfo("powershell.exe") { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
+            psi.ArgumentList.Add("-NoProfile");
+            psi.ArgumentList.Add("-ExecutionPolicy");
+            psi.ArgumentList.Add("Bypass");
+            psi.ArgumentList.Add("-File");
+            psi.ArgumentList.Add(script);
+            psi.ArgumentList.Add(lockPath);
+            psi.ArgumentList.Add(marker);
+            psi.ArgumentList.Add(seconds.ToString());
+        }
+        else
+        {
+            // .NET takes an exclusive advisory lock (flock) for FileShare.None on these systems; so does this.
+            psi = new System.Diagnostics.ProcessStartInfo("python3") { UseShellExecute = false, RedirectStandardError = true, RedirectStandardOutput = true };
+            psi.ArgumentList.Add("-c");
+            psi.ArgumentList.Add(string.Join('\n',
+                "import fcntl, sys, time",
+                "f = open(sys.argv[1], 'a+')",
+                "while True:",
+                "    try:",
+                "        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)",
+                "        break",
+                "    except OSError:",
+                "        time.sleep(0.05)",
+                "open(sys.argv[2], 'w').write('held')",
+                "time.sleep(int(sys.argv[3]))",
+                ""));
+            psi.ArgumentList.Add(lockPath);
+            psi.ArgumentList.Add(marker);
+            psi.ArgumentList.Add(seconds.ToString());
+        }
+        try
+        {
+            return System.Diagnostics.Process.Start(psi) ?? throw new InvalidOperationException("the lock holder process did not start");
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            throw new InvalidOperationException($"this test needs {psi.FileName} to hold the lock from a second process: {ex.Message}", ex);
+        }
     }
 
     [Fact]

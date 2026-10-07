@@ -367,11 +367,11 @@ public sealed class EngineInstallRunner
 
     private void FinalizeInstall()
     {
-        // The machine's install id exists from the first install that WORKS, not only from the first that
-        // fails (#3438). Without this a clean install could not be found on the Gateway by its id, and the
-        // id a person later quoted had been minted by a failure.
+        // The machine's install identifier exists from the first install that WORKS, not only from the first
+        // that fails (#3438). Without this a clean install could not be found on the Gateway by its identifier,
+        // and the identifier a person later quoted had been minted by a failure.
         var installId = CcDirector.Core.ErrorReports.InstallId.ReadOrCreate(_layout.LocalRoot);
-        SetupLog.Write($"[EngineInstallRunner] FinalizeInstall: install id {installId}");
+        SetupLog.Write($"[EngineInstallRunner] FinalizeInstall: install identifier {installId}");
 
         if (OperatingSystem.IsWindows())
         {

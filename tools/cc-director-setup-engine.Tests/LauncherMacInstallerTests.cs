@@ -96,6 +96,59 @@ public class LauncherMacInstallerTests : IDisposable
         Assert.Contains("Unhandled exception. System.Exception: boom", result.Diagnostics);
     }
 
+    [Fact]
+    public async Task InstallAsync_ReportBody_NeverCarriesASecretFromANestedJobFieldOrAnUnknownPropertyListChild()
+    {
+        // The whole path, to the serialized request body: launchd's answer carries a nested environment block
+        // whose lines look like useful fields ("state = hunter2") or mention an error ("ERROR_PASSWORD = hunter2"),
+        // and the property list on disk has an unknown child inside KeepAlive. Neither value may reach the body.
+        var binary = _layout.PathFor(ComponentRegistry.Launcher);
+        Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+        File.WriteAllText(binary, "");
+        File.WriteAllText(_plistPath, LauncherLaunchdAutostart.PlistContent(binary, "--managed", Path.Combine(_layout.LogsDir, "launcher"))
+            .Replace("        <key>SuccessfulExit</key>", "        <key>Password</key>\n        <string>hunter2</string>\n        <key>SuccessfulExit</key>"));
+        Directory.CreateDirectory(Path.Combine(_layout.LogsDir, "launcher"));
+
+        const string refusedWithEnvironment = "gui/501/com.devthrottle.cc-launcher = {\n\tstate = not running\n\truns = 6\n\tlast exit code = 78: EX_CONFIG\n\tjob state = spawn failed\n\tenvironment = {\n\t\tstate = hunter2\n\t\tERROR_PASSWORD = hunter2\n\t\tTOKEN_FAILURE_NOTE => hunter2\n\t}\n}\n";
+        var held = true;
+        var installer = new LauncherMacInstaller(_layout,
+            runCommand: (exe, args) =>
+            {
+                if (exe == "/bin/launchctl" && args.StartsWith("bootout", StringComparison.Ordinal)) held = false;
+                if (exe == "/bin/launchctl" && args.StartsWith("bootstrap", StringComparison.Ordinal)) held = true;
+                return exe switch
+                {
+                    "/usr/bin/id" => (0, "501"),
+                    "/usr/bin/stat" => (0, string.Join('\n', Enumerable.Repeat("501", args.Count(c => c == '"') / 2))),
+                    "/usr/bin/find" => (0, ""),
+                    "/bin/launchctl" when args.StartsWith("print gui/501/com.devthrottle", StringComparison.Ordinal) => held ? (0, refusedWithEnvironment) : (113, "Could not find service"),
+                    "/bin/launchctl" when args.StartsWith("print gui/501", StringComparison.Ordinal) => (0, "gui/501 = {\n\ttype = gui\n\tenvironment = {\n\t\tSECRET = hunter2\n\t}\n}\n"),
+                    _ => (0, ""),
+                };
+            },
+            startProcess: (_, _, _) => 1234,
+            launchAgentPlistPath: _plistPath,
+            healthTimeout: TimeSpan.FromSeconds(1),
+            registrationPath: _registrationPath,
+            launchdPidWait: TimeSpan.FromSeconds(1));
+
+        var result = await installer.InstallAsync();
+        Assert.False(result.Success);
+        Assert.NotNull(result.Diagnostics);
+
+        var reporter = new InstallFailureReporter(_layout, "setup-wizard", gatewayUrl: () => "http://127.0.0.1:9");
+        var payload = reporter.BuildPayload("launcher", "start", result.Message, result.Diagnostics);
+        var body = System.Text.Json.JsonSerializer.Serialize(payload);
+
+        Assert.Contains("last exit code = 78: EX_CONFIG", result.Diagnostics);
+        Assert.Contains("launch agent property list on disk", result.Diagnostics);
+        Assert.DoesNotContain("hunter2", result.Diagnostics);
+        Assert.DoesNotContain("hunter2", body);
+        Assert.DoesNotContain("ERROR_PASSWORD", body);
+        Assert.DoesNotContain("TOKEN_FAILURE_NOTE", body);
+        Assert.DoesNotContain("SECRET", body);
+    }
+
     // RETIRED, deliberately: two tests here pinned the behaviour that broke a Mac.
     //
     // InstallAsync_FirstInstall_StartsDirectlyAndVerifiesPlist asserted that a first install starts the

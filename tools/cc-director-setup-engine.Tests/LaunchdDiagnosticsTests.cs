@@ -31,19 +31,6 @@ public sealed class LaunchdDiagnosticsTests
         """;
 
     [Fact]
-    public void UsefulLines_KeepsTheFieldsThatExplainAMissingProcess()
-    {
-        var lines = LaunchdDiagnostics.UsefulLines(CrashedJob);
-
-        Assert.Contains("state = not running", lines);
-        Assert.Contains("runs = 2", lines);
-        Assert.Contains("last exit code = 134: Abort trap", lines);
-        Assert.Contains("job state = exited", lines);
-        Assert.DoesNotContain(lines, l => l.StartsWith("properties", StringComparison.Ordinal));
-        Assert.DoesNotContain(lines, l => l.StartsWith("active count", StringComparison.Ordinal));
-    }
-
-    [Fact]
     public void Explain_NamesTheExitCodeRunsAndState()
     {
         var sentence = LaunchdDiagnostics.Explain(CrashedJob, jobLoaded: true);
@@ -132,17 +119,6 @@ public sealed class LaunchdDiagnosticsTests
         Assert.Null(LaunchdDiagnostics.Tail(Path.Combine(Path.GetTempPath(), $"absent-{Guid.NewGuid():N}.log"), 5));
     }
 
-    [Fact]
-    public void Compose_IncludesLaunchdAndEachLogTail()
-    {
-        var text = LaunchdDiagnostics.Compose(CrashedJob, jobLoaded: true,
-            [("launchd-stderr.log (last lines)", "Unhandled exception. System.Exception: boom"), ("launchd-stdout.log (last lines)", null)]);
-
-        Assert.Contains("last exit code = 134: Abort trap", text);
-        Assert.Contains("Unhandled exception. System.Exception: boom", text);
-        Assert.Contains("launchd-stdout.log (last lines):\n  (missing or empty)", text.Replace("\r\n", "\n"));
-    }
-
     // ---- The launcher's own log in the launcher/start report (issue #3311, B4) ----
 
     [Fact]
@@ -179,34 +155,6 @@ public sealed class LaunchdDiagnosticsTests
     {
         var dir = Path.Combine(Path.GetTempPath(), "cc-launcher-log-test-" + Guid.NewGuid().ToString("N"));
         Assert.Null(LaunchdDiagnostics.LauncherLogTail(dir, 60));
-    }
-
-    [Fact]
-    public void ComposeBinaryChecks_LabelsEachAnswerWithItsExitCode()
-    {
-        var text = LaunchdDiagnostics.ComposeBinaryChecks(
-        [
-            ("xattr -l (quarantine flag)", 0, "com.apple.quarantine: 0083;66f4a1b2;Safari;\n"),
-            ("codesign -dv (signature)", 1, "code object is not signed at all\n"),
-            ("log show (last 3 minutes mentioning cc-launcher)", 0, ""),
-        ]).Replace("\r\n", "\n");
-
-        Assert.StartsWith("launcher binary:", text);
-        Assert.Contains("xattr -l (quarantine flag) -> exit 0:\n    com.apple.quarantine: 0083;66f4a1b2;Safari;", text);
-        Assert.Contains("codesign -dv (signature) -> exit 1:\n    code object is not signed at all", text);
-        Assert.Contains("log show (last 3 minutes mentioning cc-launcher) -> exit 0:\n    (no output)", text);
-    }
-
-    [Fact]
-    public void ComposeBinaryChecks_KeepsOnlyTheLastLinesOfALongLog()
-    {
-        var log = string.Join("\n", Enumerable.Range(1, 100).Select(i => $"line {i}"));
-        var text = LaunchdDiagnostics.ComposeBinaryChecks([("log show", 0, log)]).Replace("\r\n", "\n");
-
-        Assert.Contains($"({100 - LaunchdDiagnostics.MaxBinaryCheckLines} earlier lines left out)", text);
-        Assert.Contains("    line 76\n", text);
-        Assert.DoesNotContain("    line 75\n", text);
-        Assert.EndsWith("    line 100", text);
     }
 
     [Fact]
@@ -326,6 +274,27 @@ public sealed class LaunchdDiagnosticsTests
         Assert.DoesNotContain("GITHUB_TOKEN", text);
         Assert.DoesNotContain("ghp_", text);
         Assert.DoesNotContain("top secret", text);
+    }
+
+    [Fact]
+    public void PlistFacts_NeverEnumeratesUnknownChildrenOfKeepAlive_AndChecksEveryValueKind()
+    {
+        // KeepAlive is an allowed key, and it used to be a licence to send every child inside it: a planted
+        // "Password" child with a short value travelled as "KeepAlive = dict (Password = hunter2)". Only the
+        // boolean children launchd defines are sent, and a scalar of the wrong kind is named, not sent.
+        // The template carries the source file's own line endings, so they are normalized before the edits.
+        var plist = LauncherLaunchdAutostart.PlistContent("/Users/robert/Library/Application Support/cc-director/launcher/cc-launcher", null, "/Users/robert/Library/Application Support/cc-director/logs/launcher")
+            .Replace("\r\n", "\n")
+            .Replace("        <key>SuccessfulExit</key>", "        <key>Password</key>\n        <string>hunter2</string>\n        <key>Crashed</key>\n        <string>hunter2</string>\n        <key>SuccessfulExit</key>")
+            .Replace("    <key>ProcessType</key>\n    <string>Interactive</string>", "    <key>ProcessType</key>\n    <dict>\n        <key>Secret</key>\n        <string>hunter2</string>\n    </dict>\n    <key>RunAtLoad</key>\n    <string>hunter2</string>");
+
+        var text = LaunchdDiagnostics.PlistFacts(plist).Replace("\r\n", "\n");
+
+        Assert.Contains("KeepAlive = dict (Password = (not sent), Crashed = (a string, not a boolean; not sent), SuccessfulExit = false)", text);
+        Assert.Contains("ProcessType = (a dict, not a string; not sent)", text);
+        Assert.Contains("RunAtLoad = (a string, not a boolean; not sent)", text);
+        Assert.DoesNotContain("hunter2", text);
+        Assert.DoesNotContain("Secret", text);
     }
 
     [Fact]

@@ -165,22 +165,26 @@ log() {
 
 # Send one step to DevThrottle (issue #3311), so what happened is not only on this screen. No sign-in
 # exists yet, and none is needed. It sends the step, the message (home folder reduced to "~"), the macOS
-# version, the architecture, the same per-machine install id the setup wizard uses, and the log of this run
-# so far as diagnostics - a failed install used to arrive as one line, and the five lines before it, which
-# said what the script had done, stayed on the user's Mac. A report that cannot be delivered changes nothing.
-json_string() { # text -> one JSON string literal, quotes included, home folder reduced to ~
+# version, the architecture, the same per-machine install identifier the setup wizard uses, and the log of
+# this run so far as diagnostics - a failed install used to arrive as one line, and the five lines before it,
+# which said what the script had done, stayed on the user's Mac. A report that cannot be delivered changes
+# nothing. The Gateway's limits are kept here, before sending: 4000 characters of message, and a body under
+# 64 kilobytes - a report over either is refused outright, and then it is gone.
+MAX_MESSAGE_CHARS=4000
+MAX_BODY_BYTES=60000
+json_string() { # text -> one quoted string in the notation the Gateway reads, home folder reduced to ~
     # JavaScript for Automation's JSON.stringify, which every Mac has and which the hash check above already
     # relies on: it escapes every control byte, quote and backslash correctly. A bash encoder cannot be written
     # once for both bash versions - the Mac's bash 3.2 keeps the quote characters of a quoted replacement
     # literally, bash 5.2 strips backslashes from an unquoted one - and one unescaped carriage return (curl
-    # writes its progress with them) makes the whole report invalid JSON, which the Gateway refuses.
+    # writes its progress with them) makes the whole report unreadable to the Gateway, which refuses it.
     local text="$1" tilde='~'
     # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
     text="${text//"$HOME"/$tilde}"
     osascript -l JavaScript -e 'function run(argv) { return JSON.stringify(argv[0]); }' -- "$text"
 }
 report_step() { # message
-    local message="$1" id_dir="$HOME/Library/Application Support/cc-director" id="" run_log=""
+    local message="${1:0:$MAX_MESSAGE_CHARS}" id_dir="$HOME/Library/Application Support/cc-director" id="" run_log=""
     if [[ -s "$id_dir/install-id" ]]; then
         id="$(cat "$id_dir/install-id")"
     else
@@ -190,7 +194,7 @@ report_step() { # message
     if [[ -n "$LOG_FILE" && -s "$LOG_FILE" ]]; then
         if [[ "$(wc -c < "$LOG_FILE")" -gt 12000 ]]; then
             # The cut lands on a line boundary: tail -c can split a multi-byte character, and half a
-            # character is invalid JSON.
+            # character is not valid text for the report.
             run_log="$(tail -c 12000 "$LOG_FILE" 2>/dev/null | tail -n +2 || true)"
         else
             run_log="$(cat "$LOG_FILE" 2>/dev/null || true)"
@@ -198,15 +202,17 @@ report_step() { # message
     fi
     local diagnostics message_json diagnostics_json body
     message_json="$(json_string "$message")" || return 1
-    # The Gateway refuses a body over 64 KB outright, and the report is gone. The body is measured in bytes, as
-    # sent; when it is too big the run log gives way from the top, twenty lines at a time.
+    # The Gateway refuses a body over 64 kilobytes outright, and the report is gone. The body is measured in
+    # bytes, as sent; when it is too big the run log gives way from the top, twenty lines at a time, and a body
+    # still too big with no run log left is not sent at all - the measurement is the last word before curl.
     while :; do
         diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
         diagnostics_json="$(json_string "$diagnostics")" || return 1
         body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":$message_json,\"diagnostics\":$diagnostics_json,\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
-        if [[ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -le 60000 || -z "$run_log" ]]; then break; fi
+        if [[ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -le $MAX_BODY_BYTES || -z "$run_log" ]]; then break; fi
         run_log="$(printf '%s\n' "$run_log" | tail -n +21)"
     done
+    if [[ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -gt $MAX_BODY_BYTES ]]; then return 1; fi
     curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1
 }
 report_failure() {

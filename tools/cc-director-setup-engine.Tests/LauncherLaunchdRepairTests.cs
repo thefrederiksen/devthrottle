@@ -183,6 +183,13 @@ public class LauncherLaunchdRepairTests
     [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => maybe\n}\n")]               // a value this does not know
     [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n\t\"com.devthrottle.cc-launcher\" => enabled\n}\n")] // named twice
     [InlineData("disabled = {\n\tsomething that is not an entry\n}\n")]                           // the format changed
+    [InlineData("disabled services = {\n}\ntruncated garbage\n")]                                 // a valid-looking prefix, then garbage
+    [InlineData("some preamble\ndisabled = {\n\t\"com.apple.something\" => disabled\n}\n")]     // leading material
+    [InlineData("disabled = {\n\t\"com.apple.something\" => disabled\n}\n\"trailing\" => disabled\n")] // trailing material
+    [InlineData("disabled = {\n}\nenabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n}\n")] // a second dictionary
+    [InlineData("disabled = {\n\tnested = {\n\t\t\"com.apple.something\" => disabled\n\t}\n}\n")]  // a nested dictionary
+    [InlineData("disabled = {\n\t\"com.apple.something\" => maybe\n}\n")]                       // an unknown value on another label
+    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher => disabled\n}\n")]              // a label whose quote never closes
     public void ParseDisabled_AnythingButACompleteRecognisableList_IsUnknown(string? output)
     {
         Assert.Equal(DisabledState.Unknown, ParseDisabled(output));
@@ -192,6 +199,11 @@ public class LauncherLaunchdRepairTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n")]
+    [InlineData("disabled services = {\n}\ntruncated garbage\n")]
+    [InlineData("some preamble\ndisabled = {\n}\n")]
+    [InlineData("disabled = {\n}\n}\n")]
+    [InlineData("disabled = {\n}\nenabled = {\n}\n")]
+    [InlineData("disabled = {\n\t\"com.apple.something\" => maybe\n}\n")]
     public void Decide_NeverRepairsWhenTheDisabledListIsUnknown(string? printDisabled)
     {
         var d = Decide(true, true, Refused, 0, ParseDisabled(printDisabled));
