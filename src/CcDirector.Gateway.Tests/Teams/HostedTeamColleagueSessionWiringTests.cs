@@ -57,7 +57,6 @@ public sealed class HostedTeamColleagueSessionWiringTests : IAsyncLifetime
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true, teamsReleased: true);
         await _gateway.StartAsync();
-        HostedTeamBill.CreateTable(_gateway);
 
         // Bob owns the session; Alice is his colleague in the same team, and her Director lists his session's id.
         var teamId = _gateway.TeamRegistry.CreateTeam(_teamOwner, "A").Team!.TeamId;

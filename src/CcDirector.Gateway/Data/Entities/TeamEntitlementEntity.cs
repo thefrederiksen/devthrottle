@@ -1,8 +1,11 @@
 namespace CcDirector.Gateway.Data.Entities;
 
 /// <summary>
-/// One TEAM's bill, as the payment side last recorded it - the row that decides whether the paid members of a
-/// team tenant hold paid features (devthrottle_internal #2299).
+/// One TEAM's bill, as the payment side would record it (devthrottle_internal #2299).
+///
+/// READ BY NOTHING TODAY. A team's bill is the Gateway's own <see cref="TeamBillEntity"/> (Teams v1, the team bill
+/// without Stripe - owner, 7 Oct 2026). This mapping is kept for the later payment work, which will decide how the
+/// payment provider's record and the Gateway's bill meet; until then no code reads this table.
 ///
 /// THIS TABLE IS NOT OURS TO CREATE OR WRITE, exactly like <see cref="EntitlementEntity"/>. The website creates
 /// it with its own migration and writes it ONLY from its payment webhook (through

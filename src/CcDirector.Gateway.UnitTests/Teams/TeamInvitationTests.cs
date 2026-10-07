@@ -1,6 +1,3 @@
-using System.Net;
-using System.Text.Json.Nodes;
-using CcDirector.Core.Account;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Teams;
@@ -13,9 +10,9 @@ namespace CcDirector.Gateway.Tests.Teams;
 
 /// <summary>
 /// Team invitations by email that expire (devthrottle_internal#2301), over a real, throwaway, fully migrated Gateway
-/// database. The six tests the issue names come first, then the decided pieces - the bill gate and the seat sync -
-/// then every public method. The clock is injected; nothing sleeps. The website is a recording HTTP handler; nothing
-/// leaves the process. In the log-capture collection because some tests read what was logged (review F2).
+/// database. The six tests the issue names come first, then the decided pieces - the bill gate and the seat count on the
+/// Gateway's own bill - then every public method. The clock is injected; nothing sleeps; nothing leaves the process. In
+/// the log-capture collection because some tests read what was logged (review F2).
 /// </summary>
 [Collection(FileLogCaptureCollection.Name)]
 public sealed class TeamInvitationTests : IDisposable
@@ -25,14 +22,11 @@ public sealed class TeamInvitationTests : IDisposable
     private const string Developer = "sub-developer";
     private const string Collaborator = "sub-collaborator";
     private const string Newcomer = "sub-newcomer";
-    private const string Token = "test-gateway-service-token";
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly GatewayDatabase _db;
     private readonly TenantRegistry _tenants;
-    private readonly RecordingWebsite _website = new();
     private readonly TeamRegistry _teams;
-    private readonly TeamSeatSync _seatSync;
     private DateTime _now = new(2026, 10, 1, 10, 0, 0, DateTimeKind.Utc);
     private readonly string _team;
 
@@ -40,18 +34,7 @@ public sealed class TeamInvitationTests : IDisposable
     {
         _db = _harness.Open();
         _tenants = new TenantRegistry(_db);
-        using (var ctx = _db.CreateUnscopedContext())
-        {
-            // The website owns this table and creates it; the Gateway's migrations never do. Created here exactly as
-            // the #2299 tests create it.
-            ctx.Database.ExecuteSqlRaw(
-                "CREATE TABLE IF NOT EXISTS team_entitlements (" +
-                "team_id TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, seats INTEGER NULL, " +
-                "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, livemode INTEGER NULL, updated_at TEXT NULL)");
-        }
-        _seatSync = new TeamSeatSync(new EntitlementRegistry(_db, requireLivemode: false),
-            new TeamSeatSyncClient(new HttpClient(_website), "https://website.test"), () => Token);
-        _teams = new TeamRegistry(_db, _tenants, () => _now, _seatSync);
+        _teams = new TeamRegistry(_db, _tenants, () => _now);
 
         _tenants.MintOrLookupBySubject(Owner, "owner@acme.example");
         _tenants.MintOrLookupBySubject(Manager, "manager@acme.example");
@@ -61,9 +44,7 @@ public sealed class TeamInvitationTests : IDisposable
         _teams.AddMember(_team, Manager, TeamRole.Manager);
         _teams.AddMember(_team, Developer, TeamRole.Developer);
         _teams.AddMember(_team, Collaborator, TeamRole.Collaborator);
-        _teams.SeatSyncsSettled().GetAwaiter().GetResult();
         StartBill(_team, "active", seats: 3);
-        _website.Calls.Clear();
     }
 
     public void Dispose() => _harness.Dispose();
@@ -207,7 +188,7 @@ public sealed class TeamInvitationTests : IDisposable
         var result = _teams.CreateInvitation(unbilled, Owner, "a@x.example", TeamRole.Developer);
 
         Assert.Equal(TeamInvitationOutcome.Refused, result.Outcome);
-        Assert.Equal("The team's bill has not started - the Owner finishes billing first.", result.Refusal);
+        Assert.Equal("The team plan has not started - the Owner starts the team plan first.", result.Refusal);
         Assert.Equal(0, CountInvitations(unbilled));
     }
 
@@ -256,7 +237,7 @@ public sealed class TeamInvitationTests : IDisposable
         Assert.Equal(TeamInvitationOutcome.Refused, accepted.Outcome);
         Assert.Equal(TeamInvitationRefusals.BillStopped, accepted.Refusal);
         Assert.Null(_teams.RoleOf(_team, Newcomer));
-        Assert.Empty(_website.Calls);
+        Assert.Equal(3, BilledSeats(_team));
     }
 
     [Fact]
@@ -320,48 +301,47 @@ public sealed class TeamInvitationTests : IDisposable
         Assert.DoesNotContain(lines, l => l.Contains("not-an-address", StringComparison.Ordinal));
     }
 
-    // ---- The seat sync (seam section 4) --------------------------------------------------------------------------
+    // ---- The seat count on the Gateway's own bill (Teams v1, the team bill without Stripe) -------------------------
 
     [Fact]
-    public async Task SeatSync_AcceptRemoveAndRoleChange_CallSyncOnceWithTheTeamId_OnlyWhenThePaidSeatCountMoves()
+    public void SeatCount_AcceptRemoveAndRoleChange_RecordOnTheBill_OnlyWhenThePaidSeatCountMoves()
     {
         _tenants.MintOrLookupBySubject(Newcomer, "n@x.example");
         var token = TokenOf(Invite(Owner, "n@x.example", TeamRole.Developer));
-        Assert.Empty(_website.Calls);
+        Assert.Equal(3, BilledSeats(_team));   // inviting is not a member
 
         _teams.AcceptInvitation(token, Newcomer);       // a paid seat added
-        await _teams.SeatSyncsSettled();
-        AssertOneSyncFor(_team);
+        Assert.Equal(4, BilledSeats(_team));
 
+        var before = BillRow(_team).UpdatedAtUtc;
+        _now = _now.AddMinutes(1);
         _teams.ChangeRole(_team, Newcomer, TeamRole.Manager);   // paid to paid: the count does not move
-        await _teams.SeatSyncsSettled();
-        Assert.Empty(_website.Calls);
+        Assert.Equal(4, BilledSeats(_team));
+        Assert.Equal(before, BillRow(_team).UpdatedAtUtc);
 
-        _teams.ChangeRole(_team, Newcomer, TeamRole.Collaborator);   // paid to free
-        await _teams.SeatSyncsSettled();
-        AssertOneSyncFor(_team);
+        _teams.ChangeRole(_team, Newcomer, TeamRole.Collaborator);   // paid to Collaborator
+        Assert.Equal(3, BilledSeats(_team));
 
-        _teams.RemoveMember(_team, Newcomer);           // a free member leaves: the count does not move (#2303)
-        await _teams.SeatSyncsSettled();
-        Assert.Empty(_website.Calls);
+        _teams.RemoveMember(_team, Newcomer);           // a Collaborator leaves: the count does not move (#2303)
+        Assert.Equal(3, BilledSeats(_team));
     }
 
     [Fact]
-    public async Task SeatSync_AcceptingACollaboratorInvitation_DoesNotCallSync()
+    public void SeatCount_AcceptingACollaboratorInvitation_LeavesTheBillAlone()
     {
         _tenants.MintOrLookupBySubject(Newcomer, "n@x.example");
         var token = TokenOf(Invite(Owner, "n@x.example", TeamRole.Collaborator));
 
         Assert.Equal(TeamInvitationOutcome.Done, _teams.AcceptInvitation(token, Newcomer).Outcome);
-        await _teams.SeatSyncsSettled();
 
         Assert.Equal(TeamRole.Collaborator, _teams.RoleOf(_team, Newcomer));
-        Assert.Empty(_website.Calls);
+        Assert.Equal(3, BilledSeats(_team));
     }
 
     [Fact]
-    public async Task SeatSync_SendingResendingCancellingAndDeclining_NeverCallSync()
+    public void SeatCount_SendingResendingCancellingAndDeclining_NeverTouchTheBill()
     {
+        var before = BillRow(_team);
         var a = Invite(Owner, "a@x.example", TeamRole.Developer);
         var b = Invite(Owner, "b@x.example", TeamRole.Developer);
         var c = Invite(Owner, "c@x.example", TeamRole.Developer);
@@ -369,59 +349,37 @@ public sealed class TeamInvitationTests : IDisposable
         _teams.CancelInvitation(_team, b.Invitation!.Id, Owner);
         _teams.DeclineInvitation(TokenOf(c), Newcomer);
         _teams.OpenInvitation(TokenOf(a), Newcomer);
-        await _teams.SeatSyncsSettled();
 
-        Assert.Empty(_website.Calls);
+        var after = BillRow(_team);
+        Assert.Equal(before.Seats, after.Seats);
+        Assert.Equal(before.UpdatedAtUtc, after.UpdatedAtUtc);
     }
 
     [Fact]
-    public async Task SeatSync_AFailedCall_IsRetriedByConvergence_AndConvergenceStopsOnceTheCountsMatch()
+    public void SeatConvergence_ABillThatFellBehind_IsPutRight_AndThenLeftAlone()
     {
-        _tenants.MintOrLookupBySubject(Newcomer, "n@x.example");
-        var token = TokenOf(Invite(Owner, "n@x.example", TeamRole.Developer));
-        _website.Next.Enqueue(HttpStatusCode.ServiceUnavailable);
+        // A Gateway that stopped between the membership save and the seat save leaves the bill behind: it says 1 seat
+        // while the team has 3 paid members (Owner, Manager, Developer).
+        StartBill(_team, "active", seats: 1);
+        var convergence = new TeamSeatConvergence(_db, new TeamBillStore(_db, () => _now));
 
-        _teams.AcceptInvitation(token, Newcomer);
-        await _teams.SeatSyncsSettled();
-        AssertOneSyncFor(_team);   // the call after the accept - which failed
-
-        // The bill still says 3 seats; the Gateway now counts 4 paid members (Owner, Manager, two Developers).
-        var convergence = new TeamSeatConvergence(_db, _seatSync);
-        Assert.Equal(4, convergence.PaidMemberCounts()[_team]);
-        Assert.Equal(1, await convergence.RunOnceAsync());
-        AssertOneSyncFor(_team);   // the retry
-
-        // The website billed the new count and its webhook wrote it to the row: the next pass calls nothing.
-        StartBill(_team, "active", seats: 4);
-        Assert.Equal(0, await convergence.RunOnceAsync());
-        Assert.Empty(_website.Calls);
+        Assert.Equal(1, convergence.RunOnce());
+        Assert.Equal(3, BilledSeats(_team));
+        Assert.Equal(0, convergence.RunOnce());
     }
 
     [Fact]
-    public async Task SeatSync_NoSeatSyncOnThisGateway_StillCommitsTheMembership()
+    public void SeatConvergence_TeamWithNoBillOrAnEndedOne_IsLeftAlone()
     {
-        var teams = new TeamRegistry(_db, _tenants, () => _now);
-        _tenants.MintOrLookupBySubject(Newcomer, "n@x.example");
-        var token = TokenOf(teams.CreateInvitation(_team, Owner, "n@x.example", TeamRole.Developer));
+        var unbilled = _teams.CreateTeam(Owner, "Plan not started").Team!.TeamId;
+        StartBill(_team, "canceled", seats: 1);
+        var convergence = new TeamSeatConvergence(_db, new TeamBillStore(_db, () => _now));
 
-        Assert.Equal(TeamInvitationOutcome.Done, teams.AcceptInvitation(token, Newcomer).Outcome);
-        await teams.SeatSyncsSettled();
+        Assert.Equal(0, convergence.RunOnce());
 
-        Assert.Equal(TeamRole.Developer, teams.RoleOf(_team, Newcomer));
-        Assert.Empty(_website.Calls);
-    }
-
-    [Fact]
-    public async Task SeatConvergence_TeamWithNoBill_IsSkippedWithoutACall()
-    {
-        _teams.CreateTeam(Owner, "Checkout not finished");
-        await _teams.SeatSyncsSettled();
-
-        var convergence = new TeamSeatConvergence(_db, _seatSync);
-        StartBill(_team, "active", seats: 3);
-
-        Assert.Equal(0, await convergence.RunOnceAsync());
-        Assert.Empty(_website.Calls);
+        Assert.Equal(1, BilledSeats(_team));
+        using var ctx = _db.CreateUnscopedContext();
+        Assert.False(ctx.TeamBills.Any(b => b.TeamId == unbilled));
     }
 
     // ---- Every public method ---------------------------------------------------------------------------------------
@@ -688,38 +646,15 @@ public sealed class TeamInvitationTests : IDisposable
         return ctx.TeamMembers.Count(m => m.TeamId == _team);
     }
 
-    private void StartBill(string teamId, string status, int seats)
+    /// <summary>Give a team a bill with this status on the Gateway's own table; an active one renews itself.</summary>
+    private void StartBill(string teamId, string status, int seats) =>
+        TeamBillSeed.Put(_db, teamId, status, seats, autoRenew: status == "active");
+
+    private CcDirector.Gateway.Data.Entities.TeamBillEntity BillRow(string teamId)
     {
         using var ctx = _db.CreateUnscopedContext();
-        ctx.Database.ExecuteSqlRaw("DELETE FROM team_entitlements WHERE team_id = {0}", teamId);
-        ctx.Database.ExecuteSqlRaw(
-            "INSERT INTO team_entitlements (team_id, status, seats, livemode) VALUES ({0}, {1}, {2}, 1)", teamId, status, seats);
+        return ctx.TeamBills.AsNoTracking().Single(b => b.TeamId == teamId);
     }
 
-    private void AssertOneSyncFor(string teamId)
-    {
-        var call = Assert.Single(_website.Calls);
-        Assert.Equal("https://website.test/api/v1/teams/sync-seats", call.Uri);
-        Assert.Equal(teamId, JsonNode.Parse(call.Body)!["team_id"]!.GetValue<string>());
-        Assert.Single(JsonNode.Parse(call.Body)!.AsObject());
-        _website.Calls.Clear();
-    }
-
-    /// <summary>The website's seat-sync route: records every call and answers with the next queued status (200 when
-    /// none is queued), the way #2299's route answers.</summary>
-    private sealed class RecordingWebsite : HttpMessageHandler
-    {
-        public List<(string Uri, string Body)> Calls { get; } = new();
-        public Queue<HttpStatusCode> Next { get; } = new();
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
-            lock (Calls) Calls.Add((request.RequestUri!.ToString(), body));
-            var status = Next.Count > 0 ? Next.Dequeue() : HttpStatusCode.OK;
-            return new HttpResponseMessage(status) { Content = new StringContent(status == HttpStatusCode.OK
-                ? "{\"data\":{\"changed\":true,\"seats\":4,\"stripe_quantity\":4}}"
-                : "{\"error\":{\"code\":\"unavailable\",\"message\":\"down\"}}") };
-        }
-    }
+    private int BilledSeats(string teamId) => BillRow(teamId).Seats;
 }

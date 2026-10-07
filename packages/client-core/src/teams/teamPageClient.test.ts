@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { changeMemberRole, getTeamPage, removeMember } from "./teamPageClient";
+import {
+  cancelTeamPlan,
+  changeMemberRole,
+  getTeamPage,
+  removeMember,
+  renewTeamPlan,
+  setTeamPlanAutoRenew,
+  startTeamPlan,
+} from "./teamPageClient";
 import { gatewayErrorMessage } from "../api/client";
 
 // The Team page client (devthrottle_internal#2303): each call reaches its route with its method, a refusal reaches the
@@ -28,6 +36,26 @@ describe("the Team page client", () => {
     ]);
     expect(JSON.parse(calls[1][1].body as string)).toEqual({ role: "Collaborator" });
     expect(calls[2][1].body).toBeUndefined();
+  });
+
+  it("reaches the team plan's four Owner actions at their routes, with auto-renew's switch in the body", async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => json({ done: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await startTeamPlan("team 1");
+    await renewTeamPlan("team 1");
+    await setTeamPlanAutoRenew("team 1", false);
+    await cancelTeamPlan("team 1");
+
+    const calls = fetchMock.mock.calls as [string, RequestInit][];
+    expect(calls.map(([url, init]) => `${init.method} ${url}`)).toEqual([
+      "POST /teams/team%201/bill/start",
+      "POST /teams/team%201/bill/renew",
+      "PUT /teams/team%201/bill/auto-renew",
+      "POST /teams/team%201/bill/cancel",
+    ]);
+    expect(JSON.parse(calls[2][1].body as string)).toEqual({ on: false });
+    expect(calls[0][1].body).toBeUndefined();
   });
 
   it("carries the Gateway's own refusal sentence to the page", async () => {

@@ -451,6 +451,16 @@ public sealed class GatewayDbContext : DbContext
     public DbSet<TeamEntitlementEntity> TeamEntitlements => Set<TeamEntitlementEntity>();
 
     /// <summary>
+    /// The TEAM bills this Gateway owns and writes (<c>team_bills</c>, Teams v1 - the team bill without Stripe): one row
+    /// per team that has started its plan. THE one source of a team's bill; <see cref="TeamEntitlements"/> above is no
+    /// longer read.
+    /// </summary>
+    public DbSet<TeamBillEntity> TeamBills => Set<TeamBillEntity>();
+
+    /// <summary>The billing history of each team's plan (<c>team_bill_charges</c>): one line per period.</summary>
+    public DbSet<TeamBillChargeEntity> TeamBillCharges => Set<TeamBillChargeEntity>();
+
+    /// <summary>
     /// The free-trial ledger (<c>account_trials</c>, issue #2117) - the Gateway's OWN record of which accounts
     /// were granted the 14-day Pro trial the public pricing page promises, and when each trial ends. GLOBAL
     /// like <see cref="Tenants"/>: keyed by the verified account subject and read before any tenant exists, so
@@ -1514,6 +1524,50 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.StripeSubscriptionId).HasColumnName("stripe_subscription_id");
             b.Property(e => e.Livemode).HasColumnName("livemode");
             b.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+        });
+
+        // The team bill this Gateway owns (Teams v1, the team bill without Stripe). GLOBAL like the teams table: keyed by
+        // the team id, which is the team's tenant id. A bill and its history cannot outlive their team.
+        modelBuilder.Entity<TeamBillEntity>(b =>
+        {
+            b.ToTable("team_bills");
+            b.HasKey(e => e.TeamId);
+            b.Property(e => e.TeamId).HasColumnName("team_id").ValueGeneratedNever();
+            b.Property(e => e.Status).HasColumnName("status").IsRequired().HasMaxLength(20);
+            b.Property(e => e.Seats).HasColumnName("seats").IsRequired();
+            b.Property(e => e.PricePerSeatCents).HasColumnName("price_per_seat_cents").IsRequired();
+            b.Property(e => e.PlanStartedUtc).HasColumnName("plan_started_utc").IsRequired();
+            b.Property(e => e.CurrentPeriodStartUtc).HasColumnName("current_period_start_utc").IsRequired();
+            b.Property(e => e.CurrentPeriodEndUtc).HasColumnName("current_period_end_utc").IsRequired();
+            b.Property(e => e.AutoRenew).HasColumnName("auto_renew").IsRequired();
+            b.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            b.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            // Bumped by every write; a second Gateway process saving a stale copy is refused (TeamBillStore).
+            b.Property(e => e.Version).HasColumnName("version").IsRequired().IsConcurrencyToken();
+            // The renewal pass reads the active bills whose period has ended.
+            b.HasIndex(e => new { e.Status, e.CurrentPeriodEndUtc });
+            b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TeamBillChargeEntity>(b =>
+        {
+            b.ToTable("team_bill_charges");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
+            b.Property(e => e.TeamId).HasColumnName("team_id").IsRequired();
+            b.Property(e => e.PeriodStartUtc).HasColumnName("period_start_utc").IsRequired();
+            b.Property(e => e.PeriodEndUtc).HasColumnName("period_end_utc").IsRequired();
+            b.Property(e => e.Seats).HasColumnName("seats").IsRequired();
+            b.Property(e => e.PricePerSeatCents).HasColumnName("price_per_seat_cents").IsRequired();
+            b.Property(e => e.AmountCents).HasColumnName("amount_cents").IsRequired();
+            b.Property(e => e.ChargedCents).HasColumnName("charged_cents").IsRequired();
+            b.Property(e => e.Reason).HasColumnName("reason").IsRequired().HasMaxLength(20);
+            b.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            // A team's history, newest first - and ONE line per period: a second Gateway process rolling the same bill
+            // cannot record the same period twice (TeamBillStore).
+            b.HasIndex(e => new { e.TeamId, e.PeriodStartUtc }).IsUnique();
+            // Tied to the TEAM, not to the bill row, so the bill row can be read or replaced without touching its history.
+            b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<TenantEntity>(b =>

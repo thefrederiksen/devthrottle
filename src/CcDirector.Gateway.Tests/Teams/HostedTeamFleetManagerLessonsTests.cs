@@ -61,7 +61,6 @@ public sealed class HostedTeamFleetManagerLessonsTests : IAsyncLifetime
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true, teamsReleased: true);
         await _gateway.StartAsync();
-        HostedTeamBill.CreateTable(_gateway);
 
         var teamId = _gateway.TeamRegistry.CreateTeam(_teamOwner, "A").Team!.TeamId;
         Assert.True(_gateway.TeamRegistry.AddMember(teamId, _alice, TeamRole.Developer).IsDone);

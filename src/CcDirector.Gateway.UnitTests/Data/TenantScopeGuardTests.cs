@@ -121,6 +121,13 @@ public sealed class TenantScopeGuardTests : IDisposable
         //    at all, and by seat convergence, which runs outside any request's tenant - so scoping it to a
         //    tenant would be circular in the same way. It has no tenant_id column to scope by.
         //
+        //  - TeamBillEntity and TeamBillChargeEntity are a team's bill as THIS Gateway owns it, and its billing history
+        //    (Teams v1, the team bill without Stripe). They replace TeamEntitlementEntity as the source of a team's bill
+        //    and are global for the same reasons as the teams table: keyed by the team id, which IS a tenant id, and read
+        //    by the access lease and the renewal pass before or across any request's tenant, so scoping them would be
+        //    circular. They are written only by TeamBillStore - by the team's Owner (asked of the role table first), on a
+        //    membership change, and by the renewal pass - and served only to the team's Owner and Managers.
+        //
         //  - DeviceCredentialEntity is the device registry (MTR-14) - an AUTH-RESOLUTION lookup, not tenant
         //    data. A presented key is resolved to its device by its SHA-256 hash BEFORE any tenant is known, and
         //    the tenant is then READ OFF the matched record (each row carries its own tenant binding as a
@@ -184,6 +191,8 @@ public sealed class TenantScopeGuardTests : IDisposable
             typeof(TeamInvitationEntity),
             typeof(EntitlementEntity),
             typeof(TeamEntitlementEntity),
+            typeof(TeamBillEntity),
+            typeof(TeamBillChargeEntity),
             typeof(AccountTrialEntity),
             typeof(TrialExtensionEntity),
             typeof(DeviceCredentialEntity),

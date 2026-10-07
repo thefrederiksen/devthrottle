@@ -89,7 +89,6 @@ public abstract class HostedTeamDirectorRoutesNoTeamTestsBase : IAsyncLifetime
         Assert.True(_gateway.TeamRegistry.AddMember(_teamId, _member, TeamRole.Developer).IsDone);
         if (TeamsReleased)
         {
-            HostedTeamBill.CreateTable(_gateway);
             HostedTeamBill.Start(_gateway, _teamId, seats: 3);
             _teamKey = _gateway.Devices.RegisterForTenant(new TenantId(_teamId), _member,
                 Api.HostedEnrollmentEndpoint.TeamScopedDeviceId(_teamId, _member, TeamMemberDirector), "M-team").DeviceKey;

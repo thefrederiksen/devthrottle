@@ -49,7 +49,6 @@ public sealed class HostedTeamDirectorKeyTests : IAsyncLifetime
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true, teamsReleased: true);
         await _gateway.StartAsync();
-        HostedTeamBill.CreateTable(_gateway);
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
     }
 

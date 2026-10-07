@@ -110,7 +110,7 @@ export function AcceptInviteView() {
       <h1 className="team-accept-title">{invitation.invitedBy} invited you to the {invitation.teamName} team</h1>
       <p className="team-accept-sub">
         as a {invitation.role}.{" "}
-        {invitation.paidBy !== null ? `${invitation.paidBy} pays for your seat.` : "A Collaborator seat is free."}
+        {invitation.paidBy !== null ? `${invitation.paidBy} pays for your seat.` : "A Collaborator seat has no charge."}
       </p>
       <div className="team-row">
         <Button variant="primary" disabled={busy} onClick={() => void accept()}>

@@ -34,7 +34,8 @@ public enum TeamAction
     /// <summary>Make someone a Manager, change roles.</summary>
     MakeManagersAndChangeRoles,
 
-    /// <summary>Billing, rename or delete the team.</summary>
+    /// <summary>Billing, rename or delete the team. For the bill this is CHANGING it - starting the plan, renewing,
+    /// auto-renew, cancelling (Teams v1, the team bill without Stripe); seeing it is <see cref="SeeTeamBill"/>.</summary>
     BillingRenameOrDeleteTeam,
 
     /// <summary>Join or watch someone else's session - which includes reading another person's live session or
@@ -69,6 +70,11 @@ public enum TeamAction
     /// not - their app is the Collaborator's own (#2306), though they may still read the member list
     /// (<see cref="SeeMembersAndRoles"/>).</summary>
     SeeTeamPage,
+
+    /// <summary>See the team's bill on the Team page: its status, seats, amount, period and history (Teams v1, the team
+    /// bill without Stripe). The owner's brief: "a Manager may see the bill, may not change it" - so the Owner and Managers
+    /// may; changing it stays <see cref="BillingRenameOrDeleteTeam"/>, the Owner's alone.</summary>
+    SeeTeamBill,
 }
 
 /// <summary>One cell of the role table.</summary>
@@ -130,7 +136,7 @@ public static class TeamPermissions
         // Developer: "no, to start".
         new TeamPermissionRow(TeamAction.ChangeSharedSkillsAndWorkflows, "change the team's shared skills and workflows", Yes, Yes, No, No),
         new TeamPermissionRow(TeamAction.MakeManagersAndChangeRoles, "make someone a Manager or change roles", Yes, No, No, No),
-        new TeamPermissionRow(TeamAction.BillingRenameOrDeleteTeam, "see the billing, or rename or delete the team", Yes, No, No, No),
+        new TeamPermissionRow(TeamAction.BillingRenameOrDeleteTeam, "change the billing, or rename or delete the team", Yes, No, No, No),
         new TeamPermissionRow(TeamAction.JoinOrWatchSomeoneElsesSession, "join or watch someone else's session, or read their full transcript", No, No, No, No),
         new TeamPermissionRow(TeamAction.SeeMembersAndRoles, "see the team's members and their roles", Yes, Yes, Yes, Yes),
         new TeamPermissionRow(TeamAction.ReadAnotherPersonsPrompts, "read another person's prompts", No, No, No, No),
@@ -139,6 +145,8 @@ public static class TeamPermissions
         new TeamPermissionRow(TeamAction.ReadAndDecideTeamRequests, "read the team's Requests list or accept a request, mark it Not doing this or mark it Done", Yes, Yes, No, No),
         // devthrottle_internal#2303: "Collaborator: no Team page."
         new TeamPermissionRow(TeamAction.SeeTeamPage, "open the Team page", Yes, Yes, Yes, No),
+        // Teams v1, the team bill without Stripe: "a Manager may see the bill, may not change it".
+        new TeamPermissionRow(TeamAction.SeeTeamBill, "see the team's bill", Yes, Yes, No, No),
     };
 
     private static readonly IReadOnlyDictionary<TeamAction, TeamPermissionRow> ByAction = BuildIndex();

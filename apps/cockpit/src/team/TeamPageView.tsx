@@ -11,10 +11,12 @@ import {
 } from "@devthrottle/client-core/teams/teamPageClient";
 import { cancelInvitation, resendInvitation } from "@devthrottle/client-core/teams/invitationsClient";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, PageHeader } from "../components";
+import { TeamBillingSection } from "./TeamBillingSection";
 import "./team.css";
 
 // Screen S1, the Team page (devthrottle_internal#2303): the members with their roles and seats, the waiting
-// invitations with the day each expires, and invite, resend, cancel, change role and remove.
+// invitations with the day each expires, and invite, resend, cancel, change role and remove. Below them, for the Owner
+// and a Manager, the Billing section (Teams v1, the team bill without Stripe).
 //
 // CRITICAL RULE 7 - every verdict on this page is the Gateway's (GET /teams/{teamId}/page): whether a role is a
 // dropdown and what it offers, whether a row offers Remove and what its confirmation says, the seat each person takes,
@@ -194,6 +196,17 @@ export function TeamPageView() {
           </tbody>
         </table>
       </section>
+
+      {page.bill !== null && (
+        <TeamBillingSection
+          teamId={teamId}
+          bill={page.bill}
+          onChanged={async (text) => {
+            setNote({ text, ok: true });
+            await load();
+          }}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmRemove !== null}

@@ -79,6 +79,59 @@
 .team-select:focus { outline: none; border-color: var(--accent); }
 .team-button-link { text-decoration: none; display: inline-block; }
 
+/* The Billing section of the Team page (Teams v1, the team bill without Stripe): the plan's status, its money lines,
+   auto-renew, the Owner's buttons and the history. Nothing is charged, and "No charge" is shown in the ok colour. */
+.team-bill-head { display: flex; align-items: center; gap: 10px; }
+.team-bill-head .team-h2 { margin: 0; }
+.team-bill-state {
+  display: inline-block;
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+.team-bill-state-active { color: var(--ok-text); border-color: var(--ok-text); }
+.team-bill-state-ending { color: var(--warn); border-color: var(--warn); }
+.team-bill-state-ended { color: var(--danger-text); border-color: var(--danger-text); }
+.team-bill-status { color: var(--text); margin: 8px 0 12px; }
+.team-bill-facts, .team-bill-checkout { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13px; }
+.team-bill-facts > div, .team-bill-checkout > div { display: contents; }
+.team-bill-facts dt, .team-bill-checkout dt { color: var(--text-dim); }
+.team-bill-facts dd, .team-bill-checkout dd { margin: 0; color: var(--text); }
+.team-bill-nocharge, .team-bill-facts dd.team-bill-nocharge, .team-bill-checkout-charge dd { color: var(--ok-text); font-weight: 600; }
+.team-bill-auto { display: flex; align-items: center; gap: 8px; }
+.team-bill-note { margin: 12px 0 0; }
+.team-bill-h3 { font-size: 13px; color: var(--text-dim); font-weight: 500; margin: 18px 0 6px; }
+.team-switch {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  cursor: pointer;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.team-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+.team-switch-on { background: var(--ok, #3fb970); border-color: var(--ok, #3fb970); }
+.team-switch-on::after { left: auto; right: 2px; background: #fff; }
+.team-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.team-switch:disabled { opacity: 0.5; cursor: default; }
+@media (max-width: 480px) {
+  .team-bill-history th:nth-child(4), .team-bill-history td:nth-child(4) { display: none; }
+}
+
 /* The accept page stands alone - no navigation rail - like a report opened from a link. */
 .team-accept { margin: 48px auto; padding: 0 16px; }
 .team-accept-title { font-size: 22px; margin: 0 0 6px; color: var(--text); }

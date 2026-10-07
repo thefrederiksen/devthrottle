@@ -403,8 +403,8 @@ public sealed class EntitlementRegistry
     }
 
     /// <summary>
-    /// The TEAM's bill: the three-way outcome for one team id, read from the team row the payment side writes
-    /// (#2299). On <see cref="EntitlementOutcome.Entitled"/> the tier is <see cref="TierTeam"/>, which
+    /// The TEAM's bill: the three-way outcome for one team id, read from the Gateway's own team bill
+    /// (<see cref="ReadTeamBill"/>, written by <see cref="Teams.TeamBillStore"/>). On <see cref="EntitlementOutcome.Entitled"/> the tier is <see cref="TierTeam"/>, which
     /// <see cref="EntitlementScopes"/> maps to exactly the Pro scopes.
     ///
     /// THE TEAM POLICY, and how it deliberately differs from the personal one in <see cref="EvaluatePaid"/>:
@@ -420,8 +420,8 @@ public sealed class EntitlementRegistry
     /// team tenant comes only from <see cref="EvaluateTeamTenant"/>, which turns this NotEntitled into the free
     /// tier for a member.
     ///  - A failed read: Unknown - never a grant, never a refusal.
-    ///  - On the production hosted Gateway the row must be live money (<c>livemode</c> true; false and null are
-    ///    both refused), exactly as for the personal row.
+    ///  - The live-money rule of the personal row does not apply: the team's bill is the Gateway's own row, not one a
+    ///    payment provider writes. <c>past_due</c> is kept for the later payment work; the Gateway never writes it.
     ///
     /// THE TRIAL LEDGER IS NEVER CONSULTED FOR A TEAM. Owner, 3 Oct 2026: "We do not do trials for teams." A team
     /// with no bill is a team with no paid features; it does not fall through to a trial. (For a MEMBER it lands on
@@ -472,14 +472,18 @@ public sealed class EntitlementRegistry
     }
 
     /// <summary>
-    /// THE ONE READER OF "HAS THIS TEAM A RUNNING BILL" (decision D8, Phase 1 review finding 2; devthrottle_internal#2311
-    /// Gateway step 2). Every question about a team's bill reads it here and nowhere else: its paid features
-    /// (<see cref="EvaluateTeam"/>), whether its Owner and Managers may invite, resend and accept
-    /// (<see cref="Teams.TeamRegistry"/>'s bill gate), and the seat convergence (<see cref="TeamSeatSync"/>). So the
-    /// live-money rule is applied once: on the production hosted Gateway a row whose <c>livemode</c> is not true
-    /// (false or null) is NO BILL for all of them, and a test-mode subscription can never open inviting on production
-    /// while giving no paid features. Three-way like every other read here: <see cref="TeamBill.Known"/> false means the
-    /// read FAILED, which no caller may treat as a bill or as no bill.
+    /// THE ONE READER OF "HAS THIS TEAM A RUNNING BILL" (decision D8; Teams v1, the team bill without Stripe). Every
+    /// question about a team's bill reads it here and nowhere else: its paid features (<see cref="EvaluateTeam"/>), whether
+    /// its Owner and Managers may invite, resend and accept (<see cref="Teams.TeamRegistry"/>'s bill gate), and the Team
+    /// page's Billing section.
+    ///
+    /// ONE SOURCE: the Gateway's own <c>team_bills</c> table, written only by <see cref="Teams.TeamBillStore"/>. There is no
+    /// fallback to the website's <c>team_entitlements</c> table and no "try one, then the other" - that table stays mapped
+    /// for the later payment work and is read by nothing. The live-money (<c>livemode</c>) rule does not apply: it guards
+    /// rows a payment provider writes, and this row is the Gateway's own.
+    ///
+    /// Three-way like every other read here: <see cref="TeamBill.Known"/> false means the read FAILED, which no caller may
+    /// treat as a bill or as no bill.
     /// </summary>
     /// <param name="teamId">The team id, which is the tenant id. Logged only in the hashed tenant form.</param>
     public TeamBill ReadTeamBill(string teamId)
@@ -489,11 +493,11 @@ public sealed class EntitlementRegistry
 
         var id = teamId.Trim();
         var teamLog = new Core.Tenancy.TenantId(id).ToLogString();
-        Data.Entities.TeamEntitlementEntity? row;
+        Data.Entities.TeamBillEntity? row;
         try
         {
             using var ctx = _db.CreateUnscopedContext();
-            row = ctx.TeamEntitlements.AsNoTracking().FirstOrDefault(e => e.TeamId == id);
+            row = ctx.TeamBills.AsNoTracking().FirstOrDefault(e => e.TeamId == id);
         }
         catch (Exception ex)
         {
@@ -508,30 +512,24 @@ public sealed class EntitlementRegistry
 
         if (row is null)
             return new TeamBill(Known: true, HasBill: false, Status: null, Seats: null);
-        if (_requireLivemode && row.Livemode != true)
-        {
-            FileLog.Write($"[EntitlementRegistry] ReadTeamBill: team={teamLog} NO BILL - the team's subscription is not a live-mode one (a test-mode or unrecorded one is not a bill on this Gateway)");
-            return new TeamBill(Known: true, HasBill: false, Status: null, Seats: null);
-        }
-        return new TeamBill(Known: true, HasBill: true, Status: (row.Status ?? "").Trim(), Seats: row.Seats, CurrentPeriodEnd: row.CurrentPeriodEnd,
+        return new TeamBill(Known: true, HasBill: true, Status: (row.Status ?? "").Trim(), Seats: row.Seats, CurrentPeriodEnd: row.CurrentPeriodEndUtc,
             Fingerprint: TeamBillFingerprint(row));
     }
 
     /// <summary>
-    /// A fingerprint of a team's bill row: its status, seats, period end, subscription reference and when the payment
-    /// side last wrote it. Any change to any of those changes the fingerprint. Used by the seat convergence to tell
-    /// "the bill has changed since the website refused" from "nothing has changed" (devthrottle_internal#2311). A
-    /// one-way hash, so the subscription reference never sits readable in memory or in a printed record.
+    /// A fingerprint of a team's bill row: its status, seats, period, auto-renew and when it last changed. Any change to any
+    /// of those changes the fingerprint, so a reader can tell "the bill has changed" from "nothing has changed".
     /// </summary>
-    public static string TeamBillFingerprint(Data.Entities.TeamEntitlementEntity row)
+    public static string TeamBillFingerprint(Data.Entities.TeamBillEntity row)
     {
         ArgumentNullException.ThrowIfNull(row);
         var joined = string.Join("\n",
             (row.Status ?? "").Trim(),
-            row.Seats?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
-            row.CurrentPeriodEnd?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "",
-            row.StripeSubscriptionId ?? "",
-            row.UpdatedAt?.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "");
+            row.Seats.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            row.CurrentPeriodStartUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            row.CurrentPeriodEndUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            row.AutoRenew ? "1" : "0",
+            row.UpdatedAtUtc.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture));
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(joined)));
     }
 
@@ -655,8 +653,7 @@ public sealed record TeamTenantDecision(bool IsMember, EntitlementDecision? Enti
 /// <summary>
 /// What a team's bill row says, from <see cref="EntitlementRegistry.ReadTeamBill"/>, the one reader of it.
 /// <see cref="Known"/> false means the read failed (nothing else on the record is meaningful); <see cref="HasBill"/>
-/// false means the read succeeded and the team has no bill this Gateway counts - none yet, or, on the production hosted
-/// Gateway, only a test-mode one. <see cref="Fingerprint"/> is <see cref="EntitlementRegistry.TeamBillFingerprint"/> of
+/// false means the read succeeded and the team has never started its plan. <see cref="Fingerprint"/> is <see cref="EntitlementRegistry.TeamBillFingerprint"/> of
 /// the row for every row counted as a bill, and null when there is none.
 /// </summary>
 public sealed record TeamBill(bool Known, bool HasBill, string? Status, int? Seats, DateTime? CurrentPeriodEnd = null,

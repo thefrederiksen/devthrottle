@@ -19,6 +19,9 @@ namespace CcDirector.Gateway.Api;
 /// invitations and what the caller may do to each, decided here.</item>
 /// <item><c>PUT /teams/{teamId}/members/{memberId}/role</c> with <c>{"role": "..."}</c> - change a member's role.</item>
 /// <item><c>DELETE /teams/{teamId}/members/{memberId}</c> - remove a member.</item>
+/// <item><c>GET /teams/{teamId}/bill</c> - the Billing section (Teams v1, the team bill without Stripe), for the Owner and
+/// a Manager. <c>POST /teams/{teamId}/bill/start</c>, <c>POST .../bill/renew</c>, <c>PUT .../bill/auto-renew</c> with
+/// <c>{"on": true}</c> and <c>POST .../bill/cancel</c> - the Owner's four actions. Nothing is charged.</item>
 /// <item><c>GET /teams/{teamId}/fleet-map</c> - the team's Fleet Map by role (devthrottle_internal#2312): every Director
 /// on the team by person for the Owner and a Manager, only their own for a Developer, none for a Collaborator. Names and
 /// status only - see <see cref="TeamFleetMap"/>.</item>
@@ -47,6 +50,12 @@ internal static class TeamEndpoints
     /// <summary>The answer for a team that does not exist or that the caller is not a member of - deliberately one
     /// answer, so the route cannot be used to learn which teams exist.</summary>
     internal const string NoSuchTeamRefusal = "There is no team with that id that you are a member of.";
+
+    /// <summary>The team's bill (Teams v1, the team bill without Stripe), and the root of the Owner's actions on it.</summary>
+    public const string BillPath = "/teams/{teamId}/bill";
+
+    /// <summary>The body of <c>PUT /teams/{teamId}/bill/auto-renew</c>.</summary>
+    internal sealed record AutoRenewRequest(bool? On);
 
     /// <summary>The body of <c>POST /teams</c>.</summary>
     internal sealed record CreateTeamRequest(string? Name);
@@ -154,7 +163,58 @@ internal static class TeamEndpoints
             return caller.Denial ?? ReadFleetMap(fleetMap, caller.Subject!, teamId);
         }));
 
-        FileLog.Write($"[TeamEndpoints] mapped GET {Path}, POST {Path}, GET {Path}/{{teamId}}/members, GET {Path}/{{teamId}}/page, PUT {Path}/{{teamId}}/members/{{memberId}}/role, DELETE {Path}/{{teamId}}/members/{{memberId}}, GET {TeamFleetMap.RoutePattern}");
+        // The team's bill (Teams v1, the team bill without Stripe): read by the Owner and a Manager, changed by the Owner.
+        app.MapGet(BillPath, (HttpContext ctx, string teamId) => Guarded("GET " + BillPath, () =>
+        {
+            var caller = ResolveCaller(ctx, boundary, tenants);
+            return caller.Denial ?? ReadBill(teams, caller.Subject!, teamId);
+        }));
+        app.MapPost(BillPath + "/start", (HttpContext ctx, string teamId) => Guarded("POST " + BillPath + "/start", () =>
+        {
+            var caller = ResolveCaller(ctx, boundary, tenants);
+            return caller.Denial ?? AnswerBillChange(teams.StartTeamPlan(teamId, caller.Subject!), "start the team plan");
+        }));
+        app.MapPost(BillPath + "/renew", (HttpContext ctx, string teamId) => Guarded("POST " + BillPath + "/renew", () =>
+        {
+            var caller = ResolveCaller(ctx, boundary, tenants);
+            return caller.Denial ?? AnswerBillChange(teams.RenewTeamPlan(teamId, caller.Subject!), "renew the team plan");
+        }));
+        app.MapPost(BillPath + "/cancel", (HttpContext ctx, string teamId) => Guarded("POST " + BillPath + "/cancel", () =>
+        {
+            var caller = ResolveCaller(ctx, boundary, tenants);
+            return caller.Denial ?? AnswerBillChange(teams.CancelTeamPlan(teamId, caller.Subject!), "cancel the team plan");
+        }));
+        app.MapPut(BillPath + "/auto-renew", async (HttpContext ctx, string teamId) =>
+        {
+            try
+            {
+                var caller = ResolveCaller(ctx, boundary, tenants);
+                if (caller.Denial is not null) return caller.Denial;
+
+                AutoRenewRequest? body;
+                try
+                {
+                    body = await ctx.Request.ReadFromJsonAsync<AutoRenewRequest>(ctx.RequestAborted).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or BadHttpRequestException)
+                {
+                    FileLog.Write($"[TeamEndpoints] PUT {BillPath}/auto-renew: rejected, the request body is not readable JSON ({ex.GetType().Name})");
+                    return Results.BadRequest(new { error = "The request body is not readable JSON. Send {\"on\": true} or {\"on\": false}." });
+                }
+                if (body?.On is not { } on)
+                    return Results.BadRequest(new { error = "Say whether auto-renew is on: send {\"on\": true} or {\"on\": false}." });
+
+                return AnswerBillChange(teams.SetTeamPlanAutoRenew(teamId, caller.Subject!, on), on ? "switch auto-renew on" : "switch auto-renew off");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[TeamEndpoints] PUT {BillPath}/auto-renew FAILED ({ex.GetType().Name}): {ex.Message}");
+                return Results.Json(new { error = "Auto-renew could not be changed just now because of a fault in DevThrottle. Try again shortly." },
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+
+        FileLog.Write($"[TeamEndpoints] mapped GET {Path}, POST {Path}, GET {Path}/{{teamId}}/members, GET {Path}/{{teamId}}/page, PUT {Path}/{{teamId}}/members/{{memberId}}/role, DELETE {Path}/{{teamId}}/members/{{memberId}}, GET {TeamFleetMap.RoutePattern}, GET {BillPath}, POST {BillPath}/start, POST {BillPath}/renew, POST {BillPath}/cancel, PUT {BillPath}/auto-renew");
     }
 
     /// <summary>The body of <c>PUT /teams/{teamId}/members/{memberId}/role</c>.</summary>
@@ -211,8 +271,83 @@ internal static class TeamEndpoints
                 canResend = i.CanResend,
                 canCancel = i.CanCancel,
             }).ToList(),
+            bill = BillJson(page.Bill),
         });
     }
+
+    /// <summary>The Billing section on its own: 200, 404 for anyone not in the team, 403 with the role table's sentence
+    /// for a role that may not see the bill.</summary>
+    internal static IResult ReadBill(TeamRegistry teams, string callerSubject, string? teamId)
+    {
+        var result = teams.DescribeTeamBill(teamId ?? "", callerSubject);
+        switch (result.Outcome)
+        {
+            case TeamBillViewOutcome.NotFound:
+                FileLog.Write($"[TeamEndpoints] GET {BillPath}: no such team for this caller");
+                return Results.NotFound(new { error = NoSuchTeamRefusal });
+            case TeamBillViewOutcome.Forbidden:
+                FileLog.Write($"[TeamEndpoints] GET {BillPath}: refused for this role");
+                return Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        FileLog.Write($"[TeamEndpoints] GET {BillPath}: state={result.View!.State}");
+        return Results.Json(BillJson(result.View));
+    }
+
+    /// <summary>One change to the bill as HTTP: 200, 404, 403 (the caller's role) or 409 (the bill's own rules).</summary>
+    internal static IResult AnswerBillChange(TeamBillChangeResult result, string action)
+    {
+        FileLog.Write($"[TeamEndpoints] {action}: outcome={result.Outcome}");
+        return result.Outcome switch
+        {
+            TeamBillChangeOutcome.Done => Results.Json(new { done = true }),
+            TeamBillChangeOutcome.NotFound => Results.NotFound(new { error = NoSuchTeamRefusal }),
+            TeamBillChangeOutcome.Forbidden => Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status403Forbidden),
+            TeamBillChangeOutcome.Refused => Results.Json(new { error = result.Refusal }, statusCode: StatusCodes.Status409Conflict),
+            _ => throw new InvalidOperationException($"Unknown bill change outcome {result.Outcome}."),
+        };
+    }
+
+    /// <summary>The Billing section as the wire carries it, or null when the caller may not see it.</summary>
+    private static object? BillJson(TeamBillView? bill) => bill is null ? null : new
+    {
+        state = bill.State,
+        statusLabel = bill.StatusLabel,
+        statusLine = bill.StatusLine,
+        seats = bill.Seats,
+        seatsLine = bill.SeatsLine,
+        priceLine = bill.PriceLine,
+        amountLine = bill.AmountLine,
+        chargeLine = bill.ChargeLine,
+        periodEndUtc = bill.PeriodEndUtc,
+        periodEnd = bill.PeriodEnd,
+        autoRenew = bill.AutoRenew,
+        canChange = bill.CanChange,
+        canStart = bill.CanStart,
+        canRenew = bill.CanRenew,
+        canSetAutoRenew = bill.CanSetAutoRenew,
+        canCancel = bill.CanCancel,
+        checkout = bill.Checkout is not { } c ? null : new
+        {
+            title = c.Title,
+            seatsLine = c.SeatsLine,
+            priceLine = c.PriceLine,
+            totalLine = c.TotalLine,
+            chargeLine = c.ChargeLine,
+            periodLine = c.PeriodLine,
+            confirmLabel = c.ConfirmLabel,
+        },
+        note = bill.Note,
+        cancelWarning = bill.CancelWarning,
+        history = bill.History.Select(h => new
+        {
+            id = h.Id,
+            period = h.Period,
+            seats = h.Seats,
+            amount = h.Amount,
+            charged = h.Charged,
+            reason = h.Reason,
+        }).ToList(),
+    };
 
     /// <summary>Change a member's role. 200, or the refusal with its status.</summary>
     internal static IResult ChangeRole(TeamRegistry teams, string callerSubject, string? teamId, string? memberId, ChangeRoleRequest? body)
