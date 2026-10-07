@@ -27,32 +27,54 @@ HTML = f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport
 
 <section data-dev-report="header" data-dev-report-status="waiting-on-you">
 <h1>Factories screen - QA report</h1>
-<p class="meta">Implementation Lead, 6 October 2026. Live on the hosted Gateway at commit ec2f995. Version 2 adds round 2 (your feedback on the list).</p>
+<p class="meta">Implementation Lead, 6 October 2026. Live on the hosted Gateway at commit ec2f995. Version 2 added round 2 (your feedback on the list). Version 3, 7 October evening: Talk proved live after the Director update.</p>
 </section>
 
 <section data-dev-report="summary">
-<p><b>Round 2, your feedback, is live:</b> every FAILING, NEEDS YOU and PAUSED row now says why; a failure stops counting once it is over; waiting items can be handled one by one or in bulk; a factory can be archived and restored, and Tallyhand is archived. Center Consulting offers Talk to Ruth Calder. At your word I marked the stale waiting items handled: 44 on Website Business and 1 on Machine Care, each recorded as your act; 19 newer decisions on Website Business stay, the Gmail sign-in among them. One question remains below: the Director update.</p>
-<p><b>The Factories screen is live and you can use it now.</b> The sidebar says Factories. The list shows all ten
-factories as one row each - name, what is waiting on you, one status word, and a Talk button for the CEO - worst
-first. Each factory has its own page with the goal, the goal number, what waits on you, the CEO's latest work, the
-last talk with you, and a Seats tab where every seat has its own Talk button and computer. It works at phone
-width.</p>
-<p><b>One thing is waiting on you: the Director on SOREN_NORTH is version 2.12.0</b> (running since 1 October), older
-than the version that can put a session into a factory. Pressing Talk opened the right session on the first live
-test, but in no factory, so the agent could not read or write the factory's memory. The screen now refuses with a
-plain sentence instead of opening a half-working talk. The same old Director is also why none of the factories'
-scheduled runs are in their factory today. Once you update it, I re-run the Talk test and finish this report.</p>
+<p><b>Talk now works end to end, live.</b> After the Director restart (now 2.17.0) I pressed Talk to Hazel Morgan on ClickFunnels in your Cockpit. The session started in the ClickFunnels factory with its memory in place, Hazel opened with what had happened and what she needs from you, and - once a guard was fixed, below - recorded her talked line and a memory note. The page shows both. Two defects turned up on the way and both are fixed: ClickFunnels' own command guard refused the factory commands (merged and live), and the last-talk line told its time in a different clock from the line above it (merged, waiting on your go to deploy).</p>
+<p><b>Hazel is still open and waiting for you</b> with four real questions: approve OB0016 (sales batch 2), a follow-up for batch 1, whether the sender skips Thanksgiving Monday, and eight outbox items. I told her I was testing on your behalf and that she must decide nothing about those; I answered only the fact that the Badge Runner fix (#41) is live.</p>
+<p><b>The Website Business guard is merged:</b> the tool now refuses to add or email a business that already has a website, and refuses whenever it cannot prove there is none. Three review rounds found ten ways it could have let one through; all are fixed. Tullous Construction's page now shows "This free preview has expired".</p>
+<p>Three questions below.</p>
 </section>
 
 <section data-dev-report="questions">
-<div data-dev-report-question="update-director" data-dev-report-question-text="May the SOREN_NORTH Director be updated so Talk can finish?">
-<h3>The SOREN_NORTH Director is 2.12.0; its launcher already holds 2.16.0. How should it be updated?</h3>
-<label><input type="radio" name="update-director" value="you-now" data-recommended> You run File, Smart Restart on it when it suits you, and tell me - it restarts your sessions there, so it should be your moment. I then finish the Talk proof the same day.</label>
-<label><input type="radio" name="update-director" value="lead-tonight"> I ask the Director to Smart Restart itself tonight while you are away, and finish the proof in the morning.</label>
-<label><input type="radio" name="update-director" value="later"> Leave it for now; close the mission with Talk proved only up to the refusal.</label>
+<div data-dev-report-question="deploy-clock-fix" data-dev-report-question-text="May I deploy the last-talk clock fix to the live Gateway?">
+<h3>The last-talk clock fix (#3635) is merged but not live. Deploying costs about a minute of outage. May I deploy it?</h3>
+<label><input type="radio" name="deploy-clock-fix" value="now" data-recommended> Yes, deploy it now.</label>
+<label><input type="radio" name="deploy-clock-fix" value="next"> Leave it for the next deploy someone runs.</label>
+<textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+</div>
+<div data-dev-report-question="website-23" data-dev-report-question-text="Should the 23 Website Business decisions be marked handled?">
+<h3>Website Business shows 23 decisions waiting. Today's findings and your rulings (never email a business with a website; the inbox drop is a measurement artifact) answer most of them. Should I mark them handled so the count starts again from zero?</h3>
+<label><input type="radio" name="website-23" value="all-but-gmail" data-recommended> Mark all handled except the Gmail sign-in item, which may still need you.</label>
+<label><input type="radio" name="website-23" value="all"> Mark all 23 handled.</label>
+<label><input type="radio" name="website-23" value="leave"> Leave them; I will go through them myself.</label>
+<textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+</div>
+<div data-dev-report-question="time-zone" data-dev-report-question-text="Should your account's time zone be set to America/Toronto?">
+<h3>Your account has no time zone chosen, so the Gateway tells account-wide times in the server's clock - four hours ahead of Toronto. Seat lines name their own zone, so a page can show "17:18 (America/Toronto)" beside "21:18". Should your account be set to America/Toronto?</h3>
+<label><input type="radio" name="time-zone" value="lead-sets" data-recommended> Yes - I set it in Settings for you.</label>
+<label><input type="radio" name="time-zone" value="owner-sets"> Yes, but I will set it myself.</label>
+<label><input type="radio" name="time-zone" value="no"> No, leave it.</label>
 <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
 </div>
 </section>
+
+<section data-dev-report="detail">
+<h2>Round 3 - Talk proved live (7 October, evening)</h2>
+{img("r3-01-clickfunnels-last-talk.png", "ClickFunnels after the talk: Latest from the CEO and Last talk with you both show Hazel's line. The last-talk time reads 21:18 here, the server's clock, against 17:18 Toronto above it - the defect fixed in #3635.")}
+{img("r3-02-clickfunnels-memory.png", "The Memory tab: the note Hazel wrote in the talk, version 1, written by the talk session.")}
+<ul>
+<li><b>In the factory:</b> the Director log shows the talk session stamped <code>clickfunnels</code> and the factory memory put in place before it started. The round 1 defect (a talk in no factory) is gone.</li>
+<li><b>ClickFunnels' guard refused the factory commands.</b> ClickFunnels runs every tool call through its own allow-list, written before Talk existed. It now allows the factory memory, activity, record, goal-number and list commands, each pinned to ClickFunnels, and reading only the session's own memory folder (cc-clickfunnels #42, reviewed and merged; live the moment it merged, because the guard is read from the main checkout). The other factories' hooks only deny named mail commands, so they never blocked these.</li>
+<li><b>The talked line and the note</b> were written by Hazel with the commands her talk instructions give (activity row c31765ad, note guard-and-badge-runner-fixes-live).</li>
+<li><b>The last-talk clock</b> is fixed in #3635 (separately reviewed; a new test fails on the old code). It is merged but not deployed: question 1.</li>
+<li><b>Still not proved live:</b> a goal number. ClickFunnels has no goal yet, so no number means anything; the command works and the guard now allows it.</li>
+</ul>
+<h2>Website Business: never email a business that has a website</h2>
+<p>Merged as cc-consult #196 after three separate review rounds. The tool refuses to add a prospect when a saved Maps card with its name or phone has a website, or when an obvious .com is theirs, and it refuses whenever it cannot run the check. Writing an email runs the whole check again. The reviews caught a 403 read as "no site", a DNS outage that would have passed every business, http-only fetching, cross-state namesakes, and a page naming the business and town without the state. 859 tests pass. Tullous Construction (site 29) was taken down under the new rule and shows the expired page. Briefs and reviews: D:\\ReposFred\\_briefs\\website-guard-2026-10-07.</p>
+</section>
+
 
 <section data-dev-report="detail">
 <h2>Round 2 - your feedback on the live list (7 October)</h2>
@@ -119,8 +141,9 @@ scheduled runs are in their factory today. Once you update it, I re-run the Talk
 <li>Deployed three times through the deploy workflow; measured outages 4.4, 4.6 and 4.6 seconds. Live commit checked on the health endpoint: 3e7d7f8.</li>
 <li>Root cause of the factory-less talk: read from the Director's own log and version (2.12.0, factory membership arrived in 2.13.0); the Gateway sent the factory correctly.</li>
 <li>Screenshots were taken in your signed-in Cockpit (soren@centerconsulting.com) on the live Gateway; phone width is a 390-pixel browser window, not a real phone.</li>
-<li><b>Not proved:</b> a talk that writes its activity line and memory note live; a goal number posted by a CEO and shown live; a talk from a seat (only its refusal is proved live). All three wait on the Director update. The full parked Gateway suite was not run on every pull request because the machine was short of memory; each pull request ran its own area's tests and the default local gate.</li>
+<li><b>Not proved:</b> a goal number posted by a CEO and shown live (no factory has a goal yet); a talk started from a seat's own Talk button rather than the CEO's. A talk that writes its activity line and memory note is now proved live (round 3). The full parked Gateway suite was not run on every pull request because the machine was short of memory; each pull request ran its own area's tests and the default local gate.</li>
 <li>The first review agent reached its usage limit partway through; later reviews were done by the next agent in the reviewer order.</li>
+<li>Round 3: the whole Gateway unit suite ran on the clock fix - 9834 pass, 11 fail, and the same 11 fail on main without it (migration tests left behind by a newer migration; filed as devthrottle#3637). Follow-up for the two other account-clock lines: devthrottle#3636.</li>
 </ul>
 </section>
 </body></html>
