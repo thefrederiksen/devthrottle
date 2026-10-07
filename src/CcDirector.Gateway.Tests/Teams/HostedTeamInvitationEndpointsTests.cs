@@ -37,6 +37,7 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
     private string _keyBob = "";
     private string? _priorHosted;
     private string? _priorRoot;
+    private string? _priorPublicUrl;
 
     public HostedTeamInvitationEndpointsTests(ITestOutputHelper output) => _output = output;
 
@@ -46,6 +47,9 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", "1");
         _priorRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _instancesDir);
+        // A hosted Gateway always has its public address (HostedStartupContract); the accept link is built on it.
+        _priorPublicUrl = Environment.GetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar);
+        Environment.SetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar, "https://gateway.example");
 
         _gateway = new GatewayHost(port: GatewayHost.OperatingSystemAssignedPort, token: Token, authEnabled: true,
             instancesDirectory: _instancesDir,
@@ -67,6 +71,7 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         await _gateway.StopAsync();
         Environment.SetEnvironmentVariable("CC_GATEWAY_HOSTED", _priorHosted);
         Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _priorRoot);
+        Environment.SetEnvironmentVariable(GatewayPublicUrl.PublicBaseUrlEnvVar, _priorPublicUrl);
         try { if (Directory.Exists(_instancesDir)) Directory.Delete(_instancesDir, true); }
         catch { /* best-effort */ }
     }
@@ -81,6 +86,9 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         var id = body.GetProperty("invitation").GetProperty("id").GetString()!;
         Assert.Equal(id, Assert.Single(_mailer.Sent).Id);
         var token = TokenOf(id);
+        // The sender is shown the accept link once (Teams v1, copy the invitation link): the public address, the accept
+        // page, and the token this test then accepts with.
+        Assert.Equal("https://gateway.example/invite/" + Uri.EscapeDataString(token), body.GetProperty("link").GetProperty("url").GetString());
 
         var (opened, page) = await Send(HttpMethod.Post, "team-invitations/open", _keyBob, new { token });
         Assert.Equal(HttpStatusCode.OK, opened);

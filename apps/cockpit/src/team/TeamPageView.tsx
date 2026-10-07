@@ -9,7 +9,8 @@ import {
   type TeamPageInvitation,
   type TeamPageMember,
 } from "@devthrottle/client-core/teams/teamPageClient";
-import { cancelInvitation, resendInvitation } from "@devthrottle/client-core/teams/invitationsClient";
+import { cancelInvitation, resendInvitation, type InvitationLink } from "@devthrottle/client-core/teams/invitationsClient";
+import { InvitationLinkPanel } from "./InvitationLinkPanel";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { TeamBillingSection } from "./TeamBillingSection";
 import "./team.css";
@@ -36,6 +37,8 @@ export function TeamPageView() {
   const [refused, setRefused] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ text: string; ok: boolean } | null>(null);
+  // The new link a Resend made, shown once (Teams v1, copy the invitation link).
+  const [link, setLink] = useState<InvitationLink | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<TeamPageMember | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<TeamPageInvitation | null>(null);
 
@@ -83,11 +86,13 @@ export function TeamPageView() {
   const resend = async (invitation: TeamPageInvitation) => {
     setBusy(invitation.id);
     setNote(null);
+    setLink(null);
     try {
       const result = await resendInvitation(teamId, invitation.id);
       setNote(result.email.sent
         ? { text: `Sent again to ${invitation.email}. It now expires on ${day(result.invitation.expiresAtUtc)}.`, ok: true }
         : { text: result.email.message, ok: false });
+      setLink(result.link);
       await load();
     } catch (err) {
       setNote({ text: gatewayErrorMessage(err, "resend the invitation"), ok: false });
@@ -98,6 +103,7 @@ export function TeamPageView() {
 
   const cancel = async (invitation: TeamPageInvitation) => {
     await cancelInvitation(teamId, invitation.id);
+    setLink(null);
     setNote({ text: `The invitation to ${invitation.email} is cancelled. Its link no longer works.`, ok: true });
     await load();
   };
@@ -138,6 +144,7 @@ export function TeamPageView() {
       />
 
       {note !== null && <p className={note.ok ? "team-ok team-note" : "team-warn team-note"} role="status">{note.text}</p>}
+      {link !== null && <InvitationLinkPanel link={link} />}
 
       {page.billNotice !== null && (
         <section className="team-card team-bill-ended" role="note" aria-label="The team's bill">

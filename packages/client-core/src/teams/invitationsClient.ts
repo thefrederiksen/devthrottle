@@ -58,9 +58,19 @@ export interface InvitationEmail {
   message: string;
 }
 
+/** The accept link, shown once to the person who sent or resent the invitation (Teams v1, copy the invitation link).
+ *  It is in the create and resend answers only - never in the list of waiting invitations. */
+export interface InvitationLink {
+  /** The full accept link, or null when the Gateway has no public address (the note then says so). */
+  url: string | null;
+  /** The Gateway's sentence beside it: who to send it to, and that Resend makes a new one. */
+  note: string;
+}
+
 export interface InvitationSent {
   invitation: TeamInvitation;
   email: InvitationEmail;
+  link: InvitationLink;
 }
 
 // `what` names the action in the reader's words; the Gateway's own sentence ("Only the Owner can invite a Manager.")

@@ -190,6 +190,26 @@ describe("the Team page, per role", () => {
     await waitFor(() => expect(invitations.cancelInvitation).toHaveBeenCalledWith(TEAM, "inv-old"));
   });
 
+  it("Resend shows the new accept link once, with Copy invitation link; the list itself never shows one", async () => {
+    const page = ownerPage();
+    client.getTeamPage.mockResolvedValue(page);
+    const url = "https://gateway.example/invite/a-new-token";
+    invitations.resendInvitation.mockResolvedValue({
+      invitation: { ...page.invitations[0], expiresAtUtc: "2026-10-14T10:00:00Z" },
+      email: { sent: false, message: "The invitation is saved, but its email was not sent: not configured. Resend it from the team's invitations." },
+      link: { url, note: "Send this link to them yourself." },
+    });
+    renderAt(PATH);
+
+    const row = (await screen.findByText(page.invitations[0].email)).closest("tr") as HTMLElement;
+    expect(screen.queryByLabelText("The invitation link")).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "Resend" }));
+
+    expect(((await screen.findByLabelText("The invitation link")) as HTMLInputElement).value).toBe(url);
+    expect(screen.getByRole("button", { name: "Copy invitation link" })).toBeTruthy();
+    expect(screen.getByText("Send this link to them yourself.")).toBeTruthy();
+  });
+
   it("Manager: role is plain text, Remove only on Developers and Collaborators, can invite", async () => {
     client.getTeamPage.mockResolvedValue(managerPage());
     renderAt(PATH);
