@@ -24,6 +24,7 @@ def _make_msg(flag=None):
         received=None,
         has_attachments=False,
         is_read=True,
+        is_draft=False,
         importance=None,
         categories=[],
         conversation_id=None,

@@ -72,8 +72,9 @@ cc-outlook send -t "to@example.com" -s "Subject" -b "<h1>HTML</h1>" --html
 cc-outlook send -t "to@example.com" -s "Subject" -b "Urgent!" --importance high
 
 # Reply/Forward
-cc-outlook reply <message_id> -b "Thanks for the info"
-cc-outlook reply <message_id> -b "Thanks all" --all  # Reply all
+# Replies are saved as drafts unless --send is given
+cc-outlook reply <message_id> -b "Thanks for the info"         # sender only
+cc-outlook reply <message_id> -b "Thanks all" --all            # sender plus every original To and Cc
 cc-outlook forward <message_id> -t "other@example.com" -b "FYI"
 
 # Search

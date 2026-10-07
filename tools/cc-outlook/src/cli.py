@@ -500,11 +500,16 @@ def read(
             console.print(f"[red]Error:[/red] Message not found: {message_id}")
             raise typer.Exit(1)
 
+        # A draft has no read state: Graph refuses to mark one as read, so
+        # reading a draft must not try.
+        mark_read = not msg.get('is_draft')
+
         # Raw mode: emit the full message dict as JSON (machine-readable), then
         # mark as read and return without the formatted view.
         if raw:
             print(json.dumps(msg, default=str, indent=2, ensure_ascii=True))
-            client.mark_as_read(message_id)
+            if mark_read:
+                client.mark_as_read(message_id)
             return
 
         # Header panel
@@ -537,8 +542,8 @@ def read(
         body = msg.get("body", "(No body)")
         console.print("\n" + sanitize_text(body) if body else "(No body)")
 
-        # Mark as read
-        client.mark_as_read(message_id)
+        if mark_read:
+            client.mark_as_read(message_id)
 
     except typer.Exit:
         raise
@@ -699,11 +704,16 @@ def reply(
     message_id: str = typer.Argument(..., help="Message ID to reply to"),
     body: str = typer.Option(None, "-b", "--body", help="Reply body"),
     body_file: Path = typer.Option(None, "-f", "--file", help="Read body from file"),
-    reply_all: bool = typer.Option(False, "--all", "-a", help="Reply to all recipients"),
+    reply_all: bool = typer.Option(False, "--all", "-a", help="Reply to the sender AND every original To/Cc recipient. Without it the reply goes to the sender only."),
     send_flag: bool = typer.Option(False, "--send", help="Send immediately instead of saving as draft"),
     html: bool = typer.Option(False, "--html", help="Body is HTML"),
 ):
-    """Create a reply to an email (draft or send)."""
+    """Reply to an email, as a draft unless --send.
+
+    Without --all the reply goes to the sender only (Outlook "Reply").
+    With --all it goes to the sender plus every original To and Cc
+    recipient (Outlook "Reply all").
+    """
     client = get_client()
 
     # Get body content
@@ -725,7 +735,11 @@ def reply(
         else:
             console.print(f"[green]{action} draft created.[/green]")
             if result.get('id'):
-                console.print(f"Draft ID: {result['id']}")
+                # Never wrap the id: callers copy it whole into the next command.
+                console.print(f"Draft ID: {result['id']}", soft_wrap=True)
+        console.print(f"To: {', '.join(result.get('to', []))}")
+        if result.get('cc'):
+            console.print(f"Cc: {', '.join(result['cc'])}")
 
     except ValueError as e:
         logger.error(f"Reply error: {e}")
