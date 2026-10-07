@@ -50,9 +50,9 @@ import { useMentorEntry } from "./mentor/useMentorEntry";
 // DEVELOPER page (the Director processes on the Gateway's own machine, and the local_builds slots), so
 // putting it in an end-user rail was the mistake, not leaving it out.
 //
-// The Fleet Manager is first, then Sessions, then Fleet Map: the sessions are the work, the Fleet Manager is where
-// the owner asks for it, and the whole-fleet picture sits behind them. The Fleet Manager is the default landing (step
-// 6 of its mission; it was the Fleet Map, issue #1303): a fresh boot at "/" redirects to it (routes.tsx). Sessions
+// Sessions is first, then Fleet Map, then the Fleet Manager: what the owner uses every day comes first. The Fleet
+// Manager is still the default landing (step 6 of its mission; it was the Fleet Map, issue #1303): a fresh boot at "/"
+// redirects to it (routes.tsx) - the rail's order and the landing page are separate decisions. Sessions
 // lives at its own /sessions
 // home. `subtree` marks a destination active for a route family that does NOT share its path prefix:
 // the session detail routes into "/session/:id" - a different path from "/sessions" - so Sessions
@@ -76,35 +76,36 @@ interface NavItem {
   badgeTitle?: string;
 }
 
-// The fleet work: what is running, how it is driven, and the corpora and tools it reads and writes.
-// Workflows sits with Schedule on purpose - Schedule is what runs when, Workflows is how work runs,
-// and it is next to the place you start work rather than filed away under settings.
+// The fleet work, in the order the owner reaches for it (owner, 7 Oct 2026): what you use every day first - Sessions,
+// the Fleet Map, the Fleet Manager, then History and Directors - and below them what you SET UP, in the order you build
+// it: skills, then workflows, then the schedule that runs them, then whole factories. The voice and network tools sit
+// after that.
 //
-// The Fleet Manager sits at the TOP (the Fleet Manager mission, step 6): it is the one place the owner talks to
-// about all the work, and the page the Cockpit opens on. It replaced the Assistant, which step 9 removed from the
-// product; the old /assistant address redirects here. Its red
-// badge is the Gateway's count of what is waiting on the owner.
+// The Fleet Manager is the page the Cockpit opens on (the Fleet Manager mission, step 6), but it is not first in the
+// rail: the sessions are what you maintain and monitor. It replaced the Assistant, which step 9 removed from the
+// product; the old /assistant address redirects here. Its red badge is the Gateway's count of what is waiting on the
+// owner.
 const NAV_MAIN: ReadonlyArray<NavItem> = [
-  { to: "/fleet-manager", label: "Fleet Manager", icon: "fleet-manager" },
   { to: "/sessions", label: "Sessions", icon: "sessions", subtree: "/session" },
   { to: "/fleet-map", label: "Fleet Map", icon: "fleet-map" },
-  // History sits right behind the live views: Sessions and the Fleet Map are "what is happening",
+  { to: "/fleet-manager", label: "Fleet Manager", icon: "fleet-manager" },
+  // History sits right behind the live views: Sessions, the Fleet Map and the Fleet Manager are "what is happening",
   // History is "what happened" (issue #2194) - the same record, one step back in time.
   { to: "/history", label: "History", icon: "history" },
   { to: "/directors", label: "Directors", icon: "directors" },
-  { to: "/schedule", label: "Schedule", icon: "schedule" },
-  { to: "/workflows", label: "Workflows", icon: "workflows" },
-  // Skills sits beside Workflows: two lists on one shelf. A workflow governs how a whole mission is
-  // run; a skill is a capability an agent reaches for mid-task (devthrottle_internal issue 995).
+  // Skills, then Workflows: a skill is a capability an agent reaches for mid-task, a workflow governs how a whole
+  // mission is run (devthrottle_internal issue 995) - two lists on one shelf, in the order you build them.
   { to: "/skills", label: "Skills", icon: "skills" },
+  { to: "/workflows", label: "Workflows", icon: "workflows" },
+  { to: "/schedule", label: "Schedule", icon: "schedule" },
   { to: "/dictionary", label: "Dictionary", icon: "dictionary" },
   { to: "/transcripts", label: "Voice Recorder", icon: "voice-recorder" },
   { to: "/transcription", label: "Transcription", icon: "transcription" },
   { to: "/network", label: "Network", icon: "network" },
 ];
 
-// Factories (once "Factory Agents") sits after Fleet Map and before History - but only while the GATEWAY says the
-// area is on (factoryAgents.enabled). The rail never decides that itself (rule 7).
+// Factories (once "Factory Agents") sits after Schedule and before Dictionary - the last thing you set up - but only
+// while the GATEWAY says the area is on (factoryAgents.enabled). The rail never decides that itself (rule 7).
 const FACTORIES_ITEM: NavItem = {
   to: "/factories",
   label: "Factories",
@@ -263,7 +264,7 @@ function ShellFrame() {
   const factorySwitch = useFactorySwitch(wholeApp).state;
   const railItems =
     factorySwitch === "on"
-      ? NAV_MAIN.flatMap((item) => (item.to === "/fleet-map" ? [item, FACTORIES_ITEM] : [item]))
+      ? NAV_MAIN.flatMap((item) => (item.to === "/schedule" ? [item, FACTORIES_ITEM] : [item]))
       : NAV_MAIN;
 
   // A TEAM WHERE THE PERSON GETS THE WHOLE APP still has the team's own pages (devthrottle_internal#2309, Tech Lead
