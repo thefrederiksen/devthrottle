@@ -272,7 +272,7 @@ class OutlookClient:
 
         Args:
             message_id: Message ID
-            permanent: Permanently delete (not just move to trash)
+            permanent: Purge it, so Recover Deleted Items cannot restore it
 
         Returns:
             True if deleted
@@ -283,7 +283,19 @@ class OutlookClient:
         if not message:
             raise ValueError(f"Message not found: {message_id}")
 
-        message.delete()
+        if permanent:
+            # O365 has no permanent delete. Its Message.delete() is a Graph
+            # DELETE, which leaves the message restorable (measured: it lands in
+            # Recoverable Items, Deletions). permanentDelete purges it.
+            url = message.build_url(f"/messages/{message.object_id}/permanentDelete")
+            deleted = message.con.post(url)
+        else:
+            deleted = message.delete()
+
+        if not deleted:
+            raise ConnectionError(
+                f"Graph refused to {'permanently ' if permanent else ''}delete "
+                f"message {message_id}")
         return True
 
     def move_message(self, message_id: str, target_folder: str) -> bool:

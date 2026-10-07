@@ -918,14 +918,18 @@ def download_attachment(
 @app.command()
 def delete(
     message_id: str = typer.Argument(..., help="Message ID to delete"),
-    permanent: bool = typer.Option(False, "--permanent", help="Permanently delete (no trash)"),
+    permanent: bool = typer.Option(False, "--permanent", help="Purge it: it cannot be restored with Outlook's Recover Deleted Items"),
     yes: bool = typer.Option(False, "-y", "--yes", help="Skip confirmation"),
 ):
-    """Delete/trash an email."""
+    """Delete an email.
+
+    Without --permanent it can still be restored with Outlook's Recover
+    Deleted Items. With --permanent it is purged and cannot.
+    """
     client = get_client()
 
     if not yes:
-        action = "permanently delete" if permanent else "move to trash"
+        action = "permanently delete (purge)" if permanent else "delete"
         confirm = typer.confirm(f"Are you sure you want to {action} message {message_id[:16]}...?")
         if not confirm:
             console.print("[yellow]Cancelled.[/yellow]")
