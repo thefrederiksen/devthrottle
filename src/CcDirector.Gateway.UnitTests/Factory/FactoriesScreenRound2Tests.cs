@@ -143,6 +143,36 @@ public sealed class FactoriesScreenRound2Tests
         Assert.True(row.StatusWord == "FAILING", $"{because} must not clear the failure, but the status is {row.StatusWord}");
     }
 
+    [Theory]
+    [InlineData("run.start (done): scout run 12 started")]
+    [InlineData("run.notify (done): emailed the owner: Website Business: ceo run 35 failed (2026-10-04)")]
+    [InlineData("run.finish (done): result=succeeded: scout run 13")]
+    public void Failing_ASubjectlessFailure_IsNotClearedByALaterSubjectlessDoneRow(string later)
+    {
+        // Live, 5 Oct: chain's "run.sweep (failed)" with no subject, and three seconds later chain's own "run.notify
+        // (done)" about that very failure. Under the first rule that notice cleared the failure.
+        var failed = Row("chain", FactoryActivityOutcome.Failed,
+            "run.sweep (failed): result=failed: not started: no ceo run had started by 02:00 Eastern", Now.AddHours(-3));
+        var done = Row("chain", FactoryActivityOutcome.Done, later, failed.OccurredUtc.AddSeconds(3));
+        var empty = Row("chain", FactoryActivityOutcome.NothingToDo, "Checked - nothing to do", failed.OccurredUtc.AddMinutes(5));
+
+        var row = ListRow(new[] { failed, done, empty });
+
+        Assert.Equal("FAILING", row.StatusWord);
+        Assert.StartsWith("Chain failed ", row.StatusLine);
+    }
+
+    [Fact]
+    public void Failing_ASubjectlessFailure_ClearsOnHandled()
+    {
+        var failed = Row("scout", FactoryActivityOutcome.Failed, "run.finish (failed): result=failed: scout run 7", Now.AddHours(-3));
+        var request = FactoriesScreenFold.FailureHandledRow("website-business", failed, Array.Empty<FactoryActivityDto>(), false, "owner", Now);
+        var handled = Row(request.FactoryAgent!, request.Outcome!, request.What!, request.OccurredUtc!.Value, request.Subject, request.CorrectsId);
+
+        Assert.Equal("FAILING", ListRow(new[] { failed }).StatusWord);
+        Assert.Equal("RUNNING", ListRow(new[] { failed, handled }).StatusWord);
+    }
+
     [Fact]
     public void Failing_ACorrectionOfAnotherRow_DoesNotCountAsTheSeatSucceeding()
     {

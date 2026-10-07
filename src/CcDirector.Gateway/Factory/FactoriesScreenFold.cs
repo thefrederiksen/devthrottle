@@ -445,18 +445,23 @@ public static class FactoriesScreenFold
     /// THE CLEARING RULE (round 2, mandate item 2; written into PLAN.md "Round 2"). A failed row is over when
     ///   - the owner marked it handled: a row corrects it (a NEW row, the same mechanism as an escalation's
     ///     "I have handled it"; the failed row is never edited), or
-    ///   - a LATER successful row exists from the same seat about the same subject: same factory, the same factory
-    ///     agent (trimmed, ignoring case), the same subject (trimmed, ignoring case; a row with no subject matches only
-    ///     a row with no subject), an outcome of "done" or "nothing-to-do", a later time, and not itself a correction
-    ///     of another row (a correction says something about an older row, not that the work succeeded).
-    /// On the live record that is, for example, Sender's "keep.page (failed): ... answers 404" for All Types Fence and
-    /// Deck at 12:02, followed by Sender's "keep.recorded (done)" for the same business at 12:11; and a trigger check
-    /// that failed, followed by the same trigger's "nothing to do" check. "started" rows (a step it intends to take)
-    /// and "escalated" rows never clear a failure.
+    ///   - the failed row HAS a subject, and a LATER successful row exists from the same seat about that subject: same
+    ///     factory, the same factory agent (trimmed, ignoring case), the same subject (trimmed, ignoring case), an
+    ///     outcome of "done" or "nothing-to-do", a later time, and not itself a correction of another row (a
+    ///     correction says something about an older row, not that the work succeeded).
+    /// A failed row with NO subject clears only by Handled. On the live record a seat writes the start of its next
+    /// run ("run.start (done): scout run 12 started") and its own failure notice ("run.notify (done): emailed the
+    /// owner: ... failed") as "done" rows with no subject, so a subject-less "done" row says nothing about whether the
+    /// failed thing now works (review of pull request 3607).
+    /// On the live record a subject clears, for example, Sender's "keep.page (failed): ... answers 404" for All Types
+    /// Fence and Deck at 12:02, followed by Sender's "keep.export (done)" for the same business at 12:10; and a
+    /// trigger check that failed, followed by the same trigger's "nothing to do" check. "started" rows (a step it
+    /// intends to take) and "escalated" rows never clear a failure.
     /// </summary>
     internal static bool IsOver(FactoryActivityDto failed, IReadOnlyList<FactoryActivityDto> factoryRows, IReadOnlySet<Guid> corrected)
     {
         if (corrected.Contains(failed.Id)) return true;
+        if (string.IsNullOrWhiteSpace(failed.Subject)) return false;
         return factoryRows.Any(r => r.Id != failed.Id
                                     && r.CorrectsId is null
                                     && r.Outcome is FactoryActivityOutcome.Done or FactoryActivityOutcome.NothingToDo
@@ -465,12 +470,9 @@ public static class FactoriesScreenFold
                                     && SameSubject(r.Subject, failed.Subject));
     }
 
-    private static bool SameSubject(string? a, string? b)
-    {
-        var x = string.IsNullOrWhiteSpace(a) ? null : a.Trim();
-        var y = string.IsNullOrWhiteSpace(b) ? null : b.Trim();
-        return string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
-    }
+    private static bool SameSubject(string? a, string? b) =>
+        !string.IsNullOrWhiteSpace(a) && !string.IsNullOrWhiteSpace(b)
+        && string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The seat schedules whose last firing in the last 24 hours could not start its run, newest first.
     /// These clear by themselves: the schedule's next good firing replaces its last status.</summary>

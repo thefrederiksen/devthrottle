@@ -90,7 +90,8 @@ website-business --json`: a seat's rows name the business or the thing they are 
 four "keep.page (failed): https://centerconsulting.com/websites/keep/<slug> answers 404 after 20 min" rows at
 12:02 UTC carry subjects "All Types Fence & Deck", "Sooner Excavation LLC", "Reynolds Pumping and Septic Services",
 "Alderson and Sons Tree Service"); a trigger's check rows carry the trigger's name ("website-new-mail"). The same
-seat then wrote "keep.recorded (done)" for each of the same four subjects at 12:11, and the Front Desk trigger's
+seat then wrote "keep.export (done)" for each of the same four subjects at 12:10 (the first row that clears them; a
+different step about the same business clears the failed step - the rule is at the level of the subject), and the Front Desk trigger's
 failed checks of 5 Oct were followed by "nothing to do" checks of the same subject. Steps a seat only intends are
 `started` ("draft.outreach (intended)"), never success.
 
@@ -100,15 +101,23 @@ EITHER
 - **the owner marks it handled**: "Handled" on the failures card writes a NEW row (outcome `done`, `correctsId` = the
   failed row, actor = the owner) through `POST /gateway/factories/{factory}/failures/{id}/handled` - the same
   correction mechanism as an escalation's "I have handled it"; the failed row is never edited; OR
-- **a later successful row exists from the same seat about the same subject**: same factory; same factory agent
-  (trimmed, ignoring case); same subject (trimmed, ignoring case - a row with no subject matches only another row
-  with no subject); outcome `done` or `nothing-to-do`; a later time; and not itself a correction of another row (a
-  "Marked handled" row says an older row is over, not that the work succeeded).
+- **the failed row has a subject, and a later successful row exists from the same seat about that subject**: same
+  factory; same factory agent (trimmed, ignoring case); same subject (trimmed, ignoring case); outcome `done` or
+  `nothing-to-do`; a later time; and not itself a correction of another row (a "Marked handled" row says an older
+  row is over, not that the work succeeded).
+
+**A failed row with NO subject clears only by the owner's Handled** (review of pull request 3607, accepted by the
+Lead). On the live record seats write the START of a run as `done` ("run.start (done): scout run 12 started", 46
+rows) and the chain writes its failure notice as `done` ("run.notify (done): emailed the owner: ... failed", three
+seconds after "run.sweep (failed): ... no ceo run had started by 02:00 Eastern"). A subject-less `done` row therefore
+says nothing about whether the failed thing now works; six of the thirty live failures have no subject.
 
 `started`, `escalated` and `asked` rows never clear a failure, nor does another seat's success or a success about
 another subject. A schedule whose last firing could not start its run is not a row: it cannot be marked handled and
 clears when the schedule's next firing starts its run. Tested in `FactoriesScreenRound2Tests` (both clearing paths,
-a partial clear, and six rows that must NOT clear a failure) and, on a real host, in `FactoryRegistryRouteTests`.
+a partial clear, six rows that must NOT clear a failure, and a subject-less failure that stays FAILING after a later
+subject-less `run.start (done)`, `run.notify (done)` or `run.finish (done)` row but clears on Handled) and, on a real
+host, in `FactoryRegistryRouteTests`.
 
 **The other R2-A rulings.** The status line under each word is folded on the Gateway (`StatusLine`, `StatusHref`,
 `WaitingHref`); RUNNING has none. FAILING links to `#failing` on the factory page, NEEDS YOU and the waiting count to
