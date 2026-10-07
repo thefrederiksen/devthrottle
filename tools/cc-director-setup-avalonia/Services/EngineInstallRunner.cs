@@ -130,7 +130,9 @@ public sealed class EngineInstallRunner
     }
 
     /// <summary>Place the Director, install the tools bundle, install the launcher (macOS),
-    /// finalize. Returns (installed, skipped).</summary>
+    /// finalize. Returns (installed, skipped). A launcher that could not be installed or started is NOT
+    /// counted as skipped: its row carries <see cref="InstallCompletion.WarningStatus"/> and the install
+    /// finishes and opens the Director (see <see cref="InstallCompletion.FailureIsWarning"/>).</summary>
     public async Task<(int installed, int skipped)> ApplyAsync(Prep prep, IProgress<string>? status = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(prep);
@@ -146,7 +148,8 @@ public sealed class EngineInstallRunner
 
         var installed = (directorOk ? 1 : 0) + toolCount + (launcherOk ? 1 : 0);
         var skipped = prep.Items.Count(i => i.Status is "Skipped" or "Failed");
-        SetupLog.Write($"[EngineInstallRunner] ApplyAsync: installed={installed}, skipped={skipped}");
+        var warnings = prep.Items.Count(i => i.Status == InstallCompletion.WarningStatus);
+        SetupLog.Write($"[EngineInstallRunner] ApplyAsync: installed={installed}, skipped={skipped}, warnings={warnings}");
         return (installed, skipped);
     }
 
@@ -244,6 +247,11 @@ public sealed class EngineInstallRunner
     /// launch-agent verification. On Windows this wizard does nothing - the Windows wizard
     /// (the WPF one) installs the launcher there. Returns true when the launcher was installed
     /// and is healthy.
+    ///
+    /// A launcher that could not be placed or started does NOT fail the install: the row reads
+    /// <see cref="InstallCompletion.WarningStatus"/> with the reason, the failure is reported to DevThrottle
+    /// with its diagnostics, and the install goes on to open the Director. The launcher only adds
+    /// autostart; the Director, once connected, repairs it itself (<see cref="InstallCompletion.FailureIsWarning"/>).
     /// </summary>
     private async Task<bool> InstallLauncherAsync(Prep prep, IProgress<string>? status, CancellationToken ct)
     {
@@ -287,9 +295,9 @@ public sealed class EngineInstallRunner
         if (!placed)
         {
             var error = placeResult.Results.FirstOrDefault(r => r.ComponentId == ComponentRegistry.Launcher.Id)?.Error;
-            if (item is not null) { item.Status = "Failed"; item.StatusDetail = error ?? "Placement failed"; }
-            SetupLog.Write($"[EngineInstallRunner] InstallLauncherAsync FAILED to place: {error}");
-            await ReportFailureAsync(item, "launcher", "place", error ?? "Placement failed", null, ct);
+            if (item is not null) { item.Status = InstallCompletion.WarningStatus; item.StatusDetail = error ?? "Placement failed"; }
+            SetupLog.Write($"[EngineInstallRunner] InstallLauncherAsync WARNING, could not place the launcher (the install continues): {error}");
+            await ReportFailureAsync(item, "launcher", "place", WarningMessage(error ?? "Placement failed"), null, ct);
             return false;
         }
 
@@ -301,14 +309,18 @@ public sealed class EngineInstallRunner
         SetupLog.Write($"[EngineInstallRunner] InstallLauncherAsync: start success={startResult.Success}: {startResult.Message}");
         if (item is not null)
         {
-            item.Status = startResult.Success ? "Done" : "Failed";
+            // A launcher launchd refuses is a WARNING on this screen, not a failed install: the Director is
+            // placed and will open, and the person is told what they lose (autostart) and what happens next.
+            // The report still carries the full diagnostics, so the cause is known on our side.
+            item.Status = startResult.Success ? "Done" : InstallCompletion.WarningStatus;
             if (!startResult.Success) item.StatusDetail = startResult.Message;
         }
         if (!startResult.Success)
         {
+            SetupLog.Write($"[EngineInstallRunner] InstallLauncherAsync WARNING, the launcher did not start (the install continues): {startResult.Message}");
             if (startResult.Diagnostics is not null)
                 SetupLog.Write($"[EngineInstallRunner]   launcher diagnostics:\n{startResult.Diagnostics}");
-            await ReportFailureAsync(item, "launcher", "start", startResult.Message, startResult.Diagnostics, ct);
+            await ReportFailureAsync(item, "launcher", "start", WarningMessage(startResult.Message), startResult.Diagnostics, ct);
         }
         else
         {
@@ -319,6 +331,13 @@ public sealed class EngineInstallRunner
         }
         return startResult.Success;
     }
+
+    /// <summary>
+    /// The message a launcher failure is reported with. It says, first, that the install went on: a reader of
+    /// the Gateway's reports must be able to tell "the launcher failed and the Director was still installed and
+    /// opened" from the old "the launcher failed and the install stopped" without opening the diagnostics.
+    /// </summary>
+    public static string WarningMessage(string failure) => "WARNING (the install continued without autostart): " + failure;
 
     /// <summary>A step that WORKED, sent the same way a failure is, so the machine's story on the Gateway has an
     /// ending. Nothing on screen changes.</summary>

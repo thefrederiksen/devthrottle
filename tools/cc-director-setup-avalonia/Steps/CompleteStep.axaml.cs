@@ -20,12 +20,20 @@ public partial class CompleteStep : UserControl
     private IReadOnlyList<string> _skippedNames = [];
     private IReadOnlyList<string> _skippedReasons = [];
 
+    /// <summary>Did this screen open the Director (the green button)? Read when the window closes, so a
+    /// first install that is closed without the button still opens it, and one that used the button does
+    /// not open it twice (<see cref="InstallCompletion.OpensDirectorOnClose"/>).</summary>
+    public bool DirectorOpened { get; private set; }
+
     public CompleteStep()
     {
         InitializeComponent();
     }
 
-    public CompleteStep(int installed, int skipped, string installPath, bool isUpdate, bool alreadyUpToDate = false, string? version = null, string? agentNotice = null, IReadOnlyList<string>? skippedNames = null, bool readyToGo = true, IReadOnlyList<string>? skippedReasons = null)
+    /// <param name="warnings">Components that did not install WITHOUT failing the install - the launcher, which
+    /// only adds autostart - each as "Name: reason". Shown in an amber panel under the Open Director button;
+    /// the heading still says the Director is installed, because it is.</param>
+    public CompleteStep(int installed, int skipped, string installPath, bool isUpdate, bool alreadyUpToDate = false, string? version = null, string? agentNotice = null, IReadOnlyList<string>? skippedNames = null, bool readyToGo = true, IReadOnlyList<string>? skippedReasons = null, IReadOnlyList<string>? warnings = null)
     {
         InitializeComponent();
 
@@ -116,7 +124,26 @@ public partial class CompleteStep : UserControl
             DetailsExpander.IsExpanded = true;
         }
 
-        SetupLog.Write($"[CompleteStep] Created: installed={installed}, skipped={skipped}, isUpdate={isUpdate}, alreadyUpToDate={alreadyUpToDate}, version={version}");
+        // A warning is said in full, in its own panel, under the button that is still the next step. It is
+        // not a failure of the install: five installs on one Mac placed a working Director and then read
+        // "Setup finished with problems" because launchd refused the launcher, and the person stopped there.
+        if (warnings is { Count: > 0 })
+        {
+            var text = string.Join("\n", warnings);
+            if (warnings.Any(w => w.StartsWith(ComponentDisplayName.For("cc-launcher") + ":", StringComparison.Ordinal)))
+                text += "\n\n" + InstallCompletion.LauncherWarningExplanation;
+            WarningText.Text = text;
+            WarningPanel.IsVisible = true;
+            if (skipped == 0 && !alreadyUpToDate)
+            {
+                DescriptionText.Text = readyToGo
+                    ? "The Director is installed and ready to open. One thing to know is below."
+                    : "The Director is installed. Two things below still need a look.";
+            }
+            SetupLog.Write($"[CompleteStep] warning shown: {text.Replace("\n", " | ")}");
+        }
+
+        SetupLog.Write($"[CompleteStep] Created: installed={installed}, skipped={skipped}, warnings={warnings?.Count ?? 0}, isUpdate={isUpdate}, alreadyUpToDate={alreadyUpToDate}, version={version}");
     }
 
     private void OpenLogButton_Click(object? sender, RoutedEventArgs e)
@@ -201,12 +228,27 @@ public partial class CompleteStep : UserControl
     private void LaunchButton_Click(object? sender, RoutedEventArgs e)
     {
         SetupLog.Write("[CompleteStep] LaunchButton_Click");
+        if (!OpenDirector()) return;
 
-        // _installPath is the canonical Director path (InstallLayout.PathFor). On Windows that is the
-        // installed cc-director.exe; on macOS it is the ~/Applications/Director.app bundle. The two
-        // launch differently: run the exe directly on Windows, but on macOS hand the bundle to
-        // /usr/bin/open so LaunchServices registers it - that is what gives the app its Dock icon and
-        // foreground activation. Launching the inner Mach-O binary directly gives neither.
+        // Close the setup wizard. DirectorOpened is already set, so OnClosing does not open a second one.
+        var window = this.VisualRoot as Window;
+        window?.Close();
+    }
+
+    /// <summary>
+    /// Start the installed Director. Returns true when the process was started; a failure is said on
+    /// screen and reported, and returns false. Called by the green button and, on a first install that is
+    /// closed without it, by the window's closing (<see cref="InstallCompletion.OpensDirectorOnClose"/>).
+    ///
+    /// _installPath is the canonical Director path (InstallLayout.PathFor). On Windows that is the
+    /// installed cc-director.exe; on macOS it is the ~/Applications/Director.app bundle. The two
+    /// launch differently: run the exe directly on Windows, but on macOS hand the bundle to
+    /// /usr/bin/open so LaunchServices registers it - that is what gives the app its Dock icon and
+    /// foreground activation. Launching the inner Mach-O binary directly gives neither.
+    /// </summary>
+    public bool OpenDirector()
+    {
+        SetupLog.Write($"[CompleteStep] OpenDirector: {_installPath}");
         try
         {
             ProcessStartInfo psi;
@@ -216,7 +258,7 @@ public partial class CompleteStep : UserControl
                 if (!Directory.Exists(_installPath))
                 {
                     LaunchFailed($"The Director was not found at {_installPath}", null);
-                    return;
+                    return false;
                 }
 
                 psi = new ProcessStartInfo("/usr/bin/open") { UseShellExecute = false };
@@ -227,7 +269,7 @@ public partial class CompleteStep : UserControl
                 if (!File.Exists(_installPath))
                 {
                     LaunchFailed($"The Director was not found at {_installPath}", null);
-                    return;
+                    return false;
                 }
 
                 psi = new ProcessStartInfo { FileName = _installPath, UseShellExecute = false };
@@ -238,15 +280,14 @@ public partial class CompleteStep : UserControl
             }
 
             Process.Start(psi);
-            SetupLog.Write("[CompleteStep] LaunchButton_Click: Director launched");
-
-            // Close the setup wizard
-            var window = this.VisualRoot as Window;
-            window?.Close();
+            DirectorOpened = true;
+            SetupLog.Write("[CompleteStep] OpenDirector: Director launched");
+            return true;
         }
         catch (Exception ex)
         {
             LaunchFailed($"The Director could not be started: {ex.GetType().Name}: {ex.Message}", ex);
+            return false;
         }
     }
 

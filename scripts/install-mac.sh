@@ -100,20 +100,53 @@ repair_owned() {
     sudo /bin/sh -c "$CHOWN_FOLDERS" "$(id -u):$(id -g)" "${FOLDER_CANDIDATES[@]}" || return 1
     sudo /bin/sh -c "$CHOWN_TREES" "$(id -u):$(id -g)" "${TREE_CANDIDATES[@]}" || return 1
 }
+# Are these paths (one per line) ALL launch agent paths - the folder launchd reads at sign-in and our property
+# list in it? Those two exist only for autostart: the Director runs, signs in and connects without them. A
+# repair that leaves only them behind is a warning for the install, not a stop (the Director does not need
+# them, and once it is connected it reports and repairs what it can); anything else left behind - the app, its
+# data folder, the shell files - still stops the install, because the wizard could not write to it.
+launcher_only() { # paths
+    local line any=""
+    while IFS= read -r line; do
+        if [[ -z "$line" ]]; then continue; fi
+        any=1
+        case "$line" in
+            "$HOME/Library/LaunchAgents"|"$HOME/Library/LaunchAgents/"*) ;;
+            *) return 1 ;;
+        esac
+    done <<<"$1"
+    [[ -n "$any" ]]
+}
 check_owned || exit 1
 REPAIRED_OWNERSHIP=""
+OWNERSHIP_WARNING=""
 if [[ -n "$NOT_OWNED" ]]; then
     NOT_OWNED_BEFORE="$NOT_OWNED"
     printf 'Some DevThrottle files belong to another user, usually because an earlier install was run with sudo.\n'
     printf 'macOS will not start DevThrottle until they belong to you again. Enter your Mac password to repair them.\n'
-    if ! repair_owned || ! check_owned || [[ -n "$NOT_OWNED" ]]; then
-        printf 'ERROR: the files could not be repaired. Run this, then run the install again:\n\n' >&2
-        printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_FOLDERS" >&2; printf ' %q' "${FOLDER_CANDIDATES[@]}" >&2; printf '\n' >&2
-        printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_TREES" >&2; printf ' %q' "${TREE_CANDIDATES[@]}" >&2; printf '\n' >&2
-        exit 1
+    repaired=1
+    repair_owned || repaired=0
+    # The check after the repair must itself succeed: a check that could not run is never read as "all owned".
+    if [[ $repaired -eq 1 ]]; then check_owned || exit 1; fi
+    if [[ $repaired -eq 0 || -n "$NOT_OWNED" ]]; then
+        if launcher_only "$NOT_OWNED"; then
+            # Only autostart is lost. The Director installs and runs; say so, and carry it to DevThrottle below.
+            printf 'WARNING: these could not be handed back to you: %s\n' "$(printf '%s' "$NOT_OWNED" | tr '\n' ' ')"
+            printf 'The install continues. DevThrottle will not start by itself when you sign in to this Mac until they belong to you;\n'
+            printf 'the Director works without them. To repair them later, run:\n\n'
+            printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_FOLDERS"; printf ' %q' "${FOLDER_CANDIDATES[@]}"; printf '\n'
+            printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_TREES"; printf ' %q' "${TREE_CANDIDATES[@]}"; printf '\n\n'
+            OWNERSHIP_WARNING="$NOT_OWNED"
+        else
+            printf 'ERROR: the files could not be repaired. Run this, then run the install again:\n\n' >&2
+            printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_FOLDERS" >&2; printf ' %q' "${FOLDER_CANDIDATES[@]}" >&2; printf '\n' >&2
+            printf '  sudo /bin/sh -c %q "$(id -u):$(id -g)"' "$CHOWN_TREES" >&2; printf ' %q' "${TREE_CANDIDATES[@]}" >&2; printf '\n' >&2
+            exit 1
+        fi
+    else
+        printf 'Repaired.\n'
+        REPAIRED_OWNERSHIP="$NOT_OWNED_BEFORE"
     fi
-    printf 'Repaired.\n'
-    REPAIRED_OWNERSHIP="$NOT_OWNED_BEFORE"
 fi
 
 # Every line this script prints also goes to a log file the user (and support) can find, next to the
@@ -201,6 +234,15 @@ if [[ -n "$REPAIRED_OWNERSHIP" ]]; then
     STEP="repair-ownership"
     log "Repaired the ownership of: $(printf '%s' "$REPAIRED_OWNERSHIP" | tr '\n' ' ')"
     report_step "Repaired DevThrottle files that belonged to another user: $(printf '%s' "$REPAIRED_OWNERSHIP" | tr '\n' ' ')" || true
+    STEP="preconditions"
+fi
+# A launch agent path that stayed with another user is reported as the warning it is, with the same step name,
+# so the machine's story on our side says "autostart is lost on this Mac" before the wizard's own launcher
+# report arrives - and says the install went on.
+if [[ -n "$OWNERSHIP_WARNING" ]]; then
+    STEP="repair-ownership"
+    log "WARNING: could not hand these back to the user (the install continues without autostart): $(printf '%s' "$OWNERSHIP_WARNING" | tr '\n' ' ')"
+    report_step "WARNING (the install continued without autostart): the launch agent files could not be handed back to the user: $(printf '%s' "$OWNERSHIP_WARNING" | tr '\n' ' ')" || true
     STEP="preconditions"
 fi
 

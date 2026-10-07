@@ -28,6 +28,9 @@ public partial class MainWindow : Window
     private int _skippedCount;
     private IReadOnlyList<string> _skippedNames = [];
     private IReadOnlyList<string> _skippedReasons = [];
+    // Components that did not install WITHOUT failing the install (the launcher): shown as a warning on the
+    // Complete screen, never as "finished with problems" (InstallCompletion.FailureIsWarning).
+    private IReadOnlyList<string> _warnings = [];
     private string _installPath = "";
 
     private readonly bool _isUpdate;
@@ -118,7 +121,7 @@ public partial class MainWindow : Window
         {
             StepWelcome => _welcomeStep ??= BuildWelcomeStep(),
             StepInstall => _installStep ??= new InstallStep(),
-            StepComplete => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _isUpdate, _alreadyUpToDate, _latestVersion, BuildAgentNotice(), _skippedNames, IsReadyToGo(), _skippedReasons),
+            StepComplete => _completeStep ??= new CompleteStep(_installedCount, _skippedCount, _installPath, _isUpdate, _alreadyUpToDate, _latestVersion, BuildAgentNotice(), _skippedNames, IsReadyToGo(), _skippedReasons, _warnings),
             _ => null
         };
 
@@ -360,12 +363,36 @@ public partial class MainWindow : Window
             .Where(i => i.Status is "Skipped" or "Failed" && !string.IsNullOrWhiteSpace(i.StatusDetail))
             .Select(i => $"{ComponentDisplayName.For(i.Name)}: {i.StatusDetail}")
             .ToList();
+        _warnings = prep.Items
+            .Where(i => i.Status == InstallCompletion.WarningStatus)
+            .Select(i => $"{ComponentDisplayName.For(i.Name)}: {(string.IsNullOrWhiteSpace(i.StatusDetail) ? "did not install" : i.StatusDetail)}")
+            .ToList();
 
-        _installStep?.SetStatus($"Done - {installed} installed, {skipped} skipped");
-        SetupLog.Write($"[MainWindow] ApplyAndFinishAsync: installed={installed}, skipped={skipped}");
+        _installStep?.SetStatus(_warnings.Count > 0
+            ? $"Done - {installed} installed, {skipped} skipped, {_warnings.Count} warning"
+            : $"Done - {installed} installed, {skipped} skipped");
+        SetupLog.Write($"[MainWindow] ApplyAndFinishAsync: installed={installed}, skipped={skipped}, warnings={_warnings.Count}");
 
         NextButton.Content = "Next";
         NextButton.IsEnabled = true;
+    }
+
+    /// <summary>
+    /// Closing the wizard on the Complete screen of a first install opens the Director, by whatever route the
+    /// window is closed - the close button or the title bar. This is the Windows wizard's rule (issue #3503),
+    /// which this wizard never had: on a Mac a person who closed the window instead of pressing the green
+    /// button was left with no window, no sign-in and a machine that never connected. The rule is
+    /// <see cref="InstallCompletion.OpensDirectorOnClose"/>; this only gathers its facts.
+    /// </summary>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        if (_currentStep == StepComplete && _completeStep is { } complete)
+        {
+            var opens = InstallCompletion.OpensDirectorOnClose(_isUpdate, complete.DirectorOpened, Directory.Exists(_installPath) || File.Exists(_installPath));
+            SetupLog.Write($"[MainWindow] OnClosing on Complete: isUpdate={_isUpdate}, directorOpened={complete.DirectorOpened}, opensDirector={opens}");
+            if (opens) complete.OpenDirector();
+        }
+        base.OnClosing(e);
     }
 
     /// <summary>Build the Welcome step and wire its Uninstall request (issue #257). The step

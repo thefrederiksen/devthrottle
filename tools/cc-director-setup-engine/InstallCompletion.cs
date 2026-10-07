@@ -55,6 +55,39 @@ public static class InstallCompletion
         => skipped == 0 && anyCodingAgentPresent;
 
     /// <summary>
+    /// The status a component row carries when it did not install and the install is NOT failed by it:
+    /// the install finished, and this is the one thing to know about it.
+    /// </summary>
+    public const string WarningStatus = "Warning";
+
+    /// <summary>
+    /// Is a failure of this component a WARNING for the install rather than a failure of the install?
+    ///
+    /// The launcher only adds autostart: the Director runs, signs in and enrolls the machine without it (on
+    /// macOS nothing in the Director's start-up, sign-in or Gateway connection reads the launcher). Five
+    /// installs on one Mac placed a working Director and then told the person "Setup finished with
+    /// problems" because launchd refused the launcher - and the person stopped there, with a Director that
+    /// would have worked a click away. A launcher failure is therefore reported to DevThrottle and shown as a
+    /// warning, and the install goes on to open the Director; once the Director is connected it is our
+    /// channel to that machine, and it repairs the launcher itself. The Director and the tools are not
+    /// warnings: without the Director there is nothing to open.
+    /// </summary>
+    /// <param name="componentId">The component id (<see cref="ComponentRegistry.Launcher"/> etc.).</param>
+    public static bool FailureIsWarning(string componentId)
+        => string.Equals(componentId, ComponentRegistry.Launcher.Id, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// What the Complete screen says under a launcher warning, after the reason. Said in the words of what the
+    /// person loses and what happens next, never "launchd" or "launch agent". It does not promise a repair,
+    /// because the repair only reaches a job launchd holds and refuses - the one state that cannot be a
+    /// person's choice - and a report is sent so the cause is known on our side either way.
+    /// </summary>
+    public const string LauncherWarningExplanation =
+        "DevThrottle will not start by itself when you sign in to this Mac until this is repaired. "
+        + "The Director works without it: open it now. Once the Director is open and connected, it tries to repair this "
+        + "on its own, and a report of what went wrong was sent to DevThrottle - there is nothing for you to type or send.";
+
+    /// <summary>
     /// Does leaving the Complete screen WITHOUT clicking Open Director still open the Director?
     ///
     /// On a first install, yes. Close used to close the wizard and nothing else, so a person who

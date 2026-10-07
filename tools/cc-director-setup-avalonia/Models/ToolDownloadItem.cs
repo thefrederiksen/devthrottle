@@ -41,6 +41,8 @@ public class ToolDownloadItem : INotifyPropertyChanged
         "Done" => "#22C55E",
         "Skipped" => "#888888",
         "Failed" => "#CC4444",
+        // Did not install, but did not fail the install (InstallCompletion.WarningStatus): amber, not red.
+        "Warning" => "#E0A030",
         "Locked" => "#E5A100",
         // Live download statuses carry a byte counter (e.g. "Downloading 12.3 MB / 45.6 MB"),
         // so match the prefix rather than the exact word.

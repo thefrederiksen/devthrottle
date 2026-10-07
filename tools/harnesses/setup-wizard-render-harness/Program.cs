@@ -25,6 +25,14 @@ namespace SetupWizardRenderHarness;
 //   --out           Where the PNGs go.
 //   --home          Sandbox HOME/CC_DIRECTOR_ROOT so the run installs into a scratch area
 //                   instead of the real user profile (default: a temp directory).
+//   --no-sandbox    Install into the REAL user profile - the Director in ~/Applications, the launcher
+//                   and its launch agent where the shipped wizard puts them. For a disposable Mac
+//                   (a continuous-integration runner) only: this is how the shipped flow is proven
+//                   against the machine's own launchd.
+//
+// After the Complete screen is shown the run prints what it says, one fact per line, so a proof can
+// read the screen without a person: COMPLETE-HEADING, COMPLETE-DESCRIPTION, COMPLETE-WARNING (the text
+// of the warning panel, or "(none)") and COMPLETE-NEXT (the Next button's label).
 internal static class Program
 {
     private static string _outDir = "";
@@ -39,12 +47,20 @@ internal static class Program
             ?? IoPath.Combine(IoPath.GetTempPath(), $"wizard-harness-home-{Guid.NewGuid():N}");
 
         Directory.CreateDirectory(_outDir);
-        Directory.CreateDirectory(home);
 
-        // Sandbox the install: InstallLayout reads HOME (macOS user profile) and CC_DIRECTOR_ROOT.
-        // Must happen BEFORE any wizard type constructs its InstallLayout.
-        Environment.SetEnvironmentVariable("HOME", home);
-        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", IoPath.Combine(home, "cc-director"));
+        var noSandbox = Array.Exists(args, a => string.Equals(a, "--no-sandbox", StringComparison.OrdinalIgnoreCase));
+        if (noSandbox)
+        {
+            Console.WriteLine("installing into the REAL user profile (--no-sandbox)");
+        }
+        else
+        {
+            Directory.CreateDirectory(home);
+            // Sandbox the install: InstallLayout reads HOME (macOS user profile) and CC_DIRECTOR_ROOT.
+            // Must happen BEFORE any wizard type constructs its InstallLayout.
+            Environment.SetEnvironmentVariable("HOME", home);
+            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", IoPath.Combine(home, "cc-director"));
+        }
 
         if (releaseDir is not null)
             EngineInstallRunner.ReleaseDirectoryOverride = releaseDir;
@@ -103,12 +119,24 @@ internal static class Program
         ClickNext(window);                       // -> Complete
         Pump();
         Capture(window, "complete");
+        PrintCompleteFacts(window);
 
         var launch = FindDescendantButton(window, "LaunchButton");
         HoverAndCapture(window, launch, "complete-launch-hover");
 
         Console.WriteLine($"RENDER OK -> {_outDir}");
         return 0;
+    }
+
+    /// <summary>What the Complete screen says, one fact per line, for a proof that has no eyes.</summary>
+    private static void PrintCompleteFacts(MainWindow window)
+    {
+        string Text(string name) => FindDescendant<TextBlock>(window, name) is { IsVisible: true } t ? (t.Text ?? "") : "";
+        var warning = FindDescendant<Border>(window, "WarningPanel") is { IsVisible: true } ? Text("WarningText") : "(none)";
+        Console.WriteLine($"COMPLETE-HEADING: {Text("HeadingText")}");
+        Console.WriteLine($"COMPLETE-DESCRIPTION: {Text("DescriptionText").Replace('\n', ' ')}");
+        Console.WriteLine($"COMPLETE-WARNING: {warning.Replace('\n', ' ')}");
+        Console.WriteLine($"COMPLETE-NEXT: {NextLabel(window) ?? "(disabled)"}");
     }
 
     /// <summary>
@@ -139,8 +167,15 @@ internal static class Program
                 // The DISPLAY name, which is what MainWindow passes (ComponentDisplayName maps the
                 // internal "cc-launcher" id). Passing the raw id here made the screenshot show a name
                 // the product no longer renders.
-                agentNotice: null, skippedNames: ["Launcher"],
-                skippedReasons: ["Launcher: healthy but did not register its launch agent property list"])),
+                agentNotice: null, skippedNames: ["Director"],
+                skippedReasons: ["Director: cc-director-mac-arm64.zip SHA-256 mismatch; download rejected."])),
+            // The launcher could not be started (launchd refused it): the Director IS installed, the green
+            // button is still the next step, and the amber panel says what is lost and what happens next.
+            ("complete-launcher-warning", new CcDirectorSetup.Steps.CompleteStep(
+                installed: 1, skipped: 0, installPath: "/Users/you/Applications/DevThrottle.app",
+                isUpdate: false, alreadyUpToDate: false, version: "1.8.5",
+                agentNotice: null, skippedNames: null, readyToGo: true, skippedReasons: null,
+                warnings: ["Launcher: macOS could not start the launcher at all: launchd reports 'spawn failed' (exit code 78: EX_CONFIG). A report of this failure was sent to DevThrottle."])),
         };
 
         foreach (var (name, step) in states)
