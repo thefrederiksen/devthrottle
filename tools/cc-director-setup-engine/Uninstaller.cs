@@ -65,9 +65,18 @@ public sealed class Uninstaller
         return dirs;
     }
 
-    private string ShortcutPath() =>
-        System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.StartMenu), "Programs", "DevThrottle.lnk");
+    /// <summary>
+    /// Every shortcut the install writes on Windows and macOS: the Start Menu one, plus the desktop one a
+    /// first install adds on Windows (issue #3503). The plan and the removal both read this one list,
+    /// so a shortcut cannot be planned and then not removed.
+    /// </summary>
+    internal static IReadOnlyList<(string What, string Path)> ShortcutFiles()
+    {
+        var files = new List<(string, string)> { ("Start Menu shortcut", InstallFinalizer.StartMenuShortcutPath()) };
+        if (OperatingSystem.IsWindows())
+            files.Add(("Desktop shortcut", InstallFinalizer.DesktopShortcutPath()));
+        return files;
+    }
 
     /// <summary>What an uninstall would remove (existence-checked). Pure: no side effects.</summary>
     public IReadOnlyList<UninstallTarget> Plan(InstallRole role)
@@ -99,8 +108,8 @@ public sealed class Uninstaller
         }
         else
         {
-            var lnk = ShortcutPath();
-            targets.Add(new UninstallTarget(UninstallKind.Shortcut, "Start Menu shortcut", lnk, File.Exists(lnk)));
+            foreach (var (what, lnk) in ShortcutFiles())
+                targets.Add(new UninstallTarget(UninstallKind.Shortcut, what, lnk, File.Exists(lnk)));
         }
 
         // Add/Remove Programs registration (issue #257), Windows only. Cheap registry read.
@@ -216,7 +225,7 @@ public sealed class Uninstaller
         }
         else
         {
-            progress?.Report("Removing the Start Menu shortcut");
+            progress?.Report("Removing the shortcuts");
             RemoveShortcut(steps, errors);
         }
 
@@ -589,10 +598,15 @@ public sealed class Uninstaller
 
     private void RemoveShortcut(List<string> steps, List<string> errors)
     {
-        var lnk = ShortcutPath();
-        if (!File.Exists(lnk)) { steps.Add("Start Menu shortcut: not present"); return; }
-        try { File.Delete(lnk); steps.Add($"removed Start Menu shortcut: {lnk}"); }
-        catch (Exception ex) { errors.Add($"shortcut ({lnk}): {ex.Message}"); }
+        foreach (var (what, lnk) in ShortcutFiles())
+            RemoveShortcutFile(what, lnk, steps, errors);
+    }
+
+    internal static void RemoveShortcutFile(string what, string lnk, List<string> steps, List<string> errors)
+    {
+        if (!File.Exists(lnk)) { steps.Add($"{what}: not present"); return; }
+        try { File.Delete(lnk); steps.Add($"removed {what}: {lnk}"); }
+        catch (Exception ex) { errors.Add($"{what} ({lnk}): {ex.Message}"); }
     }
 
     /// <summary>Return <paramref name="path"/> with <paramref name="dir"/> removed (case-insensitive). Pure.</summary>

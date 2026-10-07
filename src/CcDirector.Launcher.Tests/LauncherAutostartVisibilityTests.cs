@@ -17,6 +17,7 @@ namespace CcDirector.Launcher.Tests;
 /// fleet and the tray can all tell a managed launcher from an unmanaged one. These tests pin the SHAPE of that reporting; whether the
 /// operating system's registration itself succeeds is not something a unit test can decide.
 /// </summary>
+[Collection(LauncherOptionsCollection.Name)]
 public sealed class LauncherAutostartVisibilityTests
 {
     // Skipping registration deliberately (--no-autostart) is not a failure and must not be reported

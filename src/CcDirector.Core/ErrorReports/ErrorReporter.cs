@@ -310,7 +310,7 @@ public sealed class ErrorReporter : IDisposable
         try
         {
             var config = _config();
-            if (!config.IsEnabled || string.IsNullOrWhiteSpace(config.Token))
+            if (!config.HasCredential)
                 return await SendBeforeSignInAsync(final, ct).ConfigureAwait(false);
 
             var delivered = await SendPendingSignedInAsync(config, final, ct).ConfigureAwait(false);

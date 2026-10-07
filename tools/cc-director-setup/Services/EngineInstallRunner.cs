@@ -23,6 +23,12 @@ public sealed class EngineInstallRunner
     public InstallRole Role { get; init; } = InstallRole.Workstation;
 
     /// <summary>
+    /// Also put a DevThrottle shortcut on the desktop. True on a first install only: an update must not
+    /// put back an icon the person deleted (issue #3503).
+    /// </summary>
+    public bool CreateDesktopShortcut { get; init; }
+
+    /// <summary>
     /// Invoked when the Director would be replaced while running. Parameter: process
     /// name. Returns true to retry (user closed it), false to skip the Director.
     /// </summary>
@@ -166,6 +172,8 @@ public sealed class EngineInstallRunner
         PathManager.AddToPath(_layout.BinDir);
         if (File.Exists(AppExePath))
             ShortcutCreator.CreateStartMenuShortcut(AppExePath);
+        if (CreateDesktopShortcut && OperatingSystem.IsWindows())
+            InstallFinalizer.CreateDesktopShortcut(_layout);
 
         // Tell Windows the product is here, so it can be removed from Settings > Apps like anything
         // else. This runs on UPDATE as well as install, so a machine that was installed before this

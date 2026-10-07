@@ -53,4 +53,29 @@ public static class InstallCompletion
     /// <param name="anyCodingAgentPresent">Any agent command line tool the Director drives is installed.</param>
     public static bool IsReadyToGo(int skipped, bool anyCodingAgentPresent)
         => skipped == 0 && anyCodingAgentPresent;
+
+    /// <summary>
+    /// Does leaving the Complete screen WITHOUT clicking Open Director still open the Director?
+    ///
+    /// On a first install, yes. Close used to close the wizard and nothing else, so a person who
+    /// clicked it instead of the green button was left with no window, no sign-in and a launcher
+    /// hidden in the tray overflow - and the machine never connected (issue #3503). On a first install
+    /// the Director is the only next step there is, so the wizard takes it for them.
+    ///
+    /// An update does not: that person already knows where the app is, and may have closed it on
+    /// purpose to let the update run.
+    /// </summary>
+    /// <param name="isUpdate">Was the product already installed when the wizard started?</param>
+    /// <param name="directorAlreadyOpened">Did Open Director already start it?</param>
+    /// <param name="directorInstalled">Is the Director's executable on disk? A failed Director install has nothing to open.</param>
+    public static bool OpensDirectorOnClose(bool isUpdate, bool directorAlreadyOpened, bool directorInstalled)
+        => !isUpdate && !directorAlreadyOpened && directorInstalled;
+
+    /// <summary>
+    /// Does this pass put a DevThrottle shortcut on the desktop? On a first install, yes: the Start Menu
+    /// alone left a person who closed the wizard with no icon to find their way back by (issue #3503).
+    /// An update does not, so it can never put back an icon the person deleted.
+    /// </summary>
+    /// <param name="isUpdate">Was the product already installed when the wizard started?</param>
+    public static bool CreatesDesktopShortcut(bool isUpdate) => !isUpdate;
 }

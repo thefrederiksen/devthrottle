@@ -74,7 +74,7 @@ public partial class UninstallStep : UserControl
         {
             "The Director and all cc-* CLI tools",
             "The PATH entry for the tools",
-            "Scheduled tasks and the Start Menu shortcut",
+            "Scheduled tasks and the Start Menu and desktop shortcuts",
         };
         if (OperatingSystem.IsWindows())
             items.Add("The Apps & features (Add/Remove Programs) entry");
