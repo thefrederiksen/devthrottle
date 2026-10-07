@@ -3,6 +3,7 @@
   "title": "Center Consulting",
   "folder": "D:\\ReposFred\\cc-consult\\ideas\\cc-factory",
   "computer": "SOREN_NORTH",
+  "ceoSeat": "cfo",
   "seats": [
     {
       "id": "cfo",
