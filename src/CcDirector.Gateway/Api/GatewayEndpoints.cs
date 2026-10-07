@@ -242,6 +242,11 @@ internal static partial class GatewayEndpoints
         // released, so the team enrollment routes are mapped. Published on /healthz as "teams" - the ONE signal a
         // Director reads before it asks for teams. False for every self-host and test caller that passes nothing.
         bool teamsOffered = false,
+        // The caller inside a team's tenant (devthrottle_internal#2311, live proof F1): GET /sessions in a team serves
+        // only the caller's OWN sessions - their own Directors, and only the rows the one holder rule says those
+        // Directors hold. Null answers for a personal tenant; a null delegate on a Gateway that serves a team's tenant
+        // keeps nothing there, never everyone's.
+        Func<HttpContext, Core.Tenancy.TenantId, Teams.TeamCaller?>? teamCaller = null,
         History.KnownRepositoryStore? knownRepositories = null,
         // Per-subsystem readiness for /healthz: the parts of the Gateway that can be down on their own
         // while the process serves normally. A delegate, not a snapshot, for the same reason databaseReady
@@ -399,7 +404,18 @@ internal static partial class GatewayEndpoints
                 if (tenant is null)
                     return Results.Json(new { error = "no tenant is bound to this request" },
                         statusCode: StatusCodes.Status403Forbidden);
-                var number = sessionNumbers.Allocate(tenant.Value, req.SessionId, req.DirectorId ?? "");
+                // TEAMS (devthrottle_internal#2311, live proof F2): in a team the number is handed to the CALLING KEY'S
+                // own Director, never the Director the body names, and never for a session another person's Director
+                // already holds a number for or owns by the one ownership rule.
+                var directorId = req.DirectorId ?? "";
+                var team = RosterTeamCaller(ctx, tenant.Value, teamCaller);
+                if (team is not null)
+                {
+                    if (Teams.TeamCallerChecks.RefuseNumber(team, req.SessionId, sessionNumbers.DirectorFor(tenant.Value, req.SessionId)) is { } refusal)
+                        return Teams.TeamCallerChecks.Refused(refusal);
+                    directorId = team.KeyDirector!;
+                }
+                var number = sessionNumbers.Allocate(tenant.Value, req.SessionId, directorId);
                 return Results.Ok(new SessionNumberAllocateResponse { Number = number });
             });
 
@@ -1312,6 +1328,19 @@ internal static partial class GatewayEndpoints
                 .Where(d => string.IsNullOrEmpty(machine) || string.Equals(d.MachineName, machine, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
+            // TEAMS (devthrottle_internal#2311, live proof F1): inside a team's tenant the roster is the CALLER'S OWN,
+            // for every role - their own Directors only, and below, only the rows the one holder rule says those
+            // Directors hold. Cut HERE, before anything reads the list, so nothing below - the envelope's Director and
+            // reachability rows, the role universe, the ownership and snooze bookkeeping - ever sees another person's
+            // Director. A team request whose caller cannot be named keeps nothing. A personal tenant is untouched.
+            var team = RosterTeamCaller(ctx, reqTenant.Value, teamCaller);
+            if (team is not null)
+            {
+                var before = directors.Count;
+                directors = directors.Where(d => team.OwnsDirector(d.DirectorId)).ToList();
+                FileLog.Write($"[GatewayEndpoints] GET /sessions in a team: kept {directors.Count} of {before} Director(s), the caller's own");
+            }
+
             // Within that already tenant-scoped list, hosted additionally keeps only Directors that have pushed a
             // session snapshot - the roster source below is the pushed stream cache, so a registered-but-unpushed
             // Director has nothing to serve. This intersection is by bare id, which is safe ONLY because the list
@@ -1410,6 +1439,11 @@ internal static partial class GatewayEndpoints
                 }
 
                 var known = pushedSessions.GetLastKnown(reqTenant.Value, d.DirectorId);
+                // In a team, a Director's own push may list a colleague's session id; that row is not this Director's
+                // session, and folding it would hand the caller what the Gateway knows of the colleague's session.
+                // Kept only where the one holder rule (PushedSessionStore.IsHoldersRow) names this Director.
+                if (team is not null)
+                    known = known with { Sessions = known.Sessions.Where(x => pushedSessions.IsHoldersRow(reqTenant.Value, d.DirectorId, x.SessionId)).ToList() };
                 var ageSeconds = known.AsOfUtc is DateTime asOf ? Math.Max(0, (rosterNow - asOf).TotalSeconds) : (double?)null;
                 // FRESH means both halves: the tunnel is up AND the newest push is inside the staleness window.
                 // Only a fresh serve is authoritative, and only a fresh serve may be acted upon below.
@@ -6047,6 +6081,22 @@ internal static partial class GatewayEndpoints
         var options = ConditionalJson.HostOptions(ctx);
         ctx.Response.Headers[RosterClockFields.GatewayTimeHeader] = RosterClockFields.FormatTime(rosterNow);
         return ConditionalJson.Serve(ctx, RosterClockFields.Strip(roster, options), options);
+    }
+
+    /// <summary>
+    /// The caller to cut a list to inside a team's tenant (devthrottle_internal#2311), or null for a personal tenant. A
+    /// request the team gate ALLOWED in a team, reaching an endpoint that was given no way to cut, fails LOUD: serving it
+    /// uncut would hand the caller every member's rows, and serving it empty would read as "you have nothing".
+    /// </summary>
+    internal static Teams.TeamCaller? RosterTeamCaller(HttpContext ctx, TenantId tenant,
+        Func<HttpContext, TenantId, Teams.TeamCaller?>? teamCaller)
+    {
+        if (teamCaller is not null)
+            return teamCaller(ctx, tenant);
+        if (Teams.TeamEndpointGate.AllowedTeam(ctx) is not null)
+            throw new InvalidOperationException(
+                $"{ctx.Request.Method} {ctx.Request.Path} was allowed inside a team, but this Gateway gave the endpoint no way to cut its answer to the caller's own.");
+        return null;
     }
 
     /// <summary>

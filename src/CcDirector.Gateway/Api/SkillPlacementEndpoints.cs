@@ -26,7 +26,10 @@ internal static class SkillPlacementEndpoints
     public static void Map(IEndpointRouteBuilder app, SkillPlacementStore store,
         // REQUIRED AND NON-NULLABLE (finding I1-01): a forgotten boundary must be a compile error, never a
         // silent default. Self-host callers construct it over the SingleTenantContext.
-        Tenancy.HostedTenantBoundary tenantBoundary, Func<DateTime>? utcNow = null)
+        Tenancy.HostedTenantBoundary tenantBoundary, Func<DateTime>? utcNow = null,
+        // The caller inside a team's tenant (devthrottle_internal#2311, live proof F2): in a team a report is filed under
+        // the CALLING KEY'S own Director, never the Director the body names. Null answers for a personal account.
+        Func<HttpContext, Core.Tenancy.TenantId, Teams.TeamCaller?>? teamCaller = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         var now = utcNow ?? (() => DateTime.UtcNow);
@@ -45,15 +48,26 @@ internal static class SkillPlacementEndpoints
             if (string.IsNullOrWhiteSpace(request.DirectorId))
                 return Results.BadRequest(new { error = "directorId is required" });
 
+            var directorId = request.DirectorId;
+            var team = GatewayEndpoints.RosterTeamCaller(ctx, tenant.Value, teamCaller);
+            if (team is not null)
+            {
+                if (Teams.TeamCallerChecks.RefusePlacement(team) is { } refusal)
+                    return Teams.TeamCallerChecks.Refused(refusal);
+                if (!team.IsKeyDirector(directorId))
+                    FileLog.Write($"[SkillPlacementEndpoints] POST {Path} in a team: the body named director={directorId}; filed under the calling key's own director={team.KeyDirector}");
+                directorId = team.KeyDirector!;
+            }
+
             var receivedAtUtc = now();
             try
             {
                 var stored = store.StoreBatch(
-                    tenant.Value, request.DirectorId, request.MachineName,
+                    tenant.Value, directorId, request.MachineName,
                     request.Reports ?? new(), receivedAtUtc);
 
                 FileLog.Write($"[SkillPlacementEndpoints] POST {Path}: tenant={tenant.Value.ToLogString()} " +
-                              $"director={request.DirectorId} stored={stored}");
+                              $"director={directorId} stored={stored}");
                 return Results.Ok(new SkillPlacementPushResponse
                 {
                     Stored = stored,
@@ -75,9 +89,13 @@ internal static class SkillPlacementEndpoints
                 return Results.Json(new { error = "no tenant is bound to this request" },
                     statusCode: StatusCodes.Status403Forbidden);
 
+            // In a team the fleet view is the caller's OWN machines (devthrottle_internal#2311): another member's
+            // Directors are theirs, and their machines are not shown to anyone else.
+            var team = GatewayEndpoints.RosterTeamCaller(ctx, tenant.Value, teamCaller);
+
             // The rows arrive with their verdict already decided - status, message and ordering - because
             // what a row MEANS is settled here and rendered verbatim by whoever displays it.
-            return Results.Ok(store.ReadAll(tenant.Value));
+            return Results.Ok(team is null ? store.ReadAll(tenant.Value) : store.ReadAll(tenant.Value, d => team.OwnsDirector(d)));
         });
 
         FileLog.Write($"[SkillPlacementEndpoints] mapped {Path} (POST report, GET fleet view)");

@@ -714,7 +714,10 @@ public sealed class WorkspaceStore
     /// Every workspace, most recently written first. Summaries only - the list is a chooser, and a fleet
     /// of documents each carrying twenty seats is not something to send to render a list.
     /// </summary>
-    public IReadOnlyList<WorkspaceSummaryDto> List()
+    /// <param name="keepDirector">When given, keep only the workspaces whose capture Director it answers true for - an
+    /// authored workspace's Director is null (devthrottle_internal#2311: in a team, the caller's own Directors). Read from
+    /// the head column, like everything else here, so the cut never parses a stored document.</param>
+    public IReadOnlyList<WorkspaceSummaryDto> List(Func<string?, bool>? keepDirector = null)
     {
         lock (_gate)
         {
@@ -725,6 +728,7 @@ public sealed class WorkspaceStore
             // one damaged row from taking the whole list down with it: a workspace that cannot be read is
             // still listed, and the failure surfaces where it belongs, on the read of THAT workspace.
             var summaries = rows
+                .Where(e => keepDirector is null || keepDirector(e.DirectorId))
                 .OrderByDescending(e => e.UpdatedUtc)
                 .ThenBy(e => e.Id, StringComparer.Ordinal)
                 .Select(e => new WorkspaceSummaryDto

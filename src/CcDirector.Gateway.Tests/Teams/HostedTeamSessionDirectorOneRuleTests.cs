@@ -121,6 +121,20 @@ public sealed class HostedTeamSessionDirectorOneRuleTests : IAsyncLifetime
         catch { /* best-effort */ }
     }
 
+    // ---- the Wingman's narration plan (late-pieces review, finding 1) -----------------------------------------------
+
+    [Fact]
+    public async Task TheOwnersNarrationPlan_IsTheTeamTier_WhileAColleaguesDirectorListsTheSessionToo()
+    {
+        // ONLY BOB'S ROW: nobody holds the session, so nothing is said about anybody's plan - never Bob's.
+        Assert.Equal(Wingman.NarrationPlan.Unknown, _gateway.ResolveNarrationPlan(_team, _sessionId));
+
+        // BOTH LIST IT: the session is Alice's by its key row, so her narration is made on the team's plan. Before, two
+        // listers made it nobody's and the narration was silently not made.
+        await AliceListsTheSession();
+        Assert.Equal(Wingman.NarrationPlan.Allowed, _gateway.ResolveNarrationPlan(_team, _sessionId));
+    }
+
     // ---- the typed prompt route ------------------------------------------------------------------------------------
 
     [Fact]

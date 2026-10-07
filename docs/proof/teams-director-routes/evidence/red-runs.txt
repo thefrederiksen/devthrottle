@@ -1,0 +1,111 @@
+Revert proofs for the team Director routes change, 2026-10-06. Each: one mutation of the shipped code, the projects rebuilt, the named tests run,
+the result recorded, and the file restored (checked clean with git diff). Run by a script, in order; M3 and M5 were re-run after a first
+attempt that did not compile (M3, and M13 and M14 the first time) or removed more than the one refusal (M5) - those attempts are not recorded.
+
+=== M1 the GET /sessions rule removed (the state before this change)
+file: src/CcDirector.Gateway/Teams/TeamEndpointRules.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.F1|FullyQualifiedName~HostedTeamDirectorRoutesTests.GetSessions
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.F1_TheFleetCheck_OnADevelopersSessionKey_SucceedsWithOnlyTheirOwnSessions [29 ms]
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.GetSessions_TheOwnerAndAManager_AlsoGetOnlyTheirOwn_TheWholeTeamIsTheFleetMap [21 ms]
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.GetSessions_ADevelopersDeviceKey_ServesTheirOwn_AndAColleagueListingTheirIdGetsNothingOfIt [5 ms]
+Failed!  - Failed:     3, Passed:     1, Skipped:     0, Total:     4, Duration: 13 s - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M2 the roster's Director cut removed (every Director of the team served)
+file: src/CcDirector.Gateway/Api/GatewayEndpoints.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.F1|FullyQualifiedName~HostedTeamDirectorRoutesTests.GetSessions
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.F1_TheFleetCheck_OnADevelopersSessionKey_SucceedsWithOnlyTheirOwnSessions [90 ms]
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.GetSessions_TheOwnerAndAManager_AlsoGetOnlyTheirOwn_TheWholeTeamIsTheFleetMap [17 ms]
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.GetSessions_ADevelopersDeviceKey_ServesTheirOwn_AndAColleagueListingTheirIdGetsNothingOfIt [26 ms]
+Failed!  - Failed:     3, Passed:     1, Skipped:     0, Total:     4, Duration: 10 s - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M4 allocate takes the body's Director instead of the calling key's
+file: src/CcDirector.Gateway/Api/GatewayEndpoints.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.SessionNumbers
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.SessionNumbers_ANumberAlreadyHandedToAnotherPersonsDirector_IsNotHandedToACallerAgain [20 ms]
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.SessionNumbers_AllocateIsHandedToTheCallingKeysOwnDirector_WhateverTheBodyNames [12 ms]
+Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 11 s - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M6 freeing a number answered as the caller's own whatever Director holds it
+file: src/CcDirector.Gateway/Teams/TeamCallerOwnership.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.SessionNumbers
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.SessionNumbers_AnotherPersonsSession_IsRefused_AndSoIsFreeingTheirNumber [13 ms]
+Failed!  - Failed:     1, Passed:     3, Skipped:     0, Total:     4, Duration: 10 s - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M3 the roster's holder-rule row cut removed (a colleague's listing of your id kept)
+file: src/CcDirector.Gateway/Api/GatewayEndpoints.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.GetSessions
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.GetSessions_ADevelopersDeviceKey_ServesTheirOwn_AndAColleagueListingTheirIdGetsNothingOfIt [23 ms]
+Failed!  - Failed:     1, Passed:     2, Skipped:     0, Total:     3, Duration: 8 s - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M5 allocate's refusal of another person's session removed
+file: src/CcDirector.Gateway/Api/GatewayEndpoints.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.SessionNumbers
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.SessionNumbers_ANumberAlreadyHandedToAnotherPersonsDirector_IsNotHandedToACallerAgain [16 ms]
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.SessionNumbers_AnotherPersonsSession_IsRefused_AndSoIsFreeingTheirNumber [5 ms]
+Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 9 s - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M7 the activity batch check removed
+file: src/CcDirector.Gateway/Activity/ActivityEventEndpoints.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.ActivityEvents
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.ActivityEvents_InAnotherDirectorsName_OrAboutAnotherPersonsSession_AreRefusedWhole [110 ms]
+Failed!  - Failed:     1, Passed:     1, Skipped:     0, Total:     2, Duration: 7 s - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M8 the placement report filed under the body's Director
+file: src/CcDirector.Gateway/Api/SkillPlacementEndpoints.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.SkillPlacement
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.SkillPlacement_IsFiledUnderTheCallingKeysOwnDirector_TheFleetViewIsTheirOwn_ACollaboratorIsRefused [57 ms]
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 57 ms - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M9 the placement fleet view uncut
+file: src/CcDirector.Gateway/Api/SkillPlacementEndpoints.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.SkillPlacement
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.SkillPlacement_IsFiledUnderTheCallingKeysOwnDirector_TheFleetViewIsTheirOwn_ACollaboratorIsRefused [79 ms]
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 79 ms - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M10 the workspace list uncut
+file: src/CcDirector.Gateway/Api/WorkspaceEndpoints.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.Workspaces
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.Workspaces_TheListIsCutToTheCallersOwnDirectors_ACollaboratorIsRefused [243 ms]
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 243 ms - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M11 the gate stops cutting nothing: a list cut to the caller's own refused like any list
+file: src/CcDirector.Gateway/Teams/TeamEndpointGate.cs
+filter: FullyQualifiedName~TeamDirectorRoutesTests|FullyQualifiedName~TeamCallerOwnershipTests
+Failed CcDirector.Gateway.Tests.Teams.TeamCallerOwnershipTests.RunAsync_TheSessionRoster_ReachesTheEndpoint_WhichCutsItToTheCallersOwn [139 ms]
+Failed CcDirector.Gateway.Tests.Teams.TeamDirectorRoutesTests.Check_AListCutToTheCallersOwn_IsAllowedToEveryRoleThatRunsSessions_AndNamesTheCaller(subject: "sub-manager") [106 ms]
+Failed CcDirector.Gateway.Tests.Teams.TeamDirectorRoutesTests.Check_AListCutToTheCallersOwn_IsAllowedToEveryRoleThatRunsSessions_AndNamesTheCaller(subject: "sub-alice") [102 ms]
+Failed CcDirector.Gateway.Tests.Teams.TeamDirectorRoutesTests.Check_AListCutToTheCallersOwn_IsAllowedToEveryRoleThatRunsSessions_AndNamesTheCaller(subject: "sub-owner") [107 ms]
+Failed!  - Failed:     4, Passed:    52, Skipped:     0, Total:    56, Duration: 8 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+restored: clean
+
+=== M12 the workspace store cut ignored
+file: src/CcDirector.Gateway/Workspaces/WorkspaceStore.cs
+filter: FullyQualifiedName~HostedTeamDirectorRoutesTests.Workspaces
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamDirectorRoutesTests.Workspaces_TheListIsCutToTheCallersOwnDirectors_ACollaboratorIsRefused [77 ms]
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 77 ms - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M13 the narration owner answered by the previous rule (one lister or nobody) - over the wire
+file: src/CcDirector.Gateway/Teams/TeamCallerOwnership.cs
+filter: FullyQualifiedName~TheOwnersNarrationPlan
+Failed CcDirector.Gateway.Tests.Teams.HostedTeamSessionDirectorOneRuleTests.TheOwnersNarrationPlan_IsTheTeamTier_WhileAColleaguesDirectorListsTheSessionToo [35 ms]
+Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 35 ms - CcDirector.Gateway.Tests.dll (net10.0)
+restored: clean
+
+=== M14 the narration owner answered by the previous rule (one lister or nobody) - unit
+file: src/CcDirector.Gateway/Teams/TeamCallerOwnership.cs
+filter: FullyQualifiedName~PersonOfSession|FullyQualifiedName~TeamDirectorTunnelTests
+Failed CcDirector.Gateway.Tests.Teams.TeamDirectorRoutesTests.PersonOfSession_AKeyedSessionAColleaguesDirectorAlsoLists_IsStillItsOwners [3 s]
+Failed!  - Failed:     1, Passed:    65, Skipped:     0, Total:    66, Duration: 15 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+restored: clean
+

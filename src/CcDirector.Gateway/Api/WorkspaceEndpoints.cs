@@ -57,6 +57,17 @@ namespace CcDirector.Gateway.Api;
 /// </summary>
 internal static class WorkspaceEndpoints
 {
+    /// <summary>The team caller for a list request, or null for a personal account. A request the team gate allowed in a
+    /// team, with no way given to cut the list, fails loud rather than reading every member's workspaces.</summary>
+    private static Teams.TeamCaller? TeamCallerOf(HttpContext ctx, Func<HttpContext, Teams.TeamCaller?>? teamCaller)
+    {
+        if (teamCaller is not null)
+            return teamCaller(ctx);
+        if (Teams.TeamEndpointGate.AllowedTeam(ctx) is not null)
+            throw new InvalidOperationException("GET /gateway/workspaces was allowed inside a team, but this Gateway gave it no way to cut the list to the caller's own.");
+        return null;
+    }
+
     /// <summary>
     /// Map the workspace routes.
     /// </summary>
@@ -75,6 +86,10 @@ internal static class WorkspaceEndpoints
     /// <param name="passDevReports">Pass a restored seat's dev reports to the session it came back as, in the request's
     /// own account, and say what passed. A delegate so the account resolution stays in the one place that owns it.
     /// Throws the workspace exceptions with the reason when the pass is refused.</param>
+    /// <param name="teamCaller">The caller inside a team's tenant, or null for a personal account
+    /// (devthrottle_internal#2311). In a team the workspace LIST is cut to the workspaces captured from the caller's own
+    /// Directors; a workspace written by hand names no Director, so it cannot be shown to be anyone's and is left out.
+    /// Null as a delegate leaves the list uncut, and a team request then fails loud rather than reading everyone's.</param>
     public static void Map(
         IEndpointRouteBuilder app,
         WorkspaceStore store,
@@ -82,7 +97,8 @@ internal static class WorkspaceEndpoints
         Func<string, DirectorDto?> lookupDirector,
         Func<string, WorkspaceRestoreOrder, CancellationToken, Task<DirectorCommandResult?>> sendRestore,
         Func<HttpContext, string, bool> callerIsDirector,
-        Func<WorkspaceDocument, WorkspaceDevReportPassRequest, DateTime, WorkspaceDevReportPassResult> passDevReports)
+        Func<WorkspaceDocument, WorkspaceDevReportPassRequest, DateTime, WorkspaceDevReportPassResult> passDevReports,
+        Func<HttpContext, Teams.TeamCaller?>? teamCaller = null)
     {
         // RESTORE (the Message Load mission, slice 6; owner decision 2, 17 September 2026). A drained fleet is
         // brought back by the DIRECTOR, not by a session running spawn lines: a session key may name only itself
@@ -315,10 +331,11 @@ internal static class WorkspaceEndpoints
             }
         });
 
-        app.MapGet("/gateway/workspaces", () =>
+        app.MapGet("/gateway/workspaces", (HttpContext ctx) =>
         {
-            var workspaces = store.List();
-            FileLog.Write($"[WorkspaceEndpoints] list: count={workspaces.Count}");
+            var team = TeamCallerOf(ctx, teamCaller);
+            var workspaces = team is null ? store.List() : store.List(team.OwnsDirector);
+            FileLog.Write($"[WorkspaceEndpoints] list: count={workspaces.Count}{(team is null ? "" : ", in a team: captured from the caller's own Directors only")}");
             return Results.Json(new { workspaces });
         });
 

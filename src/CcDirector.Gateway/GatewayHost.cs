@@ -701,6 +701,21 @@ public sealed class GatewayHost : IAsyncDisposable
     internal string? TeamPromptCaller(HttpContext ctx, TenantId tenant) =>
         TeamGate.CallerSubject(tenant, Util.AuthMiddleware.AuthenticatedDevice(ctx));
 
+    /// <summary>
+    /// The caller inside a team's tenant, for an endpoint that cuts or checks its own answer (devthrottle_internal#2311):
+    /// null when <paramref name="tenant"/> is not a team's, so a personal account is answered exactly as before. In a
+    /// team, the person is the one the gate ALLOWED this request for, in this tenant - never a second resolution - so a
+    /// request that somehow reached the endpoint without the gate's allow owns nothing and is cut to nothing.
+    /// </summary>
+    internal Teams.TeamCaller? TeamCallerFor(HttpContext ctx, TenantId tenant)
+    {
+        if (!TeamRegistry.IsTeam(tenant))
+            return null;
+        var allowedHere = string.Equals(Teams.TeamEndpointGate.AllowedTeam(ctx), tenant.Value, StringComparison.Ordinal);
+        return TeamCallerOwnership.CallerIn(tenant, allowedHere ? Teams.TeamEndpointGate.AllowedCaller(ctx) : null,
+            Util.AuthMiddleware.AuthenticatedDevice(ctx), Util.AuthMiddleware.CallingSession(ctx));
+    }
+
     /// <summary>The mobile Speak marks, for the doorbell's dictation-lock wiring test.</summary>
     internal Transcription.TranscribingSessions TranscribingSessionsForTests => _transcribingSessions;
 
@@ -1203,6 +1218,15 @@ public sealed class GatewayHost : IAsyncDisposable
 
     /// <summary>Test-only: the dev report record, so a hosted test can leave an item in the state a crash leaves it.</summary>
     internal DevReports.DevReportStore DevReportsForTest => _devReports;
+
+    /// <summary>The workspace store, for the team routes tests (devthrottle_internal#2311).</summary>
+    internal Workspaces.WorkspaceStore WorkspacesForTest => _workspaces;
+
+    /// <summary>The skill placement store, for the team routes tests (devthrottle_internal#2311).</summary>
+    internal Skills.SkillPlacementStore SkillPlacementForTest => _skillPlacement;
+
+    /// <summary>The activity ledger, for the team routes tests (devthrottle_internal#2311).</summary>
+    internal Activity.ActivityEventStore ActivityEventsForTest => _activityEvents;
     internal DevReports.DevReportRecipients DevReportRecipientsForTest => _devReportRecipients;
     internal DevReports.DevReportPersonComments DevReportCommentsForTest => _devReportComments;
     internal DevReports.DevReportDelivery DevReportDeliveryForTest => _devReportDelivery;
@@ -1869,7 +1893,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // ONE answer to "whose Director is this" in a team, asked by the team gate and by the hub before it accepts a
         // team's turn push (devthrottle_internal#2311).
         TeamCallerOwnership = new Teams.TeamCallerOwnership(Registry, PushedSessions, Devices, _sessionTurns, _tenantBoundary, SessionKeys,
-            reportAuthor: (tenant, reportId) => _devReports.Get(tenant, reportId)?.AuthorSubject);
+            reportAuthor: (tenant, reportId) => _devReports.Get(tenant, reportId)?.AuthorSubject,
+            numberDirector: SessionNumbers.DirectorFor);
         // ONE answer to "which Director holds this session" in a team (devthrottle_internal#2311): every per-session
         // lookup of the session store - the prompt route and its held deliveries, dev-report delivery, the Fleet
         // Manager's close - answers through the same ownership rule, never the roster's first row. Personal tenants
@@ -4453,6 +4478,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // The one "Teams released" signal on /healthz (devthrottle_internal#2311): true exactly where the team
             // enrollment routes are mapped - the hosted enrollment routes exist only on hosted.
             teamsOffered: GatewayHostedMode.IsHosted && TeamsReleased,
+            // GET /sessions in a team serves the caller's own sessions only (devthrottle_internal#2311, live proof F1).
+            teamCaller: TeamCallerFor,
             // Per-subsystem readiness on /healthz, so a deploy can tell "the process is up" apart from
             // "the pages work". Statistics is the one subsystem that is designed to fail on its own without
             // stopping the Gateway, so it is the one that can be silently down after a green deploy - which
@@ -4848,7 +4875,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 && Registry.IsRegisteredByCredential(tenant, directorId, Util.AuthMiddleware.RegisteringCredential(ctx)),
             (doc, request, nowUtc) => DevReports.DevReportInheritance.Pass(doc, request, _devReports,
                 _tenantPass.Current ?? throw new InvalidOperationException("no account is bound to this request, so no dev report can pass."),
-                nowUtc));
+                nowUtc),
+            // In a team the workspace list is the caller's own (devthrottle_internal#2311, live proof F2).
+            teamCaller: ctx => Api.GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant ? TeamCallerFor(ctx, tenant) : null);
         // The register names WHICH library it is for the caller's key - this Gateway's stable id, the tenant the
         // store just answered for, and the team when that tenant is one - so a Director stamps its skills with an
         // identity that never depends on the address it used (devthrottle_internal#2311, SK-F2/SK-F3).
@@ -5561,13 +5590,13 @@ public sealed class GatewayHost : IAsyncDisposable
         // The activity ledger (docs/PLAN-trustworthy-working-start-2026-07-24.md): producers push observed
         // activity/snooze evidence to POST /activity-events/batch (idempotent by producer-minted event id),
         // and diagnosis reads GET /activity-events. Tenant-scoped exactly like the prompt log.
-        Activity.ActivityEventEndpoints.Map(_app, _activityEvents, _tenantBoundary);
+        Activity.ActivityEventEndpoints.Map(_app, _activityEvents, _tenantBoundary, teamCaller: TeamCallerFor);
 
         // The repo-state feed (issue #2118): POST /gateway/repostate, where a Director pushes its
         // repositories' branches and worktrees. Device-authenticated and tenant-scoped from the caller's
         // own key; write-only, because the sole consumer (the morning report) reads the store in-process.
         Api.RepoStateEndpoints.Map(_app, _repoState, _tenantBoundary);
-        Api.SkillPlacementEndpoints.Map(_app, _skillPlacement, _tenantBoundary);
+        Api.SkillPlacementEndpoints.Map(_app, _skillPlacement, _tenantBoundary, teamCaller: TeamCallerFor);
 
         Mobile.MobileApp.Map(_app, Token);
         // The legacy /m mount: 301 to the canonical /mobile equivalent so installed phone PWAs and

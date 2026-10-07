@@ -149,6 +149,9 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
 
         foreach (var (method, pattern) in undeclared)
         {
+            // Every route still undeclared for teams, listed by name (devthrottle_internal#2311), so the list is read from
+            // each run rather than counted.
+            _output.WriteLine($"  undeclared: {method} {pattern}");
             var verdict = Ask(method, pattern, _owner, TeamOwnership.Callers);
             Assert.True(verdict.Outcome == TeamGateOutcome.Refused && verdict.Message == TeamEndpointGate.UndeclaredRefusal,
                 $"{method} {pattern} states no action, yet the gate answered {verdict.Outcome} for the team's Owner inside the team.");

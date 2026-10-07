@@ -106,6 +106,18 @@ public sealed class FleetSessionNumberAllocator
             return pool.BySession.TryGetValue(sessionId, out var a) ? a.Number : (int?)null;
     }
 
+    /// <summary>The Director <paramref name="sessionId"/>'s number in <paramref name="tenant"/>'s partition was handed to
+    /// or adopted from, or null when the session holds no number or none was recorded. Inside a team this is whose the
+    /// number is (devthrottle_internal#2311): freeing it, or asking for it again, is a person's only for their own
+    /// Director's number.</summary>
+    public string? DirectorFor(TenantId tenant, string sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return null;
+        if (!_byTenant.TryGetValue(tenant, out var pool)) return null;
+        lock (pool.Lock)
+            return pool.BySession.TryGetValue(sessionId, out var a) && !string.IsNullOrEmpty(a.DirectorId) ? a.DirectorId : null;
+    }
+
     /// <summary>
     /// Hand out a number for <paramref name="sessionId"/> IN <paramref name="tenant"/>'s partition, unique
     /// across that tenant's fleet, owned by <paramref name="directorId"/>. Idempotent: asking again for a
