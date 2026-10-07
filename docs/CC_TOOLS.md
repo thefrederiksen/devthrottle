@@ -263,7 +263,8 @@ cc-outlook send -t "to@example.com" -s "Subject" -b "Body text"
 cc-outlook send -t "to@example.com" -s "Report" -b "See attached" --attach report.pdf
 
 # Reply and forward
-cc-outlook reply <message_id>
+cc-outlook reply <message_id> -b "..."         # sender only, saved as a draft
+cc-outlook reply <message_id> -b "..." --all   # sender plus every original To and Cc
 cc-outlook forward <message_id>
 
 # Search

@@ -1,5 +1,6 @@
 """Outlook API wrapper using O365 library."""
 
+import html as _html
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -709,7 +710,9 @@ class OutlookClient:
         Args:
             message_id: Message ID to reply to
             body: Reply body text
-            reply_all: If True, reply to all recipients
+            reply_all: If False, reply to the sender only. If True, reply to the
+                sender plus every original To and Cc recipient (Outlook's
+                "Reply all").
             send: If True, send immediately instead of saving as draft
             html: If True, body is HTML
 
@@ -721,20 +724,41 @@ class OutlookClient:
 
         if not message:
             raise ValueError(f"Message not found: {message_id}")
+        if message.is_draft:
+            raise ValueError(
+                f"Message {message_id} is a draft; a draft cannot be replied to")
 
-        if reply_all:
-            reply = message.reply_all()
+        # O365's Message has no reply_all(); reply() takes to_all and DEFAULTS
+        # it to True, so the mode must always be passed explicitly or a plain
+        # reply silently goes to everyone.
+        reply = message.reply(to_all=reply_all)
+        if not reply:
+            raise ConnectionError(
+                f"Graph did not create the reply for message {message_id}")
+
+        # Graph returns the reply already holding the quoted original, and the
+        # O365 body setter MERGES what is assigned into it according to the
+        # reply's current body_type. So the new text must be shaped to match
+        # that type rather than the type being changed afterwards: a text type
+        # over the merged HTML document shows the recipient raw markup.
+        if str(reply.body_type).lower() == 'html':
+            reply.body = body if html else _html.escape(body).replace("\n", "<br>")
+        elif html:
+            # The original was plain text: rebuild the whole body as HTML.
+            quoted = _html.escape(reply.body or "").replace("\n", "<br>")
+            reply.body = ""
+            reply.body_type = 'html'
+            reply.body = body + "<br><br>" + quoted
         else:
-            reply = message.reply()
+            reply.body = body
 
-        reply.body = body
-        if html:
-            reply.body_type = 'HTML'
-
-        if send:
-            reply.send()
-        else:
-            reply.save_draft()
+        saved = reply.send() if send else reply.save_draft()
+        if not saved:
+            raise ConnectionError(
+                f"Graph refused to {'send' if send else 'save'} the reply "
+                f"to message {message_id}. Graph had already created draft "
+                f"{reply.object_id} holding only the quoted original; delete it "
+                f"from Drafts before retrying.")
 
         status = 'sent' if send else 'draft'
 
@@ -743,6 +767,7 @@ class OutlookClient:
             'id': reply.object_id if not send else None,
             'subject': reply.subject,
             'to': [r.address for r in reply.to],
+            'cc': [r.address for r in reply.cc],
             'reply_to': message_id,
             'reply_all': reply_all
         }
@@ -777,7 +802,6 @@ class OutlookClient:
             # body_type aligned so the note renders as written.
             body_type = str(getattr(forward, "body_type", "") or "")
             if body_type.lower() == "html":
-                import html as _html
                 note = _html.escape(body).replace("\n", "<br>")
                 forward.body = note + "<br><br>" + existing
                 forward.body_type = "HTML"
@@ -1276,6 +1300,7 @@ class OutlookClient:
             'date': msg.received.isoformat() if msg.received else None,
             'has_attachments': msg.has_attachments,
             'is_read': msg.is_read,
+            'is_draft': msg.is_draft,
             'importance': msg.importance.value if msg.importance else 'normal',
             'categories': getattr(msg, 'categories', []),
             'conversation_id': getattr(msg, 'conversation_id', None),
