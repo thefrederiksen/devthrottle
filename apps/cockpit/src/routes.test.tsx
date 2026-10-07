@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 import { MemoryRouter, Outlet, useLocation, useRoutes } from "react-router-dom";
 
-// The Cockpit opens on Sessions (owner, 7 Oct 2026), and the Assistant's old address still lands on the Fleet Manager. The REAL route table the app mounts is driven here (COCKPIT_ROUTES), so the sign-in gate and the shell
+// The Cockpit opens on Sessions (owner, 7 Oct 2026), and the Assistant's old address still lands on the Fleet
+// Manager. The REAL route table the app mounts is driven here (COCKPIT_ROUTES), so the sign-in gate and the shell
 // layout are the app's own; only the pages themselves are stood in for, because just where each address goes is
 // under test. (A memory DATA router is not used: its navigation builds a fetch Request that jsdom's abort signal
 // cannot satisfy.)
