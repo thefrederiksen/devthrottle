@@ -2736,6 +2736,115 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("snoozes", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamBillChargeEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AmountCents")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("amount_cents");
+
+                    b.Property<int>("ChargedCents")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("charged_cents");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<DateTime>("PeriodEndUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("period_end_utc");
+
+                    b.Property<DateTime>("PeriodStartUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("period_start_utc");
+
+                    b.Property<int>("PricePerSeatCents")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("price_per_seat_cents");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<int>("Seats")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("seats");
+
+                    b.Property<string>("TeamId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("team_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeamId", "PeriodStartUtc")
+                        .IsUnique();
+
+                    b.ToTable("team_bill_charges", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamBillEntity", b =>
+                {
+                    b.Property<string>("TeamId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("team_id");
+
+                    b.Property<bool>("AutoRenew")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("auto_renew");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<DateTime>("CurrentPeriodEndUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("current_period_end_utc");
+
+                    b.Property<DateTime>("CurrentPeriodStartUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("current_period_start_utc");
+
+                    b.Property<DateTime>("PlanStartedUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("plan_started_utc");
+
+                    b.Property<int>("PricePerSeatCents")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("price_per_seat_cents");
+
+                    b.Property<int>("Seats")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("seats");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
+
+                    b.HasKey("TeamId");
+
+                    b.HasIndex("Status", "CurrentPeriodEndUtc");
+
+                    b.ToTable("team_bills", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamEntitlementEntity", b =>
                 {
                     b.Property<string>("TeamId")
@@ -4138,6 +4247,24 @@ namespace CcDirector.Gateway.Data.Migrations
                         });
 
                     b.Navigation("PrimitiveRuns");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamBillChargeEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamBillEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamInvitationEntity", b =>

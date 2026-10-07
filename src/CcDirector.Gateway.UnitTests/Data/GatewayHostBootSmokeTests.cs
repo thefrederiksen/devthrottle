@@ -130,9 +130,12 @@ public sealed class GatewayHostBootSmokeTests
     // (devthrottle_internal#2307).
     private const string TeamQuestionAnswersPostgresMigration = "20261006171258_AddTeamQuestionAnswers";
     private const string TeamQuestionAnswersSqliteMigration = "20261006171223_AddTeamQuestionAnswers";
-    // Archiving a factory (Factories screen mission, round 2) - the newest.
+    // Archiving a factory (Factories screen mission, round 2).
     private const string ArchiveFactoriesPostgresMigration = "20261007052952_ArchiveFactories";
     private const string ArchiveFactoriesSqliteMigration = "20261007035034_ArchiveFactories";
+    // The team bill the Gateway owns, and its billing history (Teams v1, the team bill without Stripe) - the newest.
+    private const string TeamBillsPostgresMigration = "20261007070501_AddTeamBills";
+    private const string TeamBillsSqliteMigration = "20261007070434_AddTeamBills";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -199,7 +202,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FactoryRegistryPostgresMigration, migrations);
         Assert.Contains(TeamQuestionAnswersPostgresMigration, migrations);
         Assert.Contains(ArchiveFactoriesPostgresMigration, migrations);
-        Assert.Equal(ArchiveFactoriesPostgresMigration, migrations[^1]);
+        Assert.Contains(TeamBillsPostgresMigration, migrations);
+        Assert.Equal(TeamBillsPostgresMigration, migrations[^1]);
     }
 
     /// <summary>
@@ -264,7 +268,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FactoryRegistrySqliteMigration, sqliteAll);
         Assert.Contains(TeamQuestionAnswersSqliteMigration, sqliteAll);
         Assert.Contains(ArchiveFactoriesSqliteMigration, sqliteAll);
-        Assert.Equal(ArchiveFactoriesSqliteMigration, sqliteAll[^1]);
+        Assert.Contains(TeamBillsSqliteMigration, sqliteAll);
+        Assert.Equal(TeamBillsSqliteMigration, sqliteAll[^1]);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
@@ -373,8 +378,9 @@ public sealed class GatewayHostBootSmokeTests
             DevReportSharingSqliteMigration,
             FactoryRegistrySqliteMigration,
             TeamQuestionAnswersSqliteMigration,
-            ArchiveFactoriesSqliteMigration);
-        Assert.Equal(ArchiveFactoriesSqliteMigration, applied[^1]);
+            ArchiveFactoriesSqliteMigration,
+            TeamBillsSqliteMigration);
+        Assert.Equal(TeamBillsSqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
@@ -436,8 +442,9 @@ public sealed class GatewayHostBootSmokeTests
             DevReportSharingPostgresMigration,
             FactoryRegistryPostgresMigration,
             TeamQuestionAnswersPostgresMigration,
-            ArchiveFactoriesPostgresMigration);
-        Assert.Equal(ArchiveFactoriesPostgresMigration, migrations[^1]);
+            ArchiveFactoriesPostgresMigration,
+            TeamBillsPostgresMigration);
+        Assert.Equal(TeamBillsPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }
