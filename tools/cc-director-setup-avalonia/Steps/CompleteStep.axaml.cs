@@ -115,14 +115,25 @@ public partial class CompleteStep : UserControl
                 _ => string.Join(", ", _skippedNames),
             };
             var why = _skippedReasons.Count > 0 ? "\n" + string.Join("\n", _skippedReasons) : "";
-            DescriptionText.Text =
-                $"{what} did not install. The Director may still work, but please report this.{why}";
+            // "The Director may still work" is said only when there IS a Director: under a failed placement it
+            // contradicts every other line on the screen.
+            DescriptionText.Text = directorInstalled
+                ? $"{what} did not install. The Director may still work, but please report this.{why}"
+                : $"{what} did not install. Please report this.{why}";
             SummaryLine.IsVisible = false;
             FailurePanel.IsVisible = true;
             if (_skippedNames.Count > 0) SkippedText.Text = $"{skipped} ({string.Join(", ", _skippedNames)})";
             DetailsHeader.Text = $"{what} did not install - please report this";
             DetailsHeader.Foreground = amber;
             DetailsExpander.IsExpanded = true;
+        }
+
+        // A Director this install did not place is not offered: the button would start nothing, and the words
+        // under it say so. The heading and description already say what failed (skipped > 0 above).
+        if (!directorInstalled)
+        {
+            LaunchButton.IsVisible = false;
+            LaunchButton.IsEnabled = false;
         }
 
         // A warning is said in full, in its own panel, under the button that is still the next step. It is
@@ -143,7 +154,7 @@ public partial class CompleteStep : UserControl
             SetupLog.Write($"[CompleteStep] warning shown: {text.Replace("\n", " | ")}");
         }
 
-        SetupLog.Write($"[CompleteStep] Created: installed={installed}, skipped={skipped}, warnings={warnings?.Count ?? 0}, isUpdate={isUpdate}, alreadyUpToDate={alreadyUpToDate}, version={version}");
+        SetupLog.Write($"[CompleteStep] Created: installed={installed}, skipped={skipped}, warnings={warnings?.Count ?? 0}, directorInstalled={directorInstalled}, isUpdate={isUpdate}, alreadyUpToDate={alreadyUpToDate}, version={version}");
     }
 
     private void OpenLogButton_Click(object? sender, RoutedEventArgs e)

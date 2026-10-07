@@ -44,6 +44,11 @@ public class ToolDownloadItem : INotifyPropertyChanged
     /// Complete screen so it says the report is with us only when it is. Not rendered.</summary>
     public bool ReportAccepted { get; set; }
 
+    /// <summary>The launcher's launch agent property list is on disk after its start failed: the Director's start-up
+    /// check has something to repair. A first install that launchd refuses rolls back by deleting the file, so this
+    /// is read from the disk after the failure, never assumed from the step. Not rendered.</summary>
+    public bool LaunchAgentPresent { get; set; }
+
     public string StatusColor => Status switch
     {
         "Done" => "#22C55E",

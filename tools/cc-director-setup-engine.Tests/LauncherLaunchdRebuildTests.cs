@@ -413,6 +413,50 @@ public class LauncherLaunchdRebuildTests : IDisposable
         Assert.Equal(["print", "bootstrap"], launchd.Launchctl());
     }
 
+    // Review round five: a first install whose bootstrap launchd refuses rolls back by deleting the file it
+    // wrote, and the Director's start-up check then has nothing to repair. The words on the Complete screen
+    // must not promise that it will. This follows the one fact from the roll back, through the Director's
+    // decision, to the rendered warning - the same fact the wizard reads from the disk after the failure.
+    [Fact]
+    public void FirstInstallBootstrapRefused_LeavesNoPropertyList_TheDirectorLeavesItAlone_AndTheWarningPromisesNoRepair()
+    {
+        var launchd = new FakeLaunchd(loaded: false) { BootstrapExit = 5 };
+
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
+            LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, launchd.Run, _plist, _logDir));
+
+        var launchAgentPresent = File.Exists(_plist);
+        Assert.False(launchAgentPresent, "the roll back removed the property list this install wrote");
+
+        var decision = LauncherLaunchdRepair.Decide(launchAgentPresent, jobLoaded: false, launchctlPrint: null,
+            installedLaunchersRunning: 0, LauncherLaunchdRepair.DisabledState.Enabled);
+        Assert.Equal(LauncherLaunchdRepair.Verdict.NoLaunchAgent, decision.Verdict);
+
+        var warning = new InstallWarning(ComponentRegistry.Launcher.Id, ex.Message, InstallWarning.StartStep, ReportAccepted: true, launchAgentPresent);
+        var text = InstallCompletion.WarningPanelText([warning], directorInstalled: true);
+        Assert.False(warning.DirectorCanRepair);
+        Assert.DoesNotContain("repairs it when it can", text);
+        Assert.Contains("Running the installer again puts the missing part in place", text);
+    }
+
+    // The other side of the same fact: when the roll back put a previous property list back, the Director's
+    // check has something to look at, and the later repair may be promised.
+    [Fact]
+    public void BootstrapRefusedWithAPreviousAgent_KeepsThePropertyList_AndTheWarningMayPromiseTheRepair()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_plist)!);
+        File.WriteAllText(_plist, "<old/>");
+        var launchd = new FakeLaunchd(loaded: true) { BootstrapFailsOnce = true };
+
+        var ex = Assert.Throws<LauncherLaunchdAutostart.RebuildException>(() =>
+            LauncherLaunchdAutostart.Rebuild("/tmp/x/cc-launcher", null, launchd.Run, _plist, _logDir));
+
+        var launchAgentPresent = File.Exists(_plist);
+        Assert.True(launchAgentPresent, "the roll back restored the previous property list");
+        var warning = new InstallWarning(ComponentRegistry.Launcher.Id, ex.Message, InstallWarning.StartStep, ReportAccepted: true, launchAgentPresent);
+        Assert.Contains("repairs it when it can", InstallCompletion.WarningPanelText([warning], directorInstalled: true));
+    }
+
     [Fact]
     public void Rebuild_WhenTheRunnerThrowsAfterTheBootout_RollsBackAndKeepsTheSteps()
     {

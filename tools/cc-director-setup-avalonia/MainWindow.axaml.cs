@@ -373,7 +373,7 @@ public partial class MainWindow : Window
             .ToList();
         _warnings = prep.Items
             .Where(i => i.Status == InstallCompletion.WarningStatus)
-            .Select(i => new InstallWarning(i.Name, string.IsNullOrWhiteSpace(i.StatusDetail) ? "did not install" : i.StatusDetail, i.FailedStep, i.ReportAccepted))
+            .Select(i => new InstallWarning(i.Name, string.IsNullOrWhiteSpace(i.StatusDetail) ? "did not install" : i.StatusDetail, i.FailedStep, i.ReportAccepted, i.LaunchAgentPresent))
             .ToList();
         _directorInstalled = prep.ItemsById.TryGetValue("director", out var director) && director.Status == "Done";
 
@@ -403,8 +403,8 @@ public partial class MainWindow : Window
     {
         if (_currentStep == StepComplete && _completeStep is { } complete)
         {
-            var opens = InstallCompletion.OpensDirectorOnClose(_isUpdate, complete.DirectorOpened, Directory.Exists(_installPath) || File.Exists(_installPath));
-            SetupLog.Write($"[MainWindow] OnClosing on Complete: isUpdate={_isUpdate}, directorOpened={complete.DirectorOpened}, opensDirector={opens}, openOnCloseFailed={_openOnCloseFailed}, openOnClosePending={_openOnClosePending}");
+            var opens = InstallCompletion.OpensDirectorOnClose(_isUpdate, complete.DirectorOpened, _directorInstalled);
+            SetupLog.Write($"[MainWindow] OnClosing on Complete: isUpdate={_isUpdate}, directorOpened={complete.DirectorOpened}, directorInstalled={_directorInstalled}, opensDirector={opens}, openOnCloseFailed={_openOnCloseFailed}, openOnClosePending={_openOnClosePending}");
             if (opens && _openOnCloseFailed)
                 SetupLog.Write("[MainWindow] OnClosing on Complete: closing with the error shown; the Director is not tried again");
             else if (opens)

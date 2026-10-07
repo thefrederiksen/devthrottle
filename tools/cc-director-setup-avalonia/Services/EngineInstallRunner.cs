@@ -319,7 +319,15 @@ public sealed class EngineInstallRunner
             // placed and will open, and the person is told what they lose (autostart) and what happens next.
             // The report still carries the full diagnostics, so the cause is known on our side.
             item.Status = startResult.Success ? "Done" : InstallCompletion.WarningStatus;
-            if (!startResult.Success) { item.StatusDetail = startResult.Message; item.FailedStep = InstallWarning.StartStep; }
+            if (!startResult.Success)
+            {
+                item.StatusDetail = startResult.Message;
+                item.FailedStep = InstallWarning.StartStep;
+                // What the failure LEFT, read from the disk: the Director's repair needs the property list, and a
+                // first install launchd refuses has just deleted the one it wrote.
+                item.LaunchAgentPresent = LauncherLaunchdAutostart.IsRegistered();
+                SetupLog.Write($"[EngineInstallRunner] InstallLauncherAsync: launch agent property list present after the failure={item.LaunchAgentPresent}");
+            }
         }
         if (!startResult.Success)
         {

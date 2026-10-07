@@ -81,24 +81,34 @@ public sealed class InstallCompletionTests
     }
 
     // What the person reads under the warning depends on what is actually true: whether there is a Director
-    // to open, whether the launcher file is there for the Director to repair, and whether DevThrottle has the
-    // report. Every combination is rendered here as the screen renders it, in plain words - no "launchd", no
-    // "launch agent", no "plist" - and no promise the facts do not support (#3411, review round four).
+    // to open, whether the launcher AND its launch agent property list are there for the Director to repair,
+    // and whether DevThrottle has the report. Every combination is rendered here as the screen renders it, in
+    // plain words - no "launchd", no "launch agent", no "plist" - and no promise the facts do not support
+    // (#3411, review rounds four and five).
     [Theory]
-    [InlineData(true, "start", true)]
-    [InlineData(true, "start", false)]
-    [InlineData(true, "place", true)]
-    [InlineData(true, "place", false)]
-    [InlineData(false, "start", true)]
-    [InlineData(false, "start", false)]
-    [InlineData(false, "place", true)]
-    [InlineData(false, "place", false)]
-    public void WarningPanelText_SaysOnlyWhatTheFactsAllow(bool directorInstalled, string step, bool reportAccepted)
+    [InlineData(true, "start", true, true)]
+    [InlineData(true, "start", true, false)]
+    [InlineData(true, "start", false, true)]
+    [InlineData(true, "start", false, false)]
+    [InlineData(true, "place", true, true)]
+    [InlineData(true, "place", true, false)]
+    [InlineData(true, "place", false, true)]
+    [InlineData(true, "place", false, false)]
+    [InlineData(false, "start", true, true)]
+    [InlineData(false, "start", true, false)]
+    [InlineData(false, "start", false, true)]
+    [InlineData(false, "start", false, false)]
+    [InlineData(false, "place", true, true)]
+    [InlineData(false, "place", true, false)]
+    [InlineData(false, "place", false, true)]
+    [InlineData(false, "place", false, false)]
+    public void WarningPanelText_SaysOnlyWhatTheFactsAllow(bool directorInstalled, string step, bool launchAgentPresent, bool reportAccepted)
     {
-        var warning = new InstallWarning(ComponentRegistry.Launcher.Id, "macOS could not start the launcher at all: launchd reports 'spawn failed' (exit code 78: EX_CONFIG).", step, reportAccepted);
+        var warning = new InstallWarning(ComponentRegistry.Launcher.Id, "macOS could not start the launcher at all: launchd reports 'spawn failed' (exit code 78: EX_CONFIG).", step, reportAccepted, launchAgentPresent);
+        var directorCanRepair = step == "start" && launchAgentPresent;
 
         var text = InstallCompletion.WarningPanelText([warning], directorInstalled);
-        var explanation = InstallCompletion.LauncherWarningExplanation(directorInstalled, step == "start", reportAccepted);
+        var explanation = InstallCompletion.LauncherWarningExplanation(directorInstalled, directorCanRepair, reportAccepted);
 
         // The reason line is the runner's own words, verbatim, and the explanation follows it.
         Assert.StartsWith("Launcher: macOS could not start the launcher at all", text);
@@ -107,9 +117,10 @@ public sealed class InstallCompletionTests
         // The Director is the next step only when there is one.
         Assert.Equal(directorInstalled, text.Contains("The Director works without it: open it now."));
         Assert.Equal(!directorInstalled, text.Contains("The Director did not install either"));
-        // A later repair is promised only when the Director is there to do it AND the file is there to repair.
-        Assert.Equal(directorInstalled && step == "start", text.Contains("repairs it when it can"));
-        Assert.Equal(directorInstalled && step == "place", text.Contains("Running the installer again puts the missing part in place"));
+        // A later repair is promised only when the Director is there to do it AND the launcher and its property
+        // list are there to repair: the Director's check leaves a machine with no property list alone.
+        Assert.Equal(directorInstalled && directorCanRepair, text.Contains("repairs it when it can"));
+        Assert.Equal(directorInstalled && !directorCanRepair, text.Contains("Running the installer again puts the missing part in place"));
         // The report is with DevThrottle only when the Gateway accepted it.
         Assert.Equal(reportAccepted, text.Contains("nothing for you to type or send"));
         Assert.Equal(!reportAccepted, text.Contains("could not reach DevThrottle to report it"));
@@ -125,7 +136,7 @@ public sealed class InstallCompletionTests
     [Fact]
     public void WarningPanelText_WithoutALauncherWarning_IsOnlyTheLines()
     {
-        var text = InstallCompletion.WarningPanelText([new InstallWarning("cc-tools", "did not install", InstallWarning.PlaceStep, false)], directorInstalled: true);
+        var text = InstallCompletion.WarningPanelText([new InstallWarning("cc-tools", "did not install", InstallWarning.PlaceStep, false, false)], directorInstalled: true);
 
         Assert.Equal("Tools: did not install", text);
     }
@@ -133,9 +144,17 @@ public sealed class InstallCompletionTests
     [Fact]
     public void InstallWarning_PlacedMeansTheStepWasNotPlace()
     {
-        Assert.True(new InstallWarning(ComponentRegistry.Launcher.Id, "r", InstallWarning.StartStep, true).Placed);
-        Assert.False(new InstallWarning(ComponentRegistry.Launcher.Id, "r", InstallWarning.PlaceStep, true).Placed);
-        Assert.True(new InstallWarning("CC-LAUNCHER", "r", InstallWarning.StartStep, true).IsLauncher);
-        Assert.False(new InstallWarning("cc-director", "r", InstallWarning.StartStep, true).IsLauncher);
+        Assert.True(new InstallWarning(ComponentRegistry.Launcher.Id, "r", InstallWarning.StartStep, true, true).Placed);
+        Assert.False(new InstallWarning(ComponentRegistry.Launcher.Id, "r", InstallWarning.PlaceStep, true, true).Placed);
+        Assert.True(new InstallWarning("CC-LAUNCHER", "r", InstallWarning.StartStep, true, true).IsLauncher);
+        Assert.False(new InstallWarning("cc-director", "r", InstallWarning.StartStep, true, true).IsLauncher);
+    }
+
+    [Fact]
+    public void InstallWarning_DirectorCanRepair_OnlyWhenPlacedAndThePropertyListSurvived()
+    {
+        Assert.True(new InstallWarning(ComponentRegistry.Launcher.Id, "r", InstallWarning.StartStep, true, LaunchAgentPresent: true).DirectorCanRepair);
+        Assert.False(new InstallWarning(ComponentRegistry.Launcher.Id, "r", InstallWarning.StartStep, true, LaunchAgentPresent: false).DirectorCanRepair);
+        Assert.False(new InstallWarning(ComponentRegistry.Launcher.Id, "r", InstallWarning.PlaceStep, true, LaunchAgentPresent: true).DirectorCanRepair);
     }
 }

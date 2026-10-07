@@ -8,7 +8,11 @@ namespace CcDirector.Setup.Engine;
 /// <param name="Reason">Why it did not install, as the install runner recorded it for the row.</param>
 /// <param name="Step">Which step failed: <see cref="PlaceStep"/> (the file never reached the disk) or <see cref="StartStep"/> (it did, and did not start). The same words the report carries.</param>
 /// <param name="ReportAccepted">DevThrottle accepted the report of this failure.</param>
-public sealed record InstallWarning(string ComponentId, string Reason, string Step, bool ReportAccepted)
+/// <param name="LaunchAgentPresent">The launch agent property list is on disk AFTER the failure - the one fact the
+/// Director's repair needs before it can do anything (<see cref="LauncherLaunchdRepair"/> leaves a machine with no
+/// property list alone). A first install whose bootstrap launchd refuses rolls back by deleting the file it wrote,
+/// so a start failure alone does not say there is something left to repair.</param>
+public sealed record InstallWarning(string ComponentId, string Reason, string Step, bool ReportAccepted, bool LaunchAgentPresent)
 {
     /// <summary>The step that downloads and places the file.</summary>
     public const string PlaceStep = "place";
@@ -24,4 +28,8 @@ public sealed record InstallWarning(string ComponentId, string Reason, string St
 
     /// <summary>The file is on disk; only the start failed.</summary>
     public bool Placed => !string.Equals(Step, PlaceStep, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The Director's start-up check has something to repair: the launcher is placed and its launch
+    /// agent property list survived the failure.</summary>
+    public bool DirectorCanRepair => Placed && LaunchAgentPresent;
 }

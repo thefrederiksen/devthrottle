@@ -35,6 +35,9 @@ public sealed class MacWizardLauncherWarningTests
         // The two facts the Complete screen's words turn on are recorded on the row, where they are known.
         Assert.Contains("item.FailedStep = InstallWarning.PlaceStep", body);
         Assert.Contains("item.FailedStep = InstallWarning.StartStep", body);
+        // Whether the Director has anything to repair is read from the disk AFTER the failure: a first install
+        // launchd refuses has just deleted the property list it wrote (review round five).
+        Assert.Contains("item.LaunchAgentPresent = LauncherLaunchdAutostart.IsRegistered();", body);
     }
 
     [Fact]
@@ -65,7 +68,7 @@ public sealed class MacWizardLauncherWarningTests
     {
         var source = MacWizard("MainWindow.axaml.cs");
         Assert.Contains(".Where(i => i.Status == InstallCompletion.WarningStatus)", source);
-        Assert.Contains("new InstallWarning(i.Name, string.IsNullOrWhiteSpace(i.StatusDetail) ? \"did not install\" : i.StatusDetail, i.FailedStep, i.ReportAccepted)", source);
+        Assert.Contains("new InstallWarning(i.Name, string.IsNullOrWhiteSpace(i.StatusDetail) ? \"did not install\" : i.StatusDetail, i.FailedStep, i.ReportAccepted, i.LaunchAgentPresent)", source);
         Assert.Contains("_directorInstalled = prep.ItemsById.TryGetValue(\"director\", out var director) && director.Status == \"Done\";", source);
         Assert.Matches(@"new CompleteStep\([^;]*_warnings, _directorInstalled\)", source);
     }
@@ -77,7 +80,9 @@ public sealed class MacWizardLauncherWarningTests
     {
         var source = MacWizard("MainWindow.axaml.cs");
         Assert.Contains("protected override void OnClosing(WindowClosingEventArgs e)", source);
-        Assert.Contains("InstallCompletion.OpensDirectorOnClose(_isUpdate, complete.DirectorOpened,", source);
+        // The close rule reads the RECORDED placement, never a path existing: a failed placement can leave one.
+        Assert.Contains("InstallCompletion.OpensDirectorOnClose(_isUpdate, complete.DirectorOpened, _directorInstalled);", source);
+        Assert.DoesNotContain("Directory.Exists(_installPath) || File.Exists(_installPath)", source);
         // The close is held while the open's answer is awaited (LaunchServices answers a moment later); the
         // window closes itself when the Director is open, and a failed open leaves it with the error visible.
         // The next close is honoured without a second attempt. The behaviour itself is proven on a Mac by the
@@ -98,6 +103,11 @@ public sealed class MacWizardLauncherWarningTests
         Assert.Contains("x:Name=\"WarningText\"", markup);
         Assert.Contains("InstallCompletion.WarningPanelText(warnings, directorInstalled)", code);
         Assert.Contains("WarningPanel.IsVisible = true;", code);
+        // A Director this install did not place is not offered. The rendered combined state is proven by the
+        // render harness (--prove-director-failed-screen); this pins the wiring.
+        Assert.Contains("if (!directorInstalled)", code);
+        Assert.Contains("LaunchButton.IsVisible = false;", code);
+        Assert.Contains("DescriptionText.Text = directorInstalled", code);
         Assert.Contains("public bool DirectorOpened { get; private set; }", code);
         Assert.Contains("public async Task<bool> OpenDirectorAsync()", code);
         // No process started and nothing thrown is a failure, not a launch; on macOS the process is /usr/bin/open,

@@ -36,6 +36,12 @@ namespace SetupWizardRenderHarness;
 //                   open), CLOSE-ERROR (the text on screen) and CLOSE-OPEN-ATTEMPTS (how many times the
 //                   wizard tried to open the Director). The executable is put back and the run ends
 //                   WITHOUT a second close, so nothing is opened.
+//   --prove-director-failed-screen
+//                   Build the real Complete screen for a pass that did NOT place the Director and whose
+//                   launcher also failed to start, and check that every part of it agrees: the heading and
+//                   description name the failure, the warning says nothing can be opened, the Open Director
+//                   button is not offered, and the close rule opens nothing. Prints DIRECTOR-FAILED-* lines and
+//                   exits 1 on any disagreement. Installs nothing, so it runs on every operating system.
 //
 // After the Complete screen is shown the run prints what it says, one fact per line, so a proof can
 // read the screen without a person: COMPLETE-HEADING, COMPLETE-DESCRIPTION, COMPLETE-WARNING (the text
@@ -82,6 +88,9 @@ internal static class Program
         // which is correct for a genuine uninstall and exactly what a UI capture must never do.
         if (Array.Exists(args, a => string.Equals(a, "--uninstall-ui", StringComparison.OrdinalIgnoreCase)))
             return RenderUninstallUi();
+
+        if (Array.Exists(args, a => string.Equals(a, "--prove-director-failed-screen", StringComparison.OrdinalIgnoreCase)))
+            return ProveDirectorFailedScreen();
 
         var screensOnly = Array.Exists(args, a => string.Equals(a, "--screens", StringComparison.OrdinalIgnoreCase));
 
@@ -177,6 +186,54 @@ internal static class Program
         }
     }
 
+    /// <summary>
+    /// The combined state no install on a runner reaches on purpose: the Director was not placed AND the launcher
+    /// did not start. Everything on the screen must say the same thing - there is nothing to open (#3411, review
+    /// round five). The close rule is read with the same recorded fact MainWindow hands it.
+    /// </summary>
+    private static int ProveDirectorFailedScreen()
+    {
+        const bool directorInstalled = false;
+        var step = new CcDirectorSetup.Steps.CompleteStep(
+            installed: 0, skipped: 1, installPath: "/Users/you/Applications/Director.app",
+            isUpdate: false, alreadyUpToDate: false, version: "1.8.5",
+            agentNotice: null, skippedNames: ["Director"], readyToGo: true,
+            skippedReasons: ["Director: placement failed"],
+            warnings: [new CcDirector.Setup.Engine.InstallWarning("cc-launcher", "macOS could not start the launcher at all", CcDirector.Setup.Engine.InstallWarning.StartStep, ReportAccepted: false, LaunchAgentPresent: true)],
+            directorInstalled: directorInstalled);
+        var w = new Window { Width = 900, Height = 640, Content = step };
+        w.Show();
+        Pump();
+        Capture(w, "complete-director-failed-launcher-warning");
+
+        string Text(string name) => FindDescendant<TextBlock>(w, name) is { IsVisible: true } t ? (t.Text ?? "") : "";
+        var launch = FindDescendantButton(w, "LaunchButton");
+        var launchOffered = launch is { IsVisible: true, IsEnabled: true };
+        var heading = Text("HeadingText");
+        var description = Text("DescriptionText").Replace('\n', ' ');
+        var warning = FindDescendant<Border>(w, "WarningPanel") is { IsVisible: true } ? Text("WarningText").Replace('\n', ' ') : "(none)";
+        var opensOnClose = CcDirector.Setup.Engine.InstallCompletion.OpensDirectorOnClose(isUpdate: false, directorAlreadyOpened: false, directorInstalled);
+        Console.WriteLine($"DIRECTOR-FAILED-HEADING: {heading}");
+        Console.WriteLine($"DIRECTOR-FAILED-DESCRIPTION: {description}");
+        Console.WriteLine($"DIRECTOR-FAILED-WARNING: {warning}");
+        Console.WriteLine($"DIRECTOR-FAILED-OPEN-BUTTON-OFFERED: {launchOffered}");
+        Console.WriteLine($"DIRECTOR-FAILED-OPENS-ON-CLOSE: {opensOnClose}");
+        w.Close();
+        Pump();
+
+        var disagreements = new List<string>();
+        if (heading != "Setup finished with problems") disagreements.Add("the heading does not say the setup had problems");
+        if (!description.StartsWith("Director did not install.", StringComparison.Ordinal)) disagreements.Add("the description does not name the Director");
+        if (description.Contains("may still work", StringComparison.Ordinal)) disagreements.Add("the description says the Director may still work");
+        if (!warning.Contains("nothing can be opened or repaired", StringComparison.Ordinal)) disagreements.Add("the warning does not say nothing can be opened");
+        if (warning.Contains("open it now", StringComparison.Ordinal) || warning.Contains("repairs it when it can", StringComparison.Ordinal)) disagreements.Add("the warning promises an open or a repair");
+        if (launchOffered) disagreements.Add("the Open Director button is offered");
+        if (opensOnClose) disagreements.Add("the close rule would open the Director");
+        foreach (var d in disagreements) Console.WriteLine($"DIRECTOR-FAILED-DISAGREES: {d}");
+        Console.WriteLine(disagreements.Count == 0 ? "DIRECTOR-FAILED-SCREEN: PASS" : "DIRECTOR-FAILED-SCREEN: FAIL");
+        return disagreements.Count == 0 ? 0 : 1;
+    }
+
     /// <summary>What the Complete screen says, one fact per line, for a proof that has no eyes.</summary>
     private static void PrintCompleteFacts(MainWindow window)
     {
@@ -217,14 +274,15 @@ internal static class Program
                 // internal "cc-launcher" id). Passing the raw id here made the screenshot show a name
                 // the product no longer renders.
                 agentNotice: null, skippedNames: ["Director"],
-                skippedReasons: ["Director: cc-director-mac-arm64.zip SHA-256 mismatch; download rejected."])),
+                skippedReasons: ["Director: cc-director-mac-arm64.zip SHA-256 mismatch; download rejected."],
+                directorInstalled: false)),
             // The launcher could not be started (launchd refused it): the Director IS installed, the green
             // button is still the next step, and the amber panel says what is lost and what happens next.
             ("complete-launcher-warning", new CcDirectorSetup.Steps.CompleteStep(
                 installed: 1, skipped: 0, installPath: "/Users/you/Applications/DevThrottle.app",
                 isUpdate: false, alreadyUpToDate: false, version: "1.8.5",
                 agentNotice: null, skippedNames: null, readyToGo: true, skippedReasons: null,
-                warnings: [new CcDirector.Setup.Engine.InstallWarning("cc-launcher", "macOS could not start the launcher at all: launchd reports 'spawn failed' (exit code 78: EX_CONFIG). A report of this failure was sent to DevThrottle.", CcDirector.Setup.Engine.InstallWarning.StartStep, ReportAccepted: true)])),
+                warnings: [new CcDirector.Setup.Engine.InstallWarning("cc-launcher", "macOS could not start the launcher at all: launchd reports 'spawn failed' (exit code 78: EX_CONFIG). A report of this failure was sent to DevThrottle.", CcDirector.Setup.Engine.InstallWarning.StartStep, ReportAccepted: true, LaunchAgentPresent: true)])),
         };
 
         foreach (var (name, step) in states)

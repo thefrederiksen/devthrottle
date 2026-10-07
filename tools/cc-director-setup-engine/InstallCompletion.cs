@@ -74,7 +74,7 @@ public static class InstallCompletion
         var launcher = warnings.FirstOrDefault(w => w.IsLauncher);
         return launcher is null
             ? text
-            : text + "\n\n" + LauncherWarningExplanation(directorInstalled, launcher.Placed, launcher.ReportAccepted);
+            : text + "\n\n" + LauncherWarningExplanation(directorInstalled, launcher.DirectorCanRepair, launcher.ReportAccepted);
     }
 
     /// <summary>
@@ -83,20 +83,21 @@ public static class InstallCompletion
     ///
     /// The launcher only adds autostart: on macOS nothing in the Director's start-up, sign-in or Gateway
     /// connection reads it, so a Director that is installed is the next step whatever the launcher did. The
-    /// Director checks the launcher each time it starts and rebuilds a job launchd holds and refuses - so a
-    /// later repair is said only when the launcher file is there for it to repair, and never when the Director
-    /// itself did not install. A report is said to be with DevThrottle only when the Gateway accepted it; the
+    /// Director checks the launcher each time it starts and rebuilds a job launchd holds and refuses - but only
+    /// when the launch agent property list is on disk, so a later repair is said only when the launcher AND its
+    /// property list are there for it to repair, and never when the Director itself did not install. Anything
+    /// less is put right by running the installer again, which writes both. A report is said to be with DevThrottle only when the Gateway accepted it; the
     /// Director does not send a report for a launcher it decides to leave alone, so none is promised.
     /// </summary>
     /// <param name="directorInstalled">This install placed the Director.</param>
-    /// <param name="launcherPlaced">The launcher file is on disk and only its start failed; one that was never placed is put there by another install, not by the Director.</param>
+    /// <param name="directorCanRepair">The launcher is on disk and so is its launch agent property list (<see cref="InstallWarning.DirectorCanRepair"/>); without both the Director's check leaves it alone, and only another install puts it right.</param>
     /// <param name="reportAccepted">DevThrottle accepted this install's report of the failure.</param>
-    public static string LauncherWarningExplanation(bool directorInstalled, bool launcherPlaced, bool reportAccepted)
+    public static string LauncherWarningExplanation(bool directorInstalled, bool directorCanRepair, bool reportAccepted)
     {
         var parts = new List<string> { "DevThrottle will not start by itself when you sign in to this Mac until this is repaired." };
         if (!directorInstalled)
             parts.Add("The Director did not install either, and that comes first: nothing can be opened or repaired until it does.");
-        else if (launcherPlaced)
+        else if (directorCanRepair)
             parts.Add("The Director works without it: open it now. Each time the Director starts it checks this again and repairs it when it can.");
         else
             parts.Add("The Director works without it: open it now. Running the installer again puts the missing part in place.");
@@ -119,7 +120,7 @@ public static class InstallCompletion
     /// </summary>
     /// <param name="isUpdate">Was the product already installed when the wizard started?</param>
     /// <param name="directorAlreadyOpened">Did Open Director already start it?</param>
-    /// <param name="directorInstalled">Is the Director's executable on disk? A failed Director install has nothing to open.</param>
+    /// <param name="directorInstalled">Did this install place the Director? The recorded fact, never re-derived from a path existing: a failed placement can leave a path behind, and has nothing to open.</param>
     public static bool OpensDirectorOnClose(bool isUpdate, bool directorAlreadyOpened, bool directorInstalled)
         => !isUpdate && !directorAlreadyOpened && directorInstalled;
 
