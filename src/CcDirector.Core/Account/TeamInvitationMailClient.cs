@@ -38,6 +38,10 @@ public sealed class TeamInvitationMailClient
     /// <summary>The website route that sends one invitation's email.</summary>
     public const string InvitationEmailPath = "/api/v1/team-invitations/email";
 
+
+    /// <summary>The website route that tells a team's Owner the team's bill has ended.</summary>
+    public const string BillEndedEmailPath = "/api/v1/team-invitations/bill-ended-email";
+
     private readonly HttpClient _client;
     private readonly string _baseUrl;
 
@@ -92,8 +96,62 @@ public sealed class TeamInvitationMailClient
         return new TeamInvitationMailResult(false, message, status, code);
     }
 
+    /// <summary>
+    /// Ask the website to tell a team's Owner that the team's bill has ended, so nobody can join it (Teams v1, owner
+    /// ruling of 7 October: "tell the Owner"). The same safety property as the invitation email: <b>this call cannot
+    /// address anyone.</b> The body names the team and the bill row's fingerprint, nothing else; the website reads the
+    /// Owner from the team's own member list and the Owner's address from their own account, server-side.
+    ///
+    /// The fingerprint is the idempotency key: it is <c>EntitlementRegistry.TeamBillFingerprint</c> of the ended bill
+    /// row, so the website can refuse a second email for the same ended bill even after the Gateway restarts and forgets
+    /// it already asked. Throws only on a transport failure; a refusal is returned with the website's own message.
+    /// Neither the secret nor the team id is logged.
+    /// </summary>
+    /// <param name="serviceToken">The Gateway service secret. Never logged.</param>
+    /// <param name="teamId">The team whose bill has ended.</param>
+    /// <param name="billFingerprint">The ended bill row's fingerprint.</param>
+    public async Task<TeamInvitationMailResult> SendBillEndedAsync(string serviceToken, string teamId, string billFingerprint,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(serviceToken))
+            throw new ArgumentException("A Gateway service token is required", nameof(serviceToken));
+        if (string.IsNullOrWhiteSpace(teamId))
+            throw new ArgumentException("A team id is required", nameof(teamId));
+        if (string.IsNullOrWhiteSpace(billFingerprint))
+            throw new ArgumentException("The ended bill's fingerprint is required", nameof(billFingerprint));
+
+        var endpoint = $"{_baseUrl}{BillEndedEmailPath}";
+        FileLog.Write($"[TeamInvitationMailClient] SendBillEndedAsync: POST {endpoint}");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
+        {
+            Content = new StringContent(BuildBillEndedBody(teamId, billFingerprint), Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add(AccountNotifyByTenantClient.ServiceTokenHeader, serviceToken);
+
+        using var response = await _client.SendAsync(request, ct).ConfigureAwait(false);
+        var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        var status = (int)response.StatusCode;
+
+        if (response.IsSuccessStatusCode)
+        {
+            var sent = AccountNotifyByTenantClient.ParseSuccess(body, status);
+            FileLog.Write($"[TeamInvitationMailClient] SendBillEndedAsync: status={status}, sent={sent.Sent}");
+            return new TeamInvitationMailResult(sent.Sent, sent.Error, status, null);
+        }
+
+        var (message, code) = AccountNotifyByTenantClient.ParseError(body, status);
+        FileLog.Write($"[TeamInvitationMailClient] SendBillEndedAsync: NOT sent, status={status}, code={code ?? "<none>"}");
+        return new TeamInvitationMailResult(false, message, status, code);
+    }
+
     /// <summary>The request body: the invitation id, its team and the link's token, nothing else. Internal so a test can
     /// pin the wire shape.</summary>
     internal static string BuildBody(string invitationId, string teamId, string acceptToken) =>
         new JsonObject { ["invitation_id"] = invitationId, ["team_id"] = teamId, ["token"] = acceptToken }.ToJsonString();
+
+    /// <summary>The bill-ended request body: the team and the ended bill's fingerprint, nothing else - no recipient.
+    /// Internal so a test can pin the wire shape.</summary>
+    internal static string BuildBillEndedBody(string teamId, string billFingerprint) =>
+        new JsonObject { ["team_id"] = teamId, ["bill_fingerprint"] = billFingerprint }.ToJsonString();
 }

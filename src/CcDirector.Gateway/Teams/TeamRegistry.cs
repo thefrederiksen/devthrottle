@@ -38,6 +38,7 @@ public sealed partial class TeamRegistry
     private readonly Func<DateTime> _utcNow;
     private readonly TeamBillStore _bills;
     private readonly Func<string, TeamBill> _readTeamBill;
+    private readonly TeamBillEndedNotice? _billEndedNotice;
     // "May this person do this in this team", asked of the one place that answers it (devthrottle_internal#2302).
     private readonly TeamAccess _access;
     private readonly object _writeLock = new();
@@ -59,14 +60,18 @@ public sealed partial class TeamRegistry
     /// paid-seat count recorded after a membership change. Defaults to a store over this same database and clock.</param>
     /// <param name="readTeamBill">Reads a team's bill for the invitation bill gate. Defaults to the entitlement reader
     /// over this same database - the one reader of a team's bill.</param>
+    /// <param name="billEndedNotice">Tells a team's Owner, once per ended bill, that someone was refused because the
+    /// bill has ended. Null on a Gateway with no team bills, and then such a refusal says in the log that nobody was
+    /// told.</param>
     public TeamRegistry(GatewayDatabase db, TenantRegistry tenants, Func<DateTime>? utcNow = null,
-        TeamBillStore? bills = null, Func<string, TeamBill>? readTeamBill = null)
+        TeamBillStore? bills = null, Func<string, TeamBill>? readTeamBill = null, TeamBillEndedNotice? billEndedNotice = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _bills = bills ?? new TeamBillStore(db, _utcNow);
         _readTeamBill = readTeamBill ?? new EntitlementRegistry(db).ReadTeamBill;
+        _billEndedNotice = billEndedNotice;
         _access = new TeamAccess(this);
     }
 

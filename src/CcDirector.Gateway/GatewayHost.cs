@@ -1855,16 +1855,19 @@ public sealed class GatewayHost : IAsyncDisposable
         // background sweep walks includes each team's tenant. The team's bill is the Gateway's own (Teams v1, the team
         // bill without Stripe): one store writes it, the entitlement registry is its one reader, and nothing is sent to
         // the website. Its two passes - the seat count's safety net and the renewal at each period's end - run only where
-        // team bills can exist: a hosted Gateway with Teams released.
+        // team bills can exist: a hosted Gateway with Teams released. So does the email that tells an Owner their team's
+        // bill has ended (owner ruling, 7 October), sent through the same website mailer as the invitation emails.
+        var teamMailer = new Teams.TeamInvitationMailer(new Core.Account.TeamInvitationMailClient());
+        TeamInvitationMailer = teamMailer;
         TeamBills = new Teams.TeamBillStore(_gatewayDb);
         TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, bills: TeamBills,
-            readTeamBill: EntitlementRegistry.ReadTeamBill);
+            readTeamBill: EntitlementRegistry.ReadTeamBill,
+            billEndedNotice: GatewayHostedMode.IsHosted && TeamsReleased ? new Teams.TeamBillEndedNotice(teamMailer) : null);
         if (GatewayHostedMode.IsHosted && TeamsReleased)
         {
             TeamSeatConvergence = new Teams.TeamSeatConvergence(_gatewayDb, TeamBills);
             TeamBillRenewal = new Teams.TeamBillRenewal(TeamBills);
         }
-        TeamInvitationMailer = new Teams.TeamInvitationMailer(new Core.Account.TeamInvitationMailClient());
         // ONE answer to a person's paid features inside a team: their membership and the team's bill
         // (devthrottle_internal#2311, Gateway step 2). Asked by the access lease, the narration plan and the start-up
         // key reinstatement - and by each only where Teams is released, so a dark Gateway reads exactly as before.

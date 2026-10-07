@@ -110,6 +110,7 @@ function page(role: string, teamBill: TeamBill | null): TeamPage {
     teamName: "DevThrottle",
     yourRole: role,
     summary: "3 paid seats, 1 Collaborator",
+    billNotice: null,
     canInvite: role !== "Developer",
     members: [],
     invitations: [],

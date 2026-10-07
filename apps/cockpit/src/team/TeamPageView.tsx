@@ -139,6 +139,12 @@ export function TeamPageView() {
 
       {note !== null && <p className={note.ok ? "team-ok team-note" : "team-warn team-note"} role="status">{note.text}</p>}
 
+      {page.billNotice !== null && (
+        <section className="team-card team-bill-ended" role="note" aria-label="The team's bill">
+          <p className="team-blocked">{page.billNotice}</p>
+        </section>
+      )}
+
       <section className="team-card" aria-label="Members">
         <table className="team-table">
           <thead>

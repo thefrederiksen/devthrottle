@@ -109,6 +109,9 @@ export interface TeamPage {
   summary: string;
   /** Whether the page offers "Invite someone". */
   canInvite: boolean;
+  /** When the team's bill has ended: what that means, in plain words, and who can renew the team plan. Null while the
+   * bill runs. Shown verbatim. */
+  billNotice: string | null;
   members: TeamPageMember[];
   invitations: TeamPageInvitation[];
   /** The Billing section; null for a role that may not see the team's bill (a Developer). */

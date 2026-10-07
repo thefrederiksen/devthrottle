@@ -14,13 +14,22 @@ public interface ITeamInvitationMailer
     Task<TeamInvitationMailResult> SendAsync(string invitationId, string teamId, string acceptToken, CancellationToken ct = default);
 }
 
+/// <summary>Tells a team's Owner that the team's bill has ended. The Gateway names the team, never an address.</summary>
+public interface ITeamBillEndedMailer
+{
+    /// <summary>Ask the website to email the Owner of <paramref name="teamId"/> that its bill has ended, keyed by the
+    /// ended bill row's <paramref name="billFingerprint"/>. Never throws for a refusal or an unreachable website: the
+    /// result says the email was not sent, and why.</summary>
+    Task<TeamInvitationMailResult> TellOwnerBillEndedAsync(string teamId, string billFingerprint, CancellationToken ct = default);
+}
+
 /// <summary>
 /// The website-backed mailer (devthrottle_internal#2301, Delivery Lead decision D4): the website reads the invitee's
 /// address from the invitation row itself and sends through its email module, logging the email like every other.
 /// Fails closed when the Gateway service credential is not set - it never calls the website unauthenticated - and
 /// says so, so "the email was not sent" always carries its real reason.
 /// </summary>
-public sealed class TeamInvitationMailer : ITeamInvitationMailer
+public sealed class TeamInvitationMailer : ITeamInvitationMailer, ITeamBillEndedMailer
 {
     private readonly TeamInvitationMailClient _client;
     private readonly Func<string?> _serviceToken;
@@ -58,6 +67,35 @@ public sealed class TeamInvitationMailer : ITeamInvitationMailer
             FileLog.Write($"[TeamInvitationMailer] SendAsync: the website could not be reached ({ex.GetType().Name}) - the invitation email was NOT sent");
             return new TeamInvitationMailResult(false,
                 "The DevThrottle email service could not be reached, so the invitation email was not sent. The invitation is saved; resend it in a few minutes.",
+                0, null);
+        }
+    }
+
+    public async Task<TeamInvitationMailResult> TellOwnerBillEndedAsync(string teamId, string billFingerprint, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(teamId))
+            throw new ArgumentException("A team id is required", nameof(teamId));
+        if (string.IsNullOrWhiteSpace(billFingerprint))
+            throw new ArgumentException("The ended bill's fingerprint is required", nameof(billFingerprint));
+
+        var token = _serviceToken();
+        if (token is null)
+        {
+            FileLog.Write($"[TeamInvitationMailer] TellOwnerBillEndedAsync: {AccountNotifyByTenantClient.ServiceTokenEnvVar} is not set on this Gateway - the Owner was NOT told the team's bill has ended");
+            return new TeamInvitationMailResult(false,
+                "This DevThrottle Gateway is not set up to send email, so the team's Owner was not told the bill has ended.",
+                0, null);
+        }
+
+        try
+        {
+            return await _client.SendBillEndedAsync(token, teamId, billFingerprint, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when ((ex is HttpRequestException or TaskCanceledException) && !ct.IsCancellationRequested)
+        {
+            FileLog.Write($"[TeamInvitationMailer] TellOwnerBillEndedAsync: the website could not be reached ({ex.GetType().Name}) - the Owner was NOT told the team's bill has ended");
+            return new TeamInvitationMailResult(false,
+                "The DevThrottle email service could not be reached, so the team's Owner was not told the bill has ended.",
                 0, null);
         }
     }

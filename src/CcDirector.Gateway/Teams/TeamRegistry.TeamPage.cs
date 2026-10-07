@@ -86,8 +86,16 @@ public sealed partial class TeamRegistry
             ? BuildBillView(team.TeamId, _access.Decide(team.TeamId, caller, TeamAction.BillingRenameOrDeleteTeam).Allowed)
             : null;
 
-        FileLog.Write($"[TeamRegistry] DescribeTeamPage: team {LogTeam(team.TeamId)} callerRole={callerRole} members={rows.Count} paid={paid} invitations={invitations.Count} canChangeRoles={mayChangeRoles} canInvite={mayInvite} bill={bill?.State ?? "<not shown>"} canChangeBill={bill?.CanChange ?? false}");
-        return TeamPageResult.Found(new TeamPage(team.TeamId, team.Name, TeamRoles.Label(callerRole), summary, mayInvite, rows, invitations, bill));
+        // The team's bill has ENDED: nobody can join, nobody is removed, and the page says so in plain words - with the
+        // way back for the Owner, who is the only one who can renew the team plan (owner rulings, 7 October). Only for a
+        // role that may see the team's bill: the notice tells the bill's status, which the role table withholds from a
+        // Developer (review finding 3605-1; Delivery Lead ruling, 7 October).
+        var billEnded = maySeeBill && IsEnded(_readTeamBill(team.TeamId));
+        var billNotice = billEnded ? TeamBillNotices.Ended(callerRole) : null;
+
+        FileLog.Write($"[TeamRegistry] DescribeTeamPage: team {LogTeam(team.TeamId)} callerRole={callerRole} members={rows.Count} paid={paid} invitations={invitations.Count} canChangeRoles={mayChangeRoles} canInvite={mayInvite} bill={bill?.State ?? "<not shown>"} canChangeBill={bill?.CanChange ?? false} billEnded={billEnded}");
+        return TeamPageResult.Found(new TeamPage(team.TeamId, team.Name, TeamRoles.Label(callerRole), summary, mayInvite, rows, invitations, bill,
+            billNotice));
     }
 
     /// <summary>
@@ -284,8 +292,37 @@ public static class TeamMemberIds
 /// invitations waiting.</param>
 /// <param name="CanInvite">Whether the page offers "Invite someone".</param>
 /// <param name="Bill">The Billing section: for the Owner and a Manager; null for a role that may not see the bill.</param>
+/// <param name="BillNotice">When the team's bill has ended: what that means, in plain words - nobody can join, nobody is
+/// removed, and who can renew the team plan. For the Owner and a Manager only; null for a role that may not see the
+/// bill, and while the bill runs (or has not started).</param>
 public sealed record TeamPage(string TeamId, string TeamName, string YourRole, string Summary, bool CanInvite,
-    IReadOnlyList<TeamPageMember> Members, IReadOnlyList<TeamPageInvitation> Invitations, TeamBillView? Bill);
+    IReadOnlyList<TeamPageMember> Members, IReadOnlyList<TeamPageInvitation> Invitations, TeamBillView? Bill,
+    string? BillNotice = null);
+
+/// <summary>
+/// The words the Team page shows when a team's bill has ENDED (owner ruling, 7 October: "Refuse new invitations and
+/// accepts, keep existing members, tell the Owner - nobody is cut off, and nobody joins a team that does not pay").
+/// The team's bill is the Gateway's own in Teams v1 (owner ruling, 7 October: no outside payment provider), so the way
+/// back is renewing the team plan on this same Team page - never a page somewhere else. One place, so the page and its
+/// tests say the same thing.
+/// </summary>
+public static class TeamBillNotices
+{
+    /// <summary>What the bill having ended means, for the Owner and a Manager.</summary>
+    public const string EndedWhatItMeans =
+        "The team's bill has ended. Nobody can join the team: new invitations cannot be sent and waiting ones cannot be accepted. " +
+        "Everyone already in the team stays in it - nobody is removed - but the paid features are off until the team plan is renewed.";
+
+    /// <summary>The way back, for the Owner.</summary>
+    public const string OwnerRestarts = "To let people join again, renew the team plan on the Team page.";
+
+    /// <summary>The way back, for a Manager.</summary>
+    public const string AskTheOwner = "Only the team's Owner can renew the team plan.";
+
+    /// <summary>The notice for a caller holding <paramref name="role"/>.</summary>
+    public static string Ended(TeamRole role) =>
+        EndedWhatItMeans + " " + (role == TeamRole.Owner ? OwnerRestarts : AskTheOwner);
+}
 
 /// <summary>One member row of the Team page.</summary>
 /// <param name="MemberId">The opaque id the change routes take (<see cref="TeamMemberIds"/>).</param>
