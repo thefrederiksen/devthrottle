@@ -1,37 +1,53 @@
+using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.Tests.Teams;
 
 /// <summary>
-/// The team bill table a hosted test Gateway reads (devthrottle_internal#2299, #2311). The website owns and creates it in
-/// production; here it is created with the columns the seam states, so a team key's request reads a team's bill rather
-/// than a table that is not there - which is a FAILED read, answered 503 for a paid seat.
+/// The team bill a hosted test Gateway reads: the Gateway's own <c>team_bills</c> table (Teams v1, the team bill without
+/// Stripe), which the Gateway's migrations create - so every team starts with no bill, and every member is on the free
+/// tier until a test starts one.
 /// </summary>
 internal static class HostedTeamBill
 {
-    /// <summary>Create the empty table: every team has no bill, so every member is on the free tier.</summary>
-    public static void CreateTable(GatewayHost gateway)
-    {
-        using var ctx = gateway.GatewayDatabaseForTests.CreateUnscopedContext();
-        ctx.Database.ExecuteSqlRaw(
-            "CREATE TABLE IF NOT EXISTS team_entitlements (" +
-            "team_id TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, seats INTEGER NULL, " +
-            "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, livemode INTEGER NULL, updated_at TEXT NULL)");
-    }
+    private const string Table = "team_bills";
+    private const string HiddenTable = "team_bills_unreadable";
 
-    /// <summary>Give a team a running bill, live money, the way the website's webhook writes it.</summary>
+    /// <summary>Give a team a running bill: active, auto-renew on, for a period well into the future.</summary>
     public static void Start(GatewayHost gateway, string teamId, int seats = 1)
     {
+        var now = DateTime.UtcNow;
         using var ctx = gateway.GatewayDatabaseForTests.CreateUnscopedContext();
-        ctx.Database.ExecuteSqlRaw(
-            "INSERT INTO team_entitlements (team_id, status, seats, livemode) VALUES ({0}, 'active', {1}, 1)", teamId, seats);
+        ctx.TeamBills.Add(new TeamBillEntity
+        {
+            TeamId = teamId,
+            Status = EntitlementRegistry.StatusActive,
+            Seats = seats,
+            PricePerSeatCents = CcDirector.Gateway.Teams.TeamBillStore.PricePerSeatCents,
+            PlanStartedUtc = now,
+            CurrentPeriodStartUtc = now,
+            CurrentPeriodEndUtc = now.AddYears(5),
+            AutoRenew = true,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+            Version = 1,
+        });
+        ctx.SaveChanges();
     }
 
-    /// <summary>Take the table away, so every read of a team's bill FAILS.</summary>
-    public static void DropTable(GatewayHost gateway)
+    /// <summary>Move the table out of the way, so every read of a team's bill FAILS until <see cref="RestoreReads"/>.</summary>
+    public static void BreakReads(GatewayHost gateway)
     {
         using var ctx = gateway.GatewayDatabaseForTests.CreateUnscopedContext();
-        ctx.Database.ExecuteSqlRaw("DROP TABLE team_entitlements");
+        ctx.Database.ExecuteSqlRaw($"ALTER TABLE {Table} RENAME TO {HiddenTable}");
+    }
+
+    /// <summary>Put the table back, rows and all, after <see cref="BreakReads"/>.</summary>
+    public static void RestoreReads(GatewayHost gateway)
+    {
+        using var ctx = gateway.GatewayDatabaseForTests.CreateUnscopedContext();
+        ctx.Database.ExecuteSqlRaw($"ALTER TABLE {HiddenTable} RENAME TO {Table}");
     }
 
     /// <summary>Put a person on the free personal plan: no personal entitlement row (the hosted test Gateway seeds a

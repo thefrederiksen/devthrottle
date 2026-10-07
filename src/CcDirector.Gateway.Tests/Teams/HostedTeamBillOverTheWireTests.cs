@@ -57,7 +57,6 @@ public sealed class HostedTeamBillOverTheWireTests : IAsyncLifetime
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true, teamsReleased: true);
         await _gateway.StartAsync();
-        HostedTeamBill.CreateTable(_gateway);
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
 
         // Team A has a running bill; team B has none. Pat and Quinn are Developers on both; Bob is a Developer and Mandy
@@ -194,11 +193,11 @@ public sealed class HostedTeamBillOverTheWireTests : IAsyncLifetime
     public async Task ABillThatCannotBeRead_IsATemporaryRefusal_NotAGrantAndNotARevoke()
     {
         var bobKey = TeamKey(_teamA, _bob, "director-bob-a");
-        HostedTeamBill.DropTable(_gateway);
+        HostedTeamBill.BreakReads(_gateway);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await Send(HttpMethod.Get, "gateway/skills", bobKey)).Status);
 
-        HostedTeamBill.CreateTable(_gateway);
+        HostedTeamBill.RestoreReads(_gateway);
         Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "gateway/skills", bobKey)).Status);
     }
 

@@ -68,7 +68,9 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             Assert.Equal("20261006171223_AddTeamQuestionAnswers", all[index + 21]);
             // Archiving a factory (Factories screen mission, round 2), after that.
             Assert.Equal("20261007035034_ArchiveFactories", all[index + 22]);
-            Assert.Equal(index + 23, all.Count);
+            // The team bill the Gateway owns, and its billing history (Teams v1, the team bill without Stripe), after that.
+            Assert.Equal("20261007070434_AddTeamBills", all[index + 23]);
+            Assert.Equal(index + 24, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
             Assert.Empty(context.Database.GetAppliedMigrations());

@@ -1,7 +1,5 @@
-using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using CcDirector.Core.Account;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Teams;
@@ -16,10 +14,9 @@ namespace CcDirector.Gateway.Tests.Teams;
 
 /// <summary>
 /// The Team page (screen S1, devthrottle_internal#2303) over a real, throwaway, fully migrated Gateway database: the
-/// page's model for each role, change a member's role, remove a member, and the seat sync a paid-seat change starts.
-/// The website's sync-seats route is a recording HTTP handler - nothing leaves the process, and the bill itself (the
-/// website's side, devthrottle_internal#2315) is not faked: these tests prove only that the GATEWAY asks it, with the
-/// right team, exactly when the paid-seat count moved. The clock is injected; nothing sleeps.
+/// page's model for each role, change a member's role, remove a member, and the seat count a paid-seat change records
+/// on the team's own bill (Teams v1, the team bill without Stripe) - exactly when the paid-seat count moved, and only
+/// then. Nothing leaves the process. The clock is injected; nothing sleeps.
 /// </summary>
 public sealed class TeamPageTests : IDisposable
 {
@@ -29,12 +26,10 @@ public sealed class TeamPageTests : IDisposable
     private const string Developer = "sub-developer";
     private const string Collaborator = "sub-collaborator";
     private const string Stranger = "sub-stranger";
-    private const string Token = "test-gateway-service-token";
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly GatewayDatabase _db;
     private readonly TenantRegistry _tenants;
-    private readonly RecordingWebsite _website = new();
     private readonly TeamRegistry _teams;
     private DateTime _now = new(2026, 10, 1, 10, 0, 0, DateTimeKind.Utc);
     private readonly string _team;
@@ -43,9 +38,7 @@ public sealed class TeamPageTests : IDisposable
     {
         _db = _harness.Open();
         _tenants = new TenantRegistry(_db);
-        var seatSync = new TeamSeatSync(new EntitlementRegistry(_db, requireLivemode: false),
-            new TeamSeatSyncClient(new HttpClient(_website), "https://website.test"), () => Token);
-        _teams = new TeamRegistry(_db, _tenants, () => _now, seatSync,
+        _teams = new TeamRegistry(_db, _tenants, () => _now,
             readTeamBill: _ => new TeamBill(true, true, EntitlementRegistry.StatusActive, 4));
 
         _tenants.MintOrLookupBySubject(Owner, "soren@acme.example");
@@ -59,8 +52,8 @@ public sealed class TeamPageTests : IDisposable
         _teams.AddMember(_team, Manager2, TeamRole.Manager);
         _teams.AddMember(_team, Developer, TeamRole.Developer);
         _teams.AddMember(_team, Collaborator, TeamRole.Collaborator);
-        _teams.SeatSyncsSettled().GetAwaiter().GetResult();
-        _website.Calls.Clear();
+        // The team's plan, at its four paid seats: the Owner, two Managers and the Developer.
+        TeamBillSeed.Active(_db, _team, seats: 4);
     }
 
     public void Dispose() => _harness.Dispose();
@@ -121,7 +114,7 @@ public sealed class TeamPageTests : IDisposable
         Assert.All(page.Members, m => Assert.False(m.CanRemove));
         Assert.Empty(page.Invitations);
         // Someone who cannot see invitations is not told how many are waiting.
-        Assert.Equal("4 paid seats, 1 Collaborator (free)", page.Summary);
+        Assert.Equal("4 paid seats, 1 Collaborator (no charge)", page.Summary);
     }
 
     [Fact]
@@ -152,10 +145,10 @@ public sealed class TeamPageTests : IDisposable
 
         var page = PageFor(Owner);
 
-        Assert.Equal("4 paid seats, 1 Collaborator (free), 2 invitations waiting", page.Summary);
+        Assert.Equal("4 paid seats, 1 Collaborator (no charge), 2 invitations waiting", page.Summary);
         Assert.Equal("Paid", Row(page, Developer).Seat);
         Assert.Equal("Paid", Row(page, Owner).Seat);
-        Assert.Equal("Free", Row(page, Collaborator).Seat);
+        Assert.Equal("No charge", Row(page, Collaborator).Seat);
         Assert.Equal(2, page.Invitations.Count);
         var anna = page.Invitations.Single(i => i.Id == paid.Id);
         Assert.Equal("Paid when accepted", anna.Seat);
@@ -163,7 +156,7 @@ public sealed class TeamPageTests : IDisposable
         Assert.Equal(_now.AddDays(7), anna.ExpiresAtUtc);
         Assert.True(anna.CanResend);
         Assert.True(anna.CanCancel);
-        Assert.Equal("Free", page.Invitations.Single(i => i.Id == free.Id).Seat);
+        Assert.Equal("No charge", page.Invitations.Single(i => i.Id == free.Id).Seat);
     }
 
     [Fact]
@@ -192,7 +185,7 @@ public sealed class TeamPageTests : IDisposable
         Assert.True(expired.CanCancel);
         Assert.Equal(TeamInvitationStates.Sent, page.Invitations.Single(i => i.Id == live.Id).State);
         // Waiting means waiting on someone: the lapsed one is listed but not counted (review F1).
-        Assert.Equal("4 paid seats, 1 Collaborator (free), 1 invitation waiting", page.Summary);
+        Assert.Equal("4 paid seats, 1 Collaborator (no charge), 1 invitation waiting", page.Summary);
     }
 
     [Fact]
@@ -205,7 +198,7 @@ public sealed class TeamPageTests : IDisposable
 
         var page = PageFor(Owner);
         Assert.Empty(page.Invitations);
-        Assert.Equal("4 paid seats, 1 Collaborator (free), 0 invitations waiting", page.Summary);
+        Assert.Equal("4 paid seats, 1 Collaborator (no charge), 0 invitations waiting", page.Summary);
     }
 
     // ---- Change a role --------------------------------------------------------------------------------------------
@@ -343,54 +336,49 @@ public sealed class TeamPageTests : IDisposable
         Assert.Equal(TeamRole.Developer, _teams.RoleOf(_team, Developer));
     }
 
-    // ---- The seat sync: called for a paid-seat change, and only then ----------------------------------------------
+    // ---- The seat count on the bill: recorded for a paid-seat change, and only then -------------------------------
 
     [Theory]
-    [InlineData(Developer, TeamRole.Collaborator)]
-    [InlineData(Collaborator, TeamRole.Developer)]
-    [InlineData(Collaborator, TeamRole.Manager)]
-    [InlineData(Manager, TeamRole.Collaborator)]
-    public async Task ChangeMemberRole_APaidSeatChange_AsksTheWebsiteToRecountThisTeam(string member, TeamRole newRole)
+    [InlineData(Developer, TeamRole.Collaborator, 3)]
+    [InlineData(Collaborator, TeamRole.Developer, 5)]
+    [InlineData(Collaborator, TeamRole.Manager, 5)]
+    [InlineData(Manager, TeamRole.Collaborator, 3)]
+    public void ChangeMemberRole_APaidSeatChange_RecordsTheNewCountOnTheBill(string member, TeamRole newRole, int seats)
     {
         Assert.Equal(TeamMemberChangeOutcome.Done, _teams.ChangeMemberRole(_team, Owner, IdOf(member), newRole).Outcome);
-        await _teams.SeatSyncsSettled();
 
-        AssertOneSyncFor(_team);
+        Assert.Equal(seats, BilledSeats());
     }
 
     [Theory]
     [InlineData(Developer, TeamRole.Manager)]
     [InlineData(Manager, TeamRole.Developer)]
     [InlineData(Developer, TeamRole.Developer)]
-    public async Task ChangeMemberRole_PaidToPaid_LeavesTheBillAlone(string member, TeamRole newRole)
+    public void ChangeMemberRole_PaidToPaid_LeavesTheBillAlone(string member, TeamRole newRole)
     {
         Assert.Equal(TeamMemberChangeOutcome.Done, _teams.ChangeMemberRole(_team, Owner, IdOf(member), newRole).Outcome);
-        await _teams.SeatSyncsSettled();
 
-        Assert.Empty(_website.Calls);
+        Assert.Equal(4, BilledSeats());
     }
 
     [Fact]
-    public async Task RemoveTeamMember_APaidMember_AsksTheWebsiteToRecount_AFreeOneDoesNot()
+    public void RemoveTeamMember_APaidMember_LowersTheCount_ACollaboratorDoesNot()
     {
         _teams.RemoveTeamMember(_team, Owner, IdOf(Collaborator));
-        await _teams.SeatSyncsSettled();
-        Assert.Empty(_website.Calls);
+        Assert.Equal(4, BilledSeats());
 
         _teams.RemoveTeamMember(_team, Owner, IdOf(Developer));
-        await _teams.SeatSyncsSettled();
-        AssertOneSyncFor(_team);
+        Assert.Equal(3, BilledSeats());
     }
 
     [Fact]
-    public async Task RefusedChanges_NeverAskTheWebsite()
+    public void RefusedChanges_NeverTouchTheBill()
     {
         _teams.ChangeMemberRole(_team, Manager, IdOf(Developer), TeamRole.Collaborator);
         _teams.RemoveTeamMember(_team, Developer, IdOf(Collaborator));
         _teams.RemoveTeamMember(_team, Owner, IdOf(Owner));
-        await _teams.SeatSyncsSettled();
 
-        Assert.Empty(_website.Calls);
+        Assert.Equal(4, BilledSeats());
     }
 
     // ---- The routes' answers, as a client receives them -----------------------------------------------------------
@@ -476,9 +464,9 @@ public sealed class TeamPageTests : IDisposable
     }
 
     [Theory]
-    [InlineData(1, 0, null, "1 paid seat, 0 Collaborators (free)")]
-    [InlineData(3, 2, 1, "3 paid seats, 2 Collaborators (free), 1 invitation waiting")]
-    [InlineData(2, 1, 0, "2 paid seats, 1 Collaborator (free), 0 invitations waiting")]
+    [InlineData(1, 0, null, "1 paid seat, 0 Collaborators (no charge)")]
+    [InlineData(3, 2, 1, "3 paid seats, 2 Collaborators (no charge), 1 invitation waiting")]
+    [InlineData(2, 1, 0, "2 paid seats, 1 Collaborator (no charge), 0 invitations waiting")]
     public void Summary_CountsInWords(int paid, int free, int? waiting, string expected)
     {
         Assert.Equal(expected, TeamRegistry.Summary(paid, free, waiting));
@@ -509,14 +497,10 @@ public sealed class TeamPageTests : IDisposable
 
     private TeamRole RoleOf(string subject) => _teams.RoleOf(_team, subject)!.Value;
 
-    private void AssertOneSyncFor(string teamId)
+    private int BilledSeats()
     {
-        var call = Assert.Single(_website.Calls);
-        Assert.Equal("https://website.test/api/v1/teams/sync-seats", call.Uri);
-        Assert.Equal(teamId, JsonNode.Parse(call.Body)!["team_id"]!.GetValue<string>());
-        // The team is named and nothing else: the website reads the count itself.
-        Assert.Single(JsonNode.Parse(call.Body)!.AsObject());
-        _website.Calls.Clear();
+        using var ctx = _db.CreateUnscopedContext();
+        return ctx.TeamBills.AsNoTracking().Single(b => b.TeamId == _team).Seats;
     }
 
     private static async Task<(int Status, JsonElement Body)> RenderAsync(IResult result)
@@ -529,21 +513,5 @@ public sealed class TeamPageTests : IDisposable
         ms.Position = 0;
         using var doc = await JsonDocument.ParseAsync(ms);
         return (ctx.Response.StatusCode, doc.RootElement.Clone());
-    }
-
-    /// <summary>The website's sync-seats route: records every call and answers 200.</summary>
-    private sealed class RecordingWebsite : HttpMessageHandler
-    {
-        public List<(string Uri, string Body)> Calls { get; } = new();
-
-        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
-        {
-            var body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
-            lock (Calls) Calls.Add((request.RequestUri!.ToString(), body));
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent("{\"data\":{\"changed\":true,\"seats\":4,\"stripe_quantity\":4}}"),
-            };
-        }
     }
 }

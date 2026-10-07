@@ -109,7 +109,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20261006171258_AddTeamQuestionAnswers", all[index + 21]);
             // Archiving a factory (Factories screen mission, round 2), after that.
             Assert.Equal("20261007052952_ArchiveFactories", all[index + 22]);
-            Assert.Equal(index + 23, all.Count);
+            // The team bill the Gateway owns, and its billing history (Teams v1, the team bill without Stripe), after that.
+            Assert.Equal("20261007070501_AddTeamBills", all[index + 23]);
+            Assert.Equal(index + 24, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

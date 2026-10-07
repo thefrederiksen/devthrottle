@@ -56,12 +56,6 @@ public sealed class TeamPageProofRig
                 $"The built Cockpit is not beside the test binaries ({Cockpit.CockpitReactApp.WebRoot}). The driver copies apps/cockpit/dist there.");
             await gateway.StartAsync();
 
-            using (var ctx = gateway.GatewayDatabaseForTests.CreateUnscopedContext())
-                ctx.Database.ExecuteSqlRaw(
-                    "CREATE TABLE IF NOT EXISTS team_entitlements (" +
-                    "team_id TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, seats INTEGER NULL, " +
-                    "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, livemode INTEGER NULL, updated_at TEXT NULL)");
-
             string Enroll(string deviceId, string subject, string email)
             {
                 var tenant = gateway.TenantRegistry.MintOrLookupBySubject(subject, email);
@@ -80,8 +74,7 @@ public sealed class TeamPageProofRig
 
             var registry = gateway.TeamRegistry;
             var team = registry.CreateTeam("sub-rig-qa", "Acme QA").Team!.TeamId;
-            using (var ctx = gateway.GatewayDatabaseForTests.CreateUnscopedContext())
-                ctx.Database.ExecuteSqlRaw("INSERT INTO team_entitlements (team_id, status, seats, livemode) VALUES ({0}, 'active', 3, 0)", team);
+            TeamBillSeed.Active(gateway.GatewayDatabaseForTests, team, seats: 3);
             Assert.True(registry.AddMember(team, "sub-rig-tech", TeamRole.Manager).IsDone);
             Assert.True(registry.AddMember(team, "sub-rig-dev", TeamRole.Developer).IsDone);
             Assert.True(registry.AddMember(team, "sub-rig-docs", TeamRole.Collaborator).IsDone);

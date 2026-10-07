@@ -825,10 +825,22 @@ public sealed class GatewayHost : IAsyncDisposable
     public Teams.TeamMemberEntitlement TeamMemberEntitlement { get; }
 
     /// <summary>
-    /// The retry net for the team seat sync (devthrottle_internal#2301): null except on a hosted Gateway with Teams
-    /// released, where it runs every <see cref="Teams.TeamSeatConvergence.Interval"/>.
+    /// The team bills this Gateway owns (Teams v1, the team bill without Stripe): the one writer of every team's bill.
+    /// Built on every Gateway, like <see cref="TeamRegistry"/>; only a Gateway with Teams released serves its routes.
+    /// </summary>
+    public Teams.TeamBillStore TeamBills { get; }
+
+    /// <summary>
+    /// The safety net for a team bill's seat count: null except on a hosted Gateway with Teams released, where it runs
+    /// every <see cref="Teams.TeamSeatConvergence.Interval"/>. It records the Gateway's own count; nothing leaves.
     /// </summary>
     public Teams.TeamSeatConvergence? TeamSeatConvergence { get; }
+
+    /// <summary>
+    /// The renewal pass for team bills: null except on a hosted Gateway with Teams released, where it runs every
+    /// <see cref="Teams.TeamBillRenewal.Interval"/> - an auto-renewing bill rolls to the next month, any other ends.
+    /// </summary>
+    public Teams.TeamBillRenewal? TeamBillRenewal { get; }
 
     /// <summary>
     /// Sends a team invitation's email through the website (devthrottle_internal#2301). Settable only so a test can
@@ -837,6 +849,7 @@ public sealed class GatewayHost : IAsyncDisposable
     public Teams.ITeamInvitationMailer TeamInvitationMailer { get; set; }
 
     private Timer? _teamSeatConvergenceTimer;
+    private Timer? _teamBillRenewalTimer;
 
     /// <summary>The paid-entitlement gate read at hosted enrollment. Present on every host; consulted only
     /// where the hosted enrollment route is mapped, which is hosted only.</summary>
@@ -1839,19 +1852,17 @@ public sealed class GatewayHost : IAsyncDisposable
         TrialRegistry = new Tenancy.TrialRegistry(_gatewayDb);
         EntitlementRegistry = new Tenancy.EntitlementRegistry(_gatewayDb, trials: TrialRegistry);
         // Teams (devthrottle_internal#2300): told about new teams through the tenant registry, so the census every
-        // background sweep walks includes each team's tenant. The seat sync (devthrottle_internal#2301) exists only
-        // where team bills can: a hosted Gateway with Teams released. Everywhere else a membership change says in the
-        // log that no website was told, and the convergence pass does not run.
+        // background sweep walks includes each team's tenant. The team's bill is the Gateway's own (Teams v1, the team
+        // bill without Stripe): one store writes it, the entitlement registry is its one reader, and nothing is sent to
+        // the website. Its two passes - the seat count's safety net and the renewal at each period's end - run only where
+        // team bills can exist: a hosted Gateway with Teams released.
+        TeamBills = new Teams.TeamBillStore(_gatewayDb);
+        TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, bills: TeamBills,
+            readTeamBill: EntitlementRegistry.ReadTeamBill);
         if (GatewayHostedMode.IsHosted && TeamsReleased)
         {
-            var seatSync = new Tenancy.TeamSeatSync(EntitlementRegistry, new Core.Account.TeamSeatSyncClient());
-            TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, seatSync: seatSync,
-                readTeamBill: EntitlementRegistry.ReadTeamBill);
-            TeamSeatConvergence = new Teams.TeamSeatConvergence(_gatewayDb, seatSync);
-        }
-        else
-        {
-            TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, readTeamBill: EntitlementRegistry.ReadTeamBill);
+            TeamSeatConvergence = new Teams.TeamSeatConvergence(_gatewayDb, TeamBills);
+            TeamBillRenewal = new Teams.TeamBillRenewal(TeamBills);
         }
         TeamInvitationMailer = new Teams.TeamInvitationMailer(new Core.Account.TeamInvitationMailClient());
         // ONE answer to a person's paid features inside a team: their membership and the team's bill
@@ -5090,11 +5101,14 @@ public sealed class GatewayHost : IAsyncDisposable
                 _tenantBoundary, TenantRegistry, teamQuestions);
             TeamQuestionEndpoints.Map(_app, teamQuestions, _tenantBoundary, TenantRegistry);
         }
-        // The team seat convergence (devthrottle_internal#2301): retries any seat sync that failed. Hosted with Teams
-        // released only - TeamSeatConvergence is null everywhere else.
+        // The team bill's two passes (Teams v1, the team bill without Stripe): the seat count's safety net, and the
+        // renewal at each period's end. Hosted with Teams released only - both are null everywhere else.
         if (TeamSeatConvergence is { } convergence)
-            _teamSeatConvergenceTimer = new Timer(_ => _ = convergence.RunSafeAsync(), null,
+            _teamSeatConvergenceTimer = new Timer(_ => convergence.RunSafe(), null,
                 TimeSpan.FromMinutes(1), Teams.TeamSeatConvergence.Interval);
+        if (TeamBillRenewal is { } renewal)
+            _teamBillRenewalTimer = new Timer(_ => renewal.RunSafe(), null,
+                TimeSpan.FromMinutes(1), Teams.TeamBillRenewal.Interval);
 
         // The administrator trial EXTENSION: POST /gateway/admin/trials/extend. The write twin of the read
         // above, and the only way a trial's end date moves. It lives here rather than as a database grant to
@@ -6744,6 +6758,7 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _sessionSupervisor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session supervisor dispose error: {ex.Message}"); }
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
         try { _teamSeatConvergenceTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] team seat convergence timer dispose error: {ex.Message}"); }
+        try { _teamBillRenewalTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] team bill renewal timer dispose error: {ex.Message}"); }
         try { _fleetManagerEventTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events timer dispose error: {ex.Message}"); }
         try { _fleetManagerEvents?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events dispose error: {ex.Message}"); }
         try { _fleetManagerReplacementTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager replacement timer dispose error: {ex.Message}"); }

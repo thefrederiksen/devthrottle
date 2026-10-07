@@ -87,7 +87,6 @@ public sealed class HostedTeamQuestionsTests : IAsyncLifetime
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _mike, TeamRole.Collaborator).IsDone);
         Assert.True(_gateway.TeamRegistry.AddMember(_team, _nina, TeamRole.Collaborator).IsDone);
         // The team pays: a team key's access is read from the team's bill (devthrottle_internal#2311 step 2).
-        HostedTeamBill.CreateTable(_gateway);
         HostedTeamBill.Start(_gateway, _team, seats: 5);
     }
 

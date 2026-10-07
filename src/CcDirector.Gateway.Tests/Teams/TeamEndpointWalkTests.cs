@@ -310,7 +310,6 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
         // the request-path access lease next - which reads the team's bill and never refuses a member for it, so with no
         // bill the Developer is served on the free tier (Gateway step 2). A Collaborator's team key never authenticates
         // (401). TeamCallerOwnershipTests shows what the gate does with an authenticated one.
-        HostedTeamBill.CreateTable(_gateway);
         var developerKey = _gateway.Devices.Register("dev-walk-team-bound", "M-team").DeviceKey;
         _gateway.Devices.SetAccountBinding("dev-walk-team-bound", _developer, _team);
         var collaboratorKey = _gateway.Devices.Register("dev-walk-team-collab", "M-team").DeviceKey;

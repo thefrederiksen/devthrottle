@@ -1,0 +1,28 @@
+REVERT PROOF - the Owner-only check removed from TeamRegistry.ChangeBill (the _access.Decide BillingRenameOrDeleteTeam refusal), TeamBillTests run:
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-manager", action: "cancel") [122 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-developer", action: "cancel") [135 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-collaborator", action: "auto-renew-on") [88 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-developer", action: "renew") [98 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-manager", action: "start") [125 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-collaborator", action: "auto-renew-off") [107 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-developer", action: "auto-renew-on") [118 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-collaborator", action: "cancel") [80 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-developer", action: "start") [68 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-manager", action: "renew") [123 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-developer", action: "auto-renew-off") [101 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-collaborator", action: "start") [106 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-manager", action: "auto-renew-off") [98 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-collaborator", action: "renew") [101 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillActions_ByAnyoneButTheOwner_AreForbidden_AndChangeNothing(who: "sub-manager", action: "auto-renew-on") [89 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.BillRoutes_OwnerStarts200_ManagerStarts403_StrangerReads404_DeveloperReads403 [171 ms]
+Failed!  - Failed:    16, Passed:    21, Skipped:     0, Total:    37, Duration: 15 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+RESTORED (git checkout, full rebuild, no --no-build), TeamBillTests run:
+Passed!  - Failed:     0, Passed:    37, Skipped:     0, Total:    37, Duration: 12 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+REVERT PROOF 2 (review finding 3611-1) - the concurrency token removed from team_bills.version (GatewayDbContext) and the history index made non-unique (AddTeamBills migration), the renewal pass tests run:
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.RenewalPass_APeriodAnotherProcessAlreadyRecorded_IsNeverRecordedTwice [307 ms]
+  Failed CcDirector.Gateway.Tests.Teams.TeamBillTests.RenewalPass_ABillAnotherProcessChangedFirst_IsLeftAsThatProcessSavedIt [369 ms]
+
+RESTORED (git checkout, full rebuild), every TeamBillTests test:
+Passed!  - Failed:     0, Passed:    41, Skipped:     0, Total:    41, Duration: 30 s - CcDirector.Gateway.UnitTests.dll (net10.0)

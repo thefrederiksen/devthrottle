@@ -79,8 +79,15 @@ public sealed partial class TeamRegistry
         var waiting = invitations.Count(i => i.State == TeamInvitationStates.Sent);
         var summary = Summary(paid, free, mayInvite ? waiting : null);
 
-        FileLog.Write($"[TeamRegistry] DescribeTeamPage: team {LogTeam(team.TeamId)} callerRole={callerRole} members={rows.Count} paid={paid} invitations={invitations.Count} canChangeRoles={mayChangeRoles} canInvite={mayInvite}");
-        return TeamPageResult.Found(new TeamPage(team.TeamId, team.Name, TeamRoles.Label(callerRole), summary, mayInvite, rows, invitations));
+        // The Billing section (Teams v1, the team bill without Stripe): for the Owner, who may change it, and a Manager, who
+        // sees it read-only. A Developer gets no section at all - null, never an empty one.
+        var maySeeBill = _access.Decide(team.TeamId, caller, TeamAction.SeeTeamBill).Allowed;
+        var bill = maySeeBill
+            ? BuildBillView(team.TeamId, _access.Decide(team.TeamId, caller, TeamAction.BillingRenameOrDeleteTeam).Allowed)
+            : null;
+
+        FileLog.Write($"[TeamRegistry] DescribeTeamPage: team {LogTeam(team.TeamId)} callerRole={callerRole} members={rows.Count} paid={paid} invitations={invitations.Count} canChangeRoles={mayChangeRoles} canInvite={mayInvite} bill={bill?.State ?? "<not shown>"} canChangeBill={bill?.CanChange ?? false}");
+        return TeamPageResult.Found(new TeamPage(team.TeamId, team.Name, TeamRoles.Label(callerRole), summary, mayInvite, rows, invitations, bill));
     }
 
     /// <summary>
@@ -214,18 +221,18 @@ public sealed partial class TeamRegistry
 
     private static bool IsPaid(TeamRole role) => TeamSeatRoles.IsPaidSeat(TeamRoles.ToStored(role));
 
-    /// <summary>The seat column: Paid or Free; for an invitation, "Paid when accepted".</summary>
+    /// <summary>The seat column: Paid or No charge (never the word "free", owner rule); for an invitation, "Paid when accepted".</summary>
     private static string SeatLabel(TeamRole role, bool invited) =>
-        IsPaid(role) ? (invited ? "Paid when accepted" : "Paid") : "Free";
+        IsPaid(role) ? (invited ? "Paid when accepted" : "Paid") : "No charge";
 
-    /// <summary>The line under the page title: "3 paid seats, 2 Collaborators (free), 1 invitation waiting". The
+    /// <summary>The line under the page title: "3 paid seats, 2 Collaborators (no charge), 1 invitation waiting". The
     /// invitations part is left out for a caller who cannot see invitations.</summary>
     internal static string Summary(int paid, int free, int? waiting)
     {
         var parts = new List<string>
         {
             paid == 1 ? "1 paid seat" : $"{paid} paid seats",
-            free == 1 ? "1 Collaborator (free)" : $"{free} Collaborators (free)",
+            free == 1 ? "1 Collaborator (no charge)" : $"{free} Collaborators (no charge)",
         };
         if (waiting is { } w)
             parts.Add(w == 1 ? "1 invitation waiting" : $"{w} invitations waiting");
@@ -236,7 +243,7 @@ public sealed partial class TeamRegistry
     private static string RemoveWarning(string name, TeamRole role) =>
         IsPaid(role)
             ? $"{name} will leave the team at once, and their paid seat comes off the team's bill. To bring them back, invite them again."
-            : $"{name} will leave the team at once. Collaborators are free, so the bill does not change. To bring them back, invite them again.";
+            : $"{name} will leave the team at once. A Collaborator seat has no charge, so the bill does not change. To bring them back, invite them again.";
 
     private static TeamMemberChangeResult MemberChangeNotFound(string method)
     {
@@ -276,12 +283,13 @@ public static class TeamMemberIds
 /// <param name="Summary">The counting line: paid seats, free Collaborators and, for someone who may invite, the
 /// invitations waiting.</param>
 /// <param name="CanInvite">Whether the page offers "Invite someone".</param>
+/// <param name="Bill">The Billing section: for the Owner and a Manager; null for a role that may not see the bill.</param>
 public sealed record TeamPage(string TeamId, string TeamName, string YourRole, string Summary, bool CanInvite,
-    IReadOnlyList<TeamPageMember> Members, IReadOnlyList<TeamPageInvitation> Invitations);
+    IReadOnlyList<TeamPageMember> Members, IReadOnlyList<TeamPageInvitation> Invitations, TeamBillView? Bill);
 
 /// <summary>One member row of the Team page.</summary>
 /// <param name="MemberId">The opaque id the change routes take (<see cref="TeamMemberIds"/>).</param>
-/// <param name="Seat">Paid or Free.</param>
+/// <param name="Seat">Paid or No charge.</param>
 /// <param name="CanChangeRole">Whether the role shows as a dropdown for this caller.</param>
 /// <param name="RoleChoices">The roles the dropdown offers; empty when it is not a dropdown.</param>
 /// <param name="CanRemove">Whether the row offers Remove.</param>
@@ -291,7 +299,7 @@ public sealed record TeamPageMember(string MemberId, string Name, string? Email,
 
 /// <summary>One waiting invitation on the Team page.</summary>
 /// <param name="State">sent, or expired.</param>
-/// <param name="Seat">"Paid when accepted" or Free.</param>
+/// <param name="Seat">"Paid when accepted" or No charge.</param>
 public sealed record TeamPageInvitation(string Id, string Email, string Role, string State, string Seat, string InvitedBy,
     DateTime SentAtUtc, DateTime ExpiresAtUtc, bool CanResend, bool CanCancel);
 

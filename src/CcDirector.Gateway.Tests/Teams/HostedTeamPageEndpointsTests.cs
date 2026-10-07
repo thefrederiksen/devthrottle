@@ -138,7 +138,7 @@ public sealed class HostedTeamPageEndpointsTests : IAsyncLifetime
         Assert.Equal(TeamRole.Collaborator, _gateway.TeamRegistry.RoleOf(_team, _developer));
         var (_, page) = await Send(HttpMethod.Get, $"teams/{_team}/page", _owner);
         Assert.Equal("Collaborator", Member(page, "rob@acme.example").GetProperty("role").GetString());
-        Assert.Equal("Free", Member(page, "rob@acme.example").GetProperty("seat").GetString());
+        Assert.Equal("No charge", Member(page, "rob@acme.example").GetProperty("seat").GetString());
     }
 
     [Fact]

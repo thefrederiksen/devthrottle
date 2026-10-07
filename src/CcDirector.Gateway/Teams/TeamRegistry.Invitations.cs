@@ -507,7 +507,7 @@ public sealed partial class TeamRegistry
     {
         TeamRole.Manager => $"Invites and removes Developers and Collaborators. A paid seat on {payer}'s bill.",
         TeamRole.Developer => $"Runs sessions on their own computer. A paid seat on {payer}'s bill.",
-        TeamRole.Collaborator => "Answers questions, sends requests, reads reports. Free.",
+        TeamRole.Collaborator => "Answers questions, sends requests, reads reports. No charge.",
         _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Only Manager, Developer and Collaborator can be invited."),
     };
 

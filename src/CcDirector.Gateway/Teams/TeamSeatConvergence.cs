@@ -1,27 +1,18 @@
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Data;
-using CcDirector.Gateway.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.Teams;
 
 /// <summary>
-/// The retry net for the seat sync (devthrottle_internal#2301, seam-team-billing.md section 4). The sync after a
-/// membership change can fail - the website down, a timeout, a missing credential - and the change has already
-/// committed, so nothing retries it in the moment. This pass does: for every team it counts the Gateway's own paid
-/// members (Owner, Manager, Developer - <see cref="TeamSeatRoles"/>) and hands the count to
-/// <see cref="TeamSeatSync.ConvergeAsync"/>, which compares it with the seats on the team's bill and calls the sync
-/// again only where the two differ. A team with no bill (checkout not finished) or a cancelled one is skipped.
+/// The safety net for a team bill's seat count (Teams v1, the team bill without Stripe). A membership change records the
+/// team's paid-seat count on its bill right after the change commits (<see cref="TeamRegistry"/>); a Gateway that stops
+/// between the two leaves the bill one change behind. This pass puts it right: for every team it asks
+/// <see cref="TeamBillStore.RecordSeats"/> to record the Gateway's own paid-member count (Owner, Manager, Developer -
+/// <see cref="Tenancy.TeamSeatRoles"/>) on the team's active bill where the two differ.
 ///
-/// A TEAM WHOSE SUBSCRIPTION HAS ENDED IS NOT RETRIED FOREVER (devthrottle_internal#2311). When the website refuses
-/// because the team has no running bill, the counts can never match, so <see cref="TeamSeatSync"/> marks the team,
-/// logs it once, and this pass stops calling for it until the team's bill row changes. Every other failure is
-/// retried on the next pass as before.
-///
-/// IT IS NOT A LOOP. One pass calls the sync at most once per team. The website answers by setting the bill's quantity
-/// to the count it reads itself and heals team_entitlements.seats when only the row was behind, so on the next pass the
-/// two counts match and nothing is called. A team that still differs on the next pass is called once more on that
-/// pass - never again inside one.
+/// NOTHING LEAVES THE GATEWAY. The seat count used to be sent to the website so it could tell the payment provider; the
+/// owner's ruling of 7 Oct 2026 removed that path. The count is the Gateway's own, recorded on the Gateway's own bill.
 /// </summary>
 public sealed class TeamSeatConvergence
 {
@@ -29,66 +20,50 @@ public sealed class TeamSeatConvergence
     public static readonly TimeSpan Interval = TimeSpan.FromMinutes(15);
 
     private readonly GatewayDatabase _db;
-    private readonly TeamSeatSync _seatSync;
+    private readonly TeamBillStore _bills;
     private int _running;
 
-    public TeamSeatConvergence(GatewayDatabase db, TeamSeatSync seatSync)
+    public TeamSeatConvergence(GatewayDatabase db, TeamBillStore bills)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
-        _seatSync = seatSync ?? throw new ArgumentNullException(nameof(seatSync));
-    }
-
-    /// <summary>The paid-member count of every team, by team id. A team always has its Owner, so every team is here.</summary>
-    public IReadOnlyDictionary<string, int> PaidMemberCounts()
-    {
-        using var ctx = _db.CreateUnscopedContext();
-        var rows = ctx.TeamMembers.AsNoTracking().Select(m => new { m.TeamId, m.Role }).ToList();
-        var teamIds = ctx.Teams.AsNoTracking().Select(t => t.Id).ToList();
-        var counts = teamIds.ToDictionary(id => id, _ => 0, StringComparer.Ordinal);
-        foreach (var row in rows)
-        {
-            if (TeamSeatRoles.IsPaidSeat(TeamRoles.ToStored(row.Role)) && counts.ContainsKey(row.TeamId))
-                counts[row.TeamId]++;
-        }
-        return counts;
+        _bills = bills ?? throw new ArgumentNullException(nameof(bills));
     }
 
     /// <summary>
-    /// One pass over every team. Returns how many teams the sync was called for. A pass that is still running when the
-    /// next is due is not overlapped: the second returns at once having called nothing.
+    /// One pass over every team. Returns how many bills had their seat count corrected. A pass that is still running when
+    /// the next is due is not overlapped: the second returns at once having changed nothing.
     /// </summary>
-    public async Task<int> RunOnceAsync(CancellationToken ct = default)
+    public int RunOnce()
     {
         if (Interlocked.Exchange(ref _running, 1) == 1)
         {
-            FileLog.Write("[TeamSeatConvergence] RunOnceAsync: the previous pass is still running - skipped");
+            FileLog.Write("[TeamSeatConvergence] RunOnce: the previous pass is still running - skipped");
             return 0;
         }
 
         try
         {
-            var counts = PaidMemberCounts();
-            var called = 0;
-            var failed = 0;
-            var endedNow = 0;
-            var stopped = 0;
-            foreach (var (teamId, paid) in counts)
+            List<string> teamIds;
+            using (var ctx = _db.CreateUnscopedContext())
+                teamIds = ctx.Teams.AsNoTracking().Select(t => t.Id).ToList();
+
+            var recorded = 0;
+            var inStep = 0;
+            var noBill = 0;
+            var changedElsewhere = 0;
+            foreach (var teamId in teamIds)
             {
-                ct.ThrowIfCancellationRequested();
-                var (verdict, call) = await _seatSync.ConvergeAsync(teamId, paid, ct).ConfigureAwait(false);
-                if (verdict == SeatSyncVerdict.Unknown)
-                    FileLog.Write("[TeamSeatConvergence] RunOnceAsync: a team's bill could not be read - left for the next pass");
-                if (verdict == SeatSyncVerdict.SubscriptionEnded)
-                    stopped++;
-                if (call is null) continue;
-                called++;
-                // A refusal because the subscription has ended is NOT retried next pass - TeamSeatSync has just
-                // stopped the team - so it is counted apart from the failures that are.
-                if (call.SubscriptionEnded) endedNow++;
-                else if (!call.Synced) failed++;
+                switch (_bills.RecordSeats(teamId))
+                {
+                    case SeatRecordOutcome.Recorded: recorded++; break;
+                    case SeatRecordOutcome.InStep: inStep++; break;
+                    case SeatRecordOutcome.NoBill: noBill++; break;
+                    case SeatRecordOutcome.ChangedElsewhere: changedElsewhere++; break;
+                    default: throw new InvalidOperationException("A seat record outcome this pass does not know.");
+                }
             }
-            FileLog.Write($"[TeamSeatConvergence] RunOnceAsync: {counts.Count} team(s) checked, sync called for {called}, {failed} of those not done (retried next pass), {endedNow} refused because their subscription has ended (stopped until their bill changes), {stopped} not called because their subscription has ended and their bill has not changed");
-            return called;
+            FileLog.Write($"[TeamSeatConvergence] RunOnce: {teamIds.Count} team(s) checked, {recorded} seat count(s) corrected, {inStep} already in step, {noBill} with no active bill, {changedElsewhere} changed first by another writer (recorded next pass)");
+            return recorded;
         }
         finally
         {
@@ -98,15 +73,15 @@ public sealed class TeamSeatConvergence
 
     /// <summary>The timer's entry point: a pass whose failure is logged and left to the next pass, never thrown into
     /// the timer thread.</summary>
-    public async Task RunSafeAsync()
+    public void RunSafe()
     {
         try
         {
-            await RunOnceAsync().ConfigureAwait(false);
+            RunOnce();
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[TeamSeatConvergence] RunSafeAsync FAILED ({ex.GetType().Name}): {ex.Message} - the next pass retries");
+            FileLog.Write($"[TeamSeatConvergence] RunSafe FAILED ({ex.GetType().Name}): {ex.Message} - the next pass retries");
         }
     }
 }

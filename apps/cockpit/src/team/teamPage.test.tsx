@@ -52,7 +52,7 @@ function member(name: string, role: string, overrides: Partial<TeamPageMember> =
     name: `${name}@devthrottle.com`,
     email: `${name}@devthrottle.com`,
     role,
-    seat: role === "Collaborator" ? "Free" : "Paid",
+    seat: role === "Collaborator" ? "No charge" : "Paid",
     isYou: false,
     joinedAtUtc: "2026-09-01T10:00:00Z",
     canChangeRole: false,
@@ -72,7 +72,7 @@ function ownerPage(): TeamPage {
     teamId: TEAM,
     teamName: "DevThrottle",
     yourRole: "Owner",
-    summary: "3 paid seats, 2 Collaborators (free), 1 invitation waiting",
+    summary: "3 paid seats, 2 Collaborators (no charge), 1 invitation waiting",
     canInvite: true,
     members: [
       member("soren", "Owner", { isYou: true }),
@@ -86,6 +86,8 @@ function ownerPage(): TeamPage {
       invitedBy: "priya@devthrottle.com", sentAtUtc: "2026-10-01T10:00:00Z", expiresAtUtc: "2026-10-08T10:00:00Z",
       canResend: true, canCancel: true,
     }],
+    // The Billing section has its own tests (teamBilling.test.tsx); these are about the member list.
+    bill: null,
   };
 }
 
@@ -109,7 +111,7 @@ function developerPage(): TeamPage {
   return {
     ...ownerPage(),
     yourRole: "Developer",
-    summary: "3 paid seats, 2 Collaborators (free)",
+    summary: "3 paid seats, 2 Collaborators (no charge)",
     canInvite: false,
     members: [
       member("soren", "Owner"),
@@ -144,7 +146,7 @@ describe("the Team page, per role", () => {
 
     await screen.findByText("Team DevThrottle");
     expect(client.getTeamPage).toHaveBeenCalledWith(TEAM);
-    expect(screen.getByText("3 paid seats, 2 Collaborators (free), 1 invitation waiting")).toBeTruthy();
+    expect(screen.getByText("3 paid seats, 2 Collaborators (no charge), 1 invitation waiting")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Invite someone" }).getAttribute("href")).toBe(`/team/${TEAM}/invite`);
 
     const own = rowOf("soren");
@@ -208,7 +210,7 @@ describe("the Team page, per role", () => {
 
     await screen.findByText("Team DevThrottle");
     expect(screen.getByText("rob@devthrottle.com")).toBeTruthy();
-    expect(screen.getByText("3 paid seats, 2 Collaborators (free)")).toBeTruthy();
+    expect(screen.getByText("3 paid seats, 2 Collaborators (no charge)")).toBeTruthy();
     expect(screen.queryAllByRole("combobox")).toHaveLength(0);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(screen.queryByRole("link", { name: "Invite someone" })).toBeNull();
@@ -229,7 +231,7 @@ describe("changing the team on the page", () => {
   it("changing a role sends it to the server and shows what the server now holds", async () => {
     const after = ownerPage();
     after.members[2] = member("rob", "Collaborator", { ...dropdown, ...removable("rob"), seat: "Free" });
-    after.summary = "2 paid seats, 3 Collaborators (free), 1 invitation waiting";
+    after.summary = "2 paid seats, 3 Collaborators (no charge), 1 invitation waiting";
     client.getTeamPage.mockResolvedValueOnce(ownerPage()).mockResolvedValueOnce(after);
     client.changeMemberRole.mockResolvedValue();
     renderAt(PATH);
@@ -241,7 +243,7 @@ describe("changing the team on the page", () => {
     expect(client.changeMemberRole).toHaveBeenCalledWith(TEAM, "id-rob", "Collaborator");
     // The page re-reads the server: the role, the seat and the count are the server's, not the page's guess.
     expect(client.getTeamPage).toHaveBeenCalledTimes(2);
-    expect(screen.getByText("2 paid seats, 3 Collaborators (free), 1 invitation waiting")).toBeTruthy();
+    expect(screen.getByText("2 paid seats, 3 Collaborators (no charge), 1 invitation waiting")).toBeTruthy();
     expect(within(rowOf("rob")).getByText("Free")).toBeTruthy();
   });
 

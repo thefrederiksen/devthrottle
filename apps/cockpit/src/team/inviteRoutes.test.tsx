@@ -81,7 +81,7 @@ function options(overrides: Partial<InviteOptions> = {}): InviteOptions {
     roles: [
       { role: "Manager", allowed: false, hint: "Only the Owner can invite a Manager." },
       { role: "Developer", allowed: true, hint: "Runs sessions on their own computer. A paid seat on soren@centerconsulting.com's bill." },
-      { role: "Collaborator", allowed: true, hint: "Answers questions, sends requests, reads reports. Free." },
+      { role: "Collaborator", allowed: true, hint: "Answers questions, sends requests, reads reports. No charge." },
     ],
     blocked: null,
     expiryNote: "The invitation expires in 7 days.",
@@ -201,12 +201,12 @@ describe("the invite form (S2)", () => {
 
   it("says why nothing can be sent when the Gateway blocks the form, and keeps Send disabled", async () => {
     deviceKey = "a-device-key";
-    client.getInviteOptions.mockResolvedValue(options({ blocked: "The team's bill has not started - the Owner finishes billing first." }));
+    client.getInviteOptions.mockResolvedValue(options({ blocked: "The team plan has not started - the Owner starts the team plan first." }));
     client.listInvitations.mockResolvedValue([]);
 
     mountAt(`/team/${TEAM}/invite`);
 
-    expect(await screen.findByText("The team's bill has not started - the Owner finishes billing first.")).toBeTruthy();
+    expect(await screen.findByText("The team plan has not started - the Owner starts the team plan first.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "rob@x.io" } });
     expect((screen.getByRole("button", { name: "Send invitation" }) as HTMLButtonElement).disabled).toBe(true);
   });

@@ -95,13 +95,7 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         // A team and a waiting invitation made directly through the registry, so each route has something real to act
         // on: if a route were mapped, these requests would succeed.
         var team = _gateway.TeamRegistry.CreateTeam(_subject, "Dark team").Team!.TeamId;
-        using (var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext())
-        {
-            ctx.Database.ExecuteSqlRaw(
-                "CREATE TABLE IF NOT EXISTS team_entitlements (team_id TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, seats INTEGER NULL, " +
-                "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, livemode INTEGER NULL, updated_at TEXT NULL)");
-            ctx.Database.ExecuteSqlRaw("INSERT INTO team_entitlements (team_id, status, seats, livemode) VALUES ({0}, 'active', 1, 1)", team);
-        }
+        HostedTeamBill.Start(_gateway, team, seats: 1);
         var created = _gateway.TeamRegistry.CreateInvitation(team, _subject, "waiting@example.com", CcDirector.Gateway.Teams.TeamRole.Developer);
         var waiting = created.Invitation!;
         var token = created.AcceptToken!;

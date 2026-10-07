@@ -42,17 +42,77 @@ export interface TeamPageInvitation {
   canCancel: boolean;
 }
 
+/** The confirmation shown before the team plan starts or renews: seats, price, total, and no charge. */
+export interface TeamBillCheckout {
+  title: string;
+  seatsLine: string;
+  priceLine: string;
+  totalLine: string;
+  chargeLine: string;
+  periodLine: string;
+  confirmLabel: string;
+}
+
+/** One line of the team's billing history, finished for display. */
+export interface TeamBillHistoryLine {
+  id: string;
+  /** "7 Oct 2026 to 7 Nov 2026". */
+  period: string;
+  seats: number;
+  /** "US$49.00 x 3 paid seats = US$147.00". */
+  amount: string;
+  /** "Charged: US$0.00". */
+  charged: string;
+  reason: string;
+}
+
+/**
+ * The Billing section (Teams v1, the team bill without Stripe): for the Owner, who may change it, and a Manager, who sees
+ * it read-only. Every sentence and every flag is the Gateway's; the page renders them.
+ */
+export interface TeamBill {
+  /** not-started, active, ending or ended. */
+  state: string;
+  statusLabel: string;
+  statusLine: string;
+  seats: number;
+  seatsLine: string;
+  priceLine: string;
+  amountLine: string;
+  /** "No charge". */
+  chargeLine: string;
+  periodEndUtc: string | null;
+  /** The period's last day as the Gateway words it ("7 Nov 2026"); render it, never format periodEndUtc. */
+  periodEnd: string | null;
+  autoRenew: boolean;
+  /** Whether the caller may change the bill at all (the Owner). */
+  canChange: boolean;
+  canStart: boolean;
+  canRenew: boolean;
+  canSetAutoRenew: boolean;
+  canCancel: boolean;
+  /** The confirmation before starting or renewing; null when neither is offered. */
+  checkout: TeamBillCheckout | null;
+  /** A sentence under the bill for a caller who may not change it (a Manager); null for the Owner. */
+  note: string | null;
+  /** What the cancel confirmation says; null when Cancel is not offered. */
+  cancelWarning: string | null;
+  history: TeamBillHistoryLine[];
+}
+
 /** What the Team page shows (GET /teams/{teamId}/page). */
 export interface TeamPage {
   teamId: string;
   teamName: string;
   yourRole: string;
-  /** "3 paid seats, 2 Collaborators (free), 1 invitation waiting". */
+  /** "3 paid seats, 2 Collaborators (no charge), 1 invitation waiting". */
   summary: string;
   /** Whether the page offers "Invite someone". */
   canInvite: boolean;
   members: TeamPageMember[];
   invitations: TeamPageInvitation[];
+  /** The Billing section; null for a role that may not see the team's bill (a Developer). */
+  bill: TeamBill | null;
 }
 
 const team = (teamId: string) => `/teams/${encodeURIComponent(teamId)}`;
@@ -65,6 +125,26 @@ export function getTeamPage(teamId: string, signal?: AbortSignal): Promise<TeamP
 /** PUT /teams/{teamId}/members/{memberId}/role - change a member's role. */
 export async function changeMemberRole(teamId: string, memberId: string, role: string, signal?: AbortSignal): Promise<void> {
   await call<{ done: boolean }>("PUT", `${team(teamId)}/members/${encodeURIComponent(memberId)}/role`, "change the role", { role }, signal);
+}
+
+/** POST /teams/{teamId}/bill/start - the Owner starts the team plan. Nothing is charged. */
+export async function startTeamPlan(teamId: string, signal?: AbortSignal): Promise<void> {
+  await call<{ done: boolean }>("POST", `${team(teamId)}/bill/start`, "start the team plan", undefined, signal);
+}
+
+/** POST /teams/{teamId}/bill/renew - the Owner renews an ending or ended plan for a new month. */
+export async function renewTeamPlan(teamId: string, signal?: AbortSignal): Promise<void> {
+  await call<{ done: boolean }>("POST", `${team(teamId)}/bill/renew`, "renew the team plan", undefined, signal);
+}
+
+/** PUT /teams/{teamId}/bill/auto-renew - the Owner switches auto-renew on or off. */
+export async function setTeamPlanAutoRenew(teamId: string, on: boolean, signal?: AbortSignal): Promise<void> {
+  await call<{ done: boolean }>("PUT", `${team(teamId)}/bill/auto-renew`, on ? "switch auto-renew on" : "switch auto-renew off", { on }, signal);
+}
+
+/** POST /teams/{teamId}/bill/cancel - the Owner cancels; the plan runs to the end of its period, then ends. */
+export async function cancelTeamPlan(teamId: string, signal?: AbortSignal): Promise<void> {
+  await call<{ done: boolean }>("POST", `${team(teamId)}/bill/cancel`, "cancel the team plan", undefined, signal);
 }
 
 /** DELETE /teams/{teamId}/members/{memberId} - remove a member from the team. */

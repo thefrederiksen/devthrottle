@@ -63,6 +63,11 @@ public sealed class TenantGateArchitectureTests
         // only READs it. Keyed by the team id - which IS a tenant id - so it carries no separate tenant_id
         // column and no query filter: the key already names the one tenant the row is about.
         nameof(TeamEntitlementEntity),
+        // A TEAM's bill as the Gateway owns it (Teams v1, the team bill without Stripe) and its billing history. Keyed by
+        // the team id, which IS a tenant id, and read by the access lease and the renewal pass before or across any
+        // request's tenant - so, like the teams table, scoping them would be circular.
+        nameof(TeamBillEntity),
+        nameof(TeamBillChargeEntity),
         nameof(AccountTrialEntity),       // free-trial ledger, keyed by account subject and read pre-tenant (#2117)
         // Teams and their members (devthrottle_internal#2300). A team IS a tenant, and these two tables are what say
         // which tenants a person may act in - read by the verified account subject BEFORE a tenant is chosen, so

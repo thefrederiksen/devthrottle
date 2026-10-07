@@ -32,8 +32,9 @@ public static class RoleTableSpec
             "devthrottle_internal#2305 builds the Mentor page; today's endpoint is the Mentor report's on/off setting"),
         new(TeamAction.ChangeSharedSkillsAndWorkflows, "YYNN", "POST", "/gateway/skills", TeamOwnership.Unknown, null),
         new(TeamAction.MakeManagersAndChangeRoles, "YNNN", "PUT", "/teams/{teamId}/members/{memberId}/role", TeamOwnership.Unknown, null),
-        new(TeamAction.BillingRenameOrDeleteTeam, "YNNN", null, null, TeamOwnership.Unknown,
-            "devthrottle_internal#2299 adds billing; no first-version issue adds rename or delete"),
+        // Changing the bill (Teams v1, the team bill without Stripe): start, renew, auto-renew, cancel - the Owner alone.
+        new(TeamAction.BillingRenameOrDeleteTeam, "YNNN", "POST", "/teams/{teamId}/bill/start", TeamOwnership.Unknown,
+            "no first-version issue adds rename or delete"),
         new(TeamAction.JoinOrWatchSomeoneElsesSession, "NNNN", "GET", "/sessions/{sid}/buffer", TeamOwnership.SomeoneElses, null),
         new(TeamAction.SeeMembersAndRoles, "YYYY", "GET", "/teams/{teamId}/members", TeamOwnership.Unknown, null),
         new(TeamAction.ReadAnotherPersonsPrompts, "NNNN", "GET", "/prompts", TeamOwnership.SomeoneElses, null),
@@ -46,6 +47,8 @@ public static class RoleTableSpec
         new(TeamAction.ReadAndDecideTeamRequests, "YYNN", "GET", "/teams/{teamId}/requests", TeamOwnership.Unknown, null),
         // devthrottle_internal#2303: "Collaborator: no Team page."
         new(TeamAction.SeeTeamPage, "YYYN", "GET", "/teams/{teamId}/page", TeamOwnership.Unknown, null),
+        // Teams v1, the team bill without Stripe (the Delivery Lead's brief): "a Manager may see the bill, may not change it".
+        new(TeamAction.SeeTeamBill, "YYNN", "GET", "/teams/{teamId}/bill", TeamOwnership.Unknown, null),
     };
 
     public static readonly TeamRole[] Columns = { TeamRole.Owner, TeamRole.Manager, TeamRole.Developer, TeamRole.Collaborator };

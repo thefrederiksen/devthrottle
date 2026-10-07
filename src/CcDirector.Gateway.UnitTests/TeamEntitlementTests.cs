@@ -12,8 +12,9 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// The Gateway half of devthrottle_internal #2299: a TEAM's bill, read from the team row the website's payment
-/// side writes, decides whether the team's paid members hold paid features.
+/// The Gateway half of devthrottle_internal #2299: a TEAM's bill decides whether the team's paid members hold paid
+/// features. Since Teams v1's team bill without Stripe (owner, 7 Oct 2026) that bill is the Gateway's own
+/// <c>team_bills</c> row, created by the Gateway's migrations and written only by <c>TeamBillStore</c>.
 ///
 /// What these tests hold, in the words of the owner's decisions:
 ///  - Every paid member (Owner, Manager, Developer) of a team whose bill is active gets the Pro scopes.
@@ -25,12 +26,11 @@ namespace CcDirector.Gateway.Tests;
 ///  - "We do not do trials for teams": the trial ledger is never consulted for a team.
 ///  - "A personal seat and a team seat is different": neither carries over to the other, and in a team tenant the
 ///    absence of a membership can only ever mean a refusal - never the person's own row.
-///  - Live money only on production hosted, and a failed bill read is Unknown - never a grant, never a refusal.
+///  - The live-money rule guards the website's PERSONAL rows only; the Gateway's own team bill grants without it. A
+///    failed bill read is Unknown - never a grant, never a refusal.
 ///
-/// The team table is created here with raw SQL, not by a migration, for the same reason production does not
-/// migrate it: the website owns it. That CREATE TABLE is THIS code's own statement of the columns it reads, written
-/// from the seam - it is not the website's migration, so it cannot catch the website naming a column differently.
-/// Drift is caught only by reading the real table once the website migration exists, before Teams is released.
+/// The PERSONAL table is created here with raw SQL, not by a migration, for the same reason production does not
+/// migrate it: the website owns it.
 /// </summary>
 public sealed class TeamEntitlementTests : IDisposable
 {
@@ -44,7 +44,7 @@ public sealed class TeamEntitlementTests : IDisposable
 
     public void Dispose() => _harness.Dispose();
 
-    /// <summary>Opens a database with BOTH payment-side tables the Gateway reads (personal and team), empty.</summary>
+    /// <summary>Opens a database with the website's personal entitlement table (empty) beside the Gateway's own tables.</summary>
     private GatewayDatabase OpenWithBillingTables()
     {
         var db = _harness.Open();
@@ -54,20 +54,38 @@ public sealed class TeamEntitlementTests : IDisposable
             "subject TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, " +
             "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, updated_at TEXT NULL, " +
             "livemode INTEGER NULL, tier TEXT NULL)");
-        ctx.Database.ExecuteSqlRaw(
-            "CREATE TABLE IF NOT EXISTS team_entitlements (" +
-            "team_id TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, seats INTEGER NULL, " +
-            "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, livemode INTEGER NULL, updated_at TEXT NULL)");
         return db;
     }
 
-    private static void SeedTeam(GatewayDatabase db, string teamId, string status, DateTime? periodEnd = null,
-        bool? livemode = true, int? seats = 1)
+    /// <summary>The team (a bill cannot exist without one) and its bill on the Gateway's own table.</summary>
+    private static void SeedTeam(GatewayDatabase db, string teamId, string status, DateTime? periodEnd = null, int seats = 1)
     {
         using var ctx = db.CreateUnscopedContext();
-        ctx.Database.ExecuteSqlRaw(
-            "INSERT INTO team_entitlements (team_id, status, seats, current_period_end, livemode) VALUES ({0}, {1}, {2}, {3}, {4})",
-            teamId, status, seats, periodEnd, livemode);
+        if (!ctx.Teams.Any(t => t.Id == teamId))
+            ctx.Teams.Add(new TeamEntity { Id = teamId, Name = "Team " + teamId[..4], CreatedAtUtc = Now.AddDays(-30) });
+        var end = periodEnd ?? Now.AddDays(20);
+        ctx.TeamBills.Add(new TeamBillEntity
+        {
+            TeamId = teamId,
+            Status = status,
+            Seats = seats,
+            PricePerSeatCents = CcDirector.Gateway.Teams.TeamBillStore.PricePerSeatCents,
+            PlanStartedUtc = end.AddMonths(-1),
+            CurrentPeriodStartUtc = end.AddMonths(-1),
+            CurrentPeriodEndUtc = end,
+            AutoRenew = status == EntitlementRegistry.StatusActive,
+            CreatedAtUtc = end.AddMonths(-1),
+            UpdatedAtUtc = end.AddMonths(-1),
+            Version = 1,
+        });
+        ctx.SaveChanges();
+    }
+
+    /// <summary>Take the team bill table away, so every read of a team's bill FAILS for real.</summary>
+    private static void BreakTheBillTable(GatewayDatabase db)
+    {
+        using var ctx = db.CreateUnscopedContext();
+        ctx.Database.ExecuteSqlRaw("DROP TABLE team_bills");
     }
 
     private static void SeedPersonal(GatewayDatabase db, string subject, string status, string tier)
@@ -220,9 +238,9 @@ public sealed class TeamEntitlementTests : IDisposable
     [Fact]
     public void EvaluateTeamTenant_FullyDiscountedActiveBill_GrantsExactlyAsAFullPriceOne()
     {
-        // The discount lives on the payment provider's subscription; what reaches this table is an `active` row
-        // like any other. This states that property; it cannot fail against any implementation that reads only
-        // this table, because there is no column a discount could appear in.
+        // A discount would live on a payment provider's subscription; the Gateway's bill is an `active` row like any
+        // other. This states that property; it cannot fail against any implementation that reads only this table,
+        // because there is no column a discount could appear in.
         var db = OpenWithBillingTables();
         SeedTeam(db, TeamA, EntitlementRegistry.StatusActive, periodEnd: Now.AddDays(20), seats: 3);   // full price
         SeedTeam(db, TeamB, EntitlementRegistry.StatusActive, periodEnd: Now.AddDays(20), seats: 3);   // 100% coupon
@@ -303,7 +321,8 @@ public sealed class TeamEntitlementTests : IDisposable
     public void EvaluateTeamTenant_CollaboratorWhenTheBillCannotBeRead_IsStillTheFreeTier()
     {
         // The role decides a Collaborator's answer, so a failed bill read does not turn it into an Unknown.
-        var db = _harness.Open();   // no team_entitlements table at all
+        var db = _harness.Open();
+        BreakTheBillTable(db);
         var registry = new EntitlementRegistry(db, requireLivemode: false);
 
         AssertFreeTierMember(registry.EvaluateTeamTenant(TeamA, Member(TeamSeatRoles.Collaborator), Now));
@@ -433,31 +452,31 @@ public sealed class TeamEntitlementTests : IDisposable
         Assert.False(HasPaidScopes(registry.EvaluatePersonalTenant(OwnerSubject, Now)));
     }
 
-    // ---- Live money only on production hosted ------------------------------------------------------------------
+    // ---- The live-money rule is the website's, not the Gateway's own bill's -----------------------------------------
 
-    [Theory]
-    [InlineData(false)]
-    [InlineData(null)]
-    public void EvaluateTeamTenant_ProductionHostedAndTestModeRow_GetsNoPaidScopes(bool? livemode)
+    [Fact]
+    public void EvaluateTeamTenant_ProductionHostedAndTheGatewaysOwnActiveBill_GrantsTheProScopes()
     {
+        // The production hosted registry requires live money of a PERSONAL row the website writes. The team's bill is the
+        // Gateway's own row, with no live-money flag, and it grants.
         var db = OpenWithBillingTables();
-        SeedTeam(db, TeamA, EntitlementRegistry.StatusActive, livemode: livemode);
+        SeedTeam(db, TeamA, EntitlementRegistry.StatusActive);
+        var registry = new EntitlementRegistry(db, requireLivemode: true);
+
+        Assert.Equal(EntitlementOutcome.Entitled, registry.EvaluateTeam(TeamA, Now).Outcome);
+        AssertTeamSeatMember(registry.EvaluateTeamTenant(TeamA, Member(TeamSeatRoles.Owner), Now));
+    }
+
+    [Fact]
+    public void EvaluateTeamTenant_ProductionHostedAndTheGatewaysOwnEndedBill_GetsNoPaidScopes()
+    {
+        // The control for the grant above: an ended bill on the same registry grants nothing.
+        var db = OpenWithBillingTables();
+        SeedTeam(db, TeamA, EntitlementRegistry.StatusCanceled);
         var registry = new EntitlementRegistry(db, requireLivemode: true);
 
         Assert.Equal(EntitlementOutcome.NotEntitled, registry.EvaluateTeam(TeamA, Now).Outcome);
         AssertFreeTierMember(registry.EvaluateTeamTenant(TeamA, Member(TeamSeatRoles.Owner), Now));
-    }
-
-    [Fact]
-    public void EvaluateTeamTenant_ProductionHostedAndLiveRow_GrantsTheProScopes()
-    {
-        // The control for the refusal above: without it, "test mode grants nothing" would also hold if the
-        // live-money check refused everything.
-        var db = OpenWithBillingTables();
-        SeedTeam(db, TeamA, EntitlementRegistry.StatusActive, livemode: true);
-        var registry = new EntitlementRegistry(db, requireLivemode: true);
-
-        AssertTeamSeatMember(registry.EvaluateTeamTenant(TeamA, Member(TeamSeatRoles.Owner), Now));
     }
 
     // ---- A failed read is Unknown ------------------------------------------------------------------------------
@@ -465,9 +484,10 @@ public sealed class TeamEntitlementTests : IDisposable
     [Fact]
     public void EvaluateTeamTenant_PaidSeatAndBillReadFails_IsUnknownNeverAGrantNeverARefusal()
     {
-        // The read fails for real: the website-owned table does not exist, which is what a lost SELECT grant or
-        // an un-migrated website database looks like from here.
+        // The read fails for real: the team bill table does not exist, which is what a lost grant or an un-migrated
+        // database looks like from here.
         var db = _harness.Open();
+        BreakTheBillTable(db);
         var registry = new EntitlementRegistry(db, requireLivemode: false);
 
         var decision = registry.EvaluateTeamTenant(TeamA, Member(TeamSeatRoles.Owner), Now);

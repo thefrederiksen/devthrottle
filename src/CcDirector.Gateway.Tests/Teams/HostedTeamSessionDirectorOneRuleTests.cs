@@ -83,7 +83,6 @@ public sealed class HostedTeamSessionDirectorOneRuleTests : IAsyncLifetime
         // Only a test's own call drives a held delivery, so nothing races the phases below.
         _gateway.HeldDeliveryTickInterval = TimeSpan.FromHours(1);
         await _gateway.StartAsync();
-        HostedTeamBill.CreateTable(_gateway);
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/"), Timeout = TimeSpan.FromMinutes(2) };
 
         var teamId = _gateway.TeamRegistry.CreateTeam(_teamOwner, "A").Team!.TeamId;

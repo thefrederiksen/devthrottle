@@ -85,7 +85,6 @@ public sealed class HostedTeamRequestEndpointsTests : IAsyncLifetime
         _otherTeam = _gateway.TeamRegistry.CreateTeam(_otherTeamOwner.Subject, "Elsewhere").Team!.TeamId;
         // The team pays: a team Director's access is read from the team's bill (devthrottle_internal#2311 step 2), so
         // without one a team key would be refused as unknown before any request route is reached.
-        HostedTeamBill.CreateTable(_gateway);
         HostedTeamBill.Start(_gateway, _team, seats: 5);
     }
 

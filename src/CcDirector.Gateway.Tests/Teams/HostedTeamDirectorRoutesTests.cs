@@ -82,7 +82,6 @@ public sealed class HostedTeamDirectorRoutesTests : IAsyncLifetime
             snoozePath: Path.Combine(_instancesDir, "snooze", "snooze.json"),
             streamMode: true, teamsReleased: true);
         await _gateway.StartAsync();
-        HostedTeamBill.CreateTable(_gateway);
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/"), Timeout = TimeSpan.FromMinutes(2) };
 
         // Each person has a personal account with an email, so a team answer that leaked another person's identity would

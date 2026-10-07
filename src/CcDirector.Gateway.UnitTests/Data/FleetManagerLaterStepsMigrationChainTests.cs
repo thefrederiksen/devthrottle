@@ -48,6 +48,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20261006140613_AddFactoryRegistry",
         "20261006171223_AddTeamQuestionAnswers",
         "20261007035034_ArchiveFactories",
+        "20261007070434_AddTeamBills",
     })]
     [InlineData("postgres", new[]
     {
@@ -78,6 +79,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20261006140813_AddFactoryRegistry",
         "20261006171258_AddTeamQuestionAnswers",
         "20261007052952_ArchiveFactories",
+        "20261007070501_AddTeamBills",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {
@@ -118,8 +120,9 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         // numbers tables and their three indexes (Factories screen mission), then the answerer column on a dev report item
         // and its index, the answered version on a dev report item and the one-answer-per-person unique index, and the
         // question column on a person's comment (devthrottle_internal#2307), then the factory registry's three archive
-        // columns (Factories screen mission, round 2): an empty comparison proves nothing.
-        Assert.Equal(103, changes);
+        // columns (Factories screen mission, round 2), then the team bill and billing history tables and their two indexes
+        // (Teams v1, the team bill without Stripe): an empty comparison proves nothing.
+        Assert.Equal(107, changes);
     }
 
     /// <summary>The schema operations, as sorted "kind table.name" lines. Data operations are not schema.</summary>

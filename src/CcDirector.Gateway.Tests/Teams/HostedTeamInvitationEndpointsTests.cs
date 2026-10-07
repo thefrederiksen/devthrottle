@@ -14,7 +14,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// <summary>
 /// Team invitations over real HTTP on a hosted Gateway with Teams released (devthrottle_internal#2301): the caller is
 /// the account behind their own device key, the email is asked of a recording mailer (nothing leaves the process), and
-/// the team's bill is a team_entitlements row written here the way the website's webhook writes it.
+/// the team's bill is the Gateway's own team_bills row (Teams v1, the team bill without Stripe), started here.
 /// </summary>
 /// This class sets the process-wide CC_GATEWAY_HOSTED, so it belongs to the hosted-mode collection.
 [Collection("GatewayHostedMode")]
@@ -55,12 +55,6 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         _gateway.TeamInvitationMailer = _mailer;
         await _gateway.StartAsync();
         _http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
-
-        using (var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext())
-            ctx.Database.ExecuteSqlRaw(
-                "CREATE TABLE IF NOT EXISTS team_entitlements (" +
-                "team_id TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, seats INTEGER NULL, " +
-                "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, livemode INTEGER NULL, updated_at TEXT NULL)");
 
         _keyOwner = Enroll("dev-inv-owner", _owner, "owner@acme.example");
         _keyManager = Enroll("dev-inv-manager", _manager, "manager@acme.example");
@@ -138,7 +132,7 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         var (status, body) = await Send(HttpMethod.Post, $"teams/{team}/invitations", _keyOwner, new { email = "a@b.example", role = "Developer" });
 
         Assert.Equal(HttpStatusCode.Conflict, status);
-        Assert.Equal("The team's bill has not started - the Owner finishes billing first.", body.GetProperty("error").GetString());
+        Assert.Equal("The team plan has not started - the Owner starts the team plan first.", body.GetProperty("error").GetString());
         Assert.Empty(_mailer.Sent);
     }
 
@@ -321,7 +315,7 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         _output.WriteLine("POST /teams {\"name\":\"Acme\"} as owner@acme.example -> 201");
         await Show(HttpMethod.Post, $"teams/{team}/invitations", "teams/{teamId}/invitations", _keyOwner, "owner@acme.example (no bill yet)", new { email = "bob@gmail.example", role = "Developer" });
         StartBill(team);
-        _output.WriteLine("(website webhook) team_entitlements row written: active, 1 seat");
+        _output.WriteLine("(the Owner starts the team plan) team_bills row written: active, 1 seat");
         await Show(HttpMethod.Get, $"teams/{team}/invitations/options", "teams/{teamId}/invitations/options", _keyOwner, "owner@acme.example");
         var invitation = await Show(HttpMethod.Post, $"teams/{team}/invitations", "teams/{teamId}/invitations", _keyOwner, "owner@acme.example", new { email = "bob@gmail.example", role = "Developer" });
         var token = TokenOf(invitation.GetProperty("invitation").GetProperty("id").GetString()!);
@@ -350,11 +344,7 @@ public sealed class HostedTeamInvitationEndpointsTests : IAsyncLifetime
         return team;
     }
 
-    private void StartBill(string team)
-    {
-        using var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext();
-        ctx.Database.ExecuteSqlRaw("INSERT INTO team_entitlements (team_id, status, seats, livemode) VALUES ({0}, 'active', 1, 1)", team);
-    }
+    private void StartBill(string team) => HostedTeamBill.Start(_gateway, team, seats: 1);
 
     // The link's secret as the email would carry it: the mailer is the only place it is ever handed (only its hash is
     // stored). The newest send for the invitation wins, as a resend replaces the link.

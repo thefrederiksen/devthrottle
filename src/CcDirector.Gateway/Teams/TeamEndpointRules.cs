@@ -137,6 +137,10 @@ public static class TeamEndpointRules
         new TeamEndpointRule("/teams/{teamId}/page", TeamMethods.Read, TeamAction.SeeTeamPage, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         new TeamEndpointRule("/teams/{teamId}/members/{memberId}", TeamMethods.Write, TeamAction.InviteOrRemoveDevelopersAndCollaborators, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
         new TeamEndpointRule("/teams/{teamId}/members/{memberId}/role", TeamMethods.Write, TeamAction.MakeManagersAndChangeRoles, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // The team's bill (Teams v1, the team bill without Stripe). Reading it is "see the team's bill" - the Owner and
+        // Managers; every change (start, renew, auto-renew, cancel) is "change the billing" - the Owner alone.
+        new TeamEndpointRule(Api.TeamEndpoints.BillPath, TeamMethods.Read, TeamAction.SeeTeamBill, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        new TeamEndpointRule(Api.TeamEndpoints.BillPath, TeamMethods.Write, TeamAction.BillingRenameOrDeleteTeam, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
 
         // The team's Fleet Map (devthrottle_internal#2312): every Director on the team, by person, names and status only.
         // A Developer's cell is "their own Directors", so the endpoint cuts its answer to the caller's own Directors.

@@ -23,8 +23,9 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// What these hold: a member is never refused for the bill (free tier without one, team tier with one); a request that
 /// names nobody, or a non-member, is refused as a PERSON and never reaches the revoke branch, so one stranger can never
 /// tombstone the team's keys; a failed read is Unknown, never a grant and never a revoke; a person's own Pro never
-/// reaches into a team; and a personal tenant reads exactly as it did. Over a real database with the website's two
-/// billing tables, created here as the seam states their columns.
+/// reaches into a team; and a personal tenant reads exactly as it did. Over a real database: the website's personal
+/// billing table created here as the seam states its columns, and the Gateway's own team bill (Teams v1, the team bill
+/// without Stripe) from the Gateway's migrations.
 /// </summary>
 public sealed class TeamBillOnTheRequestPathTests : IDisposable
 {
@@ -55,10 +56,6 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
                 "subject TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, " +
                 "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, updated_at TEXT NULL, " +
                 "livemode INTEGER NULL, tier TEXT NULL)");
-            ctx.Database.ExecuteSqlRaw(
-                "CREATE TABLE IF NOT EXISTS team_entitlements (" +
-                "team_id TEXT NOT NULL PRIMARY KEY, status TEXT NOT NULL, seats INTEGER NULL, " +
-                "current_period_end TEXT NULL, stripe_subscription_id TEXT NULL, livemode INTEGER NULL, updated_at TEXT NULL)");
         }
         _tenants = new TenantRegistry(_db);
         _teams = new TeamRegistry(_db, _tenants);
@@ -72,7 +69,7 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
             Assert.True(_teams.AddMember(team, Alice, TeamRole.Developer).IsDone);
             Assert.True(_teams.AddMember(team, Carol, TeamRole.Collaborator).IsDone);
         }
-        SeedTeamBill(_paidTeam, EntitlementRegistry.StatusActive, livemode: true);
+        SeedTeamBill(_paidTeam, EntitlementRegistry.StatusActive);
     }
 
     public void Dispose() => _harness.Dispose();
@@ -88,13 +85,8 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
         }
     }
 
-    private void SeedTeamBill(string teamId, string status, bool livemode)
-    {
-        using var ctx = _db.CreateUnscopedContext();
-        ctx.Database.ExecuteSqlRaw(
-            "INSERT INTO team_entitlements (team_id, status, seats, livemode) VALUES ({0}, {1}, {2}, {3})",
-            teamId, status, 2, livemode);
-    }
+    private void SeedTeamBill(string teamId, string status) =>
+        TeamBillSeed.Put(_db, teamId, status, seats: 2, autoRenew: status == EntitlementRegistry.StatusActive);
 
     private void SeedPersonalPro(string subject)
     {
@@ -149,7 +141,7 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
     public async Task AuthorizeAsync_APaidSeatWhoseBillCannotBeRead_IsUnknown_NeitherAGrantNorARevoke()
     {
         using (var ctx = _db.CreateUnscopedContext())
-            ctx.Database.ExecuteSqlRaw("DROP TABLE team_entitlements");
+            ctx.Database.ExecuteSqlRaw("DROP TABLE team_bills");
         var leases = Leases();
 
         Assert.Equal(HostedAccessDecision.RetryUnknown, await leases.AuthorizeAsync(new TenantId(_paidTeam), () => Alice));
@@ -168,7 +160,7 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
     /// <item>Table present, an ACTIVE LIVE row: Allow, on the team tier.</item>
     /// <item>Table MISSING: <see cref="HostedAccessDecision.RetryUnknown"/>, which the auth middleware answers 503
     /// entitlement_unknown - failing closed, with nothing revoked. So CI's 503 was the missing table (a setup gap in the
-    /// test), and Teams must not be released before <c>team_entitlements</c> exists in production.</item>
+    /// test). The team bill is now the Gateway's own <c>team_bills</c>, which its migrations create.</item>
     /// </list>
     /// </summary>
     [Fact]
@@ -186,7 +178,7 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
 
         // Table missing: unknown for both teams (503 entitlement_unknown on the wire), never a grant, never a revoke.
         using (var ctx = _db.CreateUnscopedContext())
-            ctx.Database.ExecuteSqlRaw("DROP TABLE team_entitlements");
+            ctx.Database.ExecuteSqlRaw("DROP TABLE team_bills");
         Assert.Equal(HostedAccessDecision.RetryUnknown, await Leases().AuthorizeAsync(new TenantId(_unpaidTeam), () => Alice));
         Assert.Equal(HostedAccessDecision.RetryUnknown, await Leases().AuthorizeAsync(new TenantId(_paidTeam), () => Alice));
 
@@ -278,17 +270,17 @@ public sealed class TeamBillOnTheRequestPathTests : IDisposable
     // ---- TeamMemberEntitlement --------------------------------------------------------------------------------------
 
     [Fact]
-    public void Decide_ReadsMembershipFromTheTeamsTable_AndATestModeBillGivesTheFreeTier()
+    public void Decide_ReadsMembershipFromTheTeamsTable_AndAnEndedBillGivesTheFreeTier()
     {
-        var testModeTeam = _teams.CreateTeam(Owner, "Test mode").Team!.TeamId;
-        SeedTeamBill(testModeTeam, EntitlementRegistry.StatusActive, livemode: false);
+        var endedTeam = _teams.CreateTeam(Owner, "Ended").Team!.TeamId;
+        SeedTeamBill(endedTeam, EntitlementRegistry.StatusCanceled);
         var now = DateTime.UtcNow;
 
         Assert.True(_teamEntitlement.IsTeam(new TenantId(_paidTeam)));
         Assert.False(_teamEntitlement.IsTeam(_tenants.MintOrLookupBySubject(Alice, null)));
         Assert.False(_teamEntitlement.Decide(new TenantId(_paidTeam), Stranger, now).IsMember);
         Assert.Equal(EntitlementRegistry.TierTeam, _teamEntitlement.Decide(new TenantId(_paidTeam), Owner, now).Entitlement!.Tier);
-        Assert.Equal(EntitlementRegistry.TierFree, _teamEntitlement.Decide(new TenantId(testModeTeam), Owner, now).Entitlement!.Tier);
+        Assert.Equal(EntitlementRegistry.TierFree, _teamEntitlement.Decide(new TenantId(endedTeam), Owner, now).Entitlement!.Tier);
         Assert.Throws<ArgumentException>(() => _teamEntitlement.Decide(new TenantId(_paidTeam), " ", now));
         Assert.Throws<ArgumentNullException>(() => new TeamMemberEntitlement(null!, _entitlements));
         Assert.Throws<ArgumentNullException>(() => new TeamMemberEntitlement(_teams, null!));

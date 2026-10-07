@@ -4,7 +4,6 @@ using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Tenancy;
 using Microsoft.EntityFrameworkCore;
-using System.Collections.Concurrent;
 
 namespace CcDirector.Gateway.Teams;
 
@@ -37,12 +36,11 @@ public sealed partial class TeamRegistry
     private readonly GatewayDatabase _db;
     private readonly TenantRegistry _tenants;
     private readonly Func<DateTime> _utcNow;
-    private readonly TeamSeatSync? _seatSync;
+    private readonly TeamBillStore _bills;
     private readonly Func<string, TeamBill> _readTeamBill;
     // "May this person do this in this team", asked of the one place that answers it (devthrottle_internal#2302).
     private readonly TeamAccess _access;
     private readonly object _writeLock = new();
-    private readonly ConcurrentDictionary<Task, byte> _seatSyncsInFlight = new();
 
     // What IsTeam has SETTLED about a tenant id, so the question every request asks costs no database read once
     // answered (review finding F4). Only a settled answer is kept: true for a team's id, false for a PERSONAL account's
@@ -57,19 +55,17 @@ public sealed partial class TeamRegistry
     /// <param name="tenants">The tenant registry, told when a team is created so its tenant census - the list
     /// every background sweep walks - includes the new team's tenant.</param>
     /// <param name="utcNow">The clock; the system clock when omitted.</param>
-    /// <param name="seatSync">Tells the website a team's membership changed so it recounts the team's paid seats
-    /// (devthrottle_internal#2301, seam-team-billing.md section 4). Null on a Gateway with no team bills - a
-    /// self-hosted one, or one where Teams is not released - and then every change that moved the paid-seat count says
-    /// so in the log (a change that did not move it never asks; see <see cref="CommitMembershipChange"/>).</param>
-    /// <param name="readTeamBill">Reads a team's bill (team_entitlements) for the invitation bill gate. Defaults to
-    /// the entitlement reader over this same database.</param>
+    /// <param name="bills">The team bills (Teams v1, the team bill without Stripe): the Owner's bill actions, and the
+    /// paid-seat count recorded after a membership change. Defaults to a store over this same database and clock.</param>
+    /// <param name="readTeamBill">Reads a team's bill for the invitation bill gate. Defaults to the entitlement reader
+    /// over this same database - the one reader of a team's bill.</param>
     public TeamRegistry(GatewayDatabase db, TenantRegistry tenants, Func<DateTime>? utcNow = null,
-        TeamSeatSync? seatSync = null, Func<string, TeamBill>? readTeamBill = null)
+        TeamBillStore? bills = null, Func<string, TeamBill>? readTeamBill = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
-        _seatSync = seatSync;
+        _bills = bills ?? new TeamBillStore(db, _utcNow);
         _readTeamBill = readTeamBill ?? new EntitlementRegistry(db).ReadTeamBill;
         _access = new TeamAccess(this);
     }
@@ -360,24 +356,21 @@ public sealed partial class TeamRegistry
     /// invitation), changing a role and removing a member all write through here and nowhere else, so what must
     /// follow every change attaches here once. Called under the write lock.
     ///
-    /// THE SEAT SYNC (devthrottle_internal#2301, seam-team-billing.md section 4): after the save commits, a change that
-    /// MOVED THE TEAM'S PAID-SEAT COUNT asks the website to recount the team's paid seats - naming the team, never a
-    /// number. Whether it moved is measured, not inferred from the kind of change: the paid members (Owner, Manager,
-    /// Developer - <see cref="TeamSeatRoles"/>) are counted from the database before the save and again after it. So a
-    /// Developer made a Manager, a Collaborator added or a Collaborator removed leaves the bill alone, and a Developer
-    /// made a Collaborator, a paid member added or a paid member removed reaches it (devthrottle_internal#2303).
-    /// Creating the team is left out because the team's bill does not exist yet: the checkout starts it at one seat,
-    /// the Owner's. The call is STARTED here and not awaited: it runs under the write lock and may take up to the
-    /// client's timeout, and the change has already committed, so a member's request never waits on (or fails with)
-    /// the website. A refused or unreachable website is logged by the sync and repaired by
-    /// <see cref="TeamSeatConvergence"/>, never swallowed here.
+    /// THE SEAT COUNT (Teams v1, the team bill without Stripe): after the save commits, a change that MOVED THE TEAM'S
+    /// PAID-SEAT COUNT records the new count on the team's bill (<see cref="TeamBillStore.RecordSeats"/>). Whether it
+    /// moved is measured, not inferred from the kind of change: the paid members (Owner, Manager, Developer -
+    /// <see cref="TeamSeatRoles"/>) are counted from the database before the save and again after it. So a Developer made
+    /// a Manager, a Collaborator added or a Collaborator removed leaves the bill alone, and a Developer made a
+    /// Collaborator, a paid member added or a paid member removed reaches it (devthrottle_internal#2303). Creating the team
+    /// is left out because the team's bill does not exist yet: the Owner starts the plan from the Team page. Nothing is
+    /// sent to the website: the count is the Gateway's own, on the Gateway's own bill. A Gateway that stops between the
+    /// two saves is put right by <see cref="TeamSeatConvergence"/>.
     ///
-    /// THE MEMBERSHIP EVENT (devthrottle_internal#2311): after the save, and after the seat sync is started, it tells
+    /// THE MEMBERSHIP EVENT (devthrottle_internal#2311): after the save, and after the seat count is recorded, it tells
     /// <see cref="MembershipCommitted"/>, so what must follow a person's membership - cutting their Directors off a team
     /// they left or can no longer run sessions in - hangs off this one place too. A listener that throws fails the
     /// write's caller AFTER the change has committed; that is deliberate, because a removed person whose keys could not
-    /// be revoked must be seen, not hidden. The seat sync is started first so a throwing listener can never stop the
-    /// website being told.
+    /// be revoked must be seen, not hidden.
     /// </summary>
     /// <param name="accountSubject">The person whose membership changed.</param>
     /// <param name="role">Their role after the change, or null when they are no longer a member.</param>
@@ -385,55 +378,22 @@ public sealed partial class TeamRegistry
         string accountSubject, TeamRole? role)
     {
         // Read before the save: a query goes to the database, which does not yet hold the pending change.
-        var paidBefore = PaidSeatCount(ctx, teamId);
+        var paidBefore = TeamBillStore.PaidSeats(ctx, teamId);
         ctx.SaveChanges();
-        var paidAfter = PaidSeatCount(ctx, teamId);
+        var paidAfter = TeamBillStore.PaidSeats(ctx, teamId);
         FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} change={change} committed, paid seats {paidBefore} -> {paidAfter}");
 
         if (change == TeamMembershipChange.TeamCreated)
-            FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - a new team has no bill yet, so the website was not asked to recount");
+            FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - a new team has no bill yet, so no seat count was recorded");
         else if (paidBefore == paidAfter)
-            FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - the paid-seat count did not change, so the website was not asked to recount");
+            FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - the paid-seat count did not change, so the bill was left alone");
         else
-            StartSeatSync(teamId);
+            FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - seat count on the bill: {_bills.RecordSeats(teamId)}");
 
         // Raised for every change, whether or not the paid-seat count moved: what must follow a person's membership
         // is for the listener to decide, not the bill.
         MembershipCommitted?.Invoke(new TeamMembershipCommitted(teamId, accountSubject, change, role));
     }
-
-    /// <summary>Start the website's seat recount for one team, not awaited (see <see cref="CommitMembershipChange"/>).</summary>
-    private void StartSeatSync(string teamId)
-    {
-        if (_seatSync is null)
-        {
-            FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} - this Gateway has no seat sync (no team bills here), so the website was not told");
-            return;
-        }
-
-        var sync = _seatSync.SyncAfterMembershipChangeAsync(teamId, CancellationToken.None);
-        _seatSyncsInFlight.TryAdd(sync, 0);
-        _ = sync.ContinueWith(t =>
-        {
-            _seatSyncsInFlight.TryRemove(t, out _);
-            if (t.IsFaulted)
-                FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} seat sync FAILED ({t.Exception?.GetBaseException().GetType().Name}): {t.Exception?.GetBaseException().Message} - convergence will retry");
-            else if (t.IsCompletedSuccessfully && !t.Result.Synced)
-                FileLog.Write($"[TeamRegistry] CommitMembershipChange: team {LogTeam(teamId)} seat sync NOT done (status={t.Result.StatusCode}) - convergence will retry");
-        }, TaskScheduler.Default);
-    }
-
-    /// <summary>How many of a team's members hold a paid seat, as the database holds them now.</summary>
-    private static int PaidSeatCount(GatewayDbContext ctx, string teamId) =>
-        ctx.TeamMembers.AsNoTracking()
-            .Where(m => m.TeamId == teamId)
-            .Select(m => m.Role)
-            .ToList()
-            .Count(role => TeamSeatRoles.IsPaidSeat(TeamRoles.ToStored(role)));
-
-    /// <summary>Completes when every seat sync started so far has finished. For tests and an orderly shutdown; a
-    /// request path never waits on it.</summary>
-    internal Task SeatSyncsSettled() => Task.WhenAll(_seatSyncsInFlight.Keys.ToArray());
 
     /// <summary>
     /// Raised once for every committed membership change, under the write lock, after the save. The Gateway attaches
