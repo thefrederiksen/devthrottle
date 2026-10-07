@@ -5,8 +5,8 @@ import { MemoryRouter } from "react-router-dom";
 import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 
 // The left rail's ORDER is a product decision, not an accident of the array literal, so it is pinned
-// here: the Fleet Manager first (the Fleet Manager mission, step 6 - it replaced the Assistant), then Sessions,
-// then Fleet Map. Without this test the order is one careless re-sort away from changing silently - nothing else
+// here: Sessions first, then Fleet Map, then the Fleet Manager (owner, 7 Oct 2026 - what you use every day first,
+// what you set up lower, in the order you build it). Without this test the order is one careless re-sort away from changing silently - nothing else
 // in the app reads it.
 
 vi.mock("@devthrottle/client-core/net/useKeepWarm", () => ({
@@ -120,14 +120,14 @@ describe("Cockpit left rail", () => {
     window.localStorage.clear();
   });
 
-  it("opens with the Fleet Manager, then Sessions, then Fleet Map", () => {
+  it("opens with Sessions, then Fleet Map, then the Fleet Manager", () => {
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
         <AppShell />
       </MemoryRouter>,
     );
 
-    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
   });
 
   it("badges the Fleet Manager with the Gateway's count of what is waiting", async () => {
@@ -180,16 +180,15 @@ describe("Cockpit left rail", () => {
     );
 
     expect(railLabels()).toEqual([
-      "Fleet Manager",
       "Sessions",
       "Fleet Map",
+      "Fleet Manager",
       "History",
       "Directors",
-      "Schedule",
-      "Workflows",
-      // Skills sits immediately after Workflows on purpose: two lists on one shelf (the central
-      // skill library, devthrottle_internal issue 995). Nothing else moved.
+      // What you set up, in the order you build it: skills, workflows, the schedule that runs them.
       "Skills",
+      "Workflows",
+      "Schedule",
       "Dictionary",
       "Voice Recorder",
       "Transcription",
@@ -197,9 +196,9 @@ describe("Cockpit left rail", () => {
     ]);
   });
 
-  // Factories (once "Factory Agents") sits after Fleet Map and before History - only while the Gateway's
+  // Factories (once "Factory Agents") sits after Schedule and before Dictionary - only while the Gateway's
   // factoryAgents.enabled switch is on. Off, the rail is exactly what it was.
-  it("shows Factories after Fleet Map and before History when the Gateway says the area is on", async () => {
+  it("shows Factories after Schedule and before Dictionary when the Gateway says the area is on", async () => {
     factory.enabled = true;
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -208,7 +207,9 @@ describe("Cockpit left rail", () => {
     );
 
     await waitFor(() => expect(railLabels()).toContain("Factories"));
-    expect(railLabels().slice(0, 5)).toEqual(["Fleet Manager", "Sessions", "Fleet Map", "Factories", "History"]);
+    expect(railLabels().slice(0, 10)).toEqual([
+      "Sessions", "Fleet Map", "Fleet Manager", "History", "Directors", "Skills", "Workflows", "Schedule", "Factories", "Dictionary",
+    ]);
     expect(screen.getByRole("link", { name: /Factories/ }).getAttribute("href")).toBe("/factories");
   });
 
@@ -254,13 +255,13 @@ describe("Cockpit left rail", () => {
     );
 
     // Not answered yet, and the whole rail is already there.
-    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
     expect(document.querySelector(".nav-list-foot")).not.toBeNull();
     expect(screen.queryByText("Loading your team...")).toBeNull();
 
     await act(async () => release());
     await new Promise((r) => setTimeout(r, 20));
-    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
     expect(screen.queryByText("Loading your team...")).toBeNull();
     expect(screen.queryByTestId("team-switcher")).toBeNull();
   });

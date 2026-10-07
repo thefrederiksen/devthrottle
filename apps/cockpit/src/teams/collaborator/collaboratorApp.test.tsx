@@ -293,7 +293,7 @@ describe("The Collaborator's app", () => {
 
     pickTeam("Paul's project - Developer");
 
-    await waitFor(() => expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]));
+    await waitFor(() => expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]));
     expect(railLabels()).toContain("Skills");
     expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]);
     expect(document.querySelector(".nav-list-foot")).not.toBeNull();
@@ -306,7 +306,7 @@ describe("The Collaborator's app", () => {
     renderAt("/sessions");
 
     await waitFor(() => expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
-    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
     fireEvent.click(screen.getByRole("link", { name: "Reports" }));
     expect(await screen.findByTestId("team-page-reports")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/reports");
@@ -397,7 +397,7 @@ describe("The Collaborator's app", () => {
   it("SwitchTeam_FromTheOwnAccountToACollaboratorTeam_OpensItsLandingPage", async () => {
     renderAt("/sessions");
     await screen.findByTestId("team-switcher");
-    expect(railLabels()[0]).toBe("Fleet Manager");
+    expect(railLabels()[0]).toBe("Sessions");
 
     pickTeam("DevThrottle - Collaborator");
 
@@ -419,7 +419,7 @@ describe("The Collaborator's app", () => {
     renderAt("/sessions");
 
     expect(await screen.findByText("sessions page")).toBeTruthy();
-    expect(railLabels().slice(0, 3)).toEqual(["Fleet Manager", "Sessions", "Fleet Map"]);
+    expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
     for (const label of ["Questions", "Requests", "Reports"]) expect(railLabels()).not.toContain(label);
     expect(document.querySelector(".nav-list-foot")).not.toBeNull();
     expect(screen.queryByTestId("team-switcher")).toBeNull();
@@ -440,7 +440,7 @@ describe("The Collaborator's app", () => {
     fireEvent.click(screen.getByText("Open your own account instead"));
 
     expect(await screen.findByText("sessions page")).toBeTruthy();
-    expect(railLabels()[0]).toBe("Fleet Manager");
+    expect(railLabels()[0]).toBe("Sessions");
     // For this load only (round 3 review, R3): the remembered team is kept, so the next load tries it again.
     expect(window.localStorage.getItem(currentTeamStorageKey())).toBe(COLLABORATOR_TEAM.id);
   });
@@ -484,7 +484,7 @@ describe("The Collaborator's app", () => {
     renderAt("/");
 
     expect(await screen.findByText("fleet manager page")).toBeTruthy();
-    expect(railLabels()[0]).toBe("Fleet Manager");
+    expect(railLabels()[0]).toBe("Sessions");
   });
 
   it("PagesOnly_TheWholeAppsFiveReads_AreNeverMade", async () => {
@@ -547,7 +547,7 @@ describe("The Collaborator's app", () => {
 
     // No wait: the own account is on screen before the list of teams answers.
     expect(screen.queryByText("Loading your team...")).toBeNull();
-    expect(railLabels()[0]).toBe("Fleet Manager");
+    expect(railLabels()[0]).toBe("Sessions");
 
     // Then the Gateway's start opens the team where it starts.
     await whenRailIs(["Questions", "Requests", "Reports"]);
