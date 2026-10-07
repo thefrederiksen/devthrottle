@@ -65,15 +65,23 @@ public class LauncherMacInstallerTests : IDisposable
         File.WriteAllText(Path.Combine(logDir, "launchd-stderr.log"), "Unhandled exception. System.Exception: boom\n");
 
         const string crashed = "state = not running\nruns = 2\nlast exit code = 134: Abort trap\njob state = exited\n";
+        // launchd holds the job until the rebuild boots it out, and again once the new definition is bootstrapped;
+        // a print in between answers "Could not find service", as the real launchd does.
+        var held = true;
         var installer = new LauncherMacInstaller(_layout,
-            runCommand: (exe, args) => exe switch
+            runCommand: (exe, args) =>
             {
-                "/usr/bin/id" => (0, "501"),
-                // Every install file belongs to the user: the ownership check must answer, not be skipped.
-                "/usr/bin/stat" => (0, string.Join('\n', Enumerable.Repeat("501", args.Count(c => c == '"') / 2))),
-                "/usr/bin/find" => (0, ""),
-                "/bin/launchctl" when args.StartsWith("print", StringComparison.Ordinal) => (0, crashed),
-                _ => (0, ""),
+                if (exe == "/bin/launchctl" && args.StartsWith("bootout", StringComparison.Ordinal)) held = false;
+                if (exe == "/bin/launchctl" && args.StartsWith("bootstrap", StringComparison.Ordinal)) held = true;
+                return exe switch
+                {
+                    "/usr/bin/id" => (0, "501"),
+                    // Every install file belongs to the user: the ownership check must answer, not be skipped.
+                    "/usr/bin/stat" => (0, string.Join('\n', Enumerable.Repeat("501", args.Count(c => c == '"') / 2))),
+                    "/usr/bin/find" => (0, ""),
+                    "/bin/launchctl" when args.StartsWith("print", StringComparison.Ordinal) => held ? (0, crashed) : (113, "Could not find service"),
+                    _ => (0, ""),
+                };
             },
             startProcess: (_, _, _) => 1234,
             launchAgentPlistPath: _plistPath,
