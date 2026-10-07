@@ -82,6 +82,44 @@ gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --re
 A human can do the same thing by hand: GitHub -> Actions -> "Deploy hosted
 Gateway" -> "Run workflow". Both are the same trigger.
 
+#### Turning Teams on or off (the Teams switch)
+
+The deploy is also the ONLY way to change the two Teams app settings on the live
+Gateway: `CC_GATEWAY_TEAMS` (releases the team routes) and `CC_GATEWAY_TEAM_MENTOR`
+(the Mentor's weekly writer, which does nothing unless Teams is also on). Never set
+them with `az` by hand and never in the Azure Portal.
+
+The run takes two inputs, `teams` and `team_mentor`, each `on`, `off` or
+`unchanged`. The default is `unchanged`, which writes nothing, so a plain deploy
+leaves both settings exactly as they are. `on` writes `1` (the only value the
+Gateway reads as on), `off` writes `0`.
+
+```
+gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --ref main -f teams=on
+gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --ref main -f teams=on -f team_mentor=on
+gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --ref main -f teams=off -f team_mentor=off
+```
+
+**Changing a switch costs a second restart, and the run says so.** Writing an app
+setting restarts the site by itself. So when a switch actually changes, the deploy step
+makes two clean hand-overs, never stacked: write the settings, wait until production has
+restarted and is back on the OLD commit (with the requested `/healthz` `teams` value),
+then pin the new image as usual. Both gaps are measured and printed; the budget still
+applies to the longest single stretch, and the watch job's "total unavailable" counts
+both. A requested value production already holds is not written, so it costs nothing.
+With both inputs `unchanged` the deploy is exactly the ordinary single-restart deploy.
+If the settings write fails, or production does not come back after it, the run stops
+and the image is NOT changed.
+
+The run summary has a "Teams switches" table: each setting's value before, what was
+requested, the setting after, and what the serving Gateway reports - only these two
+settings, never any other. A requested `teams` value must hold in the setting AND be
+served: `/healthz` must answer `"teams":true` (or `false`) on the new commit, or the
+run fails. The Mentor switch is checked as a setting only, because `/healthz` does not
+report it; the running evidence is the Gateway log line `[TeamMentorSwitch] IsOn`.
+Changing a switch is the owner's decision; get the go for it as part of the go for the
+deploy.
+
 ### 3. Watch it run to the end
 
 Find the run that just started and watch it. The whole thing takes roughly five
@@ -173,6 +211,7 @@ healthy. Describe what changed, not run numbers.
 ## What this skill does not do
 
 - It does not release the desktop app (`release-manager`).
-- It does not provision or change Azure infrastructure or app settings.
+- It does not provision or change Azure infrastructure, and it changes no app setting
+  except the two Teams switches, and those only when asked (see "Turning Teams on or off").
 - It does not auto-deploy on a commit. The live Gateway updates only when a person
   deliberately runs this. Committing to main never touches the live service.

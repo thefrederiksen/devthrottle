@@ -21,10 +21,18 @@ name: Deploy hosted Gateway
 # The way back to zero-outage deploys is a slot-capable plan (Premium v3 P0v3, 4 GB, $57 a month) plus the
 # warmed-swap version of this file, which is in git history before this change.
 #
-# It does NOT provision resources or set app settings (the resource group, ACR, plan, storage mount and the
+# It does NOT provision resources (the resource group, ACR, plan, storage mount and the
 # CC_GATEWAY_DB_CONNECTION are already provisioned - see docs/architecture/step3-azure-deploy in
 # devthrottle_internal - and persist across deploys), so this workflow needs NO stored secrets - only an
 # Azure OIDC federated login as the devthrottle-hosted-gateway service principal.
+#
+# It sets EXACTLY TWO app settings, and only when asked: the Teams switches CC_GATEWAY_TEAMS and
+# CC_GATEWAY_TEAM_MENTOR, through the `teams` and `team_mentor` inputs below. Each input is on, off or
+# unchanged (the default); unchanged writes nothing. This is the only supported way to change those two
+# settings - never `az` by hand and never the Portal. Writing an app setting restarts the site by itself,
+# so a run that changes a switch makes TWO clean hand-overs inside the measured deploy step: write the
+# settings, wait until production is back on the OUTGOING commit, then pin the new image. Both gaps are
+# measured and printed. A run that changes no switch is the ordinary single-restart deploy.
 #
 # If a deploy ships bad code, rollback-hosted-gateway.yml pins a previous commit's image the same way.
 #
@@ -52,6 +60,20 @@ on:
   # `gh workflow run`. Nothing here deploys on a push; committing to main never touches production.
   # The branch/tag picked when starting the run is the commit that ships.
   workflow_dispatch:
+    inputs:
+      # The Teams switches (devthrottle_internal#2311). The Gateway turns a switch on only for the exact
+      # value 1 (TeamsReleaseSwitch.Parse, TeamMentorSwitch.Decide); on writes 1, off writes 0, and
+      # unchanged writes nothing at all. Example: gh workflow run deploy-hosted-gateway.yml --ref main -f teams=on
+      teams:
+        description: 'Teams (CC_GATEWAY_TEAMS): on writes 1, off writes 0, unchanged leaves the setting alone.'
+        type: choice
+        options: [unchanged, 'on', 'off']
+        default: unchanged
+      team_mentor:
+        description: 'Team Mentor weekly writer (CC_GATEWAY_TEAM_MENTOR): on writes 1, off writes 0, unchanged leaves it alone. Does nothing unless Teams is also on.'
+        type: choice
+        options: [unchanged, 'on', 'off']
+        default: unchanged
 
 permissions:
   id-token: write   # required for the Azure OIDC login
@@ -119,6 +141,7 @@ jobs:
       digest: ${{ steps.digest.outputs.digest }}
       readiness_outcome: ${{ steps.readiness.outputs.outcome }}
       restart_gap_seconds: ${{ steps.readiness.outputs.restart_gap_seconds }}
+      settings_gap_seconds: ${{ steps.readiness.outputs.settings_gap_seconds }}
       restart_observed: ${{ steps.readiness.outputs.restart_observed }}
       time_to_healthy_seconds: ${{ steps.readiness.outputs.time_to_healthy_seconds }}
 
@@ -230,6 +253,33 @@ jobs:
           fi
           echo "Check gate passed: nothing has FAILED on ${sha}."
 
+      # 3. ONLY on, off OR unchanged FOR THE TEAMS SWITCHES. GitHub validates a choice input at dispatch, so
+      #    this is a backstop, but it is a refusal and refusals live here, before the login and the build.
+      #    It turns each input into the value the Gateway reads: on -> 1 (the only value
+      #    TeamsReleaseSwitch.Parse and TeamMentorSwitch.Decide read as on), off -> 0, unchanged -> nothing.
+      - name: Refuse a Teams switch value that is not on, off or unchanged
+        id: teams_input
+        env:
+          TEAMS_INPUT: ${{ inputs.teams }}
+          MENTOR_INPUT: ${{ inputs.team_mentor }}
+        run: |
+          set -euo pipefail
+          to_value() {
+            case "$1" in
+              on) echo 1 ;;
+              off) echo 0 ;;
+              unchanged) echo '' ;;
+              *) echo "REFUSED: '$1' is not one of on, off, unchanged. Nothing was built or changed." >&2; return 1 ;;
+            esac
+          }
+          teams_want=$(to_value "${TEAMS_INPUT:-unchanged}")
+          mentor_want=$(to_value "${MENTOR_INPUT:-unchanged}")
+          {
+            echo "teams_want=$teams_want"
+            echo "mentor_want=$mentor_want"
+          } >> "$GITHUB_OUTPUT"
+          echo "Teams switch inputs: teams=${TEAMS_INPUT:-unchanged}, team_mentor=${MENTOR_INPUT:-unchanged}."
+
       - name: Azure login (OIDC, no stored secret)
         uses: azure/login@v2
         with:
@@ -323,6 +373,37 @@ jobs:
           echo "image=$IMG" >> "$GITHUB_OUTPUT"
           echo "Outgoing live image: $IMG"
 
+      # THE TEAMS SWITCHES, BEFORE. Reads the two settings production has now and decides what has to be
+      # WRITTEN: a requested value that production already holds is not written, because every app setting
+      # write restarts the site and a restart that changes nothing is pure outage. This step only READS; the
+      # write is inside the deploy step below. ONLY these two names are read and printed: every other app
+      # setting on this site may be a secret, and this repository is public.
+      - name: Read the Teams switches before the deploy
+        id: teams_before
+        env:
+          TEAMS_WANT: ${{ steps.teams_input.outputs.teams_want }}
+          MENTOR_WANT: ${{ steps.teams_input.outputs.mentor_want }}
+        run: |
+          set -euo pipefail
+          read_setting() {
+            az webapp config appsettings list --resource-group "$AZURE_RG" --name "$APP" \
+              --query "[?name=='$1'].value | [0]" --output tsv
+          }
+          teams_old=$(read_setting CC_GATEWAY_TEAMS)
+          mentor_old=$(read_setting CC_GATEWAY_TEAM_MENTOR)
+          teams_write=""
+          mentor_write=""
+          if [ -n "$TEAMS_WANT" ] && [ "$TEAMS_WANT" != "$teams_old" ]; then teams_write="$TEAMS_WANT"; fi
+          if [ -n "$MENTOR_WANT" ] && [ "$MENTOR_WANT" != "$mentor_old" ]; then mentor_write="$MENTOR_WANT"; fi
+          {
+            echo "teams_old=$teams_old"
+            echo "mentor_old=$mentor_old"
+            echo "teams_write=$teams_write"
+            echo "mentor_write=$mentor_write"
+          } >> "$GITHUB_OUTPUT"
+          echo "CC_GATEWAY_TEAMS now: ${teams_old:-<unset>}; wanted: ${TEAMS_WANT:-unchanged}; to write: ${teams_write:-nothing}"
+          echo "CC_GATEWAY_TEAM_MENTOR now: ${mentor_old:-<unset>}; wanted: ${MENTOR_WANT:-unchanged}; to write: ${mentor_write:-nothing}"
+
       # Deploy IN PLACE and MEASURE the outage the way a user experiences it. Pinning the new digest on the
       # production site makes the platform pull the image and restart the site on it, so the outage IS the
       # new container's start-up. A background poller on the production URL runs across the whole change,
@@ -365,6 +446,89 @@ jobs:
           fi
 
           t_deploy=$(date +%s)
+
+          # THE TEAMS SWITCHES: A SEPARATE, CLEAN HAND-OVER BEFORE THE IMAGE PIN (review DS-F1). Writing an
+          # app setting restarts the site by itself. Stacking that restart seconds before the image pin's
+          # restart would put two hand-overs on the one Azure Files share at once - the shape that corrupted
+          # the statistics database on 2026-07-30 - and a container restarted by the settings write reports
+          # the OUTGOING commit, so the commit-based gap below could not tell the two restarts apart. So when a
+          # switch has to change: write it, wait until production has restarted and serves a sustained 200 on
+          # the OUTGOING commit again (and, for Teams, the requested /healthz .teams), and only then pin the
+          # image. Each hand-over is the shape every deploy already has; both gaps are measured from the
+          # poller record and printed. The price is a second measured restart, paid only when a switch
+          # actually changes. When nothing has to be written this block does nothing at all and the step is
+          # the ordinary single-restart deploy.
+          TEAMS_WRITE="${{ steps.teams_before.outputs.teams_write }}"
+          MENTOR_WRITE="${{ steps.teams_before.outputs.mentor_write }}"
+          SETTINGS=()
+          if [ -n "$TEAMS_WRITE" ]; then SETTINGS+=("CC_GATEWAY_TEAMS=$TEAMS_WRITE"); fi
+          if [ -n "$MENTOR_WRITE" ]; then SETTINGS+=("CC_GATEWAY_TEAM_MENTOR=$MENTOR_WRITE"); fi
+          settings_gap=none
+          if [ "${#SETTINGS[@]}" -gt 0 ]; then
+            expect_teams=""
+            if [ "$TEAMS_WRITE" = "1" ]; then expect_teams=true; fi
+            if [ "$TEAMS_WRITE" = "0" ]; then expect_teams=false; fi
+            served_teams_before=$(curl -s -m 10 "${GATEWAY_URL}/healthz" | jq -r 'if .teams == null then "none" else (.teams|tostring) end' 2>/dev/null || echo "none")
+            t_settings=$(date +%s.%N)
+            if ! az webapp config appsettings set --resource-group "$AZURE_RG" --name "$APP" \
+                   --settings "${SETTINGS[@]}" --output none; then
+              echo "ERROR: the Teams switch write failed; the image was NOT changed; production is still on"
+              echo "       ${{ steps.outgoing_image.outputs.image }} (commit ${OUTGOING:-unknown})."
+              echo "outcome=failed" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            echo "Teams switches written at $(date -u +%H:%M:%S): ${SETTINGS[*]}. That restarts the site."
+            echo "Waiting for production to come back on the OUTGOING commit ${OUTGOING:-<unknown>} before pinning the new image..."
+
+            # The restart must be SEEN before a 200 counts: right after the write the old container still
+            # answers, and a 200 from it proves nothing. Seen means a non-200 in the fast poller's record
+            # since the write, or /healthz .teams flipping to the requested value.
+            restarted=no
+            streak=0
+            deadline=$(( $(date +%s) + 600 ))
+            while [ "$(date +%s)" -lt "$deadline" ]; do
+              body=$(curl -s -m 10 -w '\n%{http_code}' "${GATEWAY_URL}/healthz" 2>/dev/null || printf '\n000')
+              code=$(printf '%s' "$body" | tail -n1)
+              commit=$(printf '%s' "$body" | sed '$d' | jq -r '.commit // empty' 2>/dev/null || echo "")
+              teams=$(printf '%s' "$body" | sed '$d' | jq -r 'if .teams == null then "none" else (.teams|tostring) end' 2>/dev/null || echo "none")
+              if [ "$restarted" = "no" ]; then
+                if [ "$code" != "200" ] || awk -v s="$t_settings" '$1 >= s && $2 != "200" {f=1} END {exit !f}' "$LOG"; then
+                  restarted=yes
+                elif [ -n "$expect_teams" ] && [ "$served_teams_before" != "$expect_teams" ] && [ "$code" = "200" ] && [ "$teams" = "$expect_teams" ]; then
+                  restarted=yes
+                fi
+              fi
+              if [ "$restarted" = "yes" ] && [ "$code" = "200" ] \
+                 && { [ -z "$OUTGOING" ] || [ "$commit" = "$OUTGOING" ]; } \
+                 && { [ -z "$expect_teams" ] || [ "$teams" = "$expect_teams" ]; }; then
+                streak=$(( streak + 1 )); echo "production 200 commit=$commit teams=$teams after the switch write (streak $streak)"
+                [ "$streak" -ge 3 ] && break
+              else
+                streak=0; echo "production HTTP $code commit=${commit:-<none>} teams=$teams (restart seen: $restarted)"
+              fi
+              sleep 3
+            done
+            if [ "$streak" -lt 3 ]; then
+              echo "ERROR: after the Teams switch write, production did not come back on the outgoing commit"
+              echo "       ${OUTGOING:-<unknown>}${expect_teams:+ with teams=$expect_teams}, with a restart seen, within 600s."
+              echo "       The image was NOT changed; production is still pinned to ${{ steps.outgoing_image.outputs.image }}."
+              echo "       PRODUCTION MAY BE DOWN RIGHT NOW. The settings now hold: ${SETTINGS[*]}."
+              echo "       The container's own startup output is in the platform container log for $APP."
+              echo "outcome=failed" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            first_down=$(awk -v s="$t_settings" '$1 >= s && $2 != "200" {print $1; exit}' "$LOG")
+            if [ -n "$first_down" ]; then
+              last_up=$(awk -v d="$first_down" '$1 < d && $2 == "200" {x = $1} END {print x}' "$LOG")
+              back_up=$(awk -v d="$first_down" '$1 > d && $2 == "200" {print $1; exit}' "$LOG")
+              settings_gap=$(awk -v a="${last_up:-$t_settings}" -v b="${back_up:-$(date +%s.%N)}" 'BEGIN{d=b-a; if(d<0)d=0; printf "%.1f", d}')
+            else
+              settings_gap=unmeasured
+            fi
+            echo "Settings hand-over done: production is back on ${OUTGOING:-<unknown>} after a gap of ~${settings_gap}s. Pinning the image now."
+          fi
+          echo "settings_gap_seconds=$settings_gap" >> "$GITHUB_OUTPUT"
+
           az webapp config container set --resource-group "$AZURE_RG" --name "$APP" \
             --docker-custom-image-name "$REF" --output none
           echo "Production pinned to $REF at $(date -u +%H:%M:%S); waiting for it to serve commit $TARGET..."
@@ -432,6 +596,11 @@ jobs:
           echo "restart_observed=$observed" >> "$GITHUB_OUTPUT"
           echo "time_to_healthy_seconds=$tth" >> "$GITHUB_OUTPUT"
           echo "outcome=healthy" >> "$GITHUB_OUTPUT"
+          if [ "$settings_gap" != "none" ]; then
+            echo "TWO RESTARTS WERE ISSUED by this run: the Teams switch write (gap ~${settings_gap}s) and the"
+            echo "image pin (gap ~${outage}s, the figure recorded as restart_gap_seconds). The watch job's budget is"
+            echo "applied to the longest single stretch; its 'total unavailable' figure counts both restarts."
+          fi
           if [ "$observed" = "yes" ]; then
             echo "New image ${TARGET} live in production after ${tth}s. Gap from the old commit to the new: ~${outage}s."
             echo "That is the restart this deploy costs; the watch job measures anything that follows it."
@@ -443,6 +612,73 @@ jobs:
             echo "for the next ten minutes, and that number is real."
           fi
           curl -s -m 15 "${GATEWAY_URL}/healthz"; echo
+
+      # THE TEAMS SWITCHES, AFTER. Reads the same two settings back AND asks the serving Gateway (review
+      # DS-F2): the stored setting proves the configuration, /healthz .teams proves the container serving
+      # traffic was started with it. Writes before, requested, after and served to the run summary - values
+      # of these two names only. A requested Teams value must hold in the setting AND be served on the new
+      # commit; a requested Mentor value is verified as a setting only, because /healthz does not report it.
+      # Runs even when the deploy step failed, so a half-done run still says what production's switches are.
+      - name: Report the Teams switches
+        if: always() && steps.teams_before.outcome == 'success'
+        env:
+          TEAMS_INPUT: ${{ inputs.teams }}
+          MENTOR_INPUT: ${{ inputs.team_mentor }}
+          TEAMS_WANT: ${{ steps.teams_input.outputs.teams_want }}
+          MENTOR_WANT: ${{ steps.teams_input.outputs.mentor_want }}
+          TEAMS_OLD: ${{ steps.teams_before.outputs.teams_old }}
+          MENTOR_OLD: ${{ steps.teams_before.outputs.mentor_old }}
+          SETTINGS_GAP: ${{ steps.readiness.outputs.settings_gap_seconds }}
+          IMAGE_GAP: ${{ steps.readiness.outputs.restart_gap_seconds }}
+          TARGET: ${{ steps.short.outputs.short }}
+        run: |
+          set -euo pipefail
+          read_setting() {
+            az webapp config appsettings list --resource-group "$AZURE_RG" --name "$APP" \
+              --query "[?name=='$1'].value | [0]" --output tsv
+          }
+          teams_after=$(read_setting CC_GATEWAY_TEAMS)
+          mentor_after=$(read_setting CC_GATEWAY_TEAM_MENTOR)
+          health=$(curl -s -m 15 "${GATEWAY_URL}/healthz" || true)
+          served_commit=$(printf '%s' "$health" | jq -r '.commit // "none"' 2>/dev/null || echo "unreachable")
+          served_teams=$(printf '%s' "$health" | jq -r 'if .teams == null then "none" else (.teams|tostring) end' 2>/dev/null || echo "unreachable")
+          served_commit=${served_commit:-unreachable}
+          served_teams=${served_teams:-unreachable}
+          {
+            echo "### Teams switches"
+            echo ""
+            echo "| Setting | Before | Requested | After (setting) | Served by the Gateway |"
+            echo "|---|---|---|---|---|"
+            echo "| CC_GATEWAY_TEAMS | ${TEAMS_OLD:-unset} | ${TEAMS_INPUT:-unchanged} | ${teams_after:-unset} | /healthz teams=${served_teams} on commit ${served_commit} |"
+            echo "| CC_GATEWAY_TEAM_MENTOR | ${MENTOR_OLD:-unset} | ${MENTOR_INPUT:-unchanged} | ${mentor_after:-unset} | not reported by /healthz |"
+            echo ""
+            echo "The Gateway reads a switch as on only when it is exactly 1. The Mentor's writer runs only when both are 1."
+            echo "The Mentor switch is verified as a SETTING only. The running evidence is the Gateway log line"
+            echo "\`[TeamMentorSwitch] IsOn\`, written once at start-up, which says whether the writer is ON or OFF."
+            if [ "${SETTINGS_GAP:-none}" != "none" ]; then
+              echo ""
+              echo "Two restarts were issued: the switch write (gap ~${SETTINGS_GAP}s) and the image pin (gap ~${IMAGE_GAP:-not measured}s)."
+              echo "The watch job's \"total unavailable\" figure counts both."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "CC_GATEWAY_TEAMS: before ${TEAMS_OLD:-<unset>}, after ${teams_after:-<unset>}, served teams=${served_teams} on ${served_commit}"
+          echo "CC_GATEWAY_TEAM_MENTOR: before ${MENTOR_OLD:-<unset>}, after ${mentor_after:-<unset>} (not served on /healthz)"
+          bad=0
+          if [ -n "$TEAMS_WANT" ]; then
+            expect_teams=false
+            if [ "$TEAMS_WANT" = "1" ]; then expect_teams=true; fi
+            if [ "$teams_after" != "$TEAMS_WANT" ]; then
+              echo "ERROR: CC_GATEWAY_TEAMS was requested as $TEAMS_WANT and production holds '${teams_after}'."; bad=1
+            fi
+            if [ "$served_commit" != "$TARGET" ] || [ "$served_teams" != "$expect_teams" ]; then
+              echo "ERROR: the serving Gateway answers teams=${served_teams} on commit ${served_commit};"
+              echo "       requested teams=${expect_teams} on commit ${TARGET}."; bad=1
+            fi
+          fi
+          if [ -n "$MENTOR_WANT" ] && [ "$mentor_after" != "$MENTOR_WANT" ]; then
+            echo "ERROR: CC_GATEWAY_TEAM_MENTOR was requested as $MENTOR_WANT and production holds '${mentor_after}'."; bad=1
+          fi
+          exit "$bad"
 
       # The watch job runs on a DIFFERENT runner, so it cannot see this runner's /tmp or reach into the
       # background poller. Stop the poller and hand its log over as an artifact; the watch job starts its
