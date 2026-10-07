@@ -37,7 +37,7 @@ public sealed class TeamBillEndedTests : IDisposable
     private const string Collaborator = "sub-collaborator";
     private const string Token = "test-gateway-service-token";
 
-    private const string BillEndedUri = "https://website.test/api/v1/team-invitations/bill-ended-email";
+    private const string BillEndedUri = "https://website.test/api/v1/team-bill/ended-email";
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly GatewayDatabase _db;
@@ -141,7 +141,9 @@ public sealed class TeamBillEndedTests : IDisposable
         var call = Assert.Single(_website.Calls);
         Assert.Equal(BillEndedUri, call.Uri);
         var body = JsonNode.Parse(call.Body)!.AsObject();
-        Assert.Equal(new[] { "bill_fingerprint", "team_id" }, body.Select(p => p.Key).OrderBy(k => k));
+        Assert.Equal(new[] { "bill_fingerprint", "owner_subject", "team_id" }, body.Select(p => p.Key).OrderBy(k => k, StringComparer.Ordinal));
+        // The Owner is named by account subject, never by address: the website reads the address itself.
+        Assert.Equal(Owner, body["owner_subject"]!.GetValue<string>());
         Assert.Equal(_team, body["team_id"]!.GetValue<string>());
         Assert.Equal(new EntitlementRegistry(_db).ReadTeamBill(_team).Fingerprint, body["bill_fingerprint"]!.GetValue<string>());
         Assert.Equal(Token, call.ServiceToken);
@@ -285,6 +287,23 @@ public sealed class TeamBillEndedTests : IDisposable
         Assert.Empty(_website.Calls);
     }
 
+    [Fact]
+    public async Task ATeamWithNoOwnerRecorded_IsStillRefused_AndTellsNobody_InsteadOfThrowing()
+    {
+        EndBill();
+        using (var ctx = _db.CreateUnscopedContext())
+        {
+            ctx.TeamMembers.Remove(ctx.TeamMembers.Single(m => m.TeamId == _team && m.AccountSubject == Owner));
+            ctx.SaveChanges();
+        }
+
+        var refused = _teams.CreateInvitation(_team, Manager, "anna@devthrottle-test.invalid", TeamRole.Developer);
+        await _notice.Settled();
+
+        Assert.Equal(TeamInvitationRefusals.BillCancelled, refused.Refusal);
+        Assert.Empty(_website.Calls);
+    }
+
     // ---- New: the mailer ---------------------------------------------------------------------------------------------
 
     [Fact]
@@ -292,7 +311,7 @@ public sealed class TeamBillEndedTests : IDisposable
     {
         var mailer = new TeamInvitationMailer(new TeamInvitationMailClient(new HttpClient(_website), "https://website.test"), () => null);
 
-        var result = await mailer.TellOwnerBillEndedAsync(_team, "fingerprint");
+        var result = await mailer.TellOwnerBillEndedAsync(_team, Owner, "fingerprint");
 
         Assert.False(result.Sent);
         Assert.Contains("not set up to send email", result.Error);
@@ -305,7 +324,7 @@ public sealed class TeamBillEndedTests : IDisposable
         var mailer = new TeamInvitationMailer(
             new TeamInvitationMailClient(new HttpClient(new UnreachableWebsite()), "https://website.test"), () => Token);
 
-        var result = await mailer.TellOwnerBillEndedAsync(_team, "fingerprint");
+        var result = await mailer.TellOwnerBillEndedAsync(_team, Owner, "fingerprint");
 
         Assert.False(result.Sent);
         Assert.Contains("could not be reached", result.Error);

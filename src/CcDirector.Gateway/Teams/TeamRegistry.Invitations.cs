@@ -439,7 +439,8 @@ public sealed partial class TeamRegistry
     {
         if (!IsEnded(bill))
             return;
-        if (string.Equals(OwnerSubject(ctx, teamId), refusedSubject, StringComparison.Ordinal))
+        var owner = OwnerSubject(ctx, teamId);
+        if (string.Equals(owner, refusedSubject, StringComparison.Ordinal))
         {
             FileLog.Write($"[TeamRegistry] TellOwnerWhenBillEnded: team {LogTeam(teamId)} - the Owner was refused themselves, so no email");
             return;
@@ -456,7 +457,14 @@ public sealed partial class TeamRegistry
             FileLog.Write($"[TeamRegistry] TellOwnerWhenBillEnded: team {LogTeam(teamId)} - the ended bill was read WITHOUT a fingerprint, so the Owner could not be told once per ended bill; nobody was told");
             return;
         }
-        _billEndedNotice.TellOwnerOnce(teamId, bill.Fingerprint);
+        // Every team has exactly one Owner, written with the team; a team without one is a broken row. The refusal must
+        // still reach its caller unchanged, so it is logged, not thrown.
+        if (string.IsNullOrWhiteSpace(owner))
+        {
+            FileLog.Write($"[TeamRegistry] TellOwnerWhenBillEnded: team {LogTeam(teamId)} - the team has NO Owner recorded, so nobody could be told the bill has ended");
+            return;
+        }
+        _billEndedNotice.TellOwnerOnce(teamId, owner, bill.Fingerprint);
     }
 
     /// <summary>The team, the invitation and no denial - or the denial - for a caller acting on an invitation as the

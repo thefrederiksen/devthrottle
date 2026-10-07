@@ -38,15 +38,18 @@ public sealed class TeamBillEndedNotice
 
     /// <summary>
     /// Start telling the Owner of <paramref name="teamId"/> that its bill, whose row has
-    /// <paramref name="billFingerprint"/>, has ended - unless they were already told about this bill. Not awaited by
+    /// <paramref name="billFingerprint"/>, has ended - unless they were already told about this bill. The Owner is named
+    /// by their account subject, <paramref name="ownerSubject"/>, which is never logged. Not awaited by
     /// the caller: a refused request never waits on the website.
     /// </summary>
     /// <returns>True when an email was asked for now; false when the Owner was already told about this ended bill (or
     /// an email about it is already on its way).</returns>
-    public bool TellOwnerOnce(string teamId, string billFingerprint)
+    public bool TellOwnerOnce(string teamId, string ownerSubject, string billFingerprint)
     {
         if (string.IsNullOrWhiteSpace(teamId))
             throw new ArgumentException("A team id is required", nameof(teamId));
+        if (string.IsNullOrWhiteSpace(ownerSubject))
+            throw new ArgumentException("The team's Owner's account subject is required", nameof(ownerSubject));
         if (string.IsNullOrWhiteSpace(billFingerprint))
             throw new ArgumentException("The ended bill's fingerprint is required", nameof(billFingerprint));
 
@@ -62,7 +65,7 @@ public sealed class TeamBillEndedNotice
         }
 
         FileLog.Write($"[TeamBillEndedNotice] TellOwnerOnce: team {TeamLog(key)} - someone was refused because the bill has ended; asking the website to tell the Owner");
-        var send = SendAsync(key, billFingerprint);
+        var send = SendAsync(key, ownerSubject, billFingerprint);
         _inFlight.TryAdd(send, 0);
         _ = send.ContinueWith(t => _inFlight.TryRemove(t, out _), TaskScheduler.Default);
         return true;
@@ -72,11 +75,11 @@ public sealed class TeamBillEndedNotice
     /// path never waits on it.</summary>
     internal Task Settled() => Task.WhenAll(_inFlight.Keys.ToArray());
 
-    private async Task SendAsync(string teamId, string billFingerprint)
+    private async Task SendAsync(string teamId, string ownerSubject, string billFingerprint)
     {
         try
         {
-            var result = await _mailer.TellOwnerBillEndedAsync(teamId, billFingerprint, CancellationToken.None).ConfigureAwait(false);
+            var result = await _mailer.TellOwnerBillEndedAsync(teamId, ownerSubject, billFingerprint, CancellationToken.None).ConfigureAwait(false);
             if (result.Sent)
             {
                 FileLog.Write($"[TeamBillEndedNotice] SendAsync: team {TeamLog(teamId)} - the Owner was told the bill has ended");
