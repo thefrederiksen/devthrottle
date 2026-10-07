@@ -27,7 +27,7 @@ namespace CcDirector.Setup.Engine;
 /// </summary>
 public static class LauncherLaunchdRepair
 {
-    public enum Verdict
+    internal enum Verdict
     {
         /// <summary>No launch agent property list: the person turned start-at-login off. Left alone.</summary>
         NoLaunchAgent,
@@ -46,7 +46,7 @@ public static class LauncherLaunchdRepair
     }
 
     /// <summary>What launchd's disabled list says about the launcher.</summary>
-    public enum DisabledState
+    internal enum DisabledState
     {
         /// <summary>The list does not name the launcher, or names it as enabled.</summary>
         Enabled,
@@ -57,7 +57,7 @@ public static class LauncherLaunchdRepair
     }
 
     /// <summary>The decision, in words, for the log and for tests.</summary>
-    public sealed record Decision(Verdict Verdict, string Reason);
+    internal sealed record Decision(Verdict Verdict, string Reason);
 
     /// <summary>
     /// What to do about the launcher, from what the machine says. Pure.
@@ -67,7 +67,7 @@ public static class LauncherLaunchdRepair
     /// <param name="launchctlPrint">launchctl print's output when loaded.</param>
     /// <param name="installedLaunchersRunning">How many launcher processes run from the install folder.</param>
     /// <param name="disabled">What launchd's disabled list says about the launcher.</param>
-    public static Decision Decide(bool plistExists, bool jobLoaded, string? launchctlPrint, int installedLaunchersRunning, DisabledState disabled)
+    internal static Decision Decide(bool plistExists, bool jobLoaded, string? launchctlPrint, int installedLaunchersRunning, DisabledState disabled)
     {
         if (!plistExists)
             return new(Verdict.NoLaunchAgent, "no launch agent property list: start at login is off, nothing is repaired");
@@ -107,41 +107,71 @@ public static class LauncherLaunchdRepair
     }
 
     /// <summary>
-    /// Reads launchctl print-disabled's answer for the user domain. The list names each service a person
-    /// disabled, as <c>"label" => disabled</c> (older releases: <c>=> true</c>). A launcher it does not name
-    /// is enabled. Pure.
+    /// Reads launchctl print-disabled's answer for the user domain, strictly. The answer is one dictionary -
+    /// a header line ending in "= {", one <c>"label" => value</c> line per service a person disabled (value
+    /// disabled or true; enabled or false for one turned back on) and a closing brace. Only a complete,
+    /// recognisable dictionary is believed: an empty, truncated or malformed answer, a value this does not
+    /// know, or the launcher named twice is Unknown, and Unknown never repairs. A launcher a complete
+    /// dictionary does not name is enabled. Pure.
     /// </summary>
-    public static DisabledState ParseDisabled(string? printDisabledOutput)
+    internal static DisabledState ParseDisabled(string? printDisabledOutput)
     {
-        if (printDisabledOutput is null) return DisabledState.Unknown;
-        foreach (var raw in printDisabledOutput.Split('\n'))
+        if (string.IsNullOrWhiteSpace(printDisabledOutput)) return DisabledState.Unknown;
+        var lines = printDisabledOutput.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        var open = lines.FindIndex(l => l.EndsWith("= {", StringComparison.Ordinal) && l.Contains("disabled", StringComparison.OrdinalIgnoreCase));
+        if (open < 0) return DisabledState.Unknown;
+        var close = lines.FindIndex(open + 1, l => l == "}");
+        if (close < 0) return DisabledState.Unknown;
+
+        var ours = "\"" + LauncherLaunchdAutostart.Label + "\"";
+        DisabledState? found = null;
+        for (var i = open + 1; i < close; i++)
         {
-            var line = raw.Trim();
-            if (!line.StartsWith("\"" + LauncherLaunchdAutostart.Label + "\"", StringComparison.Ordinal)) continue;
+            var line = lines[i];
             var arrow = line.IndexOf("=>", StringComparison.Ordinal);
-            if (arrow < 0) continue;
-            var value = line[(arrow + 2)..].Trim().ToLowerInvariant();
-            return value is "disabled" or "true" ? DisabledState.Disabled : DisabledState.Enabled;
+            if (arrow < 0 || !line.StartsWith('"')) return DisabledState.Unknown; // not an entry: the format changed
+            if (!line.StartsWith(ours, StringComparison.Ordinal) || line.Length <= ours.Length || !char.IsWhiteSpace(line[ours.Length])) continue;
+            if (found is not null) return DisabledState.Unknown; // named twice: the answer is not one dictionary
+            found = line[(arrow + 2)..].Trim().ToLowerInvariant() switch
+            {
+                "disabled" or "true" => DisabledState.Disabled,
+                "enabled" or "false" => DisabledState.Enabled,
+                _ => DisabledState.Unknown,
+            };
         }
-        return DisabledState.Enabled;
+        return found ?? DisabledState.Enabled;
     }
 
-    /// <summary>How long a rebuilt job is given to show a process before the repair is called a failure.</summary>
-    public static readonly TimeSpan DefaultStartWait = TimeSpan.FromSeconds(5);
+    /// <summary>How long a rebuilt job is given to show a process before the repair is called a failure: the
+    /// installer's wait, which covers launchd's ten-second respawn throttle twice over.</summary>
+    internal static readonly TimeSpan DefaultStartWait = LauncherMacInstaller.DefaultLaunchdPidWait;
+
+    /// <summary>How often launchd is asked again while waiting for the process.</summary>
+    internal static readonly TimeSpan DefaultPollInterval = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
     /// Look once, and rebuild the job when the decision says so. Returns one line saying what was found and
     /// done; a line that starts with "FAILED" is one the error reporter carries to the Gateway. Success is
     /// claimed only when launchd reports a process for the rebuilt job within <paramref name="startWait"/>.
     /// </summary>
+    /// <param name="layout">Where the launcher is installed.</param>
+    /// <param name="run">How launchctl and id are run; the bounded <see cref="LauncherLaunchdAutostart.DefaultRunner"/> in production.</param>
+    /// <param name="startWait">How long to wait for launchd to report a process after the rebuild.</param>
+    /// <param name="pollInterval">How often to ask launchd again while waiting.</param>
+    /// <param name="installedLaunchersRunning">How many launcher processes run from the install folder; the process list in production.</param>
+    /// <param name="plistPath">The launch agent property list; the real one in production.</param>
     [SupportedOSPlatform("macos")]
-    public static string RunOnce(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner? run = null, TimeSpan? startWait = null)
+    public static string RunOnce(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner? run = null, TimeSpan? startWait = null,
+        TimeSpan? pollInterval = null, Func<int>? installedLaunchersRunning = null, string? plistPath = null)
     {
         ArgumentNullException.ThrowIfNull(layout);
         EngineLog.Write("[LauncherLaunchdRepair] RunOnce: looking at the launcher's launch agent");
         try
         {
-            var outcome = RunOnceCore(layout, run ?? LauncherLaunchdAutostart.DefaultRunner, startWait ?? DefaultStartWait);
+            var outcome = RunOnceCore(layout, run ?? LauncherLaunchdAutostart.DefaultRunner, startWait ?? DefaultStartWait,
+                pollInterval ?? DefaultPollInterval,
+                installedLaunchersRunning ?? (() => InstalledLauncherProcesses.Ours(layout.LauncherDir, InstalledLauncherProcesses.List()).Count),
+                plistPath ?? LauncherLaunchdAutostart.PlistPath);
             EngineLog.Write($"[LauncherLaunchdRepair] RunOnce: {outcome}");
             return outcome;
         }
@@ -152,14 +182,13 @@ public static class LauncherLaunchdRepair
         }
     }
 
-    [SupportedOSPlatform("macos")]
-    private static string RunOnceCore(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner run, TimeSpan startWait)
+    private static string RunOnceCore(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner run, TimeSpan startWait,
+        TimeSpan pollInterval, Func<int> installedLaunchersRunning, string plistPath)
     {
         var binary = layout.PathFor(ComponentRegistry.Launcher);
         if (!File.Exists(binary))
             return $"no launcher binary at {binary}; nothing to repair";
 
-        var plistPath = LauncherLaunchdAutostart.PlistPath;
         var (uidExit, uidOutput) = run("/usr/bin/id", "-u");
         if (uidExit != 0 || !int.TryParse(uidOutput.Trim(), out var uid))
             return $"FAILED to resolve the user id (exit {uidExit}); the launcher was not checked";
@@ -170,7 +199,7 @@ public static class LauncherLaunchdRepair
         int running;
         try
         {
-            running = InstalledLauncherProcesses.Ours(layout.LauncherDir, InstalledLauncherProcesses.List()).Count;
+            running = installedLaunchersRunning();
         }
         catch (Exception ex)
         {
@@ -198,7 +227,7 @@ public static class LauncherLaunchdRepair
         var pid = LauncherMacInstaller.ParseLaunchdPid(after ?? "");
         while (pid <= 0 && DateTime.UtcNow < deadline)
         {
-            Thread.Sleep(250);
+            Thread.Sleep(pollInterval);
             var (againExit, againPrint) = run("/bin/launchctl", $"print gui/{uid}/{LauncherLaunchdAutostart.Label}");
             after = againExit == 0 ? againPrint : after;
             pid = LauncherMacInstaller.ParseLaunchdPid(after ?? "");

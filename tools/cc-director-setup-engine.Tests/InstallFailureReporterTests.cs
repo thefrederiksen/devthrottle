@@ -96,4 +96,59 @@ public sealed class InstallFailureReporterTests : IDisposable
 
         Assert.False(await reporter.ReportAsync("launcher", "start", "boom", null));
     }
+
+    [Fact]
+    public void BuildPayload_CutsTheMessageAndTheDiagnosticsToTheirLimits_AfterEverythingWasAppended()
+    {
+        var reporter = new InstallFailureReporter(new InstallLayout(_root), "setup-wizard", gatewayUrl: () => "http://127.0.0.1:9");
+        var longMessage = new string('m', CcDirector.Core.ErrorReports.InstallReportLimits.MaxMessage + 500);
+        var longDiagnostics = string.Join('\n', Enumerable.Range(1, 2000).Select(i => $"line {i:D4} of a very long report"));
+
+        var payload = reporter.BuildPayload("launcher", "start", longMessage, longDiagnostics);
+
+        Assert.True(payload.Message.Length <= CcDirector.Core.ErrorReports.InstallReportLimits.MaxMessage, $"message {payload.Message.Length}");
+        Assert.EndsWith("(cut to fit the report)", payload.Message);
+        Assert.True(payload.Diagnostics.Length <= CcDirector.Core.ErrorReports.InstallReportLimits.MaxDiagnostics, $"diagnostics {payload.Diagnostics.Length}");
+        Assert.EndsWith("(cut to fit the report)", payload.Diagnostics);
+        Assert.StartsWith("line 0001", payload.Diagnostics);
+    }
+
+    [Fact]
+    public void BuildPayload_ControlCharactersThatSwellWhenSerialized_StillFitTheBodyLimit()
+    {
+        // 16,000 control characters are 16,000 characters and 96,000 bytes of JSON: the field limit is
+        // satisfied and the Gateway would still refuse the body. The body is what is measured.
+        var reporter = new InstallFailureReporter(new InstallLayout(_root), "setup-wizard", gatewayUrl: () => "http://127.0.0.1:9");
+        var control = new string('\u0001', CcDirector.Core.ErrorReports.InstallReportLimits.MaxDiagnostics - 100);
+
+        var payload = reporter.BuildPayload("launcher", "start", "m", control);
+
+        Assert.True(InstallFailureReporter.BodyBytes(payload) <= CcDirector.Core.ErrorReports.InstallReportLimits.MaxBodyBytes,
+            $"body {InstallFailureReporter.BodyBytes(payload)} bytes");
+        Assert.EndsWith("(cut to fit the report)", payload.Diagnostics);
+    }
+
+    [Fact]
+    public void BuildPayload_OneGiantLineAndNonAsciiText_FitTheirLimits()
+    {
+        var reporter = new InstallFailureReporter(new InstallLayout(_root), "setup-wizard", gatewayUrl: () => "http://127.0.0.1:9");
+        var giant = new string('\u00e9', 40000);
+
+        var payload = reporter.BuildPayload("launcher", "start", giant, giant);
+
+        Assert.True(payload.Message.Length <= CcDirector.Core.ErrorReports.InstallReportLimits.MaxMessage);
+        Assert.True(payload.Diagnostics.Length <= CcDirector.Core.ErrorReports.InstallReportLimits.MaxDiagnostics);
+        Assert.True(InstallFailureReporter.BodyBytes(payload) <= CcDirector.Core.ErrorReports.InstallReportLimits.MaxBodyBytes);
+    }
+
+    [Fact]
+    public void BuildPayload_ShortTexts_AreLeftAlone()
+    {
+        var reporter = new InstallFailureReporter(new InstallLayout(_root), "setup-wizard", gatewayUrl: () => "http://127.0.0.1:9");
+
+        var payload = reporter.BuildPayload("launcher", "start", "short", "also short");
+
+        Assert.Equal("short", payload.Message);
+        Assert.Equal("also short", payload.Diagnostics);
+    }
 }

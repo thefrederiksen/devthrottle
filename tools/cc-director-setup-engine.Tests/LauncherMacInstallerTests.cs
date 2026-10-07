@@ -1,3 +1,4 @@
+#pragma warning disable CA1416 // The class under test is macOS-only in production; here every external effect is injected, so these run on every operating system.
 using CcDirector.Setup.Engine;
 using Xunit;
 
@@ -7,7 +8,7 @@ namespace CcDirector.Setup.Engine.Tests;
 /// Tests for the macOS launcher install step. Every external effect is injected (the command
 /// runner, the process starter, the registration file path, the launch agent property list path),
 /// so these tests exercise the real decision flow with no launchd and no binary.
-/// The class under test is macOS-only, so each test exits early on other platforms.
+/// The class under test is macOS-only in production; with every effect injected these run on every operating system.
 /// </summary>
 public class LauncherMacInstallerTests : IDisposable
 {
@@ -34,8 +35,6 @@ public class LauncherMacInstallerTests : IDisposable
     [Fact]
     public async Task InstallAsync_BinaryMissing_Fails()
     {
-        if (!OperatingSystem.IsMacOS()) return;
-
         var installer = new LauncherMacInstaller(_layout,
             runCommand: (_, _) => (0, ""),
             startProcess: (_, _, _) => 1234,
@@ -52,8 +51,6 @@ public class LauncherMacInstallerTests : IDisposable
     [Fact]
     public async Task InstallAsync_LaunchdReportsNoProcess_SaysWhyAndCarriesTheDiagnostics()
     {
-        if (!OperatingSystem.IsMacOS()) return;
-
         // A registered agent whose launcher dies at start-up: launchd answers, but with no pid - the state
         // a user hit on 22 Sep 2026 and was told only "launchd did not report which process is running".
         var binary = _layout.PathFor(ComponentRegistry.Launcher);

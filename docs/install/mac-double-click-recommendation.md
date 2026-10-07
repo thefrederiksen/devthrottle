@@ -14,11 +14,11 @@ and it removes most of what went wrong.
 
 | Piece | Why it exists |
 |---|---|
-| `curl ... \| bash` in Terminal | A browser download of an app that is not notarized by Apple is stamped with the quarantine flag, and Gatekeeper refuses to open it: "Apple could not verify 'DevThrottle Setup' is free of malware". On macOS 15 and later the old right-click, Open bypass is gone. `curl` downloads carry no quarantine flag, so the script is the only path that does not end in that dialog. |
+| `curl ... \| bash` in Terminal | A browser download of an app that is not notarized by Apple is stamped with the quarantine flag, and Gatekeeper refuses to open it: "Apple could not verify 'DevThrottle Setup' is free of malware". On macOS 15 and later the old right-click, Open bypass is gone. `curl` downloads carry no quarantine flag, so the script is the product's supported path that does not end in that dialog (a person can also allow the app once under Privacy and Security after the refusal; that is a per-machine workaround, not an install path). |
 | A SHA-256 check in the script | Because the download is not signed by a trusted identity, the script verifies it against the release manifest itself. The check used Python, and Python on a Mac is only a stub that hands off to Xcode. The user's Xcode was broken, so the install died at that line (fixed in #3288: the check now uses JavaScript for Automation, which every Mac has). |
 | A setup wizard app, ad-hoc signed | It downloads and places the Director app, the launcher and the tools. Ad-hoc signing (`codesign --sign -`) gives the binary a stable identity but no trusted developer behind it, so every security surface on the Mac treats it as unknown. |
 | A launcher as a raw executable under `~/Library/Application Support`, started by a per-user launch agent (launchd) | The launcher keeps the Director available: start it from the phone or the Gateway, apply updates, run at login. launchd is the Mac's way to run something at login. A raw executable there is the cheapest thing to build; it is also what macOS shows as "Item from unidentified developer" in Login Items and Extensions. |
-| Everything per user, nothing under `/Applications` | No administrator password, ever. A good rule; it also means we cannot ask the system to trust anything on our behalf. |
+| Everything per user, nothing under `/Applications` | No administrator password for a normal per-user install; only the recovery from an earlier elevated install may ask once, to give the files back to the user. A good rule; it also means we cannot ask the system to trust anything on our behalf. |
 
 Nothing in that table is wrong on its own. Together they add up to an install that has five places to fail
 that a signed app does not have, and the failures look like the machine's fault rather than ours.
@@ -73,13 +73,13 @@ The structural defect, fixed in this change, is item 3: **an installer that trus
 | Code-signing kills | Ad-hoc signed programs are at the mercy of per-machine policy; one run was killed on the user's Mac and we do not know why | Developer ID plus notarization is the identity those policies check for |
 | Company-managed Macs | Often refuse unsigned background items by policy | Approved once by the user in Login Items, or approved in advance by an administrator by Team ID through device management |
 | Cost | Nothing | 99 US dollars a year, about a week of engineering once |
-| What we can see when it fails | Only what our own reports carry (now: the full picture) | The same reports, and far fewer failures to report |
+| What we can see when it fails | Only what our own reports carry (now: bounded, scrubbed diagnostics for the known launcher failure modes) | The same reports, and far fewer failures to report |
 
 ## 5. Recommendation
 
 **Do both, in this order.**
 
-1. **Now (this change):** rebuild the launch agent on every install instead of restarting whatever is there, make the Director repair a refused launcher itself at start-up so a fix reaches a Mac through the app's own update, and send a complete picture on every failure and a report on every success. This is what the current round trip needs, and it holds whatever we decide about signing.
+1. **Now (this change):** rebuild the launch agent on every install instead of restarting whatever is there, make the Director repair a refused launcher itself at start-up so a fix reaches a Mac through the app's own update, and send bounded, scrubbed diagnostics for the known launcher failure modes on every failure and a report on every success. This is what the current round trip needs, and it holds whatever we decide about signing.
 2. **Next (owner decision, 99 US dollars):** join the Apple Developer Program as Center Consulting Inc., sign and notarize the Director, and move the launcher inside the Director bundle as a system login item. Ship a .dmg. Retire `install-mac.sh` and the separate Mac setup wizard. About a week of work after the certificate exists. This is the only path to "download, double-click, it runs", and it removes the class of failure this user hit rather than any one instance of it.
 
 Not recommended: keeping the current model and adding more checks to the script. Every check so far has been correct and has fixed the failure in front of it; none of them changes the fact that an unsigned background program on a Mac is refused for reasons the machine does not have to explain to us.

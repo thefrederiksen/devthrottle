@@ -160,20 +160,43 @@ public class LauncherLaunchdRepairTests
     }
 
     [Theory]
-    [InlineData("disabled = {\n\t\"com.apple.something\" => disabled\n\t\"com.devthrottle.cc-launcher\" => disabled\n}\n", DisabledState.Disabled)]
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => true\n}\n", DisabledState.Disabled)]
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => enabled\n}\n", DisabledState.Enabled)]
-    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => false\n}\n", DisabledState.Enabled)]
-    [InlineData("disabled = {\n\t\"com.apple.something\" => disabled\n}\n", DisabledState.Enabled)]
-    [InlineData("disabled = {\n}\n", DisabledState.Enabled)]
-    public void ParseDisabled_ReadsLaunchdsDisabledList(string output, DisabledState expected)
+    [InlineData("disabled services = {\n\t\"com.apple.something\" => disabled\n\t\"com.devthrottle.cc-launcher\" => disabled\n}\n", "Disabled")]
+    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => true\n}\n", "Disabled")]
+    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => enabled\n}\n", "Enabled")]
+    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => false\n}\n", "Enabled")]
+    [InlineData("disabled = {\n\t\"com.apple.something\" => disabled\n}\n", "Enabled")]
+    [InlineData("disabled = {\n}\n", "Enabled")]
+    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher.helper\" => disabled\n}\n", "Enabled")]
+    public void ParseDisabled_ReadsACompleteDisabledList(string output, string expected)
     {
-        Assert.Equal(expected, ParseDisabled(output));
+        // The enum is internal, so the expectation travels as its name.
+        Assert.Equal(Enum.Parse<DisabledState>(expected), ParseDisabled(output));
     }
 
-    [Fact]
-    public void ParseDisabled_NullAnswer_IsUnknown()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   \n")]
+    [InlineData("nonsense\n")]
+    [InlineData("disabled = {\n\t\"com.apple.something\" => disabled\n")]                       // no closing brace: truncated
+    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\"\n}\n")]                        // our label with no value
+    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => maybe\n}\n")]               // a value this does not know
+    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n\t\"com.devthrottle.cc-launcher\" => enabled\n}\n")] // named twice
+    [InlineData("disabled = {\n\tsomething that is not an entry\n}\n")]                           // the format changed
+    public void ParseDisabled_AnythingButACompleteRecognisableList_IsUnknown(string? output)
     {
-        Assert.Equal(DisabledState.Unknown, ParseDisabled(null));
+        Assert.Equal(DisabledState.Unknown, ParseDisabled(output));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("disabled = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n")]
+    public void Decide_NeverRepairsWhenTheDisabledListIsUnknown(string? printDisabled)
+    {
+        var d = Decide(true, true, Refused, 0, ParseDisabled(printDisabled));
+
+        Assert.NotEqual(Verdict.Repair, d.Verdict);
+        Assert.Equal(Verdict.Unknown, d.Verdict);
     }
 }

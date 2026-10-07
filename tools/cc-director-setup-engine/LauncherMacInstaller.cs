@@ -383,8 +383,10 @@ public sealed class LauncherMacInstaller
 
         // launchd's whole answer, not only the useful lines: a field nobody thought to keep is exactly the one
         // the next failure turns on.
-        Add("launchctl print (full, without the environment block)", launchctlPrint is null ? -1 : 0,
-            launchctlPrint is null ? "(launchd was not asked)" : LaunchdDiagnostics.WithoutEnvironmentBlocks(launchctlPrint));
+        // Named fields only, never the whole answer: launchd prints the job's arguments and environment, and a
+        // stale or hand-edited job can carry anything there.
+        Add("launchctl print (named fields)", launchctlPrint is null ? -1 : 0,
+            launchctlPrint is null ? "(launchd was not asked)" : LaunchdDiagnostics.JobFacts(launchctlPrint));
 
         // The user domain itself. A domain in "on-demand-only" mode starts nothing by itself; one user's Mac
         // logged "pending spawn, domain in on-demand-only mode" at every install. Only the domain's own named
@@ -394,8 +396,18 @@ public sealed class LauncherMacInstaller
             Check("launchctl print gui/<uid> (the domain: named facts only)", "/bin/launchctl", $"print gui/{domainUid}",
                 LaunchdDiagnostics.DomainFacts);
 
-        // The launch agent as it is on disk, so the report never has to guess which paths launchd was given.
-        Check("launch agent property list on disk", "/bin/cat", Quote(_launchAgentPlistPath));
+        // The launch agent as it is on disk, so the report never has to guess which paths launchd was given -
+        // as named fields: the program path and the log paths travel, the arguments and any environment do not.
+        try
+        {
+            Add("launch agent property list on disk (named fields)", 0, File.Exists(_launchAgentPlistPath)
+                ? LaunchdDiagnostics.PlistFacts(File.ReadAllText(_launchAgentPlistPath))
+                : "(no property list on disk)");
+        }
+        catch (Exception ex)
+        {
+            Add("launch agent property list on disk (named fields)", -1, $"could not read it ({ex.GetType().Name}): {ex.Message}");
+        }
 
         // launchd opens the log files as the user before it starts the program: a root-owned one is refused
         // with the same "78: EX_CONFIG" and empty stderr as a refused program (#3411). A log folder that does

@@ -1,4 +1,6 @@
 using System.Text;
+using System.Xml;
+using System.Xml.Linq;
 
 namespace CcDirector.Setup.Engine;
 
@@ -140,7 +142,7 @@ public static class LaunchdDiagnostics
     /// One titled part of a report, and which end of it matters when it has to be cut: the END of a log
     /// (the refusal is the last thing written) or the START of a listing (the header and the first entries).
     /// </summary>
-    public sealed record Section(string Title, string Body, bool KeepEnd);
+    internal sealed record Section(string Title, string Body, bool KeepEnd);
 
     /// <summary>
     /// The characters the engine's part of a report may use. The Gateway keeps the first
@@ -166,7 +168,7 @@ public static class LaunchdDiagnostics
     /// every title, every short answer whole, and exactly how much of a long one was left out - instead of a
     /// report that silently ends in the middle of the system log.
     /// </summary>
-    public static string Fit(IReadOnlyList<Section> sections, int budget)
+    internal static string Fit(IReadOnlyList<Section> sections, int budget)
     {
         var bodies = sections.Select(s => (s.Body ?? "").Replace("\r\n", "\n").Trim('\n')).ToArray();
         var removed = new int[sections.Count];
@@ -176,7 +178,7 @@ public static class LaunchdDiagnostics
             var longest = -1;
             for (var i = 0; i < bodies.Length; i++)
                 if (bodies[i].Length > MinSectionChars && (longest < 0 || bodies[i].Length > bodies[longest].Length)) longest = i;
-            if (longest < 0) break; // every section is at its floor; nothing more can be given up here
+            if (longest < 0) break; // every section is at its floor; the hard cut below is all that is left
 
             var body = bodies[longest];
             var keep = Math.Max(MinSectionChars, body.Length - (text.Length - budget + CutNoteRoom));
@@ -200,6 +202,13 @@ public static class LaunchdDiagnostics
             bodies[longest] = cut;
             text = Render(sections, bodies, removed);
         }
+        if (text.Length > budget)
+        {
+            // Every section is at its floor and the text is still over: the contract holds anyway, and the
+            // cut is said, so a reader knows the report ends here on purpose.
+            const string note = "\n(cut to fit the report)";
+            text = budget > note.Length ? text[..(budget - note.Length)] + note : text[..Math.Max(0, budget)];
+        }
         return text;
     }
 
@@ -216,35 +225,15 @@ public static class LaunchdDiagnostics
         return sb.ToString().TrimEnd();
     }
 
-    /// <summary>
-    /// A launchctl print block without its <c>environment = { ... }</c> sections. launchd prints the
-    /// environment it gives a job, and for the user domain that is the login environment - which can carry
-    /// whatever a person exported in a shell profile, including credentials. No report needs it.
-    /// </summary>
-    public static string WithoutEnvironmentBlocks(string? launchctlPrint)
-    {
-        if (string.IsNullOrEmpty(launchctlPrint)) return "";
-        var sb = new StringBuilder();
-        var depth = 0;
-        foreach (var raw in launchctlPrint.Replace("\r\n", "\n").Split('\n'))
-        {
-            var line = raw.Trim();
-            if (depth > 0)
-            {
-                if (line.EndsWith('{')) depth++;
-                else if (line == "}") depth--;
-                continue;
-            }
-            if (line.StartsWith("environment = {", StringComparison.Ordinal))
-            {
-                depth = 1;
-                sb.Append(raw[..raw.IndexOf("environment", StringComparison.Ordinal)]).Append("environment = (left out of the report)\n");
-                continue;
-            }
-            sb.Append(raw).Append('\n');
-        }
-        return sb.ToString().TrimEnd();
-    }
+    /// <summary>The job's own scalar fields worth a report. Everything inside a nested block - arguments,
+    /// environment, endpoints, event triggers - is left out whatever it is called.</summary>
+    private static readonly string[] JobFields =
+    [
+        "state", "pid", "runs", "last exit code", "last exit reason", "last terminating signal", "job state",
+        "spawn type", "immediate reason", "program", "path", "active count", "type", "domain", "minimum runtime",
+        "exit timeout", "properties", "last spawn", "bundle id", "forks", "execs", "initialized", "trampolined",
+        "started suspended", "proxy started suspended", "last exit status", "spawn flags", "run count",
+    ];
 
     /// <summary>The user domain's own fields worth a report: what kind of domain it is and how it runs its jobs.</summary>
     private static readonly string[] DomainFields =
@@ -254,17 +243,29 @@ public static class LaunchdDiagnostics
     ];
 
     /// <summary>
+    /// Named facts from <c>launchctl print gui/&lt;uid&gt;/&lt;label&gt;</c>, nothing else. The job print lists
+    /// its arguments, its environment and its endpoints; only the allowlisted scalar fields are sent, and no
+    /// nested block ever is.
+    /// </summary>
+    internal static string JobFacts(string? jobPrint)
+        => NamedFacts(jobPrint, JobFields, "(launchd gave no answer for the job)", "(no named job fields in launchd's answer)");
+
+    /// <summary>
     /// Named facts from <c>launchctl print gui/&lt;uid&gt;</c>, nothing else. The domain print lists every
     /// service, every endpoint and the login environment; only its own header fields say anything about why a
     /// job is not started (a domain in on-demand-only mode starts nothing by itself), and those are allowlisted
     /// here by name. Anything not named is not sent.
     /// </summary>
-    public static string DomainFacts(string? domainPrint)
+    internal static string DomainFacts(string? domainPrint)
+        => NamedFacts(domainPrint, DomainFields, "(launchd gave no answer for the domain)", "(no named domain fields in launchd's answer)",
+            alsoKeep: key => key.Contains("on-demand", StringComparison.OrdinalIgnoreCase));
+
+    private static string NamedFacts(string? print, string[] fields, string whenEmpty, string whenNoneNamed, Func<string, bool>? alsoKeep = null)
     {
-        if (string.IsNullOrEmpty(domainPrint)) return "(launchd gave no answer for the domain)";
+        if (string.IsNullOrEmpty(print)) return whenEmpty;
         var kept = new List<string>();
         var depth = 0;
-        foreach (var raw in domainPrint.Replace("\r\n", "\n").Split('\n'))
+        foreach (var raw in print.Replace("\r\n", "\n").Split('\n'))
         {
             var line = raw.Trim();
             if (depth > 0)
@@ -273,18 +274,80 @@ public static class LaunchdDiagnostics
                 else if (line == "}") depth--;
                 continue;
             }
-            if (line.EndsWith('{') && !line.StartsWith("gui/", StringComparison.Ordinal) && !line.StartsWith("user/", StringComparison.Ordinal))
+            if (line.EndsWith('{'))
             {
-                depth = 1; // services, endpoints, environment, submitters: whole blocks, none of them wanted
+                // The print's own opening line (gui/501 = {, gui/501/label = {) is the frame, not a block to skip.
+                if (line.StartsWith("gui/", StringComparison.Ordinal) || line.StartsWith("user/", StringComparison.Ordinal)
+                    || line.StartsWith("system/", StringComparison.Ordinal) || line.StartsWith("pid/", StringComparison.Ordinal))
+                    continue;
+                depth = 1; // services, endpoints, environment, arguments, submitters: whole blocks, none of them wanted
                 continue;
             }
             var eq = line.IndexOf(" = ", StringComparison.Ordinal);
             if (eq <= 0) continue;
             var key = line[..eq].Trim();
-            if (DomainFields.Contains(key) || key.Contains("on-demand", StringComparison.OrdinalIgnoreCase))
+            if (fields.Contains(key) || (alsoKeep is not null && alsoKeep(key)))
                 kept.Add(line);
         }
-        return kept.Count == 0 ? "(no named domain fields in launchd's answer)" : string.Join('\n', kept);
+        return kept.Count == 0 ? whenNoneNamed : string.Join('\n', kept);
+    }
+
+    /// <summary>The property list keys sent as they are. Paths of ours and plain settings.</summary>
+    private static readonly string[] PlistScalarKeys =
+    [
+        "Label", "ProcessType", "LimitLoadToSessionType", "StandardOutPath", "StandardErrorPath", "WorkingDirectory", "Program",
+    ];
+
+    /// <summary>
+    /// Named facts from a launch agent property list, nothing else: the label, the program path, the log paths,
+    /// the start and keep-alive settings. The arguments are counted, never sent; environment variables are
+    /// noted as present, never sent; a key this does not know is named and not sent.
+    /// </summary>
+    internal static string PlistFacts(string plistXml)
+    {
+        XDocument doc;
+        try
+        {
+            using var reader = XmlReader.Create(new StringReader(plistXml ?? ""),
+                new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, XmlResolver = null });
+            doc = XDocument.Load(reader);
+        }
+        catch (Exception ex)
+        {
+            return $"(not a readable property list: {ex.Message})";
+        }
+        var dict = doc.Root?.Element("dict");
+        if (dict is null) return "(no dictionary in the property list)";
+        var facts = new List<string>();
+        foreach (var (key, value) in Pairs(dict))
+        {
+            var kind = value.Name.LocalName;
+            if (PlistScalarKeys.Contains(key))
+                facts.Add($"{key} = {value.Value.Trim()}");
+            else if (key is "RunAtLoad" or "Disabled" or "EnableTransactions" or "LaunchOnlyOnce")
+                facts.Add($"{key} = {kind}");
+            else if (key == "KeepAlive")
+                facts.Add(kind == "dict"
+                    ? $"KeepAlive = dict ({string.Join(", ", Pairs(value).Select(p => $"{p.Key} = {(p.Value.Name.LocalName is "string" or "integer" ? p.Value.Value.Trim() : p.Value.Name.LocalName)}"))})"
+                    : $"KeepAlive = {kind}");
+            else if (key == "ProgramArguments")
+            {
+                var strings = value.Elements("string").Select(e => e.Value).ToList();
+                facts.Add($"ProgramArguments = {strings.Count} entries; program = {(strings.Count > 0 ? strings[0] : "(none)")}; the arguments are not sent");
+            }
+            else if (key == "EnvironmentVariables")
+                facts.Add($"EnvironmentVariables = present ({value.Elements("key").Count()} entries, not sent)");
+            else
+                facts.Add($"{key} = (not sent)");
+        }
+        return facts.Count == 0 ? "(an empty property list)" : string.Join('\n', facts);
+    }
+
+    private static IEnumerable<(string Key, XElement Value)> Pairs(XElement dict)
+    {
+        var nodes = dict.Elements().ToList();
+        for (var i = 0; i + 1 < nodes.Count; i += 2)
+            yield return (nodes[i].Value.Trim(), nodes[i + 1]);
     }
 
     /// <summary>The most lines of one binary check kept in a report. The security log can run to

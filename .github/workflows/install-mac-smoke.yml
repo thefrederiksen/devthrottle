@@ -39,6 +39,34 @@ jobs:
           fi
           echo "OK: /usr/bin/python3 fails, as on a Mac with broken developer tools."
 
+      - name: Prove the report encoder on this Mac
+        # install-mac.sh builds its JSON strings with JavaScript for Automation. Fed every control byte, quotes,
+        # backslashes and non-ASCII text, the result must parse in an independent parser (plutil, which is not a
+        # developer tool), and when osascript fails no report may be sent at all.
+        run: |
+          eval "$(sed -n '/^json_string() {/,/^}/p' scripts/install-mac.sh)"
+          ctl=""
+          for ((i = 1; i < 32; i++)); do printf -v c "$(printf '\\%03o' "$i")"; ctl="$ctl$c"; done
+          sample="$(printf 'quote " backslash \\ two \\\\ slash / utf8 caf\303\251 home %s ctl[%s] end' "$HOME" "$ctl")"
+          printf '{"x":%s}' "$(json_string "$sample")" > "$RUNNER_TEMP/report.json"
+          plutil -lint "$RUNNER_TEMP/report.json"
+          if ! plutil -p "$RUNNER_TEMP/report.json" | grep -q 'home ~ ctl'; then
+            echo "ERROR: the text did not round-trip, or the home folder was not reduced to ~."; plutil -p "$RUNNER_TEMP/report.json"; exit 1
+          fi
+          echo "OK: the encoder's output is valid JSON for every control byte, quotes, backslashes and non-ASCII text."
+          eval "$(sed -n '/^report_step() {/,/^}/p' scripts/install-mac.sh)"
+          fake="$RUNNER_TEMP/fakebin"; mkdir -p "$fake"
+          printf '#!/bin/bash\nexit 1\n' > "$fake/osascript"
+          printf '#!/bin/bash\ntouch "%s/curl-was-called"\n' "$RUNNER_TEMP" > "$fake/curl"
+          chmod +x "$fake"/*
+          if STEP=test LOG_FILE="" GATEWAY_URL=http://127.0.0.1:9 PATH="$fake:$PATH" report_step "hello"; then
+            echo "ERROR: report_step succeeded although osascript failed."; exit 1
+          fi
+          if [[ -e "$RUNNER_TEMP/curl-was-called" ]]; then
+            echo "ERROR: curl was called although the JSON could not be built."; exit 1
+          fi
+          echo "OK: when osascript fails, no report is sent."
+
       - name: Run the installer
         # The hosted Gateway is pointed at a closed local port: the script now reports what it did to
         # DevThrottle, and a runner's install is not a user's. The report must fail fast and quietly here.

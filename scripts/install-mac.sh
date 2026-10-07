@@ -163,12 +163,17 @@ report_step() { # message
             run_log="$(cat "$LOG_FILE" 2>/dev/null || true)"
         fi
     fi
-    local diagnostics
-    diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
-    local message_json diagnostics_json body
+    local diagnostics message_json diagnostics_json body
     message_json="$(json_string "$message")" || return 1
-    diagnostics_json="$(json_string "$diagnostics")" || return 1
-    body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":$message_json,\"diagnostics\":$diagnostics_json,\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
+    # The Gateway refuses a body over 64 KB outright, and the report is gone. The body is measured in bytes, as
+    # sent; when it is too big the run log gives way from the top, twenty lines at a time.
+    while :; do
+        diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"
+        diagnostics_json="$(json_string "$diagnostics")" || return 1
+        body="{\"install_id\":\"$id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"$STEP\",\"message\":$message_json,\"diagnostics\":$diagnostics_json,\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}"
+        if [[ "$(printf '%s' "$body" | LC_ALL=C wc -c)" -le 60000 || -z "$run_log" ]]; then break; fi
+        run_log="$(printf '%s\n' "$run_log" | tail -n +21)"
+    done
     curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1
 }
 report_failure() {

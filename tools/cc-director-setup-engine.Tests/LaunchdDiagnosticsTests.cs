@@ -253,7 +253,7 @@ public sealed class LaunchdDiagnosticsTests
     }
 
     [Fact]
-    public void Fit_EverySectionAtItsFloor_StopsRatherThanLooping()
+    public void Fit_EverySectionAtItsFloor_StillHonoursTheBudgetAndSaysSo()
     {
         var text = LaunchdDiagnostics.Fit(
         [
@@ -261,8 +261,9 @@ public sealed class LaunchdDiagnosticsTests
             new("b", new string('y', LaunchdDiagnostics.MinSectionChars), true),
         ], 100);
 
-        Assert.Contains("a:", text);
-        Assert.Contains("b:", text);
+        Assert.True(text.Length <= 100, $"length {text.Length}");
+        Assert.StartsWith("a:", text);
+        Assert.EndsWith("(cut to fit the report)", text);
     }
 
     [Fact]
@@ -274,19 +275,66 @@ public sealed class LaunchdDiagnosticsTests
     }
 
     [Fact]
-    public void WithoutEnvironmentBlocks_DropsTheEnvironmentAndKeepsTheRest()
+    public void JobFacts_KeepsOnlyNamedScalarFields_NeverArgumentsOrEnvironment()
     {
-        const string print = "gui/501/com.devthrottle.cc-launcher = {\n\tstate = not running\n\tenvironment = {\n\t\tAWS_SECRET_ACCESS_KEY => wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n\t\tPATH => /usr/bin\n\t}\n\targuments = {\n\t\t/Users/robert/Library/Application Support/cc-director/launcher/cc-launcher\n\t\t--managed\n\t}\n\truns = 6\n}\n";
+        const string print = "gui/501/com.devthrottle.cc-launcher = {\n\tactive count = 0\n\tpath = /Users/robert/Library/LaunchAgents/com.devthrottle.cc-launcher.plist\n\tstate = not running\n\tprogram = /Users/robert/Library/Application Support/cc-director/launcher/cc-launcher\n\targuments = {\n\t\t/Users/robert/Library/Application Support/cc-director/launcher/cc-launcher\n\t\t--managed\n\t\t--password hunter2\n\t}\n\tenvironment = {\n\t\tAWS_SECRET_ACCESS_KEY => wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n\t\tPATH => /usr/bin\n\t}\n\tendpoints = {\n\t\t\"com.devthrottle.secret-endpoint\" = {\n\t\t\tport = 0x1\n\t\t}\n\t}\n\truns = 6\n\tlast exit code = 78: EX_CONFIG\n\tjob state = spawn failed\n\tproperties = runatload | inferred program\n}\n";
 
-        var text = LaunchdDiagnostics.WithoutEnvironmentBlocks(print);
+        var text = LaunchdDiagnostics.JobFacts(print);
 
-        Assert.DoesNotContain("AWS_SECRET_ACCESS_KEY", text);
-        Assert.DoesNotContain("wJalrXUtnFEMI", text);
-        Assert.DoesNotContain("PATH =>", text);
-        Assert.Contains("environment = (left out of the report)", text);
         Assert.Contains("state = not running", text);
-        Assert.Contains("--managed", text);
         Assert.Contains("runs = 6", text);
+        Assert.Contains("last exit code = 78: EX_CONFIG", text);
+        Assert.Contains("job state = spawn failed", text);
+        Assert.Contains("program = /Users/robert/Library/Application Support/cc-director/launcher/cc-launcher", text);
+        Assert.Contains("properties = runatload | inferred program", text);
+        Assert.DoesNotContain("hunter2", text);
+        Assert.DoesNotContain("--managed", text);
+        Assert.DoesNotContain("AWS_SECRET", text);
+        Assert.DoesNotContain("wJalrXUtnFEMI", text);
+        Assert.DoesNotContain("PATH", text);
+        Assert.DoesNotContain("secret-endpoint", text);
+        Assert.DoesNotContain("port = ", text);
+    }
+
+    [Fact]
+    public void JobFacts_NoAnswer_SaysSo()
+    {
+        Assert.Equal("(launchd gave no answer for the job)", LaunchdDiagnostics.JobFacts(null));
+        Assert.Equal("(no named job fields in launchd's answer)", LaunchdDiagnostics.JobFacts("nonsense\n"));
+    }
+
+    [Fact]
+    public void PlistFacts_SendsTheProgramAndLogPaths_NeverTheArgumentsOrTheEnvironment()
+    {
+        var plist = LauncherLaunchdAutostart.PlistContent("/Users/robert/Library/Application Support/cc-director/launcher/cc-launcher", "--managed --password hunter2", "/Users/robert/Library/Application Support/cc-director/logs/launcher")
+            .Replace("    <key>ProcessType</key>", "    <key>EnvironmentVariables</key>\n    <dict>\n        <key>GITHUB_TOKEN</key>\n        <string>ghp_16C7e42F292c6912E7710c838347Ae178B4a</string>\n    </dict>\n    <key>Nickname</key>\n    <string>top secret</string>\n    <key>ProcessType</key>");
+
+        var text = LaunchdDiagnostics.PlistFacts(plist).Replace("\r\n", "\n");
+
+        Assert.Contains("Label = com.devthrottle.cc-launcher", text);
+        Assert.Contains("ProgramArguments = 4 entries; program = /Users/robert/Library/Application Support/cc-director/launcher/cc-launcher; the arguments are not sent", text);
+        Assert.Contains("RunAtLoad = true", text);
+        Assert.Contains("KeepAlive = dict (SuccessfulExit = false)", text);
+        Assert.Contains("ProcessType = Interactive", text);
+        // The paths are built with the platform separator, as the template builds them.
+        Assert.Contains("StandardOutPath = " + Path.Combine("/Users/robert/Library/Application Support/cc-director/logs/launcher", "launchd-stdout.log"), text);
+        Assert.Contains("StandardErrorPath = " + Path.Combine("/Users/robert/Library/Application Support/cc-director/logs/launcher", "launchd-stderr.log"), text);
+        Assert.Contains("EnvironmentVariables = present (1 entries, not sent)", text);
+        Assert.Contains("Nickname = (not sent)", text);
+        Assert.DoesNotContain("hunter2", text);
+        Assert.DoesNotContain("--managed", text);
+        Assert.DoesNotContain("GITHUB_TOKEN", text);
+        Assert.DoesNotContain("ghp_", text);
+        Assert.DoesNotContain("top secret", text);
+    }
+
+    [Fact]
+    public void PlistFacts_NotXml_SaysSoInsteadOfSendingTheBytes()
+    {
+        var text = LaunchdDiagnostics.PlistFacts("bplist00 binary garbage --password hunter2");
+
+        Assert.StartsWith("(not a readable property list:", text);
+        Assert.DoesNotContain("hunter2", text);
     }
 
     [Fact]
