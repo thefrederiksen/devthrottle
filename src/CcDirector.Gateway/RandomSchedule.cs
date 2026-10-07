@@ -63,6 +63,12 @@ public static class RandomSchedule
     public const int MinGap = 10;
     public const int MaxGap = 240;
 
+    /// <summary>The largest custom hourly weight; it keeps the sum of every slot's weight far from overflowing.</summary>
+    public const double MaxShapeWeight = 1_000_000;
+
+    // Minutes a spring-forward change can take out of a night: one hour, in every zone with daylight saving we serve.
+    private const int DaylightSavingAllowance = 60;
+
     /// <summary>
     /// The built-in <c>human</c> shape: the owner's own Reddit posting hours (119 comments and posts,
     /// 2026-02-15 to 2026-06-06, America/Toronto, read before any automation), smoothed over three hours with
@@ -141,8 +147,8 @@ public static class RandomSchedule
             for (var h = 0; h < 24; h++)
             {
                 if (!double.TryParse(parts[h], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var w)
-                    || !double.IsFinite(w) || w <= 0)
-                    return (null, $"shape weight for hour {h:00} must be a positive number, not '{parts[h]}'");
+                    || !double.IsFinite(w) || w <= 0 || w > MaxShapeWeight)
+                    return (null, $"shape weight for hour {h:00} must be a positive number no larger than {MaxShapeWeight:0}, not '{parts[h]}'");
                 weights[h] = w;
             }
             shape = weights;
@@ -157,8 +163,9 @@ public static class RandomSchedule
             return (null, $"window {windowText} is too short for {2 * perDay} fires (twice perDay) at least {gap} minutes apart; " +
                           "widen the window, lower perDay or lower minGap");
 
-        // The gap must hold across days too: the last fire of one window and the first of the next.
-        if (MinutesPerDay + 1 - slots * SlotMinutes < gap)
+        // The gap must hold across days too: the last fire of one window and the first of the next, even on the
+        // night a spring-forward change takes an hour out of the time between them.
+        if (MinutesPerDay + 1 - slots * SlotMinutes - DaylightSavingAllowance < gap)
             return (null, $"window {windowText} leaves less than minGap ({gap} minutes) between one day's window and the next");
 
         return (new RandomScheduleSettings(start, windowMinutes, perDay, gap, shape, isHuman), null);
@@ -167,25 +174,42 @@ public static class RandomSchedule
     /// <summary>
     /// The planned fires of the window that opens on <paramref name="windowDate"/>, as local minutes counted
     /// from that date's midnight (so a window crossing midnight yields minutes of 1440 and above), in order.
+    ///
+    /// Every distance is judged in REAL time, not on the clock face. A slot holding a local minute that does not
+    /// exist that day (a spring-forward change) is dead before the draw, so no planned time is ever moved; and a
+    /// pick removes every slot whose minutes could come closer than the gap in UTC. On a day with no change this
+    /// is exactly the reference model: two slots k apart are at least 15k - 14 minutes apart.
     /// </summary>
-    public static IReadOnlyList<int> PlanMinutes(string jobId, DateOnly windowDate, RandomScheduleSettings settings)
+    public static IReadOnlyList<int> PlanMinutes(
+        string jobId, DateOnly windowDate, RandomScheduleSettings settings, TimeZoneInfo zone)
     {
         ArgumentNullException.ThrowIfNull(jobId);
         ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(zone);
 
         var rng = new SplitMix64(Seed(jobId, windowDate));
         var slotCount = settings.WindowMinutes / SlotMinutes;
         var weights = new double[slotCount];
+        var alive = new bool[slotCount];
+        var firstUtc = new DateTime[slotCount];
+        var lastUtc = new DateTime[slotCount];
         for (var s = 0; s < slotCount; s++)
-            weights[s] = settings.Shape[(settings.WindowStartMinute + s * SlotMinutes) / 60 % 24];
+        {
+            var slotStart = settings.WindowStartMinute + s * SlotMinutes;
+            weights[s] = settings.Shape[slotStart / 60 % 24];
+            alive[s] = Enumerable.Range(0, SlotMinutes).All(m => !zone.IsInvalidTime(Local(windowDate, slotStart + m)));
+            if (!alive[s]) continue;
+            // UTC rises minute by minute through a slot whose minutes all exist, so its two ends bound it.
+            firstUtc[s] = LocalToUtc(windowDate, slotStart, zone);
+            lastUtc[s] = LocalToUtc(windowDate, slotStart + SlotMinutes - 1, zone);
+        }
 
         var k = SlotsBetweenPicks(settings.MinGapMinutes);
         var spread = settings.PerDay / 2;
         var count = settings.PerDay + rng.NextInclusive(-spread, spread);
         count = Math.Max(1, Math.Min(count, slotCount / k));
+        var gap = TimeSpan.FromMinutes(settings.MinGapMinutes);
 
-        var alive = new bool[slotCount];
-        Array.Fill(alive, true);
         var picks = new List<int>(count);
         for (var i = 0; i < count; i++)
         {
@@ -200,7 +224,8 @@ public static class RandomSchedule
             if (lastAlive < 0)
                 throw new InvalidOperationException(
                     $"random schedule plan ran out of slots for job {jobId} on {windowDate:yyyy-MM-dd}; " +
-                    "validation guarantees room for every pick, so the settings bypassed RandomSchedule.Parse");
+                    "validation leaves room for every pick and one skipped daylight-saving hour, so either the " +
+                    "settings bypassed RandomSchedule.Parse or the zone skipped more than an hour");
 
             var r = rng.NextDouble() * total;
             var pick = lastAlive;   // rounding can leave r a hair above zero after the last slot
@@ -211,8 +236,14 @@ public static class RandomSchedule
                 if (r <= 0) { pick = s; break; }
             }
             picks.Add(pick);
-            for (var t = Math.Max(0, pick - k + 1); t < Math.Min(slotCount, pick + k); t++)
-                alive[t] = false;
+            for (var t = 0; t < slotCount; t++)
+            {
+                if (!alive[t]) continue;
+                var tooClose = t == pick
+                    || (t > pick && firstUtc[t] - lastUtc[pick] < gap)
+                    || (t < pick && firstUtc[pick] - lastUtc[t] < gap);
+                if (tooClose) alive[t] = false;
+            }
         }
 
         picks.Sort();
@@ -223,23 +254,15 @@ public static class RandomSchedule
     }
 
     /// <summary>
-    /// The planned fires of the window that opens on <paramref name="windowDate"/> as UTC instants, in order,
-    /// with no instant twice. A local time skipped by a spring-forward change moves forward to the first valid
-    /// minute; an ambiguous fall-back time uses the earlier of its two instants. Two planned times that land on
-    /// one instant that way are one fire.
+    /// The planned fires of the window that opens on <paramref name="windowDate"/> as UTC instants, in order. No
+    /// planned time falls on a local minute that does not exist (see <see cref="PlanMinutes"/>); a time in the
+    /// hour a fall-back change repeats uses the earlier of its two instants.
     /// </summary>
     public static IReadOnlyList<DateTime> PlanUtc(
         string jobId, DateOnly windowDate, RandomScheduleSettings settings, TimeZoneInfo zone)
     {
         ArgumentNullException.ThrowIfNull(zone);
-        var result = new List<DateTime>();
-        foreach (var minute in PlanMinutes(jobId, windowDate, settings))
-        {
-            var utc = LocalToUtc(windowDate, minute, zone);
-            if (result.Count == 0 || utc > result[^1])
-                result.Add(utc);
-        }
-        return result;
+        return PlanMinutes(jobId, windowDate, settings, zone).Select(m => LocalToUtc(windowDate, m, zone)).ToList();
     }
 
     /// <summary>
@@ -297,11 +320,15 @@ public static class RandomSchedule
         return BinaryPrimitives.ReadUInt64BigEndian(bytes);
     }
 
+    private static DateTime Local(DateOnly date, int minute) =>
+        DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue).AddMinutes(minute), DateTimeKind.Unspecified);
+
     private static DateTime LocalToUtc(DateOnly date, int minute, TimeZoneInfo zone)
     {
-        var local = DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue).AddMinutes(minute), DateTimeKind.Unspecified);
-        while (zone.IsInvalidTime(local))
-            local = local.AddMinutes(1);
+        var local = Local(date, minute);
+        if (zone.IsInvalidTime(local))
+            throw new InvalidOperationException(
+                $"local time {local:yyyy-MM-dd HH:mm} does not exist in {zone.Id}; the plan never picks such a minute");
         if (zone.IsAmbiguousTime(local))
         {
             // The earlier instant is the one with the larger offset from UTC (daylight time, before falling back).

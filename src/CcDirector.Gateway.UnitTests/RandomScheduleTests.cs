@@ -15,6 +15,8 @@ public sealed class RandomScheduleTests
     private const string OwnerSettings = "window=07:00-01:00 perDay=4 minGap=45 shape=human";
     private const string Toronto = "America/Toronto";
 
+    private static readonly TimeZoneInfo Zone = CronSchedule.FindZone(Toronto)!;
+
     private readonly ITestOutputHelper _out;
 
     public RandomScheduleTests(ITestOutputHelper output) => _out = output;
@@ -55,7 +57,7 @@ public sealed class RandomScheduleTests
         };
 
         var actual = expected.Keys.ToDictionary(
-            date => date, date => RandomSchedule.PlanMinutes("cj_reddit_example", DateOnly.Parse(date), settings).ToArray());
+            date => date, date => RandomSchedule.PlanMinutes("cj_reddit_example", DateOnly.Parse(date), settings, Zone).ToArray());
         foreach (var (date, minutes) in actual)
             _out.WriteLine($"[\"{date}\"] = new[] {{ {string.Join(", ", minutes)} }},");
 
@@ -124,7 +126,7 @@ public sealed class RandomScheduleTests
         var start = new DateOnly(2026, 10, 8);
         for (var d = 0; d < days; d++)
         {
-            foreach (var minute in RandomSchedule.PlanMinutes(jobId, start.AddDays(d), settings))
+            foreach (var minute in RandomSchedule.PlanMinutes(jobId, start.AddDays(d), settings, Zone))
             {
                 Assert.InRange(minute, settings.WindowStartMinute, settings.WindowStartMinute + settings.WindowMinutes - 1);
                 var absolute = (long)d * 1440 + minute;
@@ -141,38 +143,77 @@ public sealed class RandomScheduleTests
     // ---- acceptance 3: daylight-saving days in America/Toronto ---------------------------------------
 
     [Theory]
-    [InlineData("2026-03-08")]   // spring forward: 02:00 becomes 03:00
+    [InlineData("2026-03-08")]   // spring forward: 02:00 to 02:59 does not exist
     [InlineData("2026-11-01")]   // fall back: 01:00 to 01:59 happens twice
-    public void PlanUtc_DaylightSavingDay_StaysInWindow_AndNothingFiresTwice(string date)
+    public void PlanUtc_DaylightSavingDay_GapAndWindowHoldInUtc_NothingMoved_NothingTwice(string date)
     {
         // A window over the change, so the skipped and the repeated hour are both reachable.
-        var settings = Settings("window=00:00-06:00 perDay=4 minGap=15 shape=human");
-        var zone = CronSchedule.FindZone(Toronto)!;
+        const string text = "window=00:00-06:00 perDay=4 minGap=15 shape=human";
+        var settings = Settings(text);
         var day = DateOnly.Parse(date);
 
-        // The local hour the change touches: 02:00 is skipped in spring, 01:00 repeats in the fall.
-        var changedHour = day.Month == 3 ? 2 : 1;
-        var touched = 0;
+        var acrossTheChange = 0;
         for (var i = 0; i < 300; i++)
         {
-            touched += RandomSchedule.PlanMinutes($"cj_dst_{i}", day, settings).Count(m => m / 60 == changedHour);
-            var plan = RandomSchedule.PlanUtc($"cj_dst_{i}", day, settings, zone);
-            Assert.NotEmpty(plan);
-            for (var j = 0; j < plan.Count; j++)
-            {
-                var local = TimeZoneInfo.ConvertTimeFromUtc(plan[j], zone);
-                Assert.Equal(day, DateOnly.FromDateTime(local));
-                Assert.InRange(local.TimeOfDay, TimeSpan.Zero, TimeSpan.FromHours(6));
-                if (j > 0)
-                    Assert.True(plan[j] > plan[j - 1], $"cj_dst_{i}: {plan[j - 1]:o} then {plan[j]:o}");
-            }
+            var id = $"cj_dst_{i}";
+            var minutes = RandomSchedule.PlanMinutes(id, day, settings, Zone);
+            var plan = RandomSchedule.PlanUtc(id, day, settings, Zone);
+            AssertGapWindowAndNothingMoved(id, day, settings, minutes, plan, windowEnd: TimeSpan.FromHours(6));
+            if (minutes.Any(m => m < 120) && minutes.Any(m => m >= 180))
+                acrossTheChange++;
 
             // Walking the schedule fires each planned instant exactly once.
-            var job = RandomJob($"cj_dst_{i}", "window=00:00-06:00 perDay=4 minGap=15 shape=human");
-            var walked = Walk(job, plan[0].AddSeconds(-1), plan.Count);
+            var walked = Walk(RandomJob(id, text), plan[0].AddSeconds(-1), plan.Count);
             Assert.Equal(plan, walked);
         }
-        Assert.True(touched > 0, $"no plan landed in local hour {changedHour:00}, so the change was never exercised");
+        Assert.True(acrossTheChange > 0, "no plan had fires on both sides of the changed hour, so the change was never exercised");
+    }
+
+    [Fact]
+    public void PlanUtc_SpringForward_ReviewersGapInput_KeepsTheGapInUtc()
+    {
+        // Review of #3625, finding 1: this plan once held 02:12 local, moved to 03:00 and ten minutes from 03:10.
+        var settings = Settings("window=00:00-06:00 perDay=4 minGap=15 shape=human");
+        var day = new DateOnly(2026, 3, 8);
+
+        var minutes = RandomSchedule.PlanMinutes("cj_dst_3", day, settings, Zone);
+        var plan = RandomSchedule.PlanUtc("cj_dst_3", day, settings, Zone);
+
+        _out.WriteLine(string.Join(", ", plan.Select(u => $"{u:HH:mm}Z")));
+        AssertGapWindowAndNothingMoved("cj_dst_3", day, settings, minutes, plan, windowEnd: TimeSpan.FromHours(6));
+        Assert.DoesNotContain(minutes, m => m / 60 == 2);
+    }
+
+    [Fact]
+    public void PlanUtc_SpringForward_ReviewersWindowInput_StaysInsideTheWindow()
+    {
+        // Review of #3625, finding 1: this plan once chose 02:12, which was moved to 03:00, outside 00:00-02:30.
+        var settings = Settings("window=00:00-02:30 perDay=1 minGap=10 shape=human");
+        var day = new DateOnly(2026, 3, 8);
+
+        var minutes = RandomSchedule.PlanMinutes("cj_out_0", day, settings, Zone);
+        var plan = RandomSchedule.PlanUtc("cj_out_0", day, settings, Zone);
+
+        AssertGapWindowAndNothingMoved("cj_out_0", day, settings, minutes, plan, windowEnd: TimeSpan.FromMinutes(150));
+        Assert.All(minutes, m => Assert.True(m < 120, $"minute {m} is in the hour that does not exist"));
+    }
+
+    // Every fire is at least minGap after the one before IN UTC, inside the window on the local clock, at exactly the
+    // local minute that was planned (nothing moved), and no instant twice.
+    private static void AssertGapWindowAndNothingMoved(string id, DateOnly day, RandomScheduleSettings settings,
+        IReadOnlyList<int> minutes, IReadOnlyList<DateTime> plan, TimeSpan windowEnd)
+    {
+        Assert.NotEmpty(plan);
+        Assert.Equal(minutes.Count, plan.Count);
+        for (var j = 0; j < plan.Count; j++)
+        {
+            var local = TimeZoneInfo.ConvertTimeFromUtc(plan[j], Zone);
+            Assert.Equal(day.ToDateTime(TimeOnly.MinValue).AddMinutes(minutes[j]), local);
+            Assert.True(local.TimeOfDay < windowEnd, $"{id}: {local:HH:mm} is outside the window");
+            if (j > 0)
+                Assert.True((plan[j] - plan[j - 1]).TotalMinutes >= settings.MinGapMinutes,
+                    $"{id}: {plan[j - 1]:HH:mm}Z then {plan[j]:HH:mm}Z is under {settings.MinGapMinutes} minutes");
+        }
     }
 
     [Fact]
@@ -186,7 +227,7 @@ public sealed class RandomScheduleTests
         var ambiguous = 0;
         for (var i = 0; i < 50; i++)
         {
-            var minute = RandomSchedule.PlanMinutes($"cj_fb_{i}", day, settings).Single();
+            var minute = RandomSchedule.PlanMinutes($"cj_fb_{i}", day, settings, zone).Single();
             var utc = RandomSchedule.PlanUtc($"cj_fb_{i}", day, settings, zone).Single();
             if (minute >= 120)
                 continue;
@@ -267,6 +308,19 @@ public sealed class RandomScheduleTests
     }
 
     [Fact]
+    public void Validate_HugeShapeWeight_IsRefused_SoTheWeightsCannotOverflow()
+    {
+        // Review of #3625, finding 4: 1e308 is finite, but four slots of it add up to infinity.
+        var weights = string.Join(",", Enumerable.Repeat("1", 23).Prepend("1" + new string('0', 308)));
+        var (ok, error) = CronSchedule.Validate(RandomJob("", $"window=00:00-02:00 perDay=1 minGap=10 shape={weights}"));
+
+        Assert.False(ok);
+        Assert.Contains("hour 00 must be a positive number no larger than 1000000", error);
+        Assert.True(CronSchedule.Validate(RandomJob("", "window=00:00-02:00 perDay=1 minGap=10 shape=" +
+            string.Join(",", Enumerable.Repeat("1", 23).Prepend("1000000")))).Ok);
+    }
+
+    [Fact]
     public void Validate_ZeroShapeWeight_IsRefused()
     {
         var weights = string.Join(",", Enumerable.Repeat("1", 23).Prepend("0"));
@@ -328,6 +382,26 @@ public sealed class RandomScheduleTests
         CronSchedule.StampDisplay(cron, all[0]);
         Assert.Null(cron.ScheduleText);
         Assert.Null(cron.RemainingToday);
+    }
+
+    [Fact]
+    public void StampDisplay_AfterMidnight_StillTodayIncludesLastNightsWindowsFireThatIsToday()
+    {
+        // Review of #3625, finding 3: last night's window plans 00:30 on the 9th; at 00:15 that is still to come today.
+        var job = RandomJob("cj_late_52", OwnerSettings);
+        Assert.Contains(1470, RandomSchedule.PlanMinutes("cj_late_52", new DateOnly(2026, 10, 8), Settings(OwnerSettings), Zone));
+        var now = TimeZoneInfo.ConvertTimeToUtc(new DateTime(2026, 10, 9, 0, 15, 0), Zone);
+
+        CronSchedule.StampDisplay(job, now);
+
+        Assert.NotNull(job.RemainingToday);
+        Assert.Equal("00:30", job.RemainingToday[0]);
+        var expected = CronSchedule.RandomPlan(job, new DateOnly(2026, 10, 8), new DateOnly(2026, 10, 9))
+            .Where(p => p.Utc > now)
+            .Select(p => TimeZoneInfo.ConvertTimeFromUtc(p.Utc, Zone))
+            .Where(l => l.Date == new DateTime(2026, 10, 9))
+            .Select(l => l.ToString("HH:mm"));
+        Assert.Equal(expected, job.RemainingToday);
     }
 
     [Fact]

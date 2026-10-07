@@ -188,11 +188,13 @@ public static class CronSchedule
             return job;
         var plan = BuildPlan(job, nowUtc, days: 1);
         job.ScheduleText = plan.Description;
-        // Days = 1 lists today's window and what remains of yesterday's; today's remaining times are today's window.
+        // "Today" is the local calendar date of the fire, not the date its window opened: at 00:15 a fire at 00:30
+        // from last night's window is still today, and one after tonight's midnight is not.
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(
             DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc), TryFindTimeZone(job.TimeZoneId)!));
         var todayText = today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        job.RemainingToday = plan.Fires.Where(f => f.WindowDate == todayText).Select(f => f.Local[11..]).ToList();
+        job.RemainingToday = plan.Fires.Where(f => f.Local.StartsWith(todayText, StringComparison.Ordinal))
+            .Select(f => f.Local[11..]).ToList();
         return job;
     }
 
