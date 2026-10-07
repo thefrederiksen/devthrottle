@@ -136,6 +136,157 @@ public static class LaunchdDiagnostics
         return newest.Name + ":\n" + string.Join('\n', lines.Skip(Math.Max(0, lines.Count - maxLines)));
     }
 
+    /// <summary>
+    /// One titled part of a report, and which end of it matters when it has to be cut: the END of a log
+    /// (the refusal is the last thing written) or the START of a listing (the header and the first entries).
+    /// </summary>
+    public sealed record Section(string Title, string Body, bool KeepEnd);
+
+    /// <summary>
+    /// The characters the engine's part of a report may use. The Gateway keeps the first
+    /// <see cref="CcDirector.Core.ErrorReports.InstallReportLimits.MaxDiagnostics"/> characters of a report's
+    /// diagnostics and drops the rest WITHOUT a word, so anything past that line never existed as far as the
+    /// reader is concerned. The setup wizard appends its own log after this text; the reserve keeps room for it.
+    /// </summary>
+    public const int DiagnosticsBudget = CcDirector.Core.ErrorReports.InstallReportLimits.MaxDiagnostics - WizardAppendixReserve;
+
+    /// <summary>Room left after the engine's text for the wizard's exception and setup log tail.</summary>
+    public const int WizardAppendixReserve = 2500;
+
+    /// <summary>No section is cut below this many characters: its first or last lines always survive.</summary>
+    public const int MinSectionChars = 240;
+
+    /// <summary>Characters a cut note takes, so one cut lands under the budget instead of needing another.</summary>
+    private const int CutNoteRoom = 80;
+
+    /// <summary>
+    /// Renders the sections as one text that fits <paramref name="budget"/>. When it does not fit, the
+    /// longest section is cut first, from the end it cares least about, down to what is needed and never
+    /// below <see cref="MinSectionChars"/>, and the cut is written into the section itself. A reader sees
+    /// every title, every short answer whole, and exactly how much of a long one was left out - instead of a
+    /// report that silently ends in the middle of the system log.
+    /// </summary>
+    public static string Fit(IReadOnlyList<Section> sections, int budget)
+    {
+        var bodies = sections.Select(s => (s.Body ?? "").Replace("\r\n", "\n").Trim('\n')).ToArray();
+        var removed = new int[sections.Count];
+        var text = Render(sections, bodies, removed);
+        while (text.Length > budget)
+        {
+            var longest = -1;
+            for (var i = 0; i < bodies.Length; i++)
+                if (bodies[i].Length > MinSectionChars && (longest < 0 || bodies[i].Length > bodies[longest].Length)) longest = i;
+            if (longest < 0) break; // every section is at its floor; nothing more can be given up here
+
+            var body = bodies[longest];
+            var keep = Math.Max(MinSectionChars, body.Length - (text.Length - budget + CutNoteRoom));
+            string cut;
+            if (sections[longest].KeepEnd)
+            {
+                var start = body.Length - keep;
+                var lineStart = body.IndexOf('\n', start);
+                if (lineStart >= 0 && body.Length - (lineStart + 1) >= MinSectionChars / 2) start = lineStart + 1;
+                cut = body[start..];
+            }
+            else
+            {
+                var end = keep;
+                var lineEnd = body.LastIndexOf('\n', end - 1);
+                if (lineEnd >= MinSectionChars / 2) end = lineEnd;
+                cut = body[..end];
+            }
+            if (cut.Length >= body.Length) break;
+            removed[longest] += body.Length - cut.Length;
+            bodies[longest] = cut;
+            text = Render(sections, bodies, removed);
+        }
+        return text;
+    }
+
+    private static string Render(IReadOnlyList<Section> sections, string[] bodies, int[] removed)
+    {
+        var sb = new StringBuilder();
+        for (var i = 0; i < sections.Count; i++)
+        {
+            sb.Append(sections[i].Title).Append(":\n");
+            if (removed[i] > 0 && sections[i].KeepEnd) sb.Append($"  ({removed[i]} earlier characters left out to fit the report)\n");
+            sb.Append(bodies[i].Length == 0 ? "  (no output)" : "  " + bodies[i].Replace("\n", "\n  ")).Append('\n');
+            if (removed[i] > 0 && !sections[i].KeepEnd) sb.Append($"  ({removed[i]} later characters left out to fit the report)\n");
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>
+    /// A launchctl print block without its <c>environment = { ... }</c> sections. launchd prints the
+    /// environment it gives a job, and for the user domain that is the login environment - which can carry
+    /// whatever a person exported in a shell profile, including credentials. No report needs it.
+    /// </summary>
+    public static string WithoutEnvironmentBlocks(string? launchctlPrint)
+    {
+        if (string.IsNullOrEmpty(launchctlPrint)) return "";
+        var sb = new StringBuilder();
+        var depth = 0;
+        foreach (var raw in launchctlPrint.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (depth > 0)
+            {
+                if (line.EndsWith('{')) depth++;
+                else if (line == "}") depth--;
+                continue;
+            }
+            if (line.StartsWith("environment = {", StringComparison.Ordinal))
+            {
+                depth = 1;
+                sb.Append(raw[..raw.IndexOf("environment", StringComparison.Ordinal)]).Append("environment = (left out of the report)\n");
+                continue;
+            }
+            sb.Append(raw).Append('\n');
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    /// <summary>The user domain's own fields worth a report: what kind of domain it is and how it runs its jobs.</summary>
+    private static readonly string[] DomainFields =
+    [
+        "type", "handle", "state", "active count", "on-demand count", "service count", "active service count",
+        "created", "properties", "bootstrapper", "domain", "uid",
+    ];
+
+    /// <summary>
+    /// Named facts from <c>launchctl print gui/&lt;uid&gt;</c>, nothing else. The domain print lists every
+    /// service, every endpoint and the login environment; only its own header fields say anything about why a
+    /// job is not started (a domain in on-demand-only mode starts nothing by itself), and those are allowlisted
+    /// here by name. Anything not named is not sent.
+    /// </summary>
+    public static string DomainFacts(string? domainPrint)
+    {
+        if (string.IsNullOrEmpty(domainPrint)) return "(launchd gave no answer for the domain)";
+        var kept = new List<string>();
+        var depth = 0;
+        foreach (var raw in domainPrint.Replace("\r\n", "\n").Split('\n'))
+        {
+            var line = raw.Trim();
+            if (depth > 0)
+            {
+                if (line.EndsWith('{')) depth++;
+                else if (line == "}") depth--;
+                continue;
+            }
+            if (line.EndsWith('{') && !line.StartsWith("gui/", StringComparison.Ordinal) && !line.StartsWith("user/", StringComparison.Ordinal))
+            {
+                depth = 1; // services, endpoints, environment, submitters: whole blocks, none of them wanted
+                continue;
+            }
+            var eq = line.IndexOf(" = ", StringComparison.Ordinal);
+            if (eq <= 0) continue;
+            var key = line[..eq].Trim();
+            if (DomainFields.Contains(key) || key.Contains("on-demand", StringComparison.OrdinalIgnoreCase))
+                kept.Add(line);
+        }
+        return kept.Count == 0 ? "(no named domain fields in launchd's answer)" : string.Join('\n', kept);
+    }
+
     /// <summary>The most lines of one binary check kept in a report. The security log can run to
     /// thousands of lines; the refusal is at the end.</summary>
     public const int MaxBinaryCheckLines = 25;

@@ -136,13 +136,31 @@ log() {
 # so far as diagnostics - a failed install used to arrive as one line, and the five lines before it, which
 # said what the script had done, stayed on the user's Mac. A report that cannot be delivered changes nothing.
 json_escape() {
-    local text="$1" tilde='~'
-    # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
-    text="${text//"$HOME"/$tilde}"
-    text="${text//\\/\\\\}"
-    text="${text//\"/\\\"}"
-    text="${text//$'\t'/\\t}"
-    text="${text//$'\n'/\\n}"
+    # Turns text into the inside of a JSON string. Every control byte is escaped, not only tab and newline:
+    # curl writes its progress with carriage returns, and one unescaped carriage return in the run log makes
+    # the whole report invalid JSON, which the Gateway refuses - and the one report that mattered is lost.
+    local text="$1" tilde='~' quote='"' i c esc
+    # Patterns and replacements are QUOTED variables: a bare ~ in a replacement is tilde-expanded straight
+    # back into $HOME, and bash 5.2 strips backslashes from an unquoted replacement while the Mac's bash 3.2
+    # does not.
+    text="${text//"$HOME"/"$tilde"}"
+    # Backslashes go first and through sed: bash 5.2 turns a backslash pair in ANY replacement into one
+    # backslash (patsub_replacement) and bash 3.2 keeps both, so no bash substitution doubles them the same
+    # way on both. sed is on every Mac.
+    text="$(printf '%s' "$text" | LC_ALL=C sed 's/\\/\\\\/g')"
+    esc='\"'; text="${text//"$quote"/"$esc"}"
+    for ((i = 1; i < 32; i++)); do
+        printf -v c "$(printf '\\%03o' "$i")"
+        case "$i" in
+            8)  esc='\b' ;;
+            9)  esc='\t' ;;
+            10) esc='\n' ;;
+            12) esc='\f' ;;
+            13) esc='\r' ;;
+            *)  printf -v esc '%s%04x' '\u' "$i" ;;
+        esac
+        text="${text//"$c"/"$esc"}"
+    done
     printf '%s' "$text"
 }
 report_step() { # message
@@ -154,7 +172,13 @@ report_step() { # message
         { mkdir -p "$id_dir" && printf '%s' "$id" > "$id_dir/install-id"; } 2>/dev/null || true
     fi
     if [[ -n "$LOG_FILE" && -s "$LOG_FILE" ]]; then
-        run_log="$(tail -c 12000 "$LOG_FILE" 2>/dev/null || true)"
+        if [[ "$(wc -c < "$LOG_FILE")" -gt 12000 ]]; then
+            # The cut lands on a line boundary: tail -c can split a multi-byte character, and half a
+            # character is invalid JSON.
+            run_log="$(tail -c 12000 "$LOG_FILE" 2>/dev/null | tail -n +2 || true)"
+        else
+            run_log="$(cat "$LOG_FILE" 2>/dev/null || true)"
+        fi
     fi
     local diagnostics
     diagnostics="run log ($(basename "${LOG_FILE:-no log file}")):"$'\n'"${run_log:-(empty)}"$'\n'"sw_vers:"$'\n'"$(sw_vers 2>/dev/null || true)"$'\n'"id: $(id 2>/dev/null || true)"$'\n'"home: $HOME -> $(readlink "$HOME" 2>/dev/null || printf 'not a link')"

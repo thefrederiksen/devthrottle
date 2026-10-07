@@ -208,4 +208,121 @@ public sealed class LaunchdDiagnosticsTests
         Assert.DoesNotContain("    line 75\n", text);
         Assert.EndsWith("    line 100", text);
     }
+
+    [Fact]
+    public void Fit_UnderBudget_KeepsEverySectionWhole()
+    {
+        var text = LaunchdDiagnostics.Fit(
+        [
+            new("ls -ldO", "drwxr-xr-x  5 robert staff 160 /Users/robert/Library", false),
+            new("log show", "line 1\nline 2", true),
+        ], 1000).Replace("\r\n", "\n");
+
+        Assert.Equal("ls -ldO:\n  drwxr-xr-x  5 robert staff 160 /Users/robert/Library\nlog show:\n  line 1\n  line 2", text);
+    }
+
+    [Fact]
+    public void Fit_OverBudget_CutsTheLongestSectionFirstAndSaysSo()
+    {
+        var log = string.Join('\n', Enumerable.Range(1, 400).Select(i => $"log line {i:D3} xpcproxy something"));
+        var text = LaunchdDiagnostics.Fit(
+        [
+            new("launchctl print (full)", "state = spawn scheduled\nlast exit code = 78: EX_CONFIG", false),
+            new("log show", log, true),
+            new("sw_vers", "ProductVersion: 26.0", false),
+        ], 2000).Replace("\r\n", "\n");
+
+        Assert.True(text.Length <= 2000, $"length {text.Length}");
+        Assert.Contains("launchctl print (full):\n  state = spawn scheduled\n  last exit code = 78: EX_CONFIG", text);
+        Assert.Contains("sw_vers:\n  ProductVersion: 26.0", text);
+        Assert.Contains("earlier characters left out to fit the report", text);
+        Assert.Contains("log line 400 xpcproxy something", text);
+        Assert.DoesNotContain("log line 001", text);
+    }
+
+    [Fact]
+    public void Fit_ListingSection_KeepsItsStartWhenCut()
+    {
+        var listing = string.Join('\n', Enumerable.Range(1, 300).Select(i => $"entry {i:D3}"));
+        var text = LaunchdDiagnostics.Fit([new("launch agent property list on disk", listing, false)], 600).Replace("\r\n", "\n");
+
+        Assert.True(text.Length <= 600, $"length {text.Length}");
+        Assert.Contains("  entry 001\n", text);
+        Assert.Contains("later characters left out to fit the report", text);
+        Assert.DoesNotContain("entry 300", text);
+    }
+
+    [Fact]
+    public void Fit_EverySectionAtItsFloor_StopsRatherThanLooping()
+    {
+        var text = LaunchdDiagnostics.Fit(
+        [
+            new("a", new string('x', LaunchdDiagnostics.MinSectionChars), false),
+            new("b", new string('y', LaunchdDiagnostics.MinSectionChars), true),
+        ], 100);
+
+        Assert.Contains("a:", text);
+        Assert.Contains("b:", text);
+    }
+
+    [Fact]
+    public void DiagnosticsBudget_LeavesRoomForTheWizardAppendix()
+    {
+        Assert.Equal(CcDirector.Core.ErrorReports.InstallReportLimits.MaxDiagnostics,
+            LaunchdDiagnostics.DiagnosticsBudget + LaunchdDiagnostics.WizardAppendixReserve);
+        Assert.True(LaunchdDiagnostics.DiagnosticsBudget >= 12000);
+    }
+
+    [Fact]
+    public void WithoutEnvironmentBlocks_DropsTheEnvironmentAndKeepsTheRest()
+    {
+        const string print = "gui/501/com.devthrottle.cc-launcher = {\n\tstate = not running\n\tenvironment = {\n\t\tAWS_SECRET_ACCESS_KEY => wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n\t\tPATH => /usr/bin\n\t}\n\targuments = {\n\t\t/Users/robert/Library/Application Support/cc-director/launcher/cc-launcher\n\t\t--managed\n\t}\n\truns = 6\n}\n";
+
+        var text = LaunchdDiagnostics.WithoutEnvironmentBlocks(print);
+
+        Assert.DoesNotContain("AWS_SECRET_ACCESS_KEY", text);
+        Assert.DoesNotContain("wJalrXUtnFEMI", text);
+        Assert.DoesNotContain("PATH =>", text);
+        Assert.Contains("environment = (left out of the report)", text);
+        Assert.Contains("state = not running", text);
+        Assert.Contains("--managed", text);
+        Assert.Contains("runs = 6", text);
+    }
+
+    [Fact]
+    public void DomainFacts_KeepsOnlyNamedHeaderFields_NeverTheEnvironmentOrTheServices()
+    {
+        const string domain = "gui/501 = {\n\ttype = user\n\thandle = 501\n\tactive count = 418\n\ton-demand count = 56\n\tservice count = 603\n\tactive service count = 180\n\tmaximum allowed shutdown time = 65 s\n\tservice stats = {\n\t\tcom.apple.foo => 1\n\t}\n\tenvironment = {\n\t\tGITHUB_TOKEN => ghp_16C7e42F292c6912E7710c838347Ae178B4a\n\t\tHOME => /Users/robert\n\t}\n\tservices = {\n\t\t0 - 0 com.devthrottle.cc-launcher\n\t\t0 - 0 com.example.secret-helper --token=abc\n\t}\n\tendpoints = {\n\t\t\"com.apple.bar\" = {\n\t\t\tport = 0x1\n\t\t}\n\t}\n\tproperties = synthesized | something\n}\n";
+
+        var text = LaunchdDiagnostics.DomainFacts(domain);
+
+        Assert.Contains("type = user", text);
+        Assert.Contains("handle = 501", text);
+        Assert.Contains("on-demand count = 56", text);
+        Assert.Contains("active service count = 180", text);
+        Assert.Contains("properties = synthesized | something", text);
+        Assert.DoesNotContain("GITHUB_TOKEN", text);
+        Assert.DoesNotContain("ghp_", text);
+        Assert.DoesNotContain("HOME", text);
+        Assert.DoesNotContain("secret-helper", text);
+        Assert.DoesNotContain("--token", text);
+        Assert.DoesNotContain("endpoints", text);
+        Assert.DoesNotContain("maximum allowed shutdown time", text);
+    }
+
+    [Fact]
+    public void DomainFacts_NoAnswer_SaysSo()
+    {
+        Assert.Equal("(launchd gave no answer for the domain)", LaunchdDiagnostics.DomainFacts(null));
+        Assert.Equal("(no named domain fields in launchd's answer)", LaunchdDiagnostics.DomainFacts("nonsense\n"));
+    }
+
+    [Fact]
+    public void Fit_OneGiantLine_IsCutToTheBudget()
+    {
+        var text = LaunchdDiagnostics.Fit([new("log show", new string('x', 5000), true)], 1000);
+
+        Assert.True(text.Length <= 1000, $"length {text.Length}");
+        Assert.Contains("earlier characters left out", text);
+    }
 }

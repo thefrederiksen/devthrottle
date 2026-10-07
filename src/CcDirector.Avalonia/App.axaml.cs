@@ -765,18 +765,6 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// One pass of the Director's ownership of the LAUNCHER's update (issue #2719): install a staged
-    /// cc-launcher build over the installed one, and confirm the new launcher is alive AND commandable
-    /// before believing it.
-    ///
-    /// THE ROOT IS THE SHARED ONE. This Director's own storage is redirected to its instance home, so
-    /// the layout must be built from <see cref="InstanceContext.SharedRoot"/>. Resolved the ordinary
-    /// way it would look for a staged launcher under <c>instances/&lt;slug&gt;/state</c> - a directory
-    /// no installer has ever written - and report "nothing staged" for ever, on every machine.
-    ///
-    /// Never throws: this is called from a background loop and from a signal handler.
-    /// </summary>
-    /// <summary>
     /// On macOS, once, shortly after start-up: if launchd holds a launcher job it refused to run, rebuild the
     /// job (<see cref="CcDirector.Setup.Engine.LauncherLaunchdRepair"/>). The delay gives launchd its own
     /// chance first - at login the agent starts on its own and a look taken too early would find nothing
@@ -803,6 +791,19 @@ public partial class App : Application
             }
         });
     }
+
+    /// <summary>
+    /// One pass of the Director's ownership of the LAUNCHER's update (issue #2719): install a staged
+    /// cc-launcher build over the installed one, and confirm the new launcher is alive AND commandable
+    /// before believing it.
+    ///
+    /// THE ROOT IS THE SHARED ONE. This Director's own storage is redirected to its instance home, so
+    /// the layout must be built from <see cref="InstanceContext.SharedRoot"/>. Resolved the ordinary
+    /// way it would look for a staged launcher under <c>instances/&lt;slug&gt;/state</c> - a directory
+    /// no installer has ever written - and report "nothing staged" for ever, on every machine.
+    ///
+    /// Never throws: this is called from a background loop and from a signal handler.
+    /// </summary>
 
     private static async Task RunLauncherUpdatePassAsync()
     {

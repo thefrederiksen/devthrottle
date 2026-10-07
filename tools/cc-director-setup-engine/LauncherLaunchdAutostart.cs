@@ -134,7 +134,11 @@ public static class LauncherLaunchdAutostart
     public delegate (int Exit, string Output) CommandRunner(string executable, string arguments);
 
     /// <summary>What launchd held for the label before a rebuild, and what the rebuild did.</summary>
-    public sealed record RebuildResult(string? PreviousPrint, bool PreviousLoaded, IReadOnlyList<string> Steps);
+    /// <param name="PreviousPrint">launchctl print's answer before the rebuild, when launchd held the job.</param>
+    /// <param name="PreviousLoaded">Whether launchd held the job before the rebuild.</param>
+    /// <param name="Steps">What was done, in order, for the install steps and the report.</param>
+    /// <param name="AfterPrint">launchctl print's answer after the kickstart, when launchd answered.</param>
+    public sealed record RebuildResult(string? PreviousPrint, bool PreviousLoaded, IReadOnlyList<string> Steps, string? AfterPrint);
 
     /// <summary>
     /// Define the launch agent from scratch and make launchd run it NOW, whatever it held before.
@@ -165,12 +169,31 @@ public static class LauncherLaunchdAutostart
         string? plistPath = null, string? logDir = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(exePath);
+        EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: exe={exePath}");
+        try
+        {
+            var result = RebuildCore(exePath, arguments, run ?? DefaultRunner, plistPath ?? PlistPath,
+                logDir ?? Path.Combine(InstallLayout.Default().LogsDir, "launcher"));
+            EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: done - {result.Steps[^1]}");
+            return result;
+        }
+        catch (Exception ex)
+        {
+            EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The rebuild, in an order that leaves the Mac as it was found when any step is refused: nothing is
+    /// asked of launchd until the replacement is staged on disk, the old job is only counted as gone when
+    /// launchd no longer answers for it, and a definition launchd refuses to bootstrap is rolled back to the
+    /// previous one. Every launchctl answer is checked; none is recorded as a step and moved past.
+    /// </summary>
+    private static RebuildResult RebuildCore(string exePath, string? arguments, CommandRunner run, string plistPath, string logDir)
+    {
         if (!MayReload(Environment.GetEnvironmentVariable("XPC_SERVICE_NAME")))
             throw new InvalidOperationException("Rebuild must not run inside the launcher's own launchd job: booting the job out would end this process (#3575).");
-
-        run ??= DefaultRunner;
-        plistPath ??= PlistPath;
-        logDir ??= Path.Combine(InstallLayout.Default().LogsDir, "launcher");
         var steps = new List<string>();
 
         var (uidExit, uidOutput) = run("/usr/bin/id", "-u");
@@ -178,41 +201,94 @@ public static class LauncherLaunchdAutostart
             throw new InvalidOperationException($"could not resolve the current user id (id -u exit {uidExit}): {Trim(uidOutput)}");
         var target = $"gui/{uid}/{Label}";
 
-        // What launchd had, kept for the report: the state the user's Mac was in BEFORE this install is the
-        // history of every earlier attempt, and it is gone the moment the job is booted out.
+        // 1. Stage the replacement before anything is asked of launchd: the folders, and the new definition
+        //    written beside the old one and read back. A disk that refuses the write leaves launchd untouched.
+        Directory.CreateDirectory(Path.GetDirectoryName(plistPath)!);
+        Directory.CreateDirectory(logDir);
+        var desired = PlistContent(exePath, arguments, logDir);
+        var staged = plistPath + ".new";
+        File.WriteAllText(staged, desired);
+        if (File.ReadAllText(staged) != desired)
+            throw new InvalidOperationException($"the staged launch agent at {staged} did not read back as written");
+        var previousPlist = File.Exists(plistPath) ? File.ReadAllText(plistPath) : null;
+        steps.Add($"staged the launch agent ({Label}) and created {logDir}");
+
+        // 2. What launchd had, kept for the report: the state the user's Mac was in BEFORE this install is the
+        //    history of every earlier attempt, and it is gone the moment the job is booted out.
         var (printExit, printOutput) = run("/bin/launchctl", $"print {target}");
         var wasLoaded = printExit == 0;
         steps.Add(wasLoaded
             ? $"launchd already held the job: {Summarize(printOutput)}"
             : "launchd did not hold the job");
 
+        // 3. Boot the old job out, and believe launchd rather than the exit code: the job is gone when launchd
+        //    no longer answers for it. One it still holds is fatal here, with nothing on disk changed.
         if (wasLoaded)
         {
             var (outExit, outText) = run("/bin/launchctl", $"bootout {target}");
-            EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: bootout -> exit={outExit} {Trim(outText)}");
-            steps.Add(outExit == 0 ? "booted the old job out" : $"bootout of the old job answered exit {outExit}: {Trim(outText)}");
+            var (stillExit, _) = run("/bin/launchctl", $"print {target}");
+            if (stillExit == 0)
+            {
+                File.Delete(staged);
+                throw new InvalidOperationException(
+                    $"launchctl bootout answered exit {outExit} ({Trim(outText)}) and launchd still holds the job; nothing was changed");
+            }
+            steps.Add(outExit == 0
+                ? "booted the old job out"
+                : $"booted the old job out (bootout answered exit {outExit}: {Trim(outText)}; launchd no longer holds the job)");
         }
 
-        Directory.CreateDirectory(Path.GetDirectoryName(plistPath)!);
-        Directory.CreateDirectory(logDir);
-        var desired = PlistContent(exePath, arguments, logDir);
-        File.WriteAllText(plistPath, desired);
-        EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: wrote {plistPath}");
-        steps.Add($"wrote the launch agent ({Label}) and created {logDir}");
-
+        // 4. The new definition takes the old one's place and is bootstrapped. One launchd refuses is rolled
+        //    back - the previous file returns, and is loaded again when it was loaded before - so the Mac is
+        //    not left with a job gone and a file launchd never agreed to.
+        File.Move(staged, plistPath, overwrite: true);
+        steps.Add("wrote the launch agent");
         var (bootExit, bootText) = run("/bin/launchctl", $"bootstrap gui/{uid} \"{plistPath}\"");
-        EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: bootstrap -> exit={bootExit} {Trim(bootText)}");
         if (bootExit != 0)
-            throw new InvalidOperationException($"launchctl bootstrap failed (exit {bootExit}): {Trim(bootText)}");
+        {
+            var rollback = RollBack(run, uid, plistPath, previousPlist, wasLoaded);
+            throw new InvalidOperationException($"launchctl bootstrap failed (exit {bootExit}): {Trim(bootText)}. {rollback}");
+        }
         steps.Add("bootstrapped the launch agent");
 
+        // 5. The explicit start. A kickstart launchd refuses is a failure, not a step.
         var (kickExit, kickText) = run("/bin/launchctl", $"kickstart -k {target}");
-        EngineLog.Write($"[LauncherLaunchdAutostart] Rebuild: kickstart -k -> exit={kickExit} {Trim(kickText)}");
-        steps.Add(kickExit == 0
-            ? "kickstarted the launch agent (an explicit demand, honoured even in an on-demand-only domain)"
-            : $"kickstart answered exit {kickExit}: {Trim(kickText)}");
+        if (kickExit != 0)
+            throw new InvalidOperationException(
+                $"launchctl kickstart failed (exit {kickExit}): {Trim(kickText)}; the new launch agent is bootstrapped but was not started");
+        steps.Add("kickstarted the launch agent (an explicit demand, honoured even in an on-demand-only domain)");
 
-        return new RebuildResult(wasLoaded ? printOutput : null, wasLoaded, steps);
+        // 6. What launchd says now, so a caller reports a start that happened rather than one that was asked for.
+        var (afterExit, afterPrint) = run("/bin/launchctl", $"print {target}");
+        steps.Add(afterExit == 0
+            ? $"launchd now reports: {Summarize(afterPrint)}"
+            : $"launchd did not answer for the job after the kickstart (exit {afterExit})");
+
+        return new RebuildResult(wasLoaded ? printOutput : null, wasLoaded, steps, afterExit == 0 ? afterPrint : null);
+    }
+
+    /// <summary>Puts the previous launch agent back after a bootstrap launchd refused. Says what it managed.</summary>
+    private static string RollBack(CommandRunner run, int uid, string plistPath, string? previousPlist, bool wasLoaded)
+    {
+        try
+        {
+            if (previousPlist is null)
+            {
+                File.Delete(plistPath);
+                return "Rolled back: the new launch agent was removed; there was none before.";
+            }
+            File.WriteAllText(plistPath, previousPlist);
+            if (!wasLoaded)
+                return "Rolled back: the previous launch agent is back on disk; launchd did not hold it before either.";
+            var (exit, text) = run("/bin/launchctl", $"bootstrap gui/{uid} \"{plistPath}\"");
+            return exit == 0
+                ? "Rolled back: the previous launch agent is back on disk and loaded again."
+                : $"Rolled back the file, but launchd refused to load the previous launch agent again (exit {exit}: {Trim(text)}).";
+        }
+        catch (Exception ex)
+        {
+            return $"Roll back FAILED ({ex.GetType().Name}: {ex.Message}); the launch agent on disk may not match what launchd holds.";
+        }
     }
 
     /// <summary>The runner for production use: launchctl and id, with the engine's default bound.</summary>

@@ -5,8 +5,10 @@ Written 7 October 2026 for the owner's question after one user's Mac failed five
 can't it just run an executable and work?"*
 
 The short answer: on a Mac, "double-click and it runs" is not a property of the program. It is a property
-of **Apple's signature on the program**. Everything unusual about our macOS install exists to work around
-not having that signature. The one-time cost of having it is small, and it removes most of what went wrong.
+of **who signed the program and whether Apple has notarized it**: a Developer ID signature from a paid Apple
+Developer Program membership, plus Apple's notarization ticket stapled to the download. Everything unusual
+about our macOS install exists to work around not having those. The one-time cost of having them is small,
+and it removes most of what went wrong.
 
 ## 1. What a Mac user gets today, and why each piece is there
 
@@ -29,7 +31,7 @@ Every fact below is from the reports his installs sent to the Gateway and from h
 2. **22 September (version 2.9.1).** The wizard registered the launch agent and launchd started the launcher once. The kernel ended that first run for code signing (`last exit reason = OS_REASON_CODESIGNING`). Why the kernel refused an ad-hoc signed program is unknown; it does not happen on our Macs.
 3. **23, 24, 25, 28 September, 6 October.** Five more installs, versions 2.9.2 to 2.15.0. Every one found the launch agent already on disk and only asked launchd to **restart the job it already had** (`launchctl kickstart -k`). launchd answered every time with `78: EX_CONFIG`, `job state = spawn failed`, an empty standard error: the program was refused before it ran a line. The run counter went 1, 2, 4, 5, 6 across the five reports, which means launchd was holding the SAME job the whole time. Nothing any later installer did to registration could reach his machine, because registration was never run again.
 4. His Mac also logged `pending spawn, domain in on-demand-only mode` at each attempt. In that mode launchd does not honour a job's start-at-load or keep-alive; it starts a job only when something explicitly asks. That matches a counter that advanced by exactly one per install and never at login.
-5. **5 October.** We diagnosed root-owned files from a `sudo` run. The evidence for that was a reproduction on our side that produced the same signature, not anything from his machine. The fix shipped in 2.16.0 at 06:34 UTC on 6 October; his sixth attempt ran at 03:21 UTC with wizard 2.15.0, which did not contain it. His emails also show he never used `sudo`: he could not find his Library folder.
+5. **5 October.** We diagnosed root-owned files from a `sudo` run. The evidence for that was a reproduction on our side that produced the same signature, not anything from his machine. The fix shipped in 2.16.0 at 06:34 Coordinated Universal Time on 6 October; his sixth attempt ran at 03:21 Coordinated Universal Time with wizard 2.15.0, which did not contain it. His emails also show he never used `sudo`: he could not find his Library folder.
 
 The structural defect, fixed in this change, is item 3: **an installer that trusts the job launchd already holds.** The reports also lacked the facts needed to settle the cause from our side (who owned the files, whether the log folder existed, what the launch agent on disk said, Gatekeeper's verdict, whether the program runs at all when asked directly). Those travel with every report now, and a success is reported as well as a failure.
 
@@ -38,9 +40,9 @@ The structural defect, fixed in this change, is item 3: **an installer that trus
 ### The parts
 
 1. **An Apple Developer Program membership.** 99 US dollars a year, in the company's name (Center Consulting Inc., matching the Windows certificate). It gives a *Developer ID Application* certificate. Signing with it is what makes macOS treat the program as from a known developer.
-2. **Notarization.** Apple's automated malware scan of each build, free with the membership, run from the release pipeline with `notarytool`. A notarized app downloaded by a browser opens with no dialog. This is the step that kills the `curl | bash` requirement outright.
-3. **Hardened runtime with the .NET entitlements.** Notarization requires the hardened runtime. A .NET app needs four entitlements to run under it (`allow-jit`, `allow-unsigned-executable-memory`, `allow-dyld-environment-variables`, `disable-library-validation`). Microsoft documents them; they are a file in the repository.
-4. **One app bundle, not three loose programs.** `Director.app` carries the launcher inside it (`Contents/Library/LaunchAgents/com.devthrottle.cc-launcher.plist` plus the launcher executable in `Contents/MacOS`), registered with Apple's `SMAppService` as a login item. The user sees "DevThrottle" in Login Items with our name, not "cc-launcher, item from unidentified developer". No launch agent file is written into `~/Library/LaunchAgents`, so there is no job for a stale install to inherit. The command-line tools stay where they are, inside `~/Library/Application Support`.
+2. **Notarization.** Apple's automated malware scan of each build, free with the membership, run from the release pipeline with `notarytool`. A notarized app downloaded by a browser opens after the ordinary one-time "downloaded from the internet, are you sure?" confirmation, instead of being refused as unverified. This is the step that removes the `curl | bash` requirement.
+3. **Hardened runtime with the .NET entitlements.** Notarization requires the hardened runtime. A .NET app under it typically needs some of the entitlements Microsoft documents for macOS deployment (just-in-time compilation, unsigned executable memory, environment variables for the runtime, library validation off), and which ones depends on how the app is published and what it uses; the exact set is settled by testing the signed build. Nothing in the repository defines them yet.
+4. **One app bundle, not three loose programs.** `Director.app` carries the launcher inside it (`Contents/Library/LaunchAgents/com.devthrottle.cc-launcher.plist` plus the launcher executable in `Contents/MacOS`), registered with Apple's `SMAppService` as a login item. The user sees "DevThrottle" in Login Items with our name, not "cc-launcher, item from unidentified developer". The user can still turn it off there; the system then tells the app so (the service reports that it requires approval) instead of silently refusing it. No launch agent file is written into `~/Library/LaunchAgents`, so there is no job for a stale install to inherit. The command-line tools stay where they are, inside `~/Library/Application Support`.
 5. **A .dmg** (drag to Applications) or a signed `.pkg`. The .dmg is simpler and is what Mac users expect. The setup wizard becomes the first-run screen of the Director itself, as it already is on the second screen today.
 6. **Updates that keep the seal.** A signed bundle must be replaced whole; changing one file inside it breaks the signature. The Director already downloads and swaps itself as a whole `.app` on macOS (`UpdateService.ExtractMacApp`), so the update path is the same, only signed and notarized at build time.
 7. **Tooling.** The release pipeline already builds on an Apple Silicon runner. Signing adds a certificate in GitHub secrets, `codesign` with the entitlements file, `notarytool submit --wait`, and `stapler`. About a day to wire and prove.
@@ -65,11 +67,11 @@ The structural defect, fixed in this change, is item 3: **an installer that trus
 | | Today (`curl \| bash`, ad-hoc signed, raw launch agent) | Signed and notarized `Director.app` in a .dmg |
 |---|---|---|
 | First install | Open Terminal, paste a command, then a wizard | Download, drag to Applications, double-click |
-| Gatekeeper | Avoided by using `curl`; any other path shows a malware warning | Passes; no dialog |
+| Gatekeeper | Avoided by using `curl`; any other path shows a malware warning | Passes; one ordinary first-open confirmation |
 | Login Items and Extensions | "cc-launcher - Item from unidentified developer" | "DevThrottle" with the company name |
-| A stale or refused launch agent | Possible: the file in `~/Library/LaunchAgents` outlives every install (what happened here; now rebuilt on every install) | Not possible: the agent is defined inside the bundle and registered by the system from the bundle |
+| A stale or refused launch agent | Possible: the file in `~/Library/LaunchAgents` outlives every install (what happened here; now rebuilt on every install) | Far less likely: the agent is defined inside the bundle and registered by the system from the bundle, and a user who turns it off is reported to the app as "requires approval" rather than hidden as a refusal |
 | Code-signing kills | Ad-hoc signed programs are at the mercy of per-machine policy; one run was killed on the user's Mac and we do not know why | Developer ID plus notarization is the identity those policies check for |
-| Company-managed Macs | Often refuse unsigned background items by policy | Allowed by default; an administrator can allow by Team ID |
+| Company-managed Macs | Often refuse unsigned background items by policy | Approved once by the user in Login Items, or approved in advance by an administrator by Team ID through device management |
 | Cost | Nothing | 99 US dollars a year, about a week of engineering once |
 | What we can see when it fails | Only what our own reports carry (now: the full picture) | The same reports, and far fewer failures to report |
 

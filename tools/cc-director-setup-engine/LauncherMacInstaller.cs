@@ -310,21 +310,28 @@ public sealed class LauncherMacInstaller
             gatherError = $"could not ask launchd ({ex.GetType().Name}): {ex.Message}";
         }
 
-        var composed = LaunchdDiagnostics.Compose(print, loaded,
-        [
-            ("launchd-stderr.log (last lines)", LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stderr.log"), 40)),
-            ("launchd-stdout.log (last lines)", LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stdout.log"), 15)),
-            ("launcher log (last lines)", LaunchdDiagnostics.LauncherLogTail(LauncherLogDir, 60)),
-        ]);
-        var header = gatherError is null ? "" : $"launchd query failed: {gatherError}\n";
-        var previous = _previousLaunchdPrint is null
-            ? "launchd held no job for the launcher before this install\n"
-            : "launchd held this job BEFORE this install rebuilt it (useful lines):\n  "
-              + string.Join("\n  ", LaunchdDiagnostics.UsefulLines(_previousLaunchdPrint)) + "\n";
-        // The binary and folder checks go LAST: the Gateway keeps the first 16,000 characters of a report, and
-        // the system log is the only part long enough to be cut.
-        return header + composed + "\n" + previous + "steps:\n  " + string.Join("\n  ", steps) + "\n"
-               + GatherMachineChecks(uid, print);
+        var sections = new List<LaunchdDiagnostics.Section>();
+        if (gatherError is not null) sections.Add(new("launchd query failed", gatherError, false));
+        sections.Add(new(loaded ? "launchctl print (useful lines)" : "launchctl print: the job is NOT loaded",
+            string.Join('\n', LaunchdDiagnostics.UsefulLines(print)), false));
+        sections.Add(new("launchd-stderr.log (last lines)",
+            LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stderr.log"), 40) ?? "(missing or empty)", true));
+        sections.Add(new("launchd-stdout.log (last lines)",
+            LaunchdDiagnostics.Tail(Path.Combine(LauncherLogDir, "launchd-stdout.log"), 15) ?? "(missing or empty)", true));
+        sections.Add(new("launcher log (last lines)", LaunchdDiagnostics.LauncherLogTail(LauncherLogDir, 60) ?? "(missing or empty)", true));
+        sections.Add(_previousLaunchdPrint is null
+            ? new("launchd held no job for the launcher before this install", "(nothing was registered)", false)
+            : new("launchd held this job BEFORE this install rebuilt it (useful lines)",
+                string.Join('\n', LaunchdDiagnostics.UsefulLines(_previousLaunchdPrint)), false));
+        sections.Add(new("steps", string.Join('\n', steps), true));
+        sections.AddRange(GatherMachineChecks(uid, print));
+        // One budget for the whole text. The Gateway keeps the first characters of a report and drops the
+        // rest without a word, so a section that does not fit is cut HERE, where the cut is said, longest
+        // first - and the launchd answer, the ownership listing and Gatekeeper's verdict are never the part
+        // that falls off the end behind a long system log.
+        // Scrubbed HERE as well as on the Gateway: a credential-shaped value in any answer is redacted before
+        // it leaves the machine, not after it has crossed the network.
+        return CcDirector.Core.ErrorReports.ErrorTextScrubber.Scrub(LaunchdDiagnostics.Fit(sections, LaunchdDiagnostics.DiagnosticsBudget));
     }
 
     /// <summary>
@@ -341,21 +348,26 @@ public sealed class LauncherMacInstaller
     /// </summary>
     /// <param name="uid">The user id GatherDiagnostics resolved, or null when it could not.</param>
     /// <param name="launchctlPrint">launchd's current answer for the job, for the full-text block.</param>
-    private string GatherMachineChecks(int? uid, string? launchctlPrint)
+    private List<LaunchdDiagnostics.Section> GatherMachineChecks(int? uid, string? launchctlPrint)
     {
         var binary = _layout.PathFor(ComponentRegistry.Launcher);
-        var checks = new List<(string Name, int Exit, string Output)>();
+        var checks = new List<LaunchdDiagnostics.Section>();
 
-        void Check(string name, string exe, string args, Func<string, string>? keep = null)
+        // Each answer is its own section, titled with the exit code, so an empty answer and a failed command
+        // read differently. keepEnd is for the one answer whose end matters (a log); a listing keeps its start.
+        void Add(string name, int exit, string output, bool keepEnd = false)
+            => checks.Add(new($"{name} -> exit {exit}", output, keepEnd));
+
+        void Check(string name, string exe, string args, Func<string, string>? keep = null, bool keepEnd = false)
         {
             try
             {
                 var (exit, output) = _runCommand(exe, args);
-                checks.Add((name, exit, keep is null ? output : keep(output)));
+                Add(name, exit, keep is null ? output : keep(output), keepEnd);
             }
             catch (Exception ex)
             {
-                checks.Add((name, -1, $"could not run {exe} ({ex.GetType().Name}): {ex.Message}"));
+                Add(name, -1, $"could not run {exe} ({ex.GetType().Name}): {ex.Message}", keepEnd);
             }
         }
 
@@ -363,13 +375,16 @@ public sealed class LauncherMacInstaller
 
         // launchd's whole answer, not only the useful lines: a field nobody thought to keep is exactly the one
         // the next failure turns on.
-        checks.Add(("launchctl print (full)", launchctlPrint is null ? -1 : 0, launchctlPrint ?? "(launchd was not asked)"));
+        Add("launchctl print (full, without the environment block)", launchctlPrint is null ? -1 : 0,
+            launchctlPrint is null ? "(launchd was not asked)" : LaunchdDiagnostics.WithoutEnvironmentBlocks(launchctlPrint));
 
         // The user domain itself. A domain in "on-demand-only" mode starts nothing by itself; one user's Mac
-        // logged "pending spawn, domain in on-demand-only mode" at every install.
+        // logged "pending spawn, domain in on-demand-only mode" at every install. Only the domain's own named
+        // fields travel: the full answer lists every service and the login environment, which can hold anything
+        // a person exported in a shell profile.
         if (uid is { } domainUid)
-            Check("launchctl print gui/<uid> (the domain, first lines)", "/bin/launchctl", $"print gui/{domainUid}",
-                output => string.Join('\n', output.Split('\n').TakeWhile(l => !l.TrimStart().StartsWith("services = {", StringComparison.Ordinal)).Take(40)));
+            Check("launchctl print gui/<uid> (the domain: named facts only)", "/bin/launchctl", $"print gui/{domainUid}",
+                LaunchdDiagnostics.DomainFacts);
 
         // The launch agent as it is on disk, so the report never has to guess which paths launchd was given.
         Check("launch agent property list on disk", "/bin/cat", Quote(_launchAgentPlistPath));
@@ -383,7 +398,7 @@ public sealed class LauncherMacInstaller
         var missing = owned.Where(p => !File.Exists(p) && !Directory.Exists(p)).ToList();
         Check("ls -ldO (who owns the files launchd opens, and their flags)", "/bin/ls",
             "-ldO " + string.Join(' ', owned.Where(p => File.Exists(p) || Directory.Exists(p)).Select(Quote)));
-        checks.Add(("paths launchd would open that do NOT exist", 0, missing.Count == 0 ? "(none - every path exists)" : string.Join('\n', missing)));
+        Add("paths launchd would open that do NOT exist", 0, missing.Count == 0 ? "(none - every path exists)" : string.Join('\n', missing));
         Check("ls -la (the launcher log folder)", "/bin/ls", "-la " + Quote(LauncherLogDir));
 
         // Where the home folder really is: a home on an external or network volume, or behind a symbolic
@@ -404,7 +419,7 @@ public sealed class LauncherMacInstaller
         if (AnswersVersionFlag(version))
             Check("run the launcher directly: cc-launcher --version (does macOS execute the program at all)", binary, "--version");
         else
-            checks.Add(("run the launcher directly: cc-launcher --version", -1, $"not run: launcher {version ?? "(unknown)"} predates --version ({FirstVersionAnsweringVersionFlag})"));
+            Add("run the launcher directly: cc-launcher --version", -1, $"not run: launcher {version ?? "(unknown)"} predates --version ({FirstVersionAnsweringVersionFlag})");
 
         // A background item the user (or macOS) switched off is refused without a word from launchd.
         // The list names every service on the machine; only ours matters.
@@ -418,7 +433,7 @@ public sealed class LauncherMacInstaller
                         : "no devthrottle entry: our background item is not switched off";
                 });
         else
-            checks.Add(("launchctl print-disabled (is our background item switched off)", -1, "not run: the user id could not be resolved"));
+            Add("launchctl print-disabled (is our background item switched off)", -1, "not run: the user id could not be resolved");
 
         // A company-managed Mac can refuse unsigned background programs by policy.
         Check("profiles status (device management)", "/usr/bin/profiles", "status -type enrollment");
@@ -430,9 +445,10 @@ public sealed class LauncherMacInstaller
         // minutes is kept, plus every launchd and kernel line that names us.
         Check("log show (last 3 minutes: launchd and kernel lines naming us, and all of xpcproxy, amfid, syspolicyd)", "/usr/bin/log",
             "show --last 3m --style compact --predicate \"((process == 'launchd' OR process == 'kernel') AND (eventMessage CONTAINS 'cc-launcher' OR eventMessage CONTAINS 'devthrottle')) OR process == 'xpcproxy' OR process == 'amfid' OR process == 'syspolicyd' OR eventMessage CONTAINS 'cc-launcher'\"",
-            output => string.Join('\n', output.Split('\n').Where(l => !l.Contains("log run noninteractively", StringComparison.Ordinal))));
+            output => string.Join('\n', output.Split('\n').Where(l => !l.Contains("log run noninteractively", StringComparison.Ordinal))),
+            keepEnd: true);
 
-        return LaunchdDiagnostics.ComposeBinaryChecks(checks);
+        return checks;
     }
 
     /// <summary>The first launcher build that answers <c>--version</c> and exits (nothing else is started).</summary>
