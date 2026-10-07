@@ -5078,7 +5078,7 @@ public sealed class GatewayHost : IAsyncDisposable
             TeamEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry,
                 new Teams.TeamFleetMap(TeamRegistry, TeamAccess, Registry, TeamCallerOwnership, PushedSessions), Devices);
             // Invitations by email that expire (devthrottle_internal#2301), behind the same switch - no second one.
-            TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer);
+            TeamInvitationEndpoints.Map(_app, TeamRegistry, _tenantBoundary, TenantRegistry, TeamInvitationMailer, GatewayPublicUrl.ResolveBase);
             // Requests to the Owner and Managers (devthrottle_internal#2308), behind the same switch. People only - a request
             // is never readable with a session key or a Director's key.
             TeamRequestEndpoints.Map(_app, TeamRequests, _tenantBoundary, TenantRegistry);

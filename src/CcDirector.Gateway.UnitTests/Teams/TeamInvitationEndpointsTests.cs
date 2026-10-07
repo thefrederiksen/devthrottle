@@ -44,7 +44,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
     [Fact]
     public async Task CreateAsync_Stored_IsCreatedAndAsksTheMailerForThatInvitationOnly()
     {
-        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Owner, _team,
+        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => "https://gateway.example", Owner, _team,
             new TeamInvitationEndpoints.CreateInvitationRequest("Anna@Example.com", "developer"), CancellationToken.None));
 
         Assert.Equal(201, status);
@@ -55,9 +55,12 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
         Assert.False(invitation.TryGetProperty("acceptToken", out _));
         var sent = Assert.Single(_mailer.Sent);
         Assert.Equal(invitation.GetProperty("id").GetString(), sent.Id);
-        // The link's secret went to the mailer and nowhere into the answer.
+        // The link's secret went to the mailer, and into the answer only inside the link shown to the sender (Teams v1,
+        // copy the invitation link - TeamInvitationLinkTests); never as a field of its own.
         Assert.False(string.IsNullOrEmpty(sent.Token));
-        Assert.DoesNotContain(sent.Token, body.GetRawText());
+        Assert.DoesNotContain(sent.Token, invitation.GetRawText());
+        Assert.DoesNotContain(sent.Token, body.GetProperty("email").GetRawText());
+        Assert.EndsWith("/invite/" + sent.Token, body.GetProperty("link").GetProperty("url").GetString());
         Assert.True(body.GetProperty("email").GetProperty("sent").GetBoolean());
     }
 
@@ -66,7 +69,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
     {
         _mailer.Answer = new TeamInvitationMailResult(false, "The email service is down.", 503, null);
 
-        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Owner, _team,
+        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => "https://gateway.example", Owner, _team,
             new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", "Collaborator"), CancellationToken.None));
 
         Assert.Equal(201, status);
@@ -82,7 +85,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
     [InlineData("Boss")]
     public async Task CreateAsync_NoRecognisableRole_IsABadRequestAndSendsNothing(string? role)
     {
-        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Owner, _team,
+        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => "https://gateway.example", Owner, _team,
             new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", role), CancellationToken.None));
 
         Assert.Equal(400, status);
@@ -93,7 +96,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
     [Fact]
     public async Task CreateAsync_DeveloperInviting_IsForbiddenAndSendsNothing()
     {
-        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, Developer, _team,
+        var (status, body) = await RenderAsync(await TeamInvitationEndpoints.CreateAsync(_teams, _mailer, () => "https://gateway.example", Developer, _team,
             new TeamInvitationEndpoints.CreateInvitationRequest("anna@example.com", "Collaborator"), CancellationToken.None));
 
         Assert.Equal(403, status);
@@ -106,7 +109,7 @@ public sealed class TeamInvitationEndpointsTests : IDisposable
     {
         var id = _teams.CreateInvitation(_team, Owner, "anna@example.com", TeamRole.Developer).Invitation!.Id;
 
-        var (status, _) = await RenderAsync(await TeamInvitationEndpoints.ResendAsync(_teams, _mailer, Owner, _team, id, CancellationToken.None));
+        var (status, _) = await RenderAsync(await TeamInvitationEndpoints.ResendAsync(_teams, _mailer, () => "https://gateway.example", Owner, _team, id, CancellationToken.None));
 
         Assert.Equal(200, status);
         Assert.Equal(id, Assert.Single(_mailer.Sent).Id);

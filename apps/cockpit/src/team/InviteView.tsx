@@ -12,6 +12,7 @@ import {
   type TeamInvitation,
 } from "@devthrottle/client-core/teams/invitationsClient";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, PageHeader } from "../components";
+import { InvitationLinkPanel } from "./InvitationLinkPanel";
 import "./team.css";
 
 // Screen S2, "Invite someone" (devthrottle_internal#2301), with the team's waiting invitations beneath it so resending
@@ -37,6 +38,8 @@ export function InviteView() {
   const [sent, setSent] = useState<InvitationSent | null>(null);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
   const [rowNote, setRowNote] = useState<string | null>(null);
+  // The new link a Resend made, shown once beside the waiting invitations.
+  const [rowLink, setRowLink] = useState<InvitationSent["link"] | null>(null);
   const [confirmCancel, setConfirmCancel] = useState<TeamInvitation | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -80,11 +83,13 @@ export function InviteView() {
   const resend = async (invitation: TeamInvitation) => {
     setRowBusy(invitation.id);
     setRowNote(null);
+    setRowLink(null);
     try {
       const result = await resendInvitation(teamId, invitation.id);
       setRowNote(result.email.sent
         ? `Sent again to ${invitation.email}. It now expires on ${day(result.invitation.expiresAtUtc)}.`
         : result.email.message);
+      setRowLink(result.link);
       setInvitations(await listInvitations(teamId));
     } catch (err) {
       setRowNote(gatewayErrorMessage(err, "resend the invitation"));
@@ -97,6 +102,7 @@ export function InviteView() {
   // which stays open and shows it.
   const cancel = async (invitation: TeamInvitation) => {
     await cancelInvitation(teamId, invitation.id);
+    setRowLink(null);
     setRowNote(`The invitation to ${invitation.email} is cancelled. Its link no longer works.`);
     setInvitations(await listInvitations(teamId));
   };
@@ -170,11 +176,13 @@ export function InviteView() {
             {sent.email.message}
           </p>
         )}
+        {sent !== null && <InvitationLinkPanel link={sent.link} />}
       </section>
 
       <section className="team-card" aria-label="Waiting invitations">
         <h2 className="team-h2">Waiting invitations</h2>
         {rowNote !== null && <p className="team-hint" role="status">{rowNote}</p>}
+        {rowLink !== null && <InvitationLinkPanel link={rowLink} />}
         {waiting.length === 0 ? (
           <p className="team-hint">No invitations are waiting.</p>
         ) : (

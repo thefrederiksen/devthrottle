@@ -182,3 +182,9 @@
   .team-card, .team-req { padding: 12px; }
   .team-row .ui-btn { flex: 1 1 auto; }
 }
+
+/* The invitation link shown once to its sender (Teams v1, copy the invitation link). */
+.team-link { margin: 12px 0 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.team-link-row { display: flex; gap: 8px; align-items: center; }
+.team-link-url { flex: 1; min-width: 0; font-family: var(--font-mono, monospace); font-size: 12px; }
+.team-link .team-hint { margin: 8px 0 0; }

@@ -25,6 +25,11 @@ namespace CcDirector.Gateway.Api;
 /// records every path and query. (The accept PAGE's own address carries it; that one line is redacted in the access
 /// log - see <see cref="RedactForLog"/>.)
 ///
+/// THE LINK IS SHOWN ONCE, TO THE SENDER (Teams v1, copy the invitation link). The create and resend answers carry the
+/// full accept link, because the Gateway holds the raw secret only at that moment - it stores its hash - and the
+/// invitation email cannot be sent until the website's sender is live (devthrottle_internal#2316). It is in no other
+/// answer, never stored and never logged; a lost link is recovered by Resend, which makes a new one and retires the old.
+///
 /// WHO IS ASKING comes from the caller's device key, exactly as on the other team routes
 /// (<see cref="TeamEndpoints.ResolveCaller"/>). DARK until the owner releases Teams: these routes are mapped only when
 /// <c>CC_GATEWAY_TEAMS=1</c>, beside the team routes. A session key is refused by the session-key guard's default
@@ -43,14 +48,17 @@ internal static class TeamInvitationEndpoints
     internal sealed record TokenRequest(string? Token);
 
     /// <summary>Maps the eight routes.</summary>
+    /// <param name="publicBase">This Gateway's public base address (<see cref="GatewayPublicUrl.ResolveBase"/>), which the
+    /// accept link is built on: the Cockpit's accept page is <c>{base}/invite/{token}</c>.</param>
     public static void Map(IEndpointRouteBuilder app, TeamRegistry teams, HostedTenantBoundary boundary, TenantRegistry tenants,
-        ITeamInvitationMailer mailer)
+        ITeamInvitationMailer mailer, Func<string?> publicBase)
     {
         ArgumentNullException.ThrowIfNull(app);
         ArgumentNullException.ThrowIfNull(teams);
         ArgumentNullException.ThrowIfNull(boundary);
         ArgumentNullException.ThrowIfNull(tenants);
         ArgumentNullException.ThrowIfNull(mailer);
+        ArgumentNullException.ThrowIfNull(publicBase);
 
         var root = TeamEndpoints.Path + "/{teamId}/invitations";
 
@@ -72,14 +80,14 @@ internal static class TeamInvitationEndpoints
             if (caller.Denial is not null) return caller.Denial;
             var body = await ReadBody<CreateInvitationRequest>(ctx, "{\"email\": \"<address>\", \"role\": \"Developer\"}").ConfigureAwait(false);
             if (body.Denial is not null) return body.Denial;
-            return await CreateAsync(teams, mailer, caller.Subject!, teamId, body.Value, ctx.RequestAborted).ConfigureAwait(false);
+            return await CreateAsync(teams, mailer, publicBase, caller.Subject!, teamId, body.Value, ctx.RequestAborted).ConfigureAwait(false);
         }));
 
         app.MapPost(root + "/{invitationId}/resend", (HttpContext ctx, string teamId, string invitationId) => Guarded("POST invitations/resend", async () =>
         {
             var caller = TeamEndpoints.ResolveCaller(ctx, boundary, tenants);
             if (caller.Denial is not null) return caller.Denial;
-            return await ResendAsync(teams, mailer, caller.Subject!, teamId, invitationId, ctx.RequestAborted).ConfigureAwait(false);
+            return await ResendAsync(teams, mailer, publicBase, caller.Subject!, teamId, invitationId, ctx.RequestAborted).ConfigureAwait(false);
         }));
 
         app.MapPost(root + "/{invitationId}/cancel", (HttpContext ctx, string teamId, string invitationId) => Guarded("POST invitations/cancel", () =>
@@ -129,9 +137,10 @@ internal static class TeamInvitationEndpoints
 
     /// <summary>Invite, then ask the website to send the email. The invitation is stored before the email is asked
     /// for, so an email that could not be sent is REPORTED with its reason (201 with <c>email.sent=false</c>) and the
-    /// invitation can be resent - it is never reported as sent, and never lost.</summary>
-    internal static async Task<IResult> CreateAsync(TeamRegistry teams, ITeamInvitationMailer mailer, string callerSubject,
-        string teamId, CreateInvitationRequest? body, CancellationToken ct)
+    /// invitation can be resent - it is never reported as sent, and never lost. The answer also carries the accept link,
+    /// for the sender to copy (<see cref="DescribeLink"/>).</summary>
+    internal static async Task<IResult> CreateAsync(TeamRegistry teams, ITeamInvitationMailer mailer, Func<string?> publicBase,
+        string callerSubject, string teamId, CreateInvitationRequest? body, CancellationToken ct)
     {
         if (!TryParseRole(body?.Role, out var role))
             return Results.BadRequest(new { error = "Choose the role to invite them as: Manager, Developer or Collaborator." });
@@ -141,21 +150,24 @@ internal static class TeamInvitationEndpoints
             return Answer(result, "create");
 
         var mail = await mailer.SendAsync(result.Invitation!.Id, result.Invitation.TeamId, result.AcceptToken!, ct).ConfigureAwait(false);
-        FileLog.Write($"[TeamInvitationEndpoints] POST invitations: stored, email sent={mail.Sent}");
-        return Results.Json(new { invitation = Describe(result.Invitation), email = DescribeMail(mail) }, statusCode: StatusCodes.Status201Created);
+        var link = DescribeLink(publicBase, result.Invitation, result.AcceptToken!);
+        FileLog.Write($"[TeamInvitationEndpoints] POST invitations: stored, email sent={mail.Sent}, link shown={link.Url is not null}");
+        return Results.Json(new { invitation = Describe(result.Invitation), email = DescribeMail(mail), link }, statusCode: StatusCodes.Status201Created);
     }
 
-    /// <summary>Resend: a new 7 days and a new link, then the email again.</summary>
-    internal static async Task<IResult> ResendAsync(TeamRegistry teams, ITeamInvitationMailer mailer, string callerSubject,
-        string teamId, string invitationId, CancellationToken ct)
+    /// <summary>Resend: a new 7 days and a new link, then the email again. The answer carries the new link for the sender
+    /// to copy; the old one no longer opens anything.</summary>
+    internal static async Task<IResult> ResendAsync(TeamRegistry teams, ITeamInvitationMailer mailer, Func<string?> publicBase,
+        string callerSubject, string teamId, string invitationId, CancellationToken ct)
     {
         var result = teams.ResendInvitation(teamId, invitationId, callerSubject);
         if (result.Outcome != TeamInvitationOutcome.Done)
             return Answer(result, "resend");
 
         var mail = await mailer.SendAsync(result.Invitation!.Id, result.Invitation.TeamId, result.AcceptToken!, ct).ConfigureAwait(false);
-        FileLog.Write($"[TeamInvitationEndpoints] POST invitations/resend: renewed, email sent={mail.Sent}");
-        return Results.Json(new { invitation = Describe(result.Invitation), email = DescribeMail(mail) });
+        var link = DescribeLink(publicBase, result.Invitation, result.AcceptToken!);
+        FileLog.Write($"[TeamInvitationEndpoints] POST invitations/resend: renewed, email sent={mail.Sent}, link shown={link.Url is not null}");
+        return Results.Json(new { invitation = Describe(result.Invitation), email = DescribeMail(mail), link });
     }
 
     /// <summary>One result as HTTP: 200 with the invitation, or the refusal with its status.</summary>
@@ -205,6 +217,28 @@ internal static class TeamInvitationEndpoints
         canRespond = i.CanRespond,
         refusal = i.Refusal,
     };
+
+    /// <summary>
+    /// The accept link for the sender to copy, worded here (rule 7): <c>{base}/invite/{token}</c> and the sentence shown
+    /// beside it. Anyone signed in who opens the link may accept, so the sentence says who to send it to. When this
+    /// Gateway has no public address (a self-hosted Gateway whose tailnet is down) there is no link to show, and the
+    /// sentence says so - the invitation itself is saved either way. The link is never written to a log.
+    /// </summary>
+    internal static InvitationLink DescribeLink(Func<string?> publicBase, TeamInvitation invitation, string acceptToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(acceptToken);
+        var root = publicBase();
+        if (string.IsNullOrWhiteSpace(root))
+            return new InvitationLink(null, "The invitation is saved, but this Gateway has no public address right now, so its link cannot be shown. Resend it once the address is back.");
+        var url = root.Trim().TrimEnd('/') + CockpitAcceptPagePrefix + Uri.EscapeDataString(acceptToken);
+        return new InvitationLink(url,
+            $"Send this link to {invitation.Email} yourself. Anyone signed in who opens it can join the team as {TeamRoles.Label(invitation.Role)}, " +
+            "so share it only with them. It is shown only now - if it is lost, Resend the invitation for a new link; the old one then stops working.");
+    }
+
+    /// <summary>The accept link shown once to the sender, and the sentence beside it. <paramref name="Url"/> is null when
+    /// this Gateway has no public address; <paramref name="Note"/> then says so.</summary>
+    internal sealed record InvitationLink(string? Url, string Note);
 
     private static object DescribeMail(CcDirector.Core.Account.TeamInvitationMailResult mail) => new
     {
