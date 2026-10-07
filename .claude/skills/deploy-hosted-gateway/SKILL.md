@@ -100,13 +100,25 @@ gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --re
 gh workflow run deploy-hosted-gateway.yml --repo thefrederiksen/devthrottle --ref main -f teams=off -f team_mentor=off
 ```
 
-The settings are written after every refusal, inside the same deploy step and just
-before the new image is pinned, so the outage the run reports covers the settings
-change too. The run summary has a "Teams switches" table with each setting's value
-before, what was requested, and after - only these two settings, never any other.
-If a switch that was asked for does not hold the requested value afterwards, the run
-fails. Changing a switch is the owner's decision; get the go for it as part of the
-go for the deploy.
+**Changing a switch costs a second restart, and the run says so.** Writing an app
+setting restarts the site by itself. So when a switch actually changes, the deploy step
+makes two clean hand-overs, never stacked: write the settings, wait until production has
+restarted and is back on the OLD commit (with the requested `/healthz` `teams` value),
+then pin the new image as usual. Both gaps are measured and printed; the budget still
+applies to the longest single stretch, and the watch job's "total unavailable" counts
+both. A requested value production already holds is not written, so it costs nothing.
+With both inputs `unchanged` the deploy is exactly the ordinary single-restart deploy.
+If the settings write fails, or production does not come back after it, the run stops
+and the image is NOT changed.
+
+The run summary has a "Teams switches" table: each setting's value before, what was
+requested, the setting after, and what the serving Gateway reports - only these two
+settings, never any other. A requested `teams` value must hold in the setting AND be
+served: `/healthz` must answer `"teams":true` (or `false`) on the new commit, or the
+run fails. The Mentor switch is checked as a setting only, because `/healthz` does not
+report it; the running evidence is the Gateway log line `[TeamMentorSwitch] IsOn`.
+Changing a switch is the owner's decision; get the go for it as part of the go for the
+deploy.
 
 ### 3. Watch it run to the end
 
