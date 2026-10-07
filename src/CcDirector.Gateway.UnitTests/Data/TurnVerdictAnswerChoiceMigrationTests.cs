@@ -66,7 +66,9 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             Assert.Equal("20261006140613_AddFactoryRegistry", all[index + 20]);
             // A team member's answer and the question a person's comment is about (devthrottle_internal#2307), after that.
             Assert.Equal("20261006171223_AddTeamQuestionAnswers", all[index + 21]);
-            Assert.Equal(index + 22, all.Count);
+            // Archiving a factory: when, by whom, and which schedules the archive switched off (#3608), after that.
+            Assert.Equal("20261007035034_ArchiveFactories", all[index + 22]);
+            Assert.Equal(index + 23, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
             Assert.Empty(context.Database.GetAppliedMigrations());

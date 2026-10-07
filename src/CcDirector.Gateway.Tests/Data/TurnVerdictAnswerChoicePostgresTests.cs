@@ -107,7 +107,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20261006140813_AddFactoryRegistry", all[index + 20]);
             // A team member's answer and the question a person's comment is about (devthrottle_internal#2307), after that.
             Assert.Equal("20261006171258_AddTeamQuestionAnswers", all[index + 21]);
-            Assert.Equal(index + 22, all.Count);
+            // Archiving a factory: when, by whom, and which schedules the archive switched off (#3608), after that.
+            Assert.Equal("20261007053735_ArchiveFactories", all[index + 22]);
+            Assert.Equal(index + 23, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
