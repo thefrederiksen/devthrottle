@@ -34,10 +34,12 @@ public sealed class FactoriesListViewDto
     /// <summary>The column headings, in order: "Factory", "Waiting on you", "Status".</summary>
     public List<string> Columns { get; set; } = new();
 
-    /// <summary>Worst first (FAILING, NEEDS YOU, PAUSED, RUNNING), then by title.</summary>
+    /// <summary>Worst first (FAILING, NEEDS YOU, PAUSED, RUNNING), then by title. The Cockpit re-sorts them in the
+    /// order the owner picks; this order stays for older clients.</summary>
     public List<FactoryListRowDto> Rows { get; set; } = new();
 
-    /// <summary>The sentence under the list ("Worst first: ...").</summary>
+    /// <summary>The sentence under the list ("Worst first: ..."). Kept for older clients; the Cockpit now states the
+    /// order the owner picked instead.</summary>
     public string? FooterText { get; set; }
 
     /// <summary>Set when no factory is registered; the list is then empty.</summary>
@@ -173,6 +175,10 @@ public sealed class FactoryListRowDto
     public string StatusWord { get; set; } = "";
     public string StatusTone { get; set; } = "";
 
+    /// <summary>Where <see cref="StatusWord"/> stands worst first: 0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING. The
+    /// Cockpit sorts by it when the owner picks "Status (worst first)"; the meaning stays the Gateway's.</summary>
+    public int StatusRank { get; set; }
+
     /// <summary>Why the status is what it is, in full, for a tooltip ("Nora Hale failed today 06:20: ...").</summary>
     public string StatusReason { get; set; } = "";
 
@@ -187,6 +193,10 @@ public sealed class FactoryListRowDto
 
     /// <summary>"1 question", "2 decisions", "1 question, 1 decision", or "-".</summary>
     public string WaitingText { get; set; } = "";
+
+    /// <summary>How many open items <see cref="WaitingText"/> counts (questions plus decisions); 0 for "-". The Cockpit
+    /// sorts by it when the owner picks "Waiting on you".</summary>
+    public int WaitingCount { get; set; }
 
     /// <summary>Where clicking the waiting count goes - the waiting items on the factory's page. Null when nothing
     /// is waiting.</summary>

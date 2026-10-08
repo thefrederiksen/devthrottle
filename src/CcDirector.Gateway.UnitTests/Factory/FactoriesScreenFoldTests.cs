@@ -89,6 +89,8 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal(new[] { "mindzie Web", "Website Business", "Tallyhand", "ClickFunnels", "DevThrottle" }, view.Rows.Select(r => r.Title));
         Assert.Equal(new[] { "FAILING", "NEEDS YOU", "PAUSED", "RUNNING", "RUNNING" }, view.Rows.Select(r => r.StatusWord));
         Assert.Equal(new[] { FactoryTone.Red, FactoryTone.Amber, FactoryTone.Paused, FactoryTone.Ok, FactoryTone.Ok }, view.Rows.Select(r => r.StatusTone));
+        // The Cockpit sorts by the rank when the owner picks "Status (worst first)"; it must match the word.
+        Assert.Equal(new[] { 0, 1, 2, 3, 3 }, view.Rows.Select(r => r.StatusRank));
         Assert.Equal(new[] { "Factories", "Activity", "Reports" }, view.Tabs.Select(t => t.Label));
     }
 
@@ -185,16 +187,19 @@ public sealed class FactoriesScreenFoldTests
     // ---------- waiting on you ----------
 
     [Theory]
-    [InlineData(0, 0, "-")]
-    [InlineData(1, 0, "1 question")]
-    [InlineData(0, 2, "2 decisions")]
-    [InlineData(1, 1, "1 question, 1 decision")]
-    public void WaitingText_CountsQuestionsAndDecisions(int asked, int escalated, string expected)
+    [InlineData(0, 0, "-", 0)]
+    [InlineData(1, 0, "1 question", 1)]
+    [InlineData(0, 2, "2 decisions", 2)]
+    [InlineData(1, 1, "1 question, 1 decision", 2)]
+    public void WaitingText_CountsQuestionsAndDecisions(int asked, int escalated, string expected, int expectedCount)
     {
         var rows = Enumerable.Range(0, asked).Select(_ => Row("warmforward", "nora-hale", FactoryActivityOutcome.Asked, "q", Now.AddHours(-1)))
             .Concat(Enumerable.Range(0, escalated).Select(_ => Row("warmforward", "nora-hale", FactoryActivityOutcome.Escalated, "d", Now.AddHours(-1))))
             .ToList();
-        Assert.Equal(expected, FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, rows)).Rows[0].WaitingText);
+        var row = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, rows)).Rows[0];
+        Assert.Equal(expected, row.WaitingText);
+        // The number the Cockpit sorts "Waiting on you" by is the number the text describes.
+        Assert.Equal(expectedCount, row.WaitingCount);
     }
 
     [Fact]

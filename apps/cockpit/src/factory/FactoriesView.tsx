@@ -4,12 +4,25 @@ import { getFactoriesList, type FactoriesListView } from "@devthrottle/client-co
 import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { OwnerActionButton, StatusWord, TalkButton } from "./FactoryParts";
+import {
+  FACTORY_COLUMN_KEYS,
+  FACTORY_SORT_KEYS,
+  clickHeading,
+  directionLabel,
+  headingArrow,
+  loadFactorySort,
+  saveFactorySort,
+  sortFactoryRows,
+  sortFooter,
+  type FactorySortOrder,
+} from "./factoriesSort";
 import "./factory.css";
 
 // Factories (Factories screen mission, mockups 1 and 4): three tabs - Factories, Activity and Reports. The Factories
-// tab is one row per factory - name, what is waiting on the owner, status, and the CEO's Talk button - worst first.
-// Every word, tone and the order are the Gateway's (FactoriesScreenFold), rendered verbatim (rule 7); the page only
-// lays them out and keeps the chosen tab in the address. At phone width the same rows become cards (factory.css).
+// tab is one row per factory - name, what is waiting on the owner, status, and the CEO's Talk button. Every word and
+// tone is the Gateway's (FactoriesScreenFold), rendered verbatim (rule 7). The ORDER is the owner's: a "Sort by"
+// control and clickable column headings (factoriesSort.ts), remembered in this browser, Name A to Z the first time.
+// The page keeps the chosen tab in the address. At phone width the same rows become cards (factory.css).
 
 type TabKey = "factories" | "activity" | "reports";
 
@@ -58,6 +71,12 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
   // Showing the archived factories is a layout choice; which are archived, and every word, are the Gateway's.
   const [showArchived, setShowArchived] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [order, setOrder] = useState<FactorySortOrder>(loadFactorySort);
+  const pick = (next: FactorySortOrder) => {
+    setOrder(next);
+    saveFactorySort(next);
+  };
+  const rows = sortFactoryRows(view.rows, order);
   const archived = (
     <div className="fa-archived-section">
       <button
@@ -105,16 +124,73 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
   return (
     <div className="fa-tab-body">
       {view.truncatedText !== null && <div className="fa-warn">{view.truncatedText}</div>}
+      <div className="fa-sortbar" data-testid="fa-sortbar">
+        <span className="fa-sortbar-label" id="fa-sortbar-label">
+          Sort by
+        </span>
+        <div className="fa-sortbar-seg" role="group" aria-labelledby="fa-sortbar-label">
+          {FACTORY_SORT_KEYS.map((k) => (
+            <button
+              key={k.key}
+              type="button"
+              className={`fa-sortbar-choice${order.key === k.key ? " active" : ""}`}
+              aria-pressed={order.key === k.key}
+              data-testid={`fa-sort-${k.key}`}
+              onClick={() => pick(order.key === k.key ? order : { key: k.key, reversed: false })}
+            >
+              {k.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="fa-sortbar-dir"
+          data-testid="fa-sort-direction"
+          title="Reverse the order"
+          aria-label={`Reverse the order, now ${directionLabel(order)}`}
+          onClick={() => pick({ key: order.key, reversed: !order.reversed })}
+        >
+          {directionLabel(order)}
+        </button>
+        <span className="fa-sortbar-count">{rows.length === 1 ? "1 factory" : `${rows.length} factories`}</span>
+      </div>
       <div className="fa-flist" role="table" aria-label={view.title} data-testid="fa-factories-list">
         <div className="fa-flist-head" role="row">
-          {view.columns.map((c) => (
-            <span key={c} role="columnheader">
-              {c}
-            </span>
-          ))}
+          {view.columns.map((c) => {
+            const key = FACTORY_COLUMN_KEYS[c];
+            if (key === undefined)
+              return (
+                <span key={c} role="columnheader">
+                  {c}
+                </span>
+              );
+            const active = order.key === key;
+            const arrow = headingArrow(order);
+            return (
+              <span
+                key={c}
+                role="columnheader"
+                aria-sort={active ? (arrow === "^" ? "ascending" : "descending") : "none"}
+              >
+                <button
+                  type="button"
+                  className={`fa-sort-heading${active ? " active" : ""}`}
+                  data-testid={`fa-sort-heading-${key}`}
+                  onClick={() => pick(clickHeading(order, key))}
+                >
+                  {c}
+                  {active && (
+                    <span className="fa-sort-arrow" aria-hidden="true">
+                      {" " + arrow}
+                    </span>
+                  )}
+                </button>
+              </span>
+            );
+          })}
           <span role="columnheader" aria-label="Talk" />
         </div>
-        {view.rows.map((row) => (
+        {rows.map((row) => (
           <div
             key={row.id}
             className="fa-flist-row"
@@ -149,7 +225,9 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
           </div>
         ))}
       </div>
-      {view.footerText !== null && <p className="fa-footnote">{view.footerText}</p>}
+      <p className="fa-footnote" data-testid="fa-sort-footer">
+        {sortFooter(order)}
+      </p>
       {archived}
       <OutsideAnyFactory view={view} />
     </div>

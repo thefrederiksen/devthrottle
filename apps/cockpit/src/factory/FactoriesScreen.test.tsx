@@ -7,8 +7,9 @@ import { join } from "node:path";
 import { GatewayError } from "@devthrottle/client-core/api/client";
 
 // The Factories screen (Factories screen mission, phase D). What is held down:
-//   * the list renders the Gateway's rows verbatim and in its order - name, waiting text, status chip, and the CEO's
-//     Talk button or the "No CEO" text - and the "All factory agents" tab is gone;
+//   * the list renders the Gateway's rows verbatim - name, waiting text, status chip, and the CEO's Talk button or the
+//     "No CEO" text - in the order the owner picked (Name A to Z the first time), and the "All factory agents" tab is
+//     gone;
 //   * a row opens its factory's page;
 //   * the factory page shows the header, the Overview cards and the tabs exactly as folded, and its computer is
 //     just the computer's name - no "change - coming" label;
@@ -82,6 +83,7 @@ function where(): string {
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
+  window.localStorage.clear();
   screenClient.getFactoriesList.mockResolvedValue(FACTORY_LIST);
   screenClient.getFactoryPage.mockResolvedValue(FACTORY_PAGE);
   screenClient.getFactorySeats.mockResolvedValue(FACTORY_SEATS);
@@ -90,32 +92,34 @@ beforeEach(() => {
 });
 
 describe("Factories - the list (mockup 1)", () => {
-  it("renders every row verbatim, in the Gateway's order, with the CEO's Talk button or No CEO", async () => {
+  it("renders every row verbatim, by name A to Z the first time, with the CEO's Talk button or No CEO", async () => {
     renderAt("/factories");
 
     const list = await screen.findByTestId("fa-factories-list");
     const rows = within(list).getAllByRole("row").slice(1);
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
+      "fa-factory-devthrottle",
       "fa-factory-mindzie-web",
       "fa-factory-warmforward",
-      "fa-factory-devthrottle",
     ]);
-    const warm = rows[1];
+    const warm = rows[2];
     expect(within(warm).getByText("WarmForward").closest("a")?.getAttribute("href")).toBe("/factories/warmforward");
     expect(within(warm).getByText("1 question (fixture)")).toBeTruthy();
     const chip = within(warm).getByText("NEEDS YOU-X");
     expect(chip.className).toContain("fa-tone-amber");
     expect(chip.getAttribute("title")).toBe("1 question waiting on you.");
     expect(within(warm).getByRole("button", { name: "Talk to Nora Hale" })).toBeTruthy();
-    expect(within(rows[0]).getByText("No CEO")).toBeTruthy();
-    expect(within(rows[0]).queryByRole("button")).toBeNull();
+    expect(within(rows[1]).getByText("No CEO")).toBeTruthy();
+    expect(within(rows[1]).queryByRole("button")).toBeNull();
     expect(Array.from(list.querySelectorAll("[role=columnheader]")).map((h) => h.textContent)).toEqual([
-      "Factory",
+      "Factory ^",
       "Waiting on you",
       "Status",
       "",
     ]);
-    expect(screen.getByText("Worst first: failing, then needs you, then paused, then running.")).toBeTruthy();
+    // The Cockpit states the order it shows; the Gateway's old "Worst first" line is no longer displayed.
+    expect(screen.getByTestId("fa-sort-footer").textContent).toBe("Sorted by name, A to Z.");
+    expect(screen.queryByText("Worst first: failing, then needs you, then paused, then running.")).toBeNull();
   });
 
   it("has the Factories, Activity and Reports tabs, and no All factory agents tab", async () => {
@@ -473,5 +477,103 @@ describe("Factories at phone width (mockup 4)", () => {
     expect(row.querySelector(".fa-flist-status")).not.toBeNull();
     expect(row.querySelector(".fa-flist-waiting")).not.toBeNull();
     expect(row.querySelector(".fa-flist-talk")).not.toBeNull();
+  });
+});
+
+describe("Factories - the owner's sort order (mockups A and B, 8 Oct 2026)", () => {
+  function order(): string[] {
+    const list = screen.getByTestId("fa-factories-list");
+    return within(list)
+      .getAllByRole("row")
+      .slice(1)
+      .map((r) => (r.getAttribute("data-testid") ?? "").replace("fa-factory-", ""));
+  }
+
+  it("opens on Name, A to Z, with the Sort by control showing it", async () => {
+    renderAt("/factories");
+
+    await screen.findByTestId("fa-factories-list");
+    expect(order()).toEqual(["devthrottle", "mindzie-web", "warmforward"]);
+    expect(screen.getByTestId("fa-sort-name").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("fa-sort-status").getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("fa-sort-direction").textContent).toBe("A to Z");
+    expect(screen.getByText("3 factories")).toBeTruthy();
+  });
+
+  it("sorts by status worst first from the control, and the direction toggle reverses it to best first", async () => {
+    renderAt("/factories");
+
+    fireEvent.click(await screen.findByTestId("fa-sort-status"));
+    expect(order()).toEqual(["mindzie-web", "warmforward", "devthrottle"]);
+    expect(screen.getByTestId("fa-sort-direction").textContent).toBe("Worst first");
+    expect(screen.getByTestId("fa-sort-footer").textContent).toContain("worst first");
+    expect(screen.getByTestId("fa-sort-heading-status").textContent).toBe("Status v");
+
+    fireEvent.click(screen.getByTestId("fa-sort-direction"));
+    expect(order()).toEqual(["devthrottle", "warmforward", "mindzie-web"]);
+    expect(screen.getByTestId("fa-sort-direction").textContent).toBe("Best first");
+    expect(screen.getByTestId("fa-sort-heading-status").textContent).toBe("Status ^");
+  });
+
+  it("sorts by what is waiting on you, most first", async () => {
+    renderAt("/factories");
+
+    fireEvent.click(await screen.findByTestId("fa-sort-waiting"));
+    // WarmForward has one question; the two with none fall back to worse status first (FAILING before RUNNING).
+    expect(order()).toEqual(["warmforward", "mindzie-web", "devthrottle"]);
+    expect(screen.getByTestId("fa-sort-footer").textContent).toBe(
+      "Sorted by what is waiting on you, most first. Same count: worse status first, then by name.",
+    );
+  });
+
+  it("sorts by a column heading, and clicking the active heading again reverses it", async () => {
+    renderAt("/factories");
+
+    await screen.findByTestId("fa-factories-list");
+    fireEvent.click(screen.getByTestId("fa-sort-heading-name"));
+    expect(order()).toEqual(["warmforward", "mindzie-web", "devthrottle"]);
+    expect(screen.getByTestId("fa-sort-heading-name").textContent).toBe("Factory v");
+    expect(screen.getByTestId("fa-sort-footer").textContent).toBe("Sorted by name, Z to A.");
+
+    fireEvent.click(screen.getByTestId("fa-sort-heading-status"));
+    expect(order()).toEqual(["mindzie-web", "warmforward", "devthrottle"]);
+    expect(screen.getByTestId("fa-sort-status").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("fa-sort-heading-name").textContent).toBe("Factory");
+  });
+
+  it("tells assistive technology which column is sorted and which way", async () => {
+    renderAt("/factories");
+
+    const list = await screen.findByTestId("fa-factories-list");
+    const sortOf = () => Array.from(list.querySelectorAll("[role=columnheader]")).map((h) => h.getAttribute("aria-sort"));
+    expect(sortOf()).toEqual(["ascending", "none", "none", null]);
+    fireEvent.click(screen.getByTestId("fa-sort-heading-status"));
+    expect(sortOf()).toEqual(["none", "none", "descending", null]);
+    expect(screen.getByTestId("fa-sort-direction").getAttribute("aria-label")).toBe("Reverse the order, now Worst first");
+  });
+
+  it("matches headings to keys by their words, so a column the Gateway moves still sorts by its own key", async () => {
+    screenClient.getFactoriesList.mockResolvedValue({ ...FACTORY_LIST, columns: ["Status", "Owner", "Factory"] });
+    renderAt("/factories");
+
+    await screen.findByTestId("fa-factories-list");
+    fireEvent.click(screen.getByTestId("fa-sort-heading-status"));
+    expect(order()).toEqual(["mindzie-web", "warmforward", "devthrottle"]);
+    // A heading the Cockpit has no key for is plain text, not a button that sorts by something else.
+    expect(screen.getByText("Owner").closest("button")).toBeNull();
+  });
+
+  it("remembers the last order picked in this browser and opens on it next time", async () => {
+    renderAt("/factories");
+
+    fireEvent.click(await screen.findByTestId("fa-sort-status"));
+    fireEvent.click(screen.getByTestId("fa-sort-direction"));
+    expect(JSON.parse(window.localStorage.getItem("cockpit.factoriesSort") ?? "null")).toEqual({ key: "status", reversed: true });
+
+    cleanup();
+    renderAt("/factories");
+    await screen.findByTestId("fa-factories-list");
+    expect(order()).toEqual(["devthrottle", "warmforward", "mindzie-web"]);
+    expect(screen.getByTestId("fa-sort-direction").textContent).toBe("Best first");
   });
 });

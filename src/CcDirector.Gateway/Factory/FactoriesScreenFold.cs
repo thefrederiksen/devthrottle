@@ -87,17 +87,20 @@ public static class FactoriesScreenFold
             {
                 var status = Status(f, input, open);
                 var talk = CeoTalk(f, duplicateCeoNames);
+                var waiting = open.Where(r => SameId(r.Factory, f.Factory)).ToList();
                 return (Rank: status.Rank, Row: new FactoryListRowDto
                 {
                     Id = f.Factory,
                     Title = f.Title,
                     StatusWord = status.Word,
                     StatusTone = status.Tone,
+                    StatusRank = status.Rank,
                     StatusReason = status.Reason,
                     StatusLine = status.Line,
                     StatusHref = status.Href,
-                    WaitingText = WaitingText(open.Where(r => SameId(r.Factory, f.Factory)).ToList()),
-                    WaitingHref = open.Any(r => SameId(r.Factory, f.Factory)) ? WaitingHref(f.Factory) : null,
+                    WaitingText = WaitingText(waiting),
+                    WaitingCount = WaitingCount(waiting),
+                    WaitingHref = waiting.Count > 0 ? WaitingHref(f.Factory) : null,
                     Href = PageHref(f.Factory),
                     Talk = talk,
                     NoCeoText = talk is null ? NoHead : null,
@@ -641,6 +644,10 @@ public static class FactoriesScreenFold
         if (decisions > 0) parts.Add(Count(decisions, "decision"));
         return parts.Count == 0 ? "-" : string.Join(", ", parts);
     }
+
+    /// <summary>The number <see cref="WaitingText"/> describes: its questions plus its decisions.</summary>
+    public static int WaitingCount(IReadOnlyList<FactoryActivityDto> open) =>
+        open.Count(r => r.Outcome is FactoryActivityOutcome.Asked or FactoryActivityOutcome.Escalated);
 
     // ---------------------------------------------------------------------------------------------------------
     // Shared
