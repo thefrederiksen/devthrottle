@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using CcDirector.Core.ErrorReports;
 
 namespace CcDirector.Setup.Engine;
 
@@ -162,9 +163,41 @@ public static class LauncherLaunchdRepair
     internal static readonly TimeSpan DefaultPollInterval = TimeSpan.FromMilliseconds(500);
 
     /// <summary>
-    /// Look once, and rebuild the job when the decision says so. Returns one line saying what was found and
-    /// done; a line that starts with "FAILED" is one the error reporter carries to the Gateway. Success is
-    /// claimed only when launchd reports a process for the rebuilt job within <paramref name="startWait"/>.
+    /// One pass, as the Director runs it at start-up: look once, rebuild when the decision says so, and send
+    /// EXACTLY ONE report of what the pass came to through <paramref name="reporter"/> - rebuilt with the
+    /// process launchd reports, left alone with its verdict and reason, or failed with its diagnostics (owner
+    /// ruling of 7 October 2026). A pass that throws is reported as failed too, and its exception goes no further:
+    /// this is the entry point of a background pass. The parameters after <paramref name="reporter"/> are
+    /// <see cref="RunOnce"/>'s.
+    /// </summary>
+    [SupportedOSPlatform("macos")]
+    public static LauncherRepairOutcome RunPass(InstallLayout layout, ErrorReporter reporter, LauncherLaunchdAutostart.CommandRunner? run = null,
+        TimeSpan? startWait = null, TimeSpan? pollInterval = null, Func<int>? installedLaunchersRunning = null, string? plistPath = null)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+        ArgumentNullException.ThrowIfNull(reporter);
+        EngineLog.Write("[LauncherLaunchdRepair] RunPass: start");
+        LauncherRepairOutcome outcome;
+        try
+        {
+            outcome = RunOnce(layout, run, startWait, pollInterval, installedLaunchersRunning, plistPath);
+        }
+        catch (Exception ex)
+        {
+            // RunOnce has logged it as a FAILED line already; the report says what the pass came to.
+            outcome = new(LauncherRepairResult.Failed, "Exception", $"the repair pass ended with {ex.GetType().Name}: {ex.Message}",
+                0, $"FAILED to finish the repair pass: {ex}");
+        }
+        LauncherRepairReport.Send(outcome, reporter);
+        EngineLog.Write($"[LauncherLaunchdRepair] RunPass: {outcome.Result} ({outcome.Verdict})");
+        return outcome;
+    }
+
+    /// <summary>
+    /// Look once, and rebuild the job when the decision says so. Returns what was found and done; its
+    /// <see cref="LauncherRepairOutcome.Line"/> is the one line the Director logs. Success is claimed only when
+    /// launchd reports a process for the rebuilt job within <paramref name="startWait"/>. Reports nothing:
+    /// <see cref="RunPass"/> is what sends the pass's one report.
     /// </summary>
     /// <param name="layout">Where the launcher is installed.</param>
     /// <param name="run">How launchctl and the id command (which answers the user identifier) are run; the bounded <see cref="LauncherLaunchdAutostart.DefaultRunner"/> in production.</param>
@@ -173,7 +206,7 @@ public static class LauncherLaunchdRepair
     /// <param name="installedLaunchersRunning">How many launcher processes run from the install folder; the process list in production.</param>
     /// <param name="plistPath">The launch agent property list; the real one in production.</param>
     [SupportedOSPlatform("macos")]
-    public static string RunOnce(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner? run = null, TimeSpan? startWait = null,
+    public static LauncherRepairOutcome RunOnce(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner? run = null, TimeSpan? startWait = null,
         TimeSpan? pollInterval = null, Func<int>? installedLaunchersRunning = null, string? plistPath = null)
     {
         ArgumentNullException.ThrowIfNull(layout);
@@ -184,7 +217,7 @@ public static class LauncherLaunchdRepair
                 pollInterval ?? DefaultPollInterval,
                 installedLaunchersRunning ?? (() => InstalledLauncherProcesses.Ours(layout.LauncherDir, InstalledLauncherProcesses.List()).Count),
                 plistPath ?? LauncherLaunchdAutostart.PlistPath);
-            EngineLog.Write($"[LauncherLaunchdRepair] RunOnce: {outcome}");
+            EngineLog.Write($"[LauncherLaunchdRepair] RunOnce: {outcome.Line}");
             return outcome;
         }
         catch (Exception ex)
@@ -194,16 +227,20 @@ public static class LauncherLaunchdRepair
         }
     }
 
-    private static string RunOnceCore(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner run, TimeSpan startWait,
+    private static LauncherRepairOutcome RunOnceCore(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner run, TimeSpan startWait,
         TimeSpan pollInterval, Func<int> installedLaunchersRunning, string plistPath)
     {
         var binary = layout.PathFor(ComponentRegistry.Launcher);
         if (!File.Exists(binary))
-            return $"no launcher binary at {binary}; nothing to repair";
+        {
+            var noBinary = $"no launcher binary at {binary}; nothing to repair";
+            return new(LauncherRepairResult.LeftAlone, "NoLauncherBinary", noBinary, 0, noBinary);
+        }
 
         var (uidExit, uidOutput) = run("/usr/bin/id", "-u");
         if (uidExit != 0 || !int.TryParse(uidOutput.Trim(), out var uid))
-            return $"FAILED to resolve the user id (exit {uidExit}); the launcher was not checked";
+            return Failed("NotChecked", $"the user id could not be resolved (exit {uidExit}); the launcher was not checked",
+                $"FAILED to resolve the user id (exit {uidExit}); the launcher was not checked");
 
         var (printExit, print) = run("/bin/launchctl", $"print gui/{uid}/{LauncherLaunchdAutostart.Label}");
         var (disabledExit, disabledOutput) = run("/bin/launchctl", $"print-disabled gui/{uid}");
@@ -215,12 +252,13 @@ public static class LauncherLaunchdRepair
         }
         catch (Exception ex)
         {
-            return $"FAILED to read the process list ({ex.GetType().Name}: {ex.Message}); the launcher was not checked";
+            return Failed("NotChecked", $"the process list could not be read ({ex.GetType().Name}: {ex.Message}); the launcher was not checked",
+                $"FAILED to read the process list ({ex.GetType().Name}: {ex.Message}); the launcher was not checked");
         }
 
         var decision = Decide(File.Exists(plistPath), printExit == 0, print, running, disabled);
         if (decision.Verdict != Verdict.Repair)
-            return $"{decision.Verdict}: {decision.Reason}";
+            return new(LauncherRepairResult.LeftAlone, decision.Verdict.ToString(), decision.Reason, 0, $"{decision.Verdict}: {decision.Reason}");
 
         LauncherLaunchdAutostart.RebuildResult result;
         try
@@ -230,7 +268,8 @@ public static class LauncherLaunchdRepair
         }
         catch (Exception ex)
         {
-            return $"FAILED to rebuild the launch agent after finding: {decision.Reason}. {ex.GetType().Name}: {ex.Message}";
+            return Failed(decision.Verdict.ToString(), $"the launch agent could not be rebuilt after finding: {decision.Reason}",
+                $"FAILED to rebuild the launch agent after finding: {decision.Reason}. {ex.GetType().Name}: {ex.Message}");
         }
 
         // The kickstart is a request; the process comes a moment later. Success is a process launchd reports.
@@ -245,8 +284,14 @@ public static class LauncherLaunchdRepair
             pid = LauncherMacInstaller.ParseLaunchdPid(after ?? "");
         }
         var done = $"Rebuilt the launch agent: {string.Join("; ", result.Steps)}";
-        return pid > 0
-            ? $"{decision.Verdict}: {decision.Reason}. {done}. launchd reports the launcher running as process {pid}"
-            : $"FAILED to start the launcher after rebuilding the launch agent (found: {decision.Reason}). {done}. launchd still reports no process: {LaunchdDiagnostics.Explain(after, after is not null) ?? "no useful answer"}";
+        if (pid > 0)
+            return new(LauncherRepairResult.Rebuilt, decision.Verdict.ToString(), decision.Reason, pid,
+                $"{decision.Verdict}: {decision.Reason}. {done}. launchd reports the launcher running as process {pid}");
+        var launchdSays = LaunchdDiagnostics.Explain(after, after is not null) ?? "no useful answer";
+        return Failed(decision.Verdict.ToString(), $"the launcher did not start after the launch agent was rebuilt (found: {decision.Reason}); launchd says: {launchdSays}",
+            $"FAILED to start the launcher after rebuilding the launch agent (found: {decision.Reason}). {done}. launchd still reports no process: {launchdSays}");
     }
+
+    private static LauncherRepairOutcome Failed(string verdict, string reason, string line)
+        => new(LauncherRepairResult.Failed, verdict, reason, 0, line);
 }

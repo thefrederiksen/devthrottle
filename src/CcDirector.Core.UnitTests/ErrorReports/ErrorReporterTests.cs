@@ -416,4 +416,49 @@ public sealed class ErrorReporterTests
             if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         }
     }
+
+    [Fact]
+    public async Task ReportOutcome_ANonErrorOutcome_IsSentWithItsKindMessageAndDetail()
+    {
+        var (reporter, handler) = NewReporter();
+
+        reporter.ReportOutcome("LauncherLaunchdRepair", "launcher-repair", "launcher repair: left alone (Running): 1 process", "the steps");
+        var sent = await reporter.SendPendingAsync(CancellationToken.None);
+
+        Assert.Equal(1, sent);
+        var item = Assert.Single(Sent(handler));
+        Assert.Equal("LauncherLaunchdRepair", item.Source);
+        Assert.Equal("launcher-repair", item.Kind);
+        Assert.Equal("launcher repair: left alone (Running): 1 process", item.Message);
+        Assert.Equal("the steps", item.Stack);
+        Assert.Equal("", item.ExceptionType);
+    }
+
+    [Fact]
+    public async Task ReportOutcome_IsScrubbedAndCappedLikeAnError()
+    {
+        var (reporter, handler) = NewReporter();
+
+        reporter.ReportOutcome("X", "launcher-repair", "at /Users/robert/x token=abc " + new string('m', 5000), "key=zzz " + new string('d', 20000));
+        await reporter.SendPendingAsync(CancellationToken.None);
+
+        var item = Assert.Single(Sent(handler));
+        Assert.DoesNotContain("robert", item.Message);
+        Assert.DoesNotContain("abc", item.Message);
+        Assert.DoesNotContain("zzz", item.Stack);
+        Assert.True(item.Message!.Length <= ErrorReportLimits.MaxMessage);
+        Assert.True(item.Stack!.Length <= ErrorReportLimits.MaxStack);
+    }
+
+    [Theory]
+    [InlineData("", "k", "m")]
+    [InlineData("s", "", "m")]
+    [InlineData("s", "k", "")]
+    [InlineData("s", "a-kind-that-is-far-longer-than-forty-characters", "m")]
+    public void ReportOutcome_MissingOrOverlongFields_Throw(string source, string kind, string message)
+    {
+        var (reporter, _) = NewReporter();
+        Assert.ThrowsAny<ArgumentException>(() => reporter.ReportOutcome(source, kind, message, ""));
+        Assert.Equal(0, reporter.PendingCount);
+    }
 }

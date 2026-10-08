@@ -206,6 +206,27 @@ public sealed class ErrorReporter : IDisposable
         }
     }
 
+    /// <summary>
+    /// Report something that happened which is NOT an error line - the outcome of a pass the owner wants seen
+    /// whatever it was, such as the Director's launcher repair (rebuilt, left alone or failed). It goes through
+    /// the same table, scrubbing, size limits, hourly budget and sign-in routing as every logged error; only the
+    /// <paramref name="kind"/> tells it apart (an error line is always one of the kinds <see cref="ErrorLine.KindOf"/>
+    /// answers). Never blocks on anything but the table lock.
+    /// </summary>
+    /// <param name="source">The class the outcome belongs to.</param>
+    /// <param name="kind">What sort of outcome this is, at most 40 characters (the Gateway keeps no more).</param>
+    /// <param name="message">One line saying what happened.</param>
+    /// <param name="detail">The diagnostics behind it, or empty; sent where an error's stack goes.</param>
+    public void ReportOutcome(string source, string kind, string message, string detail)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+        if (kind.Length > 40) throw new ArgumentException("kind must be at most 40 characters", nameof(kind));
+        Add(source, kind, message, "", detail ?? "");
+        FileLog.Write($"{ErrorLine.ReporterTag} outcome queued for the Gateway: source={source}, kind={kind}");
+    }
+
     internal void Add(string source, string kind, string message, string exceptionType, string stack)
     {
         var cleanSource = ErrorTextScrubber.Clean(source, ErrorReportLimits.MaxShortField);

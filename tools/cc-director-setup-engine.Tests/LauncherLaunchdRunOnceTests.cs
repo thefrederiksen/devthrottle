@@ -65,7 +65,7 @@ public class LauncherLaunchdRunOnceTests : IDisposable
     }
 
     private string Run(LauncherLaunchdAutostart.CommandRunner run, TimeSpan? wait = null)
-        => LauncherLaunchdRepair.RunOnce(_layout, run, wait ?? TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(20), () => 0, _plist);
+        => LauncherLaunchdRepair.RunOnce(_layout, run, wait ?? TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(20), () => 0, _plist).Line;
 
     [Fact]
     public void RunOnce_RefusedJob_RebuildsAndReportsTheProcessLaunchdShowsLater()
@@ -119,7 +119,7 @@ public class LauncherLaunchdRunOnceTests : IDisposable
     [Fact]
     public void RunOnce_LauncherProcessAlreadyRunning_DoesNothing()
     {
-        var line = LauncherLaunchdRepair.RunOnce(_layout, Fake(printsUntilProcess: 0), TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(20), () => 1, _plist);
+        var line = LauncherLaunchdRepair.RunOnce(_layout, Fake(printsUntilProcess: 0), TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(20), () => 1, _plist).Line;
 
         Assert.StartsWith("Running:", line);
         Assert.Equal("<old/>", File.ReadAllText(_plist));
