@@ -259,7 +259,7 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
                 {row.title}
               </Link>
             </span>
-            <span className="fa-flist-waiting" role="cell">
+            <span className="fa-flist-waiting dt-private" role="cell">
               {row.waitingHref !== null ? (
                 <Link to={row.waitingHref} onClick={(e) => e.stopPropagation()} data-testid="fa-waiting-link">
                   {row.waitingText}
@@ -268,7 +268,7 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
                 row.waitingText
               )}
             </span>
-            <span className="fa-flist-status" role="cell">
+            <span className="fa-flist-status dt-private" role="cell">
               <StatusWord word={row.statusWord} tone={row.statusTone} reason={row.statusReason} line={row.statusLine} href={row.statusHref} />
             </span>
             <span className="fa-flist-talk" role="cell">
@@ -322,6 +322,8 @@ function FactoryCardGroup({ group }: { group: FactoryGroup }) {
  * line, the purpose, the head's name and the Talk button's words - the card only shortens "Talk to Nora Hale" to
  * "Talk to Nora" and draws the head's initials. A RUNNING row has no status line from the Gateway and the card shows
  * none. The status line is cut to three lines here; the full line is on the factory's page, which the name opens.
+ * The purpose, the status (word, reason and line) and the waiting text carry the dt-private class on the card and in
+ * the table (owner ruling, 8 Oct 2026), so a demo mode can blank them.
  */
 function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: FactoryGroup["key"] }) {
   const pill = <ToneChip word={row.statusWord} tone={row.statusTone} title={row.statusReason} />;
@@ -331,26 +333,28 @@ function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: Factory
         <Link className="fa-card-name" to={row.href} data-testid="fa-card-name">
           {row.title}
         </Link>
-        {row.statusHref !== null ? (
-          <Link className="fa-status-link" to={row.statusHref} data-testid="fa-card-status-link">
-            {pill}
-          </Link>
-        ) : (
-          pill
-        )}
+        <span className="dt-private">
+          {row.statusHref !== null ? (
+            <Link className="fa-status-link" to={row.statusHref} data-testid="fa-card-status-link">
+              {pill}
+            </Link>
+          ) : (
+            pill
+          )}
+        </span>
       </div>
       {row.purpose !== null && (
-        <p className="fa-card-purpose" data-testid="fa-card-purpose">
+        <p className="fa-card-purpose dt-private" data-testid="fa-card-purpose">
           {row.purpose}
         </p>
       )}
       {row.statusLine !== null && (
-        <p className="fa-card-line" data-testid="fa-card-line" title={row.statusLine}>
+        <p className="fa-card-line dt-private" data-testid="fa-card-line" title={row.statusLine}>
           {row.statusLine}
         </p>
       )}
       {row.waitingCount > 0 && row.waitingHref !== null && (
-        <Link className="fa-card-waiting" to={row.waitingHref} data-testid="fa-card-waiting">
+        <Link className="fa-card-waiting dt-private" to={row.waitingHref} data-testid="fa-card-waiting">
           {row.waitingText} waiting on you
         </Link>
       )}

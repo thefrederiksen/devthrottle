@@ -272,6 +272,21 @@ describe("Factories as cards - one card", () => {
     expect(firstNameOf("Nora Hale")).toBe("Nora");
   });
 
+  it("marks the purpose, status and waiting text dt-private on the card and in the table (owner ruling, 8 Oct 2026)", async () => {
+    renderList();
+    await screen.findByTestId("fa-factories-cards");
+    const warm = screen.getByTestId("fa-card-warmforward");
+    expect(within(warm).getByTestId("fa-card-purpose").className).toContain("dt-private");
+    expect(within(warm).getByTestId("fa-card-line").className).toContain("dt-private");
+    expect(within(warm).getByTestId("fa-card-waiting").className).toContain("dt-private");
+    expect(within(warm).getByTestId("fa-card-status-link").parentElement!.className).toContain("dt-private");
+
+    fireEvent.click(screen.getByTestId("fa-view-table"));
+    const row = screen.getByTestId("fa-factory-warmforward");
+    expect(row.querySelector(".fa-flist-status")!.className).toContain("dt-private");
+    expect(row.querySelector(".fa-flist-waiting")!.className).toContain("dt-private");
+  });
+
   it("colours a card by its group", async () => {
     screenClient.getFactoriesList.mockResolvedValue(listOf([row("fail", "Fail", 0), row("nap", "Nap", 2), row("run", "Run", 3)]));
     renderList();
