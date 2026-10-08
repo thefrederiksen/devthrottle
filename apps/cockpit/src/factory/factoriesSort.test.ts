@@ -32,6 +32,8 @@ function row(id: string, title: string, statusRank: number, waitingCount = 0): F
     href: `/factories/${id}`,
     talk: null,
     noCeoText: null,
+    purpose: null,
+    headName: null,
   };
 }
 

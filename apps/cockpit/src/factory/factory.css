@@ -870,6 +870,221 @@ a.fa-tab {
     text-align: left;
     padding-top: 6px;
   }
+  /* The factory cards (8 Oct 2026): one column, and the count strip two by two, so nothing scrolls sideways. */
+  .fa-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fa-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fa-views {
+    margin-left: 0;
+  }
+}
+
+/* The Factories tab as cards (owner decision, 8 Oct 2026, mockup B "grouped by state"): a strip of counts, then the
+   cards under three group headings. A card's left border and the group heading carry the state's colour; a failing
+   card is tinted so it is seen from across a room. Every colour is a palette token from styles.css. */
+.fa-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fa-strip-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 0;
+}
+
+.fa-strip-num {
+  display: block;
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.fa-strip-label {
+  color: var(--text-dim);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fa-strip-item.fa-tone-ok .fa-strip-num {
+  color: var(--ok-text);
+}
+
+.fa-strip-item.fa-tone-red .fa-strip-num {
+  color: var(--danger-text);
+}
+
+.fa-strip-item.fa-tone-amber .fa-strip-num {
+  color: var(--warn);
+}
+
+.fa-views {
+  margin-left: 8px;
+}
+
+.fa-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.fa-group-heading {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.fa-group-count {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.fa-group-heading.fa-group-fixing {
+  color: var(--danger-text);
+}
+
+.fa-group-heading.fa-group-paused {
+  color: var(--warn);
+}
+
+.fa-group-heading.fa-group-running {
+  color: var(--ok-text);
+}
+
+.fa-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.fa-card {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 170px;
+}
+
+.fa-card-fixing {
+  border-left-color: var(--attention);
+  background: linear-gradient(180deg, var(--needsyou-bg) 0%, var(--surface) 60%);
+}
+
+.fa-card-paused {
+  border-left-color: var(--warn);
+}
+
+.fa-card-running {
+  border-left-color: var(--ok);
+}
+
+.fa-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.fa-card-name {
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.fa-card-name:hover {
+  text-decoration: underline;
+}
+
+.fa-card-purpose {
+  margin: 0;
+  color: var(--text);
+  opacity: 0.85;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* The status line, cut to three lines; the full line is on the factory's page and in the title tooltip. */
+.fa-card-line {
+  margin: 0;
+  flex: 1;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+
+.fa-card-fixing .fa-card-line {
+  color: var(--needsyou-text);
+}
+
+.fa-card-waiting {
+  color: var(--accent-text);
+  font-size: 13px;
+}
+
+.fa-card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  font-size: 13px;
+}
+
+.fa-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.fa-card-head-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.fa-avatar {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--accent-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.fa-avatar-none {
+  color: var(--text-dim);
 }
 
 /* Round 2: the owner's actions - the header's actions, the notice saying what an action did, the archived banner,

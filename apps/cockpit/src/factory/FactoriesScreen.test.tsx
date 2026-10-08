@@ -84,6 +84,9 @@ beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
   window.localStorage.clear();
+  // These tests are about the TABLE (rows, column headings, the row click); the list opens on Cards since 8 Oct 2026
+  // (FactoriesCards.test.tsx), so the table is asked for the way the owner would pick it: remembered in this browser.
+  window.localStorage.setItem("cockpit.factoriesView", JSON.stringify("table"));
   screenClient.getFactoriesList.mockResolvedValue(FACTORY_LIST);
   screenClient.getFactoryPage.mockResolvedValue(FACTORY_PAGE);
   screenClient.getFactorySeats.mockResolvedValue(FACTORY_SEATS);

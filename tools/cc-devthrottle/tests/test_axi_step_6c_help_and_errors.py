@@ -363,7 +363,7 @@ _ACTIONS_ADDED_SINCE_PIN = {
     # The Website Business Factory mission, product track: factory triggers.
     "trigger-add", "trigger-list", "trigger-show", "trigger-pause", "trigger-resume", "trigger-runs",
     # The Factories screen mission, phase A: the factory registry and the goal number a CEO posts.
-    "factory-register", "factory-list", "factory-goal-number-post", "factory-goal-number-show",
+    "factory-register", "factory-list", "factory-purpose", "factory-goal-number-post", "factory-goal-number-show",
     # Issue #3685: a factory's boss reads its own Factories screen.
     "factory-status",
 }

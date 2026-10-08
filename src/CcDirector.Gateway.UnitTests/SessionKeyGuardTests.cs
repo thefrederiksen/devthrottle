@@ -246,6 +246,8 @@ public sealed class SessionKeyGuardTests
     // The factory registry and goal numbers: `cc-devthrottle factory register|list|goal-number post|show`.
     [InlineData("PUT", "/gateway/factory/registry")]
     [InlineData("GET", "/gateway/factory/registry")]
+    // A factory's one-line purpose: `cc-devthrottle factory purpose <factory> "<line>"` (the Factories cards, 8 Oct 2026).
+    [InlineData("PUT", "/gateway/factory/registry/warmforward/purpose")]
     [InlineData("POST", "/gateway/factory/goal-numbers")]
     [InlineData("GET", "/gateway/factory/goal-numbers")]
     // The Factories screen's list and one factory's page (issue #3685): `cc-devthrottle factory status`, so a
@@ -283,6 +285,10 @@ public sealed class SessionKeyGuardTests
     [InlineData("DELETE", "/gateway/factory/registry")]
     [InlineData("POST", "/gateway/factory/registry")]
     [InlineData("PUT", "/gateway/factory/registry/warmforward")]
+    [InlineData("GET", "/gateway/factory/registry/warmforward/purpose")]
+    [InlineData("POST", "/gateway/factory/registry/warmforward/purpose")]
+    [InlineData("DELETE", "/gateway/factory/registry/warmforward/purpose")]
+    [InlineData("PUT", "/gateway/factory/registry/warmforward/title")]
     [InlineData("PUT", "/gateway/factory/goal-numbers")]
     [InlineData("DELETE", "/gateway/factory/goal-numbers")]
     [InlineData("POST", "/gateway/factory/goal-numbers/abc")]

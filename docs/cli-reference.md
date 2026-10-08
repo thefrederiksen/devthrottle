@@ -1727,6 +1727,8 @@ USAGE: cc-devthrottle factory COMMAND [ARGS]...
 COMMANDS:
   register --manifest FILE [--json]
   list [--fields F,F] [--json]
+  purpose FACTORY "ONE LINE" [--json]
+  purpose FACTORY --clear [--json]
   goal-number post --factory ID --value TEXT --unit TEXT --date YYYY-MM-DD --link URL
                    [--by SEAT] [--json]
   goal-number show --factory ID [--count N | -n N] [--fields F,F] [--full] [--json]
@@ -1744,6 +1746,7 @@ registers a factory with a field silently missing):
   "ceoSeat": "nora-hale",                           optional; one of the seats
   "goalFile": "GOAL.md",                            optional; relative to the folder
   "goalApprovedOn": "2026-10-04",                   optional; YYYY-MM-DD
+  "purpose": "Heating monitoring for homeowners",    optional; one line, at most 120 characters
   "seats": [
     {"id": "nora-hale", "name": "Nora Hale", "role": "CEO",
      "briefFile": "agents/ceo.yaml",                relative to the folder
@@ -1758,6 +1761,12 @@ computer; it stops with the reason when the file is not there. The goal file mus
 folder: an absolute path, a `..`, or a link whose target is outside the folder is refused before anything
 is read (a link to a file inside the folder is followed). Registering again replaces the whole
 entry, seats included. It exits 1 whenever the factory was not registered.
+
+`purpose` sets the one line that says what a factory is for - the line the Factories cards show under
+the factory's name - on an already registered factory, without registering it again; nothing else in
+the entry changes. The line is trimmed and takes at most 120 characters; the Gateway refuses a longer
+one or one with a line break, with the reason. `--clear` removes it. It exits 1 whenever the line was
+not kept.
 
 **A seat's schedules live on the schedules (issue #3650).** There are no factory agents without a
 factory: a schedule that runs factory work names its factory AND its seat, and both must already be

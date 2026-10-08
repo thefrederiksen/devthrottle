@@ -1,9 +1,24 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { getFactoriesList, type FactoriesListView } from "@devthrottle/client-core/factory/factoriesScreenClient";
+import {
+  getFactoriesList,
+  type FactoriesListView,
+  type FactoryListRow,
+} from "@devthrottle/client-core/factory/factoriesScreenClient";
 import { EmptyState, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
-import { OwnerActionButton, StatusWord, TalkButton } from "./FactoryParts";
+import { OwnerActionButton, StatusWord, TalkButton, ToneChip } from "./FactoryParts";
+import {
+  FACTORY_VIEW_MODES,
+  countFactoryRows,
+  groupFactoryRows,
+  initialsOf,
+  loadFactoriesView,
+  saveFactoriesView,
+  shortTalkLabel,
+  type FactoriesViewMode,
+  type FactoryGroup,
+} from "./factoriesCards";
 import {
   FACTORY_COLUMN_KEYS,
   FACTORY_SORT_KEYS,
@@ -23,6 +38,11 @@ import "./factory.css";
 // tone is the Gateway's (FactoriesScreenFold), rendered verbatim (rule 7). The ORDER is the owner's: a "Sort by"
 // control and clickable column headings (factoriesSort.ts), remembered in this browser, Name A to Z the first time.
 // The page keeps the chosen tab in the address. At phone width the same rows become cards (factory.css).
+//
+// Since 8 Oct 2026 (owner decision, mockup B) the tab opens as CARDS grouped by state - "Needs fixing", "Paused",
+// "Running on its own" - under a strip of counts, with a Cards / Table switch at the right of the toolbar that this
+// browser remembers (factoriesCards.ts). Table is the row list above, unchanged. Each card: the name (a link), the
+// status pill, the registry's one-line purpose when set, the Gateway's status line, and the head with Talk.
 
 type TabKey = "factories" | "activity" | "reports";
 
@@ -76,7 +96,14 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
     setOrder(next);
     saveFactorySort(next);
   };
+  const [mode, setMode] = useState<FactoriesViewMode>(loadFactoriesView);
+  const pickMode = (next: FactoriesViewMode) => {
+    setMode(next);
+    saveFactoriesView(next);
+  };
   const rows = sortFactoryRows(view.rows, order);
+  const counts = countFactoryRows(view.rows);
+  const groups = groupFactoryRows(view.rows, order);
   const archived = (
     <div className="fa-archived-section">
       <button
@@ -124,6 +151,13 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
   return (
     <div className="fa-tab-body">
       {view.truncatedText !== null && <div className="fa-warn">{view.truncatedText}</div>}
+      <div className="fa-strip" data-testid="fa-strip" aria-label="Factory counts">
+        <StripNumber testId="fa-strip-total" n={counts.total} label={counts.total === 1 ? "factory" : "factories"} tone="" />
+        <StripNumber testId="fa-strip-running" n={counts.running} label="running" tone="ok" />
+        <StripNumber testId="fa-strip-fixing" n={counts.needsFixing} label={counts.needsFixing === 1 ? "needs fixing" : "need fixing"} tone="red" />
+        <StripNumber testId="fa-strip-paused" n={counts.paused} label="paused" tone="amber" />
+        <StripNumber testId="fa-strip-waiting" n={counts.waiting} label="waiting on you" tone="" />
+      </div>
       <div className="fa-sortbar" data-testid="fa-sortbar">
         <span className="fa-sortbar-label" id="fa-sortbar-label">
           Sort by
@@ -153,7 +187,29 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
           {directionLabel(order)}
         </button>
         <span className="fa-sortbar-count">{rows.length === 1 ? "1 factory" : `${rows.length} factories`}</span>
+        <div className="fa-sortbar-seg fa-views" role="group" aria-label="Show as" data-testid="fa-views">
+          {FACTORY_VIEW_MODES.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              className={`fa-sortbar-choice${mode === m.key ? " active" : ""}`}
+              aria-pressed={mode === m.key}
+              data-testid={`fa-view-${m.key}`}
+              onClick={() => pickMode(m.key)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
       </div>
+      {mode === "cards" && (
+        <div className="fa-groups" data-testid="fa-factories-cards">
+          {groups.map((g) => (
+            <FactoryCardGroup key={g.key} group={g} />
+          ))}
+        </div>
+      )}
+      {mode === "table" && (
       <div className="fa-flist" role="table" aria-label={view.title} data-testid="fa-factories-list">
         <div className="fa-flist-head" role="row">
           {view.columns.map((c) => {
@@ -225,12 +281,103 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
           </div>
         ))}
       </div>
+      )}
       <p className="fa-footnote" data-testid="fa-sort-footer">
         {sortFooter(order)}
       </p>
       {archived}
       <OutsideAnyFactory view={view} />
     </div>
+  );
+}
+
+/** One number of the count strip, coloured by its tone (green running, red needs fixing, amber paused). */
+function StripNumber({ testId, n, label, tone }: { testId: string; n: number; label: string; tone: "" | "ok" | "red" | "amber" }) {
+  return (
+    <div className={`fa-strip-item${tone === "" ? "" : ` fa-tone-${tone}`}`} data-testid={testId}>
+      <b className="fa-strip-num">{n}</b>
+      <span className="fa-strip-label">{label}</span>
+    </div>
+  );
+}
+
+/** One group of cards under its heading, with the group's count. Only a group with a card in it is rendered. */
+function FactoryCardGroup({ group }: { group: FactoryGroup }) {
+  return (
+    <section className="fa-group" aria-label={group.heading} data-testid={`fa-group-${group.key}`}>
+      <h4 className={`fa-group-heading fa-group-${group.key}`} data-testid={`fa-group-heading-${group.key}`}>
+        {group.heading} <span className="fa-group-count">({group.rows.length})</span>
+      </h4>
+      <div className="fa-cards">
+        {group.rows.map((row) => (
+          <FactoryCard key={row.id} row={row} groupKey={group.key} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One factory as a card (mockup B). Every word is the Gateway's: the name, the status word and its reason, the status
+ * line, the purpose, the head's name and the Talk button's words - the card only shortens "Talk to Nora Hale" to
+ * "Talk to Nora" and draws the head's initials. The status line is cut to three lines here; the full line is on the
+ * factory's page, which the name opens.
+ */
+function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: FactoryGroup["key"] }) {
+  const pill = <ToneChip word={row.statusWord} tone={row.statusTone} title={row.statusReason} />;
+  return (
+    <article className={`fa-card fa-card-${groupKey}`} data-testid={`fa-card-${row.id}`}>
+      <div className="fa-card-top">
+        <Link className="fa-card-name" to={row.href} data-testid="fa-card-name">
+          {row.title}
+        </Link>
+        {row.statusHref !== null ? (
+          <Link className="fa-status-link" to={row.statusHref} data-testid="fa-card-status-link">
+            {pill}
+          </Link>
+        ) : (
+          pill
+        )}
+      </div>
+      {row.purpose !== null && (
+        <p className="fa-card-purpose" data-testid="fa-card-purpose">
+          {row.purpose}
+        </p>
+      )}
+      <p className="fa-card-line" data-testid="fa-card-line" title={row.statusLine ?? undefined}>
+        {row.statusLine ?? "On schedule"}
+      </p>
+      {row.waitingCount > 0 && row.waitingHref !== null && (
+        <Link className="fa-card-waiting" to={row.waitingHref} data-testid="fa-card-waiting">
+          {row.waitingText} waiting on you
+        </Link>
+      )}
+      <div className="fa-card-bottom">
+        {row.headName !== null && row.talk !== null ? (
+          <>
+            <div className="fa-card-head">
+              <span className="fa-avatar" aria-hidden="true">
+                {initialsOf(row.headName)}
+              </span>
+              <span className="fa-card-head-text">
+                <b data-testid="fa-card-head-name">{row.headName}</b>
+                <span className="fa-dim">runs it</span>
+              </span>
+            </div>
+            <TalkButton talk={{ ...row.talk, label: shortTalkLabel(row.talk.label, row.headName) }} variant="secondary" />
+          </>
+        ) : (
+          <div className="fa-card-head">
+            <span className="fa-avatar fa-avatar-none" aria-hidden="true">
+              -
+            </span>
+            <span className="fa-dim" data-testid="fa-card-no-head">
+              {row.noCeoText ?? "No head named"}
+            </span>
+          </div>
+        )}
+      </div>
+    </article>
   );
 }
 

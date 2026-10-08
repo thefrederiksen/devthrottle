@@ -521,4 +521,100 @@ def test_actions_ListTheRegistryVerbs():
 
     assert result.exit_code == 0
     ids = {action["id"] for action in json.loads(result.output)["actions"]}
-    assert {"factory-register", "factory-list", "factory-goal-number-post", "factory-goal-number-show"}.issubset(ids)
+    assert {"factory-register", "factory-list", "factory-purpose", "factory-goal-number-post", "factory-goal-number-show"}.issubset(ids)
+
+
+# ---------------------------------------------------------------------------------------------------
+# factory purpose (the Factories cards, 8 Oct 2026)
+# ---------------------------------------------------------------------------------------------------
+
+def test_register_ManifestPurpose_IsSentAsIs(gateway_answering, tmp_path):
+    gw = gateway_answering(200, dict(REGISTERED, purpose="Heating monitoring for homeowners"))
+    folder = _factory_folder(tmp_path)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest",
+                                 str(_manifest(tmp_path, folder, purpose="Heating monitoring for homeowners"))])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"]["purpose"] == "Heating monitoring for homeowners"
+    assert "purpose: Heating monitoring for homeowners" in result.stdout
+
+
+def test_purpose_PutsTheTrimmedLineOnTheFactorysOwnRoute_AndPrintsWhatIsKept(gateway_answering):
+    gw = gateway_answering(200, dict(REGISTERED, purpose="Heating monitoring for homeowners"))
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "  Heating monitoring for homeowners  "])
+
+    assert result.exit_code == 0, result.output
+    call = gw.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "/gateway/factory/registry/warmforward/purpose"
+    assert call["body"] == {"purpose": "Heating monitoring for homeowners"}
+    assert "factory: warmforward" in result.stdout
+    assert "purpose: Heating monitoring for homeowners" in result.stdout
+
+
+def test_purpose_Clear_SendsNull_AndSaysCleared(gateway_answering):
+    gw = gateway_answering(200, dict(REGISTERED, purpose=None))
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "--clear"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"purpose": None}
+    assert "purpose: none (cleared)" in result.stdout
+
+
+def test_purpose_NoLineAndNoClear_IsAUsageError(gateway_answering):
+    gw = gateway_answering(200, REGISTERED)
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward"])
+
+    assert result.exit_code == 2
+    assert "--clear" in result.stderr
+    assert gw.calls == []
+
+
+def test_purpose_LineAndClear_IsAUsageError(gateway_answering):
+    gw = gateway_answering(200, REGISTERED)
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "A line", "--clear"])
+
+    assert result.exit_code == 2
+    assert gw.calls == []
+
+
+def test_purpose_GatewayRefusesTooLong_ExitsNonZeroWithItsSentence(gateway_answering):
+    gateway_answering(400, {"error": "The purpose is 121 characters; it takes at most 120. Shorten it to one line."})
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "x" * 121])
+
+    assert result.exit_code == 1
+    assert "at most 120" in result.stderr
+
+
+def test_purpose_NotRegistered_ExitsNonZeroWithTheReason(gateway_answering):
+    gateway_answering(409, {"error": "No factory 'nobody' is registered in this account."})
+
+    result = runner.invoke(app, ["factory", "purpose", "nobody", "A line"])
+
+    assert result.exit_code == 1
+    assert "No factory 'nobody' is registered" in result.stderr
+
+
+def test_purpose_Json_IsTheGatewaysAnswerUnchanged(gateway_answering):
+    answer = dict(REGISTERED, purpose="A line")
+    gateway_answering(200, answer)
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "A line", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == answer
+
+
+def test_list_ShowsThePurposeWhenAsked(gateway_answering):
+    gateway_answering(200, {"count": 1, "factories": [dict(REGISTERED, purpose="A line")]})
+
+    result = runner.invoke(app, ["factory", "list", "--fields", "id,purpose"])
+
+    assert result.exit_code == 0, result.output
+    assert "A line" in result.stdout

@@ -16,6 +16,7 @@ namespace CcDirector.Gateway.Api;
 ///
 ///   PUT  /gateway/factory/registry                       body RegisterFactoryRequest -> 200 RegisteredFactoryDto | 400
 ///   GET  /gateway/factory/registry                       -> FactoryRegistryListDto
+///   PUT  /gateway/factory/registry/{factory}/purpose     body SetFactoryPurposeRequest -> 200 RegisteredFactoryDto | 400 | 409
 ///   POST /gateway/factory/goal-numbers                   body PostGoalNumberRequest -> 201 GoalNumberDto | 400 | 403 | 409
 ///   GET  /gateway/factory/goal-numbers?factory=&amp;count=  -> GoalNumbersDto | 400
 ///
@@ -32,6 +33,7 @@ namespace CcDirector.Gateway.Api;
 internal static class FactoryRegistryEndpoints
 {
     public const string RegistryRoute = "/gateway/factory/registry";
+    public const string PurposeRoute = "/gateway/factory/registry/{factory}/purpose";
     public const string GoalNumbersRoute = "/gateway/factory/goal-numbers";
 
     /// <summary>How many goal numbers a read returns when the caller names no count.</summary>
@@ -67,6 +69,16 @@ internal static class FactoryRegistryEndpoints
                 return Results.Json(new FactoryRegistryListDto { Count = all.Count, Factories = all.ToList() });
             }));
 
+        // The one-line purpose, set on its own (the Factories cards, 8 Oct 2026): `cc-devthrottle factory purpose`.
+        // Same callers as registering; the rest of the registration is untouched.
+        app.MapPut(PurposeRoute, async (HttpContext ctx, string factory) =>
+        {
+            var (req, bad) = await ReadBody<SetFactoryPurposeRequest>(ctx, $"PUT purpose {factory}");
+            if (bad is not null) return bad;
+            return Guard(ctx, resolveTenant, $"PUT purpose {factory}", tenant =>
+                Results.Json(store.SetPurpose(tenant, factory, req!.Purpose)));
+        });
+
         app.MapPost(GoalNumbersRoute, async (HttpContext ctx) =>
         {
             var (req, bad) = await ReadBody<PostGoalNumberRequest>(ctx, "POST goal-numbers");
@@ -100,7 +112,7 @@ internal static class FactoryRegistryEndpoints
             Guard(ctx, resolveTenant, $"GET goal-numbers {factory}", tenant =>
                 Results.Json(store.GoalNumbers(tenant, factory, count ?? DefaultGoalNumbers))));
 
-        FileLog.Write($"[FactoryRegistryEndpoints] mapped {RegistryRoute} and {GoalNumbersRoute}");
+        FileLog.Write($"[FactoryRegistryEndpoints] mapped {RegistryRoute}, {PurposeRoute} and {GoalNumbersRoute}");
     }
 
     private static IResult Guard(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what, Func<TenantId, IResult> handle)
