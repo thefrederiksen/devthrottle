@@ -2,7 +2,6 @@
 name: fleet-comms
 description: Talk to other DevThrottle sessions across the fleet. Use when you want to list running sessions, rename this session, open a new session, or send one of the rare queued messages (to the session that started you or a session you started), read your inbox, or reply - from inside a session. Triggers on "/fleet-comms", "message another session", "talk to another session", "ask another session", "rename this session", "rename session", "list sessions", "what sessions are running", "open a session", "spawn a session", "cc-devthrottle", "fleet messaging", "session intercommunication".
 ---
-
 # Fleet communication between sessions
 
 DevThrottle lets a session talk to other sessions running anywhere in the fleet, meaning any
@@ -230,14 +229,15 @@ may now send and the command to send it. Then use plain `message send` (add `--r
 the link allows a reply). A message over a link is not held to the six an hour; a one-message link is
 used up by the one message, and the next is refused. A link ends when it is used, removed, or either
 session ends. You cannot set one up yourself. If you need to talk to a session you are not related to,
-ASK for one, with one sentence the owner can decide on:
+ASK for one, with one sentence the owner can decide on and the amount of talking the work needs:
 
 ```
-cc-devthrottle message request <session> "why you need to talk"
+cc-devthrottle message request <session> "why you need to talk" --amount once|once-with-reply|ongoing
 ```
 
-The owner sees your reason and allows it (choosing how much) or says no; either way the answer lands
-in your inbox. Do not wait for it - carry on with your work - and do not ask twice: asking again for
+Without `--amount` you ask for `once-with-reply`. The owner sees your reason and what you asked for,
+and approves exactly that or says no - the owner does not pick a different amount, so ask for what you
+actually need. Either way the answer lands in your inbox. Do not wait for it - carry on with your work - and do not ask twice: asking again for
 the same session changes nothing. You may have three requests waiting at most.
 
 **A message never interrupts.** Nothing is typed into the receiving session while it works. The
