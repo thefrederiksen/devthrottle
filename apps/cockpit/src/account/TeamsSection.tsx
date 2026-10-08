@@ -1,5 +1,5 @@
-import { useRef, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { createTeam, type TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
@@ -15,6 +15,9 @@ import { createTeam, type TeamSummary } from "@devthrottle/client-core/teams/tea
 // On Create the shared list is read again, so the new team is in the menu behind your name at once; the new team is put
 // on screen and Settings opens on its Members tab, where the Owner starts the plan (Team plan) and invites. A refusal
 // shows the Gateway's own sentence.
+//
+// "Create a team" in the menu behind your name links to #create-a-team; the name field takes the focus, which brings the
+// form into view below the devices and the teams list.
 
 export function TeamsSection() {
   const { status, teams, refresh, choose } = useCurrentTeam();
@@ -24,6 +27,12 @@ export function TeamsSection() {
   const [refusal, setRefusal] = useState<string | null>(null);
   // Held in a ref as well as state: two clicks inside one tick both see `creating` false, but not this.
   const inFlight = useRef(false);
+  const location = useLocation();
+  const nameInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (status === "ready" && location.hash === "#create-a-team") nameInput.current?.focus();
+  }, [status, location.hash, location.key]);
 
   if (status !== "ready") return null;
 
@@ -80,6 +89,7 @@ export function TeamsSection() {
           <label className="acct-team-create-label">
             <span>Team name</span>
             <input
+              ref={nameInput}
               className="acct-team-name-input"
               type="text"
               value={name}

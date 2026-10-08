@@ -28,11 +28,12 @@ export function SettingsRedirect({ tab }: { tab: TabId }) {
  * The old team addresses, /team/{teamId}/members and /team/{teamId}/invite. The Team page is the Members tab of
  * Settings now, for the team ON SCREEN - so the team the address names is put on screen first, then the tab opened.
  * Which teams this person is in is the Gateway's answer, so this waits for it; an address naming a team that is not
- * one of theirs says so rather than opening another team's tab.
+ * one of theirs says so rather than opening another team's tab. While the teams cannot be read it says THAT, and
+ * nothing about membership - only the Gateway's list can say a team is not theirs (rule 7; review of #3682).
  */
 export function TeamAddressRedirect({ invite = false }: { invite?: boolean }) {
   const { teamId = "" } = useParams<{ teamId: string }>();
-  const { status, teams, choose } = useCurrentTeam();
+  const { status, teams, choose, error } = useCurrentTeam();
   const navigate = useNavigate();
   const isMine = teams.some((t) => t.id === teamId);
 
@@ -43,13 +44,21 @@ export function TeamAddressRedirect({ invite = false }: { invite?: boolean }) {
   }, [status, isMine, teamId, invite]);
 
   if (status === "loading" || (status === "ready" && isMine)) return <LoadingState message="Opening the team..." />;
+  if (status === "error") {
+    return (
+      <section className="pane" data-testid="team-address-unreadable">
+        <h1 className="pane-title">Opening the team...</h1>
+        <p className="pane-note">
+          {`Your teams could not be read just now: ${error ?? "no reason was given"} DevThrottle is trying again by itself, and opens the team when it can.`}
+        </p>
+      </section>
+    );
+  }
   return (
     <section className="pane" data-testid="team-address-not-yours">
       <h1 className="pane-title">This team is not one of yours</h1>
       <p className="pane-note">
-        {status === "error"
-          ? "Your teams could not be read just now. DevThrottle is trying again by itself."
-          : "The address names a team you are not a member of, or Teams is not available on this Gateway."}
+        The address names a team you are not a member of, or Teams is not available on this Gateway.
       </p>
     </section>
   );

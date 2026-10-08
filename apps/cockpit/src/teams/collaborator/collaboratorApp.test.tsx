@@ -614,7 +614,7 @@ describe("The Collaborator's app", () => {
     const menu = openYourMenu();
     expect(within(menu).getByRole("menuitem", { name: "Sign out of mike@example.com" })).toBeTruthy();
     // The teams could not be read, and the person is told so where the team switch lives.
-    expect(within(menu).getByText("Your teams could not be read just now.")).toBeTruthy();
+    expect(within(menu).getByTestId("you-menu-teams-error").textContent).toMatch(/^Your teams could not be read just now: ./);
   });
 
   // ---- Round 3 review, R1 and R7 ----------------------------------------------------------------------------------

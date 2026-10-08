@@ -22,6 +22,7 @@ vi.mock("@devthrottle/client-core/auth/accountActions", () => ({
 }));
 
 import { CurrentTeamProvider } from "@devthrottle/client-core/teams/CurrentTeam";
+import { GatewayError } from "@devthrottle/client-core/api/client";
 import { YouMenu, initialsFor } from "./YouMenu";
 
 const FULL = { full: true as const, pages: [], landing: null, elsewhere: null };
@@ -37,14 +38,17 @@ function signIn(accounts: Array<{ id: string; email: string }>, active: string) 
 
 function Where() {
   const location = useLocation();
-  return <div data-testid="where">{location.pathname + location.search}</div>;
+  return <div data-testid="where">{location.pathname + location.search + location.hash}</div>;
 }
 
-function mount(opts: { answer?: MyTeamsAnswer; wholeApp?: boolean; collapsed?: boolean; suggestions?: number; onSwitched?: () => void } = {}) {
+function mount(
+  opts: { answer?: MyTeamsAnswer; fail?: Error; wholeApp?: boolean; collapsed?: boolean; suggestions?: number; onSwitched?: () => void } = {},
+) {
   const answer = opts.answer ?? { kind: "teams", teams: [TEAM], start: { where: "own-account" } };
+  const fail = opts.fail;
   return render(
     <MemoryRouter initialEntries={["/sessions"]}>
-      <CurrentTeamProvider load={() => Promise.resolve(answer)}>
+      <CurrentTeamProvider load={() => (fail !== undefined ? Promise.reject(fail) : Promise.resolve(answer))}>
         <Routes>
           <Route path="*" element={<Where />} />
         </Routes>
@@ -140,6 +144,47 @@ describe("you, at the bottom of the rail", () => {
     expect(document.activeElement).toBe(card());
   });
 
+  // The menu button pattern: ArrowUp on the button opens the menu at its LAST item.
+  it("opens at the last item on ArrowUp", async () => {
+    mount();
+    await waitFor(() => expect(card().textContent).toContain("Personal"));
+    card().focus();
+    fireEvent.keyDown(card(), { key: "ArrowUp" });
+
+    const items = menuItems();
+    await waitFor(() => expect(document.activeElement).toBe(items[items.length - 1]));
+    expect(items[items.length - 1].textContent).toBe("Sign out of soren@centerconsulting.com");
+  });
+
+  it("follows Help on Space, as every other row answers Space", async () => {
+    mount();
+    fireEvent.click(card());
+    const help = screen.getByRole("menuitem", { name: "Help" });
+    const followed = vi.fn((e: Event) => e.preventDefault());
+    help.addEventListener("click", followed);
+
+    fireEvent.keyDown(help, { key: " " });
+    expect(followed).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("you-menu")).toBeNull();
+  });
+
+  // With a team chosen and the teams unreadable, the menu says so - as a disabled item a screen reader walking the menu
+  // reaches, with the reason on screen rather than only in a hover title.
+  it("says why your teams could not be read, as an item the keyboard and a screen reader reach", async () => {
+    window.localStorage.setItem("devthrottle.currentTeam.a1", TEAM.id);
+    mount({ fail: new GatewayError(503, "GET /teams failed: 503", { reason: "The Gateway is restarting." }) });
+    await waitFor(() => expect(card().getAttribute("aria-label")).not.toBeNull());
+    card().focus();
+    fireEvent.keyDown(card(), { key: "ArrowDown" });
+
+    const note = await screen.findByTestId("you-menu-teams-error");
+    expect(note.getAttribute("role")).toBe("menuitem");
+    expect(note.getAttribute("aria-disabled")).toBe("true");
+    expect(note.textContent).toContain("Your teams could not be read just now: The Gateway is restarting.");
+    await waitFor(() => expect(document.activeElement).toBe(note));
+    expect(screen.queryByRole("group", { name: "Working in" })).toBeNull();
+  });
+
   it("closes on a click outside it", async () => {
     mount();
     fireEvent.click(card());
@@ -183,7 +228,7 @@ describe("you, at the bottom of the rail", () => {
     ["Usage (Your Throttle)", "/settings?tab=usage"],
     ["Connect your phone", "/settings?tab=devices"],
     ["About DevThrottle", "/about"],
-    ["+ Create a team", "/settings?tab=account"],
+    ["+ Create a team", "/settings?tab=account#create-a-team"],
   ])("%s leads to %s", async (label, address) => {
     mount();
     await waitFor(() => expect(card().textContent).toContain("Personal"));

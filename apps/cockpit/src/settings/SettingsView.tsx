@@ -5,6 +5,8 @@ import { tabFromParam, type TabContext, type TabId } from "@devthrottle/client-c
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { getTeamPage } from "@devthrottle/client-core/teams/teamPageClient";
+import { GatewayError } from "@devthrottle/client-core/api/client";
+import { LoadingState } from "../components";
 import { InjectedTextTab } from "./InjectedTextTab";
 import { AccountTab } from "../account/AccountTab";
 import { YourThrottleView } from "../throttle/YourThrottleView";
@@ -33,7 +35,13 @@ import { InviteView } from "../team/InviteView";
 //
 // The team tabs are offered only while a team is on screen in the whole app, and Team plan only when the Gateway's Team
 // page answer carries a bill - its verdict that this person's role sees the team's plan (rule 7). The page reads that
-// answer once per team to decide; the tab reads it again for itself, so the tab always shows the Gateway's latest.
+// answer once per team to decide; the tab reads it again for itself, so the tab always shows the Gateway's latest. A
+// read that FAILED is not a verdict: the Team plan tab stays, and the tab shows the failure with its own Retry, rather
+// than vanishing with no word of why (review of #3682). Only the Gateway's refusal (403) takes the tab away.
+//
+// A link straight to a team tab waits for its answer. While the team on screen is still being confirmed, or the Team
+// page has not yet said whether this person sees the plan, the panel says it is loading instead of opening Account
+// and then jumping.
 //
 // Responsive (CodingStyle.md): each tab renders immediately with a loading line and loads asynchronously; on a failure
 // it shows an explicit error banner, never a fabricated value.
@@ -41,7 +49,8 @@ import { InviteView } from "../team/InviteView";
 // The Cockpit's route to one session (main.tsx: "session/:sessionId"), for the Fleet Manager tab's "Open it".
 const cockpitSessionHref = (sessionId: string) => `/session/${encodeURIComponent(sessionId)}`;
 
-/** Whether the Gateway shows this person the team's plan: its Team page answer carries a bill. Null while unknown. */
+/** Whether the Gateway shows this person the team's plan: its Team page answer carries a bill. Null while unknown.
+ *  A failed read keeps the tab (true) so the tab can show the failure; only a refusal (403) is a "no". */
 function useTeamPlanOffered(teamId: string | null): boolean | null {
   const [offered, setOffered] = useState<{ teamId: string; offered: boolean } | null>(null);
   useEffect(() => {
@@ -49,9 +58,9 @@ function useTeamPlanOffered(teamId: string | null): boolean | null {
     const controller = new AbortController();
     getTeamPage(teamId, controller.signal).then(
       (page) => setOffered({ teamId, offered: page.bill !== null }),
-      // A refusal or a failed read offers no Team plan tab; the Members tab shows the Gateway's own sentence for it.
-      () => {
-        if (!controller.signal.aborted) setOffered({ teamId, offered: false });
+      (err) => {
+        if (controller.signal.aborted) return;
+        setOffered({ teamId, offered: !(err instanceof GatewayError && err.status === 403) });
       },
     );
     return () => controller.abort();
@@ -72,7 +81,11 @@ export function SettingsView() {
 
   // Resolved from the address on every render - see "THE TAB LIVES IN THE ADDRESS" above. Scoped to this surface and
   // to the team on screen, so a tab this page does not list can never be selected.
-  const tab = tabFromParam(params.get("tab"), "cockpit", context);
+  const asked = params.get("tab");
+  const waiting =
+    (asked === "members" || asked === "teamplan") &&
+    (team.resolving || (asked === "teamplan" && current !== null && teamPlan === null));
+  const tab = tabFromParam(asked, "cockpit", waiting ? { team: true, teamPlan: true } : context);
   const choose = (next: TabId) => setParams({ tab: next }, { replace: true });
 
   return (
@@ -92,7 +105,11 @@ export function SettingsView() {
           teamLabel={current?.name}
         />
         <div className="settings-panel" role="tabpanel" aria-label="Settings section" data-testid={`settings-panel-${tab}`}>
-          <CockpitTab tab={tab} teamId={current?.id ?? null} view={params.get("view")} />
+          {waiting ? (
+            <LoadingState message="Opening the team..." />
+          ) : (
+            <CockpitTab tab={tab} teamId={current?.id ?? null} view={params.get("view")} />
+          )}
         </div>
       </div>
     </div>

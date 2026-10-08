@@ -70,6 +70,7 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<Placement | null>(null);
   const [signingOut, setSigningOut] = useState(false);
+  const [openAt, setOpenAt] = useState<"first" | "last">("first");
   const cardRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -100,9 +101,12 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
     );
   }, [open]);
 
-  // Focus the first item once the menu is drawn, so the keyboard is in it from the start.
+  // Focus the first item once the menu is drawn, so the keyboard is in it from the start - or the last, when ArrowUp on
+  // the card opened it (the menu button pattern).
   useEffect(() => {
-    if (open && placement !== null) items()[0]?.focus();
+    if (!open || placement === null) return;
+    const list = items();
+    list[openAt === "last" ? list.length - 1 : 0]?.focus();
   }, [open, placement]);
 
   // A click anywhere outside the card and the menu closes it, without taking focus anywhere.
@@ -120,7 +124,7 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
   const items = (): HTMLElement[] =>
     menuRef.current === null
       ? []
-      : Array.from(menuRef.current.querySelectorAll<HTMLElement>("[role^='menuitem']:not([aria-disabled='true'])"));
+      : Array.from(menuRef.current.querySelectorAll<HTMLElement>("[role^='menuitem']"));
 
   const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const list = items();
@@ -142,6 +146,7 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
   const onCardKey = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       e.preventDefault();
+      setOpenAt(e.key === "ArrowUp" ? "last" : "first");
       setOpen(true);
     }
   };
@@ -175,7 +180,10 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
         aria-controls={open ? "you-menu" : undefined}
         aria-label={working === null ? `${who}. Open your menu.` : `${who}, working in ${working}. Open your menu.`}
         title={collapsed ? (working === null ? who : `${who} - ${working}`) : undefined}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          setOpenAt("first");
+          setOpen((o) => !o);
+        }}
         onKeyDown={onCardKey}
         data-testid="you-card"
       >
@@ -214,8 +222,9 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
           {/* Working in: only where the Gateway offers teams, and not while the chooser is on screen - it IS the
               choice then. */}
           {team.status === "error" && team.resolving ? (
-            <div className="you-menu-note" role="presentation" title={team.error ?? undefined}>
-              Your teams could not be read just now.
+            // A disabled item, not decoration: a screen reader walking the menu reaches it, and the reason is on screen.
+            <div className="you-menu-note" role="menuitem" aria-disabled="true" tabIndex={-1} data-testid="you-menu-teams-error">
+              {`Your teams could not be read just now: ${team.error ?? "no reason was given"}`}
             </div>
           ) : (
             team.status === "ready" &&
@@ -233,7 +242,7 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
                   />
                 ))}
                 {wholeApp && (
-                  <Item onPick={act(() => navigate("/settings?tab=account"))}>+ Create a team</Item>
+                  <Item onPick={act(() => navigate("/settings?tab=account#create-a-team"))}>+ Create a team</Item>
                 )}
               </Group>
             )
@@ -270,7 +279,14 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
               <Item onPick={act(() => navigate("/settings?tab=devices"))}>Connect your phone</Item>
             </>
           )}
-          <a className="you-menu-item" role="menuitem" tabIndex={-1} href={DOCS_URL} target="_blank" rel="noopener noreferrer" onClick={() => close(false)}>
+          <a className="you-menu-item" role="menuitem" tabIndex={-1} href={DOCS_URL} target="_blank" rel="noopener noreferrer" onClick={() => close(false)}
+            // Space activates every other row; a link answers only Enter by itself.
+            onKeyDown={(e) => {
+              if (e.key !== " ") return;
+              e.preventDefault();
+              e.currentTarget.click();
+            }}
+          >
             Help
           </a>
           {wholeApp && <Item onPick={act(() => navigate("/about"))}>About DevThrottle</Item>}

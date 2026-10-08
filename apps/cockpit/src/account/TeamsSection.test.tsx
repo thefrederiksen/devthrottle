@@ -29,9 +29,9 @@ function SettingsProbe() {
   return <div data-testid="team-page">{search}</div>;
 }
 
-function renderSection(load: () => Promise<MyTeamsAnswer>) {
+function renderSection(load: () => Promise<MyTeamsAnswer>, entry = "/account") {
   return render(
-    <MemoryRouter initialEntries={["/account"]}>
+    <MemoryRouter initialEntries={[entry]}>
       <CurrentTeamProvider load={load}>
         <CurrentProbe />
         <Routes>
@@ -82,6 +82,19 @@ describe("TeamsSection", () => {
     expect(screen.getByText("You are not in a team.")).toBeTruthy();
     expect(screen.getByText("A team has one Owner, who pays for it. You become the Owner of the team you create.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
+  });
+
+  // "+ Create a team" in the menu behind your name links here; the form sits below the devices and the teams list.
+  it("TeamsSection_ReachedByCreateATeamLink_FocusesTheTeamName", async () => {
+    renderSection(() => Promise.resolve(teamsAnswer([PAULS])), "/account#create-a-team");
+    const input = await screen.findByRole("textbox");
+    await waitFor(() => expect(document.activeElement).toBe(input));
+  });
+
+  it("TeamsSection_OpenedWithoutTheLink_LeavesTheFocusAlone", async () => {
+    renderSection(() => Promise.resolve(teamsAnswer([PAULS])));
+    const input = await screen.findByRole("textbox");
+    expect(document.activeElement).not.toBe(input);
   });
 
   it("TeamsSection_SomeTeams_ListsEachWithTheRole", async () => {

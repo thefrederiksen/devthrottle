@@ -18,22 +18,36 @@ vi.mock("@devthrottle/client-core/auth/deviceKey", () => ({
 }));
 
 // The current team, from the Gateway answer each test stages. The shell is not the subject; it keeps only the provider.
-const teams = vi.hoisted(() => ({ answer: null as unknown }));
+const teams = vi.hoisted(() => ({ answer: null as unknown, fail: null as string | null }));
 vi.mock("../AppShell", async () => {
   const { CurrentTeamProvider } = await import("@devthrottle/client-core/teams/CurrentTeam");
+  const { GatewayError } = await import("@devthrottle/client-core/api/client");
   return {
     AppShell: () => (
-      <CurrentTeamProvider load={() => Promise.resolve(teams.answer as MyTeamsAnswer)}>
+      <CurrentTeamProvider
+        load={() =>
+          teams.fail !== null
+            ? Promise.reject(new GatewayError(503, "GET /teams failed: 503", { reason: teams.fail }))
+            : Promise.resolve(teams.answer as MyTeamsAnswer)
+        }
+      >
         <Outlet />
       </CurrentTeamProvider>
     ),
   };
 });
 
-const teamPage = vi.hoisted(() => ({ bill: null as unknown, asked: [] as string[] }));
+const teamPage = vi.hoisted(() => ({
+  bill: null as unknown,
+  asked: [] as string[],
+  fail: null as Error | null,
+  answer: null as Promise<void> | null,
+}));
 vi.mock("@devthrottle/client-core/teams/teamPageClient", () => ({
   getTeamPage: vi.fn(async (teamId: string) => {
     teamPage.asked.push(teamId);
+    if (teamPage.answer !== null) await teamPage.answer;
+    if (teamPage.fail !== null) throw teamPage.fail;
     return { bill: teamPage.bill } as Partial<TeamPage>;
   }),
 }));
@@ -56,6 +70,7 @@ vi.mock("@devthrottle/client-core/settings/SettingsTabs", async (importActual) =
 }));
 
 import { COCKPIT_ROUTES } from "../routes";
+import { GatewayError } from "@devthrottle/client-core/api/client";
 
 const FULL = { full: true as const, pages: [], landing: null, elsewhere: null };
 const TEAM: TeamSummary = { id: "team-1", name: "Soren Test Team", role: "Owner", memberCount: 1, people: "1 person", app: FULL };
@@ -78,8 +93,11 @@ beforeEach(() => {
   cleanup();
   window.localStorage.clear();
   teams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
+  teams.fail = null;
   teamPage.bill = null;
   teamPage.asked = [];
+  teamPage.fail = null;
+  teamPage.answer = null;
 });
 
 afterEach(() => cleanup());
@@ -125,6 +143,17 @@ describe("every old address leads to its Settings tab", () => {
     teams.answer = { kind: "teams", teams: [TEAM], start: { where: "own-account" } };
     mountAt("/team/someone-elses/members");
     expect((await screen.findByTestId("team-address-not-yours")).textContent).toContain("This team is not one of yours");
+  });
+
+  // Only the Gateway's list can say a team is not yours. While it cannot be read, the page says that - and the reason.
+  it("says your teams could not be read, and nothing about membership, while the teams read is failing", async () => {
+    teams.fail = "The Gateway is restarting.";
+    mountAt(`/team/${TEAM.id}/members`);
+    const pane = await screen.findByTestId("team-address-unreadable");
+    expect(pane.textContent).toContain("Your teams could not be read just now: ");
+    expect(pane.textContent).toContain("The Gateway is restarting.");
+    expect(screen.queryByTestId("team-address-not-yours")).toBeNull();
+    expect(screen.queryByText(/not one of yours/)).toBeNull();
   });
 });
 
@@ -180,6 +209,49 @@ describe("Settings, with its tabs down the left", () => {
     expect(await screen.findByText(`team plan for ${TEAM.id}`)).toBeTruthy();
     expect(tabs().slice(-2)).toEqual(["Members", "Team plan"]);
     expect(within(screen.getByRole("tablist")).getByRole("tab", { name: "Team plan" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  // A failed read is not the Gateway's verdict: the tab stays, so the tab itself can show the failure and its Retry.
+  it("keeps the Team plan tab when the Team page read fails, rather than hiding it without a word", async () => {
+    teams.answer = { kind: "teams", teams: [TEAM], start: { where: "own-account" } };
+    window.localStorage.setItem("devthrottle.currentTeam", TEAM.id);
+    teamPage.fail = new Error("network down");
+    mountAt("/settings?tab=members");
+
+    expect(await screen.findByText(`team members for ${TEAM.id}`)).toBeTruthy();
+    await waitFor(() => expect(tabs().slice(-2)).toEqual(["Members", "Team plan"]));
+  });
+
+  it("takes the Team plan tab away only on the Gateway's refusal", async () => {
+    teams.answer = { kind: "teams", teams: [TEAM], start: { where: "own-account" } };
+    window.localStorage.setItem("devthrottle.currentTeam", TEAM.id);
+    teamPage.fail = new GatewayError(403, "refused");
+    mountAt("/settings?tab=members");
+
+    expect(await screen.findByText(`team members for ${TEAM.id}`)).toBeTruthy();
+    await waitFor(() => expect(teamPage.asked).toEqual([TEAM.id]));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(tabs()).not.toContain("Team plan");
+  });
+
+  // A link straight to Team plan waits for the Gateway's answer; it never opens Account first and then jumps.
+  it("holds a link straight to Team plan on a loading line until the Gateway answers, never opening Account first", async () => {
+    teams.answer = { kind: "teams", teams: [TEAM], start: { where: "own-account" } };
+    window.localStorage.setItem("devthrottle.currentTeam", TEAM.id);
+    teamPage.bill = { state: "active" };
+    let answer!: () => void;
+    teamPage.answer = new Promise<void>((r) => {
+      answer = r;
+    });
+    mountAt("/settings?tab=teamplan");
+
+    await waitFor(() => expect(teamPage.asked).toEqual([TEAM.id]));
+    expect(screen.getByText("Opening the team...")).toBeTruthy();
+    expect(screen.queryByText("account tab")).toBeNull();
+
+    answer();
+    expect(await screen.findByText(`team plan for ${TEAM.id}`)).toBeTruthy();
+    expect(screen.queryByText("account tab")).toBeNull();
   });
 
   it("sends a team tab's address to Account when Personal is on screen", async () => {
