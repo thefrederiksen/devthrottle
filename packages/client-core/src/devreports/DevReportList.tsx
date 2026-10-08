@@ -4,7 +4,8 @@ import { useVisiblePolling } from "../polling/useVisiblePolling";
 import { listDevReports, type DevReportSummary } from "./devReportsClient";
 import "./devReports.css";
 
-// One session's dev reports, shared by the Cockpit's Reports tab and the phone's Reports screen. Every
+// One session's dev reports, shared by the Cockpit's Reports tab and the phone's Reports screen - or, with no session
+// named, every report the account's sessions sent, for the Cockpit's Reports page on a person's own account. Every
 // field is the Gateway's - title, status, version, updated time, open items - rendered as sent; this list
 // decides nothing about what a status means. The shell supplies the frame and what opening a report does.
 
@@ -12,7 +13,8 @@ import "./devReports.css";
 export const DEV_REPORT_POLL_MS = 5000;
 
 export interface DevReportListProps {
-  sessionId: string;
+  /** The session whose reports to list; undefined for every report of the account, each naming its session. */
+  sessionId: string | undefined;
   onOpen: (report: DevReportSummary) => void;
 }
 
@@ -50,7 +52,9 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
       {reports === null && !error && <div className="dev-report-empty">Loading reports...</div>}
       {reports !== null && reports.length === 0 && (
         <div className="dev-report-empty" data-testid="dev-report-list-empty">
-          This session has not published any reports.
+          {sessionId === undefined
+            ? "No session has sent you a report yet. A session sends one when it finishes something you should read."
+            : "This session has not published any reports."}
         </div>
       )}
       {reports !== null &&
@@ -66,6 +70,12 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
             <span className="dev-report-row-title" data-testid="dev-report-row-title">
               {report.title}
             </span>
+            {/* The whole account's list names the session each report came from, in the Gateway's words. */}
+            {sessionId === undefined && report.sessionLabel !== undefined && (
+              <span className="dev-report-row-session" data-testid="dev-report-row-session">
+                {report.sessionLabel}
+              </span>
+            )}
             <span className="dev-report-row-meta">
               <span className="dev-report-status" data-testid="dev-report-row-status">
                 {report.status}

@@ -18,9 +18,9 @@ const NOTE_CONTROLS = {
   connected: true,
 };
 
-const listDevReports = vi.fn<(sessionId: string, signal?: AbortSignal) => Promise<DevReportSummary[]>>();
+const listDevReports = vi.fn<(sessionId: string | undefined, signal?: AbortSignal) => Promise<DevReportSummary[]>>();
 vi.mock("./devReportsClient", () => ({
-  listDevReports: (sessionId: string, signal?: AbortSignal) => listDevReports(sessionId, signal),
+  listDevReports: (sessionId: string | undefined, signal?: AbortSignal) => listDevReports(sessionId, signal),
   getDevReport: vi.fn(),
   getDevReportHtml: vi.fn(),
   sendDevReportItems: vi.fn(),
@@ -88,6 +88,23 @@ describe("DevReportList", () => {
     expect(within(row).getByTestId("dev-report-row-updated").getAttribute("datetime")).toBe("2026-09-17T10:30:00Z");
     fireEvent.click(row);
     expect(onOpen).toHaveBeenCalledWith(summary);
+  });
+
+  // The Reports page of a person's own account (owner, 8 Oct 2026): every report of the account, each naming the
+  // session it came from in the Gateway's words.
+  it("lists every report of the account, naming each one's session, when no session is given", async () => {
+    listDevReports.mockResolvedValue([{ ...summary, sessionLabel: "121 devthrottle - invoice export" }]);
+    render(<DevReportList sessionId={undefined} onOpen={() => {}} />);
+    const row = await screen.findByTestId("dev-report-row");
+    expect(listDevReports).toHaveBeenCalledWith(undefined, expect.anything());
+    expect(within(row).getByTestId("dev-report-row-session").textContent).toBe("121 devthrottle - invoice export");
+  });
+
+  it("names no session on one session's own list", async () => {
+    listDevReports.mockResolvedValue([{ ...summary, sessionLabel: "121 devthrottle - invoice export" }]);
+    render(<DevReportList sessionId="s-1" onOpen={() => {}} />);
+    const row = await screen.findByTestId("dev-report-row");
+    expect(within(row).queryByTestId("dev-report-row-session")).toBeNull();
   });
 
   it("says so when the session has no reports", async () => {

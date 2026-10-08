@@ -40,7 +40,7 @@ import { AcceptInviteView } from "./team/AcceptInviteView";
 import { TeamPageRoute } from "./teams/collaborator/TeamPageRoute";
 import { QuestionsPage } from "./teams/collaborator/QuestionsPage";
 import { RequestsPage } from "./teams/collaborator/RequestsPage";
-import { ReportsPage } from "./teams/collaborator/ReportsPage";
+import { ReportsRoute } from "./reports/ReportsRoute";
 import { MentorView } from "./mentor/MentorView";
 import { TeamRequestsRoute } from "./team/RequestsView";
 
@@ -239,9 +239,12 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // the page component alone; neither the route nor the rail changes for it.
           { path: "/questions", element: <TeamPageRoute pageId="questions"><QuestionsPage /></TeamPageRoute> },
           { path: "/requests", element: <TeamPageRoute pageId="requests"><RequestsPage /></TeamPageRoute> },
-          { path: "/reports", element: <TeamPageRoute pageId="reports"><ReportsPage /></TeamPageRoute> },
-          // The Mentor's weekly page for the team on screen (screens S6 and S7, devthrottle_internal#2305). For a person
-          // with no team, or on a Gateway with Teams off, it is the ordinary missing page - they see no change.
+          // Reports is in Work for everyone (owner, 8 Oct 2026): the team's page with a team on screen (still only where the
+          // Gateway's verdict lists it), the person's own sessions' reports on their own account.
+          { path: "/reports", element: <ReportsRoute /> },
+          // The Mentor's weekly page for the team on screen (screens S6 and S7, devthrottle_internal#2305), or on the
+          // person's own account their own page (owner, 8 Oct 2026). On a Gateway with Teams off it is the ordinary
+          // missing page - they see no change.
           { path: "/mentor", element: <MentorView /> },
           // The Team page (screen S1, devthrottle_internal#2303): members, roles, seats and waiting invitations. It is the
           // Members and Team plan tabs of Settings now (owner, 8 Oct 2026), reached from "Team" in the rail's team block;

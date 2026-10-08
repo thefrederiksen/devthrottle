@@ -65,10 +65,11 @@ function reportPath(reportId: string): string {
   return `/dev-reports/${encodeURIComponent(reportId)}`;
 }
 
-/** GET /dev-reports?sessionId= - one session's reports. */
-export async function listDevReports(sessionId: string, signal?: AbortSignal): Promise<DevReportSummary[]> {
+/** GET /dev-reports?sessionId= - one session's reports; with no session, every report the account's sessions sent
+ *  (the Reports page of a person's own account). */
+export async function listDevReports(sessionId: string | undefined, signal?: AbortSignal): Promise<DevReportSummary[]> {
   const res = await gatewayFetch(
-    `/dev-reports?sessionId=${encodeURIComponent(sessionId)}`,
+    sessionId === undefined ? "/dev-reports" : `/dev-reports?sessionId=${encodeURIComponent(sessionId)}`,
     { method: "GET", headers: { Accept: "application/json", ...authHeaders() }, signal },
     { timeoutMs: POLL_TIMEOUT_MS },
   );

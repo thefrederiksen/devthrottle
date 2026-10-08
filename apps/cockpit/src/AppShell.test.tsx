@@ -71,7 +71,18 @@ vi.mock("@devthrottle/client-core/teams/mentorClient", () => ({
     if (answer instanceof Error) throw answer;
     return answer;
   }),
+  // The person's own page (owner, 8 Oct 2026), recorded as "(own account)". Unstaged it answers "not offered" - a
+  // Gateway with no personal page - so a test about something else sees the rail it always saw.
+  getPersonalMentorPage: vi.fn(async () => {
+    mentorRead.calls.push(OWN);
+    const staged = mentorRead.answers.get(OWN);
+    if (staged === undefined) return { kind: "not-offered" };
+    const answer = Array.isArray(staged) ? (staged.length > 1 ? staged.shift() : staged[0]) : staged;
+    if (answer instanceof Error) throw answer;
+    return answer;
+  }),
 }));
+const OWN = "(own account)";
 
 // The probe asks again after a failure on the shell's rhythm, CurrentTeam's retryDelayMs (review of the delta, D2).
 // The tests set that rhythm: an hour by default, so a failure is asked once; milliseconds where the re-ask is the
@@ -185,14 +196,15 @@ describe("Cockpit left rail", () => {
     const work = screen.getByRole("group", { name: "Work" });
     // The group's name carries whose fleet it is, as the heading shows it.
     const setUp = screen.getByRole("group", { name: "Set up, your fleet" });
+    // Reports is in Work for everyone (owner, 8 Oct 2026): on the own account it is the person's own reports.
     expect(Array.from(work.querySelectorAll(".nav-link-label")).map((el) => el.textContent)).toEqual([
-      "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder",
+      "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder", "Reports",
     ]);
     expect(Array.from(setUp.querySelectorAll(".nav-link-label")).map((el) => el.textContent)).toEqual([
       "Directors", "Skills", "Workflows", "Schedule", "Network",
     ]);
     expect(railLabels()).toEqual([
-      "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder",
+      "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder", "Reports",
       "Directors", "Skills", "Workflows", "Schedule", "Network",
     ]);
     expect(screen.getByTestId("nav-work-heading").textContent).toBe("Work");
@@ -393,16 +405,46 @@ describe("Cockpit left rail", () => {
       expect(screen.getByTestId("nav-setup-heading").textContent).toBe("Set upthe team's fleet");
     });
 
-    it("is offered in the team's block, after Team, when the Gateway answers the Mentor read with a page", async () => {
+    it("is offered in Work, after Voice Recorder, when the Gateway answers the team's Mentor read with a page", async () => {
       mentorRead.answers.set(TEAM.id, { kind: "page" });
       renderOn([TEAM], TEAM.id);
 
       await waitFor(() => expect(railLabels()).toContain("Mentor"));
-      const labels = railLabels();
-      expect(labels[labels.indexOf("Team") + 1]).toBe("Mentor");
-      expect(within(screen.getByTestId("nav-team")).getByRole("link", { name: /Mentor/ })).toBeTruthy();
+      const work = screen.getByTestId("nav-work");
+      const workLabels = Array.from(work.querySelectorAll(".nav-link-label")).map((el) => el.textContent);
+      expect(workLabels[workLabels.indexOf("Voice Recorder") + 1]).toBe("Mentor");
+      expect(within(screen.getByTestId("nav-team")).queryByRole("link", { name: /Mentor/ })).toBeNull();
       expect(screen.getByRole("link", { name: /Mentor/ }).getAttribute("href")).toBe("/mentor");
       expect(mentorRead.calls).toEqual([TEAM.id]);
+    });
+
+    // Screen 2: with a team on screen, Reports is in Work - the team's page, where the Gateway's verdict lists it - and
+    // the team's block keeps only Team, Questions and Requests.
+    it("puts the team's Reports in Work and keeps Team, Questions and Requests in the team's block", async () => {
+      const pages = [
+        { id: "questions", label: "Questions", path: "/questions", countPath: null },
+        { id: "requests", label: "Requests", path: "/requests", countPath: null },
+        { id: "reports", label: "Reports", path: "/reports", countPath: null },
+      ];
+      const withPages = { ...TEAM, app: { ...TEAM.app, pages } } as TeamSummary;
+      mentorRead.answers.set(TEAM.id, { kind: "page" });
+      renderOn([withPages], TEAM.id);
+
+      await waitFor(() => expect(railLabels()).toContain("Mentor"));
+      const work = Array.from(screen.getByTestId("nav-work").querySelectorAll(".nav-link-label")).map((el) => el.textContent);
+      expect(work.slice(-3)).toEqual(["Voice Recorder", "Mentor", "Reports"]);
+      const block = Array.from(screen.getByTestId("nav-team").querySelectorAll(".nav-link-label")).map((el) => el.textContent);
+      expect(block).toEqual(["Team", "Questions", "Requests"]);
+    });
+
+    it("leaves Reports out of Work when the team's verdict does not list it", async () => {
+      mentorRead.answers.set(TEAM.id, { kind: "refused" });
+      renderOn([TEAM], TEAM.id);
+
+      await screen.findByTestId("nav-team");
+      await settled();
+      const work = Array.from(screen.getByTestId("nav-work").querySelectorAll(".nav-link-label")).map((el) => el.textContent);
+      expect(work).not.toContain("Reports");
     });
 
     it.each([
@@ -484,17 +526,32 @@ describe("Cockpit left rail", () => {
       expect(mentorRead.calls).toEqual([TEAM.id, OTHER.id]);
     });
 
-    it("is not offered, and nothing is asked, for a person on their own account with no team", async () => {
+    // Screen 1: on the person's own account the Mentor is theirs, offered when the Gateway answers the personal read
+    // with a page, and placed in Work after Voice Recorder, before Reports.
+    it("is offered in Work on the person's own account when the Gateway answers the personal read with a page", async () => {
+      mentorRead.answers.set(OWN, { kind: "page" });
       renderOn([], null);
 
+      await waitFor(() => expect(railLabels()).toContain("Mentor"));
+      const work = Array.from(screen.getByTestId("nav-work").querySelectorAll(".nav-link-label")).map((el) => el.textContent);
+      expect(work.slice(-3)).toEqual(["Voice Recorder", "Mentor", "Reports"]);
+      expect(mentorRead.calls).toEqual([OWN]);
+      expect(screen.queryByTestId("nav-team")).toBeNull();
+    });
+
+    it("is not offered on the own account when the Gateway has no personal page", async () => {
+      mentorRead.answers.set(OWN, { kind: "not-offered" });
+      renderOn([], null);
+
+      await waitFor(() => expect(mentorRead.calls).toEqual([OWN]));
       await settled();
-      expect(vi.mocked(getMyTeams)).toHaveBeenCalled();
       expect(railLabels()).not.toContain("Mentor");
-      expect(mentorRead.calls).toEqual([]);
+      expect(reported.calls).toEqual([]);
     });
 
     it("is not offered on a Gateway that has not turned Teams on", async () => {
       myTeams.answer = { kind: "not-offered", reason: "dark" };
+      mentorRead.answers.set(OWN, { kind: "not-offered" });
       render(
         <MemoryRouter initialEntries={["/sessions"]}>
           <AppShell />
@@ -502,9 +559,9 @@ describe("Cockpit left rail", () => {
       );
 
       await settled();
+      await waitFor(() => expect(mentorRead.calls).toEqual([OWN]));
       expect(vi.mocked(getMyTeams)).toHaveBeenCalled();
       expect(railLabels()).not.toContain("Mentor");
-      expect(mentorRead.calls).toEqual([]);
     });
   });
 });

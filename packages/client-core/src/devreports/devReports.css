@@ -33,6 +33,12 @@
   overflow-wrap: anywhere;
 }
 
+.dev-report-row-session {
+  color: var(--text-dim);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
 .dev-report-row-meta {
   display: flex;
   flex-wrap: wrap;
