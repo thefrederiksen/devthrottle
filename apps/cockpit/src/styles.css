@@ -213,15 +213,6 @@ body {
   white-space: nowrap;
 }
 
-/* Whose fleet Set up changes: quieter than the label, in plain case. */
-.nav-section-sub {
-  flex: none;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  opacity: 0.75;
-}
-
 /* The team on screen: its block carries a green edge and a green label, so it reads as the team's, not the app's. */
 .nav-section-team {
   border-left: 2px solid var(--ok);

@@ -100,6 +100,25 @@ export interface TeamBill {
   history: TeamBillHistoryLine[];
 }
 
+/**
+ * Rename, delete and leave the team (Teams v1, rename, delete and leave): which of them the page offers the caller, and
+ * the sentences each confirmation shows. All of it is the Gateway's; the page renders it.
+ */
+export interface TeamPageManage {
+  /** Whether "The team" card offers Rename (the Owner). */
+  canRename: boolean;
+  /** Whether "Delete this team" can be used now: the Owner, once they are the last member. */
+  canDelete: boolean;
+  /** Why Delete is not available yet, shown under the disabled button while others remain; null otherwise. */
+  deleteBlocked: string | null;
+  /** What deleting does, for the confirmation; null for anyone but the Owner. */
+  deleteWarning: string | null;
+  /** Whether the page offers "Leave this team": every member but the Owner. */
+  canLeave: boolean;
+  /** What leaving does, for the confirmation; null when the page offers no Leave. */
+  leaveWarning: string | null;
+}
+
 /** What the Team page shows (GET /teams/{teamId}/page). */
 export interface TeamPage {
   teamId: string;
@@ -116,6 +135,8 @@ export interface TeamPage {
   invitations: TeamPageInvitation[];
   /** The Billing section; null for a role that may not see the team's bill (a Developer). */
   bill: TeamBill | null;
+  /** Rename, delete and leave. */
+  manage: TeamPageManage;
 }
 
 const team = (teamId: string) => `/teams/${encodeURIComponent(teamId)}`;
@@ -148,6 +169,21 @@ export async function setTeamPlanAutoRenew(teamId: string, on: boolean, signal?:
 /** POST /teams/{teamId}/bill/cancel - the Owner cancels; the plan runs to the end of its period, then ends. */
 export async function cancelTeamPlan(teamId: string, signal?: AbortSignal): Promise<void> {
   await call<{ done: boolean }>("POST", `${team(teamId)}/bill/cancel`, "cancel the team plan", undefined, signal);
+}
+
+/** PUT /teams/{teamId}/name - the Owner renames the team. The name follows the create rule; the Gateway trims it. */
+export async function renameTeam(teamId: string, name: string, signal?: AbortSignal): Promise<void> {
+  await call<{ done: boolean }>("PUT", `${team(teamId)}/name`, "rename the team", { name }, signal);
+}
+
+/** POST /teams/{teamId}/leave - take yourself out of the team. Every member but the Owner. */
+export async function leaveTeam(teamId: string, signal?: AbortSignal): Promise<void> {
+  await call<{ done: boolean }>("POST", `${team(teamId)}/leave`, "leave the team", undefined, signal);
+}
+
+/** DELETE /teams/{teamId} - the Owner deletes the team, once they are its last member, with its name typed exactly. */
+export async function deleteTeam(teamId: string, typedName: string, signal?: AbortSignal): Promise<void> {
+  await call<{ done: boolean }>("DELETE", team(teamId), "delete the team", { name: typedName }, signal);
 }
 
 /** DELETE /teams/{teamId}/members/{memberId} - remove a member from the team. */

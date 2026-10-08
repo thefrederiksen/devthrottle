@@ -145,6 +145,12 @@ public static class TeamEndpointRules
         // the Owner, Managers and Developers; changing them is "change the team's governance rules" - the Owner and Managers.
         new TeamEndpointRule(Api.TeamGovernanceEndpoints.GovernancePath, TeamMethods.Read, TeamAction.SeeTeamGovernance, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
         new TeamEndpointRule(Api.TeamGovernanceEndpoints.GovernancePath, TeamMethods.Write, TeamAction.ChangeTeamGovernance, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        // Rename and delete the team (Teams v1, rename, delete and leave): the row "change the billing, or rename or delete
+        // the team" - the Owner alone. Delete is the team's own address, so its rule is EXACT: it must never cover a route
+        // under the team. Leaving is its own row, which every member but the Owner holds.
+        new TeamEndpointRule(Api.TeamEndpoints.NamePath, TeamMethods.Write, TeamAction.BillingRenameOrDeleteTeam, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule(Api.TeamEndpoints.TeamPath, TeamMethods.Write, TeamAction.BillingRenameOrDeleteTeam, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule(Api.TeamEndpoints.LeavePath, TeamMethods.Write, TeamAction.LeaveTheTeam, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
 
         // The team's Fleet Map (devthrottle_internal#2312): every Director on the team, by person, names and status only.
         // A Developer's cell is "their own Directors", so the endpoint cuts its answer to the caller's own Directors.

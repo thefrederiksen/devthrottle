@@ -114,6 +114,8 @@ function page(role: string, teamBill: TeamBill | null): TeamPage {
     members: [],
     invitations: [],
     bill: teamBill,
+    // "The team" card is on the Members tab, not this one; its tests are teamManage.test.tsx.
+    manage: { canRename: false, canDelete: false, deleteBlocked: null, deleteWarning: null, canLeave: false, leaveWarning: null },
   };
 }
 

@@ -2968,6 +2968,14 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
 
+                    b.Property<DateTime?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at_utc");
+
+                    b.Property<string>("DeletedByAccountSubject")
+                        .HasColumnType("text")
+                        .HasColumnName("deleted_by_account_subject");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)

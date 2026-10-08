@@ -93,9 +93,12 @@ public sealed partial class TeamRegistry
         var billEnded = maySeeBill && IsEnded(_readTeamBill(team.TeamId));
         var billNotice = billEnded ? TeamBillNotices.Ended(callerRole) : null;
 
-        FileLog.Write($"[TeamRegistry] DescribeTeamPage: team {LogTeam(team.TeamId)} callerRole={callerRole} members={rows.Count} paid={paid} invitations={invitations.Count} canChangeRoles={mayChangeRoles} canInvite={mayInvite} bill={bill?.State ?? "<not shown>"} canChangeBill={bill?.CanChange ?? false} billEnded={billEnded}");
+        // Rename, delete and leave (Teams v1): what the page offers for the team itself.
+        var manage = DescribeManage(team.TeamId, team.Name, caller, callerRole, members.Members.Count);
+
+        FileLog.Write($"[TeamRegistry] DescribeTeamPage: team {LogTeam(team.TeamId)} callerRole={callerRole} members={rows.Count} paid={paid} invitations={invitations.Count} canChangeRoles={mayChangeRoles} canInvite={mayInvite} bill={bill?.State ?? "<not shown>"} canChangeBill={bill?.CanChange ?? false} billEnded={billEnded} canRename={manage.CanRename} canDelete={manage.CanDelete} canLeave={manage.CanLeave}");
         return TeamPageResult.Found(new TeamPage(team.TeamId, team.Name, TeamRoles.Label(callerRole), summary, mayInvite, rows, invitations, bill,
-            billNotice));
+            billNotice, manage));
     }
 
     /// <summary>
@@ -295,9 +298,10 @@ public static class TeamMemberIds
 /// <param name="BillNotice">When the team's bill has ended: what that means, in plain words - nobody can join, nobody is
 /// removed, and who can renew the team plan. For the Owner and a Manager only; null for a role that may not see the
 /// bill, and while the bill runs (or has not started).</param>
+/// <param name="Manage">What the page offers for the team itself: rename, delete, leave (Teams v1).</param>
 public sealed record TeamPage(string TeamId, string TeamName, string YourRole, string Summary, bool CanInvite,
     IReadOnlyList<TeamPageMember> Members, IReadOnlyList<TeamPageInvitation> Invitations, TeamBillView? Bill,
-    string? BillNotice = null);
+    string? BillNotice, TeamPageManage Manage);
 
 /// <summary>
 /// The words the Team page shows when a team's bill has ENDED (owner ruling, 7 October: "Refuse new invitations and

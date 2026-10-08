@@ -19,6 +19,10 @@ namespace CcDirector.Gateway.Api;
 /// invitations and what the caller may do to each, decided here.</item>
 /// <item><c>PUT /teams/{teamId}/members/{memberId}/role</c> with <c>{"role": "..."}</c> - change a member's role.</item>
 /// <item><c>DELETE /teams/{teamId}/members/{memberId}</c> - remove a member.</item>
+/// <item><c>PUT /teams/{teamId}/name</c> with <c>{"name": "..."}</c> - rename the team (the Owner).</item>
+/// <item><c>POST /teams/{teamId}/leave</c> - leave the team (any member but the Owner).</item>
+/// <item><c>DELETE /teams/{teamId}</c> with <c>{"name": "..."}</c>, the team's name typed exactly - delete the team (the
+/// Owner, once they are its last member). Nothing is erased; see <see cref="TeamRegistry.DeleteTeam"/>.</item>
 /// <item><c>GET /teams/{teamId}/bill</c> - the Billing section (Teams v1, the team bill without Stripe), for the Owner and
 /// a Manager. <c>POST /teams/{teamId}/bill/start</c>, <c>POST .../bill/renew</c>, <c>PUT .../bill/auto-renew</c> with
 /// <c>{"on": true}</c> and <c>POST .../bill/cancel</c> - the Owner's four actions. Nothing is charged.</item>
@@ -53,6 +57,19 @@ internal static class TeamEndpoints
 
     /// <summary>The team's bill (Teams v1, the team bill without Stripe), and the root of the Owner's actions on it.</summary>
     public const string BillPath = "/teams/{teamId}/bill";
+
+    /// <summary>The team's own address: delete it (Teams v1, rename, delete and leave).</summary>
+    public const string TeamPath = "/teams/{teamId}";
+
+    /// <summary>Rename the team.</summary>
+    public const string NamePath = "/teams/{teamId}/name";
+
+    /// <summary>Leave the team.</summary>
+    public const string LeavePath = "/teams/{teamId}/leave";
+
+    /// <summary>The body of <c>PUT /teams/{teamId}/name</c> and of <c>DELETE /teams/{teamId}</c>: the team's new name, or
+    /// for a delete the name typed to confirm it.</summary>
+    internal sealed record TeamNameRequest(string? Name);
 
     /// <summary>The body of <c>PUT /teams/{teamId}/bill/auto-renew</c>.</summary>
     internal sealed record AutoRenewRequest(bool? On);
@@ -214,11 +231,78 @@ internal static class TeamEndpoints
             }
         });
 
-        FileLog.Write($"[TeamEndpoints] mapped GET {Path}, POST {Path}, GET {Path}/{{teamId}}/members, GET {Path}/{{teamId}}/page, PUT {Path}/{{teamId}}/members/{{memberId}}/role, DELETE {Path}/{{teamId}}/members/{{memberId}}, GET {TeamFleetMap.RoutePattern}, GET {BillPath}, POST {BillPath}/start, POST {BillPath}/renew, POST {BillPath}/cancel, PUT {BillPath}/auto-renew");
+        // Rename, delete and leave the team (Teams v1).
+        app.MapPut(NamePath, async (HttpContext ctx, string teamId) =>
+        {
+            try
+            {
+                var caller = ResolveCaller(ctx, boundary, tenants);
+                if (caller.Denial is not null) return caller.Denial;
+                var body = await ReadNameBody(ctx, "PUT " + NamePath).ConfigureAwait(false);
+                if (body.Denial is not null) return body.Denial;
+                return RenameTeam(teams, caller.Subject!, teamId, body.Name);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[TeamEndpoints] PUT {NamePath} FAILED ({ex.GetType().Name}): {ex.Message}");
+                return Results.Json(new { error = "The team could not be renamed just now because of a fault in DevThrottle. Try again shortly." },
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+        app.MapPost(LeavePath, (HttpContext ctx, string teamId) => Guarded("POST " + LeavePath, () =>
+        {
+            var caller = ResolveCaller(ctx, boundary, tenants);
+            return caller.Denial ?? AnswerChange(teams.LeaveTeam(teamId ?? "", caller.Subject!), "leave team");
+        }));
+        app.MapDelete(TeamPath, async (HttpContext ctx, string teamId) =>
+        {
+            try
+            {
+                var caller = ResolveCaller(ctx, boundary, tenants);
+                if (caller.Denial is not null) return caller.Denial;
+                var body = await ReadNameBody(ctx, "DELETE " + TeamPath).ConfigureAwait(false);
+                if (body.Denial is not null) return body.Denial;
+                return AnswerChange(teams.DeleteTeam(teamId ?? "", caller.Subject!, body.Name), "delete team");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[TeamEndpoints] DELETE {TeamPath} FAILED ({ex.GetType().Name}): {ex.Message}");
+                return Results.Json(new { error = "The team could not be deleted just now because of a fault in DevThrottle. Nothing was changed if this happened before the delete; try again shortly." },
+                    statusCode: StatusCodes.Status500InternalServerError);
+            }
+        });
+
+        FileLog.Write($"[TeamEndpoints] mapped GET {Path}, POST {Path}, GET {Path}/{{teamId}}/members, GET {Path}/{{teamId}}/page, PUT {Path}/{{teamId}}/members/{{memberId}}/role, DELETE {Path}/{{teamId}}/members/{{memberId}}, GET {TeamFleetMap.RoutePattern}, GET {BillPath}, POST {BillPath}/start, POST {BillPath}/renew, POST {BillPath}/cancel, PUT {BillPath}/auto-renew, PUT {NamePath}, POST {LeavePath}, DELETE {TeamPath}");
     }
 
     /// <summary>The body of <c>PUT /teams/{teamId}/members/{memberId}/role</c>.</summary>
     internal sealed record ChangeRoleRequest(string? Role);
+
+    /// <summary>Rename the team. 400 for a name the create rule refuses, otherwise the change's own answer.</summary>
+    internal static IResult RenameTeam(TeamRegistry teams, string callerSubject, string? teamId, string? name)
+    {
+        if (TeamRegistry.NameRefusal(name) is { } refusal)
+        {
+            FileLog.Write($"[TeamEndpoints] PUT {NamePath}: rejected, the name is not usable");
+            return Results.BadRequest(new { error = refusal });
+        }
+        return AnswerChange(teams.RenameTeam(teamId ?? "", callerSubject, name), "rename team");
+    }
+
+    /// <summary>Reads <c>{"name": "..."}</c>, or the 400 that says what to send.</summary>
+    private static async Task<(string? Name, IResult? Denial)> ReadNameBody(HttpContext ctx, string route)
+    {
+        try
+        {
+            var body = await ctx.Request.ReadFromJsonAsync<TeamNameRequest>(ctx.RequestAborted).ConfigureAwait(false);
+            return (body?.Name, null);
+        }
+        catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or BadHttpRequestException)
+        {
+            FileLog.Write($"[TeamEndpoints] {route}: rejected, the request body is not readable JSON ({ex.GetType().Name})");
+            return (null, Results.BadRequest(new { error = "The request body is not readable JSON. Send {\"name\": \"<team name>\"}." }));
+        }
+    }
 
     /// <summary>The Team page's model for the caller: 200, 404 for anyone not in the team, 403 with the role table's
     /// sentence for a role that has no Team page.</summary>
@@ -273,6 +357,15 @@ internal static class TeamEndpoints
                 canCancel = i.CanCancel,
             }).ToList(),
             bill = BillJson(page.Bill),
+            manage = new
+            {
+                canRename = page.Manage.CanRename,
+                canDelete = page.Manage.CanDelete,
+                deleteBlocked = page.Manage.DeleteBlocked,
+                deleteWarning = page.Manage.DeleteWarning,
+                canLeave = page.Manage.CanLeave,
+                leaveWarning = page.Manage.LeaveWarning,
+            },
         });
     }
 

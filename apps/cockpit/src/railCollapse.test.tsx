@@ -103,7 +103,7 @@ describe("the Cockpit rail collapse", () => {
     expect(document.querySelectorAll(".nav-section-heading")).toHaveLength(0);
     expect(document.querySelectorAll(".nav-section-rule")).toHaveLength(2);
     expect(screen.getByRole("group", { name: "Work" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "Set up, your fleet" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Set up" })).toBeTruthy();
   });
 
   // You stay in reach when the rail collapses: the card keeps its accessible name, shows only your initials, and opens

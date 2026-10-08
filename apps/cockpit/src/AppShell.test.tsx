@@ -194,8 +194,7 @@ describe("Cockpit left rail", () => {
     );
 
     const work = screen.getByRole("group", { name: "Work" });
-    // The group's name carries whose fleet it is, as the heading shows it.
-    const setUp = screen.getByRole("group", { name: "Set up, your fleet" });
+    const setUp = screen.getByRole("group", { name: "Set up" });
     // Reports is in Work for everyone (owner, 8 Oct 2026): on the own account it is the person's own reports.
     expect(Array.from(work.querySelectorAll(".nav-link-label")).map((el) => el.textContent)).toEqual([
       "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder", "Reports",
@@ -208,8 +207,8 @@ describe("Cockpit left rail", () => {
       "Directors", "Skills", "Workflows", "Schedule", "Network",
     ]);
     expect(screen.getByTestId("nav-work-heading").textContent).toBe("Work");
-    // Set up names whose fleet it changes: yours, with Personal on screen.
-    expect(screen.getByTestId("nav-setup-heading").textContent).toBe("Set upyour fleet");
+    // "Set up" alone (owner, 8 Oct 2026): no line under it naming whose fleet it is.
+    expect(screen.getByTestId("nav-setup-heading").textContent).toBe("Set up");
     expect(screen.getByRole("link", { name: /Network/ }).getAttribute("href")).toBe("/network");
     // No team block with Personal on screen.
     expect(screen.queryByTestId("nav-team")).toBeNull();
@@ -391,7 +390,7 @@ describe("Cockpit left rail", () => {
     }
 
     // Mockup 1 with a team selected: the team's block, headed by its name, sits right under Work and above Set up,
-    // and Set up says it changes the team's fleet.
+    // and Set up is still "Set up" alone.
     it("puts the team's block between Work and Set up, under the team's name", async () => {
       mentorRead.answers.set(TEAM.id, { kind: "page" });
       renderOn([TEAM], TEAM.id);
@@ -402,7 +401,7 @@ describe("Cockpit left rail", () => {
       const setUp = screen.getByTestId("nav-setup");
       expect(work.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(block.compareDocumentPosition(setUp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(screen.getByTestId("nav-setup-heading").textContent).toBe("Set upthe team's fleet");
+      expect(screen.getByTestId("nav-setup-heading").textContent).toBe("Set up");
     });
 
     it("is offered in Work, after Voice Recorder, when the Gateway answers the team's Mentor read with a page", async () => {

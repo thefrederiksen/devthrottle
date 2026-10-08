@@ -13,6 +13,7 @@ import { cancelInvitation, resendInvitation, type InvitationLink } from "@devthr
 import { InvitationLinkPanel } from "./InvitationLinkPanel";
 import { Button, ConfirmDialog, ErrorBanner, LoadingState, PageHeader } from "../components";
 import { TeamBillingSection } from "./TeamBillingSection";
+import { TeamManageSection } from "./TeamManageSection";
 import "./team.css";
 
 // Screen S1, the Team page (devthrottle_internal#2303): the members with their roles and seats, the waiting
@@ -27,6 +28,9 @@ import "./team.css";
 // IT IS TWO TABS OF SETTINGS NOW (owner, 8 Oct 2026): Members, and Team plan for those the Gateway shows the bill to.
 // The page itself was moved, not rewritten - `section` picks which half a tab shows, and the team is the one on screen,
 // handed in by Settings. The old addresses /team/{teamId}/members and /team/{teamId}/invite lead here.
+//
+// Under the members, "The team" card (Teams v1, rename, delete and leave): Rename and Delete for the Owner, Leave for
+// everyone else - see TeamManageSection.
 
 /** Where the Members tab's invite form opens. */
 export const INVITE_ADDRESS = "/settings?tab=members&view=invite";
@@ -216,6 +220,18 @@ export function TeamPageView({ teamId, section }: { teamId: string; section: "me
           </tbody>
         </table>
       </section>
+      )}
+
+      {section === "members" && (
+        <TeamManageSection
+          teamId={teamId}
+          teamName={page.teamName}
+          manage={page.manage}
+          onRenamed={async (text) => {
+            setNote({ text, ok: true });
+            await load();
+          }}
+        />
       )}
 
       {section === "plan" && page.bill !== null && (

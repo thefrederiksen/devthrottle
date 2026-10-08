@@ -117,7 +117,11 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20261008043117_AddScheduleSeat", all[index + 25]);
             // The team's governance rules and their record of changes (Teams v1, the Governance tab), after that.
             Assert.Equal("20261008191614_AddTeamGovernance", all[index + 26]);
-            Assert.Equal(index + 27, all.Count);
+            // A factory's one-line purpose (the Factories cards, 8 Oct 2026), after that.
+            Assert.Equal("20261008200010_AddFactoryPurpose", all[index + 27]);
+            // The deleted-team columns (Teams v1, rename, delete and leave), after that.
+            Assert.Equal("20261008212033_AddTeamDeletedAt", all[index + 28]);
+            Assert.Equal(index + 29, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

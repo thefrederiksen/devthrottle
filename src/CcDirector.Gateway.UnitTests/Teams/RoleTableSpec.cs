@@ -33,8 +33,9 @@ public static class RoleTableSpec
         new(TeamAction.ChangeSharedSkillsAndWorkflows, "YYNN", "POST", "/gateway/skills", TeamOwnership.Unknown, null),
         new(TeamAction.MakeManagersAndChangeRoles, "YNNN", "PUT", "/teams/{teamId}/members/{memberId}/role", TeamOwnership.Unknown, null),
         // Changing the bill (Teams v1, the team bill without Stripe): start, renew, auto-renew, cancel - the Owner alone.
-        new(TeamAction.BillingRenameOrDeleteTeam, "YNNN", "POST", "/teams/{teamId}/bill/start", TeamOwnership.Unknown,
-            "no first-version issue adds rename or delete"),
+        // Renaming (PUT /teams/{teamId}/name) and deleting (DELETE /teams/{teamId}) the team are the same row (Teams v1,
+        // rename, delete and leave).
+        new(TeamAction.BillingRenameOrDeleteTeam, "YNNN", "POST", "/teams/{teamId}/bill/start", TeamOwnership.Unknown, null),
         new(TeamAction.JoinOrWatchSomeoneElsesSession, "NNNN", "GET", "/sessions/{sid}/buffer", TeamOwnership.SomeoneElses, null),
         new(TeamAction.SeeMembersAndRoles, "YYYY", "GET", "/teams/{teamId}/members", TeamOwnership.Unknown, null),
         new(TeamAction.ReadAnotherPersonsPrompts, "NNNN", "GET", "/prompts", TeamOwnership.SomeoneElses, null),
@@ -53,6 +54,9 @@ public static class RoleTableSpec
         // only by Owner and Manager".
         new(TeamAction.SeeTeamGovernance, "YYYN", "GET", "/teams/{teamId}/governance", TeamOwnership.Unknown, null),
         new(TeamAction.ChangeTeamGovernance, "YYNN", "PUT", "/teams/{teamId}/governance", TeamOwnership.Unknown, null),
+        // Teams v1, rename, delete and leave (owner, 8 Oct 2026): any member may leave except the Owner, who deletes the
+        // team instead - transferring ownership is not in this version.
+        new(TeamAction.LeaveTheTeam, "NYYY", "POST", "/teams/{teamId}/leave", TeamOwnership.Unknown, null),
     };
 
     public static readonly TeamRole[] Columns = { TeamRole.Owner, TeamRole.Manager, TeamRole.Developer, TeamRole.Collaborator };

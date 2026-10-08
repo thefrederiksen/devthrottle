@@ -53,6 +53,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20261008043059_AddScheduleSeat",
         "20261008191540_AddTeamGovernance",
         "20261008200000_AddFactoryPurpose",
+        "20261008211952_AddTeamDeletedAt",
     })]
     [InlineData("postgres", new[]
     {
@@ -88,6 +89,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20261008043117_AddScheduleSeat",
         "20261008191614_AddTeamGovernance",
         "20261008200010_AddFactoryPurpose",
+        "20261008212033_AddTeamDeletedAt",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {
@@ -132,8 +134,9 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         // (Teams v1, the team bill without Stripe), then the link request's requested amount column (issue #3631), then
         // the schedule's seat column (issue #3650), then the team governance, governance items and governance changes
         // tables and the record's index (Teams v1, the Governance tab), then the factory's one-line purpose column (the
-        // Factories cards, 8 Oct 2026): an empty comparison proves nothing.
-        Assert.Equal(114, changes);
+        // Factories cards, 8 Oct 2026), then the team's two deleted-team columns (Teams v1, rename, delete and leave): an
+        // empty comparison proves nothing.
+        Assert.Equal(116, changes);
     }
 
     /// <summary>The schema operations, as sorted "kind table.name" lines. Data operations are not schema.</summary>
