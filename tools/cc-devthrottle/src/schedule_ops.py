@@ -473,6 +473,7 @@ def get_job(job_id: str, json_output: bool) -> None:
     console.print(f"  Runs:       {_runs_label(job)}")
     console.print(f"  Schedule:   {_schedule_label(job)}  ({_fmt(job.get('timeZoneId'))})")
     console.print(f"  Notify:     {_notify_label(job)}")
+    console.print(f"  Seat:       {_seat_label(job)}")
     console.print(f"  Next run:   {_fmt(job.get('nextRunUtc'))} UTC")
     console.print(f"  Last fired: {_fmt(job.get('lastFiredUtc'))}  ({_fmt(job.get('lastStatus'))})")
     console.print(f"  Created:    {_fmt(job.get('createdUtc'))} UTC")
@@ -529,6 +530,8 @@ def create_job(
     per_day: Optional[int] = None,
     min_gap: Optional[int] = None,
     shape: Optional[str] = None,
+    factory: Optional[str] = None,
+    seat: Optional[str] = None,
 ) -> None:
     if sum(1 for timing in (at, cron, random_window) if timing) != 1:
         _create_usage_error(
@@ -540,6 +543,13 @@ def create_job(
         _create_usage_error("specify what to run: either --seed <text> or --worklist <name>.")
     if seed and worklist:
         _create_usage_error("specify only one of --seed or --worklist, not both.")
+    # Factory work is a seat of its factory (issue #3650): the two come together or not at all. The Gateway checks
+    # both against the factory registry and refuses with the fix; this only catches the half-given pair early.
+    if bool(factory) != bool(seat):
+        _create_usage_error(
+            "a factory schedule names both --factory <id> and --seat <id>; register the seat first with "
+            "cc-devthrottle factory register --manifest <file>."
+        )
 
     notify_value = (notify_on or NOTIFY_NONE).strip().lower()
     if notify_value not in NOTIFY_CHOICES:
@@ -565,6 +575,9 @@ def create_job(
         "notifyOn": notify_value,
         "notifyWebhookUrl": notify_webhook if notify_webhook else None,
     }
+    if factory:
+        job["factory"] = factory
+        job["seat"] = seat
 
     try:
         created = _client().create_job(job)
@@ -582,6 +595,7 @@ def create_job(
         f"  Name:      {_fmt(created.get('name'))}",
         f"  Schedule:  {_schedule_label(created)}",
         f"  Next run:  {_fmt(created.get('nextRunUtc'))} UTC",
+        f"  Seat:      {_seat_label(created)}",
         # Say WHERE it landed. A scheduled job runs an agent unattended, so "which fleet did
         # that just go to" must be answerable from this output rather than by cross-checking
         # `schedule list` afterwards and recognising somebody else's jobs (issue #2201).
@@ -676,6 +690,35 @@ def run_now(job_id: str, json_output: bool) -> None:
         f"cc-devthrottle schedule runs {axi_cli.bare(job_id, '<schedule-id>')}",
         f"cc-devthrottle session buffer {axi_cli.bare(record.get('sessionId'), '<session-id>')}",
     ])
+
+
+def _seat_label(job: Dict[str, Any]) -> str:
+    """The factory seat a schedule runs (issue #3650), or that it is a plain job in no factory."""
+    factory, seat = job.get("factory"), job.get("seat")
+    if not factory:
+        return "none (a plain job in no factory)"
+    return f"{axi_cli.ascii_text(seat or '-')} of {axi_cli.ascii_text(factory)}"
+
+
+def link_job(job_id: str, factory: str, seat: str, json_output: bool) -> None:
+    """Make an existing schedule run a factory seat (issue #3650). The seat must already be registered; the Gateway
+    refuses an unknown factory or seat with the fix, and only a person or a session of that factory may link one."""
+    client = _client()
+    try:
+        job = client.get_job(job_id)
+        job["factory"] = factory
+        job["seat"] = seat
+        linked = client.update_job(job_id, job)
+    except GatewayError as ex:
+        _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle factory list"])
+        return
+
+    if json_output:
+        print(json.dumps(linked, indent=2))
+        return
+    axi_cli.write_lines(f"Linked {_fmt(linked.get('name'))} ({_fmt(linked.get('id'))}) to {_seat_label(linked)}.")
+    job_ref = axi_cli.bare(linked.get("id"), "<schedule-id>")
+    axi_cli.print_next([f"cc-devthrottle schedule get {job_ref}", "cc-devthrottle factory list"])
 
 
 def enable_job(job_id: str) -> None:

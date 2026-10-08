@@ -9,7 +9,7 @@ namespace CcDirector.Gateway.Factory;
 /// <param name="Registry">Every registered factory in the account - the list is these and only these.</param>
 /// <param name="Activity">The record rows, waiting items and triggers, as the Factory Agents views read them. Its
 /// window must reach back at least <see cref="FactoriesScreenFold.FailingWindow"/>.</param>
-/// <param name="Schedules">Every schedule in the account; a seat's are the ones its registration names.</param>
+/// <param name="Schedules">Every schedule in the account; a seat's are the ones that point at it (its registration lists them, derived from the schedules - issue #3650).</param>
 /// <param name="LatestGoalNumbers">The newest goal number of each factory, by factory id.</param>
 /// <param name="Talks">The newest "talked" rows of the factory or factories in view, whatever their age.</param>
 public sealed record FactoriesScreenInputs(
@@ -108,6 +108,7 @@ public static class FactoriesScreenFold
             .ThenBy(x => x.Row.Id, StringComparer.Ordinal)
             .Select(x => x.Row)
             .ToList();
+        var outside = OutsideAnyFactory(input);
 
         return new FactoriesListViewDto
         {
@@ -132,7 +133,47 @@ public static class FactoriesScreenFold
                 Restore = FactoryOwnerActions.RestoreAction(f, input.Schedules),
             }).ToList(),
             ArchivedEmptyText = archived.Count == 0 ? "No factory is archived." : null,
+            OutsideTitle = "Schedules outside any factory",
+            OutsideText = "These run on a schedule but are no seat of any factory. A plain job can stay here; factory work " +
+                          "must be a seat of its factory - register the seat, then link the schedule to it with " +
+                          "cc-devthrottle schedule link <id> --factory <factory> --seat <seat>.",
+            OutsideRows = outside,
+            OutsideEmptyText = outside.Count == 0 ? "Every enabled schedule is a seat of a factory." : null,
         };
+    }
+
+    /// <summary>
+    /// Every ENABLED schedule that runs as no registered seat (issue #3650): one in no factory, or one naming a factory
+    /// or a seat the registry does not have. Archived factories count as registered - their schedules are switched
+    /// off by the archive, so an enabled one there is still a seat's. By name, then id.
+    /// </summary>
+    internal static List<FactoryOutsideScheduleRowDto> OutsideAnyFactory(FactoriesScreenInputs input)
+    {
+        var registry = input.Registry.ToDictionary(f => f.Factory, StringComparer.Ordinal);
+        return input.Schedules
+            .Where(j => j.Enabled)
+            .Select(j => (Job: j, Reason: OutsideReason(j, registry)))
+            .Where(x => x.Reason is not null)
+            .OrderBy(x => x.Job.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(x => x.Job.Id, StringComparer.Ordinal)
+            .Select(x => new FactoryOutsideScheduleRowDto
+            {
+                Id = x.Job.Id,
+                Name = x.Job.Name,
+                WhenText = FactoryScheduleText.Describe(x.Job, input.Activity.Zone),
+                Machine = x.Job.Target.Machine,
+                Reason = x.Reason!,
+            })
+            .ToList();
+    }
+
+    private static string? OutsideReason(CronJobDto job, IReadOnlyDictionary<string, RegisteredFactoryDto> registry)
+    {
+        if (string.IsNullOrWhiteSpace(job.Factory)) return "In no factory";
+        if (!registry.TryGetValue(job.Factory, out var f)) return $"Names the factory '{job.Factory}', which is not registered";
+        if (string.IsNullOrWhiteSpace(job.Seat)) return $"In {f.Title} but no seat of it";
+        if (!f.Seats.Any(s => s.Id == job.Seat)) return $"Names the seat '{job.Seat}', which {f.Title} does not have";
+        return null;
     }
 
     public static List<FactoryTabDto> ListTabs() => new()

@@ -61,6 +61,15 @@ public sealed class CronJobDto
     /// </summary>
     public string? Factory { get; set; }
 
+    /// <summary>
+    /// The SEAT of <see cref="Factory"/> this schedule runs (issue #3650), or null for a schedule that belongs to no
+    /// factory. A factory schedule always names both, and both must be in the factory registry when the schedule is
+    /// written: an unknown factory or seat is refused with the fix, never stored. A seat's schedule list on the
+    /// Factories screen is DERIVED from this field - the schedules that point at the seat - so the two can never
+    /// disagree. A body that says nothing about it keeps the stored seat, exactly as <see cref="Factory"/> does.
+    /// </summary>
+    public string? Seat { get; set; }
+
     /// <summary>Which machine the job runs on.</summary>
     public CronJobTarget Target { get; set; } = new();
 

@@ -80,6 +80,8 @@ public sealed partial class FactoryRegistryStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
+            var linked = LinkedSchedules(ctx, entity.Factory);
+            CheckAgainstSchedules(entity, request!, linked);
             var existing = ctx.FactoryRegistry.FirstOrDefault(f => f.Factory == entity.Factory);
             if (existing is null)
             {
@@ -99,8 +101,8 @@ public sealed partial class FactoryRegistryStore
             }
             ctx.SaveChanges();
             FileLog.Write($"[FactoryRegistryStore] Register: {(existing is null ? "registered" : "replaced")} {entity.Factory}");
+            return ToDto(entity, linked);
         }
-        return ToDto(entity);
     }
 
     /// <summary>
@@ -124,7 +126,7 @@ public sealed partial class FactoryRegistryStore
             row.ArchivedSchedulesJson = JsonSerializer.Serialize(schedulesSwitchedOff, Json);
             ctx.SaveChanges();
             FileLog.Write($"[FactoryRegistryStore] Archive: archived {row.Factory}");
-            return ToDto(row);
+            return ToDto(row, LinkedSchedules(ctx, row.Factory));
         }
     }
 
@@ -146,7 +148,7 @@ public sealed partial class FactoryRegistryStore
             row.ArchivedSchedulesJson = null;
             ctx.SaveChanges();
             FileLog.Write($"[FactoryRegistryStore] Restore: restored {row.Factory}");
-            return ToDto(row);
+            return ToDto(row, LinkedSchedules(ctx, row.Factory));
         }
     }
 
@@ -163,8 +165,9 @@ public sealed partial class FactoryRegistryStore
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
+            var linked = ctx.CronJobs.AsNoTracking().Where(j => j.Factory != null).ToList();
             return ctx.FactoryRegistry.AsNoTracking().ToList()
-                .Select(ToDto)
+                .Select(f => ToDto(f, linked.Where(j => j.Factory == f.Factory).ToList()))
                 .OrderBy(f => f.Title, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(f => f.Factory, StringComparer.Ordinal)
                 .ToList();
@@ -180,7 +183,7 @@ public sealed partial class FactoryRegistryStore
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.FactoryRegistry.AsNoTracking().FirstOrDefault(f => f.Factory == id);
-            return row is null ? null : ToDto(row);
+            return row is null ? null : ToDto(row, LinkedSchedules(ctx, row.Factory));
         }
     }
 
@@ -305,6 +308,8 @@ public sealed partial class FactoryRegistryStore
                 Name = Required(s.Name, $"name of seat '{seatId}'", MaxTitleChars),
                 Role = Required(s.Role, $"role of seat '{seatId}'", MaxTitleChars),
                 BriefFile = RelativePath(s.BriefFile, $"brief file of seat '{seatId}'"),
+                // What the manifest SAYS runs the seat. Checked against the schedules' own links at registration
+                // (CheckAgainstSchedules) and never stored: the seat's list is derived from those links (#3650).
                 Schedules = schedules,
                 // A seat registered without a computer runs on the factory's: written down here, once.
                 Computer = s.Computer is null ? computer : Required(s.Computer, $"computer of seat '{seatId}'", MaxComputerChars),
@@ -329,8 +334,59 @@ public sealed partial class FactoryRegistryStore
             GoalText = goalText,
             GoalFile = goalFile,
             GoalApprovedOn = approved,
-            SeatsJson = JsonSerializer.Serialize(seats, Json),
+            // Stored WITHOUT their schedules: a seat's schedules are the ones that point at it (issue #3650).
+            SeatsJson = JsonSerializer.Serialize(seats.Select(WithoutSchedules).ToList(), Json),
         };
+    }
+
+    private static RegisteredFactorySeatDto WithoutSchedules(RegisteredFactorySeatDto s) => new()
+    {
+        Id = s.Id, Name = s.Name, Role = s.Role, BriefFile = s.BriefFile, Schedules = new List<string>(), Computer = s.Computer,
+    };
+
+    /// <summary>The schedules of the account that name <paramref name="factory"/>, in id order.</summary>
+    private static List<CronJobEntity> LinkedSchedules(GatewayDbContext ctx, string factory) =>
+        ctx.CronJobs.AsNoTracking().Where(j => j.Factory == factory).ToList()
+            .OrderBy(j => j.Id, StringComparer.Ordinal).ToList();
+
+    /// <summary>
+    /// The two rules a manifest is held to against the schedules that already point at its factory (issue #3650).
+    ///
+    /// REGISTRATION CANNOT DROP A RUNNING SEAT. Registering replaces the whole seat list, which is exactly how six
+    /// seats vanished from the Factories screen on 2026-10-07 while their schedules kept firing. A manifest that
+    /// leaves out a seat that enabled schedules still run is refused, naming them.
+    ///
+    /// A MANIFEST CANNOT CLAIM A SCHEDULE. The seat's schedule list is derived from the schedules' links, so a
+    /// manifest that names a schedule that does not point at that seat describes a factory that is not there. It is
+    /// refused with the command that links it; nothing is linked behind the caller's back, because linking a
+    /// schedule decides which factory its sessions are born into and has its own gate (<c>FactoryNaming</c>).
+    /// </summary>
+    internal static void CheckAgainstSchedules(FactoryRegistryEntity entity, RegisterFactoryRequest manifest, IReadOnlyList<CronJobEntity> linked)
+    {
+        var seats = (JsonSerializer.Deserialize<List<RegisteredFactorySeatDto>>(entity.SeatsJson, Json) ?? new())
+            .Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
+        var stranded = linked.Where(j => j.Enabled && (j.Seat is null || !seats.Contains(j.Seat))).ToList();
+        if (stranded.Count > 0)
+        {
+            var named = string.Join("; ", stranded.GroupBy(j => j.Seat ?? "(no seat)")
+                .Select(g => $"seat '{g.Key}' still runs {string.Join(", ", g.Select(j => $"{j.Id} ({j.Name})"))}"));
+            throw Refuse($"This manifest leaves out seats of {entity.Factory} that are still running: {named}. " +
+                         "Keep those seats in the manifest, or switch their schedules off first (cc-devthrottle schedule disable <id>), then register again.");
+        }
+
+        foreach (var seat in manifest.Seats)
+        {
+            FactoryNames.TrySeat(seat.Id, out var seatId, out _);
+            foreach (var raw in seat.Schedules ?? new List<string>())
+            {
+                var id = raw.Trim();
+                var job = linked.FirstOrDefault(j => j.Id == id);
+                if (job is not null && job.Seat == seatId) continue;
+                throw Refuse(job is null
+                    ? $"Seat '{seatId}' names the schedule '{id}', which does not run any seat of {entity.Factory}. A seat's schedules are the ones that point at it: link it with cc-devthrottle schedule link {id} --factory {entity.Factory} --seat {seatId}, or take it out of the manifest."
+                    : $"Seat '{seatId}' names the schedule '{id}', which runs the seat '{job.Seat}'. Move it with cc-devthrottle schedule link {id} --factory {entity.Factory} --seat {seatId}, or take it out of this seat in the manifest.");
+            }
+        }
     }
 
     private static string FactoryId(string? raw)
@@ -376,7 +432,9 @@ public sealed partial class FactoryRegistryStore
         return t;
     }
 
-    private static RegisteredFactoryDto ToDto(FactoryRegistryEntity e) => new()
+    /// <summary>A registration as the screen reads it. Each seat's schedules are DERIVED - the ones among
+    /// <paramref name="linked"/> (the factory's linked schedules) that point at it - never read from the row (#3650).</summary>
+    private static RegisteredFactoryDto ToDto(FactoryRegistryEntity e, IReadOnlyList<CronJobEntity> linked) => new()
     {
         Factory = e.Factory,
         Title = e.Title,
@@ -386,8 +444,14 @@ public sealed partial class FactoryRegistryStore
         GoalText = e.GoalText,
         GoalFile = e.GoalFile,
         GoalApprovedOn = e.GoalApprovedOn,
-        Seats = JsonSerializer.Deserialize<List<RegisteredFactorySeatDto>>(e.SeatsJson, Json)
-                ?? throw new InvalidOperationException($"The seats of factory '{e.Factory}' are stored as something other than a list."),
+        Seats = (JsonSerializer.Deserialize<List<RegisteredFactorySeatDto>>(e.SeatsJson, Json)
+                ?? throw new InvalidOperationException($"The seats of factory '{e.Factory}' are stored as something other than a list."))
+            .Select(seat =>
+            {
+                seat.Schedules = linked.Where(j => j.Factory == e.Factory && j.Seat == seat.Id)
+                    .Select(j => j.Id).OrderBy(id => id, StringComparer.Ordinal).ToList();
+                return seat;
+            }).ToList(),
         RegisteredBy = e.RegisteredBy,
         RegisteredAtUtc = e.RegisteredAtUtc,
         ArchivedAtUtc = e.ArchivedAtUtc,

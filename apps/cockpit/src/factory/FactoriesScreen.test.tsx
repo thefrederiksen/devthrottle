@@ -133,6 +133,34 @@ describe("Factories - the list (mockup 1)", () => {
     await waitFor(() => expect(where()).toBe("/factories/devthrottle"));
   });
 
+  it("shows the schedules outside any factory, every word verbatim and in the Gateway's order (issue #3650)", async () => {
+    renderAt("/factories");
+
+    const outside = await screen.findByTestId("fa-outside");
+    expect(within(outside).getByRole("heading", { name: "Schedules outside any factory (fixture)" })).toBeTruthy();
+    expect(within(outside).getByText("These run on a schedule but are no seat of any factory. (fixture)")).toBeTruthy();
+    const rows = Array.from(outside.querySelectorAll("[data-testid^='fa-outside-cj_']"));
+    expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual(["fa-outside-cj_job001", "fa-outside-cj_money1"]);
+    const money = within(rows[1] as HTMLElement);
+    expect(money.getByText("Money Saver - daily")).toBeTruthy();
+    expect(money.getByText("Every day at 06:00 (fixture)")).toBeTruthy();
+    expect(money.getByText("Names the factory 'money-saver', which is not registered (fixture)")).toBeTruthy();
+  });
+
+  it("says so when every enabled schedule is a seat, and shows the list even with no factory registered", async () => {
+    screenClient.getFactoriesList.mockResolvedValue({
+      ...FACTORY_LIST,
+      rows: [],
+      emptyText: "No factory yet (fixture).",
+      outsideRows: [],
+      outsideEmptyText: "Every enabled schedule is a seat (fixture).",
+    });
+    renderAt("/factories");
+
+    const outside = await screen.findByTestId("fa-outside");
+    expect(within(outside).getByText("Every enabled schedule is a seat (fixture).")).toBeTruthy();
+  });
+
   it("says what the Gateway says when no factory is registered", async () => {
     screenClient.getFactoriesList.mockResolvedValue({ ...FACTORY_LIST, rows: [], emptyText: "No factory yet (fixture)." });
     renderAt("/factories");

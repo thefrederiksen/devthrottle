@@ -323,7 +323,7 @@ public sealed class FactoryMemoryAgentEndToEndProof : IAsyncLifetime
 
         await RunCaseAsync("02", "a factory SCHEDULE starts a real agent, and its memory is in place before its first turn", async () =>
         {
-            var job = await CreateScheduleAsync("Website Factory - Scout", ScoutSeed);
+            var job = await CreateScheduleAsync("Website Factory - Scout", ScoutSeed, "scout");
             var scout = await RunScheduleAsync(job, "the Scout");
             scoutId = scout.Id;
             Assert.Equal(TheFactory, scout.Factory);
@@ -401,7 +401,7 @@ public sealed class FactoryMemoryAgentEndToEndProof : IAsyncLifetime
             Append($"[the Director's record] the Scout {scoutId}: ActivityState = {ended.ActivityState}");
             Note($"the Scout {scoutId} was killed and has exited");
 
-            var job = await CreateScheduleAsync("Website Factory - Sender", SenderSeed);
+            var job = await CreateScheduleAsync("Website Factory - Sender", SenderSeed, "sender");
             var sender = await RunScheduleAsync(job, "the Sender");
             Assert.NotEqual(scoutId, sender.Id);
 
@@ -442,8 +442,20 @@ public sealed class FactoryMemoryAgentEndToEndProof : IAsyncLifetime
     // Schedules
     // ------------------------------------------------------------------------------------------------
 
-    private async Task<CronJobDto> CreateScheduleAsync(string name, string seed)
+    private async Task<CronJobDto> CreateScheduleAsync(string name, string seed, string seat)
     {
+        // A factory schedule names a registered seat (issue #3650), so the factory and its seat are registered first.
+        var registered = _gateway.FactoryRegistry.Find(TenantId.Local, TheFactory);
+        if (registered is null || !registered.Seats.Any(s => s.Id == seat))
+        {
+            var seats = (registered?.Seats.Select(s => s.Id) ?? Enumerable.Empty<string>()).Append(seat).Distinct()
+                .Select(id => new FactorySeatManifest { Id = id, Name = id, Role = id, BriefFile = $"agents/{id}.yaml" }).ToList();
+            _gateway.FactoryRegistry.Register(TenantId.Local, new RegisterFactoryRequest
+            {
+                Factory = TheFactory, Title = "Website Factory", Folder = _repo, Computer = _machine, Seats = seats,
+            }, "the owner (proof)", DateTime.UtcNow);
+            Note($"the factory '{TheFactory}' is registered with the seat '{seat}' before its schedule is created");
+        }
         Say($"A person creates the factory's schedule '{name}', naming the factory. It is set for a date far off; " +
             "it is fired below with the Gateway's run-now route, which is the same engine and the same session starter.");
         var (status, body) = await CallAsync(_personKey, HttpMethod.Post, "/cron/jobs", new
@@ -453,6 +465,7 @@ public sealed class FactoryMemoryAgentEndToEndProof : IAsyncLifetime
             cronExpression = "0 5 1 1 *",
             timeZoneId = "UTC",
             factory = TheFactory,
+            seat,
             target = new { machine = _machine },
             action = new { repoPath = _repo, seed, autoDismiss = false },
         });

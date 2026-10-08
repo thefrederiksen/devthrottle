@@ -638,6 +638,11 @@ public sealed class GatewayHost : IAsyncDisposable
 
             _workLists.Initialize();
             _cronJobs.Initialize();
+
+            // Issue #3650, once: move each registry seat's old schedule list onto the schedules it names, so a seat's
+            // schedules are derived from the schedules from now on. Idempotent; a second start finds nothing to do.
+            ScheduleLinkBackfill = Factory.Registry.FactoryScheduleLinkBackfill.Run(_gatewayDb);
+
             _skills.Initialize();
             _workflows.Initialize();
             _workflowRuns.Initialize();
@@ -650,6 +655,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>How many cancelled device keys the last <see cref="EnsureStoresReady"/> gave back (hosted only).
     /// Exposed so a host test can prove the reinstatement runs on the real start-up path.</summary>
     internal int ReinstatedAtStartup { get; private set; }
+
+    /// <summary>What the start-up schedule-link backfill did (issue #3650), so a host test can prove it runs on the
+    /// real start-up path.</summary>
+    internal Factory.Registry.FactoryScheduleLinkBackfillResult? ScheduleLinkBackfill { get; private set; }
 
     internal bool IsReadyToServe()
         => _gatewayDb.IsOpen
@@ -5424,7 +5433,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // next-run recompute). Inherits the host-wide token middleware above.
         // Factory Memory mission (phase 1): a schedule may name the factory its sessions are born into, and only a
         // person or a session already in that factory may name it - read through the history row like everywhere else.
-        CronJobEndpoints.Map(_app, _cronJobs, sessionFactoryOf: _sessionHistory.FactoryOf);
+        CronJobEndpoints.Map(_app, _cronJobs, sessionFactoryOf: _sessionHistory.FactoryOf,
+            // Issue #3650: a schedule's factory and seat must be in the calling account's registry.
+            findFactory: (ctx, factory) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
+                ? FactoryRegistry.Find(tenant, factory)
+                : null);
 
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.

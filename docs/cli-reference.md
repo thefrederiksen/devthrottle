@@ -1717,7 +1717,7 @@ registers a factory with a field silently missing):
   "seats": [
     {"id": "nora-hale", "name": "Nora Hale", "role": "CEO",
      "briefFile": "agents/ceo.yaml",                relative to the folder
-     "schedules": ["cj_a721e6"],                    the Gateway schedules that run this seat
+     "schedules": ["cj_a721e6"],                    optional; checked, never stored (see below)
      "computer": "SOREN_NORTH"}                     optional; the factory's computer when left out
   ]
 }
@@ -1728,6 +1728,26 @@ computer; it stops with the reason when the file is not there. The goal file mus
 folder: an absolute path, a `..`, or a link whose target is outside the folder is refused before anything
 is read (a link to a file inside the folder is followed). Registering again replaces the whole
 entry, seats included. It exits 1 whenever the factory was not registered.
+
+**A seat's schedules live on the schedules (issue #3650).** There are no factory agents without a
+factory: a schedule that runs factory work names its factory AND its seat, and both must already be
+registered - so register the seat first, then create its schedule:
+
+```
+cc-devthrottle factory register --manifest factory.json          the seat is in the manifest
+cc-devthrottle schedule create --name "..." ... --factory devthrottle --seat mail-desk
+cc-devthrottle schedule link cj_abc123 --factory devthrottle --seat mail-desk     an existing schedule
+```
+
+An unknown factory or seat, a factory without a seat, or a seat without a factory is refused with the
+fix, and nothing is stored. The seat's schedule list that `list` and the Factories screen show is the
+schedules that point at it, so it cannot disagree with them; a manifest's `schedules` is optional, and
+each one it names must already point at that seat or the registration is refused with the `schedule
+link` command to run. `register` also refuses a manifest that leaves out a seat whose schedules are
+still enabled, naming them: keep the seat, or switch those schedules off first. Linking a schedule to a
+factory is limited, like naming any factory on a schedule, to a person or a session of that factory.
+The Factories screen lists every enabled schedule that is no seat of a factory under "Schedules outside
+any factory".
 
 `goal-number post` is posted by a seat of the factory. In a session a factory agent started, the Gateway
 knows the seat and `--by` is left out (naming another seat, or another factory, is refused); anywhere else

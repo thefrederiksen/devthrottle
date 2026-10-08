@@ -25,7 +25,20 @@ public sealed class FactoryRegistryStoreTests : IDisposable
     private readonly GatewayDbTestHarness _h = new();
     public void Dispose() => _h.Dispose();
 
-    private FactoryRegistryStore NewStore() => new(_h.Open());
+    private bool _seeded;
+
+    // WarmForward's CEO is run by cj_a721e6: a seat's schedules are the ones that point at it (issue #3650), so the
+    // schedule row is there, linked, before any test registers the factory.
+    private FactoryRegistryStore NewStore()
+    {
+        var db = _h.Open();
+        if (!_seeded)
+        {
+            ScheduleLinkSeed.Link(db, A, "warmforward", "nora-hale", "cj_a721e6");
+            _seeded = true;
+        }
+        return new(db);
+    }
 
     private static RegisterFactoryRequest WarmForward() => new()
     {
@@ -39,7 +52,7 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         GoalApprovedOn = "2026-10-04",
         Seats =
         {
-            new FactorySeatManifest { Id = "nora-hale", Name = "Nora Hale", Role = "CEO", BriefFile = "agents/ceo.yaml", Schedules = { "cj_a721e6" } },
+            new FactorySeatManifest { Id = "nora-hale", Name = "Nora Hale", Role = "CEO", BriefFile = "agents/ceo.yaml" },
             new FactorySeatManifest { Id = "savings-engineer", Name = "Savings Engineer", Role = "Savings Engineer", BriefFile = "agents/savings.yaml", Computer = "DEVLINUX" },
         },
     };
@@ -209,7 +222,7 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         yield return new object[] { "seat with no role", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Role = ""), "role of seat" };
         yield return new object[] { "absolute brief", (Action<RegisterFactoryRequest>)(m => m.Seats[0].BriefFile = @"C:\briefs\ceo.yaml"), "relative" };
         yield return new object[] { "brief outside", (Action<RegisterFactoryRequest>)(m => m.Seats[0].BriefFile = "../other/ceo.yaml"), ".." };
-        yield return new object[] { "schedule twice", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Schedules.Add("cj_a721e6")), "twice" };
+        yield return new object[] { "schedule twice", (Action<RegisterFactoryRequest>)(m => { m.Seats[0].Schedules.Add("cj_a721e6"); m.Seats[0].Schedules.Add("cj_a721e6"); }), "twice" };
         yield return new object[] { "empty goal", (Action<RegisterFactoryRequest>)(m => m.GoalText = "  "), "goal text is empty" };
         yield return new object[] { "approval without goal", (Action<RegisterFactoryRequest>)(m => { m.GoalText = null; m.GoalFile = null; }), "no goal text" };
         yield return new object[] { "approval not a day", (Action<RegisterFactoryRequest>)(m => m.GoalApprovedOn = "4 Oct 2026"), "YYYY-MM-DD" };

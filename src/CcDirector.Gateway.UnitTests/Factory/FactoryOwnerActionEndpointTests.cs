@@ -1,3 +1,4 @@
+using CcDirector.Gateway.Tests.Factory.Registry;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -101,6 +102,10 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
 
         _record = new FactoryActivityRecord(Db);
         _registry = new FactoryRegistryStore(Db);
+        // A seat's schedules are the ones that point at it (issue #3650): the links come first. Disabled, because
+        // what these tests switch on and off is the schedule list the routes are handed below.
+        foreach (var (seat, id) in new[] { ("malik", "cj_ceo"), ("sender", "cj_send"), ("sender", "cj_off") })
+            ScheduleLinkSeed.Link(Db, TenantId.Local, "website-business", seat, id, enabled: false);
         _registry.Register(TenantId.Local, Website(), "the owner (test)", Now.AddDays(-20));
         var settings = new TenantSettingsStore(Db);
         var record = _record;

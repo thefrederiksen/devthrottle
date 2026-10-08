@@ -14,7 +14,7 @@ namespace CcDirector.Gateway.Api;
 /// existing API surface, so they inherit the host-wide token middleware and are reachable
 /// cross-machine like the rest of the Gateway.
 ///
-///   POST   /cron/jobs            body CronJobDto    -> 201 CronJobDto | 400
+///   POST   /cron/jobs            body CronJobDto    -> 201 CronJobDto | 400 (also: a factory or seat the registry does not have, #3650)
 ///   GET    /cron/jobs[?include=random] -> { jobs: [ CronJobDto ] } (random jobs only with the opt-in)
 ///   GET    /cron/jobs/{id}       -> CronJobDto | 404
 ///   GET    /cron/jobs/{id}/plan?days=N -> CronPlanDto | 400 (not random, bad days) | 404   (issue #3622)
@@ -30,9 +30,14 @@ internal static class CronJobEndpoints
         // a session naming a factory on a schedule is already in it. REQUIRED (phase 1 review, finding 1): a
         // wiring line that forgot it used to compile and fail nothing. A harness that cannot read membership
         // passes `_ => SessionFactoryLookup.NotKnown`.
-        Func<string, History.SessionFactoryLookup> sessionFactoryOf)
+        Func<string, History.SessionFactoryLookup> sessionFactoryOf,
+        // Issue #3650: the calling account's registration of a factory id, or null when it is not registered. A
+        // schedule's factory and seat are checked against it on every write (FactoryScheduleLink). REQUIRED for the
+        // same reason as the lookup above: a harness that forgot it must fail to compile, not skip the check.
+        Func<HttpContext, string, RegisteredFactoryDto?> findFactory)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
+        ArgumentNullException.ThrowIfNull(findFactory);
         app.MapPost("/cron/jobs", async (HttpContext ctx) =>
         {
             CronJobDto? job;
@@ -61,6 +66,10 @@ internal static class CronJobEndpoints
                     "POST /cron/jobs", out var factoryError, out var settledFactory))
                 return factoryError!;
             job.Factory = settledFactory;
+
+            // THE SEAT, checked against the registry (issue #3650): factory work exists only as a registered seat.
+            if (!TrySettleSeat(ctx, findFactory, job, storedSeat: null, "POST /cron/jobs", out var seatError))
+                return seatError!;
 
             var created = store.Create(job);
             return Results.Json(CronSchedule.StampDisplay(created, DateTime.UtcNow), statusCode: StatusCodes.Status201Created);
@@ -161,6 +170,11 @@ internal static class CronJobEndpoints
                 return factoryError!;
             incoming.Factory = settledFactory;
 
+            // The seat follows the factory's rule: a body that says nothing about it keeps the stored seat, and the
+            // pair that results is checked against the registry like a create (issue #3650).
+            if (!TrySettleSeat(ctx, findFactory, incoming, store.Get(id)?.Seat, $"PUT /cron/jobs/{id}", out var seatError))
+                return seatError!;
+
             var updated = store.Update(id, incoming);
             return updated is null
                 ? Results.NotFound(new { error = "no such cron job", id })
@@ -180,6 +194,27 @@ internal static class CronJobEndpoints
         });
 
         FileLog.Write("[CronJobEndpoints] mapped /cron/jobs routes");
+    }
+
+    /// <summary>
+    /// Settle a schedule's seat and check its factory and seat against the registry (issue #3650). A blank seat in
+    /// the body keeps <paramref name="storedSeat"/>. On true the job carries the folded seat; on false
+    /// <paramref name="error"/> is the 400 that names the fix, and nothing may be stored.
+    /// </summary>
+    internal static bool TrySettleSeat(HttpContext ctx, Func<HttpContext, string, RegisteredFactoryDto?> findFactory,
+        CronJobDto job, string? storedSeat, string route, out IResult? error)
+    {
+        error = null;
+        var requested = string.IsNullOrWhiteSpace(job.Seat) ? storedSeat : job.Seat;
+        var refusal = Factory.Registry.FactoryScheduleLink.Check(job.Factory, requested, id => findFactory(ctx, id), out var seat);
+        if (refusal is not null)
+        {
+            FileLog.Write($"[CronJobEndpoints] {route}: REFUSED factory={job.Factory ?? "none"}, seat={requested ?? "none"}: {refusal}");
+            error = Results.BadRequest(new { error = refusal });
+            return false;
+        }
+        job.Seat = seat;
+        return true;
     }
 
     /// <summary>True when the list's <c>include</c> query (comma-separated) names the random kind.</summary>

@@ -75,7 +75,7 @@ public sealed class FactoryRegistryRouteTests
         goalApprovedOn = "2026-10-04",
         seats = new object[]
         {
-            new { id = "nora-hale", name = ceoName, role = "CEO", briefFile = "agents/ceo.yaml", schedules = new[] { "cj_a721e6" } },
+            new { id = "nora-hale", name = ceoName, role = "CEO", briefFile = "agents/ceo.yaml", schedules = Array.Empty<string>() },
             new { id = "savings-engineer", name = "Savings Engineer", role = "Savings Engineer", briefFile = "agents/savings.yaml", schedules = Array.Empty<string>() },
         },
     };

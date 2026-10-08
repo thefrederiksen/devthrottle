@@ -318,6 +318,13 @@ export const FACTORY_LIST: FactoriesListView = {
     },
   ],
   archivedEmptyText: null,
+  outsideTitle: "Schedules outside any factory (fixture)",
+  outsideText: "These run on a schedule but are no seat of any factory. (fixture)",
+  outsideRows: [
+    { id: "cj_job001", name: "Job search", whenText: "Every day at 08:00 (fixture)", machine: "SOREN_NORTH", reason: "In no factory (fixture)" },
+    { id: "cj_money1", name: "Money Saver - daily", whenText: "Every day at 06:00 (fixture)", machine: "SOREN_NORTH", reason: "Names the factory 'money-saver', which is not registered (fixture)" },
+  ],
+  outsideEmptyText: null,
 };
 
 export const FACTORY_PAGE: FactoryPageView = {

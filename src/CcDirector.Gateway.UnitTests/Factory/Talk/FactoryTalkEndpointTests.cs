@@ -1,3 +1,4 @@
+using CcDirector.Gateway.Tests.Factory.Registry;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -119,6 +120,8 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
             startedAt: DateTime.UtcNow, tenant: TenantId.Local);
 
         _registry = new FactoryRegistryStore(Db);
+        // The CEO is run by cj_a721e6, linked first: a seat's schedules are the ones that point at it (issue #3650).
+        ScheduleLinkSeed.Link(Db, TenantId.Local, "warmforward", "nora-hale", "cj_a721e6");
         _registry.Register(TenantId.Local, WarmForward(), "the owner (test)", DateTime.UtcNow);
 
         var schedules = new Dictionary<string, CronJobDto>

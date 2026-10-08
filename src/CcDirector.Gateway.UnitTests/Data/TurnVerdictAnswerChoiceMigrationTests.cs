@@ -70,7 +70,11 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             Assert.Equal("20261007035034_ArchiveFactories", all[index + 22]);
             // The team bill the Gateway owns, and its billing history (Teams v1, the team bill without Stripe), after that.
             Assert.Equal("20261007070434_AddTeamBills", all[index + 23]);
-            Assert.Equal(index + 24, all.Count);
+            // The amount a link request asks for (issue #3631), after that.
+            Assert.Equal("20261007180102_AddLinkRequestRequestedAmount", all[index + 24]);
+            // The seat a schedule runs (issue #3650), after that.
+            Assert.Equal("20261008043059_AddScheduleSeat", all[index + 25]);
+            Assert.Equal(index + 26, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
             Assert.Empty(context.Database.GetAppliedMigrations());

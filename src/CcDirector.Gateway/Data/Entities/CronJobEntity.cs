@@ -30,6 +30,10 @@ public sealed class CronJobEntity : TenantScopedEntity
     /// already in that factory.</summary>
     public string? Factory { get; set; }
 
+    /// <summary>The seat of <see cref="Factory"/> this schedule runs (issue #3650), or null. Always set together with
+    /// the factory; see <see cref="Contracts.CronJobDto.Seat"/>.</summary>
+    public string? Seat { get; set; }
+
     /// <summary>The target machine. Mapped as an owned type serialized to a JSON column.</summary>
     public CronJobTarget Target { get; set; } = new();
 
