@@ -7,7 +7,7 @@ import {
   type SessionStopOutcome,
 } from "@devthrottle/client-core/api/client";
 import { classify, isDeferredHold, isWorking, snoozeCountdown } from "@devthrottle/client-core/sessions/ordering";
-import { promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
+import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
 import {
   isSnoozing,
   optimisticHoldFor,
@@ -69,6 +69,8 @@ export interface SessionManage {
   // agent (issue internal#811), or null when nothing was lost. Rendered VERBATIM by the app bar, so every
   // per-session screen says it, not just the one the user happened to be on when it happened.
   deliveryNotice: string | null;
+  // How often delivery has gone wrong on this session ("1 composer retry"), shown with the notice, or null.
+  deliveryHistory: string | null;
   busy: boolean;
   error: string | null;
   setError: (message: string | null) => void;
@@ -113,6 +115,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
   const [snoozed, setSnoozed] = useState(false);
   const [holdCountdown, setHoldCountdown] = useState<string | null>(null);
   const [deliveryNotice, setDeliveryNotice] = useState<string | null>(null);
+  const [deliveryHistory, setDeliveryHistory] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // While a toggle is in flight the optimistic state must not be clobbered by a slower poll.
@@ -149,6 +152,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
         // state so the banner appears without the user doing anything - the failure happened while they
         // were looking at some other screen, which is exactly why it has to find them.
         setDeliveryNotice(promptDeliveryNotice(match));
+        setDeliveryHistory(promptDeliveryHistory(match));
         // classify fails loud against a Gateway that did not stamp triageBucket; in this polling loop a
         // mixed-version blip must not throw the refresh, so keep the last verdict on that rare miss.
         try {
@@ -287,6 +291,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
     snoozed,
     holdCountdown,
     deliveryNotice,
+    deliveryHistory,
     busy,
     error,
     setError,

@@ -1,0 +1,170 @@
+/* The small red "Not delivered" chip and its details (NotDeliveredIndicator). Carried by the component itself,
+   so the Cockpit and the phone get one copy of these rules. The chip is deliberately small: it must not move
+   the transcript or the composer. The details open over the page, never inside the layout. */
+
+.nd-root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.nd-alert {
+  display: inline-flex;
+}
+
+.nd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(241, 76, 76, 0.7);
+  background: rgba(241, 76, 76, 0.18);
+  color: #ffb4b4;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.nd-chip:hover,
+.nd-chip[aria-expanded="true"] {
+  background: rgba(241, 76, 76, 0.3);
+}
+
+.nd-chip-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: rgba(241, 76, 76, 0.85);
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+/* The backdrop is only for the phone's sheet; on a wide screen a click outside closes the popover instead. */
+.nd-backdrop {
+  display: none;
+}
+
+.nd-panel {
+  position: absolute;
+  right: 0;
+  z-index: 60;
+  width: min(440px, calc(100vw - 32px));
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(241, 76, 76, 0.55);
+  background: var(--surface-2, #1b2238);
+  color: var(--text, #e6e9f2);
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  text-align: left;
+  white-space: normal;
+}
+.nd-up .nd-panel {
+  bottom: calc(100% + 6px);
+}
+.nd-down .nd-panel {
+  top: calc(100% + 6px);
+}
+
+.nd-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.nd-panel-title {
+  font-weight: 700;
+  color: #ffb4b4;
+}
+.nd-close {
+  border: none;
+  background: transparent;
+  color: var(--text-dim, #99a0b8);
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.nd-notice,
+.nd-history,
+.nd-label {
+  margin: 0 0 8px;
+  overflow-wrap: anywhere;
+}
+.nd-history {
+  color: var(--text-dim, #99a0b8);
+  font-size: 12px;
+}
+
+/* The words handed back. Capped and scrolling inside itself, so a long prompt cannot push the buttons away. */
+.nd-quote {
+  max-height: 30vh;
+  max-height: 30dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border-left: 3px solid rgba(241, 76, 76, 0.5);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.18);
+  font-style: italic;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.nd-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.nd-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent, #3b82f6);
+  cursor: pointer;
+}
+.nd-btn-quiet {
+  background: transparent;
+  color: var(--text-dim, #99a0b8);
+  border: 1px solid var(--border, #28304a);
+}
+.nd-btn:disabled {
+  opacity: 0.6;
+}
+
+/* A phone: the details come up as a sheet from the bottom of the screen, over a dimmed page. */
+@media (max-width: 640px) {
+  .nd-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 59;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  .nd-up .nd-panel,
+  .nd-down .nd-panel {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-height: 70vh;
+    max-height: 70dvh;
+    border-radius: 14px 14px 0 0;
+    padding: 14px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+}

@@ -22,6 +22,7 @@
     "./sessions/WingmanTab": "./src/sessions/WingmanTab.tsx",
     "./sessions/WingmanNow": "./src/sessions/WingmanNow.tsx",
     "./sessions/WingmanErrorLine": "./src/sessions/WingmanErrorLine.tsx",
+    "./sessions/NotDeliveredIndicator": "./src/sessions/NotDeliveredIndicator.tsx",
     "./stats/ThrottleWindowSelector": "./src/stats/ThrottleWindowSelector.tsx",
     "./teams/CurrentTeam": "./src/teams/CurrentTeam.tsx",
     "./transcription/MicrophoneQualityPanel": "./src/transcription/MicrophoneQualityPanel.tsx",

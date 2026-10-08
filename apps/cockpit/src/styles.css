@@ -1413,28 +1413,20 @@ body {
   height: auto;
 }
 
-/* "Your last prompt was not delivered" (issue internal#811), pinned above the action bar and the composer.
-   It does not fade and it cannot be dismissed: it goes away when a prompt actually lands, which is the
-   only thing that fixes it. Two lines - the Gateway's sentence, then how often this has happened here. */
-.delivery-failure-banner {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 12px;
-  background: rgba(220, 68, 68, 0.14);
-  border-top: 1px solid rgba(220, 68, 68, 0.7);
+/* "Your last prompt was not delivered" (issue internal#811): the anchor for the small red "Not delivered" chip
+   (NotDeliveredIndicator). It has no height of its own, so the chip floats at the bottom-right corner of the pane
+   above the action bar and moves nothing; its details open upwards over the transcript. It does not fade: it goes
+   away when a prompt actually lands. */
+.delivery-chip-anchor {
+  position: relative;
+  height: 0;
   flex: 0 0 auto;
+  z-index: 5;
 }
-
-.delivery-failure-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #f08a8a;
-}
-
-.delivery-failure-history {
-  font-size: 11.5px;
-  color: var(--text-dim);
+.delivery-chip-anchor > .nd-root {
+  position: absolute;
+  right: 22px;
+  bottom: 8px;
 }
 
 /* THE STRIP UNDER THE COMPOSER. One urgent verb and its escalation, not a row of five. */

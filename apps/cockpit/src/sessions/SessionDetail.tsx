@@ -16,6 +16,7 @@ import { QueuePanel } from "./QueuePanel";
 import { ScreenshotsPanel } from "./ScreenshotsPanel";
 import { appendToCompose } from "./composerInsert";
 import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
+import { NotDeliveredIndicator } from "@devthrottle/client-core/sessions/NotDeliveredIndicator";
 import { WingmanTab } from "@devthrottle/client-core/sessions/WingmanTab";
 import { sendingButtonFor, wingmanNowActions } from "./wingmanNowActions";
 import { useStopSession } from "./StopSessionProvider";
@@ -329,17 +330,21 @@ export function SessionDetail() {
         </div>
 
         {/* A prompt to this session was not delivered (issue internal#811). It stays until something actually
-            lands, on EVERY tab - a prompt that never reached the session is worth saying wherever he is standing,
-            and the next attempt is the box below on most tabs and the one inside the card on the Wingman tab.
-            The sentence is the Gateway's, rendered verbatim. */}
-        {selected && promptDeliveryNotice(selected) !== null && (
-          <div className="delivery-failure-banner" role="alert">
-            <span className="delivery-failure-title">{promptDeliveryNotice(selected)}</span>
-            {promptDeliveryHistory(selected) !== null && (
-              <span className="delivery-failure-history">{promptDeliveryHistory(selected)}</span>
-            )}
-          </div>
-        )}
+            lands, on EVERY tab - a prompt that never reached the session is worth saying wherever he is standing.
+            It is ONE small red chip floating at the bottom-right corner above the composer, not a banner: the
+            banner and the shown-back box under the composer together took the screen over (owner ruling
+            2026-10-07). The anchor has no height, so the chip moves nothing; a click opens the Gateway's sentence
+            verbatim, the history, and the words with Send anyway / Dismiss. It claims the session, so the
+            composer strip's own copy stays quiet and there is one chip, not two. */}
+        <div className="delivery-chip-anchor">
+          <NotDeliveredIndicator
+            sessionId={sessionId}
+            notice={selected ? promptDeliveryNotice(selected) : null}
+            history={selected ? promptDeliveryHistory(selected) : null}
+            claim
+            placement="up"
+          />
+        </div>
         {/* NEITHER OF THESE BELONGS ON THE WINGMAN TAB (the review's items B7 and B1).
             The driver bar puts Stop, Interrupt, Compact, Clear context and History directly under the place the
             owner clicks his answers - the design kept destructive controls off Now on purpose, and they arrived

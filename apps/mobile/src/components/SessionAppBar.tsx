@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useNavigate, useParams } from "react-router-dom";
 import { holdPillLabel } from "@devthrottle/client-core/sessions/snoozeAction";
 import type { SessionManage } from "./useSessionManage";
+import { NotDeliveredIndicator } from "@devthrottle/client-core/sessions/NotDeliveredIndicator";
 
 // The ONE app bar shared by every per-session screen: Chat, Terminal and Voice mode (owner design
 // review, "Option A"). It replaces the old SessionManageBar row, which mixed navigation (back to the
@@ -221,6 +222,21 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
           tab and getting hit instead of it. */}
       <div className="session-title-row">
         <h1 className="term-title session-title">{title}</h1>
+        {/* A prompt to this session was NOT delivered - the user's words never reached the agent (issue
+            internal#811). It lives on the shared app bar so it is on EVERY per-session screen: the loss
+            usually happens while the phone is somewhere else entirely, so a sign that only existed on one tab
+            would be one nobody sees. Sticky by design - it clears when a prompt actually lands or the words are
+            dismissed, never on a timer. It is a small red chip at the end of the title row, not a banner: the
+            banner and the shown-back box together took the phone screen over (owner ruling 2026-10-07). A tap
+            opens a sheet with the Gateway's sentence, the history, and the words with Send anyway / Dismiss.
+            It claims the session, so the strip on the screen below stays quiet: one chip, not two. */}
+        <NotDeliveredIndicator
+          sessionId={sessionId}
+          notice={manage.deliveryNotice}
+          history={manage.deliveryHistory}
+          claim
+          placement="down"
+        />
       </div>
 
       {/* The action error banner. It is suppressed while the stop sheet is open, because the sheet
@@ -228,15 +244,6 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
           of one event, one of them unreadable, is exactly what finding I8 was. */}
       {manage.error !== null && !confirming && (
         <div className="banner banner-error" role="alert">{manage.error}</div>
-      )}
-      {/* A prompt to this session was NOT delivered - the user's words never reached the agent (issue
-          internal#811). It lives on the shared app bar so it is on EVERY per-session screen: the loss
-          usually happens while the phone is somewhere else entirely (a dictation sent from the roster,
-          the screen locked), so a banner that only existed on one tab would be a banner nobody sees.
-          Sticky by design - it clears when a prompt actually lands, never on a tap and never on a timer -
-          because a failure the user can wave away is how two spoken prompts went missing for two days. */}
-      {manage.deliveryNotice !== null && (
-        <div className="banner banner-not-delivered" role="alert">{manage.deliveryNotice}</div>
       )}
       {/* The snooze pill. A DEFERRED snooze reads "Snoozing when it finishes" (asked for while the agent is
           working, so it arms when the work ends) - this is what makes snoozing a busy session give instant
