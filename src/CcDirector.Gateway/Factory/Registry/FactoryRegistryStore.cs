@@ -81,8 +81,8 @@ public sealed partial class FactoryRegistryStore
         {
             using var ctx = _db.CreateContext(tenant);
             var linked = LinkedSchedules(ctx, entity.Factory);
-            CheckAgainstSchedules(entity, request!, linked);
             var existing = ctx.FactoryRegistry.FirstOrDefault(f => f.Factory == entity.Factory);
+            CheckAgainstSchedules(entity, request!, linked, ArchivedScheduleIds(existing));
             if (existing is null)
             {
                 var count = ctx.FactoryRegistry.Count();
@@ -344,6 +344,11 @@ public sealed partial class FactoryRegistryStore
         Id = s.Id, Name = s.Name, Role = s.Role, BriefFile = s.BriefFile, Schedules = new List<string>(), Computer = s.Computer,
     };
 
+    private static IReadOnlySet<string> ArchivedScheduleIds(FactoryRegistryEntity? row) =>
+        row?.ArchivedAtUtc is null || row.ArchivedSchedulesJson is null
+            ? new HashSet<string>(StringComparer.Ordinal)
+            : (JsonSerializer.Deserialize<List<string>>(row.ArchivedSchedulesJson, Json) ?? new()).ToHashSet(StringComparer.Ordinal);
+
     /// <summary>The schedules of the account that name <paramref name="factory"/>, in id order.</summary>
     private static List<CronJobEntity> LinkedSchedules(GatewayDbContext ctx, string factory) =>
         ctx.CronJobs.AsNoTracking().Where(j => j.Factory == factory).ToList()
@@ -361,17 +366,22 @@ public sealed partial class FactoryRegistryStore
     /// refused with the command that links it; nothing is linked behind the caller's back, because linking a
     /// schedule decides which factory its sessions are born into and has its own gate (<c>FactoryNaming</c>).
     /// </summary>
-    internal static void CheckAgainstSchedules(FactoryRegistryEntity entity, RegisterFactoryRequest manifest, IReadOnlyList<CronJobEntity> linked)
+    internal static void CheckAgainstSchedules(FactoryRegistryEntity entity, RegisterFactoryRequest manifest,
+        IReadOnlyList<CronJobEntity> linked, IReadOnlySet<string> archivedSchedules)
     {
         var seats = (JsonSerializer.Deserialize<List<RegisteredFactorySeatDto>>(entity.SeatsJson, Json) ?? new())
             .Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
-        var stranded = linked.Where(j => j.Enabled && (j.Seat is null || !seats.Contains(j.Seat))).ToList();
+        // A schedule the factory's archive switched off counts as running: Restore switches exactly those back on, so
+        // dropping their seat while the factory is archived would hand Restore a seat nobody registered (review
+        // finding 2). Only switching it off by hand, or deleting it, takes it out of that list.
+        var stranded = linked.Where(j => (j.Enabled || archivedSchedules.Contains(j.Id)) && (j.Seat is null || !seats.Contains(j.Seat))).ToList();
         if (stranded.Count > 0)
         {
             var named = string.Join("; ", stranded.GroupBy(j => j.Seat ?? "(no seat)")
                 .Select(g => $"seat '{g.Key}' still runs {string.Join(", ", g.Select(j => $"{j.Id} ({j.Name})"))}"));
             throw Refuse($"This manifest leaves out seats of {entity.Factory} that are still running: {named}. " +
-                         "Keep those seats in the manifest, or switch their schedules off first (cc-devthrottle schedule disable <id>), then register again.");
+                         "Keep those seats in the manifest, or switch their schedules off first (cc-devthrottle schedule disable <id>), then register again. " +
+                         "While a factory is archived, the schedules its archive switched off count as running.");
         }
 
         foreach (var seat in manifest.Seats)

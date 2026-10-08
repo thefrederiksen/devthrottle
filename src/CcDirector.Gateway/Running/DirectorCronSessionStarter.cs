@@ -17,17 +17,34 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
 {
     private readonly MachineSessionSpawner _spawner;
     private readonly IClock _clock;
+    private readonly Func<CronJobDto, string?> _refuseFactoryWork;
 
-    public DirectorCronSessionStarter(MachineSessionSpawner spawner, IClock clock)
+    /// <param name="refuseFactoryWork">Issue #3650: for a job about to fire, the reason it may not - its factory or
+    /// seat is not in the account's registry - or null when it may. Every way a schedule starts a session comes
+    /// through here (its own time, run-now, a factory's Restore switching it back on), so this is the one place that
+    /// makes factory work on an unregistered seat impossible rather than merely refused at the write. REQUIRED: a
+    /// harness that has no registry passes <c>_ =&gt; null</c>.</param>
+    public DirectorCronSessionStarter(MachineSessionSpawner spawner, IClock clock, Func<CronJobDto, string?> refuseFactoryWork)
     {
         _spawner = spawner ?? throw new ArgumentNullException(nameof(spawner));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _refuseFactoryWork = refuseFactoryWork ?? throw new ArgumentNullException(nameof(refuseFactoryWork));
     }
 
     public async Task<(string? sessionId, string? directorId, string? error)> StartAsync(CronJobDto job, CancellationToken ct)
     {
         if (job is null)
             throw new ArgumentNullException(nameof(job));
+
+        // NO FACTORY WORK WITHOUT A REGISTERED SEAT (issue #3650). A write is already refused, but a link can stop
+        // validating afterwards - a seat dropped while its schedules were off, then switched back on. Such a job does
+        // not start: the run is recorded as not started, with the reason, and the schedule stays on the Factories
+        // screen's "outside any factory" list until its seat is registered or it is moved.
+        if (_refuseFactoryWork(job) is { } refusal)
+        {
+            FileLog.Write($"[DirectorCronSessionStarter] start REFUSED: job={job.Id}, factory={job.Factory}, seat={job.Seat}: {refusal}");
+            return (null, null, $"not started: {refusal}");
+        }
 
         var req = new NewSessionRequest
         {

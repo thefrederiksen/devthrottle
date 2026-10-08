@@ -2318,7 +2318,11 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: () => _tenantPass.Current);
         var cronClock = new Running.SystemClock();
         _cronEngine = new Running.CronEngine(
-            _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_machineSessionSpawner, cronClock),
+            _cronJobs, _cronRuns, new Running.DirectorCronSessionStarter(_machineSessionSpawner, cronClock,
+                // Issue #3650: a job whose factory or seat the registry does not have never starts. The fire runs in
+                // the job's account's scope, so the ambient tenant is the account the job belongs to.
+                refuseFactoryWork: job => Factory.Registry.FactoryScheduleLink.Check(job.Factory, job.Seat,
+                    id => FactoryRegistry.Find(_tenantContext.Current, id), out _)),
             cronWorkListRunner, cronNotifier, cronClock,
             // MTR (audit MED): partition the overlap guard by the tenant of the CURRENT unit of work - the
             // run-now request scope on hosted, the single Local scope on self-host - the same seam the notifier

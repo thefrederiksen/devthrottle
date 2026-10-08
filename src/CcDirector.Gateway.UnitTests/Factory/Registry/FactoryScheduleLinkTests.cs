@@ -189,7 +189,62 @@ public sealed class FactoryScheduleLinkTests : IAsyncLifetime
         Assert.Equal("mail-desk", _schedules.Get(job.Id)!.Seat);
     }
 
+    [Fact]
+    public async Task Update_ThatSwitchesOffASchedule_WhoseSeatIsGone_Lands_AndOneThatKeepsItOnIsRefused()
+    {
+        // Review finding 1: the Cockpit's toggle and `schedule disable` re-send the stored definition, so a link that
+        // stopped validating must not stop the owner switching the schedule off.
+        _registry.Register(T, Devthrottle("ceo"), "the owner (test)", Now);
+        ScheduleLinkSeed.Link(_db, T, "devthrottle", "fired", "cj_gone");
+        var off = Schedule(factory: null, seat: null);
+        off.Enabled = false;
+
+        var (switchedOff, _, job) = await Put("cj_gone", off);
+        Assert.Equal(HttpStatusCode.OK, switchedOff);
+        Assert.False(job!.Enabled);
+        Assert.Equal(("devthrottle", "fired"), (job.Factory, job.Seat));
+
+        var (keptOn, error, _) = await Put("cj_gone", Schedule(factory: null, seat: null));
+        Assert.Equal(HttpStatusCode.BadRequest, keptOn);
+        Assert.Contains("'fired' is not a seat of DevThrottle", error);
+        Assert.False(_schedules.Get("cj_gone")!.Enabled);
+    }
+
+    [Fact]
+    public async Task Update_ThatMovesAScheduleToAnotherFactory_MustNameTheSeat()
+    {
+        // Review finding 4: a seat id belongs to its factory; carrying "ceo" into another factory is a seat nobody named.
+        _registry.Register(T, Devthrottle("ceo"), "the owner (test)", Now);
+        var other = Devthrottle("ceo");
+        other.Factory = "money-saver";
+        other.Title = "Money Saver";
+        _registry.Register(T, other, "the owner (test)", Now);
+        var (_, _, job) = await Post(Schedule("devthrottle", "ceo"));
+
+        var (status, error, _) = await Put(job!.Id, Schedule("money-saver", seat: null));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("names the factory 'money-saver' but no seat", error);
+        Assert.Equal("devthrottle", _schedules.Get(job.Id)!.Factory);
+    }
+
     // ---------- point 3: registration cannot drop a running seat ----------
+
+    [Fact]
+    public async Task Register_WhileArchived_CannotDropASeatWhoseSchedulesTheArchiveSwitchedOff()
+    {
+        // Review finding 2: Restore switches exactly the archived schedules back on, so their seat must still exist.
+        _registry.Register(T, Devthrottle("ceo", "mail-desk"), "the owner (test)", Now);
+        var (_, _, job) = await Post(Schedule("devthrottle", "mail-desk"));
+        _schedules.SetEnabled(T, job!.Id, enabled: false);
+        _registry.Archive(T, "devthrottle", "owner (test)", new[] { job.Id }, Now);
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() =>
+            _registry.Register(T, Devthrottle("ceo"), "the owner (test)", Now.AddMinutes(1)));
+
+        Assert.Contains($"seat 'mail-desk' still runs {job.Id}", ex.Message);
+        Assert.Contains("archive switched off count as running", ex.Message);
+    }
 
     [Fact]
     public async Task Register_ThatLeavesOutASeatWithEnabledSchedules_IsRefusedNamingThem_AndTheSeatStays()

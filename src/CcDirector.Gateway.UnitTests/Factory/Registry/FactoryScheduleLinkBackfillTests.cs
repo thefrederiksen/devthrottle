@@ -103,6 +103,28 @@ public sealed class FactoryScheduleLinkBackfillTests : IDisposable
     }
 
     [Fact]
+    public void Run_AnAccountWhoseRowCannotBeRead_IsReportedAndSkipped_AndTheOtherAccountsAreStillLinked()
+    {
+        // Review finding 3: this runs at start-up for every account; one bad row must not keep the Gateway down.
+        using (var ctx = _db.CreateContext(A))
+        {
+            ctx.FactoryRegistry.Add(new FactoryRegistryEntity
+            {
+                TenantId = A.Value, Factory = "broken", Title = "Broken", Folder = @"D:\f", Computer = "SOREN_NORTH",
+                SeatsJson = "{not a list", RegisteredBy = "x", RegisteredAtUtc = DateTime.UtcNow,
+            });
+            ctx.SaveChanges();
+        }
+        ScheduleLinkSeed.Link(_db, B, null, null, "cj_1");
+        OldRow(B, "warmforward", ("nora-hale", new[] { "cj_1" }));
+
+        var result = FactoryScheduleLinkBackfill.Run(_db);
+
+        Assert.Contains(result.Skipped, s => s.StartsWith("acct-a: the account's backfill failed"));
+        Assert.Equal(("warmforward", "nora-hale"), LinkOf(B, "cj_1"));
+    }
+
+    [Fact]
     public void Run_LeavesAloneAndReports_AMissingSchedule_OneClaimedByTwoSeats_AndOneAlreadyElsewhere()
     {
         ScheduleLinkSeed.Link(_db, A, null, null, "cj_shared");

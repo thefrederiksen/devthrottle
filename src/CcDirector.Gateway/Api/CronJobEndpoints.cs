@@ -68,7 +68,7 @@ internal static class CronJobEndpoints
             job.Factory = settledFactory;
 
             // THE SEAT, checked against the registry (issue #3650): factory work exists only as a registered seat.
-            if (!TrySettleSeat(ctx, findFactory, job, storedSeat: null, "POST /cron/jobs", out var seatError))
+            if (!TrySettleSeat(ctx, findFactory, job, storedFactory: null, storedSeat: null, "POST /cron/jobs", out var seatError))
                 return seatError!;
 
             var created = store.Create(job);
@@ -172,7 +172,7 @@ internal static class CronJobEndpoints
 
             // The seat follows the factory's rule: a body that says nothing about it keeps the stored seat, and the
             // pair that results is checked against the registry like a create (issue #3650).
-            if (!TrySettleSeat(ctx, findFactory, incoming, store.Get(id)?.Seat, $"PUT /cron/jobs/{id}", out var seatError))
+            if (!TrySettleSeat(ctx, findFactory, incoming, storedFactory, store.Get(id)?.Seat, $"PUT /cron/jobs/{id}", out var seatError))
                 return seatError!;
 
             var updated = store.Update(id, incoming);
@@ -197,15 +197,33 @@ internal static class CronJobEndpoints
     }
 
     /// <summary>
-    /// Settle a schedule's seat and check its factory and seat against the registry (issue #3650). A blank seat in
-    /// the body keeps <paramref name="storedSeat"/>. On true the job carries the folded seat; on false
-    /// <paramref name="error"/> is the 400 that names the fix, and nothing may be stored.
+    /// Settle a schedule's seat and check its factory and seat against the registry (issue #3650). On true the job
+    /// carries the folded seat; on false <paramref name="error"/> is the 400 that names the fix, and nothing may be
+    /// stored. <paramref name="job"/>'s factory is already settled by the factory-naming gate.
+    ///
+    /// A blank seat keeps <paramref name="storedSeat"/> - unless the factory is changing, because a seat id belongs
+    /// to its factory and carrying it into another one would be a seat the caller never named (review finding 4).
+    ///
+    /// A SWITCH-OFF ALWAYS LANDS (review finding 1). A link can stop validating after it was written; refusing every
+    /// edit of such a schedule would leave the owner unable to switch it off from the Cockpit or with
+    /// <c>schedule disable</c>, both of which re-send the stored definition. So an update that leaves the link as it
+    /// is and switches the schedule off is accepted without the check. It still cannot run: the firing path refuses a
+    /// broken link (<c>DirectorCronSessionStarter</c>).
     /// </summary>
     internal static bool TrySettleSeat(HttpContext ctx, Func<HttpContext, string, RegisteredFactoryDto?> findFactory,
-        CronJobDto job, string? storedSeat, string route, out IResult? error)
+        CronJobDto job, string? storedFactory, string? storedSeat, string route, out IResult? error)
     {
         error = null;
-        var requested = string.IsNullOrWhiteSpace(job.Seat) ? storedSeat : job.Seat;
+        var factoryChanged = !string.Equals(job.Factory, storedFactory, StringComparison.Ordinal);
+        var requested = string.IsNullOrWhiteSpace(job.Seat) ? (factoryChanged ? null : storedSeat) : job.Seat;
+        var sameSeat = string.Equals(requested, storedSeat, StringComparison.Ordinal)
+            || (Factory.FactoryNames.TrySeat(requested, out var folded, out _) && folded == storedSeat);
+        if (!job.Enabled && !factoryChanged && sameSeat && storedFactory is not null)
+        {
+            FileLog.Write($"[CronJobEndpoints] {route}: a switch-off keeps the stored link {storedFactory}/{storedSeat ?? "none"} unchecked");
+            job.Seat = storedSeat;
+            return true;
+        }
         var refusal = Factory.Registry.FactoryScheduleLink.Check(job.Factory, requested, id => findFactory(ctx, id), out var seat);
         if (refusal is not null)
         {

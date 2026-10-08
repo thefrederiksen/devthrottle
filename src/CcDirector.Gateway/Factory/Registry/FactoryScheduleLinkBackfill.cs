@@ -52,7 +52,21 @@ public static class FactoryScheduleLinkBackfill
         var already = new List<string>();
         var skipped = new List<string>();
         foreach (var tenant in tenants)
-            RunForTenant(db, new TenantId(tenant), linked, already, skipped);
+        {
+            // ONE ACCOUNT'S BAD ROW CANNOT STOP THE SERVICE (review finding 3). This runs at start-up for every
+            // account on the hosted Gateway; a row that cannot be read would otherwise keep the whole Gateway down on
+            // every restart. That account's backfill is abandoned whole - its save never runs, so nothing of it is
+            // half done - and the failure is logged and reported; the next start tries it again.
+            try
+            {
+                RunForTenant(db, new TenantId(tenant), linked, already, skipped);
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException or DbUpdateException)
+            {
+                FileLog.Write($"[FactoryScheduleLinkBackfill] Run FAILED for account {tenant}: {ex.Message}");
+                skipped.Add($"{tenant}: the account's backfill failed and nothing of it was saved: {ex.Message}");
+            }
+        }
 
         FileLog.Write($"[FactoryScheduleLinkBackfill] Run: accounts={tenants.Count}, linked={linked.Count}, alreadyLinked={already.Count}, skipped={skipped.Count}");
         foreach (var line in skipped)

@@ -38,7 +38,7 @@ public sealed class DirectorCronSessionStarterTests
             captured = req;
             return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = "sid-1" }, null));
         });
-        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(utcNow));
+        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(utcNow), refuseFactoryWork: _ => null);
         return (starter, () => captured);
     }
 
@@ -52,6 +52,31 @@ public sealed class DirectorCronSessionStarterTests
         Target = new CronJobTarget { Machine = "MACHINE_A" },
         Action = new CronJobAction { RepoPath = @"C:\repo", Seed = "/help" },
     };
+
+    [Fact]
+    public async Task Start_AJobWhoseFactorySeatIsNotRegistered_NeverReachesAMachine_AndSaysWhy()
+    {
+        // Issue #3650: the last door. A link that stopped validating after it was written (a seat dropped while its
+        // schedule was off, then switched back on) must not start factory work as a seat nobody registered.
+        var spawned = false;
+        var spawner = new MachineSessionSpawner(new StubResolver(new DirectorTargetResult("d-1", null)), (_, _, _) =>
+        {
+            spawned = true;
+            return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = "sid-1" }, null));
+        });
+        var job = Job("Mail Desk - morning", "UTC");
+        job.Factory = "devthrottle";
+        job.Seat = "mail-desk";
+        var starter = new DirectorCronSessionStarter(spawner, new FixedClock(DateTime.UtcNow),
+            refuseFactoryWork: j => j.Seat == "mail-desk" ? "'mail-desk' is not a seat of DevThrottle" : null);
+
+        var (sessionId, directorId, error) = await starter.StartAsync(job, CancellationToken.None);
+
+        Assert.False(spawned);
+        Assert.Null(sessionId);
+        Assert.Null(directorId);
+        Assert.Equal("not started: 'mail-desk' is not a seat of DevThrottle", error);
+    }
 
     [Fact]
     public async Task Start_NamesSessionAfterScheduleAndLocalFireTime()

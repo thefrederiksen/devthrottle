@@ -43,7 +43,7 @@ public sealed class FactoryOnTheTwoStartersTests
             captured = req;
             return Task.FromResult<(bool, SessionDto?, string?)>((true, new SessionDto { SessionId = "sid-1" }, null));
         });
-        return (new DirectorCronSessionStarter(spawner, new FixedClock()), () => captured);
+        return (new DirectorCronSessionStarter(spawner, new FixedClock(), refuseFactoryWork: _ => null), () => captured);
     }
 
     private static CronJobDto Job(string? factory) => new()

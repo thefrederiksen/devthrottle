@@ -283,6 +283,18 @@ public sealed class FactoriesScreenFoldTests
     }
 
     [Fact]
+    public void List_AnEnabledScheduleOfAnArchivedFactory_IsOutside()
+    {
+        var archived = WarmForward();
+        archived.ArchivedAtUtc = Now.AddDays(-1);
+
+        var view = FactoriesScreenFold.List(Inputs(new[] { archived },
+            jobs: new[] { Linked("cj_ceo", "CEO", "warmforward", "nora-hale") }));
+
+        Assert.Equal("Runs for WarmForward, which is archived", Assert.Single(view.OutsideRows).Reason);
+    }
+
+    [Fact]
     public void List_WhenEveryEnabledScheduleIsASeat_SaysSo()
     {
         var view = FactoriesScreenFold.List(Inputs(new[] { WarmForward() },

@@ -144,8 +144,8 @@ public static class FactoriesScreenFold
 
     /// <summary>
     /// Every ENABLED schedule that runs as no registered seat (issue #3650): one in no factory, or one naming a factory
-    /// or a seat the registry does not have. Archived factories count as registered - their schedules are switched
-    /// off by the archive, so an enabled one there is still a seat's. By name, then id.
+    /// or a seat the registry does not have, or one running for an archived factory (whose schedules the archive
+    /// switched off). By name, then id.
     /// </summary>
     internal static List<FactoryOutsideScheduleRowDto> OutsideAnyFactory(FactoriesScreenInputs input)
     {
@@ -171,6 +171,9 @@ public static class FactoriesScreenFold
     {
         if (string.IsNullOrWhiteSpace(job.Factory)) return "In no factory";
         if (!registry.TryGetValue(job.Factory, out var f)) return $"Names the factory '{job.Factory}', which is not registered";
+        // Archiving switches a factory's schedules off, so an enabled one is running work for a factory that is off
+        // the list - shown here, not only under Show archived (review finding 5).
+        if (f.ArchivedAtUtc is not null) return $"Runs for {f.Title}, which is archived";
         if (string.IsNullOrWhiteSpace(job.Seat)) return $"In {f.Title} but no seat of it";
         if (!f.Seats.Any(s => s.Id == job.Seat)) return $"Names the seat '{job.Seat}', which {f.Title} does not have";
         return null;
