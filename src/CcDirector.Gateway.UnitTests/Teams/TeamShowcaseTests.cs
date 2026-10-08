@@ -248,6 +248,18 @@ public sealed class TeamShowcaseTests : IDisposable
         Assert.Equal(1, html.Split("data-recommended").Length - 1);
     }
 
+    [Fact]
+    public void ReportHtml_EveryReport_ReadsThroughTheGatewaysQuestionReader()
+    {
+        // Live, 8 Oct: reports written without the questions section made the team's Questions and Reports pages
+        // answer 500, because those pages read every report through this reader and it refuses a malformed one.
+        foreach (var report in Content().Reports)
+        {
+            var questions = CcDirector.Gateway.DevReports.DevReportQuestions.Read(TeamShowcase.ReportHtml(report));
+            Assert.Equal(report.Question is null ? 0 : 1, questions.Count);
+        }
+    }
+
     // ---- helpers -------------------------------------------------------------------------------------------------
 
     private sealed record Row(string Key, string? Tag);

@@ -284,14 +284,24 @@ public sealed class TeamShowcase
         var html = new StringBuilder();
         html.Append($"<header data-dev-report=\"header\" data-dev-report-status=\"{status}\"><h1>{E(r.Title)}</h1></header>");
         html.Append($"<section data-dev-report=\"summary\"><p>{E(r.Summary)}</p></section>");
+        // The full dev report shape: a questions section on EVERY report (the questions, or the marker that there are
+        // none) and a detail section. The Questions and Reports pages read every report through
+        // DevReportQuestions.Read, which treats a report without that shape as a fault - one such report made both
+        // pages answer 500 for the whole team.
+        html.Append("<section data-dev-report=\"questions\">");
         if (r.Question is { } q)
         {
-            html.Append("<section data-dev-report=\"questions\">");
             html.Append($"<div data-dev-report-question=\"{E(q.Id)}\" data-dev-report-question-text=\"{E(q.Text)}\">");
             foreach (var o in q.Options)
                 html.Append($"<label><input type=\"radio\" name=\"{E(q.Id)}\" value=\"{E(o.Value)}\"{(o.Recommended ? " data-recommended" : "")}> {E(o.Label)}</label>");
-            html.Append("</div></section>");
+            html.Append("</div>");
         }
+        else
+        {
+            html.Append("<p data-dev-report-no-questions>No questions - nothing needed from you.</p>");
+        }
+        html.Append("</section>");
+        html.Append($"<section data-dev-report=\"detail\"><p>{E(r.Summary)}</p></section>");
         return html.ToString();
     }
 
