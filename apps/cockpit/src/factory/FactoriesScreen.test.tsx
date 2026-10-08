@@ -541,6 +541,28 @@ describe("Factories - the owner's sort order (mockups A and B, 8 Oct 2026)", () 
     expect(screen.getByTestId("fa-sort-heading-name").textContent).toBe("Factory");
   });
 
+  it("tells assistive technology which column is sorted and which way", async () => {
+    renderAt("/factories");
+
+    const list = await screen.findByTestId("fa-factories-list");
+    const sortOf = () => Array.from(list.querySelectorAll("[role=columnheader]")).map((h) => h.getAttribute("aria-sort"));
+    expect(sortOf()).toEqual(["ascending", "none", "none", null]);
+    fireEvent.click(screen.getByTestId("fa-sort-heading-status"));
+    expect(sortOf()).toEqual(["none", "none", "descending", null]);
+    expect(screen.getByTestId("fa-sort-direction").getAttribute("aria-label")).toBe("Reverse the order, now Worst first");
+  });
+
+  it("matches headings to keys by their words, so a column the Gateway moves still sorts by its own key", async () => {
+    screenClient.getFactoriesList.mockResolvedValue({ ...FACTORY_LIST, columns: ["Status", "Owner", "Factory"] });
+    renderAt("/factories");
+
+    await screen.findByTestId("fa-factories-list");
+    fireEvent.click(screen.getByTestId("fa-sort-heading-status"));
+    expect(order()).toEqual(["mindzie-web", "warmforward", "devthrottle"]);
+    // A heading the Cockpit has no key for is plain text, not a button that sorts by something else.
+    expect(screen.getByText("Owner").closest("button")).toBeNull();
+  });
+
   it("remembers the last order picked in this browser and opens on it next time", async () => {
     renderAt("/factories");
 

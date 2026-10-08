@@ -147,6 +147,7 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
           className="fa-sortbar-dir"
           data-testid="fa-sort-direction"
           title="Reverse the order"
+          aria-label={`Reverse the order, now ${directionLabel(order)}`}
           onClick={() => pick({ key: order.key, reversed: !order.reversed })}
         >
           {directionLabel(order)}
@@ -155,8 +156,8 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
       </div>
       <div className="fa-flist" role="table" aria-label={view.title} data-testid="fa-factories-list">
         <div className="fa-flist-head" role="row">
-          {view.columns.map((c, i) => {
-            const key = FACTORY_COLUMN_KEYS[i];
+          {view.columns.map((c) => {
+            const key = FACTORY_COLUMN_KEYS[c];
             if (key === undefined)
               return (
                 <span key={c} role="columnheader">

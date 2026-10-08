@@ -89,6 +89,7 @@ describe("the words and the arrow", () => {
     expect(headingArrow({ key: "status", reversed: false })).toBe("v");
     expect(headingArrow({ key: "status", reversed: true })).toBe("^");
     expect(headingArrow({ key: "waiting", reversed: false })).toBe("v");
+    expect(headingArrow({ key: "waiting", reversed: true })).toBe("^");
   });
 
   it("states the order under the table, in ASCII only", () => {
@@ -126,6 +127,17 @@ describe("the remembered order", () => {
     expect(loadFactorySort()).toEqual(DEFAULT_FACTORY_SORT);
     window.localStorage.setItem(FACTORY_SORT_STORAGE_KEY, '{"key":"colour","reversed":false}');
     expect(loadFactorySort()).toEqual(DEFAULT_FACTORY_SORT);
+  });
+
+  it("still sorts, without throwing, when the browser refuses to save", () => {
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("storage off");
+    });
+    try {
+      expect(() => saveFactorySort({ key: "status", reversed: false })).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("still opens on Name A to Z when the browser refuses storage", () => {

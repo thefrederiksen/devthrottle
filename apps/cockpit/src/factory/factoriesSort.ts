@@ -24,8 +24,15 @@ export const FACTORY_SORT_KEYS: ReadonlyArray<{ key: FactorySortKey; label: stri
   { key: "waiting", label: "Waiting on you" },
 ];
 
-/** Which key each column heading sorts by, by position: "Factory", "Waiting on you", "Status" (the Gateway's order). */
-export const FACTORY_COLUMN_KEYS: ReadonlyArray<FactorySortKey> = ["name", "waiting", "status"];
+/**
+ * Which key each column heading sorts by, matched on the Gateway's heading words, never on position: a column the
+ * Gateway adds or moves can never sort by the wrong key. A heading not listed here is plain text, not a button.
+ */
+export const FACTORY_COLUMN_KEYS: Readonly<Record<string, FactorySortKey>> = {
+  Factory: "name",
+  "Waiting on you": "waiting",
+  Status: "status",
+};
 
 const DIRECTION_LABELS: Record<FactorySortKey, [string, string]> = {
   name: ["A to Z", "Z to A"],
