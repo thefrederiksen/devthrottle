@@ -288,6 +288,24 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task TheUnfilteredList_WhatThePersonalReportsPageReads_HoldsOnlyTheAccountsOwnReports()
+    {
+        // The Cockpit's Reports page on a personal account reads GET /dev-reports with no session named: every report
+        // the account's sessions sent it, and nothing of anyone else's (owner, 8 Oct 2026).
+        var reportId = await PublishAsync(_sessionA, @"C:\work\personal-list.html", _sessionKeyA);
+        using var mine = Client(_deviceKeyA);
+        using var theirs = Client(_deviceKeyB);
+
+        var (myStatus, myList) = await Send(mine, HttpMethod.Get, "dev-reports");
+        var (theirStatus, theirList) = await Send(theirs, HttpMethod.Get, "dev-reports");
+
+        Assert.Equal(HttpStatusCode.OK, myStatus);
+        Assert.Contains(myList.GetProperty("reports").EnumerateArray(), r => r.GetProperty("id").GetString() == reportId);
+        Assert.Equal(HttpStatusCode.OK, theirStatus);
+        Assert.DoesNotContain(theirList.GetProperty("reports").EnumerateArray(), r => r.GetProperty("id").GetString() == reportId);
+    }
+
+    [Fact]
     public async Task TheHtmlRoute_ServesTheExactBytesAsPlainTextWithTheVersion()
     {
         var reportId = await PublishAsync(_sessionA, @"C:\work\bytes.html", _sessionKeyA);

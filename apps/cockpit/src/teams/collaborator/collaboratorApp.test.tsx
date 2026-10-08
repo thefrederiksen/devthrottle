@@ -177,6 +177,12 @@ function teamBlockLabels(): string[] {
   return block === null ? [] : Array.from(block.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
 }
 
+/** The rows of Work in the whole app's rail. Reports is there now, for everyone (owner, 8 Oct 2026). */
+function workLabels(): string[] {
+  const work = document.querySelector("[data-testid='nav-work']");
+  return work === null ? [] : Array.from(work.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+}
+
 /** Open the menu behind your name at the bottom of the rail (owner, 8 Oct 2026), and answer it. */
 function openYourMenu(): HTMLElement {
   fireEvent.click(screen.getByTestId("you-card"));
@@ -322,7 +328,8 @@ describe("The Collaborator's app", () => {
 
     await waitFor(() => expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]));
     expect(railLabels()).toContain("Skills");
-    expect(teamBlockLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]);
+    expect(teamBlockLabels()).toEqual(["Team", "Questions", "Requests"]);
+    expect(workLabels().at(-1)).toBe("Reports");
     expect(menuOffersSettings()).toBe(true);
     expect(await screen.findByText("sessions page")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/sessions");
@@ -333,7 +340,9 @@ describe("The Collaborator's app", () => {
     rememberTeam(DEVELOPER_TEAM.id);
     renderAt("/sessions");
 
-    await waitFor(() => expect(teamBlockLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
+    // Questions and Requests in the team's block; Reports in Work (owner, 8 Oct 2026).
+    await waitFor(() => expect(teamBlockLabels()).toEqual(["Team", "Questions", "Requests"]));
+    expect(workLabels().at(-1)).toBe("Reports");
     expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
     fireEvent.click(screen.getByRole("link", { name: "Reports" }));
     expect(await screen.findByTestId("team-page-reports")).toBeTruthy();
@@ -345,7 +354,8 @@ describe("The Collaborator's app", () => {
     rememberTeam(DEVELOPER_TEAM.id);
     renderAt("/sessions");
 
-    await waitFor(() => expect(teamBlockLabels().at(-1)).toBe("Reports"));
+    await waitFor(() => expect(teamBlockLabels()).toEqual(["Team"]));
+    expect(workLabels().at(-1)).toBe("Reports");
     expect(railLabels()).not.toContain("Questions");
     expect(railLabels()).not.toContain("Requests");
   });
@@ -375,7 +385,7 @@ describe("The Collaborator's app", () => {
     rememberTeam(DEVELOPER_TEAM.id);
     renderAt("/sessions");
 
-    await waitFor(() => expect(teamBlockLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
+    await waitFor(() => expect(teamBlockLabels()).toEqual(["Team", "Questions", "Requests"]));
     await waitFor(() => expect(railBadge("Questions")).toBe("2"));
     expect(new Set(pageCounts.asked)).toEqual(new Set(["/teams/team-paul/questions?odd-count"]));
   });
@@ -414,12 +424,15 @@ describe("The Collaborator's app", () => {
     expect(document.querySelector(".nav-link .nav-badge")).toBeNull();
   });
 
-  it("OwnAccount_TheRailListsNoTeamPages", async () => {
+  it("OwnAccount_TheRailListsNoTeamPages_AndReportsIsThePersonsOwn", async () => {
     renderAt("/sessions");
 
     expect(await screen.findByText("sessions page")).toBeTruthy();
     await waitFor(() => expect(screen.getByTestId("you-card").textContent).toContain("Personal"));
-    for (const label of ["Questions", "Requests", "Reports"]) expect(railLabels()).not.toContain(label);
+    for (const label of ["Questions", "Requests"]) expect(railLabels()).not.toContain(label);
+    // Reports is in Work on the own account too (owner, 8 Oct 2026): the person's own sessions' reports.
+    expect(workLabels().at(-1)).toBe("Reports");
+    expect(screen.queryByTestId("nav-team")).toBeNull();
   });
 
   it("SwitchTeam_FromTheOwnAccountToACollaboratorTeam_OpensItsLandingPage", async () => {
@@ -448,7 +461,8 @@ describe("The Collaborator's app", () => {
 
     expect(await screen.findByText("sessions page")).toBeTruthy();
     expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
-    for (const label of ["Questions", "Requests", "Reports"]) expect(railLabels()).not.toContain(label);
+    for (const label of ["Questions", "Requests"]) expect(railLabels()).not.toContain(label);
+    expect(workLabels().at(-1)).toBe("Reports");
     expect(screen.queryByTestId("nav-team")).toBeNull();
     expect(menuOffersSettings()).toBe(true);
     // A team page address waits for the list of teams (round 3 review, R1), then is the ordinary "Page not found".

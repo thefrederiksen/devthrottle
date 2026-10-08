@@ -118,10 +118,20 @@ const NAV_SETUP: ReadonlyArray<NavItem> = [
 // (owner, 8 Oct 2026). This is the "way back to the Team page" the first version did not have.
 const TEAM_ITEM: NavItem = { to: "/settings?tab=members", label: "Team", icon: "team", tabs: ["members", "teamplan", "governance"] };
 
-// The Mentor's weekly page for the team on screen (devthrottle_internal#2305), in the team block. Offered only while
-// the GATEWAY answers the Mentor read for the current team with a page: a Collaborator, a person on their own account
-// and a Gateway with Teams off never see it (rule 7).
+// MENTOR AND REPORTS ARE IN WORK, FOR EVERYONE (owner, 8 Oct 2026, Screens 1 and 2 of devthrottle_internal
+// docs/teams/2026-10-08-team-showcase-mockups.html): after Voice Recorder, on the person's own account and with a team
+// on screen alike. On the own account they are about the person; with a team they show the team. The team block keeps
+// only what exists because there is a team: Team, Questions, Requests.
+//
+// The Mentor is offered only while the GATEWAY answers its read with a page - the team's, or the person's own
+// (useMentorEntry, rule 7): a Collaborator and a Gateway with Teams off never see it. Reports is always there on the own
+// account (every account's sessions can send it reports); in a team it is there when the Gateway's page verdict for the
+// team lists it.
 const MENTOR_ITEM: NavItem = { to: "/mentor", label: "Mentor", icon: "mentor" };
+
+/** The team page that moved into Work. */
+const REPORTS_PAGE_ID = "reports";
+const REPORTS_ITEM: NavItem = { to: "/reports", label: "Reports", icon: "reports" };
 
 // THE RAIL COLLAPSES TO ITS ICONS (issue #3074). On a screen whose whole point is the thing in the middle -
 // a dev report is the case that forced this - the rail, the session list and the queue dock were spending
@@ -226,9 +236,8 @@ function ShellFrame() {
   };
 
   // A TEAM WHERE THE PERSON GETS THE WHOLE APP has its own block (devthrottle_internal#2309, Tech Lead ruling; #2306
-  // review F12; owner, 8 Oct 2026): Team, the Mentor when the Gateway offers it, and the team's pages - a Developer
-  // reads and sends their team reports at /reports, and reaches it here rather than by typing the address. Which pages,
-  // their names and order are the Gateway's verdict (rule 7). With Personal on screen there is no block at all.
+  // review F12; owner, 8 Oct 2026): Team and the team's pages. Reports and the Mentor sit in Work (see MENTOR_ITEM). Which
+  // pages, their names and order are the Gateway's verdict (rule 7). With Personal on screen there is no block at all.
   const wholeAppTeam = team.current !== null && team.current.app.full ? team.current : null;
 
   // THE STOP ANSWER IS OWNED HERE, above every roster row and every session page (mission "Stop a
@@ -310,9 +319,7 @@ function ShellFrame() {
               <NavList items={teamPagesNav(teamPages, teamPageCounts)} location={location} collapsed={collapsed} />
             ) : (
               <>
-                <NavSection label="Work" collapsed={collapsed} testId="nav-work">
-                  <NavList items={NAV_WORK} location={location} collapsed={collapsed} />
-                </NavSection>
+                <WorkSection team={wholeAppTeam} counts={teamPageCounts} location={location} collapsed={collapsed} />
                 {wholeAppTeam !== null && (
                   <TeamBlock team={wholeAppTeam} counts={teamPageCounts} location={location} collapsed={collapsed} />
                 )}
@@ -369,8 +376,37 @@ function TeamUnreadable({ error, onOwnAccount }: { error: string | null; onOwnAc
   );
 }
 
-// The team's block: its name as the heading, Team, the Mentor when the Gateway offers it, and the team's own pages. A
-// component of its own because the Mentor entry is read under the CurrentTeamProvider the shell mounts.
+// WORK: the day to day, then the Mentor when the Gateway offers it, then Reports (see MENTOR_ITEM). A component of its
+// own because the Mentor entry is read under the CurrentTeamProvider the shell mounts. With a team on screen, Reports is
+// the team's page and carries its count, if the Gateway gives it one; on the own account it is the person's reports.
+function WorkSection({
+  team,
+  counts,
+  location,
+  collapsed,
+}: {
+  team: TeamSummary | null;
+  counts: Readonly<Record<string, number>>;
+  location: Location;
+  collapsed: boolean;
+}) {
+  const mentorOffered = useMentorEntry();
+  const reports =
+    team === null ? REPORTS_ITEM : teamPagesNav(team.app, counts).find((item) => item.to === reportsPath(team)) ?? null;
+  const items = [...NAV_WORK, ...(mentorOffered ? [MENTOR_ITEM] : []), ...(reports !== null ? [reports] : [])];
+  return (
+    <NavSection label="Work" collapsed={collapsed} testId="nav-work">
+      <NavList items={items} location={location} collapsed={collapsed} />
+    </NavSection>
+  );
+}
+
+/** The address of the team's Reports page, as the Gateway's verdict gives it; null when the verdict does not list it. */
+function reportsPath(team: TeamSummary): string | null {
+  return team.app.pages.find((p) => p.id === REPORTS_PAGE_ID)?.path ?? null;
+}
+
+// The team's block: its name as the heading, Team, and the team's own pages other than Reports, which is in Work.
 function TeamBlock({
   team,
   counts,
@@ -382,8 +418,7 @@ function TeamBlock({
   location: Location;
   collapsed: boolean;
 }) {
-  const mentorOffered = useMentorEntry();
-  const items = [TEAM_ITEM, ...(mentorOffered ? [MENTOR_ITEM] : []), ...teamPagesNav(team.app, counts)];
+  const items = [TEAM_ITEM, ...teamPagesNav(team.app, counts).filter((item) => item.to !== reportsPath(team))];
   return (
     <NavSection label={team.name} collapsed={collapsed} testId="nav-team" team>
       <NavList items={items} location={location} collapsed={collapsed} />
