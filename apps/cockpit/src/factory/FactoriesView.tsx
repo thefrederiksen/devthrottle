@@ -320,8 +320,8 @@ function FactoryCardGroup({ group }: { group: FactoryGroup }) {
 /**
  * One factory as a card (mockup B). Every word is the Gateway's: the name, the status word and its reason, the status
  * line, the purpose, the head's name and the Talk button's words - the card only shortens "Talk to Nora Hale" to
- * "Talk to Nora" and draws the head's initials. The status line is cut to three lines here; the full line is on the
- * factory's page, which the name opens.
+ * "Talk to Nora" and draws the head's initials. A RUNNING row has no status line from the Gateway and the card shows
+ * none. The status line is cut to three lines here; the full line is on the factory's page, which the name opens.
  */
 function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: FactoryGroup["key"] }) {
   const pill = <ToneChip word={row.statusWord} tone={row.statusTone} title={row.statusReason} />;
@@ -344,9 +344,11 @@ function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: Factory
           {row.purpose}
         </p>
       )}
-      <p className="fa-card-line" data-testid="fa-card-line" title={row.statusLine ?? undefined}>
-        {row.statusLine ?? "On schedule"}
-      </p>
+      {row.statusLine !== null && (
+        <p className="fa-card-line" data-testid="fa-card-line" title={row.statusLine}>
+          {row.statusLine}
+        </p>
+      )}
       {row.waitingCount > 0 && row.waitingHref !== null && (
         <Link className="fa-card-waiting" to={row.waitingHref} data-testid="fa-card-waiting">
           {row.waitingText} waiting on you
@@ -372,7 +374,7 @@ function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: Factory
               -
             </span>
             <span className="fa-dim" data-testid="fa-card-no-head">
-              {row.noCeoText ?? "No head named"}
+              {row.noCeoText}
             </span>
           </div>
         )}

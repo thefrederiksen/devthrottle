@@ -22,7 +22,8 @@ THE MANIFEST is JSON (no extra dependency, and the Gateway's own shape), with ex
       "ceoSeat": "nora-hale",                         optional: the seat that is the CEO
       "goalFile": "GOAL.md",                          optional: relative to the folder; its text is sent
       "goalApprovedOn": "2026-10-04",                 optional: the day the owner approved the goal
-      "purpose": "Heating monitoring for homeowners",  optional: one line on what it is for (max 120 chars)
+      "purpose": "Heating monitoring for homeowners",  optional: one line on what it is for (max 120 chars);
+                                                      left out, a line set with `factory purpose` is kept
       "seats": [
         {"id": "nora-hale", "name": "Nora Hale", "role": "CEO",
          "briefFile": "agents/ceo.yaml",               relative to the folder

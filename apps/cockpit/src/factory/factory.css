@@ -870,16 +870,6 @@ a.fa-tab {
     text-align: left;
     padding-top: 6px;
   }
-  /* The factory cards (8 Oct 2026): one column, and the count strip two by two, so nothing scrolls sideways. */
-  .fa-cards {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .fa-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .fa-views {
-    margin-left: 0;
-  }
 }
 
 /* The Factories tab as cards (owner decision, 8 Oct 2026, mockup B "grouped by state"): a strip of counts, then the
@@ -1194,4 +1184,18 @@ a.fa-tab {
 .fa-outside-reason {
   margin-left: auto;
   color: var(--needsyou-fyi-text);
+}
+
+/* Phone width for the cards (8 Oct 2026): one column, the count strip two by two, so nothing scrolls sideways. This
+   block comes AFTER the base rules above on purpose - at equal specificity the later rule wins. */
+@media (max-width: 640px) {
+  .fa-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fa-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fa-views {
+    margin-left: 0;
+  }
 }

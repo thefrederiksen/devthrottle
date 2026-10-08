@@ -148,14 +148,25 @@ public sealed class FactoryRegistryStoreTests : IDisposable
     }
 
     [Fact]
-    public void Register_Again_ReplacesThePurposeLikeEveryOtherField()
+    public void Register_Again_WithoutAPurposeKey_KeepsTheLineSetByHand_AndABlankOneClearsIt()
     {
         var store = NewStore();
         store.Register(A, WarmForward(), "the owner (test)", Now);
         store.SetPurpose(A, "warmforward", "Set by hand");
 
-        // A manifest without a purpose registers a factory without one: the row is replaced whole.
-        Assert.Null(store.Register(A, WarmForward(), "the owner (test)", Now).Purpose);
+        // A manifest that says nothing about the purpose keeps it: the line is set by hand after the owner approves
+        // the wording, and a factory re-registering from its own computer must not erase it (review finding, 8 Oct).
+        Assert.Equal("Set by hand", store.Register(A, WarmForward(), "the owner (test)", Now).Purpose);
+        Assert.Equal("Set by hand", store.Find(A, "warmforward")!.Purpose);
+
+        var replacing = WarmForward();
+        replacing.Purpose = "From the manifest";
+        Assert.Equal("From the manifest", store.Register(A, replacing, "the owner (test)", Now).Purpose);
+
+        var clearing = WarmForward();
+        clearing.Purpose = "";
+        Assert.Null(store.Register(A, clearing, "the owner (test)", Now).Purpose);
+        Assert.Null(store.Find(A, "warmforward")!.Purpose);
     }
 
     // ---------- archive and restore (round 2) ----------

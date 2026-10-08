@@ -100,6 +100,10 @@ public sealed partial class FactoryRegistryStore
                 entity.ArchivedAtUtc = existing.ArchivedAtUtc;
                 entity.ArchivedBy = existing.ArchivedBy;
                 entity.ArchivedSchedulesJson = existing.ArchivedSchedulesJson;
+                // The purpose line is set by hand (cc-devthrottle factory purpose) and factories re-register from
+                // their own computers, so a manifest that says nothing about it (no "purpose" key) keeps the stored
+                // line. A manifest that carries a blank one clears it, and one that carries a line replaces it.
+                if (request!.Purpose is null) entity.Purpose = existing.Purpose;
                 ctx.Entry(existing).CurrentValues.SetValues(entity);
             }
             ctx.SaveChanges();

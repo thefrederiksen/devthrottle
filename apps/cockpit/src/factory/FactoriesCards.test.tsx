@@ -233,8 +233,8 @@ describe("Factories as cards - one card", () => {
     expect(within(warm).getByTestId("fa-card-line").textContent).toBe(
       "Nora Hale, today 06:20: Is the bunkie meant to be at 20 C? (fixture)",
     );
-    // RUNNING has no line from the Gateway; the card says it is on schedule.
-    expect(within(screen.getByTestId("fa-card-devthrottle")).getByTestId("fa-card-line").textContent).toBe("On schedule");
+    // RUNNING has no line from the Gateway, and the card invents none (rule 7).
+    expect(within(screen.getByTestId("fa-card-devthrottle")).queryByTestId("fa-card-line")).toBeNull();
 
     fireEvent.click(within(warm).getByTestId("fa-card-name"));
     expect(screen.getByTestId("where").textContent).toBe("/factories/warmforward");
@@ -295,11 +295,20 @@ describe("Factories as cards - the stylesheet", () => {
 
   it("lays the cards out on a filling grid of at least 260px, and one column at phone width", () => {
     const grid = /\n\.fa-cards \{([\s\S]*?)\}/.exec(css);
+    expect(grid).not.toBeNull();
     expect(grid![1]).toContain("repeat(auto-fill, minmax(260px, 1fr))");
-    const phone = /@media \(max-width: 640px\) \{([\s\S]*?)\n\}/.exec(css);
-    expect(phone).not.toBeNull();
-    expect(phone![1]).toMatch(/\.fa-cards \{\s*grid-template-columns: minmax\(0, 1fr\);/);
+    const strip = /\n\.fa-strip \{([\s\S]*?)\}/.exec(css);
+    expect(strip).not.toBeNull();
+    expect(strip![1]).toContain("repeat(5, minmax(0, 1fr))");
+    // The phone block that overrides them must come AFTER the base rules: at equal specificity the later rule wins, so
+    // a phone block placed before them is dead (review finding, 8 Oct 2026). Find the block that holds the override
+    // and check its position, not just its presence.
+    const blocks = [...css.matchAll(/@media \(max-width: 640px\) \{([\s\S]*?)\n\}/g)];
+    const phone = blocks.find((b) => /\.fa-cards \{\s*grid-template-columns: minmax\(0, 1fr\);/.test(b[1]));
+    expect(phone).toBeDefined();
     expect(phone![1]).toMatch(/\.fa-strip \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+    expect(phone!.index!).toBeGreaterThan(grid!.index!);
+    expect(phone!.index!).toBeGreaterThan(strip!.index!);
   });
 
   it("uses only ASCII in the card source and styles", () => {

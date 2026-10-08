@@ -1766,7 +1766,8 @@ entry, seats included. It exits 1 whenever the factory was not registered.
 the factory's name - on an already registered factory, without registering it again; nothing else in
 the entry changes. The line is trimmed and takes at most 120 characters; the Gateway refuses a longer
 one or one with a line break, with the reason. `--clear` removes it. It exits 1 whenever the line was
-not kept.
+not kept. Registering again from a manifest with no `purpose` key keeps the line; a manifest that carries
+`"purpose": ""` clears it.
 
 **A seat's schedules live on the schedules (issue #3650).** There are no factory agents without a
 factory: a schedule that runs factory work names its factory AND its seat, and both must already be
