@@ -1103,6 +1103,10 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("GoalText")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Purpose")
+                        .HasMaxLength(120)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("RegisteredAtUtc")
                         .HasColumnType("TEXT");
 

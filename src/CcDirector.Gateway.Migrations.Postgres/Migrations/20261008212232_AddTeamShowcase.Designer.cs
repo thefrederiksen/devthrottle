@@ -1126,6 +1126,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("GoalText")
                         .HasColumnType("text");
 
+                    b.Property<string>("Purpose")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
                     b.Property<DateTime>("RegisteredAtUtc")
                         .HasColumnType("timestamp with time zone");
 

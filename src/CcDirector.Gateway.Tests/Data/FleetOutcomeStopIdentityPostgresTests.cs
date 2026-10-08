@@ -116,7 +116,11 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20261008043117_AddScheduleSeat", all[index + 24]);
             // The team's governance rules and their record of changes (Teams v1, the Governance tab), after that.
             Assert.Equal("20261008191614_AddTeamGovernance", all[index + 25]);
-            Assert.Equal(all.Count - 26, index);
+            // A factory's one-line purpose (the Factories cards, 8 Oct 2026), after that.
+            Assert.Equal("20261008200010_AddFactoryPurpose", all[index + 26]);
+            // The team showcase's tag, and a made-up member's name and email (team showcase, 8 Oct 2026), after that.
+            Assert.Equal("20261008212232_AddTeamShowcase", all[index + 27]);
+            Assert.Equal(all.Count - 28, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -134,7 +138,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // table was the last of them until the factory activity record and then the factory triggers followed it,
             // and then the name a trigger's pending start used, and then the factory memory notes (issue 3436), and then
             // the teams (devthrottle_internal#2300) and the team invitations (devthrottle_internal#2301).
-            Assert.Equal("20261008191614_AddTeamGovernance", ctx.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20261008212232_AddTeamShowcase", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 
