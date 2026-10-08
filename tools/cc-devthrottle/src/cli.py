@@ -16,6 +16,7 @@ from . import email_ops
 from . import factory_ops
 from . import factory_memory_ops
 from . import factory_registry_ops
+from . import factory_status_ops
 from . import fleet_manager_ops
 from . import fleet_ops
 from . import link_ops
@@ -993,6 +994,13 @@ _ACTIONS = [
         "command": "cc-devthrottle factory list",
         "mutatesState": False,
         "args": [],
+    },
+    {
+        "id": "factory-status",
+        "description": "The Factories screen as the owner sees it: every factory's status word, or one factory's word, reason, and each failing and waiting item with its row id.",
+        "command": "cc-devthrottle factory status [--factory <id>]",
+        "mutatesState": False,
+        "args": [{"name": "factory", "required": False}],
     },
     {
         "id": "factory-goal-number-post",
@@ -3660,6 +3668,22 @@ def factory_list(
 ) -> None:
     """List the registered factories."""
     factory_registry_ops.list_factories(json_output, fields)
+
+
+@factory_app.command("status")
+def factory_status(
+    factory: Optional[str] = typer.Option(None, "--factory", help="One factory: its page, with every failing and waiting item."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON - the screen's own data."),
+) -> None:
+    """The Factories screen as the owner sees it: the status word of every factory, or one factory's page.
+
+    Without --factory: one line per registered factory - id, status word (FAILING, NEEDS YOU, PAUSED or
+    RUNNING), what is waiting on the owner, and the status line under the word. With --factory: that
+    factory's word and reason, then every failing and waiting item with its row id, so a resolved one can be
+    marked handled with `factory record --corrects <row id>`. Every word is the Gateway's, from the same fold
+    the screen reads; nothing is decided here.
+    """
+    factory_status_ops.status(factory, json_output)
 
 
 @factory_goal_number_app.command("post")

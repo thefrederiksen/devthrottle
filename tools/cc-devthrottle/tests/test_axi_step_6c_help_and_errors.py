@@ -364,6 +364,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "trigger-add", "trigger-list", "trigger-show", "trigger-pause", "trigger-resume", "trigger-runs",
     # The Factories screen mission, phase A: the factory registry and the goal number a CEO posts.
     "factory-register", "factory-list", "factory-goal-number-post", "factory-goal-number-show",
+    # Issue #3685: a factory's boss reads its own Factories screen.
+    "factory-status",
 }
 
 

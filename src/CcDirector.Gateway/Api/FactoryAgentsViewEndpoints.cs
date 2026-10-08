@@ -283,17 +283,33 @@ internal static class FactoryAgentsViewEndpoints
     // through `cc-devthrottle factory activity`, never the owner's screens.
     internal static IResult Owner(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what,
         Func<TenantId, IResult> handle)
+        => Guarded(ctx, resolveTenant, what, admitSession: false, handle);
+
+    // A page the owner AND a session of the same account read (issue #3685): the Factories screen's list and a
+    // factory's page, which a factory's boss reads with `cc-devthrottle factory status` so it sees the same word the
+    // owner sees. The account is the key's own; the tenant binding settled that before the handler ran. The writes
+    // on those pages stay with Owner above.
+    internal static IResult OwnerOrSession(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what,
+        Func<TenantId, IResult> handle)
+        => Guarded(ctx, resolveTenant, what, admitSession: true, handle);
+
+    private static IResult Guarded(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what,
+        bool admitSession, Func<TenantId, IResult> handle)
     {
         FileLog.Write($"[FactoryAgentsViewEndpoints] {what}");
         try
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Results.Json(new { error = "no account is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
-            if (AuthMiddleware.CallingSession(ctx) is not null)
+            if (AuthMiddleware.CallingSession(ctx) is { } session)
             {
-                FileLog.Write($"[FactoryAgentsViewEndpoints] REFUSED: a session key asked for the owner's page ({what})");
-                return Results.Json(new { error = "The Factory Agents pages are the owner's. A session reads the record with cc-devthrottle factory activity." },
-                    statusCode: StatusCodes.Status403Forbidden);
+                if (!admitSession)
+                {
+                    FileLog.Write($"[FactoryAgentsViewEndpoints] REFUSED: a session key asked for the owner's page ({what})");
+                    return Results.Json(new { error = "The Factory Agents pages are the owner's. A session reads the record with cc-devthrottle factory activity." },
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
+                FileLog.Write($"[FactoryAgentsViewEndpoints] {what}: read by session {session.SessionId}");
             }
             return handle(tenant);
         }

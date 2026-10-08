@@ -342,12 +342,23 @@ public static class SessionKeyGuard
                 // the route is only mapped while the factory agents switch is on.
                 case "gateway/factory/registry":
                 case "gateway/factory/goal-numbers":
+                // The Factories screen's list (issue #3685): the status word of every factory in the account, as the
+                // owner sees it. A factory's boss reads it with `factory status`, so it sees FAILING the moment the
+                // owner does and can act. Account data; the route is only mapped while the factory agents switch is on.
+                case "gateway/factories":
                 // The errors this account's Directors and launchers reported (issue #3311), so an agent can
                 // look before it asks the owner. The route files the read under the key's own account; only
                 // the READ is here - reporting is a device's, never an agent's.
                 case "gateway/director-errors":
                     return true;
             }
+
+            // One factory's page on the Factories screen (issue #3685): its status word, the reason, what is
+            // failing and what is waiting on the owner, each with its row id - what `factory status --factory`
+            // prints. Exactly three parts: the Seats tab beneath it (four parts) and every write on the page -
+            // Handled, the bulk handled, archive, restore, Talk - stay the owner's, so a boss can read its screen
+            // and mark its own rows through the activity record, and nothing else.
+            if (s.Length == 3 && s[0] == "gateway" && s[1] == "factories") return true;
 
             // One session (the roster row) and its terminal scrollback. The buffer carries whatever any agent
             // typed, so it is account-scoped by the key's tenant - a session key can only ever read a session

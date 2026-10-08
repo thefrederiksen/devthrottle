@@ -1683,6 +1683,36 @@ The Gateway stamps the calling session as the actor and as the row's session.
 `activity` reads newest first; `--from` is inclusive and `--to` exclusive. `--count` defaults to 50
 (at most 1000); when more rows match it says which `--offset` shows the next page.
 
+#### Factory status - the Factories screen as the owner sees it
+
+A factory's boss reads the same screen the owner reads (issue #3685): the same two routes, folded once on
+the Gateway, so the word a boss sees is the word the owner sees - never a rule rebuilt by hand from the
+activity record.
+
+```
+USAGE: cc-devthrottle factory status [--factory ID] [--json]
+```
+
+Without `--factory`, one line per registered factory: its id, its status word - exactly one of `FAILING`,
+`NEEDS YOU`, `PAUSED`, `RUNNING`, worst first - what is waiting on the owner, and the line shown under the
+word. With `--factory`, that factory's page: the word, the reason, how many items wait on the owner, then
+every failing item and every waiting item, each with its row id first, who wrote it and when, its subject
+and its words. A failing item with `(no row)` is a schedule that could not start its run; it is not a row,
+clears by itself, and the line says how.
+
+A boss acts on an item and then marks it handled the way the screen's Handled button does - a new row that
+corrects it, never a change to the row itself - and only when it is actually resolved:
+
+```
+cc-devthrottle factory record --factory website-business --agent <the item's seat> --outcome done \
+    --corrects <row id> --what "Handled: <the evidence>"
+```
+
+The word turns the moment the last open item is corrected. `--json` prints the Gateway's answer verbatim
+(the screen's own data). A session key reads the list and a factory's page and nothing else on the screen:
+the Seats tab, the bulk Handled, archive, restore and Talk stay the owner's. The route answers 404 while
+factory agents are switched off, and the command says so.
+
 #### Factory registry and goal number
 
 The factory registry: one entry per factory, on the Gateway, saying what the owner's Factories screen

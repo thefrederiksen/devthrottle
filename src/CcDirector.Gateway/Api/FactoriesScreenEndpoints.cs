@@ -24,9 +24,12 @@ internal sealed record FactoriesScreenSources(
 ///   GET /gateway/factories/{factory}/seats       -> FactorySeatsViewDto    (the Seats tab)
 ///   POST /gateway/factories/{factory}/failures/{id}/handled -> appends the row that marks a failure handled
 ///
-/// Behind the factory agents switch like every factory route, and the OWNER's pages: a session key is refused (the
-/// same guard as the Factory Agents pages, and SessionKeyGuard names none of these). The old
-/// <c>/gateway/factory-agents/...</c> views stay until the Cockpit has moved off them.
+/// Behind the factory agents switch like every factory route. The list and a factory's page are read by the owner
+/// AND by a session of the same account (issue #3685): a factory's boss runs <c>cc-devthrottle factory status</c>
+/// and reads the same status word and the same failing and waiting rows the owner sees, so it can act and mark them
+/// handled through the activity record. The Seats tab and every write stay the owner's: a session key is refused
+/// here and by SessionKeyGuard. The old <c>/gateway/factory-agents/...</c> views stay until the Cockpit has moved
+/// off them.
 /// </summary>
 internal static class FactoriesScreenEndpoints
 {
@@ -38,7 +41,7 @@ internal static class FactoriesScreenEndpoints
         ArgumentNullException.ThrowIfNull(sources);
 
         app.MapGet(Prefix, (HttpContext ctx) =>
-            FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, "GET factories screen list", tenant =>
+            FactoryAgentsViewEndpoints.OwnerOrSession(ctx, resolveTenant, "GET factories screen list", tenant =>
             {
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast24h, factory: null);
                 var dto = FactoriesScreenFold.List(input);
@@ -47,7 +50,7 @@ internal static class FactoriesScreenEndpoints
             }));
 
         app.MapGet(Prefix + "/{factory}", (HttpContext ctx, string factory) =>
-            FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory page {factory}", tenant =>
+            FactoryAgentsViewEndpoints.OwnerOrSession(ctx, resolveTenant, $"GET factory page {factory}", tenant =>
             {
                 if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
                 var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
