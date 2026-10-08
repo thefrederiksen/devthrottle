@@ -114,9 +114,9 @@ const NAV_SETUP: ReadonlyArray<NavItem> = [
   { to: "/network", label: "Network", icon: "network" },
 ];
 
-// The team's own Settings tabs - Members, and Team plan for those the Gateway shows it to - first in the team block
+// The team's own Settings tabs - Members, Team plan for those the Gateway shows it to, and Governance - first in the team block
 // (owner, 8 Oct 2026). This is the "way back to the Team page" the first version did not have.
-const TEAM_ITEM: NavItem = { to: "/settings?tab=members", label: "Team", icon: "team", tabs: ["members", "teamplan"] };
+const TEAM_ITEM: NavItem = { to: "/settings?tab=members", label: "Team", icon: "team", tabs: ["members", "teamplan", "governance"] };
 
 // The Mentor's weekly page for the team on screen (devthrottle_internal#2305), in the team block. Offered only while
 // the GATEWAY answers the Mentor read for the current team with a page: a Collaborator, a person on their own account

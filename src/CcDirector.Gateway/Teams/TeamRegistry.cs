@@ -37,6 +37,7 @@ public sealed partial class TeamRegistry
     private readonly TenantRegistry _tenants;
     private readonly Func<DateTime> _utcNow;
     private readonly TeamBillStore _bills;
+    private readonly TeamGovernanceStore _governance;
     private readonly Func<string, TeamBill> _readTeamBill;
     private readonly TeamBillEndedNotice? _billEndedNotice;
     // "May this person do this in this team", asked of the one place that answers it (devthrottle_internal#2302).
@@ -64,12 +65,14 @@ public sealed partial class TeamRegistry
     /// bill has ended. Null on a Gateway with no team bills, and then such a refusal says in the log that nobody was
     /// told.</param>
     public TeamRegistry(GatewayDatabase db, TenantRegistry tenants, Func<DateTime>? utcNow = null,
-        TeamBillStore? bills = null, Func<string, TeamBill>? readTeamBill = null, TeamBillEndedNotice? billEndedNotice = null)
+        TeamBillStore? bills = null, Func<string, TeamBill>? readTeamBill = null, TeamBillEndedNotice? billEndedNotice = null,
+        TeamGovernanceStore? governance = null)
     {
         _db = db ?? throw new ArgumentNullException(nameof(db));
         _tenants = tenants ?? throw new ArgumentNullException(nameof(tenants));
         _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _bills = bills ?? new TeamBillStore(db, _utcNow);
+        _governance = governance ?? new TeamGovernanceStore(db, _utcNow);
         _readTeamBill = readTeamBill ?? new EntitlementRegistry(db).ReadTeamBill;
         _billEndedNotice = billEndedNotice;
         _access = new TeamAccess(this);

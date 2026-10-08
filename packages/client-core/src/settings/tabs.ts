@@ -23,7 +23,8 @@ export type TabId =
   | "injectedtext"
   | "devices"
   | "members"
-  | "teamplan";
+  | "teamplan"
+  | "governance";
 
 /**
  * The small heading a tab sits under where a surface lays its tabs out down the side (the Cockpit, 8 Oct 2026).
@@ -127,6 +128,10 @@ const ALL_TABS: TabDef[] = [
   { id: "devices", label: "Devices and phone", group: "fleet", surface: "cockpit" },
   { id: "members", label: "Members", group: "team", surface: "cockpit" },
   { id: "teamplan", label: "Team plan", group: "team", surface: "cockpit" },
+  // The team's rules and the record of every change to them (owner, 8 Oct 2026: "under the team, we really need a new
+  // tab called Governance"). Every member with the team's tabs sees it; whether they may change it is the Gateway's
+  // verdict on the tab itself (rule 7). Cockpit-only for the same reason as the two above.
+  { id: "governance", label: "Governance", group: "team", surface: "cockpit" },
 ];
 
 /**

@@ -75,6 +75,15 @@ public enum TeamAction
     /// bill without Stripe). The owner's brief: "a Manager may see the bill, may not change it" - so the Owner and Managers
     /// may; changing it stays <see cref="BillingRenameOrDeleteTeam"/>, the Owner's alone.</summary>
     SeeTeamBill,
+
+    /// <summary>See the team's Governance tab: the rules the team has set for how its members work, and the record of every
+    /// change to them (Teams v1, the team's Governance tab). Every member who has the team's tabs may - the Owner, Managers
+    /// and Developers; a Collaborator's app is their own pages only, as with <see cref="SeeTeamPage"/>.</summary>
+    SeeTeamGovernance,
+
+    /// <summary>Change the team's governance rules (Teams v1, the team's Governance tab). The owner's brief, 8 Oct 2026:
+    /// "changed only by Owner and Manager".</summary>
+    ChangeTeamGovernance,
 }
 
 /// <summary>One cell of the role table.</summary>
@@ -147,6 +156,9 @@ public static class TeamPermissions
         new TeamPermissionRow(TeamAction.SeeTeamPage, "open the Team page", Yes, Yes, Yes, No),
         // Teams v1, the team bill without Stripe: "a Manager may see the bill, may not change it".
         new TeamPermissionRow(TeamAction.SeeTeamBill, "see the team's bill", Yes, Yes, No, No),
+        // Teams v1, the team's Governance tab: "seen by every member who sees the team tabs; changed only by Owner and Manager".
+        new TeamPermissionRow(TeamAction.SeeTeamGovernance, "see the team's governance rules", Yes, Yes, Yes, No),
+        new TeamPermissionRow(TeamAction.ChangeTeamGovernance, "change the team's governance rules", Yes, Yes, No, No),
     };
 
     private static readonly IReadOnlyDictionary<TeamAction, TeamPermissionRow> ByAction = BuildIndex();

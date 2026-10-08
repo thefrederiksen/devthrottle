@@ -43,6 +43,7 @@ describe("visibleTabs", () => {
       "Devices and phone",
       "Members",
       "Team plan",
+      "Governance",
     ]);
   });
 
@@ -52,11 +53,13 @@ describe("visibleTabs", () => {
     const ids = (team: boolean, teamPlan: boolean) => visibleTabs("cockpit", { team, teamPlan }).map((t) => t.id);
     expect(ids(false, false)).not.toContain("members");
     expect(ids(false, true)).not.toContain("teamplan");
-    expect(ids(true, false).slice(-1)).toEqual(["members"]);
-    expect(ids(true, true).slice(-2)).toEqual(["members", "teamplan"]);
+    expect(ids(false, true)).not.toContain("governance");
+    expect(ids(true, false).slice(-2)).toEqual(["members", "governance"]);
+    expect(ids(true, true).slice(-3)).toEqual(["members", "teamplan", "governance"]);
     expect(visibleTabs("cockpit", { team: true, teamPlan: true }).filter((t) => t.group === "team").map((t) => t.id)).toEqual([
       "members",
       "teamplan",
+      "governance",
     ]);
   });
 

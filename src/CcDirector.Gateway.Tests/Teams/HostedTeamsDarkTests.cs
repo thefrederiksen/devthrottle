@@ -90,6 +90,22 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task SwitchUnset_TheGovernanceRoutesAreAbsent_AndNoRuleIsSaved()
+    {
+        // A real team the person owns, so a mapped route would answer and a mapped PUT would save.
+        var team = _gateway.TeamRegistry.CreateTeam(_subject, "Dark governance").Team!.TeamId;
+
+        Assert.DoesNotContain(MappedPatterns(), p => p.Contains("/governance", StringComparison.Ordinal));
+        await AssertAnsweredAsAPathThatDoesNotExist(HttpMethod.Get, $"teams/{team}/governance", new { });
+        await AssertAnsweredAsAPathThatDoesNotExist(HttpMethod.Put, $"teams/{team}/governance", new { review = new { noSelfMerge = true } });
+
+        // Absence proven by what was written: no rules row and no line of the record.
+        using var ctx = _gateway.GatewayDatabaseForTests.CreateUnscopedContext();
+        Assert.False(ctx.TeamGovernance.AsNoTracking().Any(g => g.TeamId == team));
+        Assert.False(ctx.TeamGovernanceChanges.AsNoTracking().Any(c => c.TeamId == team));
+    }
+
+    [Fact]
     public async Task SwitchUnset_EveryInvitationRouteIsAbsent_AndNothingIsInvitedOrJoined()
     {
         // A team and a waiting invitation made directly through the registry, so each route has something real to act
