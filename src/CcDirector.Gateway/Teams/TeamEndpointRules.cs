@@ -141,6 +141,10 @@ public static class TeamEndpointRules
         // Managers; every change (start, renew, auto-renew, cancel) is "change the billing" - the Owner alone.
         new TeamEndpointRule(Api.TeamEndpoints.BillPath, TeamMethods.Read, TeamAction.SeeTeamBill, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         new TeamEndpointRule(Api.TeamEndpoints.BillPath, TeamMethods.Write, TeamAction.BillingRenameOrDeleteTeam, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // The team's Governance tab (Teams v1). Reading the rules and their change record is "see the team's governance rules" -
+        // the Owner, Managers and Developers; changing them is "change the team's governance rules" - the Owner and Managers.
+        new TeamEndpointRule(Api.TeamGovernanceEndpoints.GovernancePath, TeamMethods.Read, TeamAction.SeeTeamGovernance, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule(Api.TeamGovernanceEndpoints.GovernancePath, TeamMethods.Write, TeamAction.ChangeTeamGovernance, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
 
         // The team's Fleet Map (devthrottle_internal#2312): every Director on the team, by person, names and status only.
         // A Developer's cell is "their own Directors", so the endpoint cuts its answer to the caller's own Directors.

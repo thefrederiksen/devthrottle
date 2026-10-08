@@ -125,6 +125,7 @@ export function SettingsTabPanel({ tab, accountHref, transcriptionHealthHref, se
     case "devices":
     case "members":
     case "teamplan":
+    case "governance":
       return null;
   }
 }

@@ -70,6 +70,7 @@ vi.mock("../team/TeamPageView", () => ({
   TeamPageView: ({ teamId, section }: { teamId: string; section: string }) => <div>{`team ${section} for ${teamId}`}</div>,
 }));
 vi.mock("../team/InviteView", () => ({ InviteView: ({ teamId }: { teamId: string }) => <div>{`invite to ${teamId}`}</div> }));
+vi.mock("../team/TeamGovernanceView", () => ({ TeamGovernanceView: ({ teamId }: { teamId: string }) => <div>{`team governance for ${teamId}`}</div> }));
 vi.mock("@devthrottle/client-core/settings/SettingsTabs", async (importActual) => ({
   ...(await importActual<typeof import("@devthrottle/client-core/settings/SettingsTabs")>()),
   SettingsTabPanel: ({ tab }: { tab: string }) => <div>{`shared ${tab}`}</div>,
@@ -210,7 +211,7 @@ describe("Settings, with its tabs down the left", () => {
     expect(await screen.findByText(`team members for ${TEAM.id}`)).toBeTruthy();
     expect(screen.getByTestId("settings-group-team").textContent).toBe("Soren Test Team");
     await waitFor(() => expect(teamPage.asked).toEqual([TEAM.id]));
-    expect(tabs().slice(-1)).toEqual(["Members"]);
+    expect(tabs().slice(-2)).toEqual(["Members", "Governance"]);
   });
 
   it("offers Team plan when the Gateway's Team page answer carries a bill", async () => {
@@ -220,8 +221,19 @@ describe("Settings, with its tabs down the left", () => {
     mountAt("/settings?tab=teamplan");
 
     expect(await screen.findByText(`team plan for ${TEAM.id}`)).toBeTruthy();
-    expect(tabs().slice(-2)).toEqual(["Members", "Team plan"]);
+    expect(tabs().slice(-3)).toEqual(["Members", "Team plan", "Governance"]);
     expect(within(screen.getByRole("tablist")).getByRole("tab", { name: "Team plan" }).getAttribute("aria-selected")).toBe("true");
+  });
+
+  // The team's Governance tab is offered with the team on screen whatever the bill says; a link to it opens it.
+  it("opens the Governance tab from a link, under the team's name, with or without the team plan", async () => {
+    teams.answer = { kind: "teams", teams: [TEAM], start: { where: "own-account" } };
+    window.localStorage.setItem("devthrottle.currentTeam", TEAM.id);
+    teamPage.bill = null;
+    mountAt("/settings?tab=governance");
+
+    expect(await screen.findByText(`team governance for ${TEAM.id}`)).toBeTruthy();
+    expect(within(screen.getByRole("tablist")).getByRole("tab", { name: "Governance" }).getAttribute("aria-selected")).toBe("true");
   });
 
   // A failed read is not the Gateway's verdict: the tab stays, so the tab itself can show the failure and its Retry.
@@ -232,7 +244,7 @@ describe("Settings, with its tabs down the left", () => {
     mountAt("/settings?tab=members");
 
     expect(await screen.findByText(`team members for ${TEAM.id}`)).toBeTruthy();
-    await waitFor(() => expect(tabs().slice(-2)).toEqual(["Members", "Team plan"]));
+    await waitFor(() => expect(tabs().slice(-3)).toEqual(["Members", "Team plan", "Governance"]));
   });
 
   // While the answer is unknown the tab shows the failure and a Retry of that read - never the plan section, which

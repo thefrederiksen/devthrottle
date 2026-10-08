@@ -161,7 +161,7 @@ describe("the Settings tab strip", () => {
     expect(screen.getByTestId("settings-group-voice").textContent).toBe("Voice");
     expect(screen.getByTestId("settings-group-fleet").textContent).toBe("Fleet");
     expect(screen.getByTestId("settings-group-team").textContent).toBe("Soren Test Team");
-    expect(screen.getAllByRole("tab").map((t) => t.textContent).slice(-2)).toEqual(["Members", "Team plan"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent).slice(-3)).toEqual(["Members", "Team plan", "Governance"]);
     expect(screen.getByRole("tablist").getAttribute("aria-orientation")).toBe("vertical");
   });
 

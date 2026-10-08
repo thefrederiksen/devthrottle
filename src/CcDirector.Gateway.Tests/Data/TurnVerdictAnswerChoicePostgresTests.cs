@@ -115,7 +115,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20261007180154_AddLinkRequestRequestedAmount", all[index + 24]);
             // The seat a schedule runs (issue #3650), after that.
             Assert.Equal("20261008043117_AddScheduleSeat", all[index + 25]);
-            Assert.Equal(index + 26, all.Count);
+            // The team's governance rules and their record of changes (Teams v1, the Governance tab), after that.
+            Assert.Equal("20261008191614_AddTeamGovernance", all[index + 26]);
+            Assert.Equal(index + 27, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

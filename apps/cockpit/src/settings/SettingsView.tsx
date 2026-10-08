@@ -16,6 +16,7 @@ import { PhoneView } from "../phone/PhoneView";
 import { TranscriptionHealthView } from "../transcription/TranscriptionHealthView";
 import { TeamPageView } from "../team/TeamPageView";
 import { InviteView } from "../team/InviteView";
+import { TeamGovernanceView } from "../team/TeamGovernanceView";
 
 // The Cockpit Settings page (issue #1025, epic #967) - the React port of the retired Blazor
 // wwwroot/pages/settings.html.
@@ -23,7 +24,7 @@ import { InviteView } from "../team/InviteView";
 // ONE SETTINGS PAGE, TABS DOWN THE LEFT (owner, 8 Oct 2026, following how ChatGPT and Claude lay out Settings). The
 // tabs sit under small headings - You, Voice, Fleet, and the team on screen - and several pages that were rows of the
 // Cockpit's menu are tabs here now: Account, Plan and usage (Your Throttle), Dictionary, Devices and phone,
-// and the team's Members and Team plan. Their old addresses lead here (routes.tsx).
+// and the team's Members and Team plan. Their old addresses lead here (routes.tsx). The team's Governance tab is new here.
 //
 // The tab set and its order are client-core's (tabs.ts), shared with the phone - CLAUDE.md rule 8. This file is only
 // the desktop frame: the heading, the side layout, and the Cockpit-only tabs, whose content is Cockpit code that has no
@@ -98,7 +99,7 @@ export function SettingsView() {
   // to the team on screen, so a tab this page does not list can never be selected.
   const asked = params.get("tab");
   const waiting =
-    (asked === "members" || asked === "teamplan") &&
+    (asked === "members" || asked === "teamplan" || asked === "governance") &&
     (team.resolving || (asked === "teamplan" && current !== null && teamPlan === null));
   const tab = tabFromParam(asked, "cockpit", waiting ? { team: true, teamPlan: true } : context);
   const choose = (next: TabId) => setParams({ tab: next }, { replace: true });
@@ -168,6 +169,9 @@ function CockpitTab({ tab, teamId, view }: { tab: TabId; teamId: string | null; 
       if (teamId === null) throw new Error(`Settings: the ${tab} tab was selected with no team on screen`);
       if (tab === "members" && view === "invite") return <InviteView teamId={teamId} />;
       return <TeamPageView key={`${teamId}-${tab}`} teamId={teamId} section={tab === "members" ? "members" : "plan"} />;
+    case "governance":
+      if (teamId === null) throw new Error("Settings: the governance tab was selected with no team on screen");
+      return <TeamGovernanceView key={teamId} teamId={teamId} />;
     default:
       return <SettingsTabPanel tab={tab} sessionHref={cockpitSessionHref} />;
   }

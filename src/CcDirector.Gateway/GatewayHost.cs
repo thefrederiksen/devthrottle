@@ -839,6 +839,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Teams.TeamBillStore TeamBills { get; }
 
+    /// <summary>The one writer of each team's governance rules and their record of changes (Teams v1, the Governance tab).</summary>
+    public Teams.TeamGovernanceStore TeamGovernance { get; }
+
     /// <summary>
     /// The safety net for a team bill's seat count: null except on a hosted Gateway with Teams released, where it runs
     /// every <see cref="Teams.TeamSeatConvergence.Interval"/>. It records the Gateway's own count; nothing leaves.
@@ -1869,9 +1872,11 @@ public sealed class GatewayHost : IAsyncDisposable
         var teamMailer = new Teams.TeamInvitationMailer(new Core.Account.TeamInvitationMailClient());
         TeamInvitationMailer = teamMailer;
         TeamBills = new Teams.TeamBillStore(_gatewayDb);
+        TeamGovernance = new Teams.TeamGovernanceStore(_gatewayDb);
         TeamRegistry = new Teams.TeamRegistry(_gatewayDb, TenantRegistry, bills: TeamBills,
             readTeamBill: EntitlementRegistry.ReadTeamBill,
-            billEndedNotice: GatewayHostedMode.IsHosted && TeamsReleased ? new Teams.TeamBillEndedNotice(teamMailer) : null);
+            billEndedNotice: GatewayHostedMode.IsHosted && TeamsReleased ? new Teams.TeamBillEndedNotice(teamMailer) : null,
+            governance: TeamGovernance);
         if (GatewayHostedMode.IsHosted && TeamsReleased)
         {
             TeamSeatConvergence = new Teams.TeamSeatConvergence(_gatewayDb, TeamBills);
@@ -5102,6 +5107,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // routes mounted again under /teams/{teamId}, answering for the team's tenant, plus the Skills and
             // workflows page's read. Dark with the rest of Teams.
             TeamLibraryEndpoints.Map(_app, _skills, _workflows, TeamRegistry, TeamAccess, _tenantBoundary, TenantRegistry);
+            // The team's Governance tab (Teams v1): its rules and the record of every change. Dark with the rest of Teams.
+            TeamGovernanceEndpoints.Map(_app, TeamRegistry, _skills, _workflows, _tenantBoundary, TenantRegistry);
 
             // The Mentor's weekly page, read (devthrottle_internal#2305), behind the same switch. Whether the writer
             // runs is a separate switch; the page reads whatever is stored.
