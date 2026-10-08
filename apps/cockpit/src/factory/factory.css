@@ -856,3 +856,38 @@ a.fa-tab {
   border-radius: 6px;
   background: var(--surface);
 }
+
+/* Schedules outside any factory (issue #3650). */
+.fa-outside {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fa-outside-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.fa-outside-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.fa-outside-name {
+  font-weight: 600;
+}
+
+.fa-outside-reason {
+  margin-left: auto;
+  color: var(--needsyou-fyi-text);
+}

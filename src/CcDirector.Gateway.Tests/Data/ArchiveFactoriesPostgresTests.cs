@@ -98,6 +98,11 @@ public sealed class ArchiveFactoriesPostgresTests
         Assert.Equal("3", ColumnsPresent());
         Assert.Equal("null", Scalar("""SELECT coalesce("ArchivedBy", 'null') FROM gateway.factory_registry WHERE "Factory" = 'machine-care'"""));
 
+        // The store reads today's model - a seat's schedules are derived from cron_jobs."Seat" (issue #3650) - so the
+        // queries below run on the schema at the newest migration; the reversal further down walks back through it.
+        using (var ctx = NewContext())
+            ctx.GetService<IMigrator>().Migrate();
+
         // The queries that failed in production, through the real store on the real PostgreSQL path.
         var priorRuntimeConn = Environment.GetEnvironmentVariable(RuntimeConnectionEnvVar);
         try

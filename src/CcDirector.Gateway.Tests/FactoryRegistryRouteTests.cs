@@ -75,7 +75,7 @@ public sealed class FactoryRegistryRouteTests
         goalApprovedOn = "2026-10-04",
         seats = new object[]
         {
-            new { id = "nora-hale", name = ceoName, role = "CEO", briefFile = "agents/ceo.yaml", schedules = new[] { "cj_a721e6" } },
+            new { id = "nora-hale", name = ceoName, role = "CEO", briefFile = "agents/ceo.yaml", schedules = Array.Empty<string>() },
             new { id = "savings-engineer", name = "Savings Engineer", role = "Savings Engineer", briefFile = "agents/savings.yaml", schedules = Array.Empty<string>() },
         },
     };
@@ -241,6 +241,74 @@ public sealed class FactoryRegistryRouteTests
         // The failed row is still in the record, unchanged.
         var kept = await Send(h.Owner.GetAsync($"gateway/factory/activity?factory={factory}&outcome=failed"));
         Assert.Contains(failed.Id.ToString(), kept.Body);
+    }
+
+    /// <summary>
+    /// Issue #3650, round-2 review finding 2: the firing guard as the REAL host wires it. A schedule whose seat was
+    /// dropped while it was off is run on demand, and the run is refused by the guard before any machine is asked -
+    /// read from the starter's own log line, because a machine that does not exist would also leave "not-started".
+    /// Replace the host's guard with one that never refuses and this test goes red.
+    /// </summary>
+    [Fact]
+    public async Task A_schedule_whose_seat_was_dropped_while_off_is_refused_by_the_hosts_firing_guard()
+    {
+        using var log = CcDirector.Core.Utilities.FileLog.RedirectForTests();
+        await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
+        var factory = "f-" + Guid.NewGuid().ToString("N")[..12];
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory))).StatusCode);
+
+        var job = new CronJobDto
+        {
+            Name = "Savings Engineer - nightly", ScheduleKind = "recurring", CronExpression = "0 3 * * *", TimeZoneId = "UTC",
+            Factory = factory, Seat = "savings-engineer",
+            Target = new CronJobTarget { Machine = "NO-SUCH-MACHINE" },
+            Action = new CronJobAction { RepoPath = @"D:\factory", Seed = "/savings" },
+        };
+        var created = await Send(h.Owner.PostAsJsonAsync("cron/jobs", job));
+        Assert.True(created.Status == HttpStatusCode.Created, created.Body);
+        var id = JsonSerializer.Deserialize<CronJobDto>(created.Body, Web)!.Id;
+        job.Enabled = false;
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync($"cron/jobs/{id}", job)).StatusCode);
+
+        // The seat goes while its schedule is off - allowed - and the schedule is then run by hand.
+        var withoutSeat = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(Manifest(factory), Web), Web)!;
+        withoutSeat["seats"] = new object[] { new { id = "nora-hale", name = "Nora Hale", role = "CEO", briefFile = "agents/ceo.yaml" } };
+        var reregistered = await Send(h.Owner.PutAsJsonAsync("gateway/factory/registry", withoutSeat));
+        Assert.True(reregistered.Status == HttpStatusCode.OK, reregistered.Body);
+        var run = await Send(h.Owner.PostAsync($"cron/jobs/{id}/run", null));
+
+        Assert.True(run.Status == HttpStatusCode.OK, run.Body);
+        Assert.Contains("not-started", run.Body);
+        var lines = log.DrainAndReadLines();
+        Assert.Contains(lines, l => l.Contains($"[DirectorCronSessionStarter] start REFUSED: job={id}") && l.Contains("'savings-engineer' is not a seat"));
+        Assert.DoesNotContain(lines, l => l.Contains($"[DirectorCronSessionStarter] start: job={id}"));
+    }
+
+    /// <summary>Round-3 review finding 1: run-now on a schedule of an ARCHIVED factory is refused by the host's guard.</summary>
+    [Fact]
+    public async Task Running_a_schedule_of_an_archived_factory_now_is_refused_by_the_hosts_firing_guard()
+    {
+        using var log = CcDirector.Core.Utilities.FileLog.RedirectForTests();
+        await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
+        var factory = "f-" + Guid.NewGuid().ToString("N")[..12];
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory))).StatusCode);
+        var created = await Send(h.Owner.PostAsJsonAsync("cron/jobs", new CronJobDto
+        {
+            Name = "CEO - morning", ScheduleKind = "recurring", CronExpression = "0 7 * * *", TimeZoneId = "UTC",
+            Factory = factory, Seat = "nora-hale",
+            Target = new CronJobTarget { Machine = "NO-SUCH-MACHINE" },
+            Action = new CronJobAction { RepoPath = @"D:\factory", Seed = "/ceo" },
+        }));
+        Assert.True(created.Status == HttpStatusCode.Created, created.Body);
+        var id = JsonSerializer.Deserialize<CronJobDto>(created.Body, Web)!.Id;
+        h.Gateway.FactoryRegistry.Archive(TenantId.Local, factory, "owner (test)", new[] { id }, DateTime.UtcNow);
+
+        var run = await Send(h.Owner.PostAsync($"cron/jobs/{id}/run", null));
+
+        Assert.True(run.Status == HttpStatusCode.OK, run.Body);
+        var lines = log.DrainAndReadLines();
+        Assert.Contains(lines, l => l.Contains($"[DirectorCronSessionStarter] start REFUSED: job={id}") && l.Contains("is archived"));
+        Assert.DoesNotContain(lines, l => l.Contains($"[DirectorCronSessionStarter] start: job={id}"));
     }
 
     [Fact]

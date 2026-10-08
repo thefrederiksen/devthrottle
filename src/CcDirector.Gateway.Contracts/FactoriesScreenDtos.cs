@@ -57,6 +57,35 @@ public sealed class FactoriesListViewDto
 
     /// <summary>"No factory is archived." when <see cref="ArchivedRows"/> is empty, else null.</summary>
     public string? ArchivedEmptyText { get; set; }
+
+    /// <summary>"Schedules outside any factory" (issue #3650).</summary>
+    public string OutsideTitle { get; set; } = "";
+
+    /// <summary>What the list is and what to do about a row on it.</summary>
+    public string OutsideText { get; set; } = "";
+
+    /// <summary>Every enabled schedule that runs as no registered factory seat, by name. Never hidden: a stray
+    /// schedule is seen the day it appears.</summary>
+    public List<FactoryOutsideScheduleRowDto> OutsideRows { get; set; } = new();
+
+    /// <summary>Set when there are none.</summary>
+    public string? OutsideEmptyText { get; set; }
+}
+
+/// <summary>One enabled schedule that is no seat of any registered factory (issue #3650).</summary>
+public sealed class FactoryOutsideScheduleRowDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+
+    /// <summary>When it runs, in words, in the account's zone.</summary>
+    public string WhenText { get; set; } = "";
+
+    /// <summary>The computer it runs on.</summary>
+    public string Machine { get; set; } = "";
+
+    /// <summary>Why it is outside: in no factory, or naming a factory or seat the registry does not have.</summary>
+    public string Reason { get; set; } = "";
 }
 
 /// <summary>One archived factory: what it is, when and by whom it was archived, and its Restore.</summary>

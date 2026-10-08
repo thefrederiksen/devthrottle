@@ -3521,6 +3521,10 @@ def schedule_create(
         "--notify-webhook",
         help="Optional outbound webhook URL.",
     ),
+    factory: Optional[str] = typer.Option(
+        None, "--factory", help="The factory this schedule's work belongs to. Needs --seat; the seat must be registered."
+    ),
+    seat: Optional[str] = typer.Option(None, "--seat", help="The registered seat of --factory this schedule runs."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the created schedule as JSON."),
 ) -> None:
     """Create a schedule: --at once, --cron recurring, --random random."""
@@ -3540,7 +3544,20 @@ def schedule_create(
         per_day=per_day,
         min_gap=min_gap,
         shape=shape,
+        factory=factory,
+        seat=seat,
     )
+
+
+@schedule_app.command("link")
+def schedule_link(
+    job_id: str = typer.Argument(..., help="The schedule id."),
+    factory: str = typer.Option(..., "--factory", help="The factory the schedule's work belongs to."),
+    seat: str = typer.Option(..., "--seat", help="The registered seat of that factory the schedule runs."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the linked schedule as JSON."),
+) -> None:
+    """Make an existing schedule run a registered factory seat."""
+    schedule_ops.link_job(job_id, factory, seat, json_output)
 
 
 @schedule_app.command("run")

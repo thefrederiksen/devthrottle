@@ -98,6 +98,26 @@ export interface FactoriesListView {
   archivedRows: FactoryArchivedRow[];
   /** "No factory is archived." when there are none. */
   archivedEmptyText: string | null;
+  /** "Schedules outside any factory" (issue #3650). */
+  outsideTitle: string;
+  /** What the list is and what to do about a row on it. */
+  outsideText: string;
+  /** Every enabled schedule that is no seat of any factory, as the Gateway ordered them. */
+  outsideRows: FactoryOutsideScheduleRow[];
+  /** Set when there are none. */
+  outsideEmptyText: string | null;
+}
+
+/** One enabled schedule that is no seat of any registered factory (issue #3650). */
+export interface FactoryOutsideScheduleRow {
+  id: string;
+  name: string;
+  /** When it runs, in words. */
+  whenText: string;
+  /** The computer it runs on. */
+  machine: string;
+  /** "In no factory", or the factory or seat it names that the registry does not have. */
+  reason: string;
 }
 
 export interface FactoryGoalCard {

@@ -178,7 +178,11 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
         var runs = new CronRunHistoryStore(db, Path.Combine(_dir, "runs.json"));
         var engine = new CronEngine(_schedules, runs, new CountingStarter(() => _scheduleStarts++),
             new UnusedWorkListRunner(), new NullCronNotifier(), new SystemClock());
-        CronJobEndpoints.Map(app, _schedules, sessionFactoryOf: _history.FactoryOf);
+        CronJobEndpoints.Map(app, _schedules, sessionFactoryOf: _history.FactoryOf,
+            // Issue #3650: a factory schedule names a registered seat, so the factory these tests write into has one.
+            findFactory: (_, id) => id == TheFactory
+                ? new RegisteredFactoryDto { Factory = TheFactory, Title = "Website Factory", Seats = { new RegisteredFactorySeatDto { Id = "scout" } } }
+                : null);
         CronRunEndpoints.Map(app, engine, runs, jobById: id => _schedules.Get(id), sessionFactoryOf: _history.FactoryOf);
 
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),
@@ -392,6 +396,7 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
         ScheduleKind = "recurring",
         CronExpression = "0 7 * * *",
         Factory = factory,
+        Seat = factory is null ? null : "scout",
         Target = new CronJobTarget { Machine = Machine },
         Action = new CronJobAction { RepoPath = Path.GetTempPath(), Seed = seed },
     };

@@ -238,6 +238,72 @@ public sealed class FactoriesScreenFoldTests
         Assert.Contains("factory register", view.EmptyText);
     }
 
+    // ---------- schedules outside any factory (issue #3650, point 5) ----------
+
+    private static CronJobDto Linked(string id, string name, string? factory, string? seat, bool enabled = true)
+    {
+        var job = Job(id, "0 7 * * *", enabled);
+        job.Name = name;
+        job.Factory = factory;
+        job.Seat = seat;
+        job.Target = new CronJobTarget { Machine = "SOREN_NORTH" };
+        return job;
+    }
+
+    [Fact]
+    public void List_ShowsEveryEnabledScheduleThatIsNoSeat_WithWhy_ByName()
+    {
+        var jobs = new[]
+        {
+            Linked("cj_ceo", "WarmForward - Nora Hale", "warmforward", "nora-hale"),
+            Linked("cj_mail", "Mail Desk - morning", factory: null, seat: null),
+            Linked("cj_job", "Job search", factory: null, seat: null),
+            Linked("cj_old", "Old reminder", factory: null, seat: null, enabled: false),
+            Linked("cj_money", "Money Saver - daily", "money-saver", "daily"),
+            Linked("cj_gone", "WarmForward - fired seat", "warmforward", "fired"),
+        };
+
+        var view = FactoriesScreenFold.List(Inputs(new[] { WarmForward() }, jobs: jobs));
+
+        Assert.Equal("Schedules outside any factory", view.OutsideTitle);
+        Assert.Contains("cc-devthrottle schedule link", view.OutsideText);
+        Assert.Null(view.OutsideEmptyText);
+        Assert.Equal(
+            new[]
+            {
+                ("cj_job", "In no factory"),
+                ("cj_mail", "In no factory"),
+                ("cj_money", "Names the factory 'money-saver', which is not registered"),
+                ("cj_gone", "Names the seat 'fired', which WarmForward does not have"),
+            },
+            view.OutsideRows.Select(r => (r.Id, r.Reason)));
+        var mail = view.OutsideRows.Single(r => r.Id == "cj_mail");
+        Assert.Equal(("Mail Desk - morning", "SOREN_NORTH"), (mail.Name, mail.Machine));
+        Assert.False(string.IsNullOrWhiteSpace(mail.WhenText));
+    }
+
+    [Fact]
+    public void List_AnEnabledScheduleOfAnArchivedFactory_IsOutside()
+    {
+        var archived = WarmForward();
+        archived.ArchivedAtUtc = Now.AddDays(-1);
+
+        var view = FactoriesScreenFold.List(Inputs(new[] { archived },
+            jobs: new[] { Linked("cj_ceo", "CEO", "warmforward", "nora-hale") }));
+
+        Assert.Equal("Runs for WarmForward, which is archived", Assert.Single(view.OutsideRows).Reason);
+    }
+
+    [Fact]
+    public void List_WhenEveryEnabledScheduleIsASeat_SaysSo()
+    {
+        var view = FactoriesScreenFold.List(Inputs(new[] { WarmForward() },
+            jobs: new[] { Linked("cj_ceo", "CEO", "warmforward", "nora-hale"), Linked("cj_off", "Off", null, null, enabled: false) }));
+
+        Assert.Empty(view.OutsideRows);
+        Assert.Equal("Every enabled schedule is a seat of a factory.", view.OutsideEmptyText);
+    }
+
     // ---------- the factory page ----------
 
     [Fact]

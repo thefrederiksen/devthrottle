@@ -99,6 +99,7 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
       <div className="fa-tab-body">
         <EmptyState message={view.emptyText} />
         {archived}
+        <OutsideAnyFactory view={view} />
       </div>
     );
   return (
@@ -150,6 +151,28 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
       </div>
       {view.footerText !== null && <p className="fa-footnote">{view.footerText}</p>}
       {archived}
+      <OutsideAnyFactory view={view} />
     </div>
+  );
+}
+
+// Schedules outside any factory (issue #3650): every enabled schedule that is no seat of a factory, always shown, so
+// a stray one is seen the day it appears. Which schedules, the order and every word are the Gateway's.
+function OutsideAnyFactory({ view }: { view: FactoriesListView }) {
+  return (
+    <section className="fa-outside" aria-label={view.outsideTitle} data-testid="fa-outside">
+      <h3 className="fa-outside-title">{view.outsideTitle}</h3>
+      <p className="fa-dim">{view.outsideText}</p>
+      {view.outsideEmptyText !== null && <p className="fa-dim">{view.outsideEmptyText}</p>}
+      {view.outsideRows.map((row) => (
+        <div key={row.id} className="fa-outside-row" data-testid={`fa-outside-${row.id}`}>
+          <span className="fa-outside-name">{row.name}</span>
+          <span className="fa-dim">{row.id}</span>
+          <span>{row.whenText}</span>
+          <span className="fa-dim">{row.machine}</span>
+          <span className="fa-outside-reason">{row.reason}</span>
+        </div>
+      ))}
+    </section>
   );
 }
