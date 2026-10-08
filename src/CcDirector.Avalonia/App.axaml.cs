@@ -769,8 +769,10 @@ public partial class App : Application
     /// job (<see cref="CcDirector.Setup.Engine.LauncherLaunchdRepair"/>). The delay gives launchd its own
     /// chance first - at login the agent starts on its own and a look taken too early would find nothing
     /// running and call that a refusal. A launcher somebody closed, or a launch agent somebody turned off, is
-    /// left alone; the decision and its reasons are the engine's, and are logged. A FAILED line reaches the
-    /// Gateway like every other, so a repair that did not work is seen on our side.
+    /// left alone; the decision and its reasons are the engine's, and are logged. EVERY pass sends one report to
+    /// the Gateway - rebuilt, left alone or failed (owner ruling of 7 October 2026) - so what the repair did on a
+    /// user's Mac is seen on our side, not only when it failed. Before this only a failure was meant to reach
+    /// the Gateway, and its line ("launcher repair: FAILED to ...") did not even read as an error line.
     /// </summary>
     private static void StartLauncherRepair(Action<string> log)
     {
@@ -781,9 +783,13 @@ public partial class App : Application
             {
                 await Task.Delay(TimeSpan.FromSeconds(45));
                 if (!OperatingSystem.IsMacOS()) return;
+                var reporter = CcDirector.Core.ErrorReports.ErrorReporter.Current
+                    ?? throw new InvalidOperationException("the error reporter is not running in this process, so the launcher repair's outcome could not reach the Gateway; the repair was not run");
                 var layout = new CcDirector.Setup.Engine.InstallLayout(InstanceContext.SharedRoot);
-                var outcome = CcDirector.Setup.Engine.LauncherLaunchdRepair.RunOnce(layout);
-                log($"launcher repair: {outcome}");
+                var outcome = CcDirector.Setup.Engine.LauncherLaunchdRepair.RunPass(layout, reporter);
+                // Only the result and the verdict: the pass's whole line is already in the log, written inside the
+                // pass, and its text may carry a marker word that would make this line a second report.
+                log($"launcher repair: {outcome.Result} ({outcome.Verdict})");
             }
             catch (Exception ex)
             {

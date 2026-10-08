@@ -191,6 +191,12 @@ public sealed class ErrorReporter : IDisposable
             // Cap BEFORE parsing and scrubbing: an unhandled-exception dump can run to many kilobytes, and
             // everything past this is cut by the field caps anyway. Keeps the work on the logging thread small.
             if (message.Length > MaxLineChars) message = message[..MaxLineChars];
+            // Inside an outcome scope the line belongs to the outcome's one report, not a report of its own.
+            if (OutcomeScope.Current is { } scope && ReferenceEquals(scope.Owner, this))
+            {
+                scope.Hold(message);
+                return;
+            }
             var (source, text, exceptionType, stack) = ErrorLine.Parse(message);
             Add(source, ErrorLine.KindOf(message), text, exceptionType, stack);
         }
@@ -204,6 +210,41 @@ public sealed class ErrorReporter : IDisposable
         {
             _inObserver = false;
         }
+    }
+
+    /// <summary>
+    /// Report something that happened which is NOT an error line - the outcome of a pass the owner wants seen
+    /// whatever it was, such as the Director's launcher repair (rebuilt, left alone or failed). It goes through
+    /// the same table, scrubbing, size limits, hourly budget and sign-in routing as every logged error; only the
+    /// <paramref name="kind"/> tells it apart (an error line is always one of the kinds <see cref="ErrorLine.KindOf"/>
+    /// answers). Never blocks on anything but the table lock.
+    /// </summary>
+    /// <param name="source">The class the outcome belongs to.</param>
+    /// <param name="kind">What sort of outcome this is, at most 40 characters (the Gateway keeps no more).</param>
+    /// <param name="message">One line saying what happened.</param>
+    /// <param name="detail">The diagnostics behind it, or empty; sent where an error's stack goes.</param>
+    public void ReportOutcome(string source, string kind, string message, string detail)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        ArgumentException.ThrowIfNullOrWhiteSpace(kind);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+        if (kind.Length > 40) throw new ArgumentException("kind must be at most 40 characters", nameof(kind));
+        Add(source, kind, message, "", detail ?? "");
+        FileLog.Write($"{ErrorLine.ReporterTag} outcome queued for the Gateway: source={source}, kind={kind}");
+    }
+
+    /// <summary>
+    /// Begin a pass whose outcome is reported as ONE report. Until the scope is disposed, an error line logged on
+    /// this flow of execution (this thread and the tasks it starts) is held in <see cref="OutcomeScope.HeldLines"/>
+    /// instead of becoming a report of its own, so the caller can carry it in the outcome's detail - where it is
+    /// scrubbed with the outcome. Without this, a step that logs its own FAILED line (a launch agent rebuild that
+    /// throws) would reach the Gateway twice: once as that line, once as the outcome.
+    /// </summary>
+    public OutcomeScope BeginOutcomeScope()
+    {
+        if (OutcomeScope.Current is not null)
+            throw new InvalidOperationException("an outcome scope is already open on this flow of execution");
+        return OutcomeScope.Open(this);
     }
 
     internal void Add(string source, string kind, string message, string exceptionType, string stack)
