@@ -224,7 +224,16 @@ internal static class CronJobEndpoints
             job.Seat = storedSeat;
             return true;
         }
-        var refusal = Factory.Registry.FactoryScheduleLink.Check(job.Factory, requested, id => findFactory(ctx, id), out var seat);
+        // A work list's drain starts its sessions outside any factory, so a work-list schedule cannot be a seat: the
+        // link would claim factory work that is not born into the factory (round-2 review, finding 3).
+        if (!string.IsNullOrWhiteSpace(job.Factory) && !string.IsNullOrWhiteSpace(job.Action?.WorkListName))
+        {
+            FileLog.Write($"[CronJobEndpoints] {route}: REFUSED a work-list schedule naming factory {job.Factory}");
+            error = Results.BadRequest(new { error = "A work-list schedule cannot be a factory seat: the sessions a drain starts are not born into the factory. Give the seat a schedule with --seed instead." });
+            return false;
+        }
+        var refusal = Factory.Registry.FactoryScheduleLink.Check(job.Factory, requested, id => findFactory(ctx, id), out var seat,
+            enabling: job.Enabled);
         if (refusal is not null)
         {
             FileLog.Write($"[CronJobEndpoints] {route}: REFUSED factory={job.Factory ?? "none"}, seat={requested ?? "none"}: {refusal}");

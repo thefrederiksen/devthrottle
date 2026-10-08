@@ -20,9 +20,10 @@ public sealed class DirectorCronSessionStarter : ICronSessionStarter
     private readonly Func<CronJobDto, string?> _refuseFactoryWork;
 
     /// <param name="refuseFactoryWork">Issue #3650: for a job about to fire, the reason it may not - its factory or
-    /// seat is not in the account's registry - or null when it may. Every way a schedule starts a session comes
+    /// seat is not in the account's registry - or null when it may. Every way a seed schedule starts a session comes
     /// through here (its own time, run-now, a factory's Restore switching it back on), so this is the one place that
-    /// makes factory work on an unregistered seat impossible rather than merely refused at the write. REQUIRED: a
+    /// makes factory work on an unregistered seat impossible rather than merely refused at the write. A work-list
+    /// schedule never comes here, and is refused a factory at the write instead (CronJobEndpoints.TrySettleSeat). REQUIRED: a
     /// harness that has no registry passes <c>_ =&gt; null</c>.</param>
     public DirectorCronSessionStarter(MachineSessionSpawner spawner, IClock clock, Func<CronJobDto, string?> refuseFactoryWork)
     {

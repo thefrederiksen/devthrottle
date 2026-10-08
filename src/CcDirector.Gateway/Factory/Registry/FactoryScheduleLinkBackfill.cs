@@ -61,7 +61,7 @@ public static class FactoryScheduleLinkBackfill
             {
                 RunForTenant(db, new TenantId(tenant), linked, already, skipped);
             }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException or DbUpdateException)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 FileLog.Write($"[FactoryScheduleLinkBackfill] Run FAILED for account {tenant}: {ex.Message}");
                 skipped.Add($"{tenant}: the account's backfill failed and nothing of it was saved: {ex.Message}");

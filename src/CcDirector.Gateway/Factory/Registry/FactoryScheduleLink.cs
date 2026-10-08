@@ -31,7 +31,12 @@ public static class FactoryScheduleLink
     /// <param name="factory">The schedule's factory, already settled and folded by the factory-naming gate, or null.</param>
     /// <param name="requestedSeat">The seat the schedule names, as written, or null.</param>
     /// <param name="find">The account's registration of a factory id, or null when it is not registered.</param>
-    public static string? Check(string? factory, string? requestedSeat, Func<string, RegisteredFactoryDto?> find, out string? seat)
+    /// <param name="enabling">True when the write leaves the schedule switched on. An archived factory's schedules
+    /// are switched off by its archive and switched back on only by its Restore, so switching one on by hand while the
+    /// factory is archived is refused (round-2 review, finding 1). The firing path passes false: a fire is not a
+    /// write, and Restore switches the schedules on a moment before it clears the archive.</param>
+    public static string? Check(string? factory, string? requestedSeat, Func<string, RegisteredFactoryDto?> find, out string? seat,
+        bool enabling = false)
     {
         ArgumentNullException.ThrowIfNull(find);
         seat = null;
@@ -56,6 +61,9 @@ public static class FactoryScheduleLink
 
         if (!registered.Seats.Any(s => string.Equals(s.Id, folded, StringComparison.Ordinal)))
             return $"'{folded}' is not a seat of {registered.Title} ({registered.Factory}); its seats are: {seats}. Add the seat to the factory's manifest and register it ({RegisterCommand}), then write the schedule again.";
+
+        if (enabling && registered.ArchivedAtUtc is not null)
+            return $"{registered.Title} is archived, so its schedules stay off. Restore it from the Factories screen, which switches its schedules back on.";
 
         seat = folded;
         return null;

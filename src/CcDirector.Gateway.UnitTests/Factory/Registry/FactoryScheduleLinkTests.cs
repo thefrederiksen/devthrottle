@@ -228,6 +228,38 @@ public sealed class FactoryScheduleLinkTests : IAsyncLifetime
         Assert.Equal("devthrottle", _schedules.Get(job.Id)!.Factory);
     }
 
+    [Fact]
+    public async Task Update_ThatSwitchesOnAScheduleOfAnArchivedFactory_IsRefused_AndOnlyRestoreDoesIt()
+    {
+        // Round-2 review, finding 1: the archive switched it off; switching it on by hand would run work for a
+        // factory that is off the list.
+        _registry.Register(T, Devthrottle("ceo"), "the owner (test)", Now);
+        var (_, _, job) = await Post(Schedule("devthrottle", "ceo"));
+        _schedules.SetEnabled(T, job!.Id, enabled: false);
+        _registry.Archive(T, "devthrottle", "owner (test)", new[] { job.Id }, Now);
+
+        var (status, error, _) = await Put(job.Id, Schedule(factory: null, seat: null));
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("DevThrottle is archived, so its schedules stay off", error);
+        Assert.False(_schedules.Get(job.Id)!.Enabled);
+    }
+
+    [Fact]
+    public async Task Create_AWorkListScheduleNamingAFactory_IsRefused()
+    {
+        // Round-2 review, finding 3: a drain's sessions are not born into the factory and never pass the firing guard.
+        _registry.Register(T, Devthrottle("ceo"), "the owner (test)", Now);
+        var drain = Schedule("devthrottle", "ceo");
+        drain.Action = new CronJobAction { RepoPath = @"D:\f", WorkListName = "nightly" };
+
+        var (status, error, _) = await Post(drain);
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("A work-list schedule cannot be a factory seat", error);
+        Assert.Empty(_schedules.ListAll());
+    }
+
     // ---------- point 3: registration cannot drop a running seat ----------
 
     [Fact]
