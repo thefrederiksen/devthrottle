@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-// THE TEAM PAGE IN THE COCKPIT (devthrottle_internal#2303), screen S1, driven through the REAL route table the app
-// mounts (COCKPIT_ROUTES). One test per role view the issue names - Owner, Manager, Developer, and the Collaborator who
+// THE TEAM PAGE IN THE COCKPIT (devthrottle_internal#2303), screen S1 - the Members tab of Settings since 8 Oct 2026.
+// One test per role view the issue names - Owner, Manager, Developer, and the Collaborator who
 // has no Team page - each fed the Gateway's answer for that role, plus the change-role and remove flows.
 //
 // What each role may click is the Gateway's verdict on the model (rule 7). The fixtures below are shaped exactly as
@@ -10,7 +10,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent, within } from "@testing-library/react";
-import { Outlet, RouterProvider, createMemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import type { TeamPage, TeamPageMember } from "@devthrottle/client-core/teams/teamPageClient";
 import { GatewayError } from "@devthrottle/client-core/api/client";
 
@@ -39,10 +39,8 @@ vi.mock("@devthrottle/client-core/teams/invitationsClient", () => ({
   cancelInvitation: (...a: unknown[]) => invitations.cancelInvitation(...a),
 }));
 
-// The shell frame cannot run in jsdom and is not the subject; the page routes into it as its outlet.
-vi.mock("../AppShell", () => ({ AppShell: () => <Outlet /> }));
 
-import { COCKPIT_ROUTES } from "../routes";
+import { TeamPageView } from "./TeamPageView";
 
 const ROLES = ["Manager", "Developer", "Collaborator"];
 
@@ -124,12 +122,17 @@ function developerPage(): TeamPage {
   };
 }
 
-function renderAt(path: string) {
-  const router = createMemoryRouter(COCKPIT_ROUTES, { initialEntries: [path] });
-  return render(<RouterProvider router={router} />);
+// The Team page is the Members tab of Settings now (owner, 8 Oct 2026), for the team on screen; the old address and the
+// tab's own wiring are proved in settings/settingsTabs.test.tsx. These tests are about what the tab draws.
+function renderAt(_section: "members") {
+  return render(
+    <MemoryRouter>
+      <TeamPageView teamId={TEAM} section="members" />
+    </MemoryRouter>,
+  );
 }
 
-const PATH = `/team/${TEAM}/members`;
+const PATH = "members" as const;
 
 afterEach(() => {
   cleanup();
@@ -145,10 +148,10 @@ describe("the Team page, per role", () => {
     client.getTeamPage.mockResolvedValue(ownerPage());
     renderAt(PATH);
 
-    await screen.findByText("Team DevThrottle");
+    await screen.findByRole("heading", { name: "Members" });
     expect(client.getTeamPage).toHaveBeenCalledWith(TEAM);
     expect(screen.getByText("3 paid seats, 2 Collaborators (no charge), 1 invitation waiting")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Invite someone" }).getAttribute("href")).toBe(`/team/${TEAM}/invite`);
+    expect(screen.getByRole("link", { name: "Invite someone" }).getAttribute("href")).toBe("/settings?tab=members&view=invite");
 
     const own = rowOf("soren");
     expect(within(own).queryByRole("combobox")).toBeNull();
@@ -214,7 +217,7 @@ describe("the Team page, per role", () => {
     client.getTeamPage.mockResolvedValue(managerPage());
     renderAt(PATH);
 
-    await screen.findByText("Team DevThrottle");
+    await screen.findByRole("heading", { name: "Members" });
     expect(screen.queryAllByRole("combobox")).toHaveLength(0);
     expect(within(rowOf("pat")).getByText("Manager")).toBeTruthy();
     expect(within(rowOf("soren")).queryByRole("button", { name: "Remove" })).toBeNull();
@@ -229,7 +232,7 @@ describe("the Team page, per role", () => {
     client.getTeamPage.mockResolvedValue(developerPage());
     renderAt(PATH);
 
-    await screen.findByText("Team DevThrottle");
+    await screen.findByRole("heading", { name: "Members" });
     expect(screen.getByText("rob@devthrottle.com")).toBeTruthy();
     expect(screen.getByText("3 paid seats, 2 Collaborators (no charge)")).toBeTruthy();
     expect(screen.queryAllByRole("combobox")).toHaveLength(0);

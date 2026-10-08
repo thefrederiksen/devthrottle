@@ -9,14 +9,14 @@ import "./statusPill.css";
 // checking states, which resolve on their own within a poll or two and must never nag. The phone's pill
 // was deleted outright on 2026-07-26 for the same reason - there it was also holding a corner that
 // controls needed (see apps/mobile ConnectionBanner). This rail has room to keep a compact one for the
-// state actually worth seeing. Network Diagnostics is a permanent rail item either way, so reaching it
+// state actually worth seeing. Network Diagnostics is the Network tab of Settings (owner, 8 Oct 2026), so reaching it
 // never depended on this. Colour and words come from the authoritative Gateway verdict, verbatim.
 export function CockpitStatusPill() {
   const status = useNetStatus();
   if (status.level !== "red") return null;
   return (
     <Link
-      to="/network"
+      to="/settings?tab=network"
       className={`net-pill net-pill-${status.level}`}
       title={status.detail}
       aria-label={`Network: ${status.label}. ${status.detail}`}

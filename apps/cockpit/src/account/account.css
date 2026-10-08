@@ -419,3 +419,12 @@
   padding: 10px 12px;
   font-size: 13px;
 }
+
+/* The Account tab's one sign-out (owner, 8 Oct 2026): the button, and beside it what it does. */
+.acct-signout-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}

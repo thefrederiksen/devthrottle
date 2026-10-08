@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { GatewayError, gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   changeMemberRole,
@@ -24,14 +24,18 @@ import "./team.css";
 // the counting line, whether "Invite someone" shows, and - for a Collaborator, who has no Team page - the sentence
 // saying so. The page lays them out; it never reads a role to decide what the caller may do.
 //
-// The team comes from the address until the Cockpit's team switcher (devthrottle_internal#2312) is on main.
+// IT IS TWO TABS OF SETTINGS NOW (owner, 8 Oct 2026): Members, and Team plan for those the Gateway shows the bill to.
+// The page itself was moved, not rewritten - `section` picks which half a tab shows, and the team is the one on screen,
+// handed in by Settings. The old addresses /team/{teamId}/members and /team/{teamId}/invite lead here.
+
+/** Where the Members tab's invite form opens. */
+export const INVITE_ADDRESS = "/settings?tab=members&view=invite";
 
 function day(utc: string): string {
   return new Date(utc).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
-export function TeamPageView() {
-  const { teamId = "" } = useParams<{ teamId: string }>();
+export function TeamPageView({ teamId, section }: { teamId: string; section: "members" | "plan" }) {
   const [page, setPage] = useState<TeamPage | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [refused, setRefused] = useState<string | null>(null);
@@ -108,10 +112,12 @@ export function TeamPageView() {
     await load();
   };
 
+  const title = section === "members" ? "Members" : "Team plan";
+
   if (refused !== null) {
     return (
       <div className="team-page">
-        <PageHeader title="Team" />
+        <PageHeader title={title} />
         <p className="team-card team-blocked" role="note">{refused}</p>
       </div>
     );
@@ -119,7 +125,7 @@ export function TeamPageView() {
   if (loadError !== null) {
     return (
       <div className="team-page">
-        <PageHeader title="Team" />
+        <PageHeader title={title} />
         <ErrorBanner message={loadError} onRetry={() => void load()} />
       </div>
     );
@@ -127,7 +133,7 @@ export function TeamPageView() {
   if (page === null) {
     return (
       <div className="team-page">
-        <PageHeader title="Team" />
+        <PageHeader title={title} />
         <LoadingState message="Loading the team..." />
       </div>
     );
@@ -136,10 +142,10 @@ export function TeamPageView() {
   return (
     <div className="team-page team-page-wide">
       <PageHeader
-        title={`Team ${page.teamName}`}
+        title={title}
         subtitle={page.summary}
-        actions={page.canInvite ? (
-          <Link className="ui-btn ui-btn-primary team-button-link" to={`/team/${encodeURIComponent(teamId)}/invite`}>Invite someone</Link>
+        actions={section === "members" && page.canInvite ? (
+          <Link className="ui-btn ui-btn-primary team-button-link" to={INVITE_ADDRESS}>Invite someone</Link>
         ) : undefined}
       />
 
@@ -152,6 +158,7 @@ export function TeamPageView() {
         </section>
       )}
 
+      {section === "members" && (
       <section className="team-card" aria-label="Members">
         <table className="team-table">
           <thead>
@@ -209,8 +216,9 @@ export function TeamPageView() {
           </tbody>
         </table>
       </section>
+      )}
 
-      {page.bill !== null && (
+      {section === "plan" && page.bill !== null && (
         <TeamBillingSection
           teamId={teamId}
           bill={page.bill}

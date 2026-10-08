@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 // TEAM INVITATIONS IN THE COCKPIT (devthrottle_internal#2301): the invite form (S2) and the accept page (S3), driven
-// through the REAL route table the app mounts (COCKPIT_ROUTES), so the sign-in gate is the app's own.
+// through the REAL route table the app mounts (COCKPIT_ROUTES), so the sign-in gate is the app's own. The invite form
+// is reached by its old address, /team/{teamId}/invite, which leads to Settings, Members, Invite someone.
 //
 // Issue test 4 - "an invitation to an email with no account leads through sign-up and back to the accept page" - has
 // three legs here: a signed-out browser at /invite/{token} is sent to sign-in carrying exactly that address; the
@@ -52,8 +53,33 @@ vi.mock("@devthrottle/client-core/teams/invitationsClient", () => ({
   declineInvitation: (token: string) => client.declineInvitation(token),
 }));
 
-// The shell frame cannot run in jsdom and is not the subject; the invite form routes into it as its outlet.
-vi.mock("../AppShell", () => ({ AppShell: () => <Outlet /> }));
+// The shell frame cannot run in jsdom and is not the subject; the invite form routes into it as its outlet. It keeps the
+// one thing of the shell's the invite form needs: the current team, read here from a Gateway answer listing the team
+// the address names - so the old address /team/{teamId}/invite really does put that team on screen and open Settings,
+// Members, Invite someone (owner, 8 Oct 2026).
+vi.mock("../AppShell", async () => {
+  const { CurrentTeamProvider } = await import("@devthrottle/client-core/teams/CurrentTeam");
+  const full = { full: true as const, pages: [], landing: null, elsewhere: null };
+  return {
+    AppShell: () => (
+      <CurrentTeamProvider
+        load={() =>
+          Promise.resolve({
+            kind: "teams",
+            teams: [{ id: TEAM, name: "DevThrottle", role: "Manager", memberCount: 3, people: "3 people", app: full }],
+            start: { where: "own-account" },
+          })
+        }
+      >
+        <Outlet />
+      </CurrentTeamProvider>
+    ),
+  };
+});
+// Settings reads the team's page once to know whether to offer Team plan; the invite form is not about that.
+vi.mock("@devthrottle/client-core/teams/teamPageClient", () => ({
+  getTeamPage: () => Promise.reject(new Error("not part of these tests")),
+}));
 
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
 import { COCKPIT_ROUTES } from "../routes";

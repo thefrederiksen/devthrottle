@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { useEffect, useRef } from "react";
 import { render, cleanup, screen, waitFor, act } from "@testing-library/react";
 import {
   CurrentTeamProvider,
@@ -194,6 +195,33 @@ describe("CurrentTeam", () => {
     act(() => seen!.choose(null));
     expect(seen!.current).toBeNull();
     expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("own-account");
+  });
+
+  // devthrottle#3681: an old /team/{teamId}/members link opened in a fresh browser picks its team in the SAME commit the
+  // first answer arrives in - a child's effect runs before the provider's. The Gateway's start must not then overwrite
+  // that pick with "own account".
+  it("Choose_InTheCommitTheFirstAnswerArrives_IsKept_NotReplacedByTheGatewaysStart", async () => {
+    function PickOnFirstAnswer() {
+      const state = useCurrentTeam();
+      seen = state;
+      const picked = useRef(false);
+      useEffect(() => {
+        if (state.status !== "ready" || picked.current) return;
+        picked.current = true;
+        state.choose("team-b");
+      }, [state.status]);
+      return null;
+    }
+    render(
+      <CurrentTeamProvider load={teams([TEAM_A, TEAM_B])}>
+        <PickOnFirstAnswer />
+      </CurrentTeamProvider>,
+    );
+
+    await waitFor(() => expect(seen!.current?.id).toBe("team-b"));
+    await act(async () => new Promise((r) => setTimeout(r, 10)));
+    expect(seen!.current?.id).toBe("team-b");
+    expect(window.localStorage.getItem("devthrottle.currentTeam.account-a")).toBe("team-b");
   });
 
   it("Choose_ATeam_AnswersTheTeamNowOnScreen", async () => {

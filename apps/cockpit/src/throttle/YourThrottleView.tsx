@@ -74,7 +74,16 @@ export function YourThrottleView() {
   const [searchParams, setSearchParams] = useSearchParams();
   // The window the URL asks for. Stable for one URL, so the effect below re-runs only when the URL changes.
   const request = useMemo(() => throttleWindowFromSearch(searchParams), [searchParams]);
-  const choose = (days: number) => setSearchParams({ days: String(days) });
+  // The page is the Plan and usage tab of Settings now (owner, 8 Oct 2026), and the tab rides in the same address
+  // (?tab=usage). Choosing a length replaces only the window - `days`, and the `week` it supersedes - and keeps
+  // everything else, so it never throws the reader out of the tab.
+  const choose = (days: number) =>
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("week");
+      next.set("days", String(days));
+      return next;
+    });
 
   const setTab = (next: ThrottleTab) => {
     setTabState(next);

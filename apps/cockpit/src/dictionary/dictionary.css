@@ -26,15 +26,6 @@
   font-size: 24px;
   margin: 0;
 }
-.dc-back {
-  color: var(--accent);
-  text-decoration: none;
-  font-size: 14px;
-}
-.dc-back:hover {
-  text-decoration: underline;
-}
-
 .dc-sub {
   color: var(--text-dim);
   font-size: 14px;

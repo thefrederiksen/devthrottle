@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { MicrophoneQualityPanel } from "@devthrottle/client-core/transcription/MicrophoneQualityPanel";
 import {
   clearTranscriptionHistory,
@@ -250,10 +249,11 @@ export function TranscriptionHealthView() {
           you run them to fix something, not to read a report - and they now live in one place, the
           Transcription tab of Settings, which is the SAME tab the phone shows. Duplicating them here
           would put the same widget on two pages and invite them to drift. */}
+      {/* This report sits beneath those checks on the same tab now (owner, 8 Oct 2026), so it points up at them rather
+          than linking to the page it is already on. */}
       <p className="txh-agent-note">
-        Microphone or dictation coming out wrong? Run the checks on the{" "}
-        <Link to="/settings?tab=transcription">Transcription tab in Settings</Link> - Test microphone
-        records a clip and plays it back to you, Test transcription shows what the transcriber heard.
+        Microphone or dictation coming out wrong? Run the checks at the top of this tab - Test microphone records a
+        clip and plays it back to you, Test transcription shows what the transcriber heard.
       </p>
     </div>
   );

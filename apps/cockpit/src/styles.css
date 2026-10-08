@@ -180,11 +180,10 @@ body {
   line-height: 15px;
 }
 
-/* The rail body. It grows to fill the rail so the footer sits at the bottom.
+/* The rail body. It grows to fill the rail so you (the card behind your name) sit at the bottom.
 
-   The labeled sections (issue #1247) are gone (issue #1617): the rail is one flat list of fleet
-   destinations plus a second, unlabeled list pinned to the bottom for the app's own pages. See
-   AppShell for why the labels went. */
+   The labeled sections (issue #1247) are gone (issue #1617). The rail is blocks separated by space: what is
+   happening, what you set up, and the team on screen under its name (owner, 8 Oct 2026). See AppShell. */
 .nav {
   display: flex;
   flex-direction: column;
@@ -199,13 +198,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-/* The app's own destinations sit at the bottom of the rail, separated from the fleet work by
-   whitespace rather than a labeled header. margin-top:auto eats the free space above it, so the
-   grouping holds whether the rail is taller than the list or not. */
-.nav-list-foot {
-  margin-top: auto;
 }
 
 /* A rail row: icon then label. The icon is what carries the scan now that the section headers are
@@ -264,12 +256,6 @@ body {
   text-align: center;
   font-variant-numeric: tabular-nums;
   flex: none;
-}
-
-.rail-foot {
-  padding: 12px 8px 4px;
-  font-size: 11px;
-  color: var(--text-dim);
 }
 
 .main-pane {

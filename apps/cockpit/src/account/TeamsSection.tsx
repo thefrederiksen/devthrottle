@@ -4,16 +4,17 @@ import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { createTeam, type TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 
-// THE TEAMS SECTION OF THE ACCOUNT PAGE (Teams v1, devthrottle_internal#2098): the one place a person creates a team.
+// THE TEAMS SECTION OF SETTINGS, ACCOUNT (once the Account page) (Teams v1, devthrottle_internal#2098): the one place a person creates a team.
 // It lists the teams the person is in, each with THEIR role as the Gateway labels it - the same GET /teams answer the
 // team switcher reads, from the shared current team - and a form that creates a new one (POST /teams).
 //
 // It is drawn ONLY when the Gateway has answered with a list of teams (`ready`). A Gateway with Teams dark, or a
 // self-hosted one, answers `not-offered`, and the section is not there at all - so a person on such a Gateway sees no
-// change. The rail is untouched: the switcher still shows nothing until the person is in a team.
+// change. The menu behind your name offers "Personal" and "Create a team" only; the team block appears once they are in one.
 //
-// On Create the shared list is read again, so the switcher appears at once; the new team is put on screen and its Team
-// page opened, where the Owner starts the plan and invites. A refusal shows the Gateway's own sentence.
+// On Create the shared list is read again, so the new team is in the menu behind your name at once; the new team is put
+// on screen and Settings opens on its Members tab, where the Owner starts the plan (Team plan) and invites. A refusal
+// shows the Gateway's own sentence.
 
 export function TeamsSection() {
   const { status, teams, refresh, choose } = useCurrentTeam();
@@ -53,12 +54,12 @@ export function TeamsSection() {
       return;
     }
     choose(team.id);
-    navigate(`/team/${encodeURIComponent(team.id)}/members`);
+    navigate("/settings?tab=members");
   };
 
   return (
     <section className="acct-teams" aria-label="Your teams" data-testid="account-teams">
-      <h2>Teams</h2>
+      <h2>Your teams</h2>
       {teams.length === 0 ? (
         <p className="acct-teams-none">You are not in a team.</p>
       ) : (
@@ -72,7 +73,7 @@ export function TeamsSection() {
         </ul>
       )}
 
-      <form className="acct-card acct-team-create" onSubmit={(e) => void create(e)}>
+      <form id="create-a-team" className="acct-card acct-team-create" onSubmit={(e) => void create(e)}>
         <h3>Create a team</h3>
         <p className="acct-note">A team has one Owner, who pays for it. You become the Owner of the team you create.</p>
         <div className="acct-team-create-row">

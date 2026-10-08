@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import {
   cancelInvitation,
@@ -26,8 +26,15 @@ function day(utc: string): string {
   return new Date(utc).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
-export function InviteView() {
-  const { teamId = "" } = useParams<{ teamId: string }>();
+// It opens from the Members tab of Settings now (owner, 8 Oct 2026), for the team on screen; the old address
+// /team/{teamId}/invite leads there. "Back to members" is the way back to the tab it came from.
+const MEMBERS_ADDRESS = "/settings?tab=members";
+
+function BackToMembers() {
+  return <Link className="team-back" to={MEMBERS_ADDRESS}>Back to members</Link>;
+}
+
+export function InviteView({ teamId }: { teamId: string }) {
   const [options, setOptions] = useState<InviteOptions | null>(null);
   const [invitations, setInvitations] = useState<TeamInvitation[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -110,7 +117,7 @@ export function InviteView() {
   if (loadError !== null) {
     return (
       <div className="team-page">
-        <PageHeader title="Invite someone" />
+        <PageHeader title="Invite someone" actions={<BackToMembers />} />
         <ErrorBanner message={loadError} onRetry={() => void load()} />
       </div>
     );
@@ -118,7 +125,7 @@ export function InviteView() {
   if (options === null || invitations === null) {
     return (
       <div className="team-page">
-        <PageHeader title="Invite someone" />
+        <PageHeader title="Invite someone" actions={<BackToMembers />} />
         <LoadingState message="Loading the invite form..." />
       </div>
     );
@@ -129,7 +136,7 @@ export function InviteView() {
 
   return (
     <div className="team-page">
-      <PageHeader title={`Invite someone to ${options.teamName}`} subtitle={`You are the team's ${options.yourRole}.`} />
+      <PageHeader title={`Invite someone to ${options.teamName}`} subtitle={`You are the team's ${options.yourRole}.`} actions={<BackToMembers />} />
 
       <section className="team-card" aria-label="Invite someone">
         {options.blocked !== null && <p className="team-blocked" role="note">{options.blocked}</p>}

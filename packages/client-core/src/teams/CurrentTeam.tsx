@@ -176,7 +176,16 @@ export function CurrentTeamProvider({
   load?: (signal?: AbortSignal) => Promise<MyTeamsAnswer>;
 }) {
   const [loaded, setLoaded] = useState<Loaded>({ status: "loading", teams: [], start: null, error: null });
-  const [choice, setChoice] = useState<Choice>(readRemembered);
+  const [choice, setChoiceState] = useState<Choice>(readRemembered);
+  // The latest choice, kept beside the state so the Gateway's start below never overwrites a pick made in the SAME
+  // commit as the first answer (devthrottle#3681): an old /team/{teamId}/members link opened in a fresh browser picks
+  // its team the moment the list arrives, and the start effect, which runs after it with the choice it rendered with,
+  // would otherwise replace that pick with the Gateway's "own account".
+  const choiceRef = useRef<Choice>(choice);
+  const setChoice = useCallback((next: Choice) => {
+    choiceRef.current = next;
+    setChoiceState(next);
+  }, []);
   // The latest teams read, kept beside the state so `choose` can pick a team a `refresh` has just added in the same
   // tick, before React has drawn the new list.
   const teamsRef = useRef<TeamSummary[]>([]);
@@ -226,19 +235,20 @@ export function CurrentTeamProvider({
   // nothing: it waits for the person.
   useEffect(() => {
     if (loaded.status !== "ready") return;
-    if (isPick(choice)) {
-      if (choice.kind === "team" && !loaded.teams.some((t) => t.id === choice.id)) {
+    const latest = choiceRef.current;
+    if (isPick(latest)) {
+      if (latest.kind === "team" && !loaded.teams.some((t) => t.id === latest.id)) {
         remember(NOTHING);
         setChoice(NOTHING);
       }
       return;
     }
     const started = fromStart(loaded.start);
-    if (!sameChoice(started, choice)) {
+    if (!sameChoice(started, latest)) {
       remember(started);
       setChoice(started);
     }
-  }, [loaded, choice]);
+  }, [loaded, choice, setChoice]);
 
   const choose = useCallback(
     (teamId: string | null): TeamSummary | null => {
@@ -255,7 +265,7 @@ export function CurrentTeamProvider({
       setChoice(picked);
       return team;
     },
-    [],
+    [setChoice],
   );
 
   const refresh = useCallback(async () => {
@@ -271,7 +281,7 @@ export function CurrentTeamProvider({
   }, [load]);
 
   // A pick held in memory only: nothing replaces it during this load, and nothing of it reaches storage.
-  const openOwnAccountForThisLoad = useCallback(() => setChoice({ kind: "own", picked: true }), []);
+  const openOwnAccountForThisLoad = useCallback(() => setChoice({ kind: "own", picked: true }), [setChoice]);
 
   const value = useMemo<CurrentTeamState>(() => {
     const ready = loaded.status === "ready";
