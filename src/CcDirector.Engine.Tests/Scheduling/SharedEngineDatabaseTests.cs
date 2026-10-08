@@ -8,8 +8,8 @@ namespace CcDirector.Engine.Tests.Scheduling;
 /// Two Directors on ONE engine.db (devthrottle_internal#2311, live proof F6). When CC_VAULT_PATH is
 /// set at the user level every Director on the machine opens the same engine.db, so the engine must
 /// be safe there: each due occurrence runs exactly once, and one Director starting never fails
-/// another live Director's run. Each simulated Director has its own owner identity, as two real
-/// Director processes do.
+/// another live Director's run. In the double-run test each simulated Director has its own owner
+/// identity, as two real Director processes do.
 /// </summary>
 public sealed class SharedEngineDatabaseTests : IDisposable
 {
