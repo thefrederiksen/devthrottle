@@ -5,7 +5,6 @@ import { listMissions, type MissionDto } from "@devthrottle/client-core/missions
 import { dotColor, dotHex, effectiveColor, stateLabel } from "@devthrottle/client-core/sessions/ordering";
 import { dotTitle } from "@devthrottle/client-core/sessions/sessionColours";
 import {
-  ColourLegendButton,
   ColourLegendPanel,
   useSessionColourLegend,
 } from "@devthrottle/client-core/sessions/ColourLegend";
@@ -148,6 +147,19 @@ function initialHideEmptyMissions(): boolean {
     /* storage unavailable (private mode) - fall through to the default */
   }
   return true;
+}
+
+// Whether the right-hand "What the colours mean" panel is open. It takes 300px beside the map, which is a lot on a
+// shared screen, so it starts closed and the choice is remembered per browser. Only an explicit "1" opens it.
+const LEGEND_OPEN_STORAGE_KEY = "cockpit.fleetMapLegendOpen";
+
+function initialLegendOpen(): boolean {
+  try {
+    return window.localStorage.getItem(LEGEND_OPEN_STORAGE_KEY) === "1";
+  } catch {
+    /* storage unavailable (private mode) - fall through to the default */
+  }
+  return false;
 }
 
 function initialPivot(): Pivot {
@@ -306,6 +318,17 @@ function OwnFleetMapView() {
   const [missionsError, setMissionsError] = useState<string | null>(null);
 
   // The hide-empties preference, written through on every change exactly like the pivot above.
+  // The colour panel's open/closed choice, written through on every change like the two preferences above.
+  const [legendOpen, setLegendOpenState] = useState<boolean>(initialLegendOpen);
+  const setLegendOpen = useCallback((next: boolean) => {
+    setLegendOpenState(next);
+    try {
+      window.localStorage.setItem(LEGEND_OPEN_STORAGE_KEY, next ? "1" : "0");
+    } catch {
+      /* storage unavailable (private mode) - the choice still applies this session */
+    }
+  }, []);
+
   const [hideEmptyMissions, setHideEmptyMissionsState] = useState<boolean>(initialHideEmptyMissions);
   const setHideEmptyMissions = useCallback((next: boolean) => {
     setHideEmptyMissionsState(next);
@@ -422,7 +445,11 @@ function OwnFleetMapView() {
           )}
         </span>
 
-        <ColourLegendButton className="fmap-legend-btn" />
+        {!legendOpen && (
+          <button type="button" className="colour-legend-btn fmap-legend-btn" aria-expanded={false} onClick={() => setLegendOpen(true)}>
+            What do the colours mean?
+          </button>
+        )}
 
         <div className="fmap-controls">
           {/* The title search filters the node canvas / flat list; the Missions board is not searchable,
@@ -485,7 +512,7 @@ function OwnFleetMapView() {
           </div>
         )}
 
-      <div className="fmap-body">
+      <div className={legendOpen ? "fmap-body fmap-body-legend-open" : "fmap-body"}>
       <div className="fmap-main">
       {pivot === "mission"
         ? // The board also mounts on a mission-load FAILURE with nothing else to show: otherwise the one
@@ -524,10 +551,17 @@ function OwnFleetMapView() {
 
       </div>
 
-      {/* What every dot colour means, in the Gateway's words - always on screen beside the map, so a colour never has
-          to be guessed. Replaces a hand-typed strip at the foot of the page that nobody scrolled to and that had
+      {/* What every dot colour means, in the Gateway's words - beside the map while open, so a colour never has to be
+          guessed; "Hide colours" folds it away and gives the map the full width. Replaces a hand-typed strip at the foot of the page that nobody scrolled to and that had
           fallen behind the product (no "Carrying on", no "Crashed"). */}
-      <ColourLegendPanel className="fmap-legend-panel" />
+      {legendOpen && (
+        <div className="fmap-legend-col">
+          <button type="button" className="colour-legend-btn fmap-legend-hide" aria-expanded={true} onClick={() => setLegendOpen(false)}>
+            Hide colours
+          </button>
+          <ColourLegendPanel className="fmap-legend-panel" />
+        </div>
+      )}
       </div>
 
       {newSessionDirectorId !== null && (

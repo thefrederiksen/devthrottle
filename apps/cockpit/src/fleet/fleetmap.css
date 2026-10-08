@@ -8,39 +8,45 @@
   max-width: 1900px;
 }
 
-/* The map (or list, or missions board) on the left; the colour legend on the right, always on screen. Below
-   1100px the panel folds away and the header's "What do the colours mean?" button stands in for it. */
+/* The map (or list, or missions board) on the left; the colour legend on the right while it is open. Closed (the
+   default), the map takes the full width and the header's "What do the colours mean?" button opens the panel again;
+   the panel's own "Hide colours" button closes it. Below 1100px an open panel stacks above the map instead. */
 .fmap-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   align-items: start;
+}
+
+.fmap-body-legend-open {
+  grid-template-columns: minmax(0, 1fr) 300px;
 }
 
 .fmap-main {
   min-width: 0;
 }
 
-.fmap-legend-panel {
+.fmap-legend-col {
   position: sticky;
   top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
 }
 
-.fmap-legend-btn {
-  display: none;
+.fmap-legend-panel {
+  align-self: stretch;
 }
 
 @media (max-width: 1100px) {
-  .fmap-body {
+  .fmap-body-legend-open {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .fmap-legend-panel {
-    display: none;
-  }
-
-  .fmap-legend-btn {
-    display: inline-block;
+  .fmap-legend-col {
+    position: static;
+    order: -1;
   }
 }
 
