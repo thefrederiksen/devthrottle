@@ -10,8 +10,8 @@ import { GatewayError } from "@devthrottle/client-core/api/client";
 //   * the list renders the Gateway's rows verbatim and in its order - name, waiting text, status chip, and the CEO's
 //     Talk button or the "No CEO" text - and the "All factory agents" tab is gone;
 //   * a row opens its factory's page;
-//   * the factory page shows the header, the Overview cards and the tabs exactly as folded, and its computer's
-//     "change - coming" is a label, never a control;
+//   * the factory page shows the header, the Overview cards and the tabs exactly as folded, and its computer is
+//     just the computer's name - no "change - coming" label;
 //   * the Seats tab lists the seats with their own Talk buttons;
 //   * Talk shows a busy state at once, opens the session the Gateway started, and shows the Gateway's own sentence
 //     when it refuses - never a button that does nothing silently;
@@ -194,7 +194,7 @@ describe("Factories - Talk", () => {
 });
 
 describe("A factory's page (mockup 2)", () => {
-  it("shows the header and the Overview as folded, with the computer's change as a label, not a control", async () => {
+  it("shows the header and the Overview as folded, with the computer as just its name", async () => {
     renderAt("/factories/warmforward");
 
     await screen.findByTestId("fa-overview");
@@ -203,10 +203,8 @@ describe("A factory's page (mockup 2)", () => {
     expect(screen.getByTestId("fa-factory-facts").textContent).toContain("CEO Nora Hale");
     expect(screen.getByTestId("fa-factory-facts").textContent).toContain("4 seats");
     expect(screen.getByTestId("fa-factory-facts").textContent).toContain("runs on SOREN_NORTH");
-    const coming = screen.getByTestId("fa-coming");
-    expect(coming.textContent).toBe("change - coming");
-    expect(coming.tagName).toBe("SPAN");
-    expect(coming.closest("a, button")).toBeNull();
+    expect(screen.getByTestId("fa-factory-facts").textContent).not.toContain("change - coming");
+    expect(screen.queryByTestId("fa-coming")).toBeNull();
     expect(screen.getByRole("button", { name: "Talk to Nora Hale" })).toBeTruthy();
 
     expect(screen.getByText("A cash engine of $15,000-$40,000 a year that runs without your time.")).toBeTruthy();
@@ -288,7 +286,8 @@ describe("A factory's Seats tab (mockup 3)", () => {
     expect(within(nora).getByText("CEO")).toBeTruthy();
     expect(within(nora).getByText("Daily 06:15")).toBeTruthy();
     expect(within(nora).getByText("Today 06:20 - succeeded").className).toContain("fa-tone-ok");
-    expect(within(nora).getByText("change - coming").closest("a, button")).toBeNull();
+    expect(within(nora).getByText("SOREN_NORTH").tagName).toBe("TD");
+    expect(within(table).queryByText(/change - coming/)).toBeNull();
     expect(within(within(table).getByTestId("fa-seat-value-hunter")).getByText("Not run yet")).toBeTruthy();
     expect(screen.getByText("Only seats the CEO hired are listed.")).toBeTruthy();
     expect(screenClient.getFactorySeats).toHaveBeenCalledWith("warmforward", expect.anything());

@@ -206,10 +206,6 @@ public sealed class FactoryPageViewDto
     /// <summary>"runs on SOREN_NORTH".</summary>
     public string ComputerText { get; set; } = "";
 
-    /// <summary>"change - coming": moving a factory to another computer is not built yet, and this is a label,
-    /// never a control.</summary>
-    public string ComputerChangeText { get; set; } = "";
-
     /// <summary>The CEO's Talk button, or null when there is no CEO.</summary>
     public FactoryTalkDto? Talk { get; set; }
 
@@ -412,9 +408,6 @@ public sealed class FactorySeatRowDto
 
     /// <summary>The computer the seat runs on.</summary>
     public string ComputerText { get; set; } = "";
-
-    /// <summary>"change - coming": a label, never a control (decision 7).</summary>
-    public string ComputerChangeText { get; set; } = "";
 
     public FactoryTalkDto Talk { get; set; } = new();
 }

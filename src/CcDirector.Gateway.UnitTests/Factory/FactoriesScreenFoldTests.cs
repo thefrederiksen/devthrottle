@@ -248,7 +248,6 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal("CEO Nora Hale", page.CeoText);
         Assert.Equal("4 seats", page.SeatCountText);
         Assert.Equal("runs on SOREN_NORTH", page.ComputerText);
-        Assert.Equal("change - coming", page.ComputerChangeText);
         Assert.Equal("Talk to Nora Hale", page.Talk!.Label);
         Assert.Equal(new[] { "Overview", "Seats (4)", "Activity", "Reports", "Memory", "Documents" }, page.Tabs.Select(t => t.Label));
         Assert.Contains("not on the", page.DocumentsText);
@@ -343,7 +342,6 @@ public sealed class FactoriesScreenFoldTests
         var seats = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, rows));
         Assert.Equal(new[] { "nora-hale", "savings-engineer" }, seats.Rows.Select(r => r.SeatId));
         Assert.Equal(new[] { "Seat", "When it runs", "Last run", "Computer" }, seats.Columns);
-        Assert.All(seats.Rows, r => Assert.Equal("change - coming", r.ComputerChangeText));
         Assert.Equal(("Talk", "warmforward", "nora-hale"), (seats.Rows[0].Talk.Label, seats.Rows[0].Talk.FactoryId, seats.Rows[0].Talk.SeatId));
         Assert.Equal("Starting the talk with Nora Hale...", seats.Rows[0].Talk.BusyLabel);
     }

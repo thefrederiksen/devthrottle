@@ -333,7 +333,6 @@ export const FACTORY_PAGE: FactoryPageView = {
   ceoText: "CEO Nora Hale",
   seatCountText: "4 seats",
   computerText: "runs on SOREN_NORTH",
-  computerChangeText: "change - coming",
   talk: { label: "Talk to Nora Hale", busyLabel: "Starting the talk with Nora Hale (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
   tabs: [
     { key: "overview", label: "Overview" },
@@ -476,7 +475,6 @@ export const FACTORY_SEATS: FactorySeatsView = {
       lastRunText: "Today 06:20 - succeeded",
       lastRunTone: "ok",
       computerText: "SOREN_NORTH",
-      computerChangeText: "change - coming",
       talk: { label: "Talk", busyLabel: "Starting the talk with nora-hale (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
     },
     {
@@ -487,7 +485,6 @@ export const FACTORY_SEATS: FactorySeatsView = {
       lastRunText: "Not run yet",
       lastRunTone: "grey",
       computerText: "SOREN_NORTH",
-      computerChangeText: "change - coming",
       talk: { label: "Talk", busyLabel: "Starting the talk with value-hunter (fixture)...", factoryId: "warmforward", seatId: "value-hunter" },
     },
   ],
