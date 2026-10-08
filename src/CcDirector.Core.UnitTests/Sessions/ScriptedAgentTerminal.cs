@@ -100,6 +100,17 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
     public int Height { get; set; } = 30;
 
     /// <summary>
+    /// Claude Code's guess at the next prompt, drawn FAINT in the composer whenever it is empty, with the cursor at its
+    /// start - the way Claude Code 2.1.293 draws it (ESC[2m ... ESC[22m, captured from session 110 on 7 October 2026).
+    /// Typing replaces it; emptying the composer brings it back. Null draws no suggestion.
+    /// </summary>
+    public string? Suggestion { get; set; }
+
+    /// <summary>The composer row after the glyph: the composer's text, or the faint suggestion when it is empty.</summary>
+    private string ComposerRowText(string shown) =>
+        shown.Length == 0 && Suggestion is { } suggestion ? "\x1b[2m" + suggestion + "\x1b[22m" : shown;
+
+    /// <summary>
     /// Lines the agent paints ABOVE its spinner and composer, the way Claude Code paints a transcript: each accepted
     /// prompt as "❯ <text>" (a past prompt in the transcript carries the same glyph as the live composer) followed by a
     /// one-line answer. Drawn only while <see cref="ShowTranscript"/> is true, and clipped to the screen: when the
@@ -393,7 +404,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
             }
             else
             {
-                sb.Append(spinner).Append("\r\n").Append(TopRule(80)).Append("\r\n").Append(glyphless ? "  " : "❯ ").Append(shown)
+                sb.Append(spinner).Append("\r\n").Append(TopRule(80)).Append("\r\n").Append(glyphless ? "  " : "❯ ").Append(ComposerRowText(shown))
                     .Append("\r\n").Append(rule).Append("\r\n").Append(footer);
                 sb.Append($"\x1b[3;{3 + shown.Length}H");
             }
@@ -419,7 +430,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
             {
                 Working ? $"* Working... ({_frame})" : "Done.",
                 TopRule(Width),
-                "❯ " + shown,
+                "❯ " + ComposerRowText(shown),
                 rule,
                 Working ? "  esc to interrupt" : "  ? for shortcuts",
             };

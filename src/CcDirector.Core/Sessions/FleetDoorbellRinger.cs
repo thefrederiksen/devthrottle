@@ -66,11 +66,7 @@ public sealed class SessionDoorbellTarget : IDoorbellTarget
             : null;
     public bool ProductMayHaveLeftText => _session.ProductMayHaveLeftComposerText;
 
-    public ScreenFrame TakeFrame()
-    {
-        var (rows, cursorRow, cursorCol, cursorVisible, _) = _session.SnapshotLiveScreen();
-        return new ScreenFrame(rows, cursorRow, cursorCol, cursorVisible);
-    }
+    public ScreenFrame TakeFrame() => _session.SnapshotLiveFrame();
 
     public Task<DoorbellSubmitOutcome> SubmitLineAsync(string line, Func<bool> mayTypeNow, Func<bool> composerShowsLine, Func<bool> turnStarted) =>
         _session.SubmitDoorbellLineAsync(line, mayTypeNow, composerShowsLine, turnStarted);

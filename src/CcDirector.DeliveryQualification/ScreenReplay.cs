@@ -22,10 +22,16 @@ public static class ScreenReplay
         var parser = new AnsiParser(new TerminalCell[cols, rows], cols, rows, new List<TerminalCell[]>(), 1000);
         parser.Parse(Encoding.UTF8.GetBytes(text));
         var (screenRows, cursorRow, cursorCol) = parser.SnapshotActiveRows();
-        var frame = new ScreenFrame(screenRows, cursorRow, cursorCol, parser.IsCursorVisible);
+        var (rowsWithoutFaint, _, _) = parser.SnapshotActiveRows(faintAsBlank: true);
+        var frame = new ScreenFrame(screenRows, cursorRow, cursorCol, parser.IsCursorVisible, rowsWithoutFaint);
         var verdict = DoorbellSafety.CheckFrame(AgentKind.ClaudeCode, frame);
+        // The reading with faint text counted as typed - what the Director read before the Prompt Delivery mission - set
+        // beside the reading the composer reader gives now.
+        var before = DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, frame with { RowsWithoutFaint = null });
+        var now = DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, frame);
         Console.WriteLine($"[replay] {Path.GetFileName(file)} {cols}x{rows}: cursor={cursorRow},{cursorCol} visible={parser.IsCursorVisible} " +
                           $"alternate={parser.IsAlternateScreen} verdict={(verdict.Ring ? "RING" : verdict.Reason)} ({verdict.Detail})");
+        Console.WriteLine($"[replay] composer counting faint text: {before.Reading} '{before.Text}'; without it: {now.Reading} '{now.Text}'");
         for (var i = 0; i < screenRows.Length; i++)
             Console.WriteLine($"      {i,2}|{screenRows[i]}");
         return 0;

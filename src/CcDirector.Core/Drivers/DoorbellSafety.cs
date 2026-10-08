@@ -24,7 +24,13 @@ public enum ComposerReading
 /// <param name="CursorRow">Zero-based cursor row, or -1 when there is no grid.</param>
 /// <param name="CursorCol">Zero-based cursor column, or -1.</param>
 /// <param name="CursorVisible">Whether the agent is showing the hardware cursor. A drawn menu hides it.</param>
-public sealed record ScreenFrame(IReadOnlyList<string> Rows, int CursorRow, int CursorCol, bool CursorVisible);
+/// <param name="RowsWithoutFaint">The same rows with every character the agent drew FAINT read as a blank, or null when
+/// the frame was not taken from a live grid that records faintness. Claude Code draws text that is not in its input -
+/// its grey guess at the next prompt, the 'Try "..."' placeholder - faint inside the empty composer; the composer's
+/// TEXT is read from these rows, so that guess is never taken for something typed (the Prompt Delivery mission,
+/// 7 October 2026). The composer's FRAME - rules, glyph, footer - is still found in <paramref name="Rows"/>.</param>
+public sealed record ScreenFrame(IReadOnlyList<string> Rows, int CursorRow, int CursorCol, bool CursorVisible,
+    IReadOnlyList<string>? RowsWithoutFaint = null);
 
 /// <summary>What the Director knows about a session at the moment it is asked to ring.</summary>
 /// <param name="Agent">Which agent runs in the terminal - the composer is drawn differently by each.</param>
@@ -129,9 +135,12 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///    are never rung (their messages wait until they read the inbox on their own, and never go stuck).
 ///  - A Codex placeholder not in <see cref="CodexPlaceholders"/> reads as text, so the ring is deferred until the
 ///    placeholder changes. Safe, but late.
-///  - A Claude Code suggestion (dim text on an empty prompt row, e.g. 'Try "fix typecheck errors"' on a new session,
-///    fixture claude-idle-placeholder-fresh) reads as text, so the ring is deferred until it changes. Safe, but late:
-///    it is not told apart from the owner's own words with the cursor moved to the start (review round 1, finding 1).
+///  - A Claude Code suggestion (FAINT text on an empty prompt row: 'Try "fix typecheck errors"' on a new session, or
+///    after a turn its guess at the next prompt, "yes, go on 2.18.0 after the follow-up merges") reads as EMPTY when the
+///    frame carries <see cref="ScreenFrame.RowsWithoutFaint"/> - every frame the Director takes from a live session
+///    does (the Prompt Delivery mission, 7 October 2026: read as text, it refused every send to an idle session and
+///    deferred every doorbell). A frame built from rows alone - a captured fixture with no faintness recorded - still
+///    reads it as text, which defers rather than types.
 ///  - Text the owner has typed but the agent has not yet repainted, and a turn that starts after the last look.
 ///    The ringer (<see cref="Sessions.FleetDoorbellRinger"/>) takes a third frame and re-reads the Director's
 ///    state immediately before the first byte and defers if anything moved; a keystroke or a self-started turn
@@ -220,12 +229,30 @@ public static class DoorbellSafety
         ArgumentNullException.ThrowIfNull(a);
         ArgumentNullException.ThrowIfNull(b);
         if (a.CursorRow != b.CursorRow || a.CursorCol != b.CursorCol || a.CursorVisible != b.CursorVisible) return false;
-        var ra = a.Rows ?? [];
-        var rb = b.Rows ?? [];
+        return SameRows(a.Rows ?? [], b.Rows ?? []) && SameRows(a.RowsWithoutFaint ?? [], b.RowsWithoutFaint ?? []);
+    }
+
+    private static bool SameRows(IReadOnlyList<string> ra, IReadOnlyList<string> rb)
+    {
         if (ra.Count != rb.Count) return false;
         for (var i = 0; i < ra.Count; i++)
             if (!string.Equals(ra[i], rb[i], StringComparison.Ordinal)) return false;
         return true;
+    }
+
+    /// <summary>
+    /// The rows the composer's TEXT is read from: <see cref="ScreenFrame.RowsWithoutFaint"/> when the frame carries them,
+    /// so text Claude Code drew faint - a suggestion, never something typed - is not read as the composer's content.
+    /// </summary>
+    private static IReadOnlyList<string> InputRows(ScreenFrame frame)
+    {
+        var rows = frame.Rows ?? [];
+        if (frame.RowsWithoutFaint is not { } input) return rows;
+        if (input.Count != rows.Count)
+            throw new ArgumentException(
+                $"A screen frame's rows without faint text ({input.Count}) must be the same rows as the frame's ({rows.Count}).",
+                nameof(frame));
+        return input;
     }
 
     /// <summary>The screen rules for one frame.</summary>
@@ -284,8 +311,17 @@ public static class DoorbellSafety
         var (reading, prompt, close) = FindClaudeComposer(rows);
         if (reading != ComposerReading.HoldsText) return (reading, "");
 
-        var onPrompt = AfterGlyph(rows[prompt]);
-        var continuation = ContinuationRows(rows, prompt, close);
+        // THE TEXT IS READ WITHOUT WHAT CLAUDE CODE DREW FAINT (the Prompt Delivery mission, 7 October 2026). After a
+        // turn Claude Code draws its guess at the next prompt in grey in the EMPTY composer, with the cursor straight
+        // after the glyph ("❯ yes, go on 2.18.0 after the follow-up merges": Claude Code 2.1.293 writes ESC[2m before the
+        // text; session 110's own bytes are pinned in ClaudeSuggestionComposerTests). Read as text, every idle Claude Code
+        // session's composer "held" a sentence nobody typed: a clear that worked was reported as one that did not, and
+        // the send of "go" was refused with the suggestion quoted as the reason. Typed text is drawn at normal weight, and
+        // so is a collapsed paste: both "[Pasted text #" chips in the raw output of fourteen live sessions on 8 October
+        // 2026 were drawn after ESC[m, with no faint attribute set.
+        var input = InputRows(frame);
+        var onPrompt = AfterGlyph(input[prompt]);
+        var continuation = ContinuationRows(input, prompt, close);
         if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))
         {
             // WHITESPACE IS TEXT (inspection 4, ruling 3). The rows arrive trailing-trimmed, so a draft of
@@ -470,9 +506,10 @@ public static class DoorbellSafety
             case AgentKind.ClaudeCode:
                 var (reading, prompt, close) = FindClaudeComposer(rows);
                 if (reading != ComposerReading.HoldsText) return false;
-                segments = [(prompt, AfterGlyph(rows[prompt]))];
+                var input = InputRows(frame);
+                segments = [(prompt, AfterGlyph(input[prompt]))];
                 var index = prompt + 1;
-                foreach (var row in ContinuationRows(rows, prompt, close))
+                foreach (var row in ContinuationRows(input, prompt, close))
                 {
                     if (!row.StartsWith(ContinuationIndent, StringComparison.Ordinal)) return false;
                     segments.Add((index++, row[ContinuationIndent.Length..]));

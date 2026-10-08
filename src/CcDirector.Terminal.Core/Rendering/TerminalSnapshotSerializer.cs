@@ -164,6 +164,7 @@ public static class TerminalSnapshotSerializer
         if (cell.Background != default)
             sb.Append(";48;2;").Append(cell.Background.R).Append(';').Append(cell.Background.G).Append(';').Append(cell.Background.B);
         if (cell.Bold) sb.Append(";1");
+        if (cell.Faint) sb.Append(";2");
         if (cell.Italic) sb.Append(";3");
         if (cell.Underline) sb.Append(";4");
         sb.Append('m');

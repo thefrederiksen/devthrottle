@@ -87,6 +87,7 @@ public class TerminalSnapshotSerializerTests
                     if (e.Bold != a.Bold) Assert.Fail($"{ctx}: bold[{c},{r}] {e.Bold} vs {a.Bold}");
                     if (e.Italic != a.Italic) Assert.Fail($"{ctx}: italic[{c},{r}] {e.Italic} vs {a.Italic}");
                     if (e.Underline != a.Underline) Assert.Fail($"{ctx}: underline[{c},{r}] {e.Underline} vs {a.Underline}");
+                    if (e.Faint != a.Faint) Assert.Fail($"{ctx}: faint[{c},{r}] {e.Faint} vs {a.Faint}");
                 }
             }
     }
@@ -106,8 +107,8 @@ public class TerminalSnapshotSerializerTests
     public void Colors_And_Attributes_RoundTrip()
     {
         var (p, cells, sb) = TerminalTestHelper.CreateParser(40, 4);
-        // red bold "ERR", default " ok ", green underline "done", truecolor bg
-        TerminalTestHelper.Parse(p, "\x1b[1;31mERR\x1b[0m ok \x1b[4;32mdone\x1b[0m\r\n\x1b[48;2;10;20;30mBG\x1b[0m");
+        // red bold "ERR", default " ok ", green underline "done", truecolor bg, a faint suggestion
+        TerminalTestHelper.Parse(p, "\x1b[1;31mERR\x1b[0m ok \x1b[4;32mdone\x1b[0m\r\n\x1b[48;2;10;20;30mBG\x1b[0m \x1b[2mfaint suggestion\x1b[22m");
         var snap = Snapshot(p, sb);
         var (client, ccells) = ReplayIntoClient(snap, 40, 4);
         AssertActiveScreensMatch(p, client, "styled");

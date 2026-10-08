@@ -131,8 +131,9 @@ public static class PromptDeliveryFailures
 
         Push(new PromptDeliveryFailure(at, sessionId, "failed-delivery", source, trimmed, textLength));
 
+        // The log line carries the reason WHOLE; only the ledger a screen renders is trimmed (the Prompt Delivery mission).
         FileLog.Write($"[PromptDeliveryFailures] FAILED DELIVERY: session={sessionId}, source={source}, " +
-                      $"len={textLength}, reason={trimmed}");
+                      $"len={textLength}, reason={reason}");
     }
 
     /// <summary>

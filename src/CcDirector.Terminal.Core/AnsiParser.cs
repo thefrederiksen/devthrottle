@@ -332,7 +332,15 @@ public class AnsiParser
     /// actually on screen now. Not internally synchronized - the owner serializes Parse and
     /// this call under its own lock.
     /// </summary>
-    public (string[] Rows, int CursorRow, int CursorCol) SnapshotActiveRows()
+    public (string[] Rows, int CursorRow, int CursorCol) SnapshotActiveRows() => SnapshotActiveRows(faintAsBlank: false);
+
+    /// <summary>
+    /// <see cref="SnapshotActiveRows()"/>, with every FAINT character (<see cref="TerminalCell.Faint"/>) read as a blank
+    /// when <paramref name="faintAsBlank"/> is true - the rows without the text a program drew in grey. Claude Code draws
+    /// its guess at the next prompt faint inside an empty composer, so this is the grid a composer reader needs: what the
+    /// agent holds as input, not what it suggests.
+    /// </summary>
+    public (string[] Rows, int CursorRow, int CursorCol) SnapshotActiveRows(bool faintAsBlank)
     {
         var rows = new string[_rows];
         var sb = new System.Text.StringBuilder(_cols);
@@ -341,8 +349,9 @@ public class AnsiParser
             sb.Clear();
             for (int c = 0; c < _cols; c++)
             {
-                var ch = _cells[c, r].Character;
-                sb.Append(ch == '\0' ? ' ' : ch);
+                var cell = _cells[c, r];
+                var ch = cell.Character;
+                sb.Append(ch == '\0' || (faintAsBlank && cell.Faint) ? ' ' : ch);
             }
             rows[r] = sb.ToString().TrimEnd();
         }
@@ -1226,6 +1235,7 @@ public class AnsiParser
                 Bold = _bold,
                 Italic = _italic,
                 Underline = _underline,
+                Faint = _dim,
                 HyperlinkId = _hyperlinkId,
             };
             // Width-2 continuation cell: xterm stores this as empty-string so
@@ -1261,6 +1271,7 @@ public class AnsiParser
             Bold = _bold,
             Italic = _italic,
             Underline = _underline,
+            Faint = _dim,
             HyperlinkId = _hyperlinkId,
         };
 

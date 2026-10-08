@@ -240,9 +240,10 @@ public class AnsiParserHyperlinkTests
     }
 
     [Fact]
-    public void ACellStaysSixteenBytes()
+    public void ACellStaysFourteenBytes()
     {
-        Assert.Equal(16, Unsafe.SizeOf<TerminalCell>());
+        // The style bits share one byte (the faint bit was added by the Prompt Delivery mission): 14 bytes, and growth fails here.
+        Assert.Equal(14, Unsafe.SizeOf<TerminalCell>());
     }
 
     private static string RowText(TerminalCell[,] cells, int row)

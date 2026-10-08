@@ -32,6 +32,13 @@ public sealed class DeliveryRecordEntry
     /// <summary>When that process started, in UTC - so a later process that reuses the id is not taken for the writer.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public DateTime? OwnerStartedAt { get; set; }
+
+    /// <summary>The steps the send took, in order and in full, each with the milliseconds since the send began
+    /// (<see cref="Input.SendTrail"/>): what the composer held, the keys pressed, what it held after, the retries, and the
+    /// verdict. Written on a send's final line - delivered, not delivered or unconfirmed - and null on every other line,
+    /// and on a line written by a Director older than the field (the Prompt Delivery mission, 8 October 2026).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? Steps { get; set; }
 }
 
 /// <summary>The Director process that began a delivery: its process id and when it started, in UTC. The pair names one
@@ -430,30 +437,31 @@ public sealed class DeliveryRecord
     public const string SessionEndedReason = "the session ended before the words appeared in its records";
 
     /// <summary>The send completed: the words reached the session.</summary>
-    public void MarkDelivered(Guid sessionId, string deliveryId) => Write(sessionId, deliveryId, DeliveryState.Delivered, null);
+    public void MarkDelivered(Guid sessionId, string deliveryId, IReadOnlyList<string>? steps = null) =>
+        Write(sessionId, deliveryId, DeliveryState.Delivered, null, steps);
 
     /// <summary>The send threw, or was refused before typing: the words did not reach the session, for <paramref name="reason"/>.</summary>
-    public void MarkNotDelivered(Guid sessionId, string deliveryId, string reason)
+    public void MarkNotDelivered(Guid sessionId, string deliveryId, string reason, IReadOnlyList<string>? steps = null)
     {
         if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("A not-delivered entry must say why.", nameof(reason));
-        Write(sessionId, deliveryId, DeliveryState.NotDelivered, reason);
+        Write(sessionId, deliveryId, DeliveryState.NotDelivered, reason, steps);
     }
 
     /// <summary>The words left the composer and the late watch ended without proof either way, for <paramref name="reason"/>
     /// (issue #3484). The id never begins again.</summary>
-    public void MarkUnconfirmed(Guid sessionId, string deliveryId, string reason)
+    public void MarkUnconfirmed(Guid sessionId, string deliveryId, string reason, IReadOnlyList<string>? steps = null)
     {
         if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("An unconfirmed entry must say why.", nameof(reason));
-        Write(sessionId, deliveryId, DeliveryState.Unconfirmed, reason);
+        Write(sessionId, deliveryId, DeliveryState.Unconfirmed, reason, steps);
     }
 
-    private void Write(Guid sessionId, string deliveryId, DeliveryState state, string? reason)
+    private void Write(Guid sessionId, string deliveryId, DeliveryState state, string? reason, IReadOnlyList<string>? steps)
     {
         RequireId(deliveryId);
-        FileLog.Write($"[DeliveryRecord] Write: session={sessionId}, deliveryId={deliveryId}, state={DeliveryStates.Format(state)}");
+        FileLog.Write($"[DeliveryRecord] Write: session={sessionId}, deliveryId={deliveryId}, state={DeliveryStates.Format(state)}, steps={steps?.Count ?? 0}");
         UnderSessionLock(sessionId, $"writing {DeliveryStates.Format(state)}", () =>
         {
-            Append(sessionId, ReadEntries(sessionId), deliveryId, state, reason);
+            Append(sessionId, ReadEntries(sessionId), deliveryId, state, reason, steps);
             return true;
         });
     }
@@ -626,7 +634,8 @@ public sealed class DeliveryRecord
 
     /// <summary>Adds one entry, drops entries older than <see cref="Retention"/>, and replaces the file in one move. A
     /// <c>delivering</c> entry carries this record's owner. Returns the entries now on disk.</summary>
-    private List<DeliveryRecordEntry> Append(Guid sessionId, List<DeliveryRecordEntry> entries, string deliveryId, DeliveryState state, string? reason)
+    private List<DeliveryRecordEntry> Append(Guid sessionId, List<DeliveryRecordEntry> entries, string deliveryId, DeliveryState state, string? reason,
+        IReadOnlyList<string>? steps = null)
     {
         var now = _utcNow();
         var cutoff = now - Retention;
@@ -640,6 +649,7 @@ public sealed class DeliveryRecord
             At = now,
             OwnerProcessId = delivering ? _owner.ProcessId : null,
             OwnerStartedAt = delivering ? _owner.StartedAtUtc : null,
+            Steps = steps is { Count: > 0 } ? steps.ToList() : null,
         });
 
         Directory.CreateDirectory(_directory);

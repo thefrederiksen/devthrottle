@@ -299,6 +299,71 @@ public sealed class DeliveryIdPromptTests : IDisposable
         finally { manager.Dispose(); }
     }
 
+    /// <summary>The last line the record holds for a session - the delivery's final state, with its steps.</summary>
+    private DeliveryRecordEntry LastEntry(Guid sessionId) =>
+        JsonSerializer.Deserialize<DeliveryRecordEntry>(File.ReadAllLines(_record.FileFor(sessionId))[^1], Json)!;
+
+    [Fact]
+    public async Task SendPromptAsync_SendThatThrew_WritesItsStepsOnTheNotDeliveredLine()
+    {
+        // Proves the executor attaches the send's trail to its record (the Prompt Delivery mission; review of pull request
+        // 3654, finding 6): dropping the steps from the final write fails here.
+        var backend = new HeldSendBackend { FailNext = "the composer still holds text after it was cleared" };
+        var manager = new SessionManager(new Core.Configuration.AgentOptions());
+        try
+        {
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+            backend.Release.SetResult();
+
+            await Assert.ThrowsAnyAsync<Exception>(
+                () => SessionCommandExecutor.SendPromptAsync(session, Typed("trail-1"), SendSource.UserInput, _record));
+
+            var entry = LastEntry(session.Id);
+            Assert.Equal("not-delivered", entry.State);
+            Assert.NotNull(entry.Steps);
+            Assert.Contains(entry.Steps!, s => s.Contains("send began: session=" + session.Id, StringComparison.Ordinal));
+            Assert.Contains(entry.Steps!, s => s.Contains("verdict: not-delivered - the composer still holds text", StringComparison.Ordinal));
+        }
+        finally { manager.Dispose(); }
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_Delivered_WritesItsStepsOnTheDeliveredLine()
+    {
+        var (session, _) = NewTerminalSession();
+
+        Body(await SessionCommandExecutor.SendPromptAsync(session, Delivery("trail-2"), SendSource.Delivery, _record));
+
+        var entry = LastEntry(session.Id);
+        Assert.Equal("delivered", entry.State);
+        Assert.Contains(entry.Steps!, s => s.EndsWith("verdict: delivered", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SendPromptAsync_FailsAfterTheAnswer_WritesItsStepsOnTheLateLine()
+    {
+        // The late outcome runs after the verb answered, in the send's own flow: its line carries the same trail.
+        var backend = new HeldSendBackend { FailNext = "the composer never echoed the typed text" };
+        var manager = new SessionManager(new Core.Configuration.AgentOptions());
+        try
+        {
+            var session = manager.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+            Body(await SessionCommandExecutor.SendPromptAsync(session, Typed("trail-3"), SendSource.UserInput, _record,
+                answerBudget: TimeSpan.FromMilliseconds(300)));
+
+            backend.Release.SetResult();
+            var until = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+            while (_record.Read(session.Id, "trail-3").State == DeliveryState.Delivering && DateTime.UtcNow < until)
+                await Task.Delay(50);
+
+            var entry = LastEntry(session.Id);
+            Assert.Equal("not-delivered", entry.State);
+            Assert.Contains(entry.Steps!, s => s.Contains("send began: session=" + session.Id, StringComparison.Ordinal));
+            Assert.Contains(entry.Steps!, s => s.Contains("late send outcome", StringComparison.Ordinal));
+        }
+        finally { manager.Dispose(); }
+    }
+
     /// <summary>A one-call-submit terminal whose send can be held mid-typing and can be made to throw, counting sends.</summary>
     private sealed class HeldSendBackend : ISessionBackend
     {
