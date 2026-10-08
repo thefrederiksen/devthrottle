@@ -7,6 +7,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Git;
+using CcDirector.Core.Input;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
@@ -249,6 +250,12 @@ internal static class SessionCommandExecutor
     {
         var deliveryId = request.DeliveryId!;
         FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: session={session.Id}, deliveryId={deliveryId}");
+        // EVERY STEP OF THIS SEND IS KEPT WITH ITS RECORD (the Prompt Delivery mission). Begun here, so the send - and its
+        // late outcome, which runs on after this verb answers - write their steps to this trail, and the final line in
+        // the delivery record carries them in full.
+        var trail = SendTrail.Begin();
+        SendTrail.Step("SessionCommandExecutor", $"send began: session={session.Id}, deliveryId={deliveryId}, source={source}, " +
+                                                 $"agent={session.AgentKind}, len={request.Text?.Length ?? 0}");
 
         DeliveryClaim claim;
         try
@@ -308,7 +315,7 @@ internal static class SessionCommandExecutor
                 FileLog.Write($"[SessionCommandExecutor] SendRecordedDeliveryAsync: REFUSED session={session.Id}, deliveryId={deliveryId}: " +
                               $"it was {PromptAgeLimit.Describe(receiptAge)} old from Send when the Director received it, " +
                               $"past the {MaxDeliveryAge.Minutes}-minute limit; nothing was typed");
-                deliveries.MarkNotDelivered(session.Id, deliveryId, reason);
+                deliveries.MarkNotDelivered(session.Id, deliveryId, reason, trail.Steps);
                 return TooOldAnswer(session, session.Buffer?.TotalBytesWritten ?? 0, reason);
             }
             result = await SendPromptCoreAsync(session, request, source, answerBudget, deliveries, utcNow);
@@ -317,13 +324,15 @@ internal static class SessionCommandExecutor
         {
             // Records a fact and rethrows the same exception untouched (the pattern Session.SubmitTextAsync uses for
             // PromptDeliveryFailures): the caller's error path is unchanged, and the record says what became of the id.
-            deliveries.MarkNotDelivered(session.Id, deliveryId, ex.Message);
+            SendTrail.Step("SessionCommandExecutor", $"verdict: not-delivered - {ex.Message}");
+            deliveries.MarkNotDelivered(session.Id, deliveryId, ex.Message, trail.Steps);
             throw;
         }
 
         if (!result.Ok)
         {
-            deliveries.MarkNotDelivered(session.Id, deliveryId, result.Error ?? result.Status.ToString());
+            SendTrail.Step("SessionCommandExecutor", $"verdict: not-delivered - {result.Error ?? result.Status.ToString()}");
+            deliveries.MarkNotDelivered(session.Id, deliveryId, result.Error ?? result.Status.ToString(), trail.Steps);
             return result;
         }
 
@@ -340,13 +349,15 @@ internal static class SessionCommandExecutor
         }
         else if (response.Accepted)
         {
-            deliveries.MarkDelivered(session.Id, deliveryId);
+            SendTrail.Step("SessionCommandExecutor", "verdict: delivered");
+            deliveries.MarkDelivered(session.Id, deliveryId, trail.Steps);
             response.DeliveryState = DeliveryState.Delivered;
         }
         else
         {
             var reason = response.Error ?? "the prompt was refused before anything was typed";
-            deliveries.MarkNotDelivered(session.Id, deliveryId, reason);
+            SendTrail.Step("SessionCommandExecutor", $"verdict: not-delivered - {reason}");
+            deliveries.MarkNotDelivered(session.Id, deliveryId, reason, trail.Steps);
             response.DeliveryState = DeliveryState.NotDelivered;
             response.DeliveryStateReason = reason;
         }
@@ -687,8 +698,10 @@ internal static class SessionCommandExecutor
     {
         var word = DeliveryStates.Format(state);
         var shownId = deliveryId ?? "(no delivery id)";
-        FileLog.Write($"[SessionCommandExecutor] late send outcome: session={sessionId}, delivery={shownId}: {word}" +
-                      (reason is null ? "" : $" - {reason}"));
+        SendTrail.Step("SessionCommandExecutor", $"late send outcome: session={sessionId}, delivery={shownId}: {word}" +
+                                                 (reason is null ? "" : $" - {reason}"));
+        // The trail of the send this outcome ends: this runs in the send's own flow, after the verb answered.
+        var steps = SendTrail.Current?.Steps;
         if (deliveries is not null && deliveryId is not null)
         {
             try
@@ -696,15 +709,15 @@ internal static class SessionCommandExecutor
                 switch (state)
                 {
                     case DeliveryState.Delivered:
-                        deliveries.MarkDelivered(sessionId, deliveryId);
+                        deliveries.MarkDelivered(sessionId, deliveryId, steps);
                         break;
                     case DeliveryState.NotDelivered:
                         deliveries.MarkNotDelivered(sessionId, deliveryId,
-                            reason ?? throw new InvalidOperationException("A not-delivered late outcome must say why."));
+                            reason ?? throw new InvalidOperationException("A not-delivered late outcome must say why."), steps);
                         break;
                     case DeliveryState.Unconfirmed:
                         deliveries.MarkUnconfirmed(sessionId, deliveryId,
-                            reason ?? throw new InvalidOperationException("An unconfirmed late outcome must say why."));
+                            reason ?? throw new InvalidOperationException("An unconfirmed late outcome must say why."), steps);
                         break;
                     default:
                         throw new InvalidOperationException($"A late send outcome is never '{word}'.");

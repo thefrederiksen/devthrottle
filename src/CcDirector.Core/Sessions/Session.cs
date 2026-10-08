@@ -2483,11 +2483,7 @@ public sealed class Session : IDisposable
         FileLog.Write($"[Session] DeliverFirstPromptAsync: session={Id}, driver={Driver.Kind}, len={text.Length}, limit={limit.TotalSeconds:F0}s");
         var gate = await Drivers.FirstPromptGate.WaitUntilAcceptingInputAsync(
             AgentKind,
-            () =>
-            {
-                var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-                return new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible);
-            },
+            SnapshotLiveFrame,
             bytes => _backend.Write(bytes),
             () => _disposed || Status is SessionStatus.Exited or SessionStatus.Failed || ActivityState == ActivityState.Exited,
             limit,
@@ -2626,6 +2622,24 @@ public sealed class Session : IDisposable
             // discriminator between a text composer (cursor visible) and a drawn Ink menu (cursor hidden, a
             // stale cursor cell), so it must describe the same frame the rows do (issue #1777).
             return (rows, cursorRow, cursorCol, _screenParser.IsCursorVisible, _screenParser.IsAlternateScreen);
+        }
+    }
+
+    /// <summary>
+    /// The live screen as the composer readers take it: <see cref="SnapshotLiveScreen"/>'s rows, cursor and cursor
+    /// visibility, plus the same rows with the agent's FAINT text read as blank (<see cref="Drivers.ScreenFrame.RowsWithoutFaint"/>),
+    /// all from ONE locked read so both row sets describe the same frame. Every composer reading goes through here, so
+    /// Claude Code's grey suggestion is never read as text the composer holds (the Prompt Delivery mission).
+    /// </summary>
+    public Drivers.ScreenFrame SnapshotLiveFrame()
+    {
+        if (_screenParser is null)
+            return new Drivers.ScreenFrame(System.Array.Empty<string>(), -1, -1, false, System.Array.Empty<string>());
+        lock (_screenLock)
+        {
+            var (rows, cursorRow, cursorCol) = _screenParser.SnapshotActiveRows();
+            var (rowsWithoutFaint, _, _) = _screenParser.SnapshotActiveRows(faintAsBlank: true);
+            return new Drivers.ScreenFrame(rows, cursorRow, cursorCol, _screenParser.IsCursorVisible, rowsWithoutFaint);
         }
     }
 
@@ -3929,10 +3943,9 @@ public sealed class Session : IDisposable
     {
         if (!Drivers.FirstPromptGate.CanProve(AgentKind)) return false;
         if (ActivityState is ActivityState.Working or ActivityState.Starting) return false;
-        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-        if (Drivers.DoorbellSafety.ShowsWorking(rows)) return false;
-        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
-            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+        var frame = SnapshotLiveFrame();
+        if (Drivers.DoorbellSafety.ShowsWorking(frame.Rows)) return false;
+        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(AgentKind, frame);
         return Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText);
     }
 
@@ -3940,10 +3953,9 @@ public sealed class Session : IDisposable
     private bool ComposerHoldsTextAndNoTurn()
     {
         if (ActivityState is ActivityState.Working or ActivityState.Starting) return false;
-        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-        if (Drivers.DoorbellSafety.ShowsWorking(rows)) return false;
-        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
-            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+        var frame = SnapshotLiveFrame();
+        if (Drivers.DoorbellSafety.ShowsWorking(frame.Rows)) return false;
+        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(AgentKind, frame);
         return reading == Drivers.ComposerReading.HoldsText && !Drivers.PromptArrival.ComposerHoldsNothing(reading, composerText);
     }
 
@@ -3955,9 +3967,7 @@ public sealed class Session : IDisposable
     /// </summary>
     private (Drivers.ComposerReading Reading, string Text) ReadComposerRegion()
     {
-        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-        return Drivers.DoorbellSafety.ReadComposerText(
-            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+        return Drivers.DoorbellSafety.ReadComposerText(AgentKind, SnapshotLiveFrame());
     }
 
     /// <summary>
@@ -3990,11 +4000,16 @@ public sealed class Session : IDisposable
 
     private string DescribeComposer(Drivers.ComposerReading reading, string composerText)
     {
-        static string Cut(string s) => s.Length > 80 ? s[..80] + "..." : s;
-        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-        var row = cursorRow >= 0 && cursorRow < rows.Length ? rows[cursorRow] : "";
-        return $"reading={reading}, text='{Cut(composerText)}', cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
-               $"row='{Cut(row)}', screen={_screenCols}x{_screenRows}";
+        // IN FULL, NEVER CUT (the Prompt Delivery mission): a refusal that quotes the composer is the evidence for why a
+        // send failed, and on 7 October 2026 it was cut off at "tex...". The row's FAINT text - what Claude Code drew in
+        // grey and the reader left out - is named separately, so a suggestion can be told from typed text at a glance.
+        var frame = SnapshotLiveFrame();
+        var (rows, cursorRow, cursorCol, cursorVisible) = (frame.Rows, frame.CursorRow, frame.CursorCol, frame.CursorVisible);
+        var row = cursorRow >= 0 && cursorRow < rows.Count ? rows[cursorRow] : "";
+        var rowWithoutFaint = frame.RowsWithoutFaint is { } input && cursorRow >= 0 && cursorRow < input.Count ? input[cursorRow] : row;
+        var faint = rowWithoutFaint == row ? "" : $", rowWithoutFaint='{rowWithoutFaint}' (the rest was drawn faint, not typed)";
+        return $"reading={reading}, text='{composerText}', cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
+               $"row='{row}'{faint}, screen={_screenCols}x{_screenRows}";
     }
 
     /// <summary>
@@ -4165,9 +4180,7 @@ public sealed class Session : IDisposable
     /// </summary>
     private ComposerRelease ReadComposerForRelease(string fingerprint)
     {
-        var (rows, cursorRow, cursorCol, cursorVisible, _) = SnapshotLiveScreen();
-        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(
-            AgentKind, new Drivers.ScreenFrame(rows, cursorRow, cursorCol, cursorVisible));
+        var (reading, composerText) = Drivers.DoorbellSafety.ReadComposerText(AgentKind, SnapshotLiveFrame());
         if (reading is Drivers.ComposerReading.NotFound or Drivers.ComposerReading.MenuOpen) return ComposerRelease.Unreadable;
         if (reading != Drivers.ComposerReading.HoldsText) return ComposerRelease.Left;
         var held = composerText.StartsWith(ClaudePastePlaceholder, StringComparison.Ordinal)

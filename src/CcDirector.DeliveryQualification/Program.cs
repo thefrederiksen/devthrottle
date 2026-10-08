@@ -30,6 +30,7 @@ namespace CcDirector.DeliveryQualification;
 ///   CcDirector.DeliveryQualification --repeat-short-prompt [--cpu-load 24]   (the same short prompt sent twice in a row, same session)
 ///   CcDirector.DeliveryQualification --codex-composer-capture [--cols 100] [--rows 30]   (dump Codex's composer holding a wrapped prompt; nothing is submitted)
 ///   CcDirector.DeliveryQualification --claude-doorbell-capture [--cols 120] [--rows 40]   (dump Claude Code's screens with a background task running)
+///   CcDirector.DeliveryQualification --claude-suggestion-capture [--cols 120] [--rows 40]   (dump Claude Code's grey prompt suggestion and a short prompt typed over it)
 ///   CcDirector.DeliveryQualification --claude-titled-capture [--cols 120] [--rows 40]   (dump Claude Code's composer with the session name in its top rule; nothing is submitted)
 /// </summary>
 public static class Program
@@ -133,6 +134,13 @@ public static class Program
         {
             var cda = opts.ArgsOverride.TryGetValue("claude", out var cdaValue) ? cdaValue : Agents["claude"].Args;
             return await ClaudeDoorbellCapture.RunAsync(manager, cda, Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")),
+                opts.Out, opts.CaptureCols, opts.CaptureRows);
+        }
+
+        if (opts.ClaudeSuggestionCapture)
+        {
+            var csa = opts.ArgsOverride.TryGetValue("claude", out var csaValue) ? csaValue : Agents["claude"].Args;
+            return await ClaudeSuggestionCapture.RunAsync(manager, csa, Rig.EnsureRepo(Path.Combine(opts.RepoRoot, "repo-1")),
                 opts.Out, opts.CaptureCols, opts.CaptureRows);
         }
 
@@ -305,6 +313,7 @@ public sealed class Options
     public bool CodexComposerCapture { get; private set; }
     public bool ClaudeDoorbellCapture { get; private set; }
     public bool ClaudeTitledCapture { get; private set; }
+    public bool ClaudeSuggestionCapture { get; private set; }
     public short CaptureCols { get; private set; } = 100;
     public short CaptureRows { get; private set; } = 30;
     public int ThawWaitSeconds { get; private set; } = 8;
@@ -336,6 +345,7 @@ public sealed class Options
                 case "--codex-composer-capture": o.CodexComposerCapture = true; break;
                 case "--claude-doorbell-capture": o.ClaudeDoorbellCapture = true; break;
                 case "--claude-titled-capture": o.ClaudeTitledCapture = true; break;
+                case "--claude-suggestion-capture": o.ClaudeSuggestionCapture = true; break;
                 case "--cols": o.CaptureCols = short.Parse(Next()); break;
                 case "--rows": o.CaptureRows = short.Parse(Next()); break;
                 case "--thaw-wait": o.ThawWaitSeconds = int.Parse(Next()); break;

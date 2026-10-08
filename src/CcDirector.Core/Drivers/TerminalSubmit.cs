@@ -317,7 +317,7 @@ public static class TerminalSubmit
         }
         if (!echoed)
         {
-            FileLog.Write($"[{driverTag}] DoorbellSubmit: the line never echoed - Enter NOT pressed");
+            SendTrail.Step(driverTag, $"DoorbellSubmit: the line never echoed - Enter NOT pressed");
             return DoorbellSubmitOutcome.NotVerified;
         }
 
@@ -329,11 +329,11 @@ public static class TerminalSubmit
             await wait(step);
             if (turnStarted())
             {
-                FileLog.Write($"[{driverTag}] DoorbellSubmit: submitted, the screen shows the turn");
+                SendTrail.Step(driverTag, $"DoorbellSubmit: submitted, the screen shows the turn");
                 return DoorbellSubmitOutcome.Verified;
             }
         }
-        FileLog.Write($"[{driverTag}] DoorbellSubmit: Enter pressed once, no turn seen within {(watch ?? DoorbellWatch).TotalSeconds:0}s - NOT verified, no nudge sent");
+        SendTrail.Step(driverTag, $"DoorbellSubmit: Enter pressed once, no turn seen within {(watch ?? DoorbellWatch).TotalSeconds:0}s - NOT verified, no nudge sent");
         return DoorbellSubmitOutcome.NotVerified;
     }
 
@@ -417,9 +417,9 @@ public static class TerminalSubmit
         var visibleTailNeedle = VisibleTailNeedle(needle);
 
         if (echoTimeout is null && MemoryPressure.IsUnderPressure(pressure))
-            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: {MemoryPressure.Describe(pressure)}, so the composer " +
-                          $"echo deadline is {to.TotalSeconds:F0}s after the last output instead of {BaseEchoTimeout.TotalSeconds:F0}s. " +
-                          "A slow repaint is not a stuck interface.");
+            SendTrail.Step(driverTag, $"EchoVerifiedSubmit: {MemoryPressure.Describe(pressure)}, so the composer " +
+                                      $"echo deadline is {to.TotalSeconds:F0}s after the last output instead of {BaseEchoTimeout.TotalSeconds:F0}s. " +
+                                      "A slow repaint is not a stuck interface.");
 
         // TYPED ONCE, NEVER CLEARED AND RETYPED (issue #3290). This used to press Escape and type the text again when
         // the echo was late. Measured on 24 September 2026 with real agents: a single Escape empties the composer of
@@ -453,11 +453,14 @@ public static class TerminalSubmit
             && NormalizeForEcho(string.Concat(rowsBefore)).Contains(visibleTailNeedle, StringComparison.Ordinal))
             visibleTailNeedle = null;
         if (needleBefore > 0)
-            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the same text is already on screen {needleBefore} time(s) - " +
-                          (composerRegion is not null
-                              ? "in the conversation above the composer; the echo is judged in the composer region alone, " +
-                                "never by counting copies anywhere on the screen"
-                              : "only a new copy on screen counts as its echo"));
+            SendTrail.Step(driverTag, $"EchoVerifiedSubmit: the same text is already on screen {needleBefore} time(s) - " +
+                                      (composerRegion is not null
+                                          ? "in the conversation above the composer; the echo is judged in the composer region alone, " +
+                                            "never by counting copies anywhere on the screen"
+                                          : "only a new copy on screen counts as its echo"));
+        SendTrail.Step(driverTag, $"EchoVerifiedSubmit: typing {text.Length} characters once; the composer before typing: " +
+                                  $"{RegionForTrail(composerRegion)}; the text already in it {regionNeedleBefore} time(s)");
+        var typedAt = DateTime.UtcNow;
         await WriteTextAsync(backend, text);
 
         if (needle.Length == 0 || await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, to, poll, cap,
@@ -466,6 +469,8 @@ public static class TerminalSubmit
                     $"{to.TotalSeconds:F0}s after the terminal last moved, at most {cap.TotalSeconds:F0}s"),
                 composerRegion, regionNeedleBefore))
         {
+            SendTrail.Step(driverTag, $"EchoVerifiedSubmit: the composer echoed the text after " +
+                                      $"{(DateTime.UtcNow - typedAt).TotalMilliseconds:F0}ms - pressing Enter");
             await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
             ComposerRetention.Clear(backend);
             return;
@@ -477,8 +482,8 @@ public static class TerminalSubmit
         var evidence = await ObserveComposerAsync(screenSnapshot, composerRegion, needle, visibleTailNeedle, pressure, regionNeedleBefore);
         if (evidence == ComposerEvidence.Present)
         {
-            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: byte-stream echo missed but the rendered screen shows the " +
-                          $"typed text (len={text.Length}) - pressing Enter");
+            SendTrail.Step(driverTag, $"EchoVerifiedSubmit: byte-stream echo missed but the rendered screen shows the " +
+                                      $"typed text (len={text.Length}) - pressing Enter");
             await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
             ComposerRetention.Clear(backend);
             return;
@@ -490,15 +495,15 @@ public static class TerminalSubmit
             // late, so the byte stream is watched for a further, finite budget - sized from the pressure read NOW, not
             // before the typing - without typing again and without clearing.
             var extra = echoTimeout ?? UnknownEvidenceBudget(ScaledEchoTimeout(pressure));
-            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: composer echo not seen (len={text.Length}) and the rendered " +
-                          $"screen cannot say whether the text is there. Watching for a further {extra.TotalSeconds:F0}s. " +
-                          $"{MemoryPressure.Describe(pressure)}.");
+            SendTrail.Step(driverTag, $"EchoVerifiedSubmit: composer echo not seen (len={text.Length}) and the rendered " +
+                                      $"screen cannot say whether the text is there. Watching for a further {extra.TotalSeconds:F0}s. " +
+                                      $"{MemoryPressure.Describe(pressure)}.");
             if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll, needleBefore: needleBefore,
                     notice: new SendWaitNotice(driverTag, "a late composer echo", $"{extra.TotalSeconds:F0}s"),
                     composerRegion: composerRegion, regionNeedleBefore: regionNeedleBefore)
                 || await ObserveComposerAsync(screenSnapshot, composerRegion, needle, visibleTailNeedle, pressure, regionNeedleBefore) == ComposerEvidence.Present)
             {
-                FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the text arrived while waiting - pressing Enter.");
+                SendTrail.Step(driverTag, $"EchoVerifiedSubmit: the text arrived while waiting - pressing Enter.");
                 await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
                 ComposerRetention.Clear(backend);
                 return;
@@ -509,12 +514,14 @@ public static class TerminalSubmit
         {
             // OpenCode tears its own echo on every repaint, so the echo can never be confirmed there; the text was
             // typed once and Enter is pressed after it, in order.
-            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: OpenCode echo was torn; pressing Enter after the one typing");
+            SendTrail.Step(driverTag, $"EchoVerifiedSubmit: OpenCode echo was torn; pressing Enter after the one typing");
             await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat, throwWhenParked);
             ComposerRetention.Clear(backend);
             return;
         }
 
+        SendTrail.Step(driverTag, $"EchoVerifiedSubmit: NO ECHO after {(DateTime.UtcNow - typedAt).TotalMilliseconds:F0}ms " +
+                                  $"(screen evidence: {evidence}); the composer now: {RegionForTrail(composerRegion)}");
         PromptDeliveryFailures.RecordComposerEchoMiss(sessionId, driverTag, 1, text.Length);
         ComposerRetention.MarkMayHoldText(backend, driverTag, text);
         var reacted = buffer.TotalBytesWritten > cursor;
@@ -536,7 +543,7 @@ public static class TerminalSubmit
         bool throwWhenParked = true,
         Func<string?>? composerText = null)
     {
-        FileLog.Write($"[{driverTag}] SharedSubmit: bracketed paste submit len={text.Length}");
+        SendTrail.Step(driverTag, $"SharedSubmit: bracketed paste submit len={text.Length}");
         // What the composer held BEFORE the paste: a composer that already held text is not a paste taken in.
         var composerBefore = ReadComposerText(composerText);
         backend.Write(BracketedPasteStart);
@@ -557,7 +564,7 @@ public static class TerminalSubmit
         TimeSpan? submitVerifyBeat = null,
         bool throwWhenParked = true)
     {
-        FileLog.Write($"[{driverTag}] SharedSubmit: type-settle-enter submit len={text.Length}");
+        SendTrail.Step(driverTag, $"SharedSubmit: type-settle-enter submit len={text.Length}");
         await WriteTextAsync(backend, text);
         await PressEnterAndVerifyAsync(
             backend, text, driverTag, enterSettleDelay ?? TimeSpan.FromMilliseconds(50), submitVerifyBeat, throwWhenParked);
@@ -584,7 +591,7 @@ public static class TerminalSubmit
         var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
         var atReference = $"@{relRef}";
-        FileLog.Write($"[{driverTag}] SharedSubmit: large input ({text.Length} chars), using temp file reference: {atReference}");
+        SendTrail.Step(driverTag, $"SharedSubmit: large input ({text.Length} chars), using temp file reference: {atReference}");
 
         await EchoVerifiedInlineSubmitAsync(
             backend,
@@ -625,7 +632,7 @@ public static class TerminalSubmit
         // the prompt asked for.
         var instruction = "The user's message for this turn is in the file " + relRef +
             " (not hidden context). Read it and act on it as the user's prompt.";
-        FileLog.Write($"[{driverTag}] SharedSubmit: payload file instruction len={text.Length}, file={relRef}");
+        SendTrail.Step(driverTag, $"SharedSubmit: payload file instruction len={text.Length}, file={relRef}");
 
         if (requireEcho)
         {
@@ -688,9 +695,9 @@ public static class TerminalSubmit
         // there and the retry would be appended to it.
         if ((unconditionally && clearKeys is not null) || ComposerRetention.ShouldClearBeforeTyping(orphan))
         {
-            FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send may have left {retained.Length} " +
-                          $"characters in this composer (evidence: {orphan}) - clearing before typing so the two " +
-                          "cannot run together.");
+            SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send may have left {retained.Length} " +
+                                      $"characters in this composer (evidence: {orphan}) - clearing before typing so the two " +
+                                      "cannot run together.");
             await ClearRetainedAndConfirmEmptyAsync(backend, driverTag, retained, clearKeys, composerHoldsNothing, composerSeen, composerRegion, screenSnapshot);
         }
         else if (clearKeys is not null && composerHoldsNothing is not null && composerHoldsNothing())
@@ -710,9 +717,9 @@ public static class TerminalSubmit
             // for what is still in the input queue. The branch stands anyway: it prevents the measured corruption
             // above, and the unread queue cannot tell the failed send's characters from the owner's - no cheaper
             // rule separates them.
-            FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's {retained.Length} characters are not on " +
-                          "screen and the composer reads empty - pressing the clear keys anyway, because characters still " +
-                          "unread in the terminal's input are read before them and would otherwise run into this send.");
+            SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send's {retained.Length} characters are not on " +
+                                      "screen and the composer reads empty - pressing the clear keys anyway, because characters still " +
+                                      "unread in the terminal's input are read before them and would otherwise run into this send.");
             await WaitForQuietAsync(backend, driverTag);
             backend.Write(clearKeys);
             await Task.Delay(TimeSpan.FromMilliseconds(300));
@@ -745,25 +752,25 @@ public static class TerminalSubmit
                 // short draft of the owner's that happens to EQUAL the tail of the failed prompt is accepted in
                 // writing by the Delivery Lead (proof.md, "What this does not cover") - no cheaper rule tells a
                 // remnant from a draft that spells the same tail.
-                FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the composer holds the TAIL of the previous " +
-                              $"send's {retained.Length} characters ({regionNow.Length} of them) - clearing it with the " +
-                              "measured keys before typing, as for the whole text.");
+                SendTrail.Step(driverTag, $"ResolveRetainedComposer: the composer holds the TAIL of the previous " +
+                                          $"send's {retained.Length} characters ({regionNow.Length} of them) - clearing it with the " +
+                                          "measured keys before typing, as for the whole text.");
                 await ClearRetainedAndConfirmEmptyAsync(backend, driverTag, retained, clearKeys, composerHoldsNothing, composerSeen, composerRegion, screenSnapshot);
             }
             else if (regionNow is not null && regionNow.Length > 0)
             {
                 var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
-                FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's text is not in the composer, " +
-                              "but the composer holds other text this send cannot account for - nothing is typed and " +
-                              $"nothing is cleared. What it read: {seen}");
+                SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send's text is not in the composer, " +
+                                          "but the composer holds other text this send cannot account for - nothing is typed and " +
+                                          $"nothing is cleared. What it read: {seen}");
                 ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
                 throw new ComposerNotAcceptingInputException(
                     $"[{driverTag}] ResolveRetainedComposer: the composer holds text this send cannot account for, so " +
                     "nothing is typed - typing now would run the new text together with what is there. The previous " +
                     $"send's {retained.Length} characters are not it; what it read: {seen}. The next send looks again.");
             }
-            FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's text is provably gone from " +
-                          "this composer - not clearing, so nothing typed since is disturbed.");
+            SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send's text is provably gone from " +
+                                      "this composer - not clearing, so nothing typed since is disturbed.");
         }
     }
 
@@ -783,20 +790,29 @@ public static class TerminalSubmit
         Func<(ComposerReading Reading, string Text)>? composerRegion = null, Func<string[]>? screenSnapshot = null)
     {
         await WaitForQuietAsync(backend, driverTag);
-        backend.Write(clearKeys ?? EscapeByte);
+        var keys = clearKeys ?? EscapeByte;
+        SendTrail.Step(driverTag, $"ResolveRetainedComposer: clearing - the composer before: {RegionForTrail(composerRegion)}; " +
+                                  $"pressing {DescribeKeys(keys)}");
+        var clearedAt = DateTime.UtcNow;
+        backend.Write(keys);
         await Task.Delay(TimeSpan.FromMilliseconds(300));
         if (composerHoldsNothing is null) return;
 
         var empty = false;
+        var looks = 0;
         var notice = new SendWaitNotice(driverTag, "the composer to read empty after the clear", "100 looks, about 30s");
         for (var i = 0; i < 100 && !empty; i++)
         {
             notice.Check();
+            looks++;
             empty = composerHoldsNothing();
             if (empty) { await Task.Delay(BetweenScreenSamples); empty = composerHoldsNothing(); }
             if (!empty) await Task.Delay(TimeSpan.FromMilliseconds(150));
         }
         notice.End(empty ? "the composer is empty" : "the composer still holds text - nothing is typed");
+        SendTrail.Step(driverTag, $"ResolveRetainedComposer: after the clear, {looks} look(s) over " +
+                                  $"{(DateTime.UtcNow - clearedAt).TotalMilliseconds:F0}ms: " +
+                                  (empty ? "the composer reads EMPTY" : $"the composer does NOT read empty - {composerSeen?.Invoke() ?? RegionForTrail(composerRegion)}"));
         if (empty) return;
 
         var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
@@ -809,9 +825,9 @@ public static class TerminalSubmit
             // looking for words that were not there. Nothing is typed, because an empty composer cannot be proven;
             // the refusal says what is actually known, and the rows the reader looked at go to the log.
             var rows = screenSnapshot?.Invoke() ?? [];
-            FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the composer cannot be read after the clear - " +
-                          $"{rows.Length} screen rows, the last ones:{Environment.NewLine}" +
-                          string.Join(Environment.NewLine, rows.Reverse().SkipWhile(string.IsNullOrWhiteSpace).Take(12).Reverse()
+            SendTrail.Step(driverTag, $"ResolveRetainedComposer: the composer cannot be read after the clear - " +
+                                      $"{rows.Length} screen rows, the last ones:{Environment.NewLine}" +
+                                      string.Join(Environment.NewLine, rows.Reverse().SkipWhile(string.IsNullOrWhiteSpace).Take(12).Reverse()
                               .Select(r => "    |" + r)));
             throw new ComposerNotAcceptingInputException(
                 $"[{driverTag}] ResolveRetainedComposer: the composer cannot be read after it was cleared, so " +
@@ -845,8 +861,8 @@ public static class TerminalSubmit
             notice.Check();
             if (DateTime.UtcNow - started >= QuietBeforeClearLimit)
             {
-                FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the terminal was still printing after " +
-                              $"{QuietBeforeClearLimit.TotalSeconds:F0}s - clearing anyway, and checking the composer after.");
+                SendTrail.Step(driverTag, $"ResolveRetainedComposer: the terminal was still printing after " +
+                                          $"{QuietBeforeClearLimit.TotalSeconds:F0}s - clearing anyway, and checking the composer after.");
                 notice.End("the limit was reached - clearing anyway");
                 return;
             }
@@ -907,16 +923,16 @@ public static class TerminalSubmit
                          && now - shownSince >= PasteQuiet)
                 {
                     var label = current.Length > 60 ? current[..60] + "..." : current;
-                    FileLog.Write($"[{driverTag}] SharedSubmit: the composer shows the paste (\"{label.Replace('\n', ' ')}\") after " +
-                                  $"{(now - started).TotalSeconds:F1}s - taken in, pressing Enter");
+                    SendTrail.Step(driverTag, $"SharedSubmit: the composer shows the paste (\"{label.Replace('\n', ' ')}\") after " +
+                                              $"{(now - started).TotalSeconds:F1}s - taken in, pressing Enter");
                     notice.End("the composer shows the paste - pressing Enter");
                     return;
                 }
             }
             if (now - started >= PasteTakenInLimit)
             {
-                FileLog.Write($"[{driverTag}] SharedSubmit: no quiet repaint within {PasteTakenInLimit.TotalSeconds:F0}s of a " +
-                              $"{length}-character paste (repainted={total != startTotal}) - pressing Enter; the records decide");
+                SendTrail.Step(driverTag, $"SharedSubmit: no quiet repaint within {PasteTakenInLimit.TotalSeconds:F0}s of a " +
+                                          $"{length}-character paste (repainted={total != startTotal}) - pressing Enter; the records decide");
                 notice.End("the limit was reached - pressing Enter");
                 return;
             }
@@ -1113,6 +1129,46 @@ public static class TerminalSubmit
             FileLog.Write($"[TerminalSubmit] ReadRegionText FAILED, treating the composer as unreadable: {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>The composer region in words for a send's trail - its reading and its text, whole - or why it cannot be
+    /// said. Only describes; nothing is decided from it.</summary>
+    private static string RegionForTrail(Func<(ComposerReading Reading, string Text)>? composerRegion)
+    {
+        if (composerRegion is null) return "(this agent's composer cannot be read)";
+        try
+        {
+            var (reading, text) = composerRegion();
+            return $"reading={reading}, text='{text}'";
+        }
+        catch (Exception ex)
+        {
+            return $"(reading the composer failed: {ex.Message})";
+        }
+    }
+
+    /// <summary>Keystrokes in words for a send's trail: "Ctrl+E, Backspace x66".</summary>
+    internal static string DescribeKeys(byte[] keys)
+    {
+        static string Name(byte b) => b switch
+        {
+            0x03 => "Ctrl+C",
+            0x05 => "Ctrl+E",
+            0x0D => "Enter",
+            0x15 => "Ctrl+U",
+            0x1B => "Escape",
+            0x7F => "Backspace",
+            _ => $"0x{b:X2}",
+        };
+        var parts = new List<string>();
+        for (var i = 0; i < keys.Length;)
+        {
+            var run = 1;
+            while (i + run < keys.Length && keys[i + run] == keys[i]) run++;
+            parts.Add(run == 1 ? Name(keys[i]) : $"{Name(keys[i])} x{run}");
+            i += run;
+        }
+        return parts.Count == 0 ? "(no keys)" : string.Join(", ", parts);
     }
 
     /// <summary>Does the composer region show the text? The region's twin of <see cref="ScreenRowsShowText"/>, asked of
