@@ -63,7 +63,7 @@ export function FactoryView() {
             {page.title} <ToneChip word={page.statusWord} tone={page.statusTone} title={page.statusReason} />
           </h1>
           {page.statusLine !== null && (
-            <p className="fa-status-line" data-testid="fa-page-status-line">
+            <p className="fa-status-line dt-private" data-testid="fa-page-status-line">
               {page.statusHref !== null ? <Link to={page.statusHref}>{page.statusLine}</Link> : page.statusLine}
             </p>
           )}
@@ -153,7 +153,7 @@ function Overview({
 
       <section className="fa-panel" data-testid="fa-goal">
         <h2 className="fa-section-title">{goal.heading}</h2>
-        {goal.text !== null && <p className="fa-goal-text">{goal.text}</p>}
+        {goal.text !== null && <p className="fa-goal-text dt-private">{goal.text}</p>}
         {goal.note !== null && <p className="fa-dim">{goal.note}</p>}
         {goal.emptyText !== null && <p className="fa-dim">{goal.emptyText}</p>}
       </section>
@@ -201,7 +201,7 @@ function Overview({
         <h2 className="fa-section-title">{ceoLatest.heading}</h2>
         {ceoLatest.emptyText !== null && <p className="fa-dim">{ceoLatest.emptyText}</p>}
         {ceoLatest.lines.length > 0 && (
-          <ul className="fa-lines">
+          <ul className="fa-lines dt-private">
             {ceoLatest.lines.map((line, i) => (
               <li key={i}>{line}</li>
             ))}
@@ -216,7 +216,7 @@ function Overview({
 
       <section className="fa-panel" data-testid="fa-last-talk">
         <h2 className="fa-section-title">{lastTalk.heading}</h2>
-        <p>{lastTalk.text}</p>
+        <p className="dt-private">{lastTalk.text}</p>
       </section>
     </div>
   );

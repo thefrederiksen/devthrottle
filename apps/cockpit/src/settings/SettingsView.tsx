@@ -10,6 +10,7 @@ import { ErrorBanner, LoadingState } from "../components";
 import { InjectedTextTab } from "./InjectedTextTab";
 import { useSuggestionCount } from "../dictionary/useSuggestionCount";
 import { AccountTab } from "../account/AccountTab";
+import { DemoModeCard } from "@devthrottle/client-core/settings/DemoModeCard";
 import { YourThrottleView } from "../throttle/YourThrottleView";
 import { DictionaryView } from "../dictionary/DictionaryView";
 import { PhoneView } from "../phone/PhoneView";
@@ -143,8 +144,15 @@ export function SettingsView() {
 
 function CockpitTab({ tab, teamId, view }: { tab: TabId; teamId: string | null; view: string | null }) {
   switch (tab) {
+    // Demo mode heads the Account tab (owner, 8 Oct 2026): it is an account-wide switch, and the presenter needs to
+    // find it in one click before a demo.
     case "account":
-      return <AccountTab />;
+      return (
+        <>
+          <DemoModeCard />
+          <AccountTab />
+        </>
+      );
     case "usage":
       return <YourThrottleView />;
     case "dictionary":

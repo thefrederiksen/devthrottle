@@ -66,7 +66,7 @@ export function StatusWord({
         chip
       )}
       {line !== null && (
-        <span className="fa-status-line" data-testid="fa-status-line">
+        <span className="fa-status-line dt-private" data-testid="fa-status-line">
           {line}
         </span>
       )}
@@ -107,7 +107,7 @@ export function ActivityTable({ rows, showFactory }: { rows: FactoryActivityLine
             {showFactory && <td>{r.factoryTitle}</td>}
             <td>{r.who}</td>
             <td>
-              <div>
+              <div className="dt-private">
                 {r.what}
                 {r.subject !== null && <span className="fa-subject"> - {r.subject}</span>}
                 {r.link !== null && (
@@ -119,7 +119,7 @@ export function ActivityTable({ rows, showFactory }: { rows: FactoryActivityLine
                   </>
                 )}
               </div>
-              {r.note !== null && <div className="fa-note">{r.note}</div>}
+              {r.note !== null && <div className="fa-note dt-private">{r.note}</div>}
             </td>
             <td>
               <ToneChip word={r.outcomeWord} tone={r.outcomeTone} />

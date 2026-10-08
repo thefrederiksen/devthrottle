@@ -671,7 +671,8 @@ function LanePanel({ lane, pivot, onOpen, onNewSession, headRef }: LanePanelProp
     <section className="fmap-lane">
       <div className="fmap-lane-head" ref={headRef}>
         <span className="fmap-lane-k">{lane.kindLabel}</span>
-        <span className="fmap-lane-t">{lane.title}</span>
+        {/* A repository or working-tree lane is titled with its path: private in demo mode. */}
+        <span className={pivot === "repo" || pivot === "worktree" ? "fmap-lane-t dt-private" : "fmap-lane-t"}>{lane.title}</span>
         {lane.subtitle.length > 0 && <span className="fmap-lane-sub">{lane.subtitle}</span>}
         {laneStateLabel.length > 0 && (
           <span className="fmap-subhead-state">
@@ -1039,7 +1040,7 @@ function NodeCard({
           {tags.map((t) => (
             <span key={t.k} className="fmap-card-tag">
               <span className="fmap-card-tag-k">{t.k}</span>
-              {t.v}
+              <span className="dt-private">{t.v}</span>
             </span>
           ))}
         </div>
@@ -1058,7 +1059,7 @@ function NodeCard({
       )}
 
       {awayLine !== null && (
-        <div className="fmap-card-awayline">
+        <div className="fmap-card-awayline dt-private">
           <span className="fmap-arrow-out" aria-hidden="true" />
           {awayLine}
         </div>

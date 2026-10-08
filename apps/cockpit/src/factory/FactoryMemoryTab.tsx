@@ -263,7 +263,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
 
               {mode === "read" && (
                 <>
-                  {!note.deleted && <pre className="fa-memory-text">{note.text}</pre>}
+                  {!note.deleted && <pre className="fa-memory-text dt-private">{note.text}</pre>}
                   <div className="fa-inline-action">
                     {!note.deleted && (
                       <>
@@ -297,7 +297,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
                           ? `This note was deleted since you opened it: version ${conflict.version}, by ${authorText(conflict)}, ${writtenText(conflict.writtenAtUtc)}. Your text is still in the box. Saving brings the note back with it.`
                           : `This note changed since you opened it: version ${conflict.version}, by ${authorText(conflict)}, ${writtenText(conflict.writtenAtUtc)}. Your text is still in the box; the newer text is below. Merge what you need into the box, then save over version ${conflict.version}.`}
                       </p>
-                      {!conflict.deleted && <pre className="fa-memory-text">{conflict.text}</pre>}
+                      {!conflict.deleted && <pre className="fa-memory-text dt-private">{conflict.text}</pre>}
                       <div className="fa-inline-action">
                         <Button variant="primary" disabled={saving} onClick={() => void save(conflict.version)}>
                           {saving ? "Saving..." : `Save over version ${conflict.version}`}
@@ -350,7 +350,7 @@ export function FactoryMemoryTab({ factory }: FactoryMemoryTabProps) {
                               <Button onClick={() => setRestoreTarget(v)}>Restore</Button>
                             )}
                           </div>
-                          {!v.deleted && <pre className="fa-memory-text">{v.text}</pre>}
+                          {!v.deleted && <pre className="fa-memory-text dt-private">{v.text}</pre>}
                         </li>
                       ))}
                     </ol>

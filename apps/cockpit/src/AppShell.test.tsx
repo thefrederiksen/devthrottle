@@ -565,3 +565,57 @@ describe("Cockpit left rail", () => {
     });
   });
 });
+
+// DEMO MODE (owner, 8 Oct 2026): the account's switch is the Gateway's answer; the shell only applies it - the
+// `demo-mode` class on the shell (which the one global rule uses to blur every dt-private element) and the badge.
+describe("Cockpit demo mode", () => {
+  function stubDemoMode(enabled: boolean) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url === "/gateway/demo-mode") {
+          return new Response(JSON.stringify({ enabled }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response("not stubbed", { status: 404 });
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    cleanup();
+    myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
+    myTeams.held = null;
+    window.localStorage.clear();
+    document.body.classList.remove("demo-mode");
+  });
+
+  it("puts demo-mode on the shell and shows the DEMO MODE badge when the account is in demo mode", async () => {
+    stubDemoMode(true);
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    const badge = await screen.findByTestId("demo-mode-badge");
+    expect(badge.textContent).toBe("DEMO MODE");
+    expect(document.querySelector(".shell")!.classList.contains("demo-mode")).toBe(true);
+    expect(document.body.classList.contains("demo-mode")).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it("applies no class and shows no badge when demo mode is off", async () => {
+    stubDemoMode(false);
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith("/gateway/demo-mode", expect.anything()));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("demo-mode-badge")).toBeNull();
+    expect(document.querySelector(".shell")!.classList.contains("demo-mode")).toBe(false);
+    vi.unstubAllGlobals();
+  });
+});
