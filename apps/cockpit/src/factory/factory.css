@@ -548,6 +548,89 @@
   background: var(--surface-2);
 }
 
+/* The owner's sort order (8 Oct 2026, mockups A and B): the "Sort by" bar above the list wraps on a narrow screen,
+   so it never makes the page scroll sideways; the column headings are buttons that sort by their column. */
+.fa-sortbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.fa-sortbar-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fa-sortbar-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fa-sortbar-choice,
+.fa-sortbar-dir {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fa-sortbar-choice + .fa-sortbar-choice {
+  border-left: 1px solid var(--border);
+}
+
+.fa-sortbar-choice:hover:not(.active),
+.fa-sortbar-dir:hover {
+  color: var(--text);
+}
+
+.fa-sortbar-choice.active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.fa-sortbar-dir {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.fa-sortbar-count {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.fa-sort-heading {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fa-sort-heading:hover,
+.fa-sort-heading.active {
+  color: var(--text);
+}
+
+.fa-sort-arrow {
+  color: var(--accent);
+}
+
 .fa-flist-head > *,
 .fa-flist-row > * {
   min-width: 0;

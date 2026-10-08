@@ -62,6 +62,8 @@ export interface FactoryListRow {
   /** Exactly one of FAILING, NEEDS YOU, PAUSED, RUNNING. */
   statusWord: string;
   statusTone: FactoryTone;
+  /** Where statusWord stands worst first: 0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING. The Cockpit sorts by it. */
+  statusRank: number;
   statusReason: string;
   /** The one short line under the status word ("Nothing scheduled", "Sender: 4 failures, ..."); null for RUNNING. */
   statusLine: string | null;
@@ -69,6 +71,8 @@ export interface FactoryListRow {
   statusHref: string | null;
   /** "1 question", "2 decisions", or "-". */
   waitingText: string;
+  /** How many open items waitingText counts (questions plus decisions); 0 for "-". The Cockpit sorts by it. */
+  waitingCount: number;
   /** Where clicking the waiting count goes; null when nothing is waiting. */
   waitingHref: string | null;
   href: string;
@@ -86,7 +90,9 @@ export interface FactoriesListView {
   /** "Factory", "Waiting on you", "Status". */
   columns: string[];
   /** Worst first, as the Gateway sorted them. */
+  /** Worst first, then by title; the Cockpit re-sorts them in the order the owner picked. */
   rows: FactoryListRow[];
+  /** The Gateway's old "Worst first: ..." line, kept for older clients; the Cockpit states its own order instead. */
   footerText: string | null;
   emptyText: string | null;
   truncatedText: string | null;
