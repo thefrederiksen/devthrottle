@@ -260,6 +260,27 @@ public sealed class FactoryScheduleLinkTests : IAsyncLifetime
         Assert.Empty(_schedules.ListAll());
     }
 
+    [Fact]
+    public async Task Update_ThatSwitchesASeatsScheduleOff_AndMakesItAWorkList_IsRefused_AndTheRowIsUnchanged()
+    {
+        // Round-4 review, finding 2: the work-list refusal comes before the switch-off short cut, so a switch-off
+        // cannot carry a work list onto a seat's schedule.
+        _registry.Register(T, Devthrottle("ceo"), "the owner (test)", Now);
+        var (_, _, job) = await Post(Schedule("devthrottle", "ceo"));
+        var drain = Schedule(factory: null, seat: null);
+        drain.Enabled = false;
+        drain.Action = new CronJobAction { RepoPath = @"D:\f", WorkListName = "nightly" };
+
+        var (status, error, _) = await Put(job!.Id, drain);
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("A work-list schedule cannot be a factory seat", error);
+        var stored = _schedules.Get(job.Id)!;
+        Assert.True(stored.Enabled);
+        Assert.Null(stored.Action.WorkListName);
+        Assert.Equal("/mail-desk", stored.Action.Seed);
+    }
+
     // ---------- point 3: registration cannot drop a running seat ----------
 
     [Fact]
