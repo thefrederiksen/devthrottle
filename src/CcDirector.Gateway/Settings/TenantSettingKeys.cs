@@ -272,6 +272,16 @@ public static class TenantSettingKeys
     /// </summary>
     public const string GatewayInstanceId = "gateway_instance_id";
 
+    /// <summary>
+    /// DEMO MODE (owner, 8 Oct 2026): whether this tenant's Cockpit blurs what its factories and sessions do -
+    /// status reasons, activity lines, prompts, memory notes, repository paths - for a screen share or a live
+    /// demo. One switch for the whole tenant, so every browser and device on the account blurs at once; the
+    /// owner cannot be asked to remember to switch each one. Stored as exactly "true" or "false"; absent or
+    /// anything else reads as OFF, the showing-everything answer, which is what every tenant had before the
+    /// switch existed. There is no operator global default: a demo is one tenant's own choice.
+    /// </summary>
+    public const string DemoMode = "demo_mode";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -289,5 +299,6 @@ public static class TenantSettingKeys
         FleetManagerReplacementStartingAt,
         FactoryReports, FactoryAgentsSwitch, FactoryMaps,
         GatewayInstanceId,
+        DemoMode,
     };
 }

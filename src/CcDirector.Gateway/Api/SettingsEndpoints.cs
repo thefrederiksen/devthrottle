@@ -28,6 +28,8 @@ namespace CcDirector.Gateway.Api;
 ///   GET+PUT /gateway/daily-report               (per-account report cadence; issue #1000)
 ///   GET+PUT /gateway/mentor-report              (per-account mentor report on/off;
 ///                                                devthrottle_internal#1661)
+///   GET+PUT /gateway/demo-mode                  (per-account DEMO MODE on/off - the Cockpit blurs what the
+///                                                factories and sessions do; owner, 8 Oct 2026)
 ///   GET  /gateway/ai-provider     -> { provider, wingmanModel, wingmanFastModel, transcriptionModel,
 ///                                       ttsModel, ttsVoice, voices[], catalogAvailable }
 ///   PUT  /gateway/ai-provider     body { "provider": "devthrottle" } (resets this tenant's model defaults)
@@ -206,7 +208,47 @@ internal static class SettingsEndpoints
                 // this is the document every card on the page already reads. The two PUTs below write them.
                 turnVerdictJudgeEnabled = host.TenantSettingsResolver.TurnVerdict(t.Value).JudgeEnabled,
                 turnVerdictColourEnabled = host.TenantSettingsResolver.TurnVerdict(t.Value).ColourEnabled,
+                // DEMO MODE (owner, 8 Oct 2026): whether this account's Cockpit blurs what its factories and
+                // sessions do. Read here so the Settings card draws itself from the one document every card
+                // reads; the Cockpit shell polls GET /gateway/demo-mode below for the blur itself.
+                demoMode = host.TenantSettingsResolver.DemoMode(t.Value),
             });
+        });
+
+        // DEMO MODE, on or off for this account (owner, 8 Oct 2026: "a demo mode that we can put my tenant into
+        // and that just hides all this ... it needs to be a tenant wide setting"). Per ACCOUNT, not per browser,
+        // because the point is that every screen on the account blurs at once: the owner demos from one machine
+        // while another browser or the phone may be on screen too. The Cockpit shell reads this on a short poll
+        // and applies the blur; a change reaches every open Cockpit within that poll, with no reload.
+        app.MapGet("/gateway/demo-mode", (HttpContext ctx) =>
+        {
+            var t = GatewayEndpoints.ResolveReadTenant(ctx, host.TenantBoundary);
+            if (t is null) return TenantRequired();
+            return Results.Json(new { enabled = host.TenantSettingsResolver.DemoMode(t.Value) });
+        });
+
+        app.MapPut("/gateway/demo-mode", async (HttpContext ctx) =>
+        {
+            var t = GatewayEndpoints.ResolveReadTenant(ctx, host.TenantBoundary);
+            if (t is null) return TenantRequired();
+            try
+            {
+                var body = await JsonSerializer.DeserializeAsync<DemoModeBody>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                // A missing or non-boolean "enabled" is REFUSED, never read as either answer. One guess would
+                // blur a screen nobody asked to blur; the other would show private text during a demo.
+                if (body?.Enabled is null)
+                    return Results.BadRequest(new { error = "body { \"enabled\": true|false } is required" });
+
+                host.TenantSettingsResolver.SetDemoMode(t.Value, body.Enabled.Value, DateTime.UtcNow);
+                FileLog.Write($"[SettingsEndpoints] demo_mode set to {body.Enabled.Value} for tenant={t.Value.ToLogString()}");
+                return Results.Json(new { enabled = body.Enabled.Value });
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[SettingsEndpoints] PUT /gateway/demo-mode bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
         });
 
         // The Wingman's turn judging, on or off for this account (the Wingman-on-every-turn mission). Per
@@ -956,6 +998,10 @@ internal static class SettingsEndpoints
 
     /// <summary>Nullable on purpose: a body with no "enabled" is refused rather than read as false.</summary>
     private sealed record MentorReportBody(bool? Enabled);
+
+    /// <summary>PUT /gateway/demo-mode: <c>{ "enabled": true|false }</c>. Nullable so a missing field is refused
+    /// rather than read as false.</summary>
+    private sealed record DemoModeBody(bool? Enabled);
 
     /// <summary>The body both turn-verdict switches take. Nullable for the same reason as the mentor
     /// report's: a body with no "enabled" is refused rather than read as either answer.</summary>

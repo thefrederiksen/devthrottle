@@ -123,6 +123,8 @@ public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
         ("PUT", "gateway/daily-report",             "{\"cadence\":\"off\"}"),
         ("GET", "gateway/mentor-report",            null),
         ("PUT", "gateway/mentor-report",            "{\"enabled\":false}"),
+        ("GET", "gateway/demo-mode",                null),
+        ("PUT", "gateway/demo-mode",                "{\"enabled\":true}"),
         ("GET", "gateway/fleet-manager",            null),
         ("PUT", "gateway/fleet-manager",            "{\"sessionId\":\"77777777-7777-7777-7777-777777777777\"}"),
         ("GET", "gateway/injected-text",            null),
@@ -258,6 +260,47 @@ public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
 
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(before, await ReadBool(_httpA, "gateway/mentor-report", "enabled"));
+    }
+
+    /// <summary>
+    /// ISOLATED - DEMO MODE (owner, 8 Oct 2026). One tenant puts itself into demo mode for a screen share;
+    /// another tenant's Cockpit must keep showing everything. Off by default, on after the write, off again
+    /// after the second write, and the Settings snapshot agrees with the route the shell polls.
+    /// </summary>
+    [Fact]
+    public async Task Demo_mode_turned_on_by_one_tenant_does_not_blur_another_on_hosted()
+    {
+        Assert.False(await ReadBool(_httpA, "gateway/demo-mode", "enabled"));
+        Assert.False(await ReadBool(_httpB, "gateway/demo-mode", "enabled"));
+
+        (await OwnerSettingsRoutes.SendAsync(_httpA, "PUT", "gateway/demo-mode", "{\"enabled\":true}"))
+            .EnsureSuccessStatusCode();
+
+        Assert.True(await ReadBool(_httpA, "gateway/demo-mode", "enabled"));
+        Assert.False(await ReadBool(_httpB, "gateway/demo-mode", "enabled"));
+        Assert.True(await ReadBool(_httpA, "gateway/settings", "demoMode"));
+        Assert.False(await ReadBool(_httpB, "gateway/settings", "demoMode"));
+
+        (await OwnerSettingsRoutes.SendAsync(_httpA, "PUT", "gateway/demo-mode", "{\"enabled\":false}"))
+            .EnsureSuccessStatusCode();
+
+        Assert.False(await ReadBool(_httpA, "gateway/demo-mode", "enabled"));
+    }
+
+    /// <summary>A body with no "enabled" is REFUSED and changes nothing: one guess would blur a screen nobody
+    /// asked to blur, the other would show private text during a demo.</summary>
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"enabled\":\"yes\"}")]
+    [InlineData("{\"enabled\":1}")]
+    public async Task Demo_mode_write_without_a_value_is_refused_and_changes_nothing(string body)
+    {
+        var before = await ReadBool(_httpA, "gateway/demo-mode", "enabled");
+
+        var response = await OwnerSettingsRoutes.SendAsync(_httpA, "PUT", "gateway/demo-mode", body);
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(before, await ReadBool(_httpA, "gateway/demo-mode", "enabled"));
     }
 
     /// <summary>
