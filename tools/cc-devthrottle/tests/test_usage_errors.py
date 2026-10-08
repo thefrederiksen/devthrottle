@@ -314,9 +314,14 @@ def test_unknown_option_NonAsciiAndControlCharacters_AreEscaped():
     result = _invoke(["session", "list", "--st\u00e4te\x1b[31m\nx"])
 
     text = _assert_plain_usage_error(result, ["session", "list"])
-    assert "\\u00e4" in text.splitlines()[0]
-    assert "\\u001b" in text.splitlines()[0]
-    assert "\\n" in text.splitlines()[0]
+    first = text.splitlines()[0]
+    # The contract: the whole option name stays on the first line as printable ASCII - no raw escape character
+    # and no line break reaches the terminal. The spelling of the escape is not the contract: some Click releases
+    # hand us the raw characters (we write \u001b and \n), others have already escaped them (\x1b and \x0a).
+    assert "\\u00e4" in first
+    assert first.endswith("x"), first
+    assert all(0x20 <= ord(ch) <= 0x7E for ch in first), first
+    assert "\x1b" not in text
 
 
 class _Colour(str, enum.Enum):
