@@ -85,9 +85,5 @@ public static class ClearKeyExperiment
         }
     }
 
-    private static ScreenFrame Frame(Session s)
-    {
-        var (rows, row, col, visible, _) = s.SnapshotLiveScreen();
-        return new ScreenFrame(rows, row, col, visible);
-    }
+    private static ScreenFrame Frame(Session s) => s.SnapshotLiveFrame();
 }

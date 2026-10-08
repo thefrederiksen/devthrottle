@@ -4000,16 +4000,18 @@ public sealed class Session : IDisposable
 
     private string DescribeComposer(Drivers.ComposerReading reading, string composerText)
     {
-        // IN FULL, NEVER CUT (the Prompt Delivery mission): a refusal that quotes the composer is the evidence for why a
-        // send failed, and on 7 October 2026 it was cut off at "tex...". The row's FAINT text - what Claude Code drew in
-        // grey and the reader left out - is named separately, so a suggestion can be told from typed text at a glance.
+        // CUT, BECAUSE THIS LEAVES THE MACHINE: it travels in a refusal to the Gateway and the phone, and the composer can
+        // hold the owner's unsent draft. The whole text is kept where it stays on this machine - the send's trail and the
+        // Director log (TerminalSubmit's steps). The row's FAINT text - what Claude Code drew in grey and the reader left
+        // out - is named separately, so a suggestion can be told from typed text at a glance (the Prompt Delivery mission).
+        static string Cut(string s) => s.Length > 80 ? s[..80] + "..." : s;
         var frame = SnapshotLiveFrame();
         var (rows, cursorRow, cursorCol, cursorVisible) = (frame.Rows, frame.CursorRow, frame.CursorCol, frame.CursorVisible);
         var row = cursorRow >= 0 && cursorRow < rows.Count ? rows[cursorRow] : "";
         var rowWithoutFaint = frame.RowsWithoutFaint is { } input && cursorRow >= 0 && cursorRow < input.Count ? input[cursorRow] : row;
-        var faint = rowWithoutFaint == row ? "" : $", rowWithoutFaint='{rowWithoutFaint}' (the rest was drawn faint, not typed)";
-        return $"reading={reading}, text='{composerText}', cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
-               $"row='{row}'{faint}, screen={_screenCols}x{_screenRows}";
+        var faint = rowWithoutFaint == row ? "" : $", rowWithoutFaint='{Cut(rowWithoutFaint)}' (the rest was drawn faint, not typed)";
+        return $"reading={reading}, text='{Cut(composerText)}', cursor={(cursorVisible ? $"{cursorRow},{cursorCol}" : "hidden")}, " +
+               $"row='{Cut(row)}'{faint}, screen={_screenCols}x{_screenRows}";
     }
 
     /// <summary>

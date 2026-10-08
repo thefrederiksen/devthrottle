@@ -60,7 +60,7 @@ public static class ClaudeTitledComposerCapture
     private static void Save(Session session, string outDir, string label)
     {
         var (screenRows, cursorRow, cursorCol, cursorVisible, alternate) = session.SnapshotLiveScreen();
-        var frame = new ScreenFrame(screenRows, cursorRow, cursorCol, cursorVisible);
+        var frame = session.SnapshotLiveFrame();
         var (reading, text) = DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, frame);
         var fixture = new Dictionary<string, object?>
         {
@@ -82,9 +82,5 @@ public static class ClaudeTitledComposerCapture
                 Console.WriteLine($"      {i,2}|{screenRows[i]}");
     }
 
-    private static ScreenFrame Frame(Session s)
-    {
-        var (rows, row, col, visible, _) = s.SnapshotLiveScreen();
-        return new ScreenFrame(rows, row, col, visible);
-    }
+    private static ScreenFrame Frame(Session s) => s.SnapshotLiveFrame();
 }

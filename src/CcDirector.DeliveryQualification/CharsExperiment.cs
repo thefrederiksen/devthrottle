@@ -83,9 +83,5 @@ public static class CharsExperiment
 
     private static string Esc(string s) => string.Concat(s.Select(c => c < 128 ? c.ToString() : "\\u" +((int)c).ToString("x4")));
 
-    private static ScreenFrame Frame(Session s)
-    {
-        var (rows, row, col, visible, _) = s.SnapshotLiveScreen();
-        return new ScreenFrame(rows, row, col, visible);
-    }
+    private static ScreenFrame Frame(Session s) => s.SnapshotLiveFrame();
 }

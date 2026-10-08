@@ -812,7 +812,7 @@ public static class TerminalSubmit
         notice.End(empty ? "the composer is empty" : "the composer still holds text - nothing is typed");
         SendTrail.Step(driverTag, $"ResolveRetainedComposer: after the clear, {looks} look(s) over " +
                                   $"{(DateTime.UtcNow - clearedAt).TotalMilliseconds:F0}ms: " +
-                                  (empty ? "the composer reads EMPTY" : $"the composer does NOT read empty - {composerSeen?.Invoke() ?? RegionForTrail(composerRegion)}"));
+                                  (empty ? "the composer reads EMPTY" : $"the composer does NOT read empty - {RegionForTrail(composerRegion)}"));
         if (empty) return;
 
         var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";

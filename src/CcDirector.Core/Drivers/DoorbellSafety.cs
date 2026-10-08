@@ -313,10 +313,12 @@ public static class DoorbellSafety
 
         // THE TEXT IS READ WITHOUT WHAT CLAUDE CODE DREW FAINT (the Prompt Delivery mission, 7 October 2026). After a
         // turn Claude Code draws its guess at the next prompt in grey in the EMPTY composer, with the cursor straight
-        // after the glyph ("❯ yes, go on 2.18.0 after the follow-up merges", captured from Claude Code 2.1.293 as
-        // ESC[2m before the text, fixture claude-suggestion-*). Read as text, every idle Claude Code session's composer
-        // "held" a sentence nobody typed: a clear that worked was reported as one that did not, and the send of "go"
-        // was refused with the suggestion quoted as the reason. Typed and pasted text is drawn at normal weight.
+        // after the glyph ("❯ yes, go on 2.18.0 after the follow-up merges": Claude Code 2.1.293 writes ESC[2m before the
+        // text; session 110's own bytes are pinned in ClaudeSuggestionComposerTests). Read as text, every idle Claude Code
+        // session's composer "held" a sentence nobody typed: a clear that worked was reported as one that did not, and
+        // the send of "go" was refused with the suggestion quoted as the reason. Typed text is drawn at normal weight, and
+        // so is a collapsed paste: both "[Pasted text #" chips in the raw output of fourteen live sessions on 8 October
+        // 2026 were drawn after ESC[m, with no faint attribute set.
         var input = InputRows(frame);
         var onPrompt = AfterGlyph(input[prompt]);
         var continuation = ContinuationRows(input, prompt, close);

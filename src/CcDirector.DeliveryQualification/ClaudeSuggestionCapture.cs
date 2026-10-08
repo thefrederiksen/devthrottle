@@ -53,8 +53,9 @@ public static class ClaudeSuggestionCapture
             var seen = false;
             while (DateTime.UtcNow < deadline)
             {
-                var (reading, _) = DoorbellSafety.ReadComposerText(AgentKind.ClaudeCode, Frame(session));
-                if (reading == ComposerReading.HoldsText) { seen = true; break; }
+                // The suggestion is FAINT, so the composer reads empty with or without it: wait for faint text on screen.
+                var frame = Frame(session);
+                if (!frame.Rows.SequenceEqual(frame.RowsWithoutFaint ?? frame.Rows)) { seen = true; break; }
                 await Task.Delay(TimeSpan.FromMilliseconds(500));
             }
             Console.WriteLine($"[claude-suggestion-capture] suggestion drawn: {seen}");

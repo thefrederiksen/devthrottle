@@ -123,11 +123,7 @@ public static class FailThenSendExperiment
 
     private static string Token() => $"Q{Guid.NewGuid().ToString("N")[..10].ToUpperInvariant()}";
 
-    private static ScreenFrame Frame(Session s)
-    {
-        var (rows, row, col, visible, _) = s.SnapshotLiveScreen();
-        return new ScreenFrame(rows, row, col, visible);
-    }
+    private static ScreenFrame Frame(Session s) => s.SnapshotLiveFrame();
 
     /// <summary>Freeze and thaw a process and every process under it (Windows only; the rig drives Windows agents).</summary>
     private static class ProcessTree
