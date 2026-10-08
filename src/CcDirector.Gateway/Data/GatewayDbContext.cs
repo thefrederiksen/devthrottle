@@ -899,6 +899,7 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.Key }).IsUnique();
             // A team member's own reports (devthrottle_internal#2309): their Reports page reads by author.
             b.HasIndex(e => new { e.TenantId, e.AuthorSubject });
+            b.Property(e => e.ShowcaseTag).HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
         });
 
         modelBuilder.Entity<DevReportVersionEntity>(b =>
@@ -908,6 +909,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.ByteHash).HasMaxLength(64);
             b.Property(e => e.Status).HasMaxLength(32);
             b.HasIndex(e => new { e.TenantId, e.ReportId, e.Version }).IsUnique();
+            b.Property(e => e.ShowcaseTag).HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
         });
 
         modelBuilder.Entity<DevReportItemEntity>(b =>
@@ -949,6 +951,7 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.ReportId, e.RecipientSubject }).IsUnique();
             // A recipient's Reports page: what was sent to them, newest first.
             b.HasIndex(e => new { e.TenantId, e.RecipientSubject, e.SentAtUtc });
+            b.Property(e => e.ShowcaseTag).HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
         });
 
         modelBuilder.Entity<DevReportCommentEntity>(b =>
@@ -1369,6 +1372,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Week).HasMaxLength(8);
             b.Property(e => e.Tone).HasMaxLength(10);
             b.Property(e => e.Model).HasMaxLength(200);
+            b.Property(e => e.ShowcaseTag).HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
         });
 
         modelBuilder.Entity<TeamMentorOutcomeEntity>(b =>
@@ -1670,6 +1674,11 @@ public sealed class GatewayDbContext : DbContext
                 .HasConversion(r => CcDirector.Gateway.Teams.TeamRoles.ToStored(r), s => CcDirector.Gateway.Teams.TeamRoles.FromStored(s))
                 .HasMaxLength(20);
             b.Property(e => e.JoinedAtUtc).HasColumnName("joined_at_utc").IsRequired();
+            // A made-up showcase member (TeamShowcase): its tag, and the name and email shown for it. Null on every
+            // real member.
+            b.Property(e => e.ShowcaseTag).HasColumnName("showcase_tag").HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
+            b.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxNameLength);
+            b.Property(e => e.DisplayEmail).HasColumnName("display_email").HasMaxLength(CcDirector.Gateway.Teams.TeamInvitationRules.MaxEmailLength);
             // "Which teams am I in?" - the team switcher's read - is by account subject.
             b.HasIndex(e => e.AccountSubject);
             // AT MOST one Owner per team, enforced at the database so two racing writes can never give a team two
@@ -1721,6 +1730,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.State).HasColumnName("state").IsRequired().HasMaxLength(20);
             b.Property(e => e.SentAtUtc).HasColumnName("sent_at_utc").IsRequired();
             b.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            b.Property(e => e.ShowcaseTag).HasColumnName("showcase_tag").HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
             // The sender's own list: their requests in this team, newest first.
             b.HasIndex(e => new { e.TenantId, e.SenderSubject, e.SentAtUtc });
             // The Owner and Managers' list: the team's requests, newest first.
@@ -1737,6 +1747,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.BySubject).HasColumnName("by_subject").IsRequired().HasMaxLength(128);
             b.Property(e => e.AtUtc).HasColumnName("at_utc").IsRequired();
             b.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(CcDirector.Gateway.Teams.TeamRequestStates.MaxReasonLength);
+            b.Property(e => e.ShowcaseTag).HasColumnName("showcase_tag").HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
             // A request's trail, in order.
             b.HasIndex(e => new { e.TenantId, e.RequestId, e.AtUtc });
             // A step cannot outlive its request.

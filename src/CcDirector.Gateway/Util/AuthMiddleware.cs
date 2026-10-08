@@ -230,6 +230,10 @@ internal static class AuthMiddleware
         // The administrator factory agents switch, exempt for the same reason and behind the same gate. It moves one
         // account's boolean and reads one account's decision; it returns no session or terminal content.
         Api.AdminFactoryAgentsEndpoint.Path,
+        // The administrator team showcase routes, exempt for the same reason and behind the same gate. They write and
+        // remove made-up rows in ONE named team, every row carrying one tag; they return only counts.
+        Api.AdminTeamShowcaseEndpoint.Path,
+        Api.AdminTeamShowcaseEndpoint.RemovePath,
         // The administrator account lookup, exempt for the same reason and behind the same gate. It answers
         // about ONE account the caller names - there is no leg that enumerates accounts - and it returns no
         // session or terminal content, only an account id, the email already recorded at mint time, and the

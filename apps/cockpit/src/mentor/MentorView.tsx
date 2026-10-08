@@ -228,13 +228,16 @@ function MentorWeek({ page }: { page: MentorPage }) {
 
 /** One person's week. The ONE drawing of a block - the Owner's, the Manager's and the person's own page all use it. */
 export function MentorBlockCard({ block, personal = false }: { block: MentorBlock; personal?: boolean }) {
-  const who = personal ? "Your week" : personLabel(block.personEmail, block.role);
+  const who = personal ? "Your week" : (block.personName ?? personLabel(block.personEmail, block.role));
   return (
     <article className="mentor-block" data-testid="mentor-block" aria-label={who}>
       <header className="mentor-who">
         {!personal && <span className="mentor-person">{who}</span>}
         {/* With no email on record the role is already in the heading. */}
         {!personal && block.personEmail !== null && <span className="mentor-role">{block.role}</span>}
+        {!personal && block.personName !== null && block.personEmail !== null && (
+          <span className="mentor-role" data-testid="mentor-person-email">{block.personEmail}</span>
+        )}
         <span className={`mentor-tone mentor-tone-${block.tone}`}>{block.toneLabel}</span>
       </header>
 

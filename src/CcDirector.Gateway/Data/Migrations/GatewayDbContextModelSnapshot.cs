@@ -355,6 +355,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -522,6 +526,10 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<int>("SentVersion")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -589,6 +597,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("ReportId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Status")
@@ -3127,6 +3139,16 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("account_subject");
 
+                    b.Property<string>("DisplayEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("display_email");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("display_name");
+
                     b.Property<DateTime>("JoinedAtUtc")
                         .HasColumnType("TEXT")
                         .HasColumnName("joined_at_utc");
@@ -3136,6 +3158,11 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("TEXT")
                         .HasColumnName("role");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("showcase_tag");
 
                     b.HasKey("TeamId", "AccountSubject");
 
@@ -3176,6 +3203,10 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<string>("QuotesJson")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Tone")
@@ -3284,6 +3315,11 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("request_id");
 
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("showcase_tag");
+
                     b.Property<string>("State")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -3321,6 +3357,11 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<DateTime>("SentAtUtc")
                         .HasColumnType("TEXT")
                         .HasColumnName("sent_at_utc");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("showcase_tag");
 
                     b.Property<string>("State")
                         .IsRequired()

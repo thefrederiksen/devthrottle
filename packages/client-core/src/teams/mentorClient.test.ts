@@ -24,6 +24,7 @@ const CONTRACT_EXAMPLE = {
   blocks: [
     {
       personEmail: "rob@example.com",
+      personName: null,
       role: "Developer",
       tone: "hard",
       toneLabel: "a hard week",

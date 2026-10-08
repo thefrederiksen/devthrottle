@@ -35,6 +35,8 @@ export interface MentorQuote {
 export interface MentorBlock {
   /** How the block is headed - the way the Team page shows people. null when the person has no email on record. */
   personEmail: string | null;
+  /** The name shown above the email, when the Gateway holds one for the person; null otherwise. */
+  personName: string | null;
   /** The person's role in the team now, as the Team page names it. */
   role: string;
   /** good, mixed or hard - used only to colour the label beside the person. */
@@ -255,6 +257,7 @@ function readBlock(raw: unknown): MentorBlock {
   const b = (raw ?? {}) as Record<string, unknown>;
   if (
     !isEmailOrNull(b.personEmail) ||
+    !(b.personName === undefined || isTextOrNull(b.personName)) ||
     !isLabel(b.role) ||
     !(isText(b.tone) && TONES.includes(b.tone)) ||
     !isText(b.toneLabel) ||
@@ -281,6 +284,7 @@ function readBlock(raw: unknown): MentorBlock {
   }
   return {
     personEmail: b.personEmail,
+    personName: typeof b.personName === "string" ? b.personName : null,
     role: b.role,
     tone: b.tone,
     toneLabel: b.toneLabel,

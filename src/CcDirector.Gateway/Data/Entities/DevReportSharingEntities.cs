@@ -32,6 +32,11 @@ public sealed class DevReportRecipientEntity : GatewayMintedKeyEntity
 
     /// <summary>When the recipient first opened the version they hold (UTC), or null while it is unread.</summary>
     public DateTime? ReadAtUtc { get; set; }
+
+    /// <summary>The showcase tag this row was written under by the administrator showcase route
+    /// (<see cref="Teams.TeamShowcase"/>), or null for every real row. Removing a showcase deletes exactly the rows
+    /// carrying its tag.</summary>
+    public string? ShowcaseTag { get; set; }
 }
 
 /// <summary>
