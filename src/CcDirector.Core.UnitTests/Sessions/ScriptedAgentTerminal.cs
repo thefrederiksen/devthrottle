@@ -108,7 +108,7 @@ internal sealed class ScriptedAgentTerminal : ISessionBackend
 
     /// <summary>The composer row after the glyph: the composer's text, or the faint suggestion when it is empty.</summary>
     private string ComposerRowText(string shown) =>
-        shown.Length == 0 && Suggestion is { } suggestion ? "[2m" + suggestion + "[22m" : shown;
+        shown.Length == 0 && Suggestion is { } suggestion ? "\x1b[2m" + suggestion + "\x1b[22m" : shown;
 
     /// <summary>
     /// Lines the agent paints ABOVE its spinner and composer, the way Claude Code paints a transcript: each accepted

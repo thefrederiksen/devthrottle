@@ -762,7 +762,7 @@ public static class TerminalSubmit
                 var seen = composerSeen?.Invoke() ?? "(this agent's composer cannot be described)";
                 SendTrail.Step(driverTag, $"ResolveRetainedComposer: the previous send's text is not in the composer, " +
                                           "but the composer holds other text this send cannot account for - nothing is typed and " +
-                                          $"nothing is cleared. What it read: {seen}");
+                                          $"nothing is cleared. What it read: {RegionForTrail(composerRegion)}");
                 ComposerRetention.MarkMayHoldText(backend, driverTag, retained);
                 throw new ComposerNotAcceptingInputException(
                     $"[{driverTag}] ResolveRetainedComposer: the composer holds text this send cannot account for, so " +
