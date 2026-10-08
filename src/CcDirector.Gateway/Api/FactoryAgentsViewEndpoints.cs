@@ -66,6 +66,18 @@ internal static class FactoryAgentsViewEndpoints
     /// <see cref="FactoryAgentsGate"/>, because it is how the Cockpit learns the answer. It is asked through the same
     /// gate test the routes use, so the rail item shows exactly when the routes answer.
     /// </summary>
+    /// <summary>The sentence the Factories page shows while the area is off: that it is off, and how to switch it on on
+    /// THIS kind of Gateway. A self-hosted Gateway is switched in its own config.json; the hosted Gateway is switched
+    /// per account by an administrator (<see cref="AdminFactoryAgentsEndpoint"/>), never by the account itself.
+    /// Null when the area is on.</summary>
+    internal static string? HowToStart(bool enabled, bool hosted)
+    {
+        if (enabled) return null;
+        return hosted
+            ? "Factories is not switched on for your account yet. To start, ask DevThrottle to switch Factories on for your account."
+            : "Factories is off on this Gateway. To start, add \"factoryAgents\": { \"enabled\": true } to the Gateway's config.json, then restart the Gateway.";
+    }
+
     public static void MapSwitch(IEndpointRouteBuilder app, Factory.FactoryAgentsSwitch factorySwitch,
         Func<HttpContext, TenantId?> resolveTenant)
     {
@@ -75,7 +87,7 @@ internal static class FactoryAgentsViewEndpoints
         {
             var enabled = FactoryAgentsGate.IsOnFor(ctx, factorySwitch, resolveTenant, out var why);
             FileLog.Write($"[FactoryAgentsViewEndpoints] GET switch: enabled={enabled} ({why})");
-            return Results.Json(new FactoryAgentsSwitchDto { Enabled = enabled });
+            return Results.Json(new FactoryAgentsSwitchDto { Enabled = enabled, HowToStart = HowToStart(enabled, GatewayHostedMode.IsHosted) });
         });
         FileLog.Write($"[FactoryAgentsViewEndpoints] mapped {Prefix}/switch (machine switch={(factorySwitch.MachineWide ? "on" : "off")}, per account otherwise)");
     }

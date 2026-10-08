@@ -78,7 +78,8 @@ describe("the Cockpit rail collapse", () => {
   });
 
   // Dictionary is a tab of Settings now (owner, 8 Oct 2026), so its attention signal rides on YOU: a dot on your
-  // initials, which is all of you a collapsed rail shows, and the count on a row of the menu behind your name.
+  // initials, which is all of you a collapsed rail shows, and the count on the Settings row of the menu behind your
+  // name.
   it("still shows the attention count when collapsed", async () => {
     dictionary.suggestions = 7;
     mount();
@@ -88,8 +89,21 @@ describe("the Cockpit rail collapse", () => {
     const card = screen.getByTestId("you-card");
     await waitFor(() => expect(card.querySelector(".you-dot")).not.toBeNull());
     fireEvent.click(card);
-    const row = screen.getByRole("menuitem", { name: /Dictionary suggestions/ });
+    const row = screen.getByRole("menuitem", { name: /^Settings/ });
     expect(row.querySelector(".you-menu-badge")?.textContent).toBe("7");
+  });
+
+  // Collapsed to icons, a thin line stands in for each section's label (owner, 8 Oct 2026); the groups keep their
+  // names for a screen reader.
+  it("draws a thin line in place of each section label when collapsed", () => {
+    mount();
+    expect(document.querySelectorAll(".nav-section-heading")).toHaveLength(2);
+    fireEvent.click(screen.getByTestId("rail-toggle"));
+
+    expect(document.querySelectorAll(".nav-section-heading")).toHaveLength(0);
+    expect(document.querySelectorAll(".nav-section-rule")).toHaveLength(2);
+    expect(screen.getByRole("group", { name: "Work" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Set up" })).toBeTruthy();
   });
 
   // You stay in reach when the rail collapses: the card keeps its accessible name, shows only your initials, and opens

@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate, type Location } from "react-router-dom";
 import { useKeepWarm } from "@devthrottle/client-core/net/useKeepWarm";
-import { getSuggestionCount } from "@devthrottle/client-core/dictation/dictionaryClient";
+import { useSuggestionCount } from "./dictionary/useSuggestionCount";
 import { resumePendingDictations } from "@devthrottle/client-core/dictation/backgroundSend";
 import { Chevron, NavIcon, type NavIconName } from "./components";
 import { CockpitStatusPill } from "./network/CockpitStatusPill";
 import { StopSessionProvider } from "./sessions/StopSessionProvider";
-import { useFactorySwitch } from "./factory/useFactorySwitch";
 import { CurrentTeamProvider, useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import type { TeamPagesApp, TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 import { useTeamPageCounts } from "./teams/useTeamPageCounts";
@@ -27,6 +26,17 @@ import { useMentorEntry } from "./mentor/useMentorEntry";
 // clipping). Per-page detail regions (roster, dock, awareness) belong to the routed pages
 // themselves - see SessionsView - not to this frame.
 
+// THE MENU IS THREE LABELLED SECTIONS, EVERYTHING VISIBLE (owner, 8 Oct 2026; Mockup 1 of devthrottle_internal
+// docs/teams/2026-10-08-cockpit-menu-mockups.html). WORK is the day to day: Sessions, Fleet Map, Fleet Manager,
+// Factories, History, Voice Recorder - Fleet Manager and Factories promoted with a highlighted icon, Factories always
+// shown (the thing we sell is fourth from the top, not hidden behind a switch; the page says how to start when the
+// area is off). Under Work, only while a team is selected, THE TEAM'S BLOCK headed by its name. SET UP is the fleet you
+// change now and then: Directors first, Skills, Workflows, Schedule, Network. YOU is the card at the bottom. The
+// labels are readable this time, not the dim uppercase #1617 removed, because each section now has a plain meaning;
+// collapsed, a thin line stands in for each label. Dictionary and Transcription are Settings tabs.
+//
+// The history this replaces, kept because it is why the labels had to earn their place:
+//
 // The left-rail destinations. This was three LABELED sections - Fleet, Data, System (issue #1247) -
 // until the labels were removed (issue #1617). They were dim uppercase headers that lost to the item
 // labels beneath them, so instead of chunking the list they added three rows of noise you scanned
@@ -40,12 +50,8 @@ import { useMentorEntry } from "./mentor/useMentorEntry";
 // decorating them: in a flat rail the scan is carried by SHAPE - you find the row by silhouette
 // before you read the word - which is the job the dim headers were failing to do. See NavIcon.
 //
-// THE RAIL HOLDS ONLY THE WORK (owner, 8 Oct 2026, following how ChatGPT and Claude lay out their screens). What is
-// about YOU - Account, Phone, Your Throttle, Settings, About, Help - left the rail for the menu behind your name, which
-// sits at the bottom of it (you/YouMenu). Dictionary, Transcription and Network became tabs of Settings; Voice Recorder
-// stays, because the recordings are content you go back to, not a setting. The rail is three blocks, separated by
-// space rather than headers: what is happening (Sessions to Directors), what you set up (Skills to Voice Recorder), and
-// - only while a team is on screen - the team's own pages under the team's name.
+// What is about YOU - Account, Phone, Your Throttle, Settings, About, Help - left the rail for the menu behind your
+// name, which sits at the bottom of it (you/YouMenu).
 //
 // Executables was in this rail too - issue #1247 put it there - and has been deleted: it was a
 // DEVELOPER page (the Director processes on the Gateway's own machine, and the local_builds slots), so
@@ -74,46 +80,39 @@ interface NavItem {
    *  page is on one of them, not whenever the page is - NavLink alone matches the path and would light it on every
    *  tab. */
   tabs?: ReadonlyArray<string>;
+  /** A headline feature the owner promotes: its icon is highlighted (Fleet Manager, Factories). */
+  promoted?: boolean;
 }
 
-// The fleet work, in the order the owner reaches for it (owner, 7 Oct 2026): what you use every day first - Sessions,
-// the Fleet Map, the Fleet Manager, then History and Directors - and below them what you SET UP, in the order you build
-// it: skills, then workflows, then the schedule that runs them, then whole factories. The voice and network tools sit
-// after that.
+// WORK - the day to day, in the order the owner reaches for it (owner, 8 Oct 2026). The Cockpit opens on Sessions, the
+// first item: the sessions are what you maintain and monitor. History is "what happened" (issue #2194), right behind
+// the live views. Voice Recorder is content you go back to, not a setting. The Fleet Manager replaced the Assistant;
+// the old /assistant address redirects here. It carries no badge for now: the owner had the waiting count taken off the
+// rail until it means what he wants it to mean (7 Oct 2026); the count lives in fleetmanager/useWaitingCount.ts.
 //
-// The Cockpit opens on Sessions, the first item here: the sessions are what you maintain and monitor. The Fleet
-// Manager replaced the Assistant, which step 9 removed from the product; the old /assistant address redirects here.
-// It carries no badge for now: the owner had the waiting count taken off the rail until it means what he wants it to
-// mean (7 Oct 2026). The count itself still lives in fleetmanager/useWaitingCount.ts for when it comes back.
-const NAV_MAIN: ReadonlyArray<NavItem> = [
+// FACTORIES IS ALWAYS SHOWN (owner, 8 Oct 2026). It used to appear only while the Gateway's factory switch was on, so a
+// new customer might never see it. The pages still follow the switch: off, /factories says so and how to start, in
+// the Gateway's own sentence (factory/FactoryAreaGate).
+const NAV_WORK: ReadonlyArray<NavItem> = [
   { to: "/sessions", label: "Sessions", icon: "sessions", subtree: "/session" },
   { to: "/fleet-map", label: "Fleet Map", icon: "fleet-map" },
-  { to: "/fleet-manager", label: "Fleet Manager", icon: "fleet-manager" },
-  // History sits right behind the live views: Sessions, the Fleet Map and the Fleet Manager are "what is happening",
-  // History is "what happened" (issue #2194) - the same record, one step back in time.
+  { to: "/fleet-manager", label: "Fleet Manager", icon: "fleet-manager", promoted: true },
+  { to: "/factories", label: "Factories", icon: "factories", subtree: "/factories", promoted: true },
   { to: "/history", label: "History", icon: "history" },
-  { to: "/directors", label: "Directors", icon: "directors" },
-];
-
-// What you SET UP, in the order you build it: skills, then workflows, then the schedule that runs them, then whole
-// factories - and Voice Recorder, the recordings you go back to.
-const NAV_SETUP: ReadonlyArray<NavItem> = [
-  // Skills, then Workflows: a skill is a capability an agent reaches for mid-task, a workflow governs how a whole
-  // mission is run (devthrottle_internal issue 995) - two lists on one shelf, in the order you build them.
-  { to: "/skills", label: "Skills", icon: "skills" },
-  { to: "/workflows", label: "Workflows", icon: "workflows" },
-  { to: "/schedule", label: "Schedule", icon: "schedule" },
   { to: "/transcripts", label: "Voice Recorder", icon: "voice-recorder" },
 ];
 
-// Factories (once "Factory Agents") sits after Schedule - the last thing you set up - but only
-// while the GATEWAY says the area is on (factoryAgents.enabled). The rail never decides that itself (rule 7).
-const FACTORIES_ITEM: NavItem = {
-  to: "/factories",
-  label: "Factories",
-  icon: "factories",
-  subtree: "/factories",
-};
+// SET UP - the fleet, changed now and then (owner, 8 Oct 2026): Directors first (which computers are on the fleet),
+// then Skills and Workflows - a skill is what an agent reaches for mid-task, a workflow governs how a whole mission is
+// run (devthrottle_internal issue 995) - then the Schedule that runs them, then Network, how phones and Directors reach
+// the Gateway.
+const NAV_SETUP: ReadonlyArray<NavItem> = [
+  { to: "/directors", label: "Directors", icon: "directors" },
+  { to: "/skills", label: "Skills", icon: "skills" },
+  { to: "/workflows", label: "Workflows", icon: "workflows" },
+  { to: "/schedule", label: "Schedule", icon: "schedule" },
+  { to: "/network", label: "Network", icon: "network" },
+];
 
 // The team's own Settings tabs - Members, and Team plan for those the Gateway shows it to - first in the team block
 // (owner, 8 Oct 2026). This is the "way back to the Team page" the first version did not have.
@@ -206,25 +205,9 @@ function ShellFrame() {
     void resumePendingDictations();
   }, [wholeApp]);
 
-  // The pending dictionary-suggestions count (devthrottle #2075) - the Gateway-owned verdict rendered as a
-  // red dot on your initials and a row of the menu behind your name, now that Dictionary is a tab of Settings
-  // rather than a row of the rail (owner, 8 Oct 2026). Polled here so the whole app shows the attention signal without
-  // opening the page, and re-read on every route change so applying/dismissing on the page updates it
-  // promptly (leaving the page re-polls). The client renders the number; it never decides it.
-  const [suggestCount, setSuggestCount] = useState(0);
-  useEffect(() => {
-    if (!wholeApp) return undefined;
-    let cancelled = false;
-    const poll = () => void getSuggestionCount().then((n) => {
-      if (!cancelled) setSuggestCount(n);
-    });
-    poll();
-    const id = window.setInterval(poll, 45_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [location.pathname, wholeApp]);
+  // The pending dictionary-suggestions count: a dot on your initials and a count on the Settings row of the menu
+  // behind your name (see useSuggestionCount). Re-read on every route change.
+  const suggestCount = useSuggestionCount(wholeApp, location.pathname);
 
   // The count beside a team page (S8): read from where the Gateway says, for the team on screen; none without a team.
   const teamPageCounts = useTeamPageCounts(team.current, location.pathname);
@@ -241,12 +224,6 @@ function ShellFrame() {
       return next;
     });
   };
-
-  const factorySwitch = useFactorySwitch(wholeApp).state;
-  const setupItems =
-    factorySwitch === "on"
-      ? NAV_SETUP.flatMap((item) => (item.to === "/schedule" ? [item, FACTORIES_ITEM] : [item]))
-      : NAV_SETUP;
 
   // A TEAM WHERE THE PERSON GETS THE WHOLE APP has its own block (devthrottle_internal#2309, Tech Lead ruling; #2306
   // review F12; owner, 8 Oct 2026): Team, the Mentor when the Gateway offers it, and the team's pages - a Developer
@@ -333,11 +310,21 @@ function ShellFrame() {
               <NavList items={teamPagesNav(teamPages, teamPageCounts)} location={location} collapsed={collapsed} />
             ) : (
               <>
-                <NavList items={NAV_MAIN} location={location} collapsed={collapsed} />
-                <NavList items={setupItems} location={location} collapsed={collapsed} />
+                <NavSection label="Work" collapsed={collapsed} testId="nav-work">
+                  <NavList items={NAV_WORK} location={location} collapsed={collapsed} />
+                </NavSection>
                 {wholeAppTeam !== null && (
                   <TeamBlock team={wholeAppTeam} counts={teamPageCounts} location={location} collapsed={collapsed} />
                 )}
+                {/* Whose fleet Set up changes follows the team on screen, as the mockup reads. */}
+                <NavSection
+                  label="Set up"
+                  sub={wholeAppTeam !== null ? "the team's fleet" : "your fleet"}
+                  collapsed={collapsed}
+                  testId="nav-setup"
+                >
+                  <NavList items={NAV_SETUP} location={location} collapsed={collapsed} />
+                </NavSection>
               </>
             )}
           </div>
@@ -398,11 +385,40 @@ function TeamBlock({
   const mentorOffered = useMentorEntry();
   const items = [TEAM_ITEM, ...(mentorOffered ? [MENTOR_ITEM] : []), ...teamPagesNav(team.app, counts)];
   return (
-    <div className="nav-team" role="group" aria-label={team.name} data-testid="nav-team">
-      <div className="nav-team-heading" aria-hidden="true" title={team.name}>
-        {team.name}
-      </div>
+    <NavSection label={team.name} collapsed={collapsed} testId="nav-team" team>
       <NavList items={items} location={location} collapsed={collapsed} />
+    </NavSection>
+  );
+}
+
+// One labelled section of the menu: a readable label (and, for Set up, whose fleet it is), then its rows. Collapsed to
+// icons, a thin line stands in for the label. The label names the group for a screen reader too.
+function NavSection({
+  label,
+  sub,
+  collapsed,
+  testId,
+  team = false,
+  children,
+}: {
+  label: string;
+  sub?: string;
+  collapsed: boolean;
+  testId: string;
+  team?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className={team ? "nav-section nav-section-team" : "nav-section"} role="group" aria-label={label} data-testid={testId}>
+      {collapsed ? (
+        <div className="nav-section-rule" aria-hidden="true" />
+      ) : (
+        <div className="nav-section-heading" aria-hidden="true" title={label} data-testid={`${testId}-heading`}>
+          <span className="nav-section-label">{label}</span>
+          {sub !== undefined && <span className="nav-section-sub">{sub}</span>}
+        </div>
+      )}
+      {children}
     </div>
   );
 }
@@ -432,7 +448,8 @@ function NavList({
               to={item.to}
               end={item.to === "/"}
               className={({ isActive }) =>
-                (onTab ?? isActive) || inSubtree ? "nav-link nav-link-active" : "nav-link"
+                ((onTab ?? isActive) || inSubtree ? "nav-link nav-link-active" : "nav-link") +
+                (item.promoted === true ? " nav-link-promoted" : "")
               }
               /* Collapsed, the word is hidden but the row must still be able to say what it is. The label
                  stays in the DOM for the accessible name; the hover text is for the eye. */

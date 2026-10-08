@@ -27,6 +27,9 @@ export interface SettingsTabStripProps {
   grouped?: boolean;
   /** The heading over the team's tabs - the team's name, which only the shell knows. Required with a team. */
   teamLabel?: string;
+  /** A count of things waiting on a tab - the Gateway's number, rendered verbatim (the Dictionary tab's pending
+   *  suggestions, owner, 8 Oct 2026). Zero or absent draws nothing. */
+  badges?: Partial<Record<TabId, number>>;
 }
 
 function groupLabel(group: TabGroup, teamLabel: string | undefined): string {
@@ -35,20 +38,28 @@ function groupLabel(group: TabGroup, teamLabel: string | undefined): string {
   return teamLabel;
 }
 
-export function SettingsTabStrip({ active, onSelect, surface, context, grouped = false, teamLabel }: SettingsTabStripProps) {
+export function SettingsTabStrip({ active, onSelect, surface, context, grouped = false, teamLabel, badges }: SettingsTabStripProps) {
   const tabs = visibleTabs(surface, context);
-  const button = (t: { id: TabId; label: string }) => (
-    <button
-      key={t.id}
-      type="button"
-      role="tab"
-      aria-selected={active === t.id}
-      className={active === t.id ? "settings-tab active" : "settings-tab"}
-      onClick={() => onSelect(t.id)}
-    >
-      {t.label}
-    </button>
-  );
+  const button = (t: { id: TabId; label: string }) => {
+    const count = badges?.[t.id] ?? 0;
+    return (
+      <button
+        key={t.id}
+        type="button"
+        role="tab"
+        aria-selected={active === t.id}
+        className={active === t.id ? "settings-tab active" : "settings-tab"}
+        onClick={() => onSelect(t.id)}
+      >
+        {t.label}
+        {count > 0 && (
+          <span className="settings-tab-badge" title={`${count} pending`} data-testid={`settings-tab-badge-${t.id}`}>
+            {count}
+          </span>
+        )}
+      </button>
+    );
+  };
 
   if (!grouped) {
     return (
@@ -109,7 +120,6 @@ export function SettingsTabPanel({ tab, accountHref, transcriptionHealthHref, se
     case "dictionary":
     case "injectedtext":
     case "devices":
-    case "network":
     case "members":
     case "teamplan":
       return null;

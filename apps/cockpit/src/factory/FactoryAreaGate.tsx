@@ -1,15 +1,24 @@
 import type { ReactNode } from "react";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { ErrorBanner, LoadingState } from "../components";
-import { NotFound } from "../panes/NotFound";
 import { useFactorySwitch } from "./useFactorySwitch";
 
-// The Factories routes exist only while the Gateway says the area is on. Off, a route shows nothing of the
-// area - the ordinary "Page not found" - exactly as if the pages were not built.
+// The Factories pages show the area only while the Gateway says it is on. FACTORIES IS ALWAYS IN THE MENU (owner, 8 Oct
+// 2026: "the thing we sell should be fourth from the top, not hidden behind a switch"), so while the area is off the
+// page says so and how to start, in the Gateway's own sentence - which differs between a self-hosted Gateway and the
+// hosted one, so the Cockpit never writes it (rule 7).
 export function FactoryAreaGate({ children }: { children: ReactNode }) {
-  const { state, error } = useFactorySwitch();
+  const { state, howToStart, error } = useFactorySwitch();
   if (error !== null) return <ErrorBanner message={gatewayErrorMessage(error, "ask the Gateway whether Factories is on")} />;
   if (state === "unknown") return <LoadingState />;
-  if (state === "off") return <NotFound />;
+  if (state === "off") {
+    if (howToStart === null) throw new Error("FactoryAreaGate: the Gateway said Factories is off but sent no sentence for how to start");
+    return (
+      <section className="pane" data-testid="factories-off">
+        <h1 className="pane-title">Factories</h1>
+        <p className="pane-note">{howToStart}</p>
+      </section>
+    );
+  }
   return <>{children}</>;
 }

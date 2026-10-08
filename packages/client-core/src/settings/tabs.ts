@@ -22,7 +22,6 @@ export type TabId =
   | "fleetmanager"
   | "injectedtext"
   | "devices"
-  | "network"
   | "members"
   | "teamplan";
 
@@ -108,7 +107,8 @@ const NO_TEAM: TabContext = { team: false, teamPlan: false };
 // "assistant" are retired ids now, like "machine" below.
 //
 // THE PAGES THAT BECAME TABS (owner, 8 Oct 2026). Account, Plan and usage (Your Throttle), Dictionary, Devices
-// and phone, Network, and the team's Members and Team plan were pages of their own in the Cockpit's menu. They
+// and phone, and the team's Members and Team plan were pages of their own in the Cockpit's menu. (Network was a tab
+// for a day too; the owner's menu ruling the same day put it back in the menu, under Set up.) They
 // are tabs of this one Settings page now, and every one of them is "cockpit", for one reason: their content is
 // a Cockpit page today, and the phone reaches the same things through its own screens (its Account and Your
 // Throttle screens). Bringing the phone's Settings and menu into this same shape is the next piece of work,
@@ -125,7 +125,6 @@ const ALL_TABS: TabDef[] = [
   { id: "injectedtext", label: "Injected text", group: "voice", surface: "cockpit" },
   { id: "fleetmanager", label: "Fleet Manager", group: "fleet", surface: "all" },
   { id: "devices", label: "Devices and phone", group: "fleet", surface: "cockpit" },
-  { id: "network", label: "Network", group: "fleet", surface: "cockpit" },
   { id: "members", label: "Members", group: "team", surface: "cockpit" },
   { id: "teamplan", label: "Team plan", group: "team", surface: "cockpit" },
 ];

@@ -20,6 +20,9 @@ export type FactoryTone =
 
 export interface FactoryAgentsSwitch {
   enabled: boolean;
+  /** While the area is off: the Gateway's own sentence saying so and how to switch it on on this kind of Gateway. Null
+   *  when it is on. Rendered verbatim (rule 7). */
+  howToStart: string | null;
 }
 
 export interface FactoryTab {

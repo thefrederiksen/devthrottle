@@ -141,7 +141,6 @@ describe("the Settings tab strip", () => {
       "Injected text",
       "Fleet Manager",
       "Devices and phone",
-      "Network",
     ]);
   });
 
@@ -164,6 +163,16 @@ describe("the Settings tab strip", () => {
     expect(screen.getByTestId("settings-group-team").textContent).toBe("Soren Test Team");
     expect(screen.getAllByRole("tab").map((t) => t.textContent).slice(-2)).toEqual(["Members", "Team plan"]);
     expect(screen.getByRole("tablist").getAttribute("aria-orientation")).toBe("vertical");
+  });
+
+  // The Dictionary tab carries the Gateway's count of suggestions waiting (owner, 8 Oct 2026); zero draws nothing.
+  it("draws a tab's count when the shell hands one in, and nothing for zero", () => {
+    mount(
+      <SettingsTabStrip active="account" onSelect={() => {}} surface="cockpit" grouped badges={{ dictionary: 4, usage: 0 }} />,
+    );
+    expect(screen.getByTestId("settings-tab-badge-dictionary").textContent).toBe("4");
+    expect(screen.getByRole("tab", { name: /^Dictionary/ }).textContent).toBe("Dictionary4");
+    expect(screen.queryByTestId("settings-tab-badge-usage")).toBeNull();
   });
 
   it("draws no headings as one strip, the way the phone lays it out", () => {

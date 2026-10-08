@@ -170,6 +170,13 @@ function railLabels(): string[] {
   return Array.from(nav.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
 }
 
+/** The rows of the team's block in the whole app's rail - it sits between Work and Set up (owner, 8 Oct 2026). Empty
+ *  while there is no block. */
+function teamBlockLabels(): string[] {
+  const block = document.querySelector("[data-testid='nav-team']");
+  return block === null ? [] : Array.from(block.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+}
+
 /** Open the menu behind your name at the bottom of the rail (owner, 8 Oct 2026), and answer it. */
 function openYourMenu(): HTMLElement {
   fireEvent.click(screen.getByTestId("you-card"));
@@ -315,7 +322,7 @@ describe("The Collaborator's app", () => {
 
     await waitFor(() => expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]));
     expect(railLabels()).toContain("Skills");
-    expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]);
+    expect(teamBlockLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]);
     expect(menuOffersSettings()).toBe(true);
     expect(await screen.findByText("sessions page")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/sessions");
@@ -326,7 +333,7 @@ describe("The Collaborator's app", () => {
     rememberTeam(DEVELOPER_TEAM.id);
     renderAt("/sessions");
 
-    await waitFor(() => expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
+    await waitFor(() => expect(teamBlockLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
     expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
     fireEvent.click(screen.getByRole("link", { name: "Reports" }));
     expect(await screen.findByTestId("team-page-reports")).toBeTruthy();
@@ -338,7 +345,7 @@ describe("The Collaborator's app", () => {
     rememberTeam(DEVELOPER_TEAM.id);
     renderAt("/sessions");
 
-    await waitFor(() => expect(railLabels().at(-1)).toBe("Reports"));
+    await waitFor(() => expect(teamBlockLabels().at(-1)).toBe("Reports"));
     expect(railLabels()).not.toContain("Questions");
     expect(railLabels()).not.toContain("Requests");
   });
@@ -368,7 +375,7 @@ describe("The Collaborator's app", () => {
     rememberTeam(DEVELOPER_TEAM.id);
     renderAt("/sessions");
 
-    await waitFor(() => expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
+    await waitFor(() => expect(teamBlockLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
     await waitFor(() => expect(railBadge("Questions")).toBe("2"));
     expect(new Set(pageCounts.asked)).toEqual(new Set(["/teams/team-paul/questions?odd-count"]));
   });
@@ -524,7 +531,9 @@ describe("The Collaborator's app", () => {
     expect(reads.keepWarm.at(-1)).toBe(false);
   });
 
-  it("WholeApp_TheFiveReads_AreStillMade", async () => {
+  // The rail no longer asks the factory switch: Factories is always in the menu (owner, 8 Oct 2026), and only the
+  // Factories pages ask it.
+  it("WholeApp_TheShellsReads_AreStillMade_AndTheFactorySwitchIsNotOneOfThem", async () => {
     renderAt("/sessions");
     expect(await screen.findByText("sessions page")).toBeTruthy();
 
@@ -532,7 +541,7 @@ describe("The Collaborator's app", () => {
     expect(resumePendingDictations).toHaveBeenCalled();
     // The Fleet Manager's rail count is off for now (7 Oct 2026), so the rail no longer reads it.
     expect(getFleetManagerPage).not.toHaveBeenCalled();
-    expect(getFactoryAgentsSwitch).toHaveBeenCalled();
+    expect(getFactoryAgentsSwitch).not.toHaveBeenCalled();
     expect(reads.keepWarm.at(-1)).toBe(true);
   });
 

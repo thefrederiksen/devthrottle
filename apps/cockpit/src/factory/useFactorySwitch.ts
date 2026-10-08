@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factoryAgentsClient";
+import { getFactoryAgentsSwitch, type FactoryAgentsSwitch } from "@devthrottle/client-core/factory/factoryAgentsClient";
 
 // Whether the Factory Agents area is on FOR THE SIGNED-IN ACCOUNT. The GATEWAY decides (its machine switch in
 // config.json, or this account's own switch set by an administrator) and tells the Cockpit; the Cockpit never
@@ -7,17 +7,17 @@ import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factory
 // can never disagree. Switching account reloads the whole app (accountActions), so the cached answer is always the
 // answer for the account on screen.
 //
-// "unknown" while the answer is on its way, and when the Gateway could not be asked: the rail item stays hidden
-// and the page says it could not reach the Gateway, rather than guessing either way.
+// "unknown" while the answer is on its way, and when the Gateway could not be asked: the page says it could not reach
+// the Gateway, rather than guessing either way. The menu row no longer asks - it is always shown (owner, 8 Oct 2026) -
+// so this is the Factories pages' question only; "off" carries the Gateway's sentence for how to start.
 
 export type FactorySwitchState = "unknown" | "on" | "off";
 
-let cached: Promise<FactorySwitchState> | null = null;
+let cached: Promise<FactoryAgentsSwitch> | null = null;
 
-function load(): Promise<FactorySwitchState> {
+function load(): Promise<FactoryAgentsSwitch> {
   if (cached === null) {
     cached = getFactoryAgentsSwitch()
-      .then((s): FactorySwitchState => (s.enabled ? "on" : "off"))
       .catch((err: unknown) => {
         cached = null; // ask again next time rather than remembering a failure
         throw err;
@@ -33,15 +33,15 @@ export function resetFactorySwitchCache(): void {
 
 // `enabled` false asks nothing (a Collaborator's three pages have no Factory Agents rail entry; devthrottle_internal
 // #2306, review finding F2).
-export function useFactorySwitch(enabled = true): { state: FactorySwitchState; error: unknown } {
-  const [state, setState] = useState<FactorySwitchState>("unknown");
+export function useFactorySwitch(enabled = true): { state: FactorySwitchState; howToStart: string | null; error: unknown } {
+  const [answer, setAnswer] = useState<FactoryAgentsSwitch | null>(null);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
     if (!enabled) return undefined;
     let live = true;
     load().then(
       (s) => {
-        if (live) setState(s);
+        if (live) setAnswer(s);
       },
       (err: unknown) => {
         if (live) setError(err);
@@ -51,5 +51,6 @@ export function useFactorySwitch(enabled = true): { state: FactorySwitchState; e
       live = false;
     };
   }, [enabled]);
-  return { state, error };
+  const state: FactorySwitchState = answer === null ? "unknown" : answer.enabled ? "on" : "off";
+  return { state, howToStart: answer?.howToStart ?? null, error };
 }

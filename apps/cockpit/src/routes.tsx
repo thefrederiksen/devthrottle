@@ -35,6 +35,7 @@ import { TranscriptsView } from "./transcripts/TranscriptsView";
 import { AboutView } from "./about/AboutView";
 import { SettingsView } from "./settings/SettingsView";
 import { SettingsRedirect, TeamAddressRedirect } from "./settings/SettingsRedirect";
+import { NetworkDiagnosticsView } from "./network/NetworkDiagnosticsView";
 import { AcceptInviteView } from "./team/AcceptInviteView";
 import { TeamPageRoute } from "./teams/collaborator/TeamPageRoute";
 import { QuestionsPage } from "./teams/collaborator/QuestionsPage";
@@ -214,10 +215,11 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // records (latency, failures, most-corrected words). Same Gateway REST surface via client-core.
           // It is the bottom half of the Transcription tab of Settings now, beneath the checks (owner, 8 Oct 2026).
           { path: "/transcription", element: <SettingsRedirect tab="transcription" /> },
-          // Network Diagnostics, Account and Phone are tabs of Settings now (owner, 8 Oct 2026): Network, Account,
-          // and Devices and phone (devthrottle_internal #1508: the scannable code, the address, and how to install
-          // the mobile app). Their old addresses lead there.
-          { path: "/network", element: <SettingsRedirect tab="network" /> },
+          // Account and Phone are tabs of Settings now (owner, 8 Oct 2026): Account, and Devices and phone
+          // (devthrottle_internal #1508: the scannable code, the address, and how to install the mobile app). Their old
+          // addresses lead there. Network Diagnostics stays a page of its own, a row of Set up in the menu (owner's
+          // menu ruling, 8 Oct 2026).
+          { path: "/network", element: <NetworkDiagnosticsView /> },
           { path: "/account", element: <SettingsRedirect tab="account" /> },
           { path: "/phone", element: <SettingsRedirect tab="devices" /> },
           { path: "/about", element: <AboutView /> },

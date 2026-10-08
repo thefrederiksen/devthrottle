@@ -182,13 +182,61 @@ body {
 
 /* The rail body. It grows to fill the rail so you (the card behind your name) sit at the bottom.
 
-   The labeled sections (issue #1247) are gone (issue #1617). The rail is blocks separated by space: what is
-   happening, what you set up, and the team on screen under its name (owner, 8 Oct 2026). See AppShell. */
+   THREE LABELLED SECTIONS (owner, 8 Oct 2026, Mockup 1): Work, the team on screen under its name, and Set up. The
+   labelled sections of issue #1247 were removed in #1617 because their dim labels were noise over a grouping that
+   meant nothing; these have a plain meaning each, and readable labels - bold, not the dim thin uppercase that lost to
+   the rows. See AppShell. */
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   flex: 1;
+}
+
+.nav-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.nav-section-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Whose fleet Set up changes: quieter than the label, in plain case. */
+.nav-section-sub {
+  flex: none;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.75;
+}
+
+/* The team on screen: its block carries a green edge and a green label, so it reads as the team's, not the app's. */
+.nav-section-team {
+  border-left: 2px solid var(--ok);
+  padding-left: 4px;
+}
+
+.nav-section-team .nav-section-heading {
+  color: var(--ok-text);
+}
+
+/* Collapsed to icons, a thin line stands in for each label. */
+.nav-section-rule {
+  height: 1px;
+  margin: 2px 6px 8px;
+  background: var(--border);
 }
 
 .nav-list {
@@ -240,6 +288,16 @@ body {
   background: var(--surface-2);
   color: var(--text);
   box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* A headline feature the owner promotes (Fleet Manager, Factories): a brighter, heavier label and a highlighted icon. */
+.nav-link-promoted {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.nav-link-promoted .nav-icon {
+  color: var(--warn);
 }
 
 /* Red attention count on a nav row (devthrottle #2075). The Gateway computes the number of pending

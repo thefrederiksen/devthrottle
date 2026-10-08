@@ -99,6 +99,7 @@ import { getMyTeams } from "@devthrottle/client-core/teams/teamsClient";
 import { getMentorPage } from "@devthrottle/client-core/teams/mentorClient";
 import { AppShell } from "./AppShell";
 import { resetFactorySwitchCache } from "./factory/useFactorySwitch";
+import { getFactoryAgentsSwitch } from "@devthrottle/client-core/factory/factoryAgentsClient";
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
 
 function railLabels(): string[] {
@@ -172,38 +173,45 @@ describe("Cockpit left rail", () => {
     expect(links.map((a) => a.getAttribute("href")).filter((h) => h === "/assistant")).toEqual([]);
   });
 
-  it("leaves the rest of the rail where it was", () => {
+  // THREE LABELLED SECTIONS (owner, 8 Oct 2026, Mockup 1 of the menu mockups): Work, then Set up, then you at the
+  // bottom - every row visible, the labels readable.
+  it("lays the menu out in labelled sections: Work, then Set up, then you at the bottom", () => {
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
         <AppShell />
       </MemoryRouter>,
     );
 
-    expect(railLabels()).toEqual([
-      "Sessions",
-      "Fleet Map",
-      "Fleet Manager",
-      "History",
-      "Directors",
-      // What you set up, in the order you build it: skills, workflows, the schedule that runs them - and the
-      // recordings you go back to.
-      "Skills",
-      "Workflows",
-      "Schedule",
-      "Voice Recorder",
+    const work = screen.getByRole("group", { name: "Work" });
+    const setUp = screen.getByRole("group", { name: "Set up" });
+    expect(Array.from(work.querySelectorAll(".nav-link-label")).map((el) => el.textContent)).toEqual([
+      "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder",
     ]);
+    expect(Array.from(setUp.querySelectorAll(".nav-link-label")).map((el) => el.textContent)).toEqual([
+      "Directors", "Skills", "Workflows", "Schedule", "Network",
+    ]);
+    expect(railLabels()).toEqual([
+      "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder",
+      "Directors", "Skills", "Workflows", "Schedule", "Network",
+    ]);
+    expect(screen.getByTestId("nav-work-heading").textContent).toBe("Work");
+    // Set up names whose fleet it changes: yours, with Personal on screen.
+    expect(screen.getByTestId("nav-setup-heading").textContent).toBe("Set upyour fleet");
+    expect(screen.getByRole("link", { name: /Network/ }).getAttribute("href")).toBe("/network");
+    // No team block with Personal on screen.
+    expect(screen.queryByTestId("nav-team")).toBeNull();
   });
 
-  // Owner, 8 Oct 2026: what is about you left the rail for the menu behind your name, and Dictionary, Transcription
-  // and Network became tabs of Settings. None of them is a rail row any more.
-  it("keeps Account, Phone, Your Throttle, Settings, About, Help, Dictionary, Transcription and Network out of the rail", () => {
+  // Owner, 8 Oct 2026: what is about you left the rail for the menu behind your name, and Dictionary and Transcription
+  // became tabs of Settings. None of them is a rail row any more. (Network stays, under Set up.)
+  it("keeps Account, Phone, Your Throttle, Settings, About, Help, Dictionary and Transcription out of the rail", () => {
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
         <AppShell />
       </MemoryRouter>,
     );
 
-    for (const gone of ["Account", "Phone", "Your Throttle", "Settings", "About", "Help", "Dictionary", "Transcription", "Network"]) {
+    for (const gone of ["Account", "Phone", "Your Throttle", "Settings", "About", "Help", "Dictionary", "Transcription"]) {
       expect(railLabels()).not.toContain(gone);
     }
     // You are at the bottom of the rail, after the navigation.
@@ -211,24 +219,9 @@ describe("Cockpit left rail", () => {
     expect(document.querySelector(".nav")!.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  // Factories (once "Factory Agents") sits after Schedule and before Voice Recorder - only while the Gateway's
-  // factoryAgents.enabled switch is on. Off, the rail is exactly what it was.
-  it("shows Factories after Schedule and before Voice Recorder when the Gateway says the area is on", async () => {
-    factory.enabled = true;
-    render(
-      <MemoryRouter initialEntries={["/sessions"]}>
-        <AppShell />
-      </MemoryRouter>,
-    );
-
-    await waitFor(() => expect(railLabels()).toContain("Factories"));
-    expect(railLabels().slice(0, 10)).toEqual([
-      "Sessions", "Fleet Map", "Fleet Manager", "History", "Directors", "Skills", "Workflows", "Schedule", "Factories", "Voice Recorder",
-    ]);
-    expect(screen.getByRole("link", { name: /Factories/ }).getAttribute("href")).toBe("/factories");
-  });
-
-  it("has no Factories item when the Gateway says the area is off", async () => {
+  // FACTORIES IS ALWAYS SHOWN (owner, 8 Oct 2026): fourth in Work, promoted with the Fleet Manager, whatever the
+  // Gateway's factory switch says - the rail no longer asks it. Off, the Factories page says how to start.
+  it("always shows Factories, fourth in Work and promoted, without asking the Gateway's factory switch", async () => {
     factory.enabled = false;
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -236,8 +229,12 @@ describe("Cockpit left rail", () => {
       </MemoryRouter>,
     );
 
+    expect(railLabels()[3]).toBe("Factories");
+    expect(screen.getByRole("link", { name: /Factories/ }).getAttribute("href")).toBe("/factories");
+    const promoted = Array.from(document.querySelectorAll(".nav-link-promoted .nav-link-label")).map((el) => el.textContent);
+    expect(promoted).toEqual(["Fleet Manager", "Factories"]);
     await new Promise((r) => setTimeout(r, 20));
-    expect(railLabels()).not.toContain("Factories");
+    expect(getFactoryAgentsSwitch).not.toHaveBeenCalled();
   });
 
   // A person with no team on a Gateway with Teams on: the rail has no team block, and the menu behind their name offers
@@ -379,6 +376,21 @@ describe("Cockpit left rail", () => {
       await Promise.all(vi.mocked(getMentorPage).mock.results.map((r) => Promise.resolve(r.value).catch(() => undefined)));
       await new Promise((r) => setTimeout(r, 0));
     }
+
+    // Mockup 1 with a team selected: the team's block, headed by its name, sits right under Work and above Set up,
+    // and Set up says it changes the team's fleet.
+    it("puts the team's block between Work and Set up, under the team's name", async () => {
+      mentorRead.answers.set(TEAM.id, { kind: "page" });
+      renderOn([TEAM], TEAM.id);
+
+      const block = await screen.findByTestId("nav-team");
+      expect(screen.getByTestId("nav-team-heading").textContent).toBe(TEAM.name);
+      const work = screen.getByTestId("nav-work");
+      const setUp = screen.getByTestId("nav-setup");
+      expect(work.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(block.compareDocumentPosition(setUp) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.getByTestId("nav-setup-heading").textContent).toBe("Set upthe team's fleet");
+    });
 
     it("is offered in the team's block, after Team, when the Gateway answers the Mentor read with a page", async () => {
       mentorRead.answers.set(TEAM.id, { kind: "page" });

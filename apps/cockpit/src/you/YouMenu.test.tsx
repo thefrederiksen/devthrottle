@@ -270,12 +270,24 @@ describe("you, at the bottom of the rail", () => {
     expect(screen.getByRole("menuitem", { name: "Settings" })).toBeTruthy();
   });
 
-  it("carries the dictionary suggestions as a dot on you and a row that opens the Dictionary tab", async () => {
+  // Owner, 8 Oct 2026: the count of dictionary suggestions waiting rides on the Settings row (and the Dictionary tab
+  // inside Settings) - no row of its own.
+  it("carries the dictionary suggestions as a dot on you and a count on the Settings row", async () => {
     mount({ suggestions: 3 });
     expect(card().querySelector(".you-dot")).not.toBeNull();
     fireEvent.click(card());
-    fireEvent.click(screen.getByRole("menuitem", { name: /Dictionary suggestions/ }));
-    expect(screen.getByTestId("where").textContent).toBe("/settings?tab=dictionary");
+    expect(screen.queryByRole("menuitem", { name: /Dictionary/ })).toBeNull();
+    const settings = screen.getByRole("menuitem", { name: /^Settings/ });
+    expect(settings.querySelector(".you-menu-badge")?.textContent).toBe("3");
+    fireEvent.click(settings);
+    expect(screen.getByTestId("where").textContent).toBe("/settings");
+  });
+
+  it("shows no count on the Settings row when nothing is waiting", async () => {
+    mount({ suggestions: 0 });
+    expect(card().querySelector(".you-dot")).toBeNull();
+    fireEvent.click(card());
+    expect(screen.getByRole("menuitem", { name: "Settings" }).querySelector(".you-menu-badge")).toBeNull();
   });
 
   it("names the account's initials from the email", () => {

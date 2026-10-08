@@ -234,26 +234,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The team block of the rail: the team's pages under the team's name, only while a team is on screen. */
-.nav-team-heading {
-  padding: 2px 10px 6px;
-  font-size: 11px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.shell-rail-collapsed .nav-team-heading {
-  height: 1px;
-  padding: 0;
-  margin: 0 6px 6px;
-  background: var(--border);
-  color: transparent;
-}
-
 /* At a narrow width a pages-only app's rail is a bar along the top; you sit at the end of it. */
 @media (max-width: 600px) {
   .shell-team-pages .you {
