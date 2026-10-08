@@ -171,7 +171,7 @@ public sealed class FactoryRegistryRouteTests
     }
 
     [Fact]
-    public async Task The_owner_reads_the_Factories_screen_and_a_session_key_is_refused_it()
+    public async Task The_owner_reads_the_Factories_screen_and_a_session_key_reads_its_list_and_page_but_not_the_rest()
     {
         await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
         var factory = "f-" + Guid.NewGuid().ToString("N")[..12];
@@ -199,8 +199,17 @@ public sealed class FactoryRegistryRouteTests
             JsonSerializer.Deserialize<FactorySeatsViewDto>(seats.Body, Web)!.Rows.Select(r => r.SeatId));
 
         Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factories/never-registered")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await h.Session.GetAsync("gateway/factories")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await h.Session.GetAsync($"gateway/factories/{factory}")).StatusCode);
+
+        // Issue #3685: a session of the same account reads the list and the page and gets the SAME word the owner
+        // got - what `cc-devthrottle factory status` prints to a factory's boss. The Seats tab stays the owner's.
+        var sessionList = await Send(h.Session.GetAsync("gateway/factories"));
+        Assert.True(sessionList.Status == HttpStatusCode.OK, $"session GET factories: {(int)sessionList.Status} {sessionList.Body}");
+        var sessionRow = Assert.Single(JsonSerializer.Deserialize<FactoriesListViewDto>(sessionList.Body, Web)!.Rows, r => r.Id == factory);
+        Assert.Equal(row.StatusWord, sessionRow.StatusWord);
+        var sessionPage = await Send(h.Session.GetAsync($"gateway/factories/{factory}"));
+        Assert.True(sessionPage.Status == HttpStatusCode.OK, $"session GET page: {(int)sessionPage.Status} {sessionPage.Body}");
+        Assert.Equal(dto.StatusWord, JsonSerializer.Deserialize<FactoryPageViewDto>(sessionPage.Body, Web)!.StatusWord);
+        Assert.Equal(HttpStatusCode.NotFound, (await h.Session.GetAsync("gateway/factories/never-registered")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await h.Session.GetAsync($"gateway/factories/{factory}/seats")).StatusCode);
     }
 

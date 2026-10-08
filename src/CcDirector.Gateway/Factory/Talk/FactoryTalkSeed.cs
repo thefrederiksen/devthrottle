@@ -56,6 +56,9 @@ public static class FactoryTalkSeed
             : goalPath);
         sb.AppendLine("- the factory's memory: cc-devthrottle factory memory list, then cc-devthrottle factory memory get <name> for each note that matters");
         sb.Append("- the factory's recent activity: cc-devthrottle factory activity --factory ").Append(factory.Factory).AppendLine(" -n 30");
+        sb.Append("- the factory's status as the owner sees it on the Factories screen: ").AppendLine(StatusCommand(factory));
+        sb.AppendLine("  It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED or RUNNING) and every failing and "
+                      + "waiting item with its row id. Say that word to the owner when you open.");
         sb.AppendLine();
 
         sb.AppendLine("You work under the same rules as your scheduled runs.");
@@ -94,13 +97,22 @@ public static class FactoryTalkSeed
                   + "Factory registry and goal number).");
         sb.AppendLine();
 
-        sb.AppendLine("Before the talk ends you MUST do both of these:");
+        sb.AppendLine("Before the talk ends you MUST do all three of these:");
         sb.Append("1. Record one activity line: cc-devthrottle factory record --factory ").Append(factory.Factory)
           .Append(" --agent ").Append(seat.Id).AppendLine(" --outcome talked --what \"<one line of what was decided>\"");
         sb.AppendLine("2. Write what was decided into the factory's memory: cc-devthrottle factory memory set <name> \"<what was decided>\"");
+        sb.Append("3. Run ").Append(StatusCommand(factory)).AppendLine(" again. For every failing or waiting item that is "
+                  + "now resolved, mark it handled with its evidence - and only if it is resolved:");
+        sb.Append("   cc-devthrottle factory record --factory ").Append(factory.Factory)
+          .AppendLine(" --agent <the item's seat> --outcome done --corrects <the item's row id> --what \"Handled: <the evidence>\"");
+        sb.AppendLine("   Then tell the owner the word the factory ends on.");
 
         return sb.ToString();
     }
+
+    /// <summary>What a factory's boss runs to read its own Factories screen (issue #3685).</summary>
+    public static string StatusCommand(RegisteredFactoryDto factory) =>
+        $"cc-devthrottle factory status --factory {factory.Factory}";
 
     // The folder is a path on the factory's own computer, which may not be this one, so it is joined with that
     // folder's own separator rather than this machine's.

@@ -91,9 +91,29 @@ public sealed class FactoryTalkSeedTests
         var f = WarmForward();
         var seed = FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun);
 
-        Assert.Contains("Before the talk ends you MUST do both of these:", seed);
+        Assert.Contains("Before the talk ends you MUST do all three of these:", seed);
         Assert.Contains("cc-devthrottle factory record --factory warmforward --agent nora-hale --outcome talked --what \"<one line of what was decided>\"", seed);
         Assert.Contains("cc-devthrottle factory memory set <name> \"<what was decided>\"", seed);
+    }
+
+    [Fact]
+    public void Compose_ReadsTheFactoriesScreenStatusFirst_AndSettlesItBeforeTheTalkEnds()
+    {
+        // Issue #3685: the boss reads the same word the owner sees, says it when it opens, and before the talk ends
+        // marks every RESOLVED failing or waiting item handled with its evidence - never one that is not resolved.
+        var f = WarmForward();
+        var seed = FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun);
+
+        Assert.Contains("- the factory's status as the owner sees it on the Factories screen: cc-devthrottle factory status --factory warmforward", seed);
+        Assert.Contains("FAILING, NEEDS YOU, PAUSED or RUNNING", seed);
+        Assert.Contains("Say that word to the owner when you open.", seed);
+        Assert.Contains("3. Run cc-devthrottle factory status --factory warmforward again.", seed);
+        Assert.Contains("and only if it is resolved", seed);
+        Assert.Contains("cc-devthrottle factory record --factory warmforward --agent <the item's seat> --outcome done --corrects <the item's row id> --what \"Handled: <the evidence>\"", seed);
+        Assert.Contains("Then tell the owner the word the factory ends on.", seed);
+        // The status read comes before the rules of the scheduled run, and the settle step after the memory note.
+        Assert.True(seed.IndexOf("factory status", StringComparison.Ordinal) < seed.IndexOf("You work under the same rules", StringComparison.Ordinal));
+        Assert.True(seed.IndexOf("2. Write what was decided", StringComparison.Ordinal) < seed.IndexOf("3. Run cc-devthrottle factory status", StringComparison.Ordinal));
     }
 
     [Fact]
