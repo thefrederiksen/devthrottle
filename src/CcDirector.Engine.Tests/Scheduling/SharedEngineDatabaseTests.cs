@@ -8,8 +8,8 @@ namespace CcDirector.Engine.Tests.Scheduling;
 /// Two Directors on ONE engine.db (devthrottle_internal#2311, live proof F6). When CC_VAULT_PATH is
 /// set at the user level every Director on the machine opens the same engine.db, so the engine must
 /// be safe there: each due occurrence runs exactly once, and one Director starting never fails
-/// another live Director's run. These tests use only the API that existed before the fix, so the
-/// same file runs red against the old engine.
+/// another live Director's run. Each simulated Director has its own owner identity, as two real
+/// Director processes do.
 /// </summary>
 public sealed class SharedEngineDatabaseTests : IDisposable
 {
@@ -33,8 +33,13 @@ public sealed class SharedEngineDatabaseTests : IDisposable
     public async Task TwoSchedulers_OneFile_SameDueJob_RunsExactlyOncePerRound()
     {
         const int rounds = 4;
-        var dbA = new EngineDatabase(_dbPath);
-        var dbB = new EngineDatabase(_dbPath);
+        // Two Directors are two processes. Both schedulers here live in ONE test process, so each gets
+        // its own owner identity - otherwise each takes the other's freshly claimed run for one of its
+        // own that it is not executing, ends it as orphaned, and runs the occurrence again.
+        var ownerA = EngineRunOwner.ForCurrentProcess("director-a");
+        var ownerB = ownerA with { Director = "director-b", ProcessId = ownerA.ProcessId + 100_000 };
+        var dbA = new EngineDatabase(_dbPath, ownerA, _ => OwnerLiveness.Running);
+        var dbB = new EngineDatabase(_dbPath, ownerB, _ => OwnerLiveness.Running);
 
         // Feb 31 never comes, so after a run the job is only due again when the test makes it due.
         var jobId = dbA.AddJob(new JobRecord
