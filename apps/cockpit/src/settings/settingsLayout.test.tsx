@@ -52,6 +52,12 @@ vi.mock("@devthrottle/client-core/teams/teamPageClient", () => ({
   }),
 }));
 
+// The Gateway's count of dictionary suggestions waiting, which the Dictionary tab carries (owner, 8 Oct 2026).
+const dictionaryCount = vi.hoisted(() => ({ value: 0 }));
+vi.mock("@devthrottle/client-core/dictation/dictionaryClient", () => ({
+  getSuggestionCount: vi.fn(async () => dictionaryCount.value),
+}));
+
 // What each tab draws has its own tests; here each one is a marker, so the test is about which tab is on screen.
 vi.mock("../account/AccountTab", () => ({ AccountTab: () => <div>account tab</div> }));
 vi.mock("../throttle/YourThrottleView", () => ({ YourThrottleView: () => <div>your throttle</div> }));
@@ -94,6 +100,7 @@ beforeEach(() => {
   window.localStorage.clear();
   teams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
   teams.fail = null;
+  dictionaryCount.value = 0;
   teamPage.bill = null;
   teamPage.asked = [];
   teamPage.fail = null;
@@ -109,7 +116,6 @@ describe("every old address leads to its Settings tab", () => {
     ["/your-throttle", "/settings?tab=usage", "your throttle"],
     ["/repos", "/settings?tab=usage", "your throttle"],
     ["/dictionary", "/settings?tab=dictionary", "dictionary"],
-    ["/network", "/settings?tab=network", "network diagnostics"],
     ["/transcription", "/settings?tab=transcription", "transcription health"],
     ["/injected-text", "/settings?tab=injectedtext", "injected text"],
   ])("%s", async (old, address, shows) => {
@@ -182,6 +188,13 @@ describe("Settings, with its tabs down the left", () => {
   });
 
   // On the desktop the Transcription tab goes deeper than the phone's: the shared checks, then the health report.
+  it("carries the Gateway's count of dictionary suggestions on the Dictionary tab", async () => {
+    dictionaryCount.value = 5;
+    mountAt("/settings");
+    expect(await screen.findByText("account tab")).toBeTruthy();
+    expect((await screen.findByTestId("settings-tab-badge-dictionary")).textContent).toBe("5");
+  });
+
   it("shows the shared Transcription tab with the health report beneath it", async () => {
     mountAt("/settings?tab=transcription");
     const panel = await screen.findByTestId("settings-panel-transcription");

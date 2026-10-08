@@ -27,7 +27,6 @@ describe("visibleTabs", () => {
       ["voice", "injectedtext"],
       ["fleet", "fleetmanager"],
       ["fleet", "devices"],
-      ["fleet", "network"],
     ]);
   });
 
@@ -42,7 +41,6 @@ describe("visibleTabs", () => {
       "Injected text",
       "Fleet Manager",
       "Devices and phone",
-      "Network",
       "Members",
       "Team plan",
     ]);
@@ -174,7 +172,7 @@ describe("tabFromParam", () => {
   });
 
   it("resolves each page that became a Cockpit tab, and none of them on the phone", () => {
-    for (const id of ["account", "usage", "dictionary", "devices", "network"]) {
+    for (const id of ["account", "usage", "dictionary", "devices"]) {
       expect(tabFromParam(id, "cockpit")).toBe(id);
       expect(tabFromParam(id, "mobile")).toBe("notifications");
     }

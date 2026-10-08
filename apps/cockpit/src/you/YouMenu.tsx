@@ -51,8 +51,8 @@ export interface YouMenuProps {
   /** The whole app is on screen. Settings, Usage, Phone and About are offered only then - a Collaborator's pages-only
    *  app, the team chooser and a team that could not be opened have none of those pages. */
   wholeApp: boolean;
-  /** Dictionary suggestions waiting (the Gateway's count, rendered verbatim). Shown on the card and as a row of the
-   *  menu, now that Dictionary is a tab of Settings rather than a row of the rail. */
+  /** Dictionary suggestions waiting (the Gateway's count, rendered verbatim). Shown as a dot on the card and as a
+   *  count on the Settings row (owner, 8 Oct 2026); Settings carries it again on its Dictionary tab. */
   suggestions: number;
   /** Called after the person picks Personal (null) or a team, with the team that was on screen before - the shell
    *  opens the new team where it starts. */
@@ -266,15 +266,17 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
           <div className="you-menu-rule" role="separator" />
           {wholeApp && (
             <>
-              {suggestions > 0 && (
-                <Item onPick={act(() => navigate("/settings?tab=dictionary"))}>
-                  Dictionary suggestions
-                  <span className="you-menu-badge" title={`${suggestions} pending`}>
-                    {suggestions}
-                  </span>
-                </Item>
-              )}
-              <Item onPick={act(() => navigate("/settings"))}>Settings</Item>
+              <Item onPick={act(() => navigate("/settings"))}>
+                Settings
+                {suggestions > 0 && (
+                  <>
+                    <span className="you-menu-visually-hidden">{` (${suggestions} dictionary suggestions pending)`}</span>
+                    <span className="you-menu-badge" title={`${suggestions} dictionary suggestions pending`} aria-hidden="true">
+                      {suggestions}
+                    </span>
+                  </>
+                )}
+              </Item>
               <Item onPick={act(() => navigate("/settings?tab=usage"))}>Usage (Your Throttle)</Item>
               <Item onPick={act(() => navigate("/settings?tab=devices"))}>Connect your phone</Item>
             </>

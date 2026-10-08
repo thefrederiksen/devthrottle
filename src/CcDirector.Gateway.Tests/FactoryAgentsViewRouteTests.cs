@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using CcDirector.Core.Security;
 using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using Xunit;
 
@@ -95,7 +96,9 @@ public sealed class FactoryAgentsViewRouteTests
         await RecordAsync(h.Session, factory, FactoryActivityOutcome.Done, "Added an address to the remove-me list.");
         await RecordAsync(h.Session, factory, FactoryActivityOutcome.Blocked, "Refused to send a price nobody approved.");
 
-        Assert.True((await GetAsync<FactoryAgentsSwitchDto>(h.Owner, "gateway/factory-agents/switch")).Enabled);
+        var on = await GetAsync<FactoryAgentsSwitchDto>(h.Owner, "gateway/factory-agents/switch");
+        Assert.True(on.Enabled);
+        Assert.Null(on.HowToStart);
 
         var factories = await GetAsync<FactoriesViewDto>(h.Owner, "gateway/factory-agents/factories");
         Assert.Contains(factories.Factories, c => c.Id == factory);
@@ -237,7 +240,10 @@ public sealed class FactoryAgentsViewRouteTests
     {
         await using var h = await Host.StartAsync(factoryAgentsEnabled: false);
 
-        Assert.False((await GetAsync<FactoryAgentsSwitchDto>(h.Owner, "gateway/factory-agents/switch")).Enabled);
+        var off = await GetAsync<FactoryAgentsSwitchDto>(h.Owner, "gateway/factory-agents/switch");
+        Assert.False(off.Enabled);
+        // The row is always in the Cockpit's menu now; the page shows the Gateway's own sentence for how to start.
+        Assert.Equal(FactoryAgentsViewEndpoints.HowToStart(enabled: false, hosted: false), off.HowToStart);
         Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factory-agents/factories")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factory-agents/activity")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await h.Owner.GetAsync("gateway/factory-agents/waiting")).StatusCode);

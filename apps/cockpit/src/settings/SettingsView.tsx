@@ -8,11 +8,11 @@ import { getTeamPage } from "@devthrottle/client-core/teams/teamPageClient";
 import { GatewayError, gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { ErrorBanner, LoadingState } from "../components";
 import { InjectedTextTab } from "./InjectedTextTab";
+import { useSuggestionCount } from "../dictionary/useSuggestionCount";
 import { AccountTab } from "../account/AccountTab";
 import { YourThrottleView } from "../throttle/YourThrottleView";
 import { DictionaryView } from "../dictionary/DictionaryView";
 import { PhoneView } from "../phone/PhoneView";
-import { NetworkDiagnosticsView } from "../network/NetworkDiagnosticsView";
 import { TranscriptionHealthView } from "../transcription/TranscriptionHealthView";
 import { TeamPageView } from "../team/TeamPageView";
 import { InviteView } from "../team/InviteView";
@@ -22,7 +22,7 @@ import { InviteView } from "../team/InviteView";
 //
 // ONE SETTINGS PAGE, TABS DOWN THE LEFT (owner, 8 Oct 2026, following how ChatGPT and Claude lay out Settings). The
 // tabs sit under small headings - You, Voice, Fleet, and the team on screen - and several pages that were rows of the
-// Cockpit's menu are tabs here now: Account, Plan and usage (Your Throttle), Dictionary, Devices and phone, Network,
+// Cockpit's menu are tabs here now: Account, Plan and usage (Your Throttle), Dictionary, Devices and phone,
 // and the team's Members and Team plan. Their old addresses lead here (routes.tsx).
 //
 // The tab set and its order are client-core's (tabs.ts), shared with the phone - CLAUDE.md rule 8. This file is only
@@ -102,6 +102,8 @@ export function SettingsView() {
     (team.resolving || (asked === "teamplan" && current !== null && teamPlan === null));
   const tab = tabFromParam(asked, "cockpit", waiting ? { team: true, teamPlan: true } : context);
   const choose = (next: TabId) => setParams({ tab: next }, { replace: true });
+  // The Dictionary tab carries the count of suggestions waiting, re-read as the tab changes (owner, 8 Oct 2026).
+  const suggestions = useSuggestionCount(true, tab);
 
   return (
     <div className="page settings settings-side">
@@ -118,6 +120,7 @@ export function SettingsView() {
           context={context}
           grouped
           teamLabel={current?.name}
+          badges={{ dictionary: suggestions }}
         />
         <div className="settings-panel" role="tabpanel" aria-label="Settings section" data-testid={`settings-panel-${tab}`}>
           {waiting ? (
@@ -150,8 +153,6 @@ function CockpitTab({ tab, teamId, view }: { tab: TabId; teamId: string | null; 
       return <InjectedTextTab />;
     case "devices":
       return <PhoneView />;
-    case "network":
-      return <NetworkDiagnosticsView />;
     // The shared Transcription tab - the model and the two checks - and, beneath it on the desktop, the Transcription
     // Health report over time that used to be its own page. Rule 8 lets the desktop go deeper inside a tab; the phone
     // has the shared part.
