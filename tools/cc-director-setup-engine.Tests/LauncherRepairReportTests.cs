@@ -42,6 +42,7 @@ public class LauncherRepairReportTests : IDisposable
                                    + "environment = {\n\tUSER => robert\n\tLOGNAME => robert\n}\n";
     private const string NotFound = "Could not find service \"com.devthrottle.cc-launcher\" in domain for user gui: 501";
     private const string NothingDisabled = "disabled services = {\n}\n";
+    private static readonly IReadOnlyList<string> NoLines = Array.Empty<string>();
 
     /// <summary>launchd faked: a refused job; after the kickstart a process shows when <paramref name="starts"/>.</summary>
     private static LauncherLaunchdAutostart.CommandRunner Fake(bool starts, string disabledList = NothingDisabled, int uidExit = 0)
@@ -94,7 +95,7 @@ public class LauncherRepairReportTests : IDisposable
     [Fact]
     public void Compose_Rebuilt_SaysRebuiltAndRunningWithThePidAndCarriesTheSteps()
     {
-        var text = LauncherRepairReport.Compose(Run(Fake(starts: true)), User, Home);
+        var text = LauncherRepairReport.Compose(Run(Fake(starts: true)), NoLines, User, Home);
 
         Assert.StartsWith("launcher repair: rebuilt the launch agent and launchd reports the launcher running as process 4242.", text.Message);
         Assert.Contains("Found: launchd refused to spawn the launcher", text.Message);
@@ -106,7 +107,7 @@ public class LauncherRepairReportTests : IDisposable
     public void Compose_RebuiltButNeverStarted_IsFailedWithLaunchdsAnswer()
     {
         var outcome = Run(Fake(starts: false));
-        var text = LauncherRepairReport.Compose(outcome, User, Home);
+        var text = LauncherRepairReport.Compose(outcome, NoLines, User, Home);
 
         Assert.Equal(LauncherRepairResult.Failed, outcome.Result);
         Assert.Equal(0, outcome.Pid);
@@ -121,7 +122,7 @@ public class LauncherRepairReportTests : IDisposable
     public void Compose_SwitchedOff_IsLeftAloneWithItsVerdictAndReason()
     {
         var outcome = Run(Fake(starts: true, disabledList: "disabled services = {\n\t\"com.devthrottle.cc-launcher\" => disabled\n}\n"));
-        var text = LauncherRepairReport.Compose(outcome, User, Home);
+        var text = LauncherRepairReport.Compose(outcome, NoLines, User, Home);
 
         Assert.Equal(LauncherRepairResult.LeftAlone, outcome.Result);
         Assert.Equal("launcher repair: left alone (Disabled): launchd's disabled list names the launcher: somebody switched it off, and that is not overridden", text.Message);
@@ -132,7 +133,7 @@ public class LauncherRepairReportTests : IDisposable
     [Fact]
     public void Compose_AlreadyRunning_IsLeftAloneAsRunning()
     {
-        var text = LauncherRepairReport.Compose(Run(Fake(starts: true), running: 1), User, Home);
+        var text = LauncherRepairReport.Compose(Run(Fake(starts: true), running: 1), NoLines, User, Home);
 
         Assert.Equal("launcher repair: left alone (Running): 1 installed launcher process(es) running", text.Message);
     }
@@ -141,7 +142,7 @@ public class LauncherRepairReportTests : IDisposable
     public void Compose_NoLaunchAgent_IsLeftAloneAsNoLaunchAgent()
     {
         File.Delete(_plist);
-        var text = LauncherRepairReport.Compose(Run(Fake(starts: true)), User, Home);
+        var text = LauncherRepairReport.Compose(Run(Fake(starts: true)), NoLines, User, Home);
 
         Assert.StartsWith("launcher repair: left alone (NoLaunchAgent):", text.Message);
     }
@@ -154,7 +155,7 @@ public class LauncherRepairReportTests : IDisposable
             : args.StartsWith("print-disabled", StringComparison.Ordinal) ? (0, NothingDisabled)
             : args.StartsWith("print ", StringComparison.Ordinal) ? (0, "state = not running\nruns = 1\nlast exit code = 0\n")
             : (0, "");
-        var text = LauncherRepairReport.Compose(Run(closed), User, Home);
+        var text = LauncherRepairReport.Compose(Run(closed), NoLines, User, Home);
 
         Assert.StartsWith("launcher repair: left alone (ClosedOnPurpose):", text.Message);
     }
@@ -165,7 +166,7 @@ public class LauncherRepairReportTests : IDisposable
         // The install root sits in the home folder on a Mac; the report must not carry it.
         var outcome = new LauncherRepairOutcome(LauncherRepairResult.LeftAlone, "NoLauncherBinary",
             "no launcher binary at /Users/robert/Library/Application Support/cc-director/launcher/cc-launcher; nothing to repair", 0, "x");
-        var text = LauncherRepairReport.Compose(outcome, User, Home);
+        var text = LauncherRepairReport.Compose(outcome, NoLines, User, Home);
 
         Assert.Equal("launcher repair: left alone (NoLauncherBinary): no launcher binary at ~/Library/Application Support/cc-director/launcher/cc-launcher; nothing to repair", text.Message);
         AssertNamesNobody(text);
@@ -175,7 +176,7 @@ public class LauncherRepairReportTests : IDisposable
     public void Compose_UserIdUnresolved_IsFailedNotChecked()
     {
         var outcome = Run(Fake(starts: true, uidExit: 1));
-        var text = LauncherRepairReport.Compose(outcome, User, Home);
+        var text = LauncherRepairReport.Compose(outcome, NoLines, User, Home);
 
         Assert.Equal(LauncherRepairResult.Failed, outcome.Result);
         Assert.StartsWith("launcher repair: failed (NotChecked): the user id could not be resolved (exit 1)", text.Message);
@@ -186,10 +187,34 @@ public class LauncherRepairReportTests : IDisposable
     public void Compose_StaysInsideTheReportLimits()
     {
         var big = new string('m', 50_000);
-        var text = LauncherRepairReport.Compose(new LauncherRepairOutcome(LauncherRepairResult.Failed, "Repair", big, 0, big), User, Home);
+        var text = LauncherRepairReport.Compose(new LauncherRepairOutcome(LauncherRepairResult.Failed, "Repair", big, 0, big), NoLines, User, Home);
 
         Assert.True(text.Message.Length <= CcDirector.Core.ErrorReports.ErrorReportLimits.MaxMessage);
         Assert.True(text.Detail.Length <= CcDirector.Core.ErrorReports.ErrorReportLimits.MaxStack);
+    }
+
+    [Fact]
+    public void Compose_HeldErrorLines_TravelInTheDetailWithoutTheUser()
+    {
+        // A rebuild that throws logs "[LauncherLaunchdAutostart] Rebuild FAILED: ..." carrying up to 300 characters
+        // of launchctl's own answer; the pass holds that line for its one report, and it is scrubbed with it.
+        var outcome = new LauncherRepairOutcome(LauncherRepairResult.Failed, "Repair", "the launch agent could not be rebuilt", 0, "FAILED to rebuild");
+        var held = new[] { "[LauncherLaunchdAutostart] Rebuild FAILED: bootstrap refused (exit 5: USER => robert, path = /Users/robert/Library/x)" };
+
+        var text = LauncherRepairReport.Compose(outcome, held, User, Home);
+
+        Assert.Contains("Error lines logged during the pass:\n[LauncherLaunchdAutostart] Rebuild FAILED: bootstrap refused (exit 5: USER => <user>, path = ~/Library/x)", text.Detail);
+        AssertNamesNobody(text);
+    }
+
+    [Fact]
+    public void Compose_LeftAloneWithHeldLines_CarriesOnlyTheLines()
+    {
+        var outcome = new LauncherRepairOutcome(LauncherRepairResult.LeftAlone, "Running", "1 installed launcher process(es) running", 0, "Running: x");
+
+        var text = LauncherRepairReport.Compose(outcome, new[] { "[X] Y FAILED: z" }, User, Home);
+
+        Assert.Equal("Error lines logged during the pass:\n[X] Y FAILED: z", text.Detail);
     }
 
     [Theory]

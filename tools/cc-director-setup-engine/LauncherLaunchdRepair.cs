@@ -178,17 +178,23 @@ public static class LauncherLaunchdRepair
         ArgumentNullException.ThrowIfNull(reporter);
         EngineLog.Write("[LauncherLaunchdRepair] RunPass: start");
         LauncherRepairOutcome outcome;
-        try
+        IReadOnlyList<string> heldLines;
+        // Every error line the pass logs - a rebuild that throws logs its own FAILED line, and so does RunOnce
+        // before it rethrows - is held for the pass's one report instead of becoming a second one.
+        using (var scope = reporter.BeginOutcomeScope())
         {
-            outcome = RunOnce(layout, run, startWait, pollInterval, installedLaunchersRunning, plistPath);
+            try
+            {
+                outcome = RunOnce(layout, run, startWait, pollInterval, installedLaunchersRunning, plistPath);
+            }
+            catch (Exception ex)
+            {
+                outcome = new(LauncherRepairResult.Failed, "Exception", $"the repair pass ended with {ex.GetType().Name}: {ex.Message}",
+                    0, $"FAILED to finish the repair pass: {ex}");
+            }
+            heldLines = scope.HeldLines;
         }
-        catch (Exception ex)
-        {
-            // RunOnce has logged it as a FAILED line already; the report says what the pass came to.
-            outcome = new(LauncherRepairResult.Failed, "Exception", $"the repair pass ended with {ex.GetType().Name}: {ex.Message}",
-                0, $"FAILED to finish the repair pass: {ex}");
-        }
-        LauncherRepairReport.Send(outcome, reporter);
+        LauncherRepairReport.Send(outcome, heldLines, reporter);
         EngineLog.Write($"[LauncherLaunchdRepair] RunPass: {outcome.Result} ({outcome.Verdict})");
         return outcome;
     }
@@ -197,7 +203,8 @@ public static class LauncherLaunchdRepair
     /// Look once, and rebuild the job when the decision says so. Returns what was found and done; its
     /// <see cref="LauncherRepairOutcome.Line"/> is the one line the Director logs. Success is claimed only when
     /// launchd reports a process for the rebuilt job within <paramref name="startWait"/>. Reports nothing:
-    /// <see cref="RunPass"/> is what sends the pass's one report.
+    /// <see cref="RunPass"/> is what sends the pass's one report, and it is the only way in from outside the engine:
+    /// internal, so the Director cannot call this and send nothing.
     /// </summary>
     /// <param name="layout">Where the launcher is installed.</param>
     /// <param name="run">How launchctl and the id command (which answers the user identifier) are run; the bounded <see cref="LauncherLaunchdAutostart.DefaultRunner"/> in production.</param>
@@ -206,7 +213,7 @@ public static class LauncherLaunchdRepair
     /// <param name="installedLaunchersRunning">How many launcher processes run from the install folder; the process list in production.</param>
     /// <param name="plistPath">The launch agent property list; the real one in production.</param>
     [SupportedOSPlatform("macos")]
-    public static LauncherRepairOutcome RunOnce(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner? run = null, TimeSpan? startWait = null,
+    internal static LauncherRepairOutcome RunOnce(InstallLayout layout, LauncherLaunchdAutostart.CommandRunner? run = null, TimeSpan? startWait = null,
         TimeSpan? pollInterval = null, Func<int>? installedLaunchersRunning = null, string? plistPath = null)
     {
         ArgumentNullException.ThrowIfNull(layout);

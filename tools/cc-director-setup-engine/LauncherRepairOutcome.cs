@@ -58,9 +58,11 @@ public static class LauncherRepairReport
     /// <param name="outcome">What the pass came to.</param>
     /// <param name="userName">The user this process runs as.</param>
     /// <param name="homeFolder">That user's home folder.</param>
-    public static Text Compose(LauncherRepairOutcome outcome, string? userName, string? homeFolder)
+    /// <param name="heldLines">The error lines the pass logged, held for this report (<see cref="ErrorReporter.BeginOutcomeScope"/>).</param>
+    public static Text Compose(LauncherRepairOutcome outcome, IReadOnlyList<string> heldLines, string? userName, string? homeFolder)
     {
         ArgumentNullException.ThrowIfNull(outcome);
+        ArgumentNullException.ThrowIfNull(heldLines);
         var message = outcome.Result switch
         {
             LauncherRepairResult.Rebuilt =>
@@ -73,16 +75,20 @@ public static class LauncherRepairReport
         // A left-alone pass has nothing behind its reason; a rebuild carries its steps and a failure carries every
         // diagnostic the pass gathered.
         var detail = outcome.Result == LauncherRepairResult.LeftAlone ? "" : outcome.Line;
+        // The error lines the pass logged on its way travel here, with the same scrubbing, rather than as reports
+        // of their own.
+        if (heldLines.Count > 0)
+            detail = (detail.Length > 0 ? detail + "\n\n" : "") + "Error lines logged during the pass:\n" + string.Join("\n", heldLines);
         return new Text(
             ErrorTextScrubber.Clean(WithoutIdentity(message, userName, homeFolder), ErrorReportLimits.MaxMessage),
             ErrorTextScrubber.Clean(WithoutIdentity(detail, userName, homeFolder), ErrorReportLimits.MaxStack));
     }
 
-    /// <summary>Send the one report for <paramref name="outcome"/> through <paramref name="reporter"/>.</summary>
-    public static void Send(LauncherRepairOutcome outcome, ErrorReporter reporter)
+    /// <summary>Send the one report for <paramref name="outcome"/>, carrying <paramref name="heldLines"/>, through <paramref name="reporter"/>.</summary>
+    public static void Send(LauncherRepairOutcome outcome, IReadOnlyList<string> heldLines, ErrorReporter reporter)
     {
         ArgumentNullException.ThrowIfNull(reporter);
-        var text = Compose(outcome, Environment.UserName, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        var text = Compose(outcome, heldLines, Environment.UserName, Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         reporter.ReportOutcome(Source, Kind, text.Message, text.Detail);
         EngineLog.Write($"[LauncherRepairReport] Send: {outcome.Result} ({outcome.Verdict}) queued for the Gateway");
     }

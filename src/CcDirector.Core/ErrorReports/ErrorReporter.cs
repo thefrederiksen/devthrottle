@@ -191,6 +191,12 @@ public sealed class ErrorReporter : IDisposable
             // Cap BEFORE parsing and scrubbing: an unhandled-exception dump can run to many kilobytes, and
             // everything past this is cut by the field caps anyway. Keeps the work on the logging thread small.
             if (message.Length > MaxLineChars) message = message[..MaxLineChars];
+            // Inside an outcome scope the line belongs to the outcome's one report, not a report of its own.
+            if (OutcomeScope.Current is { } scope && ReferenceEquals(scope.Owner, this))
+            {
+                scope.Hold(message);
+                return;
+            }
             var (source, text, exceptionType, stack) = ErrorLine.Parse(message);
             Add(source, ErrorLine.KindOf(message), text, exceptionType, stack);
         }
@@ -225,6 +231,20 @@ public sealed class ErrorReporter : IDisposable
         if (kind.Length > 40) throw new ArgumentException("kind must be at most 40 characters", nameof(kind));
         Add(source, kind, message, "", detail ?? "");
         FileLog.Write($"{ErrorLine.ReporterTag} outcome queued for the Gateway: source={source}, kind={kind}");
+    }
+
+    /// <summary>
+    /// Begin a pass whose outcome is reported as ONE report. Until the scope is disposed, an error line logged on
+    /// this flow of execution (this thread and the tasks it starts) is held in <see cref="OutcomeScope.HeldLines"/>
+    /// instead of becoming a report of its own, so the caller can carry it in the outcome's detail - where it is
+    /// scrubbed with the outcome. Without this, a step that logs its own FAILED line (a launch agent rebuild that
+    /// throws) would reach the Gateway twice: once as that line, once as the outcome.
+    /// </summary>
+    public OutcomeScope BeginOutcomeScope()
+    {
+        if (OutcomeScope.Current is not null)
+            throw new InvalidOperationException("an outcome scope is already open on this flow of execution");
+        return OutcomeScope.Open(this);
     }
 
     internal void Add(string source, string kind, string message, string exceptionType, string stack)

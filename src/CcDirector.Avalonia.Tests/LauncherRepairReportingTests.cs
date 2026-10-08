@@ -71,7 +71,13 @@ public sealed class LauncherRepairReportingTests : IDisposable
                     : (0, identity + "state = spawn scheduled\nlast exit code = 78: EX_CONFIG\n");
             }
             if (args.StartsWith("bootout ", StringComparison.Ordinal)) { held = false; return (0, ""); }
-            if (args.StartsWith("bootstrap ", StringComparison.Ordinal)) { held = true; return (0, ""); }
+            if (args.StartsWith("bootstrap ", StringComparison.Ordinal))
+            {
+                // A refused bootstrap: the rebuild throws and logs its own FAILED line, carrying launchctl's answer.
+                if (state == "bootstrap-refused") return (5, "Bootstrap failed: 5: Input/output error " + identity);
+                held = true;
+                return (0, "");
+            }
             if (args.StartsWith("kickstart ", StringComparison.Ordinal)) { kickstarted = true; return (0, ""); }
             return (0, "");
         };
@@ -84,8 +90,20 @@ public sealed class LauncherRepairReportingTests : IDisposable
             () => new GatewayConfig { Url = "https://gateway.example", Token = "device-key" }, new HttpClient(handler),
             machineName: "TEST-MACHINE", productVersion: "2.18.0");
 
-        var outcome = LauncherLaunchdRepair.RunPass(_layout, reporter, Fake(state), TimeSpan.FromMilliseconds(300),
-            TimeSpan.FromMilliseconds(20), running ?? (() => 0), _plist);
+        // As in the Director (Program.cs: EngineLog.Sink = FileLog.Write, and FileLog hands every error line to the
+        // reporter), so an engine FAILED line logged during the pass is seen by the reporter here too.
+        var previousSink = EngineLog.Sink;
+        EngineLog.Sink = reporter.OnLogLine;
+        LauncherRepairOutcome outcome;
+        try
+        {
+            outcome = LauncherLaunchdRepair.RunPass(_layout, reporter, Fake(state), TimeSpan.FromMilliseconds(300),
+                TimeSpan.FromMilliseconds(20), running ?? (() => 0), _plist);
+        }
+        finally
+        {
+            EngineLog.Sink = previousSink;
+        }
         // The line the Director then logs (App.StartLauncherRepair) must not read as an error line, or a failed
         // pass would reach the Gateway twice.
         reporter.OnLogLine($"[CcDirector] launcher repair: {outcome}");
@@ -144,14 +162,56 @@ public sealed class LauncherRepairReportingTests : IDisposable
             machineName: "TEST-MACHINE", productVersion: "2.18.0");
         LauncherLaunchdAutostart.CommandRunner throwing = (_, _) => throw new InvalidOperationException("launchctl is gone");
 
-        var thrown = LauncherLaunchdRepair.RunPass(_layout, reporter, throwing, TimeSpan.FromMilliseconds(100),
-            TimeSpan.FromMilliseconds(20), () => 0, _plist);
-        await reporter.SendPendingAsync(CancellationToken.None);
+        // RunOnce logs "RunOnce FAILED: ..." before it rethrows; in the Director that line reaches the reporter.
+        var previousSink = EngineLog.Sink;
+        EngineLog.Sink = reporter.OnLogLine;
+        LauncherRepairOutcome thrown;
+        try
+        {
+            thrown = LauncherLaunchdRepair.RunPass(_layout, reporter, throwing, TimeSpan.FromMilliseconds(100),
+                TimeSpan.FromMilliseconds(20), () => 0, _plist);
+        }
+        finally
+        {
+            EngineLog.Sink = previousSink;
+        }
+        Assert.Equal(1, await reporter.SendPendingAsync(CancellationToken.None));
 
         Assert.Equal(LauncherRepairResult.Failed, thrown.Result);
         Assert.Equal("Exception", thrown.Verdict);
         var report = Assert.Single(JsonSerializer.Deserialize<ErrorReportBatch>(Assert.Single(handler.Bodies))!.Reports!);
         Assert.StartsWith("launcher repair: failed (Exception): the repair pass ended with InvalidOperationException: launchctl is gone", report.Message);
         Assert.Equal(LauncherRepairReport.Kind, report.Kind);
+        Assert.Contains("RunOnce FAILED: InvalidOperationException: launchctl is gone", report.Stack);
+    }
+
+    [Fact]
+    public async Task RunPass_RebuildThrows_SendsOneReportCarryingTheRebuildsFailedLineWithoutTheUser()
+    {
+        // The rebuild logs "[LauncherLaunchdAutostart] Rebuild FAILED: ..." with launchctl's own answer, which
+        // here names the user outside any path. It is held for the pass's one report and scrubbed with it.
+        var (outcome, item, _) = await PassAsync("bootstrap-refused");
+
+        Assert.Equal(LauncherRepairResult.Failed, outcome.Result);
+        Assert.StartsWith("launcher repair: failed (Repair): the launch agent could not be rebuilt", item.Message);
+        Assert.Contains("Error lines logged during the pass:", item.Stack);
+        Assert.Contains("[LauncherLaunchdAutostart] Rebuild FAILED:", item.Stack);
+    }
+
+    [Fact]
+    public void TheDirector_RunsTheRepairThroughRunPassWithItsRunningReporter()
+    {
+        // RunOnce is internal to the engine, so the Director cannot call it; this guards the other way to lose every
+        // report - not running the pass, or running it without the reporter.
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "src", "CcDirector.Avalonia", "App.axaml.cs"))) dir = dir.Parent;
+        Assert.True(dir is not null, $"could not find the repository above {AppContext.BaseDirectory}; this test reads the source");
+        var app = File.ReadAllText(Path.Combine(dir!.FullName, "src", "CcDirector.Avalonia", "App.axaml.cs")).Replace("\r\n", "\n");
+        var start = app.IndexOf("private static void StartLauncherRepair(", StringComparison.Ordinal);
+        Assert.True(start >= 0, "App.StartLauncherRepair not found");
+        var body = app[start..app.IndexOf("\n    }\n", start, StringComparison.Ordinal)];
+        Assert.Contains("ErrorReporter.Current", body);
+        Assert.Contains("LauncherLaunchdRepair.RunPass(layout, reporter)", body);
+        Assert.Contains("StartLauncherRepair(log);", app);
     }
 }
