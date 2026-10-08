@@ -77,14 +77,33 @@ describe("the Cockpit rail collapse", () => {
     expect(screen.queryByTestId("status-pill")).toBeNull();
   });
 
+  // Dictionary is a tab of Settings now (owner, 8 Oct 2026), so its attention signal rides on YOU: a dot on your
+  // initials, which is all of you a collapsed rail shows, and the count on a row of the menu behind your name.
   it("still shows the attention count when collapsed", async () => {
     dictionary.suggestions = 7;
     mount();
 
     fireEvent.click(screen.getByTestId("rail-toggle"));
 
-    const entry = screen.getByRole("link", { name: /Dictionary/ });
-    await waitFor(() => expect(entry.querySelector(".nav-badge")?.textContent).toBe("7"));
+    const card = screen.getByTestId("you-card");
+    await waitFor(() => expect(card.querySelector(".you-dot")).not.toBeNull());
+    fireEvent.click(card);
+    const row = screen.getByRole("menuitem", { name: /Dictionary suggestions/ });
+    expect(row.querySelector(".you-menu-badge")?.textContent).toBe("7");
+  });
+
+  // You stay in reach when the rail collapses: the card keeps its accessible name, shows only your initials, and opens
+  // the same menu, placed outside the narrow rail.
+  it("keeps you at the bottom when collapsed, as your initials, and opens the same menu", () => {
+    mount();
+    fireEvent.click(screen.getByTestId("rail-toggle"));
+
+    const card = screen.getByTestId("you-card");
+    expect(card.getAttribute("aria-label")).toContain("Open your menu");
+    expect(card.querySelector(".you-text")).toBeNull();
+    fireEvent.click(card);
+    expect(screen.getByRole("menu", { name: "Your menu" })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: "Settings" })).toBeTruthy();
   });
 
   it("remembers the choice for the next time this browser opens the Cockpit", () => {

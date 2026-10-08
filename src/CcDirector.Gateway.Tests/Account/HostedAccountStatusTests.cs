@@ -135,6 +135,17 @@ public sealed class HostedAccountStatusTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_hosted_gateway_says_it_holds_no_sign_in_of_its_own()
+    {
+        // devthrottle#3681: the Cockpit offers the Gateway's own Log out only where the Gateway says it holds a
+        // sign-in. Hosted holds none (it refuses that logout, issue #984), so it must say false - present, not
+        // absent, so the answer cannot be mistaken for an older Gateway that never said.
+        var root = await StatusFor(_keyWithEmail);
+
+        Assert.False(root.GetProperty("gatewaySignIn").GetBoolean());
+    }
+
+    [Fact]
     public async Task Enrolled_without_a_recorded_email_is_signed_in_with_the_identity_absent()
     {
         // The branch most likely to be quietly written as a false. This caller is fully enrolled - its key is

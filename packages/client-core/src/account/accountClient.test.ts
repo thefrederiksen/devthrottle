@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { SIGN_IN_START_PATH, beginSignIn } from "./accountClient";
+import { SIGN_IN_START_PATH, beginSignIn, getAccountStatus } from "./accountClient";
 
 // Signing the Gateway in from the Cockpit has two load-bearing properties, and both are easy to regress
 // into a version that hangs forever with no visible error:
@@ -53,5 +53,24 @@ describe("beginSignIn", () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+  });
+});
+
+// devthrottle#3681: whether THIS Gateway holds its own DevThrottle sign-in is the Gateway's answer, carried verbatim -
+// the Account tab offers the Gateway's own Log out only where it is true. An answer without it (an older Gateway)
+// reads as false, so the button is never offered on a guess.
+describe("getAccountStatus", () => {
+  it("carries the Gateway's gatewaySignIn verdict, and reads a missing one as false", async () => {
+    const answers = [{ signedIn: true, email: "a@b.c", gatewaySignIn: true }, { signedIn: true, email: "a@b.c" }];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify(answers.shift()), { status: 200 })),
+    );
+    try {
+      expect((await getAccountStatus()).gatewaySignIn).toBe(true);
+      expect((await getAccountStatus()).gatewaySignIn).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

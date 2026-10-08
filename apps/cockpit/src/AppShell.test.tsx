@@ -8,6 +8,10 @@ import type { TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
 // here: Sessions first, then Fleet Map, then the Fleet Manager (owner, 7 Oct 2026 - what you use every day first,
 // what you set up lower, in the order you build it). Without this test the order is one careless re-sort away from changing silently - nothing else
 // in the app reads it.
+//
+// The rail holds only the work (owner, 8 Oct 2026): what is about YOU - Account, Phone, Your Throttle, Settings, About,
+// Help - is in the menu behind your name at the bottom (you/YouMenu.test.tsx), Dictionary, Transcription and Network
+// are tabs of Settings, and the team's pages sit in their own block only while a team is on screen.
 
 vi.mock("@devthrottle/client-core/net/useKeepWarm", () => ({
   useKeepWarm: () => {},
@@ -32,7 +36,8 @@ vi.mock("@devthrottle/client-core/factory/factoryAgentsClient", () => ({
   getFactoryAgentsSwitch: vi.fn(async () => ({ enabled: factory.enabled })),
 }));
 
-// The person's teams (devthrottle_internal#2312). The switcher at the top of the rail follows the Gateway's answer.
+// The person's teams (devthrottle_internal#2312). The team switch in the menu behind your name follows the Gateway's
+// answer, and so does the rail's team block.
 const myTeams = vi.hoisted(() => ({
   answer: { kind: "teams", teams: [], start: { where: "own-account" } } as
     | { kind: "teams"; teams: TeamSummary[]; start: { where: "own-account" } }
@@ -97,9 +102,15 @@ import { resetFactorySwitchCache } from "./factory/useFactorySwitch";
 import { currentTeamStorageKey } from "@devthrottle/client-core/teams/CurrentTeam";
 
 function railLabels(): string[] {
-  const list = document.querySelector(".nav-list:not(.nav-list-foot)");
-  if (list === null) throw new Error("the shell rendered no main nav list");
-  return Array.from(list.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+  const nav = document.querySelector(".nav");
+  if (nav === null) throw new Error("the shell rendered no rail");
+  return Array.from(nav.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+}
+
+/** Open the menu behind your name and answer it. */
+function openYourMenu(): HTMLElement {
+  fireEvent.click(screen.getByTestId("you-card"));
+  return screen.getByTestId("you-menu");
 }
 
 describe("Cockpit left rail", () => {
@@ -155,8 +166,8 @@ describe("Cockpit left rail", () => {
       </MemoryRouter>,
     );
 
-    const links = Array.from(document.querySelectorAll(".nav-list a"));
-    expect(links.length).toBeGreaterThan(10);
+    const links = [...Array.from(document.querySelectorAll(".nav-list a")), ...Array.from(openYourMenu().querySelectorAll("[role='menuitem']"))];
+    expect(links.length).toBeGreaterThan(12);
     expect(links.map((a) => a.textContent ?? "").filter((t) => /assistant/i.test(t))).toEqual([]);
     expect(links.map((a) => a.getAttribute("href")).filter((h) => h === "/assistant")).toEqual([]);
   });
@@ -174,20 +185,35 @@ describe("Cockpit left rail", () => {
       "Fleet Manager",
       "History",
       "Directors",
-      // What you set up, in the order you build it: skills, workflows, the schedule that runs them.
+      // What you set up, in the order you build it: skills, workflows, the schedule that runs them - and the
+      // recordings you go back to.
       "Skills",
       "Workflows",
       "Schedule",
-      "Dictionary",
       "Voice Recorder",
-      "Transcription",
-      "Network",
     ]);
   });
 
-  // Factories (once "Factory Agents") sits after Schedule and before Dictionary - only while the Gateway's
+  // Owner, 8 Oct 2026: what is about you left the rail for the menu behind your name, and Dictionary, Transcription
+  // and Network became tabs of Settings. None of them is a rail row any more.
+  it("keeps Account, Phone, Your Throttle, Settings, About, Help, Dictionary, Transcription and Network out of the rail", () => {
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    for (const gone of ["Account", "Phone", "Your Throttle", "Settings", "About", "Help", "Dictionary", "Transcription", "Network"]) {
+      expect(railLabels()).not.toContain(gone);
+    }
+    // You are at the bottom of the rail, after the navigation.
+    const card = screen.getByTestId("you-card");
+    expect(document.querySelector(".nav")!.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  // Factories (once "Factory Agents") sits after Schedule and before Voice Recorder - only while the Gateway's
   // factoryAgents.enabled switch is on. Off, the rail is exactly what it was.
-  it("shows Factories after Schedule and before Dictionary when the Gateway says the area is on", async () => {
+  it("shows Factories after Schedule and before Voice Recorder when the Gateway says the area is on", async () => {
     factory.enabled = true;
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -197,7 +223,7 @@ describe("Cockpit left rail", () => {
 
     await waitFor(() => expect(railLabels()).toContain("Factories"));
     expect(railLabels().slice(0, 10)).toEqual([
-      "Sessions", "Fleet Map", "Fleet Manager", "History", "Directors", "Skills", "Workflows", "Schedule", "Factories", "Dictionary",
+      "Sessions", "Fleet Map", "Fleet Manager", "History", "Directors", "Skills", "Workflows", "Schedule", "Factories", "Voice Recorder",
     ]);
     expect(screen.getByRole("link", { name: /Factories/ }).getAttribute("href")).toBe("/factories");
   });
@@ -214,8 +240,9 @@ describe("Cockpit left rail", () => {
     expect(railLabels()).not.toContain("Factories");
   });
 
-  // Teams must change nothing for a person who never joins one: no switcher, and the rail exactly as it was.
-  it("shows no team switcher to a person with no team", async () => {
+  // A person with no team on a Gateway with Teams on: the rail has no team block, and the menu behind their name offers
+  // Personal - where they are - and Create a team (Mockup B).
+  it("shows a person with no team no team block, and Personal and Create a team in their menu", async () => {
     myTeams.answer = { kind: "teams", teams: [], start: { where: "own-account" } };
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -223,9 +250,13 @@ describe("Cockpit left rail", () => {
       </MemoryRouter>,
     );
 
-    await new Promise((r) => setTimeout(r, 20));
-    expect(screen.queryByTestId("team-switcher")).toBeNull();
-    expect(screen.queryByTestId("team-switcher-error")).toBeNull();
+    await waitFor(() => expect(screen.getByTestId("you-card").textContent).toContain("Personal"));
+    expect(screen.queryByTestId("nav-team")).toBeNull();
+    const working = within(openYourMenu()).getByRole("group", { name: "Working in" });
+    const choices = within(working).getAllByRole("menuitemradio");
+    expect(choices).toHaveLength(1);
+    expect(choices[0].textContent).toContain("Personal");
+    expect(within(working).getByRole("menuitem", { name: "+ Create a team" })).toBeTruthy();
   });
 
   // Delta review D1: the state production is in - Teams dark, or no team, and nothing remembered in this browser - draws
@@ -245,17 +276,18 @@ describe("Cockpit left rail", () => {
 
     // Not answered yet, and the whole rail is already there.
     expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
-    expect(document.querySelector(".nav-list-foot")).not.toBeNull();
+    expect(screen.getByTestId("you-card")).toBeTruthy();
     expect(screen.queryByText("Loading your team...")).toBeNull();
 
     await act(async () => release());
     await new Promise((r) => setTimeout(r, 20));
     expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
     expect(screen.queryByText("Loading your team...")).toBeNull();
-    expect(screen.queryByTestId("team-switcher")).toBeNull();
+    expect(screen.queryByTestId("nav-team")).toBeNull();
   });
 
-  it("shows no team switcher on a Gateway that has not turned Teams on", async () => {
+  // A Gateway with Teams dark shows nothing about teams at all: no Working in, no Personal, no team block.
+  it("shows nothing about teams on a Gateway that has not turned Teams on", async () => {
     myTeams.answer = { kind: "not-offered", reason: "dark" };
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -264,8 +296,11 @@ describe("Cockpit left rail", () => {
     );
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(screen.queryByTestId("team-switcher")).toBeNull();
-    expect(screen.queryByTestId("team-switcher-error")).toBeNull();
+    expect(screen.getByTestId("you-card").textContent).not.toContain("Personal");
+    const menu = openYourMenu();
+    expect(within(menu).queryByRole("group", { name: "Working in" })).toBeNull();
+    expect(within(menu).queryByText("Your teams could not be read just now.")).toBeNull();
+    expect(screen.queryByTestId("nav-team")).toBeNull();
   });
 
   // Review finding F1: a person with no team sees no change even when the read of their teams fails.
@@ -278,11 +313,13 @@ describe("Cockpit left rail", () => {
     );
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(screen.queryByTestId("team-switcher")).toBeNull();
-    expect(screen.queryByTestId("team-switcher-error")).toBeNull();
+    const menu = openYourMenu();
+    expect(within(menu).queryByRole("group", { name: "Working in" })).toBeNull();
+    expect(within(menu).queryByText("Your teams could not be read just now.")).toBeNull();
+    expect(screen.queryByTestId("nav-team")).toBeNull();
   });
 
-  it("puts the team switcher at the top of the rail, above the navigation, for a person in a team", async () => {
+  it("moves the team switch into the menu behind your name, with Personal where Your own account was", async () => {
     myTeams.answer = {
       kind: "teams",
       teams: [
@@ -303,11 +340,22 @@ describe("Cockpit left rail", () => {
       </MemoryRouter>,
     );
 
-    const switcher = await screen.findByTestId("team-switcher");
-    const nav = document.querySelector(".nav");
-    expect(nav).not.toBeNull();
-    expect(switcher.compareDocumentPosition(nav!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(switcher.textContent).toContain("DevThrottle - Owner");
+    await waitFor(() => expect(screen.getByTestId("you-card").textContent).toContain("Personal"));
+    // No box at the top of the rail any more.
+    expect(screen.queryByTestId("team-switcher")).toBeNull();
+    const working = within(openYourMenu()).getByRole("group", { name: "Working in" });
+    const choices = within(working).getAllByRole("menuitemradio");
+    expect(choices.map((c) => c.getAttribute("aria-checked"))).toEqual(["true", "false"]);
+    expect(choices[0].textContent).toContain("Personal");
+    expect(choices[1].textContent).toContain("DevThrottle");
+    expect(choices[1].textContent).toContain("Owner - 5 people");
+
+    // Picking the team puts it on screen: the card says so, and the rail grows the team's block under its name.
+    fireEvent.click(choices[1]);
+    await waitFor(() => expect(screen.getByTestId("you-card").textContent).toContain("DevThrottle - Owner"));
+    const block = screen.getByTestId("nav-team");
+    expect(block.textContent).toContain("DevThrottle");
+    expect(within(block).getByRole("link", { name: /Team/ }).getAttribute("href")).toBe("/settings?tab=members");
   });
 
   describe("the Mentor entry", () => {
@@ -332,13 +380,14 @@ describe("Cockpit left rail", () => {
       await new Promise((r) => setTimeout(r, 0));
     }
 
-    it("is offered after Skills when the Gateway answers the Mentor read with a page", async () => {
+    it("is offered in the team's block, after Team, when the Gateway answers the Mentor read with a page", async () => {
       mentorRead.answers.set(TEAM.id, { kind: "page" });
       renderOn([TEAM], TEAM.id);
 
       await waitFor(() => expect(railLabels()).toContain("Mentor"));
       const labels = railLabels();
-      expect(labels[labels.indexOf("Skills") + 1]).toBe("Mentor");
+      expect(labels[labels.indexOf("Team") + 1]).toBe("Mentor");
+      expect(within(screen.getByTestId("nav-team")).getByRole("link", { name: /Mentor/ })).toBeTruthy();
       expect(screen.getByRole("link", { name: /Mentor/ }).getAttribute("href")).toBe("/mentor");
       expect(mentorRead.calls).toEqual([TEAM.id]);
     });
@@ -412,9 +461,8 @@ describe("Cockpit left rail", () => {
       mentorRead.answers.set(OTHER.id, { kind: "page" });
       renderOn([TEAM, OTHER], TEAM.id);
 
-      const select = within(await screen.findByTestId("team-switcher")).getByRole("combobox");
       await waitFor(() => expect(mentorRead.calls).toEqual([TEAM.id]));
-      fireEvent.change(select, { target: { value: OTHER.id } });
+      fireEvent.click(within(openYourMenu()).getByRole("menuitemradio", { name: /Other team/ }));
       await waitFor(() => expect(railLabels()).toContain("Mentor"));
 
       settleFirst({ kind: "refused" });

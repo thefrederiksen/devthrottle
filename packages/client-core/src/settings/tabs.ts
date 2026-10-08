@@ -12,16 +12,38 @@
 export type Surface = "cockpit" | "mobile";
 
 export type TabId =
+  | "account"
+  | "usage"
   | "notifications"
   | "ai"
   | "language"
   | "transcription"
+  | "dictionary"
   | "fleetmanager"
-  | "injectedtext";
+  | "injectedtext"
+  | "devices"
+  | "network"
+  | "members"
+  | "teamplan";
+
+/**
+ * The small heading a tab sits under where a surface lays its tabs out down the side (the Cockpit, 8 Oct 2026).
+ * "team" is the team on screen: its heading is that team's NAME, which only the shell knows, so the shell
+ * supplies it. A surface that lays the tabs out in one strip (the phone) does not draw the headings at all.
+ */
+export type TabGroup = "you" | "voice" | "fleet" | "team";
+
+/** The fixed headings. The team's heading is its name, supplied by the shell (see TabGroup). */
+export const GROUP_LABELS: Readonly<Record<Exclude<TabGroup, "team">, string>> = {
+  you: "You",
+  voice: "Voice",
+  fleet: "Fleet",
+};
 
 interface TabDef {
   id: TabId;
   label: string;
+  group: TabGroup;
   /**
    * Where this tab appears. "all" is the default and the rule; "cockpit" is the documented exception.
    *
@@ -55,25 +77,57 @@ interface TabDef {
   hidden?: true;
 }
 
-// The full ordered set. The order is the order you meet them: how the fleet reaches you, what language it
-// speaks to you in, how it hears you, the Fleet Manager built on all three, and last the text it hands your
-// agents.
+/** What else, besides the surface, decides which tabs are offered. */
+export interface TabContext {
+  /**
+   * True while a team is on screen in a shell that shows the whole app (not a Collaborator's pages-only
+   * app). The team tabs are offered only then - with the person's own account on screen there is no team
+   * to show, so the whole group is absent rather than empty.
+   */
+  team: boolean;
+  /**
+   * True when the Gateway's Team page answer for the team on screen carries a bill - its verdict that this
+   * person's role may see the team's plan (rule 7). The client never works that out from the role's name.
+   */
+  teamPlan: boolean;
+}
+
+const NO_TEAM: TabContext = { team: false, teamPlan: false };
+
+// The full ordered set. Grouped the way the Cockpit lays them out down its left side (owner, 8 Oct 2026,
+// following how ChatGPT and Claude arrange Settings): what is about YOU first, then how the fleet hears you,
+// then the fleet itself, then the team on screen. Within a group the order is the order you meet them.
 //
-// Language takes the place AI held in the strip (issue #1010). The AI row is still here and still hidden -
-// see the `hidden` note below; the two are separate decisions that happen to concern the same slot.
+// Language takes the place AI held (issue #1010). The AI row is still here and still hidden - see the `hidden`
+// note above; the two are separate decisions that happen to concern the same slot.
 //
 // The Fleet Manager tab holds where the Fleet Manager runs, and the Wingman's turn verdict switches it is built
 // on. It took the place of the Assistant tab, which had itself been the Car Mode tab: Car Mode was removed from
 // the product (#1028), and the Assistant was removed by the Fleet Manager mission (step 9), taking with it the
 // one setting that tab still held - the model the Assistant's fleet brain thought with. "carmode" and
 // "assistant" are retired ids now, like "machine" below.
+//
+// THE PAGES THAT BECAME TABS (owner, 8 Oct 2026). Account, Plan and usage (Your Throttle), Dictionary, Devices
+// and phone, Network, and the team's Members and Team plan were pages of their own in the Cockpit's menu. They
+// are tabs of this one Settings page now, and every one of them is "cockpit", for one reason: their content is
+// a Cockpit page today, and the phone reaches the same things through its own screens (its Account and Your
+// Throttle screens). Bringing the phone's Settings and menu into this same shape is the next piece of work,
+// named in the 8 October layout report - not something to do silently here, because a tab added to the phone
+// is a change to the phone. Until then each of these is the documented Cockpit-only exception, not drift.
 const ALL_TABS: TabDef[] = [
-  { id: "notifications", label: "Notifications", surface: "all" },
-  { id: "ai", label: "AI", surface: "all", hidden: true },
-  { id: "language", label: "Language", surface: "all" },
-  { id: "transcription", label: "Transcription", surface: "all" },
-  { id: "fleetmanager", label: "Fleet Manager", surface: "all" },
-  { id: "injectedtext", label: "Injected text", surface: "cockpit" },
+  { id: "account", label: "Account", group: "you", surface: "cockpit" },
+  { id: "usage", label: "Plan and usage", group: "you", surface: "cockpit" },
+  { id: "notifications", label: "Notifications", group: "you", surface: "all" },
+  { id: "ai", label: "AI", group: "you", surface: "all", hidden: true },
+  { id: "language", label: "Language", group: "you", surface: "all" },
+  { id: "transcription", label: "Transcription", group: "voice", surface: "all" },
+  { id: "dictionary", label: "Dictionary", group: "voice", surface: "cockpit" },
+  { id: "injectedtext", label: "Injected text", group: "voice", surface: "cockpit" },
+  { id: "fleetmanager", label: "Fleet Manager", group: "fleet", surface: "all" },
+  { id: "devices", label: "Devices and phone", group: "fleet", surface: "cockpit" },
+  { id: "network", label: "Network", group: "fleet", surface: "cockpit" },
+  { id: "members", label: "Members", group: "team", surface: "cockpit" },
+  { id: "teamplan", label: "Team plan", group: "team", surface: "cockpit" },
 ];
 
 /**
@@ -86,18 +140,24 @@ const ALL_TABS: TabDef[] = [
  * Hidden tabs are dropped here, and this is the ONLY place they are dropped - every other rule in this
  * file works off what this function returns, so hiding a tab needs no second edit anywhere.
  */
-export function visibleTabs(surface: Surface): { id: TabId; label: string }[] {
+export function visibleTabs(surface: Surface, context: TabContext = NO_TEAM): { id: TabId; label: string; group: TabGroup }[] {
   return ALL_TABS.filter(
-    (t) => (t.surface === "all" || t.surface === surface) && t.hidden !== true,
+    (t) =>
+      (t.surface === "all" || t.surface === surface) &&
+      t.hidden !== true &&
+      (t.group !== "team" || context.team) &&
+      (t.id !== "teamplan" || context.teamPlan),
   ).map((t) => ({
     id: t.id,
     label: t.label,
+    group: t.group,
   }));
 }
 
 /**
  * Resolve the ?tab= parameter to a tab THIS surface actually shows. Unknown, missing, retired, hidden, or
- * not-on-this-surface values fall to the first tab (Notifications).
+ * not-on-this-surface values fall to the surface's first tab (Account on the Cockpit, Notifications on the
+ * phone). A team tab with no team on screen falls the same way: there is no team for it to show.
  *
  * It is filtered by surface for the same reason visibleTabs is: a phone opening a link to
  * ?tab=injectedtext must land on a real tab, not select a tab that its own strip does not list and its
@@ -109,8 +169,8 @@ export function visibleTabs(surface: Surface): { id: TabId; label: string }[] {
  * than on a tab that no longer exists. A hidden tab behaves exactly the same way, by the same rule and
  * with no special case: it is not in the list this reads, so an old link to it lands on the default.
  */
-export function tabFromParam(raw: string | null, surface: Surface): TabId {
-  const shown = visibleTabs(surface);
+export function tabFromParam(raw: string | null, surface: Surface, context: TabContext = NO_TEAM): TabId {
+  const shown = visibleTabs(surface, context);
   const match = shown.find((t) => t.id === raw);
   return match ? match.id : shown[0].id;
 }

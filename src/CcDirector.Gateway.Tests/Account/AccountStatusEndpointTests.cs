@@ -124,6 +124,8 @@ public sealed class AccountStatusEndpointTests
             Assert.True(root.GetProperty("signedIn").GetBoolean());
             Assert.Equal("gateway-user@example.com", root.GetProperty("email").GetString());
             Assert.Equal("github", root.GetProperty("provider").GetString());
+            // devthrottle#3681: a self-hosted Gateway holds its own sign-in, so its Log out means something.
+            Assert.True(root.GetProperty("gatewaySignIn").GetBoolean());
 
             // Criterion 4: the response must never include the access or refresh token.
             Assert.DoesNotContain(jwt, body, StringComparison.Ordinal);
@@ -222,6 +224,8 @@ public sealed class AccountStatusEndpointTests
             Assert.False(root.GetProperty("signedIn").GetBoolean());
             Assert.False(root.TryGetProperty("email", out _), "email must be omitted when not signed in");
             Assert.False(root.TryGetProperty("provider", out _), "provider must be omitted when not signed in");
+            // Signed out, the self-hosted Gateway still holds the sign-in slot: the sign-in prompt puts it back.
+            Assert.True(root.GetProperty("gatewaySignIn").GetBoolean());
         }
         finally
         {

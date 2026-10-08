@@ -12,7 +12,7 @@
 }
 
 /* A PHONE-WIDE COLLABORATOR'S COCKPIT (devthrottle_internal#2306). Three pages need no side rail: on a narrow screen the
-   rail becomes a bar across the top - the name, the team switcher, and the three pages side by side - and the page
+   rail becomes a bar across the top - the name, the three pages side by side, and you - and the page
    fills the width below it. Only the pages-only shell and the team chooser change; the whole app is untouched. */
 @media (max-width: 600px) {
   .shell.shell-team-pages {
@@ -28,17 +28,12 @@
   }
 
   /* The collapse control has nothing to give back when the rail is a bar. */
-  .shell-team-pages .rail-toggle,
-  .shell-team-pages .rail-foot {
+  .shell-team-pages .rail-toggle {
     display: none;
   }
 
   .shell-team-pages .rail-head {
     padding-bottom: 8px;
-  }
-
-  .shell-team-pages .team-switcher {
-    margin-bottom: 8px;
   }
 
   .shell-team-pages .nav-list {
@@ -66,63 +61,6 @@
     min-width: 0;
   }
 
-  /* The foot is one line in the bar: who, their role, Sign out. */
-  .shell-team-pages .team-pages-foot {
-    flex-direction: row;
-    align-items: baseline;
-    gap: 8px;
-    margin-top: 8px;
-    padding: 8px 4px 0;
-  }
-
-  .shell-team-pages .team-pages-foot-who {
-    min-width: 0;
-    flex: 0 1 auto;
-  }
-
-  .shell-team-pages .team-pages-foot-signout {
-    margin: 0 0 0 auto;
-  }
-}
-
-/* The foot of a pages-only rail: who is signed in, their role, Sign out (S8-S10). */
-.team-pages-foot {
-  margin-top: auto;
-  padding: 10px 8px 0;
-  border-top: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.team-pages-foot-who {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.team-pages-foot-role {
-  font-size: 11.5px;
-  color: var(--text-dim);
-}
-
-.team-pages-foot-signout {
-  align-self: flex-start;
-  margin-top: 6px;
-  padding: 0;
-  background: none;
-  border: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.team-pages-foot-signout:hover {
-  text-decoration: underline;
 }
 
 /* The team chooser (S11). */

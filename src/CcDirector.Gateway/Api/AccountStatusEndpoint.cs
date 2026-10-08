@@ -117,7 +117,7 @@ internal static class AccountStatusEndpoint
             if (account is null)
             {
                 FileLog.Write("[AccountStatusEndpoint] GET /account/status: no credential service on this host -> signedIn=false");
-                return Results.Json(new AccountStatusResponse(false, null, null, null));
+                return Results.Json(new AccountStatusResponse(false, null, null, null, GatewaySignIn: true));
             }
 
             // Both reads are entirely local (no network call): IsLoggedIn validates the cached token's
@@ -126,7 +126,7 @@ internal static class AccountStatusEndpoint
             if (!signedIn)
             {
                 FileLog.Write("[AccountStatusEndpoint] GET /account/status: signedIn=false (no valid credential)");
-                return Results.Json(new AccountStatusResponse(false, null, null, null));
+                return Results.Json(new AccountStatusResponse(false, null, null, null, GatewaySignIn: true));
             }
 
             var identity = account.GetIdentity();
@@ -134,7 +134,7 @@ internal static class AccountStatusEndpoint
             // The identity is only logged as resolved / unavailable - the email itself is user identity,
             // not a token, but we keep the log minimal and never log any credential material.
             FileLog.Write($"[AccountStatusEndpoint] GET /account/status: signedIn=true (identity {(identity is null ? "unavailable" : "resolved")}, nickname {(resolvedNickname is null ? "unset" : "resolved")})");
-            return Results.Json(new AccountStatusResponse(true, identity?.Email, identity?.Provider, resolvedNickname));
+            return Results.Json(new AccountStatusResponse(true, identity?.Email, identity?.Provider, resolvedNickname, GatewaySignIn: true));
         });
     }
 
@@ -282,5 +282,12 @@ internal static class AccountStatusEndpoint
         /// today unlocks exactly one thing: the Wingman's debug view. False for every ordinary account, and
         /// false on every self-host answer, which has no staff concept at all.</summary>
         [property: System.Text.Json.Serialization.JsonPropertyName("staff")]
-        bool Staff = false);
+        bool Staff = false,
+        /// <summary>True when THIS Gateway holds its own DevThrottle sign-in - a self-hosted Gateway, where
+        /// <c>POST /account/logout</c> clears it and the sign-in prompt can put it back. False on hosted, which
+        /// holds no credential of its own and refuses that logout (issue #984). The Cockpit's Account tab
+        /// offers the Gateway's own Log out only when this is true (devthrottle#3681): the Gateway rules, the
+        /// client never infers "hosted" from anything else (rule 7).</summary>
+        [property: System.Text.Json.Serialization.JsonPropertyName("gatewaySignIn")]
+        bool GatewaySignIn = false);
 }

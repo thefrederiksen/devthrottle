@@ -3,7 +3,7 @@ import { FleetManagerTab } from "./FleetManagerTab";
 import { LanguageTab } from "./LanguageTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { TranscriptionTab } from "./TranscriptionTab";
-import { visibleTabs, type Surface, type TabId } from "./tabs";
+import { GROUP_LABELS, visibleTabs, type Surface, type TabContext, type TabGroup, type TabId } from "./tabs";
 import "./settings.css";
 
 // The Settings tab strip and the panel it selects - the whole page body, shared by the Cockpit and the
@@ -18,22 +18,60 @@ export interface SettingsTabStripProps {
   onSelect: (tab: TabId) => void;
   /** Which shell is rendering. Decides which tabs the strip lists - see tabs.ts. */
   surface: Surface;
+  /** The team on screen, when there is one - see TabContext. Omitted means no team tabs. */
+  context?: TabContext;
+  /**
+   * Lay the tabs out down the side under their small group headings (the Cockpit), rather than as one
+   * strip (the phone). Layout only: the same tabs, in the same order, with the same names either way.
+   */
+  grouped?: boolean;
+  /** The heading over the team's tabs - the team's name, which only the shell knows. Required with a team. */
+  teamLabel?: string;
 }
 
-export function SettingsTabStrip({ active, onSelect, surface }: SettingsTabStripProps) {
+function groupLabel(group: TabGroup, teamLabel: string | undefined): string {
+  if (group !== "team") return GROUP_LABELS[group];
+  if (teamLabel === undefined) throw new Error("SettingsTabStrip: the team's tabs need the team's name as their heading");
+  return teamLabel;
+}
+
+export function SettingsTabStrip({ active, onSelect, surface, context, grouped = false, teamLabel }: SettingsTabStripProps) {
+  const tabs = visibleTabs(surface, context);
+  const button = (t: { id: TabId; label: string }) => (
+    <button
+      key={t.id}
+      type="button"
+      role="tab"
+      aria-selected={active === t.id}
+      className={active === t.id ? "settings-tab active" : "settings-tab"}
+      onClick={() => onSelect(t.id)}
+    >
+      {t.label}
+    </button>
+  );
+
+  if (!grouped) {
+    return (
+      <div className="settings-tabs" role="tablist" aria-label="Settings sections">
+        {tabs.map(button)}
+      </div>
+    );
+  }
+
+  // Grouped: one tab list, with each group's heading drawn above its first tab. The headings are
+  // presentation only - the list a screen reader walks is still the tabs, in order - so they sit in the
+  // tablist as non-tab rows rather than splitting it into several lists.
   return (
-    <div className="settings-tabs" role="tablist" aria-label="Settings sections">
-      {visibleTabs(surface).map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          role="tab"
-          aria-selected={active === t.id}
-          className={active === t.id ? "settings-tab active" : "settings-tab"}
-          onClick={() => onSelect(t.id)}
-        >
-          {t.label}
-        </button>
+    <div className="settings-tabs settings-tabs-side" role="tablist" aria-orientation="vertical" aria-label="Settings sections">
+      {tabs.map((t, i) => (
+        <div key={t.id} role="presentation" className="settings-tab-row">
+          {(i === 0 || tabs[i - 1].group !== t.group) && (
+            <div className="settings-tab-group" role="presentation" data-testid={`settings-group-${t.group}`}>
+              {groupLabel(t.group, teamLabel)}
+            </div>
+          )}
+          {button(t)}
+        </div>
       ))}
     </div>
   );
@@ -66,7 +104,14 @@ export function SettingsTabPanel({ tab, accountHref, transcriptionHealthHref, se
     // this panel (see the Cockpit's SettingsView), so reaching this line means a tab was selected on a
     // surface whose strip does not list it - which tabFromParam already prevents. Return nothing rather
     // than invent a panel.
+    case "account":
+    case "usage":
+    case "dictionary":
     case "injectedtext":
+    case "devices":
+    case "network":
+    case "members":
+    case "teamplan":
       return null;
   }
 }
