@@ -1,5 +1,8 @@
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
+using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Util;
 using CcDirector.Gateway.Teams.Mentor;
 using CcDirector.Gateway.Tenancy;
 using Microsoft.AspNetCore.Builder;
@@ -35,6 +38,12 @@ internal static class PersonalMentorEndpoints
     /// <summary>What an empty week says when the Mentor has written for this person before.</summary>
     internal const string NothingThisWeekNote = "The Mentor wrote nothing for you this week.";
 
+    /// <summary>What every caller that is not the person's own phone or browser is told (review finding 1): the page quotes
+    /// the person's own prompts, so a Director's key or a session's key never reads it.</summary>
+    internal const string PersonOnlyRefusal =
+        "Your Mentor page is read by you, from your own signed-in phone or browser. It is never shown to an agent or a " +
+        "Director, so this request was refused.";
+
     /// <summary>The role label a personal block carries, where a team block carries the person's role in the team.</summary>
     internal const string PersonalRole = "Personal account";
 
@@ -55,6 +64,7 @@ internal static class PersonalMentorEndpoints
             {
                 var caller = TeamEndpoints.ResolveCaller(ctx, boundary, tenants);
                 if (caller.Denial is not null) return caller.Denial;
+                if (RequirePerson(ctx) is { } notAPerson) return notAPerson;
                 // ResolveCaller has just shown the request is bound to this person's own tenant.
                 var own = boundary.ResolveRequestTenant(ctx)!.Value;
                 return Read(store, tenants, timeZoneOf, clock(), own, caller.Subject!, week);
@@ -69,6 +79,32 @@ internal static class PersonalMentorEndpoints
 
         FileLog.Write($"[PersonalMentorEndpoints] mapped GET {Route}");
     }
+
+    /// <summary>Null when the request was made with a person's own phone or browser key; otherwise the 403 answer - the
+    /// same rule the Requests routes keep (<see cref="TeamRequestEndpoints.RequirePerson"/>). Internal so every
+    /// credential shape is tested.</summary>
+    internal static IResult? RequirePerson(HttpContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+        if (AuthMiddleware.CallingSession(ctx) is { } session)
+        {
+            FileLog.Write($"[PersonalMentorEndpoints] REFUSED: session {session.SessionId} asked for a Mentor page - people only");
+            return PersonOnly();
+        }
+
+        var device = ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var d) ? d as DeviceCredentialIdentity : null;
+        if (device is null || SessionOriginSurfaces.FromDeviceType(device.DeviceType) == SessionOriginSurfaces.Unknown)
+        {
+            var kind = AuthMiddleware.IdentityKind(ctx);
+            FileLog.Write($"[PersonalMentorEndpoints] REFUSED: a {(device is null ? kind : $"{kind} ({device.DeviceType})")} credential asked for a Mentor page - people only");
+            return PersonOnly();
+        }
+
+        return null;
+    }
+
+    private static IResult PersonOnly() =>
+        Results.Json(new { error = PersonOnlyRefusal, code = TeamRequestEndpoints.PersonOnlyCode }, statusCode: StatusCodes.Status403Forbidden);
 
     /// <summary>The page for one person and week, from their own tenant. Internal so every branch is tested without a
     /// host.</summary>
@@ -99,8 +135,6 @@ internal static class PersonalMentorEndpoints
             .Where(b => string.Equals(b.PersonSubject, callerSubject, StringComparison.Ordinal))
             .Select(b => Block(b, email))
             .ToList();
-        if (blocks.Count > 1)
-            throw new InvalidOperationException($"The personal Mentor page for week {week} holds {blocks.Count} blocks; there is one per person per week.");
 
         var emptyNote = blocks.Count > 0 ? null
             : store.HasAnyBlockFor(ownTenant, callerSubject) ? NothingThisWeekNote : FirstPageNote;
