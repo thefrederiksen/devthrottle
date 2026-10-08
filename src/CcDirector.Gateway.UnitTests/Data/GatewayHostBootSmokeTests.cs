@@ -133,10 +133,10 @@ public sealed class GatewayHostBootSmokeTests
     // Archiving a factory (Factories screen mission, round 2).
     private const string ArchiveFactoriesPostgresMigration = "20261007052952_ArchiveFactories";
     private const string ArchiveFactoriesSqliteMigration = "20261007035034_ArchiveFactories";
-    // The newest migration: a factory's one-line purpose (the Factories cards, 8 Oct 2026). It moves each time one
-    // is added.
-    private const string NewestPostgresMigration = "20261008200010_AddFactoryPurpose";
-    private const string NewestSqliteMigration = "20261008200000_AddFactoryPurpose";
+    // The newest migration: the team showcase's tag and a made-up member's name and email (8 Oct 2026). It moves each
+    // time one is added.
+    private const string NewestPostgresMigration = "20261008212232_AddTeamShowcase";
+    private const string NewestSqliteMigration = "20261008211957_AddTeamShowcase";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
