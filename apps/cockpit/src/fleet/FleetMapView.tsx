@@ -320,7 +320,18 @@ function OwnFleetMapView() {
   // The hide-empties preference, written through on every change exactly like the pivot above.
   // The colour panel's open/closed choice, written through on every change like the two preferences above.
   const [legendOpen, setLegendOpenState] = useState<boolean>(initialLegendOpen);
+  // Toggling removes the button that was pressed, so focus moves to the control that replaces it - the panel's
+  // "Hide colours" on open, the header's button on close - rather than falling back to the top of the page.
+  const legendShowRef = useRef<HTMLButtonElement>(null);
+  const legendHideRef = useRef<HTMLButtonElement>(null);
+  const legendToggledRef = useRef(false);
+  useEffect(() => {
+    if (!legendToggledRef.current) return;
+    legendToggledRef.current = false;
+    (legendOpen ? legendHideRef : legendShowRef).current?.focus();
+  }, [legendOpen]);
   const setLegendOpen = useCallback((next: boolean) => {
+    legendToggledRef.current = true;
     setLegendOpenState(next);
     try {
       window.localStorage.setItem(LEGEND_OPEN_STORAGE_KEY, next ? "1" : "0");
@@ -446,7 +457,11 @@ function OwnFleetMapView() {
         </span>
 
         {!legendOpen && (
-          <button type="button" className="colour-legend-btn fmap-legend-btn" aria-expanded={false} onClick={() => setLegendOpen(true)}>
+          <button
+            ref={legendShowRef}
+            type="button"
+            className="colour-legend-btn fmap-legend-btn"
+            aria-expanded={false} onClick={() => setLegendOpen(true)}>
             What do the colours mean?
           </button>
         )}
@@ -556,7 +571,11 @@ function OwnFleetMapView() {
           fallen behind the product (no "Carrying on", no "Crashed"). */}
       {legendOpen && (
         <div className="fmap-legend-col">
-          <button type="button" className="colour-legend-btn fmap-legend-hide" aria-expanded={true} onClick={() => setLegendOpen(false)}>
+          <button
+            ref={legendHideRef}
+            type="button"
+            className="colour-legend-btn fmap-legend-hide"
+            aria-expanded={true} onClick={() => setLegendOpen(false)}>
             Hide colours
           </button>
           <ColourLegendPanel className="fmap-legend-panel" />

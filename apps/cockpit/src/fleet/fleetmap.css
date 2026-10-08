@@ -10,7 +10,8 @@
 
 /* The map (or list, or missions board) on the left; the colour legend on the right while it is open. Closed (the
    default), the map takes the full width and the header's "What do the colours mean?" button opens the panel again;
-   the panel's own "Hide colours" button closes it. Below 1100px an open panel stacks above the map instead. */
+   the panel's own "Hide colours" button closes it. Below 1100px an open panel stacks under the map, in the
+   same order the keyboard reaches it. */
 .fmap-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -46,7 +47,6 @@
 
   .fmap-legend-col {
     position: static;
-    order: -1;
   }
 }
 

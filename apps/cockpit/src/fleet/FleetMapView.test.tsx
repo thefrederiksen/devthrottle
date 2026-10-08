@@ -522,6 +522,7 @@ describe("FleetMapView - what the colours mean", () => {
     expect(screen.getByRole("complementary", { name: "What the colours mean" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "What do the colours mean?" })).toBeNull();
     expect(window.localStorage.getItem("cockpit.fleetMapLegendOpen")).toBe("1");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Hide colours" }));
     await screen.findByText(LEGEND.entries[0].means);
 
     // A fresh mount (a reload) comes back open.
@@ -532,6 +533,7 @@ describe("FleetMapView - what the colours mean", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hide colours" }));
     expect(screen.queryByRole("complementary", { name: "What the colours mean" })).toBeNull();
     expect(window.localStorage.getItem("cockpit.fleetMapLegendOpen")).toBe("0");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "What do the colours mean?" }));
   });
 
   it("shows the Gateway's legend beside the map, every colour it sends", async () => {
