@@ -69,13 +69,13 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Title = "WarmForward",
         Folder = @"D:\ReposFred\cc-consult\ideas\warmforward-factory",
         Computer = "SOREN_NORTH",
-        CeoSeat = "nora-hale",
+        BossSeat = "nora-hale",
         GoalText = "A cash engine that runs without your time.",
         GoalFile = "GOAL.md",
         GoalApprovedOn = "2026-10-04",
         Seats =
         {
-            new FactorySeatManifest { Id = "nora-hale", Name = "Nora Hale", Role = "CEO", BriefFile = "agents/ceo.yaml", Schedules = { "cj_a721e6" } },
+            new FactorySeatManifest { Id = "nora-hale", Name = "Boss", Role = "Boss", BriefFile = "agents/ceo.yaml", Schedules = { "cj_a721e6" } },
             new FactorySeatManifest { Id = "savings-engineer", Name = "Savings Engineer", Role = "Savings Engineer", BriefFile = "agents/savings.yaml", Computer = "DEVLINUX" },
         },
     };
@@ -188,11 +188,11 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
 
         var (_, sent) = Assert.Single(_sent);
         Assert.Equal("warmforward", sent.Factory);
-        Assert.Equal("WarmForward - Nora Hale - talk with the owner", sent.Name);
+        Assert.Equal("WarmForward - Boss - talk with the owner", sent.Name);
         Assert.Equal(@"D:\ReposFred\cc-consult\ideas\warmforward-factory", sent.RepoPath);
         Assert.Equal("ClaudeCode", sent.Agent);
         Assert.NotNull(sent.PrePrompt);
-        Assert.StartsWith("You are Nora Hale, CEO of WarmForward", sent.PrePrompt);
+        Assert.StartsWith("You are the boss of WarmForward", sent.PrePrompt);
         Assert.Contains(MorningRun, sent.PrePrompt);
         Assert.Contains("--outcome talked", sent.PrePrompt);
     }
@@ -208,7 +208,7 @@ public sealed class FactoryTalkEndpointTests : IAsyncDisposable
         Assert.NotNull(talk);
         Assert.Equal("7d2c0e4e-0000-4000-8000-00000000c0de", talk!.SessionId);
         Assert.Equal("/session/7d2c0e4e-0000-4000-8000-00000000c0de", talk.Href);
-        Assert.Equal("WarmForward - Nora Hale - talk with the owner", talk.SessionName);
+        Assert.Equal("WarmForward - Boss - talk with the owner", talk.SessionName);
         Assert.Equal("warmforward", talk.Factory);
         Assert.Equal("nora-hale", talk.Seat);
         Assert.Equal("SOREN_NORTH", talk.Computer);

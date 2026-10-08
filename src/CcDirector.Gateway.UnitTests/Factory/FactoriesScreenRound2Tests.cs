@@ -7,7 +7,7 @@ namespace CcDirector.Gateway.Tests.Factory;
 /// <summary>
 /// Factories screen round 2 (the owner's feedback on the live list, 6 Oct 2026): every status that is not RUNNING
 /// says why in one line and links to its items; FAILING clears when the failure is over; PAUSED tells "Nothing
-/// scheduled" from schedules switched off; and the factory's head may have any title. The rows are shaped like the
+/// scheduled" from schedules switched off; and the factory's boss may have any role word. The rows are shaped like the
 /// live Website Business record: the Sender's four "keep.page (failed)" rows at 12:02, and its "keep.recorded (done)"
 /// rows for the same businesses at 12:11.
 /// </summary>
@@ -33,8 +33,8 @@ public sealed class FactoriesScreenRound2Tests
         Title = "Website Business",
         Folder = @"D:\f\website",
         Computer = "SOREN_NORTH",
-        CeoSeat = "ceo",
-        Seats = new() { Seat("ceo", "Malik Grant", "CEO", "cj_ceo"), Seat("sender", "Sender", "Sender"), Seat("scout", "Scout", "Scout", "cj_scout") },
+        BossSeat = "ceo",
+        Seats = new() { Seat("ceo", "Boss", "Boss", "cj_ceo"), Seat("sender", "Sender", "Sender"), Seat("scout", "Scout", "Scout", "cj_scout") },
     };
 
     private static FactoryActivityDto Row(string agent, string outcome, string what, DateTime at, string? subject = null,
@@ -328,8 +328,8 @@ public sealed class FactoriesScreenRound2Tests
     {
         var tally = new RegisteredFactoryDto
         {
-            Factory = "tallyhand", Title = "Tallyhand", Folder = @"D:\t", Computer = "SOREN_NORTH", CeoSeat = "ceo",
-            Seats = new() { Seat("ceo", "Max Ridley", "CEO"), Seat("market-scout", "Market Scout", "Market Scout") },
+            Factory = "tallyhand", Title = "Tallyhand", Folder = @"D:\t", Computer = "SOREN_NORTH", BossSeat = "ceo",
+            Seats = new() { Seat("ceo", "Boss", "Boss"), Seat("market-scout", "Market Scout", "Market Scout") },
         };
 
         var row = FactoriesScreenFold.List(Inputs(new[] { tally }, jobs: Array.Empty<CronJobDto>())).Rows.Single();
@@ -358,31 +358,52 @@ public sealed class FactoriesScreenRound2Tests
         Assert.Equal("1 schedule switched off, 1 trigger paused, 1 named schedule no longer exists", row.StatusLine);
     }
 
-    // ---------- the head may have any title ----------
+    // ---------- the boss may have any role word ----------
 
     [Fact]
-    public void Head_IsTheCeoSeatWhateverItsTitle_AndThePageSaysItsOwnRole()
+    public void Boss_IsTheBossSeat_ShownByItsRoleWordNeverItsName_AndTalkSaysTheBoss()
     {
+        // The owner's ruling of 8 October 2026: the boss has no name of its own. Center Consulting's boss is its CFO,
+        // so the header says the role word "CFO"; the Talk button and the card still say "the boss".
         var cc = new RegisteredFactoryDto
         {
-            Factory = "cc-factory", Title = "Center Consulting", Folder = @"D:\cc", Computer = "SOREN_NORTH", CeoSeat = "cfo",
-            Seats = new() { Seat("cfo", "Ruth Calder", "CFO", "cj_cfo"), Seat("cost-sweep", "Cost Sweep", "Cost Sweep - the CFO's weekday run", "cj_sweep") },
+            Factory = "cc-factory", Title = "Center Consulting", Folder = @"D:\cc", Computer = "SOREN_NORTH", BossSeat = "cfo",
+            Seats = new() { Seat("cfo", "Boss", "CFO", "cj_cfo"), Seat("cost-sweep", "Cost Sweep", "Cost Sweep - the CFO's weekday run", "cj_sweep") },
         };
         var jobs = new[] { Job("cj_cfo"), Job("cj_sweep") };
 
         var row = FactoriesScreenFold.List(Inputs(new[] { cc }, jobs: jobs)).Rows.Single();
         var page = FactoriesScreenFold.Page(cc, Inputs(new[] { cc }, jobs: jobs));
 
-        Assert.Equal("Talk to Ruth Calder", row.Talk!.Label);
+        Assert.Equal("Talk to the boss", row.Talk!.Label);
+        Assert.Equal("Starting the talk with the boss...", row.Talk.BusyLabel);
         Assert.Equal("cfo", row.Talk.SeatId);
-        Assert.Null(row.NoCeoText);
-        Assert.Equal("CFO Ruth Calder", page.CeoText);
-        Assert.Equal("Latest from the CFO", page.CeoLatest.Heading);
-        Assert.Equal("Talk to Ruth Calder", page.Talk!.Label);
+        Assert.Null(row.NoBossText);
+        Assert.Equal("CFO", page.BossText);
+        Assert.Equal("Latest from the boss", page.BossLatest.Heading);
+        Assert.Equal("Talk to the boss", page.Talk!.Label);
     }
 
     [Fact]
-    public void Head_NoneNamed_SaysSo()
+    public void Boss_WithTheRoleWordBoss_SaysBoss_AndNeverANameEvenWhenTheRegistryHasOne()
+    {
+        // A stale registration that still carries a person's name shows no name anywhere: the product's words for the
+        // boss never read the seat's name.
+        var wf = new RegisteredFactoryDto
+        {
+            Factory = "warmforward", Title = "WarmForward", Folder = @"D:\wf", Computer = "SOREN_NORTH", BossSeat = "ceo",
+            Seats = new() { Seat("ceo", "Nora Hale", "Boss", "cj_ceo") },
+        };
+        var page = FactoriesScreenFold.Page(wf, Inputs(new[] { wf }, jobs: new[] { Job("cj_ceo") }));
+        Assert.Equal("Boss", page.BossText);
+        Assert.Equal("Talk to the boss", page.Talk!.Label);
+        Assert.Equal("Latest from the boss", page.BossLatest.Heading);
+        Assert.Equal("Nothing from the boss in the last 7 days.", page.BossLatest.EmptyText);
+        Assert.DoesNotContain("Nora", page.BossText + page.Talk.Label + page.Talk.BusyLabel + page.BossLatest.Heading + page.BossLatest.EmptyText);
+    }
+
+    [Fact]
+    public void Boss_NoneNamed_SaysSo()
     {
         var cc = new RegisteredFactoryDto
         {
@@ -390,8 +411,8 @@ public sealed class FactoriesScreenRound2Tests
             Seats = new() { Seat("cfo", "Ruth Calder", "CFO", "cj_cfo") },
         };
         var page = FactoriesScreenFold.Page(cc, Inputs(new[] { cc }, jobs: new[] { Job("cj_cfo") }));
-        Assert.Equal("No head named", page.CeoText);
+        Assert.Equal("No boss named", page.BossText);
         Assert.Null(page.Talk);
-        Assert.Equal("This factory has no head named.", page.CeoLatest.EmptyText);
+        Assert.Equal("This factory has no boss named.", page.BossLatest.EmptyText);
     }
 }

@@ -140,7 +140,7 @@ factory_memory_app = typer.Typer(
 factory_app.add_typer(factory_memory_app, name="memory")
 factory_goal_number_app = typer.Typer(
     cls=AxiGroup,
-    help="The number a factory's goal is measured by: its CEO posts it on every run.",
+    help="The number a factory's goal is measured by: its boss posts it on every run.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -983,7 +983,7 @@ _ACTIONS = [
     },
     {
         "id": "factory-register",
-        "description": "Register a factory from a JSON manifest (title, folder, computer, CEO, goal file, purpose, seats); replaces its last registration.",
+        "description": "Register a factory from a JSON manifest (title, folder, computer, boss, goal file, purpose, seats); replaces its last registration.",
         "command": "cc-devthrottle factory register --manifest <file>",
         "mutatesState": True,
         "args": [{"name": "manifest", "required": True}],
@@ -1011,7 +1011,7 @@ _ACTIONS = [
     },
     {
         "id": "factory-goal-number-post",
-        "description": "Post a factory's goal number (value, unit, as-of date, link to how it was measured); a CEO runs it on every run.",
+        "description": "Post a factory's goal number (value, unit, as-of date, link to how it was measured); a boss runs it on every run.",
         "command": "cc-devthrottle factory goal-number post --factory <id> --value <text> --unit <text> --date <YYYY-MM-DD> --link <url>",
         "mutatesState": True,
         "args": [
@@ -3655,7 +3655,7 @@ def factory_register(
 ) -> None:
     """Register a factory from a JSON manifest, replacing its last registration.
 
-    The manifest holds exactly: factory, title, folder (absolute), computer, ceoSeat (optional), goalFile
+    The manifest holds exactly: factory, title, folder (absolute), computer, bossSeat (optional; that seat's name is Boss), goalFile
     (optional, relative to the folder - its text is read here and sent, so run this on the factory's computer),
     goalApprovedOn (optional, YYYY-MM-DD), and seats: a list of {id, name, role, briefFile (relative to the
     folder), schedules (Gateway schedule ids), computer (optional, defaults to the factory's)}. An unknown key

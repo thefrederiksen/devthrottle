@@ -1716,9 +1716,9 @@ factory agents are switched off, and the command says so.
 #### Factory registry and goal number
 
 The factory registry: one entry per factory, on the Gateway, saying what the owner's Factories screen
-lists - its title, folder, computer, CEO, goal and seats. It is an index of the factory, not its
+lists - its title, folder, computer, boss, goal and seats. It is an index of the factory, not its
 definition: the briefs stay in the factory's folder. The goal number is the number a factory's goal is
-measured by; its CEO posts it on every run, every post is kept, and the newest is shown on the factory's
+measured by; its boss posts it on every run, every post is kept, and the newest is shown on the factory's
 page. These commands need factory agents switched on for the account, like the activity record.
 
 ```
@@ -1743,13 +1743,13 @@ registers a factory with a field silently missing):
   "title": "WarmForward",
   "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",   absolute, on its computer
   "computer": "SOREN_NORTH",
-  "ceoSeat": "nora-hale",                           optional; one of the seats
+  "bossSeat": "boss",                               optional; one of the seats - the boss has no name: its name is Boss
   "goalFile": "GOAL.md",                            optional; relative to the folder
   "goalApprovedOn": "2026-10-04",                   optional; YYYY-MM-DD
   "purpose": "Heating monitoring for homeowners",    optional; one line, at most 120 characters
   "seats": [
-    {"id": "nora-hale", "name": "Nora Hale", "role": "CEO",
-     "briefFile": "agents/ceo.yaml",                relative to the folder
+    {"id": "boss", "name": "Boss", "role": "Boss",
+     "briefFile": "agents/boss.yaml",               relative to the folder
      "schedules": ["cj_a721e6"],                    optional; checked, never stored (see below)
      "computer": "SOREN_NORTH"}                     optional; the factory's computer when left out
   ]
@@ -1768,6 +1768,11 @@ the entry changes. The line is trimmed and takes at most 120 characters; the Gat
 one or one with a line break, with the reason. `--clear` removes it. It exits 1 whenever the line was
 not kept. Registering again from a manifest with no `purpose` key keeps the line; a manifest that carries
 `"purpose": ""` clears it.
+
+**The boss has no name of its own** (the owner, 8 October 2026). The seat `bossSeat` names is registered with
+the name `Boss`; a manifest that gives it a person's name is refused with the fix. Its role is `Boss` unless
+the factory has a distinct word for it (`CFO`). The screen says "the boss", "Talk to the boss" and "Latest
+from the boss", never a name, so thirteen factories' bosses no longer read like thirteen people.
 
 **A seat's schedules live on the schedules (issue #3650).** There are no factory agents without a
 factory: a schedule that runs factory work names its factory AND its seat, and both must already be
@@ -1794,7 +1799,7 @@ knows the seat and `--by` is left out (naming another seat, or another factory, 
 `--by SEAT` names it. `--link` is an http or https address showing how the number was measured. A
 factory that is not registered is refused with the reason. It exits 0 only when the Gateway kept the post.
 
-`list` shows `id,title,ceo,seats` by default; `--fields` picks from `id, title, ceo, seats, computer,
+`list` shows `id,title,boss,seats` by default; `--fields` picks from `id, title, boss, seats, computer,
 goal, folder`. `goal-number show` shows `asOf,value,unit,postedBy` by default; `--fields` picks from
 `asOf, value, unit, postedBy, postedAtUtc, link, id`, and a value or link over 80 characters is cut with
 its length unless `--full` is given. `--json` always carries every field and does not take `--fields`.

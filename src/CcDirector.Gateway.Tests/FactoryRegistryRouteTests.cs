@@ -63,19 +63,19 @@ public sealed class FactoryRegistryRouteTests
         }
     }
 
-    private static object Manifest(string factory, string ceoName = "Nora Hale") => new
+    private static object Manifest(string factory) => new
     {
         factory,
         title = "WarmForward",
         folder = @"D:\ReposFred\cc-consult\ideas\warmforward-factory",
         computer = "SOREN_NORTH",
-        ceoSeat = "nora-hale",
+        bossSeat = "nora-hale",
         goalText = "A cash engine that runs without your time.",
         goalFile = "GOAL.md",
         goalApprovedOn = "2026-10-04",
         seats = new object[]
         {
-            new { id = "nora-hale", name = ceoName, role = "CEO", briefFile = "agents/ceo.yaml", schedules = Array.Empty<string>() },
+            new { id = "nora-hale", name = "Boss", role = "Boss", briefFile = "agents/ceo.yaml", schedules = Array.Empty<string>() },
             new { id = "savings-engineer", name = "Savings Engineer", role = "Savings Engineer", briefFile = "agents/savings.yaml", schedules = Array.Empty<string>() },
         },
     };
@@ -175,16 +175,14 @@ public sealed class FactoryRegistryRouteTests
     {
         await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
         var factory = "f-" + Guid.NewGuid().ToString("N")[..12];
-        // A CEO name no other test registers: two registered CEOs with one name read "Talk to the CEO".
-        var ceo = "Nora " + factory;
-        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory, ceo))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory))).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await h.Owner.PostAsJsonAsync("gateway/factory/goal-numbers", Number(factory, by: "nora-hale"))).StatusCode);
 
         var list = await Send(h.Owner.GetAsync("gateway/factories"));
         Assert.True(list.Status == HttpStatusCode.OK, $"GET factories: {(int)list.Status} {list.Body}");
         var row = Assert.Single(JsonSerializer.Deserialize<FactoriesListViewDto>(list.Body, Web)!.Rows, r => r.Id == factory);
         Assert.Equal("PAUSED", row.StatusWord); // its one schedule id names no schedule, so nothing runs its seats
-        Assert.Equal("Talk to " + ceo, row.Talk!.Label);
+        Assert.Equal("Talk to the boss", row.Talk!.Label);
 
         var page = await Send(h.Owner.GetAsync($"gateway/factories/{factory}"));
         Assert.True(page.Status == HttpStatusCode.OK, $"GET page: {(int)page.Status} {page.Body}");
@@ -218,7 +216,7 @@ public sealed class FactoryRegistryRouteTests
     {
         await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
         var factory = "f-" + Guid.NewGuid().ToString("N")[..12];
-        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory, "Nora " + factory))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory))).StatusCode);
         var wrote = await Send(h.Owner.PostAsJsonAsync("gateway/factory/activity", new
         {
             factory, factoryAgent = "nora-hale", outcome = FactoryActivityOutcome.Failed, subject = "Zone 8",
@@ -281,7 +279,7 @@ public sealed class FactoryRegistryRouteTests
 
         // The seat goes while its schedule is off - allowed - and the schedule is then run by hand.
         var withoutSeat = JsonSerializer.Deserialize<Dictionary<string, object>>(JsonSerializer.Serialize(Manifest(factory), Web), Web)!;
-        withoutSeat["seats"] = new object[] { new { id = "nora-hale", name = "Nora Hale", role = "CEO", briefFile = "agents/ceo.yaml" } };
+        withoutSeat["seats"] = new object[] { new { id = "nora-hale", name = "Boss", role = "Boss", briefFile = "agents/ceo.yaml" } };
         var reregistered = await Send(h.Owner.PutAsJsonAsync("gateway/factory/registry", withoutSeat));
         Assert.True(reregistered.Status == HttpStatusCode.OK, reregistered.Body);
         var run = await Send(h.Owner.PostAsync($"cron/jobs/{id}/run", null));

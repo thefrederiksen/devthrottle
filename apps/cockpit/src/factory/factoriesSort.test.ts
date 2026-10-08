@@ -31,9 +31,9 @@ function row(id: string, title: string, statusRank: number, waitingCount = 0): F
     waitingHref: null,
     href: `/factories/${id}`,
     talk: null,
-    noCeoText: null,
+    noBossText: null,
     purpose: null,
-    headName: null,
+    bossName: null,
   };
 }
 

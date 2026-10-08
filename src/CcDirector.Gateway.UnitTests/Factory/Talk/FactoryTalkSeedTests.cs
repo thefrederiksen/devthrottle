@@ -22,12 +22,12 @@ public sealed class FactoryTalkSeedTests
         Title = "WarmForward",
         Folder = @"D:\ReposFred\cc-consult\ideas\warmforward-factory",
         Computer = "SOREN_NORTH",
-        CeoSeat = "nora-hale",
+        BossSeat = "nora-hale",
         GoalText = goalText,
         GoalFile = goalFile,
         Seats =
         {
-            new RegisteredFactorySeatDto { Id = "nora-hale", Name = "Nora Hale", Role = "CEO", BriefFile = "agents/ceo.yaml", Schedules = { "cj_a721e6" }, Computer = "SOREN_NORTH" },
+            new RegisteredFactorySeatDto { Id = "nora-hale", Name = "Boss", Role = "Boss", BriefFile = "agents/ceo.yaml", Schedules = { "cj_a721e6" }, Computer = "SOREN_NORTH" },
         },
     };
 
@@ -37,7 +37,24 @@ public sealed class FactoryTalkSeedTests
     public void SessionName_IsFactoryThenSeatThenTalkWithTheOwner()
     {
         var f = WarmForward();
-        Assert.Equal("WarmForward - Nora Hale - talk with the owner", FactoryTalkSeed.SessionName(f, Nora(f)));
+        Assert.Equal("WarmForward - Boss - talk with the owner", FactoryTalkSeed.SessionName(f, Nora(f)));
+    }
+
+    [Fact]
+    public void Compose_ADistinctBossRole_IsSaidBesideTheBoss_AndANonBossSeat_IsSeatedByNameAndRole()
+    {
+        // The boss has no name (the owner, 8 October 2026). A distinct role word (CFO) is said beside it; any other seat
+        // is introduced by its name and role as before.
+        var f = WarmForward();
+        f.Seats[0].Role = "CFO";
+        Assert.StartsWith("You are the boss of WarmForward (its CFO) (factory id: warmforward; your agent id: nora-hale).",
+            FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun));
+
+        var engineer = new RegisteredFactorySeatDto { Id = "savings-engineer", Name = "Savings Engineer", Role = "Savings Engineer", BriefFile = "agents/savings.yaml", Computer = "SOREN_NORTH" };
+        f.Seats.Add(engineer);
+        Assert.StartsWith("You are Savings Engineer, Savings Engineer of WarmForward (factory id: warmforward; your agent id: savings-engineer).",
+            FactoryTalkSeed.Compose(f, engineer, null, null));
+        Assert.Equal("WarmForward - Savings Engineer - talk with the owner", FactoryTalkSeed.SessionName(f, engineer));
     }
 
     [Fact]
@@ -46,7 +63,7 @@ public sealed class FactoryTalkSeedTests
         var f = WarmForward();
         var seed = FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun);
 
-        Assert.StartsWith("You are Nora Hale, CEO of WarmForward (factory id: warmforward; your agent id: nora-hale).", seed);
+        Assert.StartsWith("You are the boss of WarmForward (factory id: warmforward; your agent id: nora-hale).", seed);
         Assert.Contains("The owner is here now and is talking with you. This is the owner's own session", seed);
     }
 

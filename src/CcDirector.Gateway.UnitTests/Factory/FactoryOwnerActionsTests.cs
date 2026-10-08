@@ -18,16 +18,16 @@ public sealed class FactoryOwnerActionsTests
     private static RegisteredFactorySeatDto Seat(string id, string name, string role, params string[] schedules) =>
         new() { Id = id, Name = name, Role = role, BriefFile = $"agents/{id}.yaml", Schedules = schedules.ToList(), Computer = "SOREN_NORTH" };
 
-    private static RegisteredFactoryDto Factory(string id, string title, string? ceo, params RegisteredFactorySeatDto[] seats) => new()
+    private static RegisteredFactoryDto Factory(string id, string title, string? boss, params RegisteredFactorySeatDto[] seats) => new()
     {
-        Factory = id, Title = title, Folder = $@"D:\f\{id}", Computer = "SOREN_NORTH", CeoSeat = ceo, Seats = seats.ToList(),
+        Factory = id, Title = title, Folder = $@"D:\f\{id}", Computer = "SOREN_NORTH", BossSeat = boss, Seats = seats.ToList(),
     };
 
     private static RegisteredFactoryDto Website() => Factory("website-business", "Website Business", "malik",
-        Seat("malik", "Malik Grant", "CEO", "cj_ceo"),
+        Seat("malik", "Boss", "Boss", "cj_ceo"),
         Seat("sender", "Sender", "Sender", "cj_send", "cj_send2"));
 
-    private static RegisteredFactoryDto Tallyhand() => Factory("tallyhand", "Tallyhand", "max", Seat("max", "Max Ridley", "CEO"));
+    private static RegisteredFactoryDto Tallyhand() => Factory("tallyhand", "Tallyhand", "max", Seat("max", "Boss", "Boss"));
 
     private static FactoryActivityDto Row(string agent, string outcome, string what, DateTime at, string factory = "website-business",
         string? link = null, Guid? corrects = null) => new()
@@ -344,16 +344,16 @@ public sealed class FactoryOwnerActionsTests
     }
 
     [Fact]
-    public void List_AnArchivedFactorysCeo_NoLongerMakesALiveCeoReadAsADuplicate()
+    public void List_AnArchivedFactory_IsNotListed_AndTheLiveOnesButtonSaysTheBoss()
     {
-        // Tallyhand and mindzie AI Reports both had Max Ridley as CEO; with Tallyhand archived the button names him.
+        // Archiving takes the factory off the list; the one left offers its boss, who has no name of its own.
         var tally = Tallyhand();
         tally.ArchivedAtUtc = Now;
-        var reports = Factory("mindzie-ai-reports", "mindzie AI Reports", "max", Seat("max", "Max Ridley", "CEO"));
+        var reports = Factory("mindzie-ai-reports", "mindzie AI Reports", "max", Seat("max", "Boss", "Boss"));
 
         var view = FactoriesScreenFold.List(Inputs(new[] { tally, reports }));
 
-        Assert.Equal("Talk to Max Ridley", Assert.Single(view.Rows).Talk!.Label);
+        Assert.Equal("Talk to the boss", Assert.Single(view.Rows).Talk!.Label);
     }
 
     [Fact]

@@ -535,7 +535,7 @@ public static class SessionKeyGuard
             // appends to our own record and reaches nothing outside the Gateway; there is no update or delete.
             if (Join(s) == "gateway/factory/activity") return true;
 
-            // A factory's CEO posts its goal number (Factories screen mission, phase A). It appends to our own
+            // A factory's boss posts its goal number (Factories screen mission, phase A). It appends to our own
             // record in the caller's account; the route settles the posting seat from the session's own start and
             // refuses a session posting for another factory.
             if (Join(s) == "gateway/factory/goal-numbers") return true;
@@ -612,7 +612,7 @@ public static class SessionKeyGuard
             // route is only mapped while the factory agents switch is on.
             if (Join(s) == "gateway/factory/map") return true;
 
-            // A factory is registered (Factories screen mission, phase A): its title, folder, computer, CEO, goal
+            // A factory is registered (Factories screen mission, phase A): its title, folder, computer, boss, goal
             // and seats, replacing its last registration in the caller's own account. An index of files on the
             // factory's own computer; it starts, schedules and reaches nothing.
             if (Join(s) == "gateway/factory/registry") return true;

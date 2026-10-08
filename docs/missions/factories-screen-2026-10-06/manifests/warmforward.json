@@ -3,12 +3,12 @@
   "title": "WarmForward",
   "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",
   "computer": "SOREN_NORTH",
-  "ceoSeat": "ceo",
+  "bossSeat": "ceo",
   "seats": [
     {
       "id": "ceo",
-      "name": "Nora Hale",
-      "role": "CEO",
+      "name": "Boss",
+      "role": "Boss",
       "briefFile": "agents/ceo.yaml",
       "schedules": [
         "cj_a721e6"

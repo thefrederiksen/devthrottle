@@ -99,11 +99,11 @@ def _manifest(tmp_path, folder, **overrides):
         "title": "WarmForward",
         "folder": str(folder),
         "computer": "SOREN_NORTH",
-        "ceoSeat": "nora-hale",
+        "bossSeat": "nora-hale",
         "goalFile": "GOAL.md",
         "goalApprovedOn": "2026-10-04",
         "seats": [
-            {"id": "nora-hale", "name": "Nora Hale", "role": "CEO", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"]},
+            {"id": "nora-hale", "name": "Boss", "role": "Boss", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"]},
             {"id": "value-hunter", "name": "Value Hunter", "role": "Value Hunter", "briefFile": "agents/value.yaml", "schedules": []},
         ],
     }
@@ -115,9 +115,9 @@ def _manifest(tmp_path, folder, **overrides):
 
 REGISTERED = {
     "factory": "warmforward", "title": "WarmForward", "folder": "D:\\f", "computer": "SOREN_NORTH",
-    "ceoSeat": "nora-hale", "goalText": "A cash engine.", "goalFile": "GOAL.md", "goalApprovedOn": "2026-10-04",
+    "bossSeat": "nora-hale", "goalText": "A cash engine.", "goalFile": "GOAL.md", "goalApprovedOn": "2026-10-04",
     "seats": [
-        {"id": "nora-hale", "name": "Nora Hale", "role": "CEO", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"], "computer": "SOREN_NORTH"},
+        {"id": "nora-hale", "name": "Boss", "role": "Boss", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"], "computer": "SOREN_NORTH"},
         {"id": "value-hunter", "name": "Value Hunter", "role": "Value Hunter", "briefFile": "agents/value.yaml", "schedules": [], "computer": "SOREN_NORTH"},
     ],
     "registeredBy": "session s1", "registeredAtUtc": "2026-10-06T12:00:00Z",
@@ -146,7 +146,7 @@ def test_register_SendsTheManifestWithTheGoalFilesText_AndPrintsTheSeats(gateway
     assert "goal: set, approved 2026-10-04 (GOAL.md)" in result.stdout
     _, seats = axi_output.parse_list(result.stdout, "seats")
     assert [s["id"] for s in seats] == ["nora-hale", "value-hunter"]
-    assert seats[0]["name"] == "Nora Hale"
+    assert seats[0]["name"] == "Boss"
 
 
 def test_register_NoGoalFile_SendsNoGoalText(gateway_answering, tmp_path):
@@ -189,7 +189,7 @@ def test_register_UnknownManifestKey_IsRefusedNotDropped(gateway_answering, tmp_
 def test_register_UnknownSeatKey_IsRefused(gateway_answering, tmp_path):
     gw = gateway_answering(200, REGISTERED)
     folder = _factory_folder(tmp_path)
-    seats = [{"id": "nora-hale", "name": "Nora Hale", "role": "CEO", "briefFile": "a.yaml", "schedules": [], "brief": "x"}]
+    seats = [{"id": "nora-hale", "name": "Boss", "role": "Boss", "briefFile": "a.yaml", "schedules": [], "brief": "x"}]
 
     result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder, seats=seats))])
 
@@ -322,7 +322,7 @@ def test_register_Json_PrintsTheGatewaysAnswer(gateway_answering, tmp_path):
 
 def test_list_PrintsEveryFactoryInFull_WithACount(gateway_answering):
     other = dict(REGISTERED, factory="website-business-factory-long-id", title="Website Business, Inc.",
-                 ceoSeat=None, goalText=None)
+                 bossSeat=None, goalText=None)
     gw = gateway_answering(200, {"count": 2, "factories": [REGISTERED, other]})
 
     result = runner.invoke(app, ["factory", "list"])
@@ -331,10 +331,10 @@ def test_list_PrintsEveryFactoryInFull_WithACount(gateway_answering):
     assert gw.calls[0]["path"] == "/gateway/factory/registry"
     assert "count: 2" in result.stdout
     fields, rows = axi_output.parse_list(result.stdout, "factories")
-    assert fields == ["id", "title", "ceo", "seats"]
+    assert fields == ["id", "title", "boss", "seats"]
     assert [r["id"] for r in rows] == ["warmforward", "website-business-factory-long-id"]
     assert rows[1]["title"] == "Website Business, Inc."
-    assert rows[0]["ceo"] == "nora-hale" and rows[1]["ceo"] is None
+    assert rows[0]["boss"] == "nora-hale" and rows[1]["boss"] is None
     assert rows[0]["seats"] == "2"
 
 

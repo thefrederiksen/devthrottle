@@ -3,11 +3,11 @@ namespace CcDirector.Gateway.Data.Entities;
 /// <summary>
 /// ONE REGISTERED FACTORY, in the <c>factory_registry</c> table (Factories screen mission, phase A). One row per
 /// (account, factory id). Until this existed the Gateway knew a factory only from the activity rows and triggers
-/// that happened to name it - no title, no CEO, no seats, no goal, no computer - so the owner's screen could not
+/// that happened to name it - no title, no boss, no seats, no goal, no computer - so the owner's screen could not
 /// list a factory that had not written a row, nor tell a seat from a session that merely wrote one.
 ///
 /// AN INDEX, NOT THE DEFINITION. The briefs stay on disk in the factory's folder; this row says where the folder
-/// is, which seat is the CEO, which schedules run each seat, and what the owner's goal is. Moving the definitions
+/// is, which seat is the boss, which schedules run each seat, and what the owner's goal is. Moving the definitions
 /// themselves onto the Gateway is a separate ruling and out of scope.
 ///
 /// REPLACED WHOLE. Registering again overwrites the row, seats included, so the registry is always exactly the
@@ -27,8 +27,9 @@ public sealed class FactoryRegistryEntity : TenantScopedEntity
     /// <summary>The computer (machine name) the factory runs on.</summary>
     public string Computer { get; set; } = "";
 
-    /// <summary>The CEO's seat id, or null when the factory has no CEO. Always one of the seats when set.</summary>
-    public string? CeoSeat { get; set; }
+    /// <summary>The boss's seat id, or null when the factory has no boss. Always one of the seats when set. Was
+    /// <c>CeoSeat</c> until 8 October 2026 (renamed, with its column, by the Factory Design and Improvements mission).</summary>
+    public string? BossSeat { get; set; }
 
     /// <summary>The goal's text as registered, or null when the factory has no goal yet.</summary>
     public string? GoalText { get; set; }
@@ -68,7 +69,7 @@ public sealed class FactoryRegistryEntity : TenantScopedEntity
 
 /// <summary>
 /// ONE POSTED GOAL NUMBER, in the <c>factory_goal_numbers</c> table (Factories screen mission, phase A). A
-/// factory's CEO posts the number its goal is measured by on every run - the value, its unit, the day it is as of,
+/// factory's boss posts the number its goal is measured by on every run - the value, its unit, the day it is as of,
 /// and a link to how it was measured. Every post is kept, so the number's history is there to read; the factory's
 /// page shows the newest.
 ///

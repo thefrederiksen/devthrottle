@@ -138,7 +138,7 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // envelope through client-core.
           { path: "/fleet-map", element: <FleetMapView /> },
           // Factories (Factories screen mission): every factory as one row, a factory's page with its goal, goal
-          // number and Seats, and a Talk button on the CEO and every seat. Behind the Gateway's factoryAgents.enabled
+          // number and Seats, and a Talk button on the boss and every seat. Behind the Gateway's factoryAgents.enabled
           // switch: while the Gateway says it is off, every one of these routes is the ordinary "Page not found".
           // "waiting" is a static route and wins over a factory id; "agents/:agent" is the factory agent's own page
           // (where a session's factory agent chip links).

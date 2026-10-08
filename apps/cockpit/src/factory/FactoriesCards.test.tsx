@@ -12,7 +12,7 @@ import { join } from "node:path";
 //     "Running on its own" - each heading with its count, and an empty group has no heading;
 //   * inside a group the cards follow the owner's Sort by choice;
 //   * the purpose line is shown when the registry has one and omitted when it has none;
-//   * the head's initials, name and a shortened Talk ("Talk to Nora"), or the Gateway's "no head" words;
+//   * the boss's role word and its initial, never a person's name, with the Gateway's Talk words, or its "no boss" words;
 //   * the status line is cut to three lines by the stylesheet, and at phone width the grid is one column;
 //   * Table is the row list as it was.
 
@@ -43,11 +43,9 @@ import { FACTORY_LIST } from "./fixtures";
 import {
   FACTORY_VIEW_STORAGE_KEY,
   countFactoryRows,
-  firstNameOf,
   groupFactoryRows,
   initialsOf,
   loadFactoriesView,
-  shortTalkLabel,
 } from "./factoriesCards";
 
 function Where() {
@@ -82,9 +80,9 @@ function row(id: string, title: string, statusRank: number, extra: Partial<Facto
     waitingHref: null,
     href: `/factories/${id}`,
     talk: null,
-    noCeoText: "No head named",
+    noBossText: "No boss named",
     purpose: null,
-    headName: null,
+    bossName: null,
     ...extra,
   };
 }
@@ -231,7 +229,7 @@ describe("Factories as cards - one card", () => {
     expect(within(warm).getByText("NEEDS YOU-X").getAttribute("title")).toBe("1 question waiting on you.");
     expect(within(warm).getByTestId("fa-card-status-link").getAttribute("href")).toBe("/factories/warmforward#waiting");
     expect(within(warm).getByTestId("fa-card-line").textContent).toBe(
-      "Nora Hale, today 06:20: Is the bunkie meant to be at 20 C? (fixture)",
+      "Boss, today 06:20: Is the bunkie meant to be at 20 C? (fixture)",
     );
     // RUNNING has no line from the Gateway, and the card invents none (rule 7).
     expect(within(screen.getByTestId("fa-card-devthrottle")).queryByTestId("fa-card-line")).toBeNull();
@@ -249,27 +247,24 @@ describe("Factories as cards - one card", () => {
     expect(within(screen.getByTestId("fa-card-devthrottle")).queryByTestId("fa-card-waiting")).toBeNull();
   });
 
-  it("shows the head's initials, name and a Talk shortened to the first name, or the Gateway's no-head words", async () => {
+  it("shows the boss's role word and its initial with the Gateway's Talk words, never a name, or the Gateway's no-boss words", async () => {
+    // The owner, 8 October 2026: the boss has no name of its own.
     renderList();
     await screen.findByTestId("fa-factories-cards");
     const warm = screen.getByTestId("fa-card-warmforward");
-    expect(within(warm).getByText("NH")).toBeTruthy();
-    expect(within(warm).getByTestId("fa-card-head-name").textContent).toBe("Nora Hale");
+    expect(within(warm).getByText("B")).toBeTruthy();
+    expect(within(warm).getByTestId("fa-card-boss-name").textContent).toBe("Boss");
     expect(within(warm).getByText("runs it")).toBeTruthy();
-    expect(within(warm).getByTestId("fa-talk-warmforward-nora-hale").textContent).toBe("Talk to Nora");
+    expect(within(warm).getByTestId("fa-talk-warmforward-nora-hale").textContent).toBe("Talk to the boss");
 
-    const noHead = screen.getByTestId("fa-card-mindzie-web");
-    expect(within(noHead).getByTestId("fa-card-no-head").textContent).toBe("No CEO");
-    expect(within(noHead).queryByText("runs it")).toBeNull();
+    const noBoss = screen.getByTestId("fa-card-mindzie-web");
+    expect(within(noBoss).getByTestId("fa-card-no-boss").textContent).toBe("No boss named");
+    expect(within(noBoss).queryByText("runs it")).toBeNull();
   });
 
-  it("keeps a Talk label the Gateway chose for two heads with one name", () => {
-    expect(shortTalkLabel("Talk to Nora Hale", "Nora Hale")).toBe("Talk to Nora");
-    expect(shortTalkLabel("Talk to the CEO", "Nora Hale")).toBe("Talk to the CEO");
-    expect(initialsOf("Nora Hale")).toBe("NH");
-    expect(initialsOf("Cher")).toBe("C");
-    expect(initialsOf("Ruth van Calder")).toBe("RC");
-    expect(firstNameOf("Nora Hale")).toBe("Nora");
+  it("makes the avatar's initials from the word it is given", () => {
+    expect(initialsOf("Boss")).toBe("B");
+    expect(initialsOf("Cost Watch")).toBe("CW");
   });
 
   it("marks the purpose, status and waiting text dt-private on the card and in the table (owner ruling, 8 Oct 2026)", async () => {

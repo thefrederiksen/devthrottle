@@ -9,9 +9,9 @@ import type { FactoryTab, FactoryTone, FactoryWaitingItem } from "./factoryAgent
 
 /** What a Talk button starts: the Cockpit sends the two ids back and never works out which agent a button means. */
 export interface FactoryTalkTarget {
-  /** "Talk to Nora Hale", "Talk to the CEO", or "Talk" on a seat row. */
+  /** "Talk to the boss", or "Talk" on a seat row. */
   label: string;
-  /** What the button says while the talk is being started: "Starting the talk with Nora Hale...". */
+  /** What the button says while the talk is being started: "Starting the talk with the boss...", or the seat's name on a seat row. */
   busyLabel: string;
   factoryId: string;
   seatId: string;
@@ -76,14 +76,15 @@ export interface FactoryListRow {
   /** Where clicking the waiting count goes; null when nothing is waiting. */
   waitingHref: string | null;
   href: string;
-  /** The factory head's Talk button ("Talk to Ruth Calder"), whatever the head's title. */
+  /** The boss's Talk button ("Talk to the boss"); null when the factory has no boss. */
   talk: FactoryTalkTarget | null;
-  /** "No head named" when talk is null. */
-  noCeoText: string | null;
+  /** "No boss named" when talk is null. */
+  noBossText: string | null;
   /** The factory's one-line purpose from the registry, shown under its name on the card; null when none is set. */
   purpose: string | null;
-  /** The head's name ("Nora Hale") for the card's avatar and name line; null when no head is named. */
-  headName: string | null;
+  /** The boss's role word ("Boss", or "CFO") for the card's avatar and name line - never a person's name; null
+   *  when no boss is named. */
+  bossName: string | null;
 }
 
 export interface FactoriesListView {
@@ -184,7 +185,7 @@ export interface FactoryPageFailures {
   items: FactoryFailureItem[];
 }
 
-export interface FactoryCeoLatest {
+export interface FactoryBossLatest {
   heading: string;
   lines: string[];
   emptyText: string | null;
@@ -210,8 +211,8 @@ export interface FactoryPageView {
   statusLine: string | null;
   /** Where clicking the status word goes (the failures, the waiting items, or the Seats tab); null for RUNNING. */
   statusHref: string | null;
-  /** The head's own role and name - "CEO Nora Hale", "CFO Ruth Calder" - or "No head named". */
-  ceoText: string;
+  /** The boss seat's role word - "Boss", or a distinct one the factory registered ("CFO") - or "No boss named". */
+  bossText: string;
   /** "4 seats". */
   seatCountText: string;
   /** "runs on SOREN_NORTH". */
@@ -224,7 +225,7 @@ export interface FactoryPageView {
   /** What is failing now (where FAILING links to); null when nothing is. */
   failures: FactoryPageFailures | null;
   waiting: FactoryPageWaiting;
-  ceoLatest: FactoryCeoLatest;
+  bossLatest: FactoryBossLatest;
   lastTalk: FactoryLastTalk;
   /** What the Documents tab says: the definitions are not on the Gateway yet. */
   documentsText: string;

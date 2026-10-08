@@ -3,12 +3,12 @@
   "title": "DevThrottle",
   "folder": "D:\\ReposFred\\devthrottle-factory\\factory",
   "computer": "SOREN_NORTH",
-  "ceoSeat": "ceo",
+  "bossSeat": "ceo",
   "seats": [
     {
       "id": "ceo",
-      "name": "Ada Brennan",
-      "role": "CEO",
+      "name": "Boss",
+      "role": "Boss",
       "briefFile": "agents/ceo.yaml",
       "schedules": [
         "cj_99e21a"

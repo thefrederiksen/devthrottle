@@ -75,7 +75,7 @@ describe("Factories round 2 - every status explains itself", () => {
     const failing = await screen.findByTestId("fa-factory-mindzie-web");
     expect(within(failing).getByTestId("fa-status-line").textContent).toBe("Sender: 4 failures, newest today 12:02 (fixture)");
     expect(within(screen.getByTestId("fa-factory-warmforward")).getByTestId("fa-status-line").textContent).toBe(
-      "Nora Hale, today 06:20: Is the bunkie meant to be at 20 C? (fixture)",
+      "Boss, today 06:20: Is the bunkie meant to be at 20 C? (fixture)",
     );
     const running = screen.getByTestId("fa-factory-devthrottle");
     expect(within(running).queryByTestId("fa-status-line")).toBeNull();
@@ -102,7 +102,7 @@ describe("Factories round 2 - every status explains itself", () => {
     renderAt("/factories/warmforward");
 
     const line = await screen.findByTestId("fa-page-status-line");
-    expect(line.textContent).toBe("Nora Hale, today 06:20: Is the bunkie meant to be at 20 C? (fixture)");
+    expect(line.textContent).toBe("Boss, today 06:20: Is the bunkie meant to be at 20 C? (fixture)");
     expect(within(line).getByRole("link").getAttribute("href")).toBe("/factories/warmforward#waiting");
     expect(screen.getByTestId("fa-page-waiting").id).toBe("waiting");
   });

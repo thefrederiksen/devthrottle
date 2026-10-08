@@ -3,12 +3,12 @@
   "title": "Website Business",
   "folder": "D:\\ReposFred\\cc-consult\\ideas\\website-factory\\factory",
   "computer": "SOREN_NORTH",
-  "ceoSeat": "ceo",
+  "bossSeat": "ceo",
   "seats": [
     {
       "id": "ceo",
-      "name": "Malik Grant",
-      "role": "CEO",
+      "name": "Boss",
+      "role": "Boss",
       "briefFile": "agents/ceo.yaml",
       "schedules": [
         "cj_ce0d76"
