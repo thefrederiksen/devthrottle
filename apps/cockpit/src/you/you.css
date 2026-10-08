@@ -241,3 +241,16 @@
     padding-top: 8px;
   }
 }
+
+/* Text for a screen reader only: the Settings row count read as "3 dictionary suggestions pending". */
+.you-menu-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

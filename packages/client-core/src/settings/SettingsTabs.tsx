@@ -53,9 +53,12 @@ export function SettingsTabStrip({ active, onSelect, surface, context, grouped =
       >
         {t.label}
         {count > 0 && (
-          <span className="settings-tab-badge" title={`${count} pending`} data-testid={`settings-tab-badge-${t.id}`}>
-            {count}
-          </span>
+          <>
+            <span className="settings-tab-badge" title={`${count} pending`} aria-hidden="true" data-testid={`settings-tab-badge-${t.id}`}>
+              {count}
+            </span>
+            <span className="settings-visually-hidden">{` (${count} pending)`}</span>
+          </>
         )}
       </button>
     );

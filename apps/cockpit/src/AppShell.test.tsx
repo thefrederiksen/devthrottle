@@ -183,7 +183,8 @@ describe("Cockpit left rail", () => {
     );
 
     const work = screen.getByRole("group", { name: "Work" });
-    const setUp = screen.getByRole("group", { name: "Set up" });
+    // The group's name carries whose fleet it is, as the heading shows it.
+    const setUp = screen.getByRole("group", { name: "Set up, your fleet" });
     expect(Array.from(work.querySelectorAll(".nav-link-label")).map((el) => el.textContent)).toEqual([
       "Sessions", "Fleet Map", "Fleet Manager", "Factories", "History", "Voice Recorder",
     ]);

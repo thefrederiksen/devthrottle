@@ -171,7 +171,8 @@ describe("the Settings tab strip", () => {
       <SettingsTabStrip active="account" onSelect={() => {}} surface="cockpit" grouped badges={{ dictionary: 4, usage: 0 }} />,
     );
     expect(screen.getByTestId("settings-tab-badge-dictionary").textContent).toBe("4");
-    expect(screen.getByRole("tab", { name: /^Dictionary/ }).textContent).toBe("Dictionary4");
+    // A screen reader hears the count as words after the label, not glued to it.
+    expect(screen.getByRole("tab", { name: "Dictionary (4 pending)" })).toBeTruthy();
     expect(screen.queryByTestId("settings-tab-badge-usage")).toBeNull();
   });
 

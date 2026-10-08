@@ -61,11 +61,6 @@ internal static class FactoryAgentsViewEndpoints
 
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
-    /// <summary>
-    /// The Cockpit's question: is the Factory Agents area on FOR THE CALLING ACCOUNT? Always mapped, and never behind
-    /// <see cref="FactoryAgentsGate"/>, because it is how the Cockpit learns the answer. It is asked through the same
-    /// gate test the routes use, so the rail item shows exactly when the routes answer.
-    /// </summary>
     /// <summary>The sentence the Factories page shows while the area is off: that it is off, and how to switch it on on
     /// THIS kind of Gateway. A self-hosted Gateway is switched in its own config.json; the hosted Gateway is switched
     /// per account by an administrator (<see cref="AdminFactoryAgentsEndpoint"/>), never by the account itself.
@@ -78,6 +73,12 @@ internal static class FactoryAgentsViewEndpoints
             : "Factories is off on this Gateway. To start, add \"factoryAgents\": { \"enabled\": true } to the Gateway's config.json, then restart the Gateway.";
     }
 
+    /// <summary>
+    /// The Cockpit's question: is the Factory Agents area on FOR THE CALLING ACCOUNT? Always mapped, and never behind
+    /// <see cref="FactoryAgentsGate"/>, because it is how the Cockpit learns the answer. It is asked through the same
+    /// gate test the routes use, so the Factories pages show the area exactly when the routes answer, and say how to
+    /// start (<see cref="HowToStart"/>) when they do not.
+    /// </summary>
     public static void MapSwitch(IEndpointRouteBuilder app, Factory.FactoryAgentsSwitch factorySwitch,
         Func<HttpContext, TenantId?> resolveTenant)
     {

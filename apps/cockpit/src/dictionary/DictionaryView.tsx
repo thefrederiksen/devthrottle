@@ -21,6 +21,7 @@ import {
 } from "@devthrottle/client-core/dictation/dictionaryEdits";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { ConfirmDialog } from "../components";
+import { suggestionsChanged } from "./useSuggestionCount";
 
 // The dictation Dictionary editor (issue #977, epic #967) - the React port of the Blazor Cockpit
 // Dictionary.razor (#183). The human edits the vocabulary chips and the common-mistranscriptions
@@ -290,6 +291,7 @@ export function DictionaryView() {
     setSuggestMsg("Adding...");
     try {
       const result = await applySuggestions(terms);
+      suggestionsChanged();
       setDict(result.dictionary);
       setSuggestions(result.suggestions);
       setSuggestMsg(
@@ -310,6 +312,7 @@ export function DictionaryView() {
     setSuggestBusy(true);
     try {
       await dismissSuggestion(term);
+      suggestionsChanged();
       await Promise.all([refreshSuggestions(), refreshDismissed()]);
     } catch (err) {
       setSuggestMsg(`dismiss failed: ${gatewayErrorMessage(err)}`);
@@ -324,6 +327,7 @@ export function DictionaryView() {
     setSuggestBusy(true);
     try {
       await restoreDismissed(term);
+      suggestionsChanged();
       await Promise.all([refreshSuggestions(), refreshDismissed()]);
     } catch (err) {
       setSuggestMsg(`restore failed: ${gatewayErrorMessage(err)}`);

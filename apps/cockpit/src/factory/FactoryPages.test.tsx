@@ -182,6 +182,16 @@ describe("The Factory Agents switch gate", () => {
     expect(screen.queryByText("the factory area")).toBeNull();
   });
 
+  // The Gateway's contract is a sentence with every "off"; without one the page says so as an error, in the page -
+  // never a blank screen (the Cockpit has no error boundary).
+  it("off without the Gateway's sentence: says so as an error, in the page", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: false, howToStart: null });
+    renderGate();
+
+    expect((await screen.findByRole("alert")).textContent).toContain("did not say how to start it");
+    expect(screen.queryByText("the factory area")).toBeNull();
+  });
+
   it("on: shows the area", async () => {
     client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: true, howToStart: null });
     renderGate();

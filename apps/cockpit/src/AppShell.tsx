@@ -409,7 +409,12 @@ function NavSection({
   children: ReactNode;
 }) {
   return (
-    <div className={team ? "nav-section nav-section-team" : "nav-section"} role="group" aria-label={label} data-testid={testId}>
+    <div
+      className={team ? "nav-section nav-section-team" : "nav-section"}
+      role="group"
+      aria-label={sub === undefined ? label : `${label}, ${sub}`}
+      data-testid={testId}
+    >
       {collapsed ? (
         <div className="nav-section-rule" aria-hidden="true" />
       ) : (

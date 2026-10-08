@@ -12,7 +12,11 @@ export function FactoryAreaGate({ children }: { children: ReactNode }) {
   if (error !== null) return <ErrorBanner message={gatewayErrorMessage(error, "ask the Gateway whether Factories is on")} />;
   if (state === "unknown") return <LoadingState />;
   if (state === "off") {
-    if (howToStart === null) throw new Error("FactoryAreaGate: the Gateway said Factories is off but sent no sentence for how to start");
+    // The Gateway's contract is a sentence with every "off". Without one, say exactly that - in the page, as an error,
+    // rather than unmounting the whole app (the Cockpit has no error boundary).
+    if (howToStart === null) {
+      return <ErrorBanner message="The Gateway says Factories is off, but did not say how to start it. This is a fault in the Gateway; please report it." />;
+    }
     return (
       <section className="pane" data-testid="factories-off">
         <h1 className="pane-title">Factories</h1>

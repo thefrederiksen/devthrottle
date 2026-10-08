@@ -269,9 +269,12 @@ export function YouMenu({ collapsed, wholeApp, suggestions, onSwitched }: YouMen
               <Item onPick={act(() => navigate("/settings"))}>
                 Settings
                 {suggestions > 0 && (
-                  <span className="you-menu-badge" title={`${suggestions} dictionary suggestions pending`}>
-                    {suggestions}
-                  </span>
+                  <>
+                    <span className="you-menu-visually-hidden">{` (${suggestions} dictionary suggestions pending)`}</span>
+                    <span className="you-menu-badge" title={`${suggestions} dictionary suggestions pending`} aria-hidden="true">
+                      {suggestions}
+                    </span>
+                  </>
                 )}
               </Item>
               <Item onPick={act(() => navigate("/settings?tab=usage"))}>Usage (Your Throttle)</Item>

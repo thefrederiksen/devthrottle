@@ -277,7 +277,7 @@ describe("you, at the bottom of the rail", () => {
     expect(card().querySelector(".you-dot")).not.toBeNull();
     fireEvent.click(card());
     expect(screen.queryByRole("menuitem", { name: /Dictionary/ })).toBeNull();
-    const settings = screen.getByRole("menuitem", { name: /^Settings/ });
+    const settings = screen.getByRole("menuitem", { name: "Settings (3 dictionary suggestions pending)" });
     expect(settings.querySelector(".you-menu-badge")?.textContent).toBe("3");
     fireEvent.click(settings);
     expect(screen.getByTestId("where").textContent).toBe("/settings");
