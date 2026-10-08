@@ -222,6 +222,27 @@ describe("Settings, with its tabs down the left", () => {
     await waitFor(() => expect(tabs().slice(-2)).toEqual(["Members", "Team plan"]));
   });
 
+  // While the answer is unknown the tab shows the failure and a Retry of that read - never the plan section, which
+  // would be empty for a role that has no plan. The Retry's answer decides: here, no bill, so the tab goes.
+  it("shows only the failure in Team plan while the answer is unknown, and lets the Retry's answer decide", async () => {
+    teams.answer = { kind: "teams", teams: [TEAM], start: { where: "own-account" } };
+    window.localStorage.setItem("devthrottle.currentTeam", TEAM.id);
+    teamPage.fail = new GatewayError(503, "GET /teams/team-1/page failed: 503", { reason: "The Gateway is restarting." });
+    mountAt("/settings?tab=teamplan");
+
+    const banner = await screen.findByRole("alert");
+    expect(banner.textContent).toContain("The Gateway is restarting.");
+    expect(screen.queryByText(`team plan for ${TEAM.id}`)).toBeNull();
+
+    teamPage.fail = null;
+    teamPage.bill = null;
+    fireEvent.click(within(banner).getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("account tab")).toBeTruthy();
+    expect(tabs()).not.toContain("Team plan");
+    expect(teamPage.asked).toEqual([TEAM.id, TEAM.id]);
+  });
+
   it("takes the Team plan tab away only on the Gateway's refusal", async () => {
     teams.answer = { kind: "teams", teams: [TEAM], start: { where: "own-account" } };
     window.localStorage.setItem("devthrottle.currentTeam", TEAM.id);

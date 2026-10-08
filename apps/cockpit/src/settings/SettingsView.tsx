@@ -5,8 +5,8 @@ import { tabFromParam, type TabContext, type TabId } from "@devthrottle/client-c
 import { useAccounts } from "@devthrottle/client-core/auth/useAccounts";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import { getTeamPage } from "@devthrottle/client-core/teams/teamPageClient";
-import { GatewayError } from "@devthrottle/client-core/api/client";
-import { LoadingState } from "../components";
+import { GatewayError, gatewayErrorMessage } from "@devthrottle/client-core/api/client";
+import { ErrorBanner, LoadingState } from "../components";
 import { InjectedTextTab } from "./InjectedTextTab";
 import { AccountTab } from "../account/AccountTab";
 import { YourThrottleView } from "../throttle/YourThrottleView";
@@ -36,8 +36,9 @@ import { InviteView } from "../team/InviteView";
 // The team tabs are offered only while a team is on screen in the whole app, and Team plan only when the Gateway's Team
 // page answer carries a bill - its verdict that this person's role sees the team's plan (rule 7). The page reads that
 // answer once per team to decide; the tab reads it again for itself, so the tab always shows the Gateway's latest. A
-// read that FAILED is not a verdict: the Team plan tab stays, and the tab shows the failure with its own Retry, rather
-// than vanishing with no word of why (review of #3682). Only the Gateway's refusal (403) takes the tab away.
+// read that FAILED is not a verdict either way (review of #3682): the Team plan tab stays, and while it is "unknown"
+// the tab shows only the failure and a Retry of THIS read - never the plan section, which would draw an empty page for
+// a role that has no plan. The Retry's answer then decides. Only the Gateway's refusal (403) takes the tab away.
 //
 // A link straight to a team tab waits for its answer. While the team on screen is still being confirmed, or the Team
 // page has not yet said whether this person sees the plan, the panel says it is loading instead of opening Account
@@ -49,23 +50,36 @@ import { InviteView } from "../team/InviteView";
 // The Cockpit's route to one session (main.tsx: "session/:sessionId"), for the Fleet Manager tab's "Open it".
 const cockpitSessionHref = (sessionId: string) => `/session/${encodeURIComponent(sessionId)}`;
 
-/** Whether the Gateway shows this person the team's plan: its Team page answer carries a bill. Null while unknown.
- *  A failed read keeps the tab (true) so the tab can show the failure; only a refusal (403) is a "no". */
-function useTeamPlanOffered(teamId: string | null): boolean | null {
-  const [offered, setOffered] = useState<{ teamId: string; offered: boolean } | null>(null);
+/** What the Gateway's Team page answer says about the Team plan tab: offered (it carries a bill), not offered (no bill,
+ *  or the Gateway refused the page), or unknown (the read failed - `error` says why). */
+type TeamPlanAnswer = { kind: "offered" } | { kind: "not-offered" } | { kind: "unknown"; error: string };
+
+/** The Team plan answer for the team on screen; null while it is being read. `retry` reads it again. */
+function useTeamPlanAnswer(teamId: string | null): { answer: TeamPlanAnswer | null; retry: () => void } {
+  const [held, setHeld] = useState<{ teamId: string; answer: TeamPlanAnswer } | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (teamId === null) return undefined;
     const controller = new AbortController();
     getTeamPage(teamId, controller.signal).then(
-      (page) => setOffered({ teamId, offered: page.bill !== null }),
+      (page) => setHeld({ teamId, answer: { kind: page.bill !== null ? "offered" : "not-offered" } }),
       (err) => {
         if (controller.signal.aborted) return;
-        setOffered({ teamId, offered: !(err instanceof GatewayError && err.status === 403) });
+        const refused = err instanceof GatewayError && err.status === 403;
+        setHeld({
+          teamId,
+          answer: refused ? { kind: "not-offered" } : { kind: "unknown", error: gatewayErrorMessage(err, "read the team's plan") },
+        });
       },
     );
     return () => controller.abort();
-  }, [teamId]);
-  return teamId === null || offered === null || offered.teamId !== teamId ? null : offered.offered;
+  }, [teamId, attempt]);
+  const answer = teamId === null || held === null || held.teamId !== teamId ? null : held.answer;
+  const retry = () => {
+    setHeld(null);
+    setAttempt((n) => n + 1);
+  };
+  return { answer, retry };
 }
 
 export function SettingsView() {
@@ -76,8 +90,9 @@ export function SettingsView() {
   // The team the team tabs are about: one on screen, confirmed, in the whole app. A Collaborator's pages-only app never
   // reaches this page at all (the shell shows only their pages).
   const current = !team.resolving && team.current !== null && team.current.app.full ? team.current : null;
-  const teamPlan = useTeamPlanOffered(current?.id ?? null);
-  const context: TabContext = { team: current !== null, teamPlan: teamPlan === true };
+  const plan = useTeamPlanAnswer(current?.id ?? null);
+  const teamPlan = plan.answer;
+  const context: TabContext = { team: current !== null, teamPlan: teamPlan !== null && teamPlan.kind !== "not-offered" };
 
   // Resolved from the address on every render - see "THE TAB LIVES IN THE ADDRESS" above. Scoped to this surface and
   // to the team on screen, so a tab this page does not list can never be selected.
@@ -107,6 +122,8 @@ export function SettingsView() {
         <div className="settings-panel" role="tabpanel" aria-label="Settings section" data-testid={`settings-panel-${tab}`}>
           {waiting ? (
             <LoadingState message="Opening the team..." />
+          ) : tab === "teamplan" && teamPlan?.kind === "unknown" ? (
+            <ErrorBanner message={teamPlan.error} onRetry={plan.retry} />
           ) : (
             <CockpitTab tab={tab} teamId={current?.id ?? null} view={params.get("view")} />
           )}
