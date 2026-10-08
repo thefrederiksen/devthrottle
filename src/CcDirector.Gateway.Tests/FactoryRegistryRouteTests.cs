@@ -284,6 +284,33 @@ public sealed class FactoryRegistryRouteTests
         Assert.DoesNotContain(lines, l => l.Contains($"[DirectorCronSessionStarter] start: job={id}"));
     }
 
+    /// <summary>Round-3 review finding 1: run-now on a schedule of an ARCHIVED factory is refused by the host's guard.</summary>
+    [Fact]
+    public async Task Running_a_schedule_of_an_archived_factory_now_is_refused_by_the_hosts_firing_guard()
+    {
+        using var log = CcDirector.Core.Utilities.FileLog.RedirectForTests();
+        await using var h = await Host.StartAsync(factoryAgentsEnabled: true);
+        var factory = "f-" + Guid.NewGuid().ToString("N")[..12];
+        Assert.Equal(HttpStatusCode.OK, (await h.Owner.PutAsJsonAsync("gateway/factory/registry", Manifest(factory))).StatusCode);
+        var created = await Send(h.Owner.PostAsJsonAsync("cron/jobs", new CronJobDto
+        {
+            Name = "CEO - morning", ScheduleKind = "recurring", CronExpression = "0 7 * * *", TimeZoneId = "UTC",
+            Factory = factory, Seat = "nora-hale",
+            Target = new CronJobTarget { Machine = "NO-SUCH-MACHINE" },
+            Action = new CronJobAction { RepoPath = @"D:\factory", Seed = "/ceo" },
+        }));
+        Assert.True(created.Status == HttpStatusCode.Created, created.Body);
+        var id = JsonSerializer.Deserialize<CronJobDto>(created.Body, Web)!.Id;
+        h.Gateway.FactoryRegistry.Archive(TenantId.Local, factory, "owner (test)", new[] { id }, DateTime.UtcNow);
+
+        var run = await Send(h.Owner.PostAsync($"cron/jobs/{id}/run", null));
+
+        Assert.True(run.Status == HttpStatusCode.OK, run.Body);
+        var lines = log.DrainAndReadLines();
+        Assert.Contains(lines, l => l.Contains($"[DirectorCronSessionStarter] start REFUSED: job={id}") && l.Contains("is archived"));
+        Assert.DoesNotContain(lines, l => l.Contains($"[DirectorCronSessionStarter] start: job={id}"));
+    }
+
     [Fact]
     public async Task Switch_off_every_registry_route_answers_404()
     {
