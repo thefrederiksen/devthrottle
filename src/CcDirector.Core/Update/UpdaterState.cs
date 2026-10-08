@@ -163,6 +163,17 @@ public sealed class UpdaterState
             if (!File.Exists(path))
                 return new UpdaterState();
 
+            // Zero bytes is a save cut off between truncating the file and writing it (issue #3666); the
+            // serializer never writes an empty string. Nothing else rewrites the file on a machine whose
+            // Director does not check, so replace it now or every hourly load fails on it forever.
+            if (new FileInfo(path).Length == 0)
+            {
+                FileLog.Write($"[UpdaterState] Load: {path} is empty, an interrupted save; replacing it with an empty state");
+                var replacement = new UpdaterState();
+                replacement.SaveTo(path);
+                return replacement;
+            }
+
             var json = File.ReadAllText(path);
             return JsonSerializer.Deserialize<UpdaterState>(json, JsonOptions) ?? new UpdaterState();
         }
@@ -188,6 +199,10 @@ public sealed class UpdaterState
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(this, JsonOptions);
-        File.WriteAllText(path, json);
+        // Write beside the file and move it over, so an interrupted save leaves the old file whole
+        // instead of a truncated, zero-byte one (issue #3666).
+        var temporary = path + ".tmp";
+        File.WriteAllText(temporary, json);
+        File.Move(temporary, path, overwrite: true);
     }
 }
