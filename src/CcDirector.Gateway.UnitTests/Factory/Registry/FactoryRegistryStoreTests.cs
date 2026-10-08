@@ -134,8 +134,7 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         var store = NewStore();
         store.Register(A, WarmForward(), "the owner (test)", Now);
 
-        var ex = Assert.Throws<FactoryViewValidationException>(() => store.SetPurpose(A, "warmforward", "One line
-and another"));
+        var ex = Assert.Throws<FactoryViewValidationException>(() => store.SetPurpose(A, "warmforward", "One line\nand another"));
 
         Assert.Contains("one line", ex.Message);
     }
