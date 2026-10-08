@@ -452,7 +452,8 @@ function RosterRow({
     setCrewExpanded(sid, next);
   };
   const attention = classify(session) === "needsYou";
-  const name = session.name && session.name.trim().length > 0 ? session.name : session.repoPath || "(unnamed session)";
+  const named = !!session.name && session.name.trim().length > 0;
+  const name = named ? String(session.name) : session.repoPath || "(unnamed session)";
   const num = session.number;
   const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
   const directorId = (session.directorId ?? "").trim();
@@ -524,7 +525,8 @@ function RosterRow({
           {/* Line 1: the session number badge + the full name (wraps freely, no clamp). */}
           <span className="roster-name">
             {hasNum && <span className="num-badge">{num}</span>}
-            <span className="roster-name-text">{name}</span>
+            {/* An unnamed session is titled with its repository path, which demo mode hides; a real name stays visible. */}
+            <span className={named ? "roster-name-text" : "roster-name-text dt-private"}>{name}</span>
             {/* This session asked to talk to another (issue #3631): the amber phone, apart from the red queue dot. */}
             <RosterLinkBadge sessionId={sid} />
             {session.pin && (
@@ -537,7 +539,7 @@ function RosterRow({
             {session.factoryAgent && (
               <span className="roster-factory-agent" title={session.factoryAgent.title} data-testid="roster-factory-agent">
                 <span className="fa-session-chip">{session.factoryAgent.label}</span>{" "}
-                <span className="roster-factory-agent-text">{session.factoryAgent.text}</span>
+                <span className="roster-factory-agent-text dt-private">{session.factoryAgent.text}</span>
               </span>
             )}
           </span>
@@ -545,7 +547,7 @@ function RosterRow({
           <span className="roster-state">{contextLine(session)}</span>
           {/* Line 2a (only when something waits): the row line - what waits in this session's fleet inbox,
               in the Gateway's words, rendered verbatim (Message Load mission, slice 4). */}
-          {session.inboxLine && <span className="roster-inbox">{session.inboxLine}</span>}
+          {session.inboxLine && <span className="roster-inbox dt-private">{session.inboxLine}</span>}
           <RosterLinkLine sessionId={sid} />
           {/* Line 2b: the supervision facts (internal#625) - started / open / idle / turns, from the
               ONE shared formatter, ticking on the shared one-second clock. Stats a Director does not
@@ -594,7 +596,7 @@ function RosterRow({
           )}
           {/* The attention narration line, when present. */}
           {attention && session.railLine && session.railLine.trim().length > 0 && (
-            <span className="roster-railline">{session.railLine}</span>
+            <span className="roster-railline dt-private">{session.railLine}</span>
           )}
           {/* A collapsed crew still says what is under it: every child's colour, the counts, the age. */}
           {isParent && !expanded && <CrewLine root={session} tree={tree} />}

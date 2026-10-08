@@ -22,6 +22,8 @@ public sealed class TeamEndpointRulesTests
     [InlineData("DELETE", "/gateway/workflows/{id}", TeamAction.ChangeSharedSkillsAndWorkflows)]
     [InlineData("GET", "/gateway/workflows/{id}/instructions", TeamAction.UseSharedSkillsAndWorkflows)]
     [InlineData("PUT", "/gateway/mentor-report", TeamAction.ReadOwnMentorPage)]
+    // Demo mode (owner, 8 Oct 2026): every member's Cockpit reads the team's switch, so every screen blurs together.
+    [InlineData("GET", "/gateway/demo-mode", TeamAction.RunSessionsOnOwnComputers)]
     [InlineData("GET", "/prompts/export", TeamAction.RunSessionsOnOwnComputers)]
     [InlineData("GET", "/teams/{teamId}/library", TeamAction.UseSharedSkillsAndWorkflows)]
     [InlineData("GET", "/teams/{teamId}/skills", TeamAction.UseSharedSkillsAndWorkflows)]
@@ -41,6 +43,9 @@ public sealed class TeamEndpointRulesTests
     [InlineData("GET", "/teams")]
     [InlineData("POST", "/teams")]
     [InlineData("GET", "/gateway/settings")]
+    // Switching demo mode in a TEAM is undeclared, like every other team-wide setting write: refused for every role
+    // until the owner says which role may switch it. Reading it is declared (above).
+    [InlineData("PUT", "/gateway/demo-mode")]
     [InlineData("GET", "/sessionsx")]
     [InlineData("GET", "/gateway/skillset")]
     public void Find_AnUndeclaredEndpoint_StatesNothing(string method, string pattern)

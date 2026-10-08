@@ -250,6 +250,10 @@ public static class TeamEndpointRules
         // refused for every role until the owner decides (an owner decision, not built here).
         new TeamEndpointRule(Contracts.SessionColourLegend.Route, TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
         new TeamEndpointRule("/gateway/snooze-presets", TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
+        // DEMO MODE (owner, 8 Oct 2026): whether the team's Cockpit blurs what its factories and sessions do. Every
+        // member's Cockpit READS it, so every screen on the team blurs together; the WRITE stays undeclared and refused
+        // in a team like every other team-wide setting above, until the owner says which role may switch it.
+        new TeamEndpointRule("/gateway/demo-mode", TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
         new TeamEndpointRule(CcDirector.Core.Sessions.InjectedTextStore.GatewayPath, TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
         // The workspace list, cut to the workspaces captured from the caller's own Directors. A workspace written by hand
         // belongs to no Director, so it cannot be shown to be anyone's and is left out; every other workspace route stays

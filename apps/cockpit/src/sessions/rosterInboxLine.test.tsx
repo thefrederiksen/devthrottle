@@ -67,7 +67,7 @@ describe("the roster's row line", () => {
   it("renders a reply line exactly as sent", () => {
     renderRoster([session({ inboxLine: "1 reply waiting" })]);
 
-    expect(screen.getByText("1 reply waiting").className).toBe("roster-inbox");
+    expect(screen.getByText("1 reply waiting").className).toBe("roster-inbox dt-private");
   });
 
   it("renders nothing when the Gateway sent no line", () => {

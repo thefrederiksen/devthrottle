@@ -246,6 +246,19 @@ public sealed class TenantSettingsResolver
     public bool VoiceModeAll(TenantId tenant)
         => string.Equals(_store.Get(tenant, TenantSettingKeys.VoiceModeAll), "true", StringComparison.Ordinal);
 
+    /// <summary>Whether this tenant is in DEMO MODE - its Cockpit blurs what its factories and sessions do, on
+    /// every browser and device on the account (owner, 8 Oct 2026). Defaults to OFF, and there is no operator
+    /// global default to fall back to: a demo is the tenant's own choice. Anything stored that is not exactly
+    /// "true" reads as off - showing everything is what every tenant did before the switch existed, and a
+    /// corrupt value must not hide a screen nobody asked to hide.</summary>
+    public bool DemoMode(TenantId tenant)
+        => string.Equals(_store.Get(tenant, TenantSettingKeys.DemoMode), "true", StringComparison.Ordinal);
+
+    /// <summary>Turn this tenant's DEMO MODE on or off. Off is stored explicitly rather than by removing the
+    /// row, so "off" is a decision this tenant made and not merely the absence of one.</summary>
+    public void SetDemoMode(TenantId tenant, bool enabled, DateTime nowUtc)
+        => _store.Set(tenant, TenantSettingKeys.DemoMode, enabled ? "true" : "false", nowUtc);
+
     /// <summary>
     /// Whether pending dictionary suggestions are mentioned in this tenant's daily report email. Defaults to
     /// <see cref="SuggestionsInDailyEmailDefault"/> when the tenant has set no choice, and ALSO when the stored

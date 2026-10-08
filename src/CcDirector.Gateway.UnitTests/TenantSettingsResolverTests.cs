@@ -307,6 +307,85 @@ public sealed class TenantSettingsResolverTests
         Assert.Equal("true", store.Get(TenantA, TenantSettingKeys.MentorReportEnabled));
     }
 
+    // ---- Demo mode (owner, 8 Oct 2026) --------------------------------------------------------------------
+    //
+    // One tenant-wide switch: on, the tenant's Cockpit blurs what its factories and sessions do. These prove
+    // the four facts the switch rests on - off until chosen, on and off round-trip, one tenant's demo never
+    // blurs another, and a value that is not a boolean shows everything rather than hiding it.
+
+    [Fact]
+    public void DemoMode_NoChoice_IsOff()
+    {
+        using var h = new GatewayDbTestHarness();
+        var r = NewResolver(h);
+
+        // Showing everything is what every tenant did before the switch existed.
+        Assert.False(r.DemoMode(TenantA));
+    }
+
+    [Fact]
+    public void DemoMode_On_RoundTrips()
+    {
+        using var h = new GatewayDbTestHarness();
+        var r = NewResolver(h);
+
+        r.SetDemoMode(TenantA, true, Now);
+
+        Assert.True(r.DemoMode(TenantA));
+    }
+
+    [Fact]
+    public void DemoMode_OffAfterOn_RoundTrips()
+    {
+        using var h = new GatewayDbTestHarness();
+        var r = NewResolver(h);
+
+        r.SetDemoMode(TenantA, true, Now);
+        r.SetDemoMode(TenantA, false, Now.AddMinutes(1));
+
+        Assert.False(r.DemoMode(TenantA));
+    }
+
+    [Fact]
+    public void DemoMode_OneTenantsDemo_DoesNotBlurAnother()
+    {
+        using var h = new GatewayDbTestHarness();
+        var r = NewResolver(h);
+
+        r.SetDemoMode(TenantA, true, Now);
+
+        Assert.True(r.DemoMode(TenantA));
+        Assert.False(r.DemoMode(TenantB));
+    }
+
+    [Fact]
+    public void DemoMode_UnreadableValue_ReadsAsOff_NotAsBlur()
+    {
+        using var h = new GatewayDbTestHarness();
+        var store = new TenantSettingsStore(h.Open());
+        var r = new TenantSettingsResolver(store);
+
+        foreach (var junk in new[] { "", "   ", "on", "yes", "1", "TRUE" })
+        {
+            store.Set(TenantA, TenantSettingKeys.DemoMode, junk, Now);
+            Assert.False(r.DemoMode(TenantA));
+        }
+    }
+
+    [Fact]
+    public void DemoMode_IsStoredUnderTheDocumentedKey_AsTrueOrFalse()
+    {
+        using var h = new GatewayDbTestHarness();
+        var store = new TenantSettingsStore(h.Open());
+        var r = new TenantSettingsResolver(store);
+
+        r.SetDemoMode(TenantA, true, Now);
+        Assert.Equal("true", store.Get(TenantA, TenantSettingKeys.DemoMode));
+
+        r.SetDemoMode(TenantA, false, Now);
+        Assert.Equal("false", store.Get(TenantA, TenantSettingKeys.DemoMode));
+    }
+
     [Fact]
     public void MentorReportEnabled_TurningItBackOn_IsStoredRatherThanLeftAbsent()
     {

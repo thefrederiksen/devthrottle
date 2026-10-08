@@ -15,6 +15,7 @@ import { YouMenu } from "./you/YouMenu";
 import "./teams/collaborator/collaborator.css";
 import { Button, LoadingState } from "./components";
 import { useMentorEntry } from "./mentor/useMentorEntry";
+import { useDemoMode } from "@devthrottle/client-core/demo/demoMode";
 
 // The desktop layout frame (epic #967): a two-region shell - a left rail (navigation) and the main
 // pane (the routed page). The main pane fills all remaining width. Desktop-first: the frame stays
@@ -257,7 +258,19 @@ function ShellFrame() {
   // The chooser (S11) has no rail rows either, so it takes the same short rail: no collapse, and a bar at phone width.
   const shortRail = teamPages !== null || team.choosing;
   const collapsed = railCollapsed && !shortRail;
-  const shellClass = ["shell", collapsed ? "shell-rail-collapsed" : "", shortRail ? "shell-team-pages" : ""]
+  // DEMO MODE (owner, 8 Oct 2026): the account's switch, read from the Gateway. On, the shell carries `demo-mode` and
+  // one rule in styles.css blurs every `dt-private` element beneath it; the badge in the rail says it is on.
+  const demoMode = useDemoMode(!team.resolving);
+  useEffect(() => {
+    document.body.classList.toggle("demo-mode", demoMode);
+    return () => document.body.classList.remove("demo-mode");
+  }, [demoMode]);
+  const shellClass = [
+    "shell",
+    collapsed ? "shell-rail-collapsed" : "",
+    shortRail ? "shell-team-pages" : "",
+    demoMode ? "demo-mode" : "",
+  ]
     .filter((c) => c.length > 0)
     .join(" ");
 
@@ -313,6 +326,11 @@ function ShellFrame() {
             </button>
             )}
           </div>
+          {demoMode && (
+            <div className="demo-mode-badge" data-testid="demo-mode-badge" title="Demo mode is on: private text is blurred">
+              {collapsed ? "DEMO" : "DEMO MODE"}
+            </div>
+          )}
           {!collapsed && teamPages === null && <CockpitStatusPill />}
           <div className="nav">
             {waiting ? null : teamPages !== null ? (

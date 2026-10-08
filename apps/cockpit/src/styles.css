@@ -3845,3 +3845,25 @@ body {
     right: 4px;
   }
 }
+
+/* DEMO MODE (owner, 8 Oct 2026). While the account is in demo mode the shell (and the body, so dialogs rendered
+   outside the shell are covered too) carries `demo-mode`, and every element a screen marked `dt-private` is
+   blurred. A filter does not move anything, so the layout stays exactly as it was. Hovering does NOT unblur:
+   a presenter's mouse wanders. */
+.demo-mode .dt-private {
+  filter: blur(6px);
+  user-select: none;
+}
+
+/* The marker at the top of the rail, so the owner never forgets demo mode is on. */
+.demo-mode-badge {
+  align-self: flex-start;
+  margin: 0 0 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
