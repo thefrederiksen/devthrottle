@@ -198,7 +198,22 @@ def test_register_UnknownSeatKey_IsRefused(gateway_answering, tmp_path):
     assert gw.calls == []
 
 
-@pytest.mark.parametrize("goal_file", ["../secret.txt", "sub/../../secret.txt", "/etc/passwd", "C:/secret.txt", r"\\server\share\x.md"])
+@pytest.mark.parametrize(
+    "goal_file",
+    [
+        "../secret.txt",
+        "sub/../../secret.txt",
+        "/etc/passwd",
+        # A drive letter is outside the folder only on Windows. On Linux and macOS "C:/secret.txt" is a relative
+        # name INSIDE the factory's folder, so the command refuses it for another reason (no such file), which is
+        # right and is not what this test is about (#3594).
+        pytest.param(
+            "C:/secret.txt",
+            marks=pytest.mark.skipif(sys.platform != "win32", reason="a drive letter is an absolute path only on Windows"),
+        ),
+        r"\\server\share\x.md",
+    ],
+)
 def test_register_GoalFileOutsideTheFolder_IsRefusedBeforeAnythingIsRead(gateway_answering, tmp_path, goal_file):
     gw = gateway_answering(200, REGISTERED)
     (tmp_path / "secret.txt").write_text("TOP-SECRET", encoding="utf-8")
