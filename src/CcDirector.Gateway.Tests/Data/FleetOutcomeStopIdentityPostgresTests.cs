@@ -110,7 +110,11 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20261007052952_ArchiveFactories", all[index + 21]);
             // The team bill the Gateway owns, and its billing history (Teams v1, the team bill without Stripe), after that.
             Assert.Equal("20261007070501_AddTeamBills", all[index + 22]);
-            Assert.Equal(all.Count - 23, index);
+            // The amount a link request asks for (issue #3631), after that.
+            Assert.Equal("20261007180154_AddLinkRequestRequestedAmount", all[index + 23]);
+            // The seat a schedule runs (issue #3650), after that.
+            Assert.Equal("20261008043117_AddScheduleSeat", all[index + 24]);
+            Assert.Equal(all.Count - 25, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
