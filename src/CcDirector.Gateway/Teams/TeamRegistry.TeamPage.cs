@@ -189,12 +189,13 @@ public sealed partial class TeamRegistry
             canRemove ? RemoveWarning(name, m.Role) : null);
     }
 
-    /// <summary>What a member is called on every team screen: their email, or a plain sentence when none is recorded.
-    /// One place, so the Team page and a report's "from" (devthrottle_internal#2309) name a person the same way.</summary>
+    /// <summary>What a member is called on every team screen: their email, or a plain sentence when none is recorded -
+    /// or, for a made-up showcase member, the name written on its row. One place, so the Team page and a report's "from"
+    /// (devthrottle_internal#2309) name a person the same way.</summary>
     public static string DisplayName(TeamMember member)
     {
         ArgumentNullException.ThrowIfNull(member);
-        return member.Email ?? "An account with no email recorded";
+        return member.Name ?? member.Email ?? "An account with no email recorded";
     }
 
     /// <summary>

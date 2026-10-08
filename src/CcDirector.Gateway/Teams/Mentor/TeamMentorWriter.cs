@@ -97,7 +97,8 @@ public sealed class TeamMentorWriter
 
             var written = 0;
             var unfinished = 0;
-            foreach (var member in members)
+            // A made-up showcase member is not an account: it runs no sessions, and its block is written by the showcase.
+            foreach (var member in members.Where(m => !m.IsShowcase))
             {
                 ct.ThrowIfCancellationRequested();
                 if (_store.OutcomeOf(team, week, member.AccountSubject) is not null)

@@ -5117,6 +5117,10 @@ public sealed class GatewayHost : IAsyncDisposable
             // The same page for a person's own account (owner, 8 Oct 2026), from the same tables keyed by their own
             // tenant. The weekly writer does not write personal pages yet; this reads whatever is stored.
             PersonalMentorEndpoints.Map(_app, TeamMentorStore, _tenantBoundary, TenantRegistry, _tenantSettingsResolver.TimeZone);
+            // The administrator routes that fill one team so it can be shown as it is, and empty it again by one tag
+            // (owner, 8 Oct 2026). Same admin service token as the factory switch; exact-match public in AuthMiddleware.
+            AdminTeamShowcaseEndpoint.Map(_app, new Teams.TeamShowcase(_gatewayDb, TeamRegistry, TenantRegistry,
+                _tenantSettingsResolver.TimeZone));
             // A dev report sent to a member of the team, and that member's Reports page (devthrottle_internal#2309).
             // Dark with the rest of Teams.
             // The questions in those reports, waiting on the members they were sent to (devthrottle_internal#2307): the

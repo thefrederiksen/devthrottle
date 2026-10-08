@@ -253,9 +253,13 @@ public sealed partial class TeamRegistry
         return rows
             .Select(r => new TeamMember(
                 r.AccountSubject,
-                emails.TryGetValue(r.AccountSubject, out var email) && !string.IsNullOrWhiteSpace(email) ? email : null,
+                // A made-up showcase member has no account, so its email is the one written on its own row.
+                r.ShowcaseTag is not null ? r.DisplayEmail
+                : emails.TryGetValue(r.AccountSubject, out var email) && !string.IsNullOrWhiteSpace(email) ? email : null,
                 r.Role,
-                r.JoinedAtUtc))
+                r.JoinedAtUtc,
+                r.ShowcaseTag is not null ? r.DisplayName : null,
+                r.ShowcaseTag))
             .OrderByDescending(m => m.Role)
             .ThenBy(m => m.Email ?? "", StringComparer.OrdinalIgnoreCase)
             .ThenBy(m => m.JoinedAtUtc)
@@ -495,8 +499,16 @@ public sealed record TeamSummary(string TeamId, string Name, TeamRole Role, int 
 }
 
 /// <summary>One member of a team. <see cref="Email"/> is display metadata read from the member's personal tenant,
-/// null when none is recorded; <see cref="AccountSubject"/> is the key and is never shown or logged.</summary>
-public sealed record TeamMember(string AccountSubject, string? Email, TeamRole Role, DateTime JoinedAtUtc);
+/// null when none is recorded; <see cref="AccountSubject"/> is the key and is never shown or logged.
+/// <see cref="Name"/> and <see cref="ShowcaseTag"/> are set only on a made-up showcase member (<see cref="TeamShowcase"/>):
+/// its display name, and the tag it was written under. A showcase member is not an account: it holds no paid seat, runs
+/// no Director, is sent no mail, and the Mentor's writer never visits it.</summary>
+public sealed record TeamMember(string AccountSubject, string? Email, TeamRole Role, DateTime JoinedAtUtc,
+    string? Name = null, string? ShowcaseTag = null)
+{
+    /// <summary>True for a made-up showcase member.</summary>
+    public bool IsShowcase => ShowcaseTag is not null;
+}
 
 /// <summary>The outcome of <see cref="TeamRegistry.CreateTeam"/>: the new team, or the reason it was refused.</summary>
 public sealed record TeamCreateResult(TeamSummary? Team, string? Refusal)

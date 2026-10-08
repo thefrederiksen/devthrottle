@@ -32,6 +32,11 @@ public sealed class TeamRequestEntity : GatewayMintedKeyEntity
 
     /// <summary>When its state last changed (UTC); the send time until the first change.</summary>
     public DateTime UpdatedAtUtc { get; set; }
+
+    /// <summary>The showcase tag this row was written under by the administrator showcase route
+    /// (<see cref="Teams.TeamShowcase"/>), or null for every real row. Removing a showcase deletes exactly the rows
+    /// carrying its tag.</summary>
+    public string? ShowcaseTag { get; set; }
 }
 
 /// <summary>
@@ -55,4 +60,9 @@ public sealed class TeamRequestChangeEntity : GatewayMintedKeyEntity
 
     /// <summary>Why, for "Not doing this" - required there; null on every other step.</summary>
     public string? Reason { get; set; }
+
+    /// <summary>The showcase tag this row was written under by the administrator showcase route
+    /// (<see cref="Teams.TeamShowcase"/>), or null for every real row. Removing a showcase deletes exactly the rows
+    /// carrying its tag.</summary>
+    public string? ShowcaseTag { get; set; }
 }

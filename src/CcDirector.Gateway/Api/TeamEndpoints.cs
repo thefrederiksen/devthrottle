@@ -495,7 +495,7 @@ internal static class TeamEndpoints
     internal static string MemberName(TeamMember member)
     {
         ArgumentNullException.ThrowIfNull(member);
-        return member.Email ?? "An account with no email recorded";
+        return TeamRegistry.DisplayName(member);
     }
 
     /// <summary>

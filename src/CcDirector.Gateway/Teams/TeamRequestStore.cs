@@ -219,13 +219,14 @@ public sealed class TeamRequestStore
         }).ToList();
     }
 
-    /// <summary>The team's members by account subject, as they are named on a trail: their email.</summary>
+    /// <summary>The team's members by account subject, as they are named on a trail: their email (or a made-up showcase
+    /// member's display name).</summary>
     private Dictionary<string, string> Names(string teamId, string caller)
     {
         var members = _teams.ListMembers(teamId, caller);
         if (members.Outcome != TeamMembersOutcome.Found)
             throw new InvalidOperationException("The caller was a member of the team a moment ago and its member list could not be read now.");
-        return members.Members.ToDictionary(m => m.AccountSubject, m => m.Email ?? "A member with no email recorded", StringComparer.Ordinal);
+        return members.Members.ToDictionary(m => m.AccountSubject, m => m.Name ?? m.Email ?? "A member with no email recorded", StringComparer.Ordinal);
     }
 
     private static string NameOf(IReadOnlyDictionary<string, string> names, string caller, string subject)

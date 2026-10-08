@@ -160,6 +160,8 @@ internal static class TeamMentorEndpoints
     internal static object Block(MentorBlock block, TeamMember member, bool isYou) => new
     {
         personEmail = member.Email,
+        // The name shown above the email - set only for a made-up showcase member, which has a name on its row.
+        personName = member.Name,
         role = TeamRoles.Label(member.Role),
         tone = block.Tone,
         toneLabel = MentorTones.Label(block.Tone),

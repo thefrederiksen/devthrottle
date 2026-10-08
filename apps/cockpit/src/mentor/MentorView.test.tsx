@@ -60,6 +60,7 @@ const ROB_QUOTE = "fix the signup thing so it doesnt break on mobile";
 
 const ROB_BLOCK: MentorBlock = {
   personEmail: "rob@example.com",
+  personName: null,
   role: "Developer",
   tone: "hard",
   toneLabel: "a hard week",
@@ -182,6 +183,15 @@ describe("MentorView", () => {
     expect(blocks()[0].getAttribute("aria-label")).toBe("Developer - no email on record");
     expect(blocks()[0].querySelector(".mentor-person")?.textContent).toBe("Developer - no email on record");
     expect(blocks()[0].querySelector(".mentor-role")).toBeNull();
+  });
+
+  it("MentorView_PersonWithAName_IsHeadedByTheNameWithTheEmailBeside", async () => {
+    stage("default", week({ blocks: [{ ...ROB_BLOCK, personName: "Mark Berg", personEmail: "mark@devthrottle.com" }] }));
+    renderAs(onTeam());
+
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    expect(blocks()[0].querySelector(".mentor-person")?.textContent).toBe("Mark Berg");
+    expect(blocks()[0].querySelector("[data-testid='mentor-person-email']")?.textContent).toBe("mark@devthrottle.com");
   });
 
   it("MentorView_Refused_HasNoPage", async () => {
