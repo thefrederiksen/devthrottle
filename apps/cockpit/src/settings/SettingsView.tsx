@@ -54,20 +54,22 @@ const cockpitSessionHref = (sessionId: string) => `/session/${encodeURIComponent
  *  or the Gateway refused the page), or unknown (the read failed - `error` says why). */
 type TeamPlanAnswer = { kind: "offered" } | { kind: "not-offered" } | { kind: "unknown"; error: string };
 
-/** The Team plan answer for the team on screen; null while it is being read. `retry` reads it again. */
-function useTeamPlanAnswer(teamId: string | null): { answer: TeamPlanAnswer | null; retry: () => void } {
-  const [held, setHeld] = useState<{ teamId: string; answer: TeamPlanAnswer } | null>(null);
+/** The Team plan answer for the team on screen; null while it is first read. `retry` reads it again, keeping the last
+ *  answer on screen until the new one lands (`retrying`), so the tab does not drop out of the strip and come back. */
+function useTeamPlanAnswer(teamId: string | null): { answer: TeamPlanAnswer | null; retrying: boolean; retry: () => void } {
+  const [held, setHeld] = useState<{ teamId: string; attempt: number; answer: TeamPlanAnswer } | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (teamId === null) return undefined;
     const controller = new AbortController();
     getTeamPage(teamId, controller.signal).then(
-      (page) => setHeld({ teamId, answer: { kind: page.bill !== null ? "offered" : "not-offered" } }),
+      (page) => setHeld({ teamId, attempt, answer: { kind: page.bill !== null ? "offered" : "not-offered" } }),
       (err) => {
         if (controller.signal.aborted) return;
         const refused = err instanceof GatewayError && err.status === 403;
         setHeld({
           teamId,
+          attempt,
           answer: refused ? { kind: "not-offered" } : { kind: "unknown", error: gatewayErrorMessage(err, "read the team's plan") },
         });
       },
@@ -75,11 +77,9 @@ function useTeamPlanAnswer(teamId: string | null): { answer: TeamPlanAnswer | nu
     return () => controller.abort();
   }, [teamId, attempt]);
   const answer = teamId === null || held === null || held.teamId !== teamId ? null : held.answer;
-  const retry = () => {
-    setHeld(null);
-    setAttempt((n) => n + 1);
-  };
-  return { answer, retry };
+  const retrying = answer !== null && held !== null && held.attempt !== attempt;
+  const retry = () => setAttempt((n) => n + 1);
+  return { answer, retrying, retry };
 }
 
 export function SettingsView() {
@@ -123,7 +123,11 @@ export function SettingsView() {
           {waiting ? (
             <LoadingState message="Opening the team..." />
           ) : tab === "teamplan" && teamPlan?.kind === "unknown" ? (
-            <ErrorBanner message={teamPlan.error} onRetry={plan.retry} />
+            plan.retrying ? (
+              <LoadingState message="Reading the team's plan again..." />
+            ) : (
+              <ErrorBanner message={teamPlan.error} onRetry={plan.retry} />
+            )
           ) : (
             <CockpitTab tab={tab} teamId={current?.id ?? null} view={params.get("view")} />
           )}

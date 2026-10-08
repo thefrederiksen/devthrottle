@@ -236,8 +236,17 @@ describe("Settings, with its tabs down the left", () => {
 
     teamPage.fail = null;
     teamPage.bill = null;
+    let answer!: () => void;
+    teamPage.answer = new Promise<void>((r) => {
+      answer = r;
+    });
     fireEvent.click(within(banner).getByRole("button", { name: "Try again" }));
 
+    // While the Retry reads, the tab stays in the strip, selected, beside a loading line - no flicker.
+    expect(await screen.findByText("Reading the team's plan again...")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Team plan" }).getAttribute("aria-selected")).toBe("true");
+
+    answer();
     expect(await screen.findByText("account tab")).toBeTruthy();
     expect(tabs()).not.toContain("Team plan");
     expect(teamPage.asked).toEqual([TEAM.id, TEAM.id]);
