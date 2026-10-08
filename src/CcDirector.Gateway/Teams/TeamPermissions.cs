@@ -84,6 +84,10 @@ public enum TeamAction
     /// <summary>Change the team's governance rules (Teams v1, the team's Governance tab). The owner's brief, 8 Oct 2026:
     /// "changed only by Owner and Manager".</summary>
     ChangeTeamGovernance,
+
+    /// <summary>Leave the team (Teams v1, rename, delete and leave): take yourself out of it. Every member but the Owner -
+    /// a team always has exactly one Owner, who deletes the team instead (transferring ownership is not in this version).</summary>
+    LeaveTheTeam,
 }
 
 /// <summary>One cell of the role table.</summary>
@@ -159,6 +163,8 @@ public static class TeamPermissions
         // Teams v1, the team's Governance tab: "seen by every member who sees the team tabs; changed only by Owner and Manager".
         new TeamPermissionRow(TeamAction.SeeTeamGovernance, "see the team's governance rules", Yes, Yes, Yes, No),
         new TeamPermissionRow(TeamAction.ChangeTeamGovernance, "change the team's governance rules", Yes, Yes, No, No),
+        // Teams v1, rename, delete and leave (owner, 8 Oct 2026): any member may leave except the Owner.
+        new TeamPermissionRow(TeamAction.LeaveTheTeam, "leave the team", No, Yes, Yes, Yes),
     };
 
     private static readonly IReadOnlyDictionary<TeamAction, TeamPermissionRow> ByAction = BuildIndex();

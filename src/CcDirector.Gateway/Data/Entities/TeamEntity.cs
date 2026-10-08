@@ -23,4 +23,17 @@ public sealed class TeamEntity
 
     /// <summary>When the team was created (UTC).</summary>
     public DateTime CreatedAtUtc { get; set; }
+
+    /// <summary>
+    /// When the Owner deleted the team (UTC), or null for a team that is live. A deleted team is GONE to every read -
+    /// the context's query filter leaves it out of every query of this table - but NOTHING IS ERASED: its skills,
+    /// workflows, requests, reports and Mentor rows stay in the database and the team can be restored by hand (clear this
+    /// column and put the Owner's membership row back - <see cref="DeletedByAccountSubject"/> names them). Erasing a
+    /// deleted team's data is a later, separate decision.
+    /// </summary>
+    public DateTime? DeletedAtUtc { get; set; }
+
+    /// <summary>The account subject of the Owner who deleted the team, kept so a hand restore can give the team its Owner
+    /// back. Personally identifying: never shown and never logged. Null for a live team.</summary>
+    public string? DeletedByAccountSubject { get; set; }
 }

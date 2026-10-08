@@ -234,6 +234,41 @@ public sealed class TeamBillStore
     }
 
     /// <summary>
+    /// END THE BILL OF A TEAM BEING DELETED (Teams v1, rename, delete and leave): an active bill - running or ending -
+    /// ends now, with auto-renew off, so the renewal pass never rolls it again. Its history stays. A team with no bill, or
+    /// one whose bill has already ended, has nothing to end. Nothing is charged, as everywhere in this store.
+    /// </summary>
+    public TeamBillEndOutcome EndForDeletedTeam(string teamId)
+    {
+        var id = RequireTeam(teamId);
+        FileLog.Write($"[TeamBillStore] EndForDeletedTeam: team {LogTeam(id)}");
+        lock (_writeLock)
+        {
+            using var ctx = _db.CreateUnscopedContext();
+            var bill = ctx.TeamBills.FirstOrDefault(b => b.TeamId == id);
+            if (bill is null)
+            {
+                FileLog.Write($"[TeamBillStore] EndForDeletedTeam: team {LogTeam(id)} never started its plan - no bill to end");
+                return TeamBillEndOutcome.NoBill;
+            }
+            if (!IsActive(bill))
+            {
+                FileLog.Write($"[TeamBillStore] EndForDeletedTeam: team {LogTeam(id)} bill had already ended");
+                return TeamBillEndOutcome.AlreadyEnded;
+            }
+
+            bill.Status = EntitlementRegistry.StatusCanceled;
+            bill.AutoRenew = false;
+            bill.UpdatedAtUtc = _utcNow();
+            bill.Version++;
+            if (!Save(ctx, "EndForDeletedTeam", id))
+                return TeamBillEndOutcome.ChangedElsewhere;
+            FileLog.Write($"[TeamBillStore] EndForDeletedTeam: team {LogTeam(id)} bill ended - the team is being deleted");
+            return TeamBillEndOutcome.Ended;
+        }
+    }
+
+    /// <summary>
     /// RECORD THE TEAM'S PAID-SEAT COUNT on its active bill: called after a membership change commits, and by the
     /// convergence pass. Returns what it found. A team with no bill, or a canceled one, has nothing to record; a bill that
     /// already carries the count is left alone.
@@ -412,6 +447,22 @@ public sealed class TeamBillStore
     }
 
     private static string LogTeam(string teamId) => new TenantId(teamId).ToLogString();
+}
+
+/// <summary>What <see cref="TeamBillStore.EndForDeletedTeam"/> did.</summary>
+public enum TeamBillEndOutcome
+{
+    /// <summary>The team never started its plan.</summary>
+    NoBill,
+
+    /// <summary>The bill had already ended.</summary>
+    AlreadyEnded,
+
+    /// <summary>An active bill was ended.</summary>
+    Ended,
+
+    /// <summary>Another writer changed the bill at the same moment; nothing was saved.</summary>
+    ChangedElsewhere,
 }
 
 /// <summary>What <see cref="TeamBillStore.RecordSeats"/> found.</summary>

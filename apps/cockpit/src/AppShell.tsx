@@ -323,13 +323,8 @@ function ShellFrame() {
                 {wholeAppTeam !== null && (
                   <TeamBlock team={wholeAppTeam} counts={teamPageCounts} location={location} collapsed={collapsed} />
                 )}
-                {/* Whose fleet Set up changes follows the team on screen, as the mockup reads. */}
-                <NavSection
-                  label="Set up"
-                  sub={wholeAppTeam !== null ? "the team's fleet" : "your fleet"}
-                  collapsed={collapsed}
-                  testId="nav-setup"
-                >
+                {/* "Set up" alone (owner, 8 Oct 2026): the line under it naming whose fleet it changes is gone in both states. */}
+                <NavSection label="Set up" collapsed={collapsed} testId="nav-setup">
                   <NavList items={NAV_SETUP} location={location} collapsed={collapsed} />
                 </NavSection>
               </>
@@ -426,18 +421,16 @@ function TeamBlock({
   );
 }
 
-// One labelled section of the menu: a readable label (and, for Set up, whose fleet it is), then its rows. Collapsed to
+// One labelled section of the menu: a readable label, then its rows. Collapsed to
 // icons, a thin line stands in for the label. The label names the group for a screen reader too.
 function NavSection({
   label,
-  sub,
   collapsed,
   testId,
   team = false,
   children,
 }: {
   label: string;
-  sub?: string;
   collapsed: boolean;
   testId: string;
   team?: boolean;
@@ -447,7 +440,7 @@ function NavSection({
     <div
       className={team ? "nav-section nav-section-team" : "nav-section"}
       role="group"
-      aria-label={sub === undefined ? label : `${label}, ${sub}`}
+      aria-label={label}
       data-testid={testId}
     >
       {collapsed ? (
@@ -455,7 +448,6 @@ function NavSection({
       ) : (
         <div className="nav-section-heading" aria-hidden="true" title={label} data-testid={`${testId}-heading`}>
           <span className="nav-section-label">{label}</span>
-          {sub !== undefined && <span className="nav-section-sub">{sub}</span>}
         </div>
       )}
       {children}

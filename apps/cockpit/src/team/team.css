@@ -3,6 +3,14 @@
    whose edge turns --accent on focus. */
 
 .team-page { max-width: 760px; }
+
+/* "The team" card (Teams v1, rename, delete and leave): the name with Rename beside it, then the red control below a
+   rule, with the Gateway's sentence when Delete is not available yet. */
+.team-manage-name-row { display: flex; gap: 12px; align-items: center; }
+.team-manage-name { font-size: 15px; font-weight: 600; color: var(--text); }
+.team-manage-danger { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 14px; }
+.team-manage-danger .team-hint { margin: 8px 0 0; }
+.team-manage-warning { margin: 0 0 12px; }
 .team-card {
   background: var(--surface);
   border: 1px solid var(--border);

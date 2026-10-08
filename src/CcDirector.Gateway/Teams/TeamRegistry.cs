@@ -46,8 +46,8 @@ public sealed partial class TeamRegistry
 
     // What IsTeam has SETTLED about a tenant id, so the question every request asks costs no database read once
     // answered (review finding F4). Only a settled answer is kept: true for a team's id, false for a PERSONAL account's
-    // id (a row in the tenants table). Both are final - ids are minted separately and never reused, and teams are not
-    // deleted in the first version (deleting one must remove its entry here). An id that is in neither table is not
+    // id (a row in the tenants table). Both are final - ids are minted separately and never reused, and a DELETED team
+    // stays a team's id (see IsTeam), so deleting one changes nothing here. An id that is in neither table is not
     // kept, so it is asked again next time: a team created by ANOTHER process is learned on its first request, and the
     // answer never fails open to "not a team" from memory alone.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _settled = new(StringComparer.Ordinal);
@@ -162,6 +162,10 @@ public sealed partial class TeamRegistry
     /// <see cref="TeamEndpointGate"/>. Answered from memory once settled; a tenant that is neither a known team nor a
     /// known personal account is read from the database every time, so a team this process did not create is still
     /// recognised (fail closed, review finding F4).
+    ///
+    /// A DELETED team's tenant is still a team's tenant here - the one read that looks past the deleted-team filter. A key
+    /// bound to it must be refused as a team request whose person is no longer a member, never mistaken for a personal
+    /// account, which would fail open.
     /// </summary>
     public bool IsTeam(TenantId tenant)
     {
@@ -173,7 +177,7 @@ public sealed partial class TeamRegistry
             return known;
 
         using var ctx = _db.CreateUnscopedContext();
-        if (ctx.Teams.AsNoTracking().Any(t => t.Id == id))
+        if (ctx.Teams.IgnoreQueryFilters().AsNoTracking().Any(t => t.Id == id))
         {
             _settled[id] = true;
             FileLog.Write($"[TeamRegistry] IsTeam: {LogTeam(id)} read from the database - a team");

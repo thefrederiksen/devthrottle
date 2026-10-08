@@ -33,6 +33,10 @@ vi.mock("@devthrottle/client-core/teams/teamPageClient", () => ({
   changeMemberRole: (teamId: string, memberId: string, role: string) => client.changeMemberRole(teamId, memberId, role),
   removeMember: (teamId: string, memberId: string) => client.removeMember(teamId, memberId),
 }));
+// "The team" card under the list reads the current team; its own tests are teamManage.test.tsx.
+vi.mock("@devthrottle/client-core/teams/CurrentTeam", () => ({
+  useCurrentTeam: () => ({ choose: vi.fn(), refresh: vi.fn() }),
+}));
 const invitations = { resendInvitation: vi.fn(), cancelInvitation: vi.fn() };
 vi.mock("@devthrottle/client-core/teams/invitationsClient", () => ({
   resendInvitation: (...a: unknown[]) => invitations.resendInvitation(...a),
@@ -87,14 +91,25 @@ function ownerPage(): TeamPage {
     }],
     // The Billing section has its own tests (teamBilling.test.tsx); these are about the member list.
     bill: null,
+    manage: {
+      canRename: true, canDelete: false, deleteBlocked: "4 other people are still in the team. Remove everyone else first.",
+      deleteWarning: "Deleting DevThrottle ends the team plan.", canLeave: false, leaveWarning: null,
+    },
   };
 }
+
+/** What every member but the Owner is offered about the team itself: Leave. */
+const MEMBER_MANAGE: TeamPage["manage"] = {
+  canRename: false, canDelete: false, deleteBlocked: null, deleteWarning: null,
+  canLeave: true, leaveWarning: "You will leave DevThrottle at once.",
+};
 
 /** The Manager's answer: no dropdowns; Remove only on Developers and Collaborators. */
 function managerPage(): TeamPage {
   return {
     ...ownerPage(),
     yourRole: "Manager",
+    manage: MEMBER_MANAGE,
     members: [
       member("soren", "Owner"),
       member("priya", "Manager", { isYou: true }),
@@ -110,6 +125,7 @@ function developerPage(): TeamPage {
   return {
     ...ownerPage(),
     yourRole: "Developer",
+    manage: MEMBER_MANAGE,
     summary: "3 paid seats, 2 Collaborators (no charge)",
     canInvite: false,
     members: [
@@ -228,7 +244,7 @@ describe("the Team page, per role", () => {
     expect(screen.getByRole("link", { name: "Invite someone" })).toBeTruthy();
   });
 
-  it("Developer: the list, and nothing to click", async () => {
+  it("Developer: the list, and nothing to click in it - only Leave this team, below it", async () => {
     client.getTeamPage.mockResolvedValue(developerPage());
     renderAt(PATH);
 
@@ -236,7 +252,8 @@ describe("the Team page, per role", () => {
     expect(screen.getByText("rob@devthrottle.com")).toBeTruthy();
     expect(screen.getByText("3 paid seats, 2 Collaborators (no charge)")).toBeTruthy();
     expect(screen.queryAllByRole("combobox")).toHaveLength(0);
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(within(screen.getByRole("region", { name: "Members" })).queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryAllByRole("button").map((b) => b.textContent)).toEqual(["Leave this team"]);
     expect(screen.queryByRole("link", { name: "Invite someone" })).toBeNull();
   });
 

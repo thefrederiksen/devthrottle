@@ -80,7 +80,9 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
             Assert.Equal("20261008191540_AddTeamGovernance", all[index + 27]);
             // A factory's one-line purpose (the Factories cards, 8 Oct 2026), after that.
             Assert.Equal("20261008200000_AddFactoryPurpose", all[index + 28]);
-            Assert.Equal(index + 29, all.Count);
+            // The deleted-team columns (Teams v1, rename, delete and leave), after that.
+            Assert.Equal("20261008211952_AddTeamDeletedAt", all[index + 29]);
+            Assert.Equal(index + 30, all.Count);
 
             // From an EMPTY database to the schema just before, with a stop stored as step 4 stores it.
             Assert.Empty(context.Database.GetAppliedMigrations());

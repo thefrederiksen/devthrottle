@@ -1655,6 +1655,14 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
             b.Property(e => e.Name).HasColumnName("name").IsRequired().HasMaxLength(CcDirector.Gateway.Teams.TeamRegistry.MaxNameLength);
             b.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            b.Property(e => e.DeletedAtUtc).HasColumnName("deleted_at_utc");
+            b.Property(e => e.DeletedByAccountSubject).HasColumnName("deleted_by_account_subject");
+            // A DELETED TEAM IS GONE TO EVERY READ (Teams v1, rename, delete and leave). Every query of this table - the
+            // team list, the member list, invitations, the bill, enrollment, the tenant census the background sweeps walk -
+            // leaves a deleted team out, so no read can forget to. The one deliberate exception is TeamRegistry.IsTeam,
+            // which still recognises a deleted team's tenant so a key bound to it is refused as a team request rather than
+            // treated as a personal account.
+            b.HasQueryFilter(e => e.DeletedAtUtc == null);
         });
 
         modelBuilder.Entity<TeamMemberEntity>(b =>

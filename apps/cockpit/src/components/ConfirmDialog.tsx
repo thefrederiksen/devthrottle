@@ -41,6 +41,9 @@ export interface ConfirmDialogProps {
   danger?: boolean;
   /** The confirm button label while the action runs; defaults to "Working...". */
   busyLabel?: string;
+  /** Holds the confirm button disabled until the person has done what the dialog requires - for example, typed the name
+   *  of what is being deleted. Defaults to false. */
+  confirmDisabled?: boolean;
   /** Runs when the person confirms. Return a promise to have the dialog show a busy state and, on a
    *  thrown error, surface it inline. */
   onConfirm: () => void | Promise<void>;
@@ -63,6 +66,7 @@ export function ConfirmDialog({
   cancelLabel = "Cancel",
   danger = true,
   busyLabel = "Working...",
+  confirmDisabled = false,
   onConfirm,
   action,
   onClose,
@@ -130,7 +134,7 @@ export function ConfirmDialog({
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             {cancelLabel}
           </Button>
-          <Button variant={danger ? "danger" : "primary"} disabled={busy} onClick={() => void runConfirm()}>
+          <Button variant={danger ? "danger" : "primary"} disabled={busy || confirmDisabled} onClick={() => void runConfirm()}>
             {busy ? busyLabel : confirmLabel}
           </Button>
         </div>
