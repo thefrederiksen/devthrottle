@@ -1075,7 +1075,7 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("ArchivedSchedulesJson")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("CeoSeat")
+                    b.Property<string>("BossSeat")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 

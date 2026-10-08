@@ -14,8 +14,8 @@ import { OwnerActionButton, TalkButton, ToneChip } from "./FactoryParts";
 import { WaitingItem } from "./FactoryWaitingView";
 import "./factory.css";
 
-// One factory's page (Factories screen mission, mockups 2 and 3): the header - name, status, CEO, seat count, the
-// computer it runs on, and Talk to the CEO - then the tabs the Gateway offers: Overview, Seats (n), Activity,
+// One factory's page (Factories screen mission, mockups 2 and 3): the header - name, status, the boss, seat count, the
+// computer it runs on, and Talk to the boss - then the tabs the Gateway offers: Overview, Seats (n), Activity,
 // Reports, Memory and Documents. Each tab has its own address (/factories/<id>/<tab>; the Overview is the page's own
 // address), and a tab the Gateway did not offer opens the Overview.
 //
@@ -68,7 +68,7 @@ export function FactoryView() {
             </p>
           )}
           <div className="fa-factory-facts" data-testid="fa-factory-facts">
-            <span>{page.ceoText}</span>
+            <span>{page.bossText}</span>
             <span>{page.seatCountText}</span>
             <span>{page.computerText}</span>
           </div>
@@ -146,7 +146,7 @@ function Overview({
   onChanged: () => void;
   onDone: (resultText: string) => void;
 }) {
-  const { goal, goalNumber, failures, waiting, ceoLatest, lastTalk } = page;
+  const { goal, goalNumber, failures, waiting, bossLatest, lastTalk } = page;
   return (
     <div className="fa-overview" data-testid="fa-overview">
       {failures !== null && <FailuresCard factory={page.id} failures={failures} onChanged={onChanged} />}
@@ -197,19 +197,19 @@ function Overview({
         )}
       </section>
 
-      <section className="fa-panel" data-testid="fa-ceo-latest">
-        <h2 className="fa-section-title">{ceoLatest.heading}</h2>
-        {ceoLatest.emptyText !== null && <p className="fa-dim">{ceoLatest.emptyText}</p>}
-        {ceoLatest.lines.length > 0 && (
+      <section className="fa-panel" data-testid="fa-boss-latest">
+        <h2 className="fa-section-title">{bossLatest.heading}</h2>
+        {bossLatest.emptyText !== null && <p className="fa-dim">{bossLatest.emptyText}</p>}
+        {bossLatest.lines.length > 0 && (
           <ul className="fa-lines dt-private">
-            {ceoLatest.lines.map((line, i) => (
+            {bossLatest.lines.map((line, i) => (
               <li key={i}>{line}</li>
             ))}
           </ul>
         )}
-        {ceoLatest.allHref !== null && (
-          <Link className="fa-link" to={ceoLatest.allHref}>
-            {ceoLatest.allLabel}
+        {bossLatest.allHref !== null && (
+          <Link className="fa-link" to={bossLatest.allHref}>
+            {bossLatest.allLabel}
           </Link>
         )}
       </section>

@@ -7,9 +7,9 @@ import { join } from "node:path";
 import { GatewayError } from "@devthrottle/client-core/api/client";
 
 // The Factories screen (Factories screen mission, phase D). What is held down:
-//   * the list renders the Gateway's rows verbatim - name, waiting text, status chip, and the CEO's Talk button or the
-//     "No CEO" text - in the order the owner picked (Name A to Z the first time), and the "All factory agents" tab is
-//     gone;
+//   * the list renders the Gateway's rows verbatim - name, waiting text, status chip, and the boss's Talk button or the
+//     "No boss named" text - in the order the owner picked (Name A to Z the first time), and the "All factory agents"
+//     tab is gone;
 //   * a row opens its factory's page;
 //   * the factory page shows the header, the Overview cards and the tabs exactly as folded, and its computer is
 //     just the computer's name - no "change - coming" label;
@@ -95,7 +95,7 @@ beforeEach(() => {
 });
 
 describe("Factories - the list (mockup 1)", () => {
-  it("renders every row verbatim, by name A to Z the first time, with the CEO's Talk button or No CEO", async () => {
+  it("renders every row verbatim, by name A to Z the first time, with the boss's Talk button or No boss named", async () => {
     renderAt("/factories");
 
     const list = await screen.findByTestId("fa-factories-list");
@@ -111,8 +111,8 @@ describe("Factories - the list (mockup 1)", () => {
     const chip = within(warm).getByText("NEEDS YOU-X");
     expect(chip.className).toContain("fa-tone-amber");
     expect(chip.getAttribute("title")).toBe("1 question waiting on you.");
-    expect(within(warm).getByRole("button", { name: "Talk to Nora Hale" })).toBeTruthy();
-    expect(within(rows[1]).getByText("No CEO")).toBeTruthy();
+    expect(within(warm).getByRole("button", { name: "Talk to the boss" })).toBeTruthy();
+    expect(within(rows[1]).getByText("No boss named")).toBeTruthy();
     expect(within(rows[1]).queryByRole("button")).toBeNull();
     expect(Array.from(list.querySelectorAll("[role=columnheader]")).map((h) => h.textContent)).toEqual([
       "Factory ^",
@@ -192,38 +192,42 @@ describe("Factories - the list (mockup 1)", () => {
 });
 
 describe("Factories - Talk", () => {
+  // Every boss's button says the same words, so the WarmForward row is found by its row, not by the label.
+  const warmTalk = async () =>
+    within(await screen.findByTestId("fa-factory-warmforward")).getByRole("button", { name: "Talk to the boss" });
+
   it("shows it is working at once, then opens the session the Gateway started", async () => {
     let finish: (v: unknown) => void = () => {};
     screenClient.startFactoryTalk.mockReturnValue(new Promise((r) => (finish = r)));
     renderAt("/factories");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Talk to Nora Hale" }));
+    fireEvent.click(await warmTalk());
     // The busy words are the Gateway's, like the button's own label.
-    const busy = await screen.findByRole("button", { name: "Starting the talk with Nora Hale (fixture)..." });
+    const busy = await screen.findByRole("button", { name: "Starting the talk with the boss (fixture)..." });
     expect((busy as HTMLButtonElement).disabled).toBe(true);
     expect(busy.getAttribute("aria-busy")).toBe("true");
     expect(screenClient.startFactoryTalk).toHaveBeenCalledWith({
-      label: "Talk to Nora Hale",
-      busyLabel: "Starting the talk with Nora Hale (fixture)...",
+      label: "Talk to the boss",
+      busyLabel: "Starting the talk with the boss (fixture)...",
       factoryId: "warmforward",
       seatId: "nora-hale",
     });
     // The Talk button sits in a clickable row: pressing it did not also open the factory.
     expect(where()).toBe("/factories");
 
-    finish({ sessionId: "abc-123", sessionName: "WarmForward - Nora Hale - talk with the owner", href: "/session/abc-123" });
+    finish({ sessionId: "abc-123", sessionName: "WarmForward - Boss - talk with the owner", href: "/session/abc-123" });
     await waitFor(() => expect(where()).toBe("/session/abc-123"));
   });
 
   it("shows the Gateway's own sentence when it refuses, and the button can be pressed again", async () => {
-    const sentence = "No Director is running on SOREN_NORTH, the computer Nora Hale runs on, so the talk was not started.";
+    const sentence = "No Director is running on SOREN_NORTH, the computer Boss runs on, so the talk was not started.";
     screenClient.startFactoryTalk.mockRejectedValue(new GatewayError(409, sentence, { reason: sentence }));
     renderAt("/factories");
 
-    fireEvent.click(await screen.findByRole("button", { name: "Talk to Nora Hale" }));
+    fireEvent.click(await warmTalk());
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(sentence);
-    expect((screen.getByRole("button", { name: "Talk to Nora Hale" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(((await warmTalk()) as HTMLButtonElement).disabled).toBe(false);
     expect(where()).toBe("/factories");
   });
 });
@@ -235,16 +239,16 @@ describe("A factory's page (mockup 2)", () => {
     await screen.findByTestId("fa-overview");
     expect(screen.getByRole("navigation", { name: "Breadcrumb" }).textContent).toBe("Factories / WarmForward");
     expect(screen.getByRole("link", { name: "Factories" }).getAttribute("href")).toBe("/factories");
-    expect(screen.getByTestId("fa-factory-facts").textContent).toContain("CEO Nora Hale");
+    expect(screen.getByTestId("fa-factory-facts").textContent).toContain("Boss");
     expect(screen.getByTestId("fa-factory-facts").textContent).toContain("4 seats");
     expect(screen.getByTestId("fa-factory-facts").textContent).toContain("runs on SOREN_NORTH");
     expect(screen.getByTestId("fa-factory-facts").textContent).not.toContain("change - coming");
     expect(screen.queryByTestId("fa-coming")).toBeNull();
-    expect(screen.getByRole("button", { name: "Talk to Nora Hale" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Talk to the boss" })).toBeTruthy();
 
     expect(screen.getByText("A cash engine of $15,000-$40,000 a year that runs without your time.")).toBeTruthy();
     expect(screen.getByText("Only you change the goal. Approved 4 Oct 2026.")).toBeTruthy();
-    expect(screen.getByText("Goal number - posted by Nora Hale, today 06:20")).toBeTruthy();
+    expect(screen.getByText("Goal number - posted by Boss, today 06:20")).toBeTruthy();
     expect(screen.getByText("Propane saved this season: not yet proven")).toBeTruthy();
     expect(screen.getByText("How it is measured").getAttribute("href")).toBe("/fixture/how-it-is-measured");
     expect(screen.getByText("Is the Bunkie Bathroom meant to be at 20 C?")).toBeTruthy();
@@ -269,11 +273,11 @@ describe("A factory's page (mockup 2)", () => {
     expect(tabs[0].getAttribute("aria-current")).toBe("page");
   });
 
-  it("says no goal and no number in the Gateway's words when there are none, and has no Talk without a CEO", async () => {
+  it("says no goal and no number in the Gateway's words when there are none, and has no Talk without a boss", async () => {
     screenClient.getFactoryPage.mockResolvedValue({
       ...FACTORY_PAGE,
       talk: null,
-      ceoText: "No CEO",
+      bossText: "No boss named",
       goal: { heading: "Goal", text: null, note: null, emptyText: "No goal set yet" },
       goalNumber: { heading: "Goal number", valueText: null, asOfText: null, linkHref: null, linkLabel: null, emptyText: "No number posted yet" },
     });
@@ -317,14 +321,14 @@ describe("A factory's Seats tab (mockup 3)", () => {
       "",
     ]);
     const nora = within(table).getByTestId("fa-seat-nora-hale");
-    expect(within(nora).getByText("Nora Hale")).toBeTruthy();
-    expect(within(nora).getByText("CEO")).toBeTruthy();
+    // The boss has no name of its own: the row says Boss as its name and Boss as its role.
+    expect(within(nora).getAllByText("Boss")).toHaveLength(2);
     expect(within(nora).getByText("Daily 06:15")).toBeTruthy();
     expect(within(nora).getByText("Today 06:20 - succeeded").className).toContain("fa-tone-ok");
     expect(within(nora).getByText("SOREN_NORTH").tagName).toBe("TD");
     expect(within(table).queryByText(/change - coming/)).toBeNull();
     expect(within(within(table).getByTestId("fa-seat-value-hunter")).getByText("Not run yet")).toBeTruthy();
-    expect(screen.getByText("Only seats the CEO hired are listed.")).toBeTruthy();
+    expect(screen.getByText("Only seats the boss hired are listed.")).toBeTruthy();
     expect(screenClient.getFactorySeats).toHaveBeenCalledWith("warmforward", expect.anything());
   });
 

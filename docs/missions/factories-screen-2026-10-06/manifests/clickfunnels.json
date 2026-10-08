@@ -3,12 +3,12 @@
   "title": "ClickFunnels",
   "folder": "D:\\ReposFred\\cc-clickfunnels\\factory",
   "computer": "SOREN_NORTH",
-  "ceoSeat": "ceo",
+  "bossSeat": "ceo",
   "seats": [
     {
       "id": "ceo",
-      "name": "Hazel Morgan",
-      "role": "CEO",
+      "name": "Boss",
+      "role": "Boss",
       "briefFile": "agents/ceo.yaml",
       "schedules": [
         "cj_3c7722"

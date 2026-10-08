@@ -19,12 +19,12 @@ public sealed class FactoryNotRegisteredException : Exception
 /// <summary>
 /// THE FACTORY REGISTRY AND ITS GOAL NUMBERS (Factories screen mission, phase A).
 ///
-/// The registry holds one row per factory: its title, folder, computer, CEO, goal and seats. It is written by
+/// The registry holds one row per factory: its title, folder, computer, boss, goal and seats. It is written by
 /// <c>cc-devthrottle factory register --manifest</c> and is what the owner's Factories screen lists, so a factory
 /// that never wrote an activity row is still on the screen, and a session that merely wrote one is never mistaken
 /// for a seat. Registering again replaces the whole row.
 ///
-/// The goal numbers are what a factory's CEO posts on every run: the number its goal is measured by. Every post is
+/// The goal numbers are what a factory's boss posts on every run: the number its goal is measured by. Every post is
 /// kept; the newest is the one shown. A number can only be posted for a registered factory and only by one of its
 /// seats, because "posted by Nora Hale" on the owner's screen is a claim about a seat, and an unknown name there
 /// would be a claim nobody can check.
@@ -295,11 +295,23 @@ public sealed partial class FactoryRegistryStore
 
     // ---------- the rules ----------
 
+    /// <summary>The keys a manifest may carry, as the refusal names them (the same list the command line enforces).</summary>
+    private const string KnownManifestKeys = "factory, title, folder, computer, bossSeat, goalText, goalFile, goalApprovedOn and seats";
+
     /// <summary>Every rule a manifest must meet. Returns the row to store (without tenant and registrar) or
     /// throws with the first rule it breaks.</summary>
     internal static FactoryRegistryEntity Validate(RegisterFactoryRequest? m)
     {
         if (m is null) throw Refuse("A factory manifest body is required.");
+        if (m.UnknownKeys is { Count: > 0 })
+        {
+            // Never dropped without a word (the Item B review, 8 October 2026): the old key would have bound a factory
+            // with no boss, and the screen would have said "No boss named" with no error anywhere.
+            var key = m.UnknownKeys.Keys.First();
+            if (string.Equals(key, "ceoSeat", StringComparison.OrdinalIgnoreCase))
+                throw Refuse("The manifest's key 'ceoSeat' was renamed 'bossSeat' on 8 October 2026. Rename the key and register again; the boss seat keeps its id.");
+            throw Refuse($"The manifest has a key the Gateway does not know: '{key}'. A manifest's keys are {KnownManifestKeys}.");
+        }
         var factory = FactoryId(m.Factory);
         var title = Required(m.Title, "title", MaxTitleChars);
         var folder = Required(m.Folder, "folder", MaxFolderChars);
@@ -356,12 +368,19 @@ public sealed partial class FactoryRegistryStore
             });
         }
 
-        string? ceo = null;
-        if (m.CeoSeat is not null)
+        string? boss = null;
+        if (m.BossSeat is not null)
         {
-            if (!FactoryNames.TrySeat(m.CeoSeat, out var ceoId, out _) || !ids.Contains(ceoId))
-                throw Refuse($"The CEO seat '{m.CeoSeat}' is not one of the factory's seats ({string.Join(", ", ids)}).");
-            ceo = ceoId;
+            if (!FactoryNames.TrySeat(m.BossSeat, out var bossId, out _) || !ids.Contains(bossId))
+                throw Refuse($"The boss seat '{m.BossSeat}' is not one of the factory's seats ({string.Join(", ", ids)}).");
+            // The boss has no name of its own (the owner's ruling of 8 October 2026): it is the boss of this factory,
+            // and its registered name is the word Boss. A manifest that names a person is refused with the fix rather
+            // than quietly shown as "the boss", so the data and the screen never disagree. The ROLE may be a distinct
+            // word the factory chose (CFO); "Boss" when it has none.
+            var bossSeat = seats.First(s => string.Equals(s.Id, bossId, StringComparison.OrdinalIgnoreCase));
+            if (!string.Equals(bossSeat.Name, FactoriesScreenFold.BossRoleWord, StringComparison.Ordinal))
+                throw Refuse($"The boss seat '{bossId}' is named '{bossSeat.Name}'. The boss has no name of its own: set its name to \"{FactoriesScreenFold.BossRoleWord}\" (its role may stay '{bossSeat.Role}').");
+            boss = bossId;
         }
 
         return new FactoryRegistryEntity
@@ -370,7 +389,7 @@ public sealed partial class FactoryRegistryStore
             Title = title,
             Folder = folder,
             Computer = computer,
-            CeoSeat = ceo,
+            BossSeat = boss,
             GoalText = goalText,
             GoalFile = goalFile,
             GoalApprovedOn = approved,
@@ -491,7 +510,7 @@ public sealed partial class FactoryRegistryStore
         Title = e.Title,
         Folder = e.Folder,
         Computer = e.Computer,
-        CeoSeat = e.CeoSeat,
+        BossSeat = e.BossSeat,
         GoalText = e.GoalText,
         GoalFile = e.GoalFile,
         GoalApprovedOn = e.GoalApprovedOn,

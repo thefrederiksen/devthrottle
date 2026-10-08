@@ -15,7 +15,6 @@ import {
   initialsOf,
   loadFactoriesView,
   saveFactoriesView,
-  shortTalkLabel,
   type FactoriesViewMode,
   type FactoryGroup,
 } from "./factoriesCards";
@@ -34,7 +33,7 @@ import {
 import "./factory.css";
 
 // Factories (Factories screen mission, mockups 1 and 4): three tabs - Factories, Activity and Reports. The Factories
-// tab is one row per factory - name, what is waiting on the owner, status, and the CEO's Talk button. Every word and
+// tab is one row per factory - name, what is waiting on the owner, status, and the boss's Talk button. Every word and
 // tone is the Gateway's (FactoriesScreenFold), rendered verbatim (rule 7). The ORDER is the owner's: a "Sort by"
 // control and clickable column headings (factoriesSort.ts), remembered in this browser, Name A to Z the first time.
 // The page keeps the chosen tab in the address. At phone width the same rows become cards (factory.css).
@@ -275,7 +274,7 @@ function FactoriesList({ view, onChanged }: { view: FactoriesListView; onChanged
               {row.talk !== null ? (
                 <TalkButton talk={row.talk} variant="secondary" />
               ) : (
-                <span className="fa-dim">{row.noCeoText}</span>
+                <span className="fa-dim">{row.noBossText}</span>
               )}
             </span>
           </div>
@@ -319,8 +318,8 @@ function FactoryCardGroup({ group }: { group: FactoryGroup }) {
 
 /**
  * One factory as a card (mockup B). Every word is the Gateway's: the name, the status word and its reason, the status
- * line, the purpose, the head's name and the Talk button's words - the card only shortens "Talk to Nora Hale" to
- * "Talk to Nora" and draws the head's initials. A RUNNING row has no status line from the Gateway and the card shows
+ * line, the purpose, the boss's role word (never a person's name) and the Talk button's words - the card only draws
+ * the role word's initial. A RUNNING row has no status line from the Gateway and the card shows
  * none. The status line is cut to three lines here; the full line is on the factory's page, which the name opens.
  * The purpose, the status (word, reason and line) and the waiting text carry the dt-private class on the card and in
  * the table (owner ruling, 8 Oct 2026), so a demo mode can blank them.
@@ -359,26 +358,26 @@ function FactoryCard({ row, groupKey }: { row: FactoryListRow; groupKey: Factory
         </Link>
       )}
       <div className="fa-card-bottom">
-        {row.headName !== null && row.talk !== null ? (
+        {row.bossName !== null && row.talk !== null ? (
           <>
             <div className="fa-card-head">
               <span className="fa-avatar" aria-hidden="true">
-                {initialsOf(row.headName)}
+                {initialsOf(row.bossName)}
               </span>
               <span className="fa-card-head-text">
-                <b data-testid="fa-card-head-name">{row.headName}</b>
+                <b data-testid="fa-card-boss-name">{row.bossName}</b>
                 <span className="fa-dim">runs it</span>
               </span>
             </div>
-            <TalkButton talk={{ ...row.talk, label: shortTalkLabel(row.talk.label, row.headName) }} variant="secondary" />
+            <TalkButton talk={row.talk} variant="secondary" />
           </>
         ) : (
           <div className="fa-card-head">
             <span className="fa-avatar fa-avatar-none" aria-hidden="true">
               -
             </span>
-            <span className="fa-dim" data-testid="fa-card-no-head">
-              {row.noCeoText}
+            <span className="fa-dim" data-testid="fa-card-no-boss">
+              {row.noBossText}
             </span>
           </div>
         )}

@@ -54,6 +54,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20261008191540_AddTeamGovernance",
         "20261008200000_AddFactoryPurpose",
         "20261008211957_AddTeamShowcase",
+        "20261008220200_RenameCeoSeatToBossSeat",
     })]
     [InlineData("postgres", new[]
     {
@@ -90,6 +91,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20261008191614_AddTeamGovernance",
         "20261008200010_AddFactoryPurpose",
         "20261008212232_AddTeamShowcase",
+        "20261008220319_RenameCeoSeatToBossSeat",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {

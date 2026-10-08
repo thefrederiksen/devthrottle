@@ -87,22 +87,6 @@ export function initialsOf(name: string): string {
   return (parts[0].slice(0, 1) + parts[parts.length - 1].slice(0, 1)).toUpperCase();
 }
 
-/** "Nora Hale" -> "Nora". */
-export function firstNameOf(name: string): string {
-  const parts = name.trim().split(/\s+/).filter((p) => p.length > 0);
-  return parts.length === 0 ? name.trim() : parts[0];
-}
-
-/**
- * The card's Talk label: "Talk to Nora" when the button names the head ("Talk to Nora Hale"); any other label the
- * Gateway chose - "Talk to the CEO" when two heads share a name - is kept as it is.
- */
-export function shortTalkLabel(label: string, headName: string | null): string {
-  if (headName === null) return label;
-  const full = `Talk to ${headName}`;
-  return label === full ? `Talk to ${firstNameOf(headName)}` : label;
-}
-
 /** The view this browser remembers, or Cards when it remembers none (or storage is off or holds junk). */
 export function loadFactoriesView(): FactoriesViewMode {
   let raw: string | null;

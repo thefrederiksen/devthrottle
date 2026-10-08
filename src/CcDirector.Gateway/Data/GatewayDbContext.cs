@@ -284,7 +284,7 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>The registered factories, one row per factory (Factories screen mission, phase A).</summary>
     public DbSet<FactoryRegistryEntity> FactoryRegistry => Set<FactoryRegistryEntity>();
 
-    /// <summary>Every goal number a factory's CEO posted (Factories screen mission, phase A).</summary>
+    /// <summary>Every goal number a factory's boss posted (Factories screen mission, phase A).</summary>
     public DbSet<FactoryGoalNumberEntity> FactoryGoalNumbers => Set<FactoryGoalNumberEntity>();
 
     /// <summary>The durable repository catalog used by machine-scoped session creation search.</summary>
@@ -1209,7 +1209,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Title).HasMaxLength(120);
             b.Property(e => e.Folder).HasMaxLength(1024);
             b.Property(e => e.Computer).HasMaxLength(128);
-            b.Property(e => e.CeoSeat).HasMaxLength(64);
+            b.Property(e => e.BossSeat).HasMaxLength(64);
             b.Property(e => e.GoalFile).HasMaxLength(512);
             b.Property(e => e.GoalApprovedOn).HasMaxLength(10);
             b.Property(e => e.Purpose).HasMaxLength(120);

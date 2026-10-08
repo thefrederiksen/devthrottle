@@ -121,7 +121,9 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20261008200010_AddFactoryPurpose", all[index + 27]);
             // The team showcase's tag, and a made-up member's name and email (team showcase, 8 Oct 2026), after that.
             Assert.Equal("20261008212232_AddTeamShowcase", all[index + 28]);
-            Assert.Equal(index + 29, all.Count);
+            // The factory registry's boss seat column, renamed from CeoSeat (Factory Design and Improvements), after that.
+            Assert.Equal("20261008220319_RenameCeoSeatToBossSeat", all[index + 29]);
+            Assert.Equal(index + 30, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

@@ -3,12 +3,12 @@
   "title": "Tallyhand",
   "folder": "D:\\ReposFred\\cc-consult\\ideas\\tallyhand",
   "computer": "SOREN_NORTH",
-  "ceoSeat": "ceo",
+  "bossSeat": "ceo",
   "seats": [
     {
       "id": "ceo",
-      "name": "Max Ridley",
-      "role": "CEO",
+      "name": "Boss",
+      "role": "Boss",
       "briefFile": "CEO-BRIEF.md",
       "schedules": []
     },

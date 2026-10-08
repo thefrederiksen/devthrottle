@@ -32,8 +32,8 @@ public sealed class FactoryTalkLastTalkEndToEndTests : IDisposable
         Title = "WarmForward",
         Folder = @"D:\ReposFred\cc-consult\ideas\warmforward-factory",
         Computer = "SOREN_NORTH",
-        CeoSeat = "nora-hale",
-        Seats = { new FactorySeatManifest { Id = "nora-hale", Name = "Nora Hale", Role = "CEO", BriefFile = "agents/ceo.yaml" } },
+        BossSeat = "nora-hale",
+        Seats = { new FactorySeatManifest { Id = "nora-hale", Name = "Boss", Role = "Boss", BriefFile = "agents/ceo.yaml" } },
     };
 
     [Fact]

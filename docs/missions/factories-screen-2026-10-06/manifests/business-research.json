@@ -3,12 +3,12 @@
   "title": "Business Research",
   "folder": "D:\\ReposFred\\cc-consult\\ideas\\business-research\\factory",
   "computer": "SOREN_NORTH",
-  "ceoSeat": "ceo",
+  "bossSeat": "ceo",
   "seats": [
     {
       "id": "ceo",
-      "name": "Victor Lane",
-      "role": "CEO",
+      "name": "Boss",
+      "role": "Boss",
       "briefFile": "agents/ceo.yaml",
       "schedules": [
         "cj_ebe3cd"
