@@ -211,6 +211,13 @@ public sealed class FactoryListRowDto
 
     /// <summary>"No head named" when <see cref="Talk"/> is null, else null.</summary>
     public string? NoCeoText { get; set; }
+
+    /// <summary>The factory's one-line purpose from the registry ("Builds and sells websites for local trades"),
+    /// shown under the name on its card; null when none is set.</summary>
+    public string? Purpose { get; set; }
+
+    /// <summary>The head's name ("Nora Hale") for the card's avatar and name line; null when no head is named.</summary>
+    public string? HeadName { get; set; }
 }
 
 /// <summary><c>GET /gateway/factories/{factory}</c>: one factory's page - its header, tabs and Overview.</summary>

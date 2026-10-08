@@ -42,6 +42,9 @@ public sealed partial class FactoryRegistryStore
     public const int MaxComputerChars = 128;
     public const int MaxRelativePathChars = 512;
     public const int MaxGoalChars = 16 * 1024;
+
+    /// <summary>The most characters a factory's one-line purpose takes (the Factories cards, 8 Oct 2026).</summary>
+    public const int MaxPurposeChars = 120;
     public const int MaxScheduleIdChars = 64;
     public const int MaxValueChars = 200;
     public const int MaxUnitChars = 120;
@@ -97,6 +100,10 @@ public sealed partial class FactoryRegistryStore
                 entity.ArchivedAtUtc = existing.ArchivedAtUtc;
                 entity.ArchivedBy = existing.ArchivedBy;
                 entity.ArchivedSchedulesJson = existing.ArchivedSchedulesJson;
+                // The purpose line is set by hand (cc-devthrottle factory purpose) and factories re-register from
+                // their own computers, so a manifest that says nothing about it (no "purpose" key) keeps the stored
+                // line. A manifest that carries a blank one clears it, and one that carries a line replaces it.
+                if (request!.Purpose is null) entity.Purpose = existing.Purpose;
                 ctx.Entry(existing).CurrentValues.SetValues(entity);
             }
             ctx.SaveChanges();
@@ -150,6 +157,38 @@ public sealed partial class FactoryRegistryStore
             FileLog.Write($"[FactoryRegistryStore] Restore: restored {row.Factory}");
             return ToDto(row, LinkedSchedules(ctx, row.Factory));
         }
+    }
+
+    /// <summary>
+    /// Set or clear a registered factory's one-line purpose without registering it again (the Factories cards,
+    /// 8 Oct 2026). Null or blank clears it. Throws <see cref="FactoryNotRegisteredException"/> when the factory is
+    /// not registered and <see cref="FactoryViewValidationException"/> when the line is too long or not one line.
+    /// </summary>
+    public RegisteredFactoryDto SetPurpose(TenantId tenant, string factory, string? purpose)
+    {
+        FileLog.Write($"[FactoryRegistryStore] SetPurpose: factory={factory}, chars={purpose?.Length ?? 0}");
+        var line = PurposeLine(purpose);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = Row(ctx, factory);
+            row.Purpose = line;
+            ctx.SaveChanges();
+            FileLog.Write($"[FactoryRegistryStore] SetPurpose: {(line is null ? "cleared" : "set")} on {row.Factory}");
+            return ToDto(row, LinkedSchedules(ctx, row.Factory));
+        }
+    }
+
+    /// <summary>The purpose as stored: trimmed, one line, at most <see cref="MaxPurposeChars"/>; null when blank.</summary>
+    internal static string? PurposeLine(string? raw)
+    {
+        var t = (raw ?? "").Trim();
+        if (t.Length == 0) return null;
+        if (t.Contains('\n') || t.Contains('\r'))
+            throw Refuse("The purpose is one line: it may not contain a line break.");
+        if (t.Length > MaxPurposeChars)
+            throw Refuse($"The purpose is {t.Length} characters; it takes at most {MaxPurposeChars}. Shorten it to one line.");
+        return t;
     }
 
     private static FactoryRegistryEntity Row(GatewayDbContext ctx, string factory)
@@ -281,6 +320,7 @@ public sealed partial class FactoryRegistryStore
         var approved = Day(m.GoalApprovedOn, "goal approval date");
         if (goalText is null && (goalFile is not null || approved is not null))
             throw Refuse("The manifest names a goal file or an approval date but no goal text. A goal is registered with its text.");
+        var purpose = PurposeLine(m.Purpose);
 
         if (m.Seats is null || m.Seats.Count == 0) throw Refuse("A factory needs at least one seat.");
         if (m.Seats.Count > MaxSeats) throw Refuse($"A factory registers at most {MaxSeats} seats.");
@@ -334,6 +374,7 @@ public sealed partial class FactoryRegistryStore
             GoalText = goalText,
             GoalFile = goalFile,
             GoalApprovedOn = approved,
+            Purpose = purpose,
             // Stored WITHOUT their schedules: a seat's schedules are the ones that point at it (issue #3650).
             SeatsJson = JsonSerializer.Serialize(seats.Select(WithoutSchedules).ToList(), Json),
         };
@@ -454,6 +495,7 @@ public sealed partial class FactoryRegistryStore
         GoalText = e.GoalText,
         GoalFile = e.GoalFile,
         GoalApprovedOn = e.GoalApprovedOn,
+        Purpose = e.Purpose,
         Seats = (JsonSerializer.Deserialize<List<RegisteredFactorySeatDto>>(e.SeatsJson, Json)
                 ?? throw new InvalidOperationException($"The seats of factory '{e.Factory}' are stored as something other than a list."))
             .Select(seat =>

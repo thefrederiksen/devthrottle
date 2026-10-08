@@ -34,6 +34,11 @@ public sealed class RegisterFactoryRequest
     /// <summary>The day the owner approved the goal (<c>YYYY-MM-DD</c>), or null.</summary>
     public string? GoalApprovedOn { get; set; }
 
+    /// <summary>One line on what the factory is for, as the owner's Factories cards show it under the name
+    /// ("Builds and sells websites for local trades"). Trimmed; at most <c>FactoryRegistryStore.MaxPurposeChars</c>
+    /// characters; null or empty when the factory has none yet.</summary>
+    public string? Purpose { get; set; }
+
     /// <summary>Every seat of the factory. At least one.</summary>
     public List<FactorySeatManifest> Seats { get; set; } = new();
 }
@@ -71,6 +76,10 @@ public sealed class RegisteredFactoryDto
     public string? GoalText { get; set; }
     public string? GoalFile { get; set; }
     public string? GoalApprovedOn { get; set; }
+
+    /// <summary>One line on what the factory is for, or null when none is set.</summary>
+    public string? Purpose { get; set; }
+
     public List<RegisteredFactorySeatDto> Seats { get; set; } = new();
 
     /// <summary>Who registered it: <c>session &lt;id&gt;</c> or <c>the owner (&lt;credential&gt;)</c>.</summary>
@@ -98,6 +107,15 @@ public sealed class RegisteredFactorySeatDto
     public string BriefFile { get; set; } = "";
     public List<string> Schedules { get; set; } = new();
     public string Computer { get; set; } = "";
+}
+
+/// <summary>
+/// <c>PUT /gateway/factory/registry/{factory}/purpose</c>: set or clear a registered factory's one-line purpose
+/// without registering it again (<c>cc-devthrottle factory purpose</c>). Null or empty clears it.
+/// </summary>
+public sealed class SetFactoryPurposeRequest
+{
+    public string? Purpose { get; set; }
 }
 
 /// <summary>Every registered factory in the account, by title.</summary>

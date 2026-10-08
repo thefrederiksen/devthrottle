@@ -263,6 +263,8 @@ export const FACTORY_LIST: FactoriesListView = {
       href: "/factories/mindzie-web",
       talk: null,
       noCeoText: "No CEO",
+      purpose: null,
+      headName: null,
     },
     {
       id: "warmforward",
@@ -279,6 +281,8 @@ export const FACTORY_LIST: FactoriesListView = {
       href: "/factories/warmforward",
       talk: { label: "Talk to Nora Hale", busyLabel: "Starting the talk with Nora Hale (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
       noCeoText: null,
+      purpose: "Heating monitoring for homeowners (fixture)",
+      headName: "Nora Hale",
     },
     {
       id: "devthrottle",
@@ -295,6 +299,8 @@ export const FACTORY_LIST: FactoriesListView = {
       href: "/factories/devthrottle",
       talk: { label: "Talk to Ada Brennan", busyLabel: "Starting the talk with Ada Brennan (fixture)...", factoryId: "devthrottle", seatId: "ada-brennan" },
       noCeoText: null,
+      purpose: null,
+      headName: "Ada Brennan",
     },
   ],
   footerText: "Worst first: failing, then needs you, then paused, then running.",

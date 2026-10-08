@@ -66,6 +66,109 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         Link = "https://github.com/thefrederiksen/websites/issues/276",
     };
 
+    // ---------- the purpose line (the Factories cards, 8 Oct 2026) ----------
+
+    [Fact]
+    public void Register_WithAPurpose_KeepsItTrimmed_AndListsIt()
+    {
+        var store = NewStore();
+        var m = WarmForward();
+        m.Purpose = "  Heating monitoring for homeowners  ";
+
+        var registered = store.Register(A, m, "the owner (test)", Now);
+
+        Assert.Equal("Heating monitoring for homeowners", registered.Purpose);
+        Assert.Equal("Heating monitoring for homeowners", Assert.Single(store.List(A)).Purpose);
+    }
+
+    [Fact]
+    public void Register_WithoutAPurpose_HasNone_AndABlankOneIsNone()
+    {
+        var store = NewStore();
+        Assert.Null(store.Register(A, WarmForward(), "the owner (test)", Now).Purpose);
+        var m = WarmForward();
+        m.Purpose = "   ";
+        Assert.Null(store.Register(A, m, "the owner (test)", Now).Purpose);
+    }
+
+    [Fact]
+    public void SetPurpose_SetsItWithoutTouchingTheRest_AndClearIsNull()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now.AddDays(-3));
+
+        var set = store.SetPurpose(A, "warmforward", " Heating monitoring for homeowners ");
+
+        Assert.Equal("Heating monitoring for homeowners", set.Purpose);
+        Assert.Equal("WarmForward", set.Title);
+        Assert.Equal(2, set.Seats.Count);
+        Assert.Equal("nora-hale", set.CeoSeat);
+        Assert.Equal(Now.AddDays(-3), set.RegisteredAtUtc);
+        Assert.Equal("Heating monitoring for homeowners", store.Find(A, "warmforward")!.Purpose);
+
+        Assert.Null(store.SetPurpose(A, "warmforward", null).Purpose);
+        store.SetPurpose(A, "warmforward", "again");
+        Assert.Null(store.SetPurpose(A, "warmforward", "   ").Purpose);
+        Assert.Null(store.Find(A, "warmforward")!.Purpose);
+    }
+
+    [Fact]
+    public void SetPurpose_TooLong_IsRefusedNamingTheLimit_AndNothingChanges()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now);
+        store.SetPurpose(A, "warmforward", "Before");
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() => store.SetPurpose(A, "warmforward", new string('x', 121)));
+
+        Assert.Contains("121 characters", ex.Message);
+        Assert.Contains("at most 120", ex.Message);
+        Assert.Equal("Before", store.Find(A, "warmforward")!.Purpose);
+        // Exactly the limit is fine.
+        Assert.Equal(120, store.SetPurpose(A, "warmforward", new string('y', 120)).Purpose!.Length);
+    }
+
+    [Fact]
+    public void SetPurpose_TwoLines_IsRefused()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now);
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() => store.SetPurpose(A, "warmforward", "One line\nand another"));
+
+        Assert.Contains("one line", ex.Message);
+    }
+
+    [Fact]
+    public void SetPurpose_NotRegistered_IsRefusedAsNotRegistered()
+    {
+        var store = NewStore();
+        var ex = Assert.Throws<FactoryNotRegisteredException>(() => store.SetPurpose(A, "nobody", "A line"));
+        Assert.Contains("nobody", ex.Message);
+    }
+
+    [Fact]
+    public void Register_Again_WithoutAPurposeKey_KeepsTheLineSetByHand_AndABlankOneClearsIt()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now);
+        store.SetPurpose(A, "warmforward", "Set by hand");
+
+        // A manifest that says nothing about the purpose keeps it: the line is set by hand after the owner approves
+        // the wording, and a factory re-registering from its own computer must not erase it (review finding, 8 Oct).
+        Assert.Equal("Set by hand", store.Register(A, WarmForward(), "the owner (test)", Now).Purpose);
+        Assert.Equal("Set by hand", store.Find(A, "warmforward")!.Purpose);
+
+        var replacing = WarmForward();
+        replacing.Purpose = "From the manifest";
+        Assert.Equal("From the manifest", store.Register(A, replacing, "the owner (test)", Now).Purpose);
+
+        var clearing = WarmForward();
+        clearing.Purpose = "";
+        Assert.Null(store.Register(A, clearing, "the owner (test)", Now).Purpose);
+        Assert.Null(store.Find(A, "warmforward")!.Purpose);
+    }
+
     // ---------- archive and restore (round 2) ----------
 
     [Fact]

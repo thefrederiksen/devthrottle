@@ -616,6 +616,10 @@ public static class SessionKeyGuard
             // and seats, replacing its last registration in the caller's own account. An index of files on the
             // factory's own computer; it starts, schedules and reaches nothing.
             if (Join(s) == "gateway/factory/registry") return true;
+
+            // A registered factory's one-line purpose is set or cleared (the Factories cards, 8 Oct 2026): one
+            // line of text on the caller's own account's registration, nothing more. `cc-devthrottle factory purpose`.
+            if (s.Length == 5 && s[0] == "gateway" && s[1] == "factory" && s[2] == "registry" && s[4] == "purpose") return true;
             return false;
         }
 

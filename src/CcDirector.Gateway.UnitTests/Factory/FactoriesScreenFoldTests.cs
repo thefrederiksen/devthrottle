@@ -184,6 +184,32 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal("Nothing scheduled", bare.StatusLine);
     }
 
+    // ---------- the card's purpose line and head (the Factories cards, 8 Oct 2026) ----------
+
+    [Fact]
+    public void Row_CarriesThePurposeTrimmed_AndTheHeadsName_OrNullForEach()
+    {
+        var withPurpose = WarmForward();
+        withPurpose.Purpose = "  Heating monitoring for homeowners ";
+        var noHead = Factory("machine-care", "Machine Care", null, Seat("watch", "Watch", "Watch"));
+
+        var rows = FactoriesScreenFold.List(Inputs(new[] { withPurpose, noHead })).Rows.ToDictionary(r => r.Id);
+
+        Assert.Equal("Heating monitoring for homeowners", rows["warmforward"].Purpose);
+        Assert.Equal("Nora Hale", rows["warmforward"].HeadName);
+        Assert.Null(rows["machine-care"].Purpose);
+        Assert.Null(rows["machine-care"].HeadName);
+        Assert.Equal(FactoriesScreenFold.NoHead, rows["machine-care"].NoCeoText);
+    }
+
+    [Fact]
+    public void Row_BlankPurpose_IsNull()
+    {
+        var f = WarmForward();
+        f.Purpose = "   ";
+        Assert.Null(FactoriesScreenFold.List(Inputs(new[] { f })).Rows[0].Purpose);
+    }
+
     // ---------- waiting on you ----------
 
     [Theory]

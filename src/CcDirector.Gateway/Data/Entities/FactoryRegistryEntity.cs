@@ -39,6 +39,9 @@ public sealed class FactoryRegistryEntity : TenantScopedEntity
     /// <summary>The day the owner approved the goal, <c>YYYY-MM-DD</c>, or null.</summary>
     public string? GoalApprovedOn { get; set; }
 
+    /// <summary>One line on what the factory is for, shown under its name on the Factories cards, or null.</summary>
+    public string? Purpose { get; set; }
+
     /// <summary>The seats, as JSON (a list of <c>RegisteredFactorySeatDto</c>). Kept on the row rather than in a
     /// table of their own because they are only ever written and read together with it: a seat has no life
     /// outside its factory's registration, and a replace must never leave half of an old seat list behind.</summary>

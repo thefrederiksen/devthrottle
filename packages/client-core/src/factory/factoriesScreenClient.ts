@@ -80,6 +80,10 @@ export interface FactoryListRow {
   talk: FactoryTalkTarget | null;
   /** "No head named" when talk is null. */
   noCeoText: string | null;
+  /** The factory's one-line purpose from the registry, shown under its name on the card; null when none is set. */
+  purpose: string | null;
+  /** The head's name ("Nora Hale") for the card's avatar and name line; null when no head is named. */
+  headName: string | null;
 }
 
 export interface FactoriesListView {

@@ -215,6 +215,7 @@ public sealed class FactoryAgentsSwitchTests : IDisposable
         Assert.Contains("PUT /gateway/factory/map", names);
         Assert.Contains("PUT /gateway/factory/registry", names);
         Assert.Contains("GET /gateway/factory/registry", names);
+        Assert.Contains("PUT /gateway/factory/registry/{factory}/purpose", names);
         Assert.Contains("POST /gateway/factory/goal-numbers", names);
         Assert.Contains("GET /gateway/factory/goal-numbers", names);
         Assert.Contains("GET /gateway/factories", names);

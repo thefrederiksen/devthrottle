@@ -1209,6 +1209,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.CeoSeat).HasMaxLength(64);
             b.Property(e => e.GoalFile).HasMaxLength(512);
             b.Property(e => e.GoalApprovedOn).HasMaxLength(10);
+            b.Property(e => e.Purpose).HasMaxLength(120);
             b.Property(e => e.RegisteredBy).HasMaxLength(256);
             b.Property(e => e.ArchivedBy).HasMaxLength(256);
         });

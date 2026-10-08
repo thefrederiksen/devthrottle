@@ -983,10 +983,17 @@ _ACTIONS = [
     },
     {
         "id": "factory-register",
-        "description": "Register a factory from a JSON manifest (title, folder, computer, CEO, goal file, seats); replaces its last registration.",
+        "description": "Register a factory from a JSON manifest (title, folder, computer, CEO, goal file, purpose, seats); replaces its last registration.",
         "command": "cc-devthrottle factory register --manifest <file>",
         "mutatesState": True,
         "args": [{"name": "manifest", "required": True}],
+    },
+    {
+        "id": "factory-purpose",
+        "description": "Set (or --clear) the one line that says what a registered factory is for, shown under its name on the Factories cards.",
+        "command": 'cc-devthrottle factory purpose <factory> "<one line>"',
+        "mutatesState": True,
+        "args": [{"name": "factory", "required": True}, {"name": "line", "required": False}],
     },
     {
         "id": "factory-list",
@@ -3655,6 +3662,21 @@ def factory_register(
     is refused. Exits non-zero when the factory was not registered.
     """
     factory_registry_ops.register(manifest, json_output)
+
+
+@factory_app.command("purpose")
+def factory_purpose(
+    factory: str = typer.Argument(..., help="The registered factory's id, for example warmforward."),
+    line: Optional[str] = typer.Argument(None, help="One line on what the factory is for, in quotes (at most 120 characters)."),
+    clear: bool = typer.Option(False, "--clear", help="Remove the purpose line instead of setting one."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the factory as JSON."),
+) -> None:
+    """Set the one line that says what a factory is for, shown under its name on the Factories cards.
+
+    Sets it on an already registered factory without registering it again; the rest of the registration is
+    untouched. The line is trimmed and must fit in 120 characters. Exits non-zero when it was not set.
+    """
+    factory_registry_ops.set_purpose(factory, line, clear, json_output)
 
 
 @factory_app.command("list")

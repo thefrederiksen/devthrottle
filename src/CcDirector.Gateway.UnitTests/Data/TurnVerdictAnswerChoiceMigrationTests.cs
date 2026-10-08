@@ -76,7 +76,9 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             Assert.Equal("20261008043059_AddScheduleSeat", all[index + 25]);
             // The team's governance rules and their record of changes (Teams v1, the Governance tab), after that.
             Assert.Equal("20261008191540_AddTeamGovernance", all[index + 26]);
-            Assert.Equal(index + 27, all.Count);
+            // A factory's one-line purpose (the Factories cards, 8 Oct 2026), after that.
+            Assert.Equal("20261008200000_AddFactoryPurpose", all[index + 27]);
+            Assert.Equal(index + 28, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
             Assert.Empty(context.Database.GetAppliedMigrations());

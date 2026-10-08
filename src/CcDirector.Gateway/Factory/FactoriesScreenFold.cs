@@ -104,6 +104,8 @@ public static class FactoriesScreenFold
                     Href = PageHref(f.Factory),
                     Talk = talk,
                     NoCeoText = talk is null ? NoHead : null,
+                    Purpose = string.IsNullOrWhiteSpace(f.Purpose) ? null : f.Purpose.Trim(),
+                    HeadName = Ceo(f)?.Name,
                 });
             })
             .OrderBy(x => x.Rank)
