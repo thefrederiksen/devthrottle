@@ -787,7 +787,9 @@ public partial class App : Application
                     ?? throw new InvalidOperationException("the error reporter is not running in this process, so the launcher repair's outcome could not reach the Gateway; the repair was not run");
                 var layout = new CcDirector.Setup.Engine.InstallLayout(InstanceContext.SharedRoot);
                 var outcome = CcDirector.Setup.Engine.LauncherLaunchdRepair.RunPass(layout, reporter);
-                log($"launcher repair: {outcome}");
+                // Only the result and the verdict: the pass's whole line is already in the log, written inside the
+                // pass, and its text may carry a marker word that would make this line a second report.
+                log($"launcher repair: {outcome.Result} ({outcome.Verdict})");
             }
             catch (Exception ex)
             {

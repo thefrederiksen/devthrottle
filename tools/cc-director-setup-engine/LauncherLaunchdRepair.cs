@@ -179,6 +179,7 @@ public static class LauncherLaunchdRepair
         EngineLog.Write("[LauncherLaunchdRepair] RunPass: start");
         LauncherRepairOutcome outcome;
         IReadOnlyList<string> heldLines;
+        OutcomeScope scope0;
         // Every error line the pass logs - a rebuild that throws logs its own FAILED line, and so does RunOnce
         // before it rethrows - is held for the pass's one report instead of becoming a second one.
         using (var scope = reporter.BeginOutcomeScope())
@@ -192,8 +193,20 @@ public static class LauncherLaunchdRepair
                 outcome = new(LauncherRepairResult.Failed, "Exception", $"the repair pass ended with {ex.GetType().Name}: {ex.Message}",
                     0, $"FAILED to finish the repair pass: {ex}");
             }
-            heldLines = scope.HeldLines;
+            // The pass's whole line is written to the log HERE, inside the scope: its text can carry a marker word
+            // (a roll back that failed reads "Roll back FAILED (...)"), and outside the scope that would make it
+            // a second report. The Director's own line after the pass carries only the result and the verdict.
+            EngineLog.Write($"[LauncherLaunchdRepair] RunPass: {outcome.Line}");
+            scope0 = scope;
         }
+        // Read after the scope has closed, so nothing held while it was open can be missed. The pass's own line,
+        // logged by RunOnce and above, is already the report's detail and is not repeated.
+        var ownLines = new HashSet<string>(StringComparer.Ordinal)
+        {
+            $"[LauncherLaunchdRepair] RunOnce: {outcome.Line}",
+            $"[LauncherLaunchdRepair] RunPass: {outcome.Line}",
+        };
+        heldLines = scope0.HeldLines.Where(l => !ownLines.Contains(l)).ToList();
         LauncherRepairReport.Send(outcome, heldLines, reporter);
         EngineLog.Write($"[LauncherLaunchdRepair] RunPass: {outcome.Result} ({outcome.Verdict})");
         return outcome;

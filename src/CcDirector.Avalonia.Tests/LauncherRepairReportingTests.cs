@@ -57,6 +57,7 @@ public sealed class LauncherRepairReportingTests : IDisposable
         var identity = $"path = {_home}/Library/LaunchAgents/{LauncherLaunchdAutostart.Label}.plist\nenvironment = {{\n\tUSER => {_user}\n}}\n";
         var kickstarted = false;
         var held = true;
+        var bootstraps = 0;
         return (exe, args) =>
         {
             if (exe == "/usr/bin/id") return (0, "501\n");
@@ -75,6 +76,12 @@ public sealed class LauncherRepairReportingTests : IDisposable
             {
                 // A refused bootstrap: the rebuild throws and logs its own FAILED line, carrying launchctl's answer.
                 if (state == "bootstrap-refused") return (5, "Bootstrap failed: 5: Input/output error " + identity);
+                // ...and the roll back's own bootstrap throws, so the text reads "Roll back FAILED (IOException: ...)".
+                if (state == "rollback-throws")
+                {
+                    if (bootstraps++ > 0) throw new IOException("the disk went away");
+                    return (5, "Bootstrap failed: 5: Input/output error");
+                }
                 held = true;
                 return (0, "");
             }
@@ -104,9 +111,9 @@ public sealed class LauncherRepairReportingTests : IDisposable
         {
             EngineLog.Sink = previousSink;
         }
-        // The line the Director then logs (App.StartLauncherRepair) must not read as an error line, or a failed
-        // pass would reach the Gateway twice.
-        reporter.OnLogLine($"[CcDirector] launcher repair: {outcome}");
+        // The line the Director then logs (App.StartLauncherRepair), outside the pass, carries only the result and
+        // the verdict, so whatever the pass's own text says it cannot become a second report.
+        reporter.OnLogLine($"[CcDirector] launcher repair: {outcome.Result} ({outcome.Verdict})");
         var sent = await reporter.SendPendingAsync(CancellationToken.None);
 
         Assert.Equal(1, sent);
@@ -199,6 +206,19 @@ public sealed class LauncherRepairReportingTests : IDisposable
     }
 
     [Fact]
+    public async Task RunPass_RollBackAlsoFails_StillSendsOneReport()
+    {
+        // The pass's line then carries "Roll back FAILED (", which reads as an error line wherever it is logged
+        // outside the pass. It is logged inside the pass, so it is not a second report.
+        var (outcome, item, _) = await PassAsync("rollback-throws");
+
+        Assert.Equal(LauncherRepairResult.Failed, outcome.Result);
+        Assert.Contains("Roll back FAILED (IOException: the disk went away)", outcome.Line);
+        Assert.True(ErrorLine.IsError("[CcDirector] launcher repair: " + outcome.Line), "precondition: the whole line reads as an error line");
+        Assert.Contains("Roll back FAILED (IOException: the disk went away)", item.Stack);
+    }
+
+    [Fact]
     public void TheDirector_RunsTheRepairThroughRunPassWithItsRunningReporter()
     {
         // RunOnce is internal to the engine, so the Director cannot call it; this guards the other way to lose every
@@ -213,5 +233,9 @@ public sealed class LauncherRepairReportingTests : IDisposable
         Assert.Contains("ErrorReporter.Current", body);
         Assert.Contains("LauncherLaunchdRepair.RunPass(layout, reporter)", body);
         Assert.Contains("StartLauncherRepair(log);", app);
+        // The Director's line after the pass must not carry the pass's text, which can read as an error line.
+        Assert.Contains("log($\"launcher repair: {outcome.Result} ({outcome.Verdict})\");", body);
+        Assert.DoesNotContain("{outcome}", body);
+        Assert.DoesNotContain("outcome.Line", body);
     }
 }
