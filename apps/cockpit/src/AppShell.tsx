@@ -6,7 +6,6 @@ import { resumePendingDictations } from "@devthrottle/client-core/dictation/back
 import { Chevron, NavIcon, type NavIconName } from "./components";
 import { CockpitStatusPill } from "./network/CockpitStatusPill";
 import { StopSessionProvider } from "./sessions/StopSessionProvider";
-import { useFleetManagerWaitingCount } from "./fleetmanager/useWaitingCount";
 import { useFactorySwitch } from "./factory/useFactorySwitch";
 import { CurrentTeamProvider, useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import type { TeamPagesApp, TeamSummary } from "@devthrottle/client-core/teams/teamsClient";
@@ -82,7 +81,8 @@ interface NavItem {
 //
 // The Cockpit opens on Sessions, the first item here: the sessions are what you maintain and monitor. The Fleet
 // Manager replaced the Assistant, which step 9 removed from the product; the old /assistant address redirects here.
-// Its red badge is the Gateway's count of what is waiting on the owner.
+// It carries no badge for now: the owner had the waiting count taken off the rail until it means what he wants it to
+// mean (7 Oct 2026). The count itself still lives in fleetmanager/useWaitingCount.ts for when it comes back.
 const NAV_MAIN: ReadonlyArray<NavItem> = [
   { to: "/sessions", label: "Sessions", icon: "sessions", subtree: "/session" },
   { to: "/fleet-map", label: "Fleet Map", icon: "fleet-map" },
@@ -242,7 +242,6 @@ function ShellFrame() {
     };
   }, [location.pathname, wholeApp]);
 
-  const waitingCount = useFleetManagerWaitingCount(location.pathname, wholeApp);
   // The count beside a team page (S8): read from where the Gateway says, for the team on screen; none without a team.
   const teamPageCounts = useTeamPageCounts(team.current, location.pathname);
 
@@ -271,11 +270,7 @@ function ShellFrame() {
   // screen there are none, so the own account's rail is exactly as it was.
   const wholeAppTeamPages = team.current !== null && team.current.app.full ? teamPagesNav(team.current.app, teamPageCounts) : [];
   const fullNav = [...railItems, ...wholeAppTeamPages].map((item) =>
-    item.to === "/dictionary"
-      ? { ...item, badge: suggestCount }
-      : item.to === "/fleet-manager"
-        ? { ...item, badge: waitingCount, badgeTitle: `${waitingCount} waiting on you` }
-        : item,
+    item.to === "/dictionary" ? { ...item, badge: suggestCount } : item,
   );
 
   // THE STOP ANSWER IS OWNED HERE, above every roster row and every session page (mission "Stop a

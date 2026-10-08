@@ -508,7 +508,8 @@ describe("The Collaborator's app", () => {
 
     await waitFor(() => expect(getSuggestionCount).toHaveBeenCalled());
     expect(resumePendingDictations).toHaveBeenCalled();
-    expect(getFleetManagerPage).toHaveBeenCalled();
+    // The Fleet Manager's rail count is off for now (7 Oct 2026), so the rail no longer reads it.
+    expect(getFleetManagerPage).not.toHaveBeenCalled();
     expect(getFactoryAgentsSwitch).toHaveBeenCalled();
     expect(reads.keepWarm.at(-1)).toBe(true);
   });

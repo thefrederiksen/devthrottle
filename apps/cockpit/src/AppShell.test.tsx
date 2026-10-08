@@ -130,7 +130,9 @@ describe("Cockpit left rail", () => {
     expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
   });
 
-  it("badges the Fleet Manager with the Gateway's count of what is waiting", async () => {
+  // The owner had the Fleet Manager's red count taken off the rail (7 Oct 2026) until it means what he wants it
+  // to mean. Even with work waiting, the row shows no badge.
+  it("shows no badge on the Fleet Manager, even when the Gateway counts something waiting", async () => {
     page.waitingCount = 7;
     render(
       <MemoryRouter initialEntries={["/sessions"]}>
@@ -140,19 +142,6 @@ describe("Cockpit left rail", () => {
 
     const entry = screen.getByRole("link", { name: /Fleet Manager/ });
     expect(entry.getAttribute("href")).toBe("/fleet-manager");
-    await waitFor(() => expect(entry.querySelector(".nav-badge")?.textContent).toBe("7"));
-    expect(entry.querySelector(".nav-badge")?.getAttribute("title")).toBe("7 waiting on you");
-  });
-
-  it("shows no badge when nothing is waiting", async () => {
-    page.waitingCount = 0;
-    render(
-      <MemoryRouter initialEntries={["/sessions"]}>
-        <AppShell />
-      </MemoryRouter>,
-    );
-
-    const entry = screen.getByRole("link", { name: /Fleet Manager/ });
     await new Promise((r) => setTimeout(r, 20));
     expect(entry.querySelector(".nav-badge")).toBeNull();
   });

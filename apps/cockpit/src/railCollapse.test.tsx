@@ -12,7 +12,10 @@ import { MemoryRouter } from "react-router-dom";
 // being told something needs you.
 
 vi.mock("@devthrottle/client-core/net/useKeepWarm", () => ({ useKeepWarm: () => {} }));
-vi.mock("@devthrottle/client-core/dictation/dictionaryClient", () => ({ getSuggestionCount: vi.fn(async () => 0) }));
+const dictionary = vi.hoisted(() => ({ suggestions: 0 }));
+vi.mock("@devthrottle/client-core/dictation/dictionaryClient", () => ({
+  getSuggestionCount: vi.fn(async () => dictionary.suggestions),
+}));
 vi.mock("@devthrottle/client-core/dictation/backgroundSend", () => ({ resumePendingDictations: vi.fn(async () => {}) }));
 vi.mock("./network/CockpitStatusPill", () => ({ CockpitStatusPill: () => <div data-testid="status-pill" /> }));
 
@@ -44,6 +47,7 @@ describe("the Cockpit rail collapse", () => {
     cleanup();
     window.localStorage.clear();
     page.waitingCount = 0;
+    dictionary.suggestions = 0;
   });
 
   it("opens expanded, and the toggle says so", () => {
@@ -74,12 +78,12 @@ describe("the Cockpit rail collapse", () => {
   });
 
   it("still shows the attention count when collapsed", async () => {
-    page.waitingCount = 7;
+    dictionary.suggestions = 7;
     mount();
 
     fireEvent.click(screen.getByTestId("rail-toggle"));
 
-    const entry = screen.getByRole("link", { name: /Fleet Manager/ });
+    const entry = screen.getByRole("link", { name: /Dictionary/ });
     await waitFor(() => expect(entry.querySelector(".nav-badge")?.textContent).toBe("7"));
   });
 
