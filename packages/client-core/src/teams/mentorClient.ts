@@ -74,8 +74,9 @@ export interface MentorPage {
   /** "everyone" for an Owner or Manager, "own" for a Developer, "personal" on a person's own account. Who is in `blocks`
    *  is already decided. */
   scope: "everyone" | "own" | "personal";
-  /** Whether the Mentor's run for this team and week has happened. Written with no block for someone does not say
-   *  why - the Gateway does not tell, so a page must not guess. */
+  /** On a team's page: whether the Mentor's run for this team and week has happened. Written with no block for someone
+   *  does not say why - the Gateway does not tell, so a page must not guess. On a person's own page: whether the week
+   *  holds their block. */
   written: boolean;
   /** The Gateway's line for a week still being written - `written` false WITH blocks: the blocks so far are shown
    *  under it. null otherwise. Shown as given. */
@@ -230,6 +231,10 @@ function readPage(raw: unknown, personal: boolean): MentorPage {
     // Nobody else reads a person's own page; a reader listed there would be a false sentence on screen.
     if (p.readers.length !== 0) {
       throw new GatewayError(502, `${UNREADABLE}: a person's own page lists someone else as reading it.`);
+    }
+    // A person's own week is written exactly when it holds their block.
+    if (p.written !== blocks.length > 0) {
+      throw new GatewayError(502, `${UNREADABLE}: a person's own week says it is ${p.written ? "" : "not "}written and holds ${blocks.length} blocks.`);
     }
     // The empty sentence is there exactly when the page has no block.
     if (!isTextOrNull(p.emptyNote) || (blocks.length === 0) !== (typeof p.emptyNote === "string" && p.emptyNote.trim() !== "")) {

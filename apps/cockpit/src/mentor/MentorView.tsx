@@ -43,6 +43,12 @@ function dayAndMonth(date: string): string {
   return `${day} ${MONTHS[month - 1]}`;
 }
 
+/** The calendar day before a YYYY-MM-DD date, as a date. */
+function dayBefore(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d) - 86_400_000).toISOString().slice(0, 10);
+}
+
 /** The words for someone the contract lists with no email on record (Tech Lead ruling, review F1): their role and
  *  that plain fact - never a made-up name. */
 function personLabel(email: string | null, role: string): string {
@@ -128,7 +134,9 @@ function MentorWeekPage({ load }: { load: LoadWeek }) {
   const own = lastPage.scope === "own";
   const personal = lastPage.scope === "personal";
   const step = (weeks: number) => setRequest(shiftWeek(weekStart, weeks));
-  const shownWeek = shownPage ?? lastPage;
+  // The week the chooser is on, named from the request as soon as it moves - never the last page's dates while the next
+  // week loads (review finding 4). A week is the Monday and the six days after it.
+  const weekEnd = shiftWeek(weekStart, 1).weekStart;
 
   return (
     <section className="mentor-page" data-testid="mentor-page">
@@ -136,7 +144,7 @@ function MentorWeekPage({ load }: { load: LoadWeek }) {
         title={personal ? "Mentor" : own ? "Your week, from the Mentor" : `Mentor - week of ${dayAndMonth(weekStart)}`}
         subtitle={
           personal
-            ? `Your week, ${dayAndMonth(shownWeek.weekStart)} - ${dayAndMonth(shownWeek.weekEnd)}. Written by the Mentor from your sessions; only you read this page.`
+            ? `Your week, ${dayAndMonth(weekStart)} - ${dayAndMonth(dayBefore(weekEnd))}. Written by the Mentor from your sessions; only you read this page.`
             : own
               ? readersSentence(lastPage.readers)
               : "Each person reads their own block, word for word."

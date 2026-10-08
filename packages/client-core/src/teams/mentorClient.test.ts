@@ -305,6 +305,8 @@ describe("getPersonalMentorPage", () => {
     ["holds a block about someone else", { blocks: [{ ...example().blocks[0], isYou: false }] }],
     ["has a block and an empty sentence", { emptyNote: "Nothing this week." }],
     ["has no block and no empty sentence", { blocks: [], written: false, emptyNote: null }],
+    ["says it is written with no block", { blocks: [], written: true, emptyNote: "Nothing this week." }],
+    ["says it is not written with a block", { written: false }],
   ])("GetPersonalMentorPage_AnAnswerThat %s_IsThrown", async (_name, overrides) => {
     answering(personal(overrides));
     await expect(getPersonalMentorPage()).rejects.toThrow(/cannot read/);

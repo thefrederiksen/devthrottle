@@ -240,6 +240,19 @@ describe("MentorView", () => {
     expect(screen.getByTestId("mentor-quote").textContent).toBe(ROB_QUOTE);
   });
 
+  it("MentorView_OwnAccount_StepToThePreviousWeek_NamesThatWeekWhileItLoads", async () => {
+    stage("personal", week({ teamId: null, scope: "personal", readers: [], blocks: [{ ...ROB_BLOCK, isYou: true }] }));
+    stage(`personal:${W39.week}`, new Promise<MentorAnswer>(() => {}));
+    renderAs({ kind: "teams", teams: [], start: { where: "own-account" } }, null);
+
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: "Previous week" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/^Your week, 21 September - 27 September\./)).toBeTruthy(),
+    );
+  });
+
   it("MentorView_OwnAccount_EmptyWeek_ShowsTheGatewaysSentence", async () => {
     const note = "Your first Mentor page arrives after the Mentor's first weekly run. It is written from your sessions, once a week.";
     stage("personal", week({ teamId: null, scope: "personal", readers: [], blocks: [], written: false, emptyNote: note }));
