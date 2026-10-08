@@ -49,10 +49,11 @@
   display: none;
 }
 
+/* Rendered into document.body and placed with fixed coordinates by the component, so no frame clips it and no
+   screen's own buttons paint over it. */
 .nd-panel {
-  position: absolute;
-  right: 0;
-  z-index: 60;
+  position: fixed;
+  z-index: 1000;
   width: min(440px, calc(100vw - 32px));
   max-height: 60vh;
   overflow-y: auto;
@@ -67,11 +68,8 @@
   text-align: left;
   white-space: normal;
 }
-.nd-up .nd-panel {
-  bottom: calc(100% + 6px);
-}
-.nd-down .nd-panel {
-  top: calc(100% + 6px);
+.nd-panel:focus {
+  outline: none;
 }
 
 .nd-panel-head {
@@ -151,11 +149,10 @@
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 59;
+    z-index: 999;
     background: rgba(0, 0, 0, 0.45);
   }
-  .nd-up .nd-panel,
-  .nd-down .nd-panel {
+  .nd-panel {
     position: fixed;
     top: auto;
     left: 0;

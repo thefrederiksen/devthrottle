@@ -156,9 +156,23 @@ describe("the Not delivered chip", () => {
     expect(quote.contains(within(panel).getByRole("button", { name: "Dismiss" }))).toBe(false);
   });
 
-  it("opens over the page, never inside the layout", () => {
+  it("opens over the page, outside every frame, never inside the layout", () => {
+    const { container } = render(<NotDeliveredIndicator sessionId={SID} notice={NOTICE} claim />);
+    const panel = open();
+    expect(getComputedStyle(panel).position).toBe("fixed");
+    // Rendered into document.body, so a narrow frame with overflow hidden cannot clip it and a screen's own
+    // stacked buttons cannot paint over it.
+    expect(container.contains(panel)).toBe(false);
+    expect(panel.parentElement).toBe(document.body);
+    expect(document.activeElement).toBe(panel);
+  });
+
+  it("a click inside the details does not close them", () => {
     render(<NotDeliveredIndicator sessionId={SID} notice={NOTICE} claim />);
     const panel = open();
-    expect(getComputedStyle(panel).position).toBe("absolute");
+    fireEvent.mouseDown(within(panel).getByText(NOTICE));
+    expect(screen.getByRole("dialog", { name: "Not delivered" })).toBeTruthy();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { dismissDictationStatus, retryDroppedDictation, sendDroppedDictationAnyway } from "../dictation/backgroundSend";
 import { useDictationStatusFor } from "../dictation/status";
 import { dismissTypedPrompt, sendTypedPromptAnyway } from "../dictation/typedPromptDelivery";
@@ -18,6 +19,9 @@ import "./notDeliveredIndicator.css";
 // Send anyway / Retry / Dismiss actions the Gateway offered. Nothing here decides anything: the sentence and
 // the offer are the Gateway's, read verbatim (CLAUDE.md rule 7). It is sticky exactly as before: it goes away
 // when a prompt lands or the owner dismisses the words, never on a timer.
+//
+// The open details are rendered into document.body, placed against the chip: inside the app bar or the session
+// pane they were clipped by a narrow frame and painted under that screen's own buttons (review of #3651).
 //
 // ONE CHIP PER SESSION. The session screens mount it once with the Gateway's notice (`notice`), and the
 // shared DictationStatusStrip mounts it for the shown-back words on every surface that has a composer. When
@@ -65,9 +69,13 @@ export function NotDeliveredIndicator({ sessionId, notice = null, history = null
   const claimed = useNotDeliveredClaimed(sessionId);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pos, setPos] = useState<CSSProperties | null>(null);
   const rootRef = useRef<HTMLSpanElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
+  // A layout effect, not a plain effect: the claim must land before the first paint, or the strip's copy shows
+  // for one frame beside this one when a session screen opens on a prompt that is already shown back.
+  useLayoutEffect(() => {
     if (!claim || !sessionId) return;
     changeClaim(sessionId, 1);
     return () => changeClaim(sessionId, -1);
@@ -84,7 +92,9 @@ export function NotDeliveredIndicator({ sessionId, notice = null, history = null
       if (e.key === "Escape") setOpen(false);
     };
     const onDown = (e: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t) || panelRef.current?.contains(t)) return;
+      setOpen(false);
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("mousedown", onDown);
@@ -92,6 +102,35 @@ export function NotDeliveredIndicator({ sessionId, notice = null, history = null
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onDown);
     };
+  }, [open]);
+
+  // The open panel is rendered into document.body (see the render below), so it is placed here, against the
+  // chip's own position on the screen. On a phone the stylesheet makes it a sheet instead and this is not used.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const chip = rootRef.current?.getBoundingClientRect();
+      // The same line the stylesheet draws: at 640 pixels or less the details are a sheet, placed by CSS.
+      if (!chip || window.innerWidth <= 640) {
+        setPos(null);
+        return;
+      }
+      const width = Math.min(440, window.innerWidth - 32);
+      const left = Math.min(Math.max(16, chip.right - width), window.innerWidth - 16 - width);
+      setPos(
+        placement === "up"
+          ? { position: "fixed", left, width, bottom: window.innerHeight - chip.top + 6 }
+          : { position: "fixed", left, width, top: chip.bottom + 6 },
+      );
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open, placement]);
+
+  // Focus goes into the details when they open, so a keyboard or screen reader lands on them.
+  useEffect(() => {
+    if (open) panelRef.current?.focus();
   }, [open]);
 
   // Nothing left to say: close, so the next failure starts collapsed.
@@ -147,44 +186,54 @@ export function NotDeliveredIndicator({ sessionId, notice = null, history = null
           Not delivered
         </button>
       </span>
-      {open && (
-        <>
-          <span className="nd-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />
-          <div className="nd-panel" role="dialog" aria-label="Not delivered">
-            <div className="nd-panel-head">
-              <span className="nd-panel-title">Not delivered</span>
-              <button type="button" className="nd-close" aria-label="Close" onClick={() => setOpen(false)}>
-                x
-              </button>
+      {open &&
+        createPortal(
+          <>
+            <span className="nd-backdrop" aria-hidden="true" onClick={() => setOpen(false)} />
+            <div
+              ref={panelRef}
+              className={`nd-panel nd-panel-${placement}`}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Not delivered"
+              tabIndex={-1}
+              style={pos ?? undefined}
+            >
+              <div className="nd-panel-head">
+                <span className="nd-panel-title">Not delivered</span>
+                <button type="button" className="nd-close" aria-label="Close" onClick={() => setOpen(false)}>
+                  x
+                </button>
+              </div>
+              {notice !== null && <p className="nd-notice">{notice}</p>}
+              {history !== null && <p className="nd-history">{history}</p>}
+              {dropped !== null && (
+                <>
+                  <p className="nd-label">{dropped.error ?? "That recording wasn't sent."}</p>
+                  {words.length > 0 && <blockquote className="nd-quote">{words}</blockquote>}
+                  <div className="nd-actions">
+                    {/* Whether to offer a second send at all is the Gateway's decision (phase 2, change 1): words it
+                        could not confirm arrived are shown back with Dismiss only, because they may be in already. */}
+                    {dropped.offerSendAnyway === true &&
+                      (words.length > 0 ? (
+                        <button type="button" className="nd-btn" onClick={() => void onSendAnyway()} disabled={busy}>
+                          {busy ? "Sending..." : "Send anyway"}
+                        </button>
+                      ) : (
+                        <button type="button" className="nd-btn" onClick={() => void onRetryFresh()} disabled={busy}>
+                          {busy ? "Retrying..." : "Retry"}
+                        </button>
+                      ))}
+                    <button type="button" className="nd-btn nd-btn-quiet" onClick={() => void onDismiss()} disabled={busy}>
+                      Dismiss
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-            {notice !== null && <p className="nd-notice">{notice}</p>}
-            {history !== null && <p className="nd-history">{history}</p>}
-            {dropped !== null && (
-              <>
-                <p className="nd-label">{dropped.error ?? "That recording wasn't sent."}</p>
-                {words.length > 0 && <blockquote className="nd-quote">{words}</blockquote>}
-                <div className="nd-actions">
-                  {/* Whether to offer a second send at all is the Gateway's decision (phase 2, change 1): words it
-                      could not confirm arrived are shown back with Dismiss only, because they may be in already. */}
-                  {dropped.offerSendAnyway === true &&
-                    (words.length > 0 ? (
-                      <button type="button" className="nd-btn" onClick={() => void onSendAnyway()} disabled={busy}>
-                        {busy ? "Sending..." : "Send anyway"}
-                      </button>
-                    ) : (
-                      <button type="button" className="nd-btn" onClick={() => void onRetryFresh()} disabled={busy}>
-                        {busy ? "Retrying..." : "Retry"}
-                      </button>
-                    ))}
-                  <button type="button" className="nd-btn nd-btn-quiet" onClick={() => void onDismiss()} disabled={busy}>
-                    Dismiss
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </>
-      )}
+          </>,
+          document.body,
+        )}
     </span>
   );
 }
