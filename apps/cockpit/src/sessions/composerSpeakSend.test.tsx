@@ -118,6 +118,12 @@ import {
   publishDictationStatus,
 } from "@devthrottle/client-core/dictation/status";
 
+// A shown-back prompt is the small red "Not delivered" chip; its words and buttons open behind a click.
+async function openNotDelivered(): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByRole("button", { name: /Not delivered/ }));
+  return screen.getByRole("dialog", { name: "Not delivered" });
+}
+
 // A parent that owns the composer text exactly like SessionDetail does, so onChange updates the value
 // the composer reads back when it composes the dictation at the caret.
 function Harness({ sessionId }: { sessionId?: string }) {
@@ -307,7 +313,8 @@ describe("Cockpit composer: the Still delivering and too-old states", () => {
       error: "This recording is more than 5 minutes old, so it was not sent automatically. Here is what you said - send it?",
     });
     render(<Harness sessionId="sess-42" />);
-    const strip = (await screen.findByText(/more than 5 minutes old/)).closest(".dictate-strip") as HTMLElement;
+    const strip = await openNotDelivered();
+    expect(within(strip).getByText(/more than 5 minutes old/)).toBeTruthy();
     expect(within(strip).getByText("the words from six minutes ago")).toBeTruthy();
     expect(within(strip).getByRole("button", { name: "Send anyway" })).toBeTruthy();
   });
@@ -324,9 +331,8 @@ describe("Cockpit composer: the Still delivering and too-old states", () => {
       error: "We could not confirm this arrived. Here is what you said.",
     });
     render(<Harness sessionId="sess-42" />);
-    const strip = (await screen.findByText("We could not confirm this arrived. Here is what you said.")).closest(
-      ".dictate-strip",
-    ) as HTMLElement;
+    const strip = await openNotDelivered();
+    expect(within(strip).getByText("We could not confirm this arrived. Here is what you said.")).toBeTruthy();
     expect(within(strip).getByText("the words nobody confirmed")).toBeTruthy();
     expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
     expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
@@ -352,9 +358,8 @@ describe("Cockpit composer: the Still delivering and too-old states", () => {
       error: "The session has ended, so this recording was not sent. Here is what you said.",
     });
     render(<Harness sessionId="sess-42" />);
-    const strip = (await screen.findByText("The session has ended, so this recording was not sent. Here is what you said.")).closest(
-      ".dictate-strip",
-    ) as HTMLElement;
+    const strip = await openNotDelivered();
+    expect(within(strip).getByText("The session has ended, so this recording was not sent. Here is what you said.")).toBeTruthy();
     expect(within(strip).getByText("the words for the session that ended")).toBeTruthy();
     expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
     expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
@@ -376,7 +381,8 @@ describe("Cockpit composer: the Still delivering and too-old states", () => {
       error: "This recording wasn't sent automatically. Here is what you said - send it?",
     });
     render(<Harness sessionId="sess-42" />);
-    const strip = (await screen.findByText("words with no verdict")).closest(".dictate-strip") as HTMLElement;
+    const strip = await openNotDelivered();
+    expect(within(strip).getByText("words with no verdict")).toBeTruthy();
     expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
     expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });

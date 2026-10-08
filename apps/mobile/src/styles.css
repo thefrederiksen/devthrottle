@@ -158,13 +158,6 @@ body {
 /* "Your last prompt was not delivered" (issue internal#811). Louder than banner-error on purpose: an
    error banner reports that an action you just took failed and you can see it fail; this reports that
    words you believed had been sent were thrown away, possibly minutes ago on another screen. */
-.banner-not-delivered {
-  background: rgba(220, 68, 68, 0.18);
-  border: 1px solid rgba(220, 68, 68, 0.7);
-  color: #ffb4b4;
-  font-weight: 600;
-}
-
 .banner-info {
   background: rgba(59, 130, 246, 0.1);
   border: 1px solid rgba(59, 130, 246, 0.35);
@@ -3059,6 +3052,11 @@ a.banner-btn {
 
 .session-title {
   font-size: 17px;
+}
+
+/* The small red "Not delivered" chip rides the end of the title row, so it adds no row of its own. */
+.session-title-row .nd-root {
+  margin-left: 8px;
 }
 
 /* Back is NAVIGATION, so it is quiet chrome, not a saturated slab competing with the actions. It

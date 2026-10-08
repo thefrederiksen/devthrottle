@@ -11,6 +11,12 @@ import {
 } from "@devthrottle/client-core/dictation/status";
 import { SessionRow } from "./Home";
 
+// A shown-back prompt is the small red "Not delivered" chip; its words and buttons open behind a click.
+function openNotDelivered(): HTMLElement {
+  fireEvent.click(screen.getByRole("button", { name: /Not delivered/ }));
+  return screen.getByRole("dialog", { name: "Not delivered" });
+}
+
 // The phone's two dictation surfaces for the phase 2 states (voice delivery, #3398): the status strip the
 // Terminal, Chat and Voice screens mount (<DictationStatusStrip sessionId=... />, exactly as here), and the
 // roster card's badge. The status store is real; each status is published exactly as the driver
@@ -108,7 +114,8 @@ describe("phone: too old", () => {
     });
     render(<DictationStatusStrip sessionId={SESSION_ID} />);
 
-    const strip = screen.getByText(/more than 5 minutes old/).closest(".dictate-strip") as HTMLElement;
+    const strip = openNotDelivered();
+    expect(within(strip).getByText(/more than 5 minutes old/)).toBeTruthy();
     expect(within(strip).getByText("the words from six minutes ago")).toBeTruthy();
     expect(within(strip).getByRole("button", { name: "Send anyway" })).toBeTruthy();
   });
@@ -127,7 +134,8 @@ describe("phone: could not confirm it arrived (phase 2, change 1)", () => {
     });
     render(<DictationStatusStrip sessionId={SESSION_ID} />);
 
-    const strip = screen.getByText("We could not confirm this arrived. Here is what you said.").closest(".dictate-strip") as HTMLElement;
+    const strip = openNotDelivered();
+    expect(within(strip).getByText("We could not confirm this arrived. Here is what you said.")).toBeTruthy();
     expect(within(strip).getByText("the words nobody confirmed")).toBeTruthy();
     expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
     expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
@@ -149,7 +157,8 @@ describe("phone: could not confirm it arrived (phase 2, change 1)", () => {
     });
     render(<DictationStatusStrip sessionId={SESSION_ID} />);
 
-    const strip = screen.getByText("words with no verdict").closest(".dictate-strip") as HTMLElement;
+    const strip = openNotDelivered();
+    expect(within(strip).getByText("words with no verdict")).toBeTruthy();
     expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();
     expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
   });
@@ -171,9 +180,8 @@ describe("phone: the session has ended", () => {
     });
     render(<DictationStatusStrip sessionId={SESSION_ID} />);
 
-    const strip = screen
-      .getByText("The session has ended, so this recording was not sent. Here is what you said.")
-      .closest(".dictate-strip") as HTMLElement;
+    const strip = openNotDelivered();
+    expect(within(strip).getByText("The session has ended, so this recording was not sent. Here is what you said.")).toBeTruthy();
     expect(within(strip).getByText("the words for the session that ended")).toBeTruthy();
     expect(within(strip).getByRole("button", { name: "Dismiss" })).toBeTruthy();
     expect(within(strip).queryByRole("button", { name: "Send anyway" })).toBeNull();

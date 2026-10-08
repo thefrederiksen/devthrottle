@@ -40,6 +40,7 @@ function manage(over: Partial<SessionManage> = {}): SessionManage {
     holdCountdown: null,
     sessionProblem: null,
     deliveryNotice: null,
+    deliveryHistory: null,
     busy: false,
     error: null,
     setError: setErrorMock,

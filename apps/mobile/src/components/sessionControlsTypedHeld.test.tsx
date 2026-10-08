@@ -73,6 +73,12 @@ function typeAndSend(): void {
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
 }
 
+// A shown-back prompt is the small red "Not delivered" chip; its words and buttons open behind a click.
+async function openNotDelivered(): Promise<HTMLElement> {
+  fireEvent.click(await screen.findByRole("button", { name: /Not delivered/ }));
+  return screen.getByRole("dialog", { name: "Not delivered" });
+}
+
 function strip(): HTMLElement {
   return document.querySelector(".dictate-strip") as HTMLElement;
 }
@@ -139,8 +145,8 @@ describe("phone: a typed send answered 202", () => {
 
     fireEvent.click(within(strip()).getByRole("button", { name: "Check now" }));
 
-    await screen.findByText("This message was not delivered. Here is what you wrote - send it?");
-    const s = strip();
+    const s = await openNotDelivered();
+    expect(within(s).getByText("This message was not delivered. Here is what you wrote - send it?")).toBeTruthy();
     expect(within(s).getByText(TEXT)).toBeTruthy();
     expect(within(s).getByRole("button", { name: "Dismiss" })).toBeTruthy();
 
@@ -165,8 +171,8 @@ describe("phone: a typed send answered 202", () => {
 
     fireEvent.click(within(strip()).getByRole("button", { name: "Check now" }));
 
-    await screen.findByText("We could not confirm this message arrived. Here is what you wrote.");
-    const s = strip();
+    const s = await openNotDelivered();
+    expect(within(s).getByText("We could not confirm this message arrived. Here is what you wrote.")).toBeTruthy();
     expect(within(s).getByText(TEXT)).toBeTruthy();
     expect(within(s).queryByRole("button", { name: "Send anyway" })).toBeNull();
     fireEvent.click(within(s).getByRole("button", { name: "Dismiss" }));
@@ -185,8 +191,8 @@ describe("phone: a typed send answered 202", () => {
 
     fireEvent.click(within(strip()).getByRole("button", { name: "Check now" }));
 
-    await screen.findByText("The session has ended, so this message was not sent. Here is what you wrote.");
-    const s = strip();
+    const s = await openNotDelivered();
+    expect(within(s).getByText("The session has ended, so this message was not sent. Here is what you wrote.")).toBeTruthy();
     expect(within(s).getByText(TEXT)).toBeTruthy();
     expect(within(s).getByRole("button", { name: "Dismiss" })).toBeTruthy();
     expect(within(s).queryByRole("button", { name: "Send anyway" })).toBeNull();

@@ -1,13 +1,8 @@
 import { useEffect, useState } from "react";
-import {
-  abandonPendingDictation,
-  dismissDictationStatus,
-  retryDroppedDictation,
-  retryPendingDictation,
-  sendDroppedDictationAnyway,
-} from "./backgroundSend";
+import { abandonPendingDictation, dismissDictationStatus, retryPendingDictation } from "./backgroundSend";
 import { clearDictationStatus, useDictationStatusFor } from "./status";
-import { checkTypedPromptNow, dismissTypedPrompt, sendTypedPromptAnyway } from "./typedPromptDelivery";
+import { checkTypedPromptNow } from "./typedPromptDelivery";
+import { NotDeliveredIndicator } from "../sessions/NotDeliveredIndicator";
 // The strip carries its own styles, exactly like DictationDialog does (issue #1288's rule): every
 // shell that mounts it gets the dictate-strip-* rules from this one copy. The rules formerly lived
 // only in the mobile stylesheet (apps/mobile/src/styles.css); they moved here when the strip itself
@@ -36,8 +31,8 @@ import "./dictationStrip.css";
 //
 // A DROPPED send (issue #1590; voice delivery, #3398) is the loud one: the Gateway did NOT send the words -
 // the recording was more than 5 minutes old, the session had ended, or nobody could confirm it arrived - and
-// handed them back. Nothing is thrown away: the copy is kept on the device. It shows a red alert that never
-// clears itself and quotes the words back. When the Gateway offers it (offerSendAnyway), it offers "Send
+// handed them back. Nothing is thrown away: the copy is kept on the device. It shows the small red "Not
+// delivered" chip (NotDeliveredIndicator), which never clears itself; a click opens the words. When the Gateway offers it (offerSendAnyway), it offers "Send
 // anyway" - the words as a fresh, normal turn, since re-driving the dictation itself can only return the same
 // answer - or, on the rare case with no words, "Retry", which re-sends the recording under a fresh upload id.
 // When it does not (the "could not confirm" case, where a second copy might double the words), only Dismiss.
@@ -129,56 +124,14 @@ export function DictationStatusStrip({ sessionId }: { sessionId: string | undefi
     );
   }
 
-  // Not sent, shown back (issue #1590). Sticky by construction: there is no timer on this arm, and nothing but
-  // an explicit user action removes it. role="alert" because the user's words were NOT delivered.
+  // Not sent, shown back (issue #1590). Sticky by construction: nothing but an explicit user action removes it.
+  // It is the small red "Not delivered" chip, not a box: the words, the label and Send anyway / Retry / Dismiss
+  // open behind a click (owner ruling 2026-10-07 - the big red box took the screen over). On a session screen
+  // that already shows the session's own chip, this one renders nothing, so the owner sees one chip, not two.
   if (status.phase === "dropped") {
-    // The FULL message that would have been delivered (typed text included), which is exactly what "Send
-    // anyway" sends. Quoting anything else would show the user one thing and send another.
-    const words = (status.recoverableText ?? "").trim();
-    const onSendAnyway = async () => {
-      setUploadingNow(true);
-      try {
-        if (status.typed) await sendTypedPromptAnyway(status.uploadId);
-        else await sendDroppedDictationAnyway(status.uploadId);
-      } finally {
-        setUploadingNow(false);
-      }
-    };
-    const onRetryFresh = async () => {
-      setUploadingNow(true);
-      try {
-        await retryDroppedDictation(status.uploadId);
-      } finally {
-        setUploadingNow(false);
-      }
-    };
     return (
-      <div className="dictate-strip dictate-strip-dropped" role="alert">
-        <span className="dictate-strip-icon" aria-hidden="true">!</span>
-        <div className="dictate-strip-body">
-          <span className="dictate-strip-text">{status.error ?? "That recording wasn't sent."}</span>
-          {words.length > 0 && <blockquote className="dictate-strip-quote">{words}</blockquote>}
-        </div>
-        {/* Whether to offer a second send at all is the Gateway's decision (phase 2, change 1): a recording it
-            could not confirm arrived is shown back with Dismiss only, because the words may be in already. */}
-        {status.offerSendAnyway === true &&
-          (words.length > 0 ? (
-            <button type="button" className="dictate-strip-btn" onClick={() => void onSendAnyway()} disabled={uploadingNow}>
-              {uploadingNow ? "Sending..." : "Send anyway"}
-            </button>
-          ) : (
-            <button type="button" className="dictate-strip-btn" onClick={() => void onRetryFresh()} disabled={uploadingNow}>
-              {uploadingNow ? "Retrying..." : "Retry"}
-            </button>
-          ))}
-        <button
-          type="button"
-          className="dictate-strip-btn dictate-strip-dismiss"
-          onClick={() => void (status.typed ? dismissTypedPrompt(status.uploadId) : dismissDictationStatus(status.uploadId))}
-          disabled={uploadingNow}
-        >
-          Dismiss
-        </button>
+      <div className="dictate-strip-chip-row">
+        <NotDeliveredIndicator sessionId={sessionId} />
       </div>
     );
   }
