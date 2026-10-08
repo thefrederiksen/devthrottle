@@ -625,14 +625,6 @@
   font-size: 13px;
 }
 
-/* "change - coming": a label, visibly not a control - no border, no pointer, no underline. */
-.fa-coming {
-  color: var(--text-dim);
-  font-size: 11px;
-  font-style: italic;
-  cursor: default;
-}
-
 a.fa-tab {
   text-decoration: none;
 }

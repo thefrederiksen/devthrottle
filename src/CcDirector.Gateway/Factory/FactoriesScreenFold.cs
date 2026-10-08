@@ -67,8 +67,6 @@ public static class FactoriesScreenFold
         ScheduleNotStarted, "worklist-no-list", "worklist-no-director", "worklist-unknown",
     };
 
-    public const string ChangeComing = "change - coming";
-
     public const string DocumentsText =
         "A factory's documents - its briefs, its goal file, its rules - live in its folder on its computer, not on the " +
         "Gateway yet, so there is nothing to show here. They will appear here when the definitions move onto the Gateway.";
@@ -172,7 +170,6 @@ public static class FactoriesScreenFold
             CeoText = ceo is null ? NoHead : HeadText(ceo),
             SeatCountText = Count(factory.Seats.Count, "seat"),
             ComputerText = $"runs on {factory.Computer}",
-            ComputerChangeText = ChangeComing,
             Talk = CeoTalk(factory, DuplicateCeoNames(input.Registry.Where(f => f.ArchivedAtUtc is null).ToList())),
             Tabs = PageTabs(factory.Seats.Count),
             Goal = GoalCard(factory),
@@ -335,7 +332,6 @@ public static class FactoriesScreenFold
             LastRunText = lastText,
             LastRunTone = lastTone,
             ComputerText = seat.Computer,
-            ComputerChangeText = ChangeComing,
             Talk = new FactoryTalkDto
             {
                 Label = "Talk",

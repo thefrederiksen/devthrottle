@@ -19,8 +19,7 @@ import "./factory.css";
 // Reports, Memory and Documents. Each tab has its own address (/factories/<id>/<tab>; the Overview is the page's own
 // address), and a tab the Gateway did not offer opens the Overview.
 //
-// Rule 7: every word and tone is the Gateway's (FactoriesScreenFold). The computer's "change - coming" is a LABEL,
-// never a control: moving a factory or a seat to another computer is not built yet, and the page says so.
+// Rule 7: every word and tone is the Gateway's (FactoriesScreenFold).
 
 export function factoryTabHref(factory: string, key: string): string {
   const page = `/factories/${encodeURIComponent(factory)}`;
@@ -71,9 +70,7 @@ export function FactoryView() {
           <div className="fa-factory-facts" data-testid="fa-factory-facts">
             <span>{page.ceoText}</span>
             <span>{page.seatCountText}</span>
-            <span>
-              {page.computerText} <ComingLabel text={page.computerChangeText} />
-            </span>
+            <span>{page.computerText}</span>
           </div>
         </div>
         <div className="fa-head-actions">
@@ -137,15 +134,6 @@ function Crumbs({ crumb, hrefs }: { crumb: string; hrefs: string[] }) {
         </Fragment>
       ))}
     </nav>
-  );
-}
-
-/** The computer's "change - coming": plain text, visibly not a control. */
-function ComingLabel({ text }: { text: string }) {
-  return (
-    <span className="fa-coming" data-testid="fa-coming">
-      {text}
-    </span>
   );
 }
 
@@ -258,9 +246,7 @@ function SeatsTab({ view: d }: { view: FactorySeatsView }) {
                 <td>
                   <span className={`fa-lastrun fa-tone-${seat.lastRunTone}`}>{seat.lastRunText}</span>
                 </td>
-                <td>
-                  {seat.computerText} <ComingLabel text={seat.computerChangeText} />
-                </td>
+                <td>{seat.computerText}</td>
                 <td className="fa-seat-talk">
                   <TalkButton talk={seat.talk} variant="secondary" />
                 </td>

@@ -186,8 +186,6 @@ export interface FactoryPageView {
   seatCountText: string;
   /** "runs on SOREN_NORTH". */
   computerText: string;
-  /** "change - coming": a label, never a control. */
-  computerChangeText: string;
   talk: FactoryTalkTarget | null;
   /** Overview, Seats (n), Activity, Reports, Memory, Documents. */
   tabs: FactoryTab[];
@@ -217,8 +215,6 @@ export interface FactorySeatRow {
   lastRunText: string;
   lastRunTone: FactoryTone;
   computerText: string;
-  /** "change - coming": a label, never a control. */
-  computerChangeText: string;
   talk: FactoryTalkTarget;
 }
 
