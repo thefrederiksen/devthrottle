@@ -30,6 +30,7 @@ vi.mock("@devthrottle/client-core/factory/factoriesScreenClient", () => screenCl
 
 const agentsClient = vi.hoisted(() => ({
   getFactoryActivity: vi.fn(),
+  getFactoryMap: vi.fn(() => new Promise(() => {})),
   getFactoryReports: vi.fn(),
   getFactoryWaiting: vi.fn(),
   getFactoryAgent: vi.fn(),
