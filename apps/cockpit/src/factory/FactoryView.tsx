@@ -106,7 +106,6 @@ export function FactoryView() {
       </nav>
 
       {page.truncatedText !== null && <div className="fa-warn">{page.truncatedText}</div>}
-      {tab === "overview" && <FactoryFloorPanel factory={page.id} />}
       {tab === "overview" && <Overview page={page} onChanged={view.reload} onDone={done} />}
       {tab === "floor" && <FactoryFloorPanel factory={page.id} full />}
       {tab === "seats" &&
