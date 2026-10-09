@@ -207,63 +207,6 @@ export interface FactoryQuery {
   report?: string;
 }
 
-// The factory map (issue #3383), mirroring FactoryMapDtos.cs. The layout is the factory's own (Graphviz, in the
-// factory's tool); the Gateway adds each agent's status and returns every word, tone, line style and path finished.
-export interface FactoryMapSpecRow {
-  label: string;
-  text: string;
-}
-
-export interface FactoryMapNode {
-  id: string;
-  kind: "agent" | "owner" | "source";
-  title: string;
-  lines: string[];
-  statusWord: string | null;
-  tone: FactoryTone;
-  lastRun: string | null;
-  dashed: boolean;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  spec: FactoryMapSpecRow[];
-  href: string | null;
-}
-
-export interface FactoryMapEdge {
-  from: string;
-  to: string;
-  label: string;
-  tone: FactoryTone;
-  line: "solid" | "dashed" | "dotted";
-  path: string;
-  head: string | null;
-  labelX: number | null;
-  labelY: number | null;
-}
-
-export interface FactoryMapLegend {
-  text: string;
-  tone: FactoryTone;
-  line: "solid" | "dashed" | "dotted";
-}
-
-export interface FactoryMapView {
-  factoryId: string;
-  title: string;
-  emptyText: string | null;
-  sourceText: string | null;
-  statusNote: string;
-  width: number;
-  height: number;
-  nodes: FactoryMapNode[];
-  edges: FactoryMapEdge[];
-  legend: FactoryMapLegend[];
-  changeLabel: string;
-  changeHref: string;
-}
-
 const PREFIX = "/gateway/factory-agents";
 
 /** Build the query string the Gateway reads; empty values are left out. */
@@ -385,9 +328,4 @@ export async function downloadFactoryCsv(href: string, signal?: AbortSignal): Pr
   } finally {
     URL.revokeObjectURL(url);
   }
-}
-
-/** A factory's map, drawn from the files the factory published (issue #3383); shown on the Overview again. */
-export function getFactoryMap(factory: string, signal?: AbortSignal): Promise<FactoryMapView> {
-  return getJson<FactoryMapView>(`${PREFIX}/factories/${encodeURIComponent(factory)}/map`, signal);
 }
