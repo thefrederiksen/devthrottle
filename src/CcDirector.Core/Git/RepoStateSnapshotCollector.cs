@@ -59,6 +59,13 @@ public sealed class RepoStateSnapshotCollector
                 FileLog.Write($"[RepoStateSnapshotCollector] skipped a repository whose path is missing: {repo.Path}");
                 continue;
             }
+            if (!IsInsideGitWorkingTree(repo.Path))
+            {
+                // A session can be started in a plain folder, and that folder is registered (#3669). It has no
+                // repository state to report; running git on it only produced an error report every cycle.
+                FileLog.Write($"[RepoStateSnapshotCollector] skipped a registered folder that is not a git repository: {repo.Path}");
+                continue;
+            }
 
             try
             {
@@ -79,6 +86,19 @@ public sealed class RepoStateSnapshotCollector
 
         FileLog.Write($"[RepoStateSnapshotCollector] CollectAsync: collected {snapshots.Count} repository snapshots");
         return snapshots;
+    }
+
+    /// <summary>True when the folder or one of its parents holds a <c>.git</c> directory or file - the presence
+    /// git itself looks for. A <c>.git</c> that exists but is broken still goes to git and still fails loudly.</summary>
+    private static bool IsInsideGitWorkingTree(string path)
+    {
+        for (var dir = new DirectoryInfo(path); dir is not null; dir = dir.Parent)
+        {
+            var dotGit = Path.Combine(dir.FullName, ".git");
+            if (Directory.Exists(dotGit) || File.Exists(dotGit))
+                return true;
+        }
+        return false;
     }
 
     private async Task<RepoStateSnapshotDto> CollectOneAsync(

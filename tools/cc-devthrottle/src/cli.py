@@ -16,6 +16,7 @@ from . import email_ops
 from . import factory_ops
 from . import factory_memory_ops
 from . import factory_registry_ops
+from . import factory_status_ops
 from . import fleet_manager_ops
 from . import fleet_ops
 from . import link_ops
@@ -139,7 +140,7 @@ factory_memory_app = typer.Typer(
 factory_app.add_typer(factory_memory_app, name="memory")
 factory_goal_number_app = typer.Typer(
     cls=AxiGroup,
-    help="The number a factory's goal is measured by: its CEO posts it on every run.",
+    help="The number a factory's goal is measured by: its boss posts it on every run.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -982,10 +983,17 @@ _ACTIONS = [
     },
     {
         "id": "factory-register",
-        "description": "Register a factory from a JSON manifest (title, folder, computer, CEO, goal file, seats); replaces its last registration.",
+        "description": "Register a factory from a JSON manifest (title, folder, computer, boss, goal file, purpose, seats); replaces its last registration.",
         "command": "cc-devthrottle factory register --manifest <file>",
         "mutatesState": True,
         "args": [{"name": "manifest", "required": True}],
+    },
+    {
+        "id": "factory-purpose",
+        "description": "Set (or --clear) the one line that says what a registered factory is for, shown under its name on the Factories cards.",
+        "command": 'cc-devthrottle factory purpose <factory> "<one line>"',
+        "mutatesState": True,
+        "args": [{"name": "factory", "required": True}, {"name": "line", "required": False}],
     },
     {
         "id": "factory-list",
@@ -995,8 +1003,15 @@ _ACTIONS = [
         "args": [],
     },
     {
+        "id": "factory-status",
+        "description": "The Factories screen as the owner sees it: every factory's status word, or one factory's word, reason, and each failing and waiting item with its row id.",
+        "command": "cc-devthrottle factory status [--factory <id>]",
+        "mutatesState": False,
+        "args": [{"name": "factory", "required": False}],
+    },
+    {
         "id": "factory-goal-number-post",
-        "description": "Post a factory's goal number (value, unit, as-of date, link to how it was measured); a CEO runs it on every run.",
+        "description": "Post a factory's goal number (value, unit, as-of date, link to how it was measured); a boss runs it on every run.",
         "command": "cc-devthrottle factory goal-number post --factory <id> --value <text> --unit <text> --date <YYYY-MM-DD> --link <url>",
         "mutatesState": True,
         "args": [
@@ -3640,13 +3655,28 @@ def factory_register(
 ) -> None:
     """Register a factory from a JSON manifest, replacing its last registration.
 
-    The manifest holds exactly: factory, title, folder (absolute), computer, ceoSeat (optional), goalFile
+    The manifest holds exactly: factory, title, folder (absolute), computer, bossSeat (optional; that seat's name is Boss), goalFile
     (optional, relative to the folder - its text is read here and sent, so run this on the factory's computer),
     goalApprovedOn (optional, YYYY-MM-DD), and seats: a list of {id, name, role, briefFile (relative to the
     folder), schedules (Gateway schedule ids), computer (optional, defaults to the factory's)}. An unknown key
     is refused. Exits non-zero when the factory was not registered.
     """
     factory_registry_ops.register(manifest, json_output)
+
+
+@factory_app.command("purpose")
+def factory_purpose(
+    factory: str = typer.Argument(..., help="The registered factory's id, for example warmforward."),
+    line: Optional[str] = typer.Argument(None, help="One line on what the factory is for, in quotes (at most 120 characters)."),
+    clear: bool = typer.Option(False, "--clear", help="Remove the purpose line instead of setting one."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the factory as JSON."),
+) -> None:
+    """Set the one-line purpose shown under a factory's name on the Factories cards.
+
+    Sets it on an already registered factory without registering it again; the rest of the registration is
+    untouched. The line is trimmed and must fit in 120 characters. Exits non-zero when it was not set.
+    """
+    factory_registry_ops.set_purpose(factory, line, clear, json_output)
 
 
 @factory_app.command("list")
@@ -3660,6 +3690,22 @@ def factory_list(
 ) -> None:
     """List the registered factories."""
     factory_registry_ops.list_factories(json_output, fields)
+
+
+@factory_app.command("status")
+def factory_status(
+    factory: Optional[str] = typer.Option(None, "--factory", help="One factory: its page, with every failing and waiting item."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON - the screen's own data."),
+) -> None:
+    """The Factories screen: every factory's status word, or one factory's page.
+
+    Without --factory: one line per registered factory - id, status word (FAILING, NEEDS YOU, PAUSED or
+    RUNNING), what is waiting on the owner, and the status line under the word. With --factory: that
+    factory's word and reason, then every failing and waiting item with its row id, so a resolved one can be
+    marked handled with `factory record --corrects <row id>`. Every word is the Gateway's, from the same fold
+    the screen reads; nothing is decided here.
+    """
+    factory_status_ops.status(factory, json_output)
 
 
 @factory_goal_number_app.command("post")

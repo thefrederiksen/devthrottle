@@ -22,4 +22,9 @@ public sealed class DevReportVersionEntity : GatewayMintedKeyEntity
     public string Status { get; set; } = "";
 
     public string Title { get; set; } = "";
+
+    /// <summary>The showcase tag this row was written under by the administrator showcase route
+    /// (<see cref="Teams.TeamShowcase"/>), or null for every real row. Removing a showcase deletes exactly the rows
+    /// carrying its tag.</summary>
+    public string? ShowcaseTag { get; set; }
 }

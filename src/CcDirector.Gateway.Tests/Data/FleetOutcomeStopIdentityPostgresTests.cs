@@ -114,7 +114,15 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             Assert.Equal("20261007180154_AddLinkRequestRequestedAmount", all[index + 23]);
             // The seat a schedule runs (issue #3650), after that.
             Assert.Equal("20261008043117_AddScheduleSeat", all[index + 24]);
-            Assert.Equal(all.Count - 25, index);
+            // The team's governance rules and their record of changes (Teams v1, the Governance tab), after that.
+            Assert.Equal("20261008191614_AddTeamGovernance", all[index + 25]);
+            // A factory's one-line purpose (the Factories cards, 8 Oct 2026), after that.
+            Assert.Equal("20261008200010_AddFactoryPurpose", all[index + 26]);
+            // The team showcase's tag, and a made-up member's name and email (team showcase, 8 Oct 2026), after that.
+            Assert.Equal("20261008212232_AddTeamShowcase", all[index + 27]);
+            // The factory registry's boss seat column, renamed from CeoSeat (Factory Design and Improvements), after that.
+            Assert.Equal("20261008220319_RenameCeoSeatToBossSeat", all[index + 28]);
+            Assert.Equal(all.Count - 29, index);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -132,7 +140,7 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // table was the last of them until the factory activity record and then the factory triggers followed it,
             // and then the name a trigger's pending start used, and then the factory memory notes (issue 3436), and then
             // the teams (devthrottle_internal#2300) and the team invitations (devthrottle_internal#2301).
-            Assert.Equal("20261008043117_AddScheduleSeat", ctx.Database.GetAppliedMigrations().Last());
+            Assert.Equal("20261008220319_RenameCeoSeatToBossSeat", ctx.Database.GetAppliedMigrations().Last());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 

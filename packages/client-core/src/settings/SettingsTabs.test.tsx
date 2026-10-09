@@ -127,17 +127,58 @@ describe("the Settings tab strip", () => {
     ]);
   });
 
-  // The Cockpit-only tab, rendered (issue #550). The tab set decides this, not the shell, so the strip is
-  // where it can be seen: the same four in the same order, and one more that the phone above does not get.
-  it("offers those same four plus Injected text on the Cockpit", () => {
+  // The Cockpit-only tabs, rendered (issue #550; owner, 8 Oct 2026). The tab set decides this, not the shell, so the
+  // strip is where it can be seen: the phone's four in the same order, among the tabs only the Cockpit has.
+  it("offers those same four, in the same order, among the Cockpit's own tabs", () => {
     mount(<SettingsTabStrip active="notifications" onSelect={() => {}} surface="cockpit" />);
     expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Account",
+      "Plan and usage",
       "Notifications",
       "Language",
       "Transcription",
-      "Fleet Manager",
+      "Dictionary",
       "Injected text",
+      "Fleet Manager",
+      "Devices and phone",
     ]);
+  });
+
+  // Down the side on the desktop: the same tabs, under small headings, the team's under its name. Layout only - the
+  // tabs a screen reader walks are the same list, in the same order.
+  it("draws the group headings when grouped, with the team's name over the team's tabs", () => {
+    mount(
+      <SettingsTabStrip
+        active="members"
+        onSelect={() => {}}
+        surface="cockpit"
+        context={{ team: true, teamPlan: true }}
+        grouped
+        teamLabel="Soren Test Team"
+      />,
+    );
+    expect(screen.getByTestId("settings-group-you").textContent).toBe("You");
+    expect(screen.getByTestId("settings-group-voice").textContent).toBe("Voice");
+    expect(screen.getByTestId("settings-group-fleet").textContent).toBe("Fleet");
+    expect(screen.getByTestId("settings-group-team").textContent).toBe("Soren Test Team");
+    expect(screen.getAllByRole("tab").map((t) => t.textContent).slice(-3)).toEqual(["Members", "Team plan", "Governance"]);
+    expect(screen.getByRole("tablist").getAttribute("aria-orientation")).toBe("vertical");
+  });
+
+  // The Dictionary tab carries the Gateway's count of suggestions waiting (owner, 8 Oct 2026); zero draws nothing.
+  it("draws a tab's count when the shell hands one in, and nothing for zero", () => {
+    mount(
+      <SettingsTabStrip active="account" onSelect={() => {}} surface="cockpit" grouped badges={{ dictionary: 4, usage: 0 }} />,
+    );
+    expect(screen.getByTestId("settings-tab-badge-dictionary").textContent).toBe("4");
+    // A screen reader hears the count as words after the label, not glued to it.
+    expect(screen.getByRole("tab", { name: "Dictionary (4 pending)" })).toBeTruthy();
+    expect(screen.queryByTestId("settings-tab-badge-usage")).toBeNull();
+  });
+
+  it("draws no headings as one strip, the way the phone lays it out", () => {
+    mount(<SettingsTabStrip active="notifications" onSelect={() => {}} surface="mobile" />);
+    expect(screen.queryByTestId("settings-group-you")).toBeNull();
   });
 
   // Hidden means hidden on both surfaces. Asserted through the RENDERED strip and not only through the

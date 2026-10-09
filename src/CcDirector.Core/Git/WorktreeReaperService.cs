@@ -350,6 +350,14 @@ public sealed class WorktreeReaperService
             FileLog.Write($"[WorktreeReaperService] reaped {result.RemovedCount}/{outcomes.Count}, leftovers={result.Leftovers.Count}, skipped={result.Skipped.Count}");
             return result;
         }
+        catch (OperationCanceledException)
+        {
+            // The caller superseded us before the removal loop (which catches its own cancellations), so no
+            // worktree was removed. Answered as the loop answers one: a "reap cancelled" result, not a
+            // failure report (#3668).
+            FileLog.Write($"[WorktreeReaperService] ReapAsync cancelled before removing any worktree: repo={repositoryPath}");
+            return ReapResult.Failure("reap cancelled before any worktree was removed");
+        }
         catch (Exception ex)
         {
             FileLog.Write($"[WorktreeReaperService] ReapAsync FAILED: {ex.Message}");

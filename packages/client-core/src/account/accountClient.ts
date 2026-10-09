@@ -20,6 +20,10 @@ export interface AccountStatus {
    *  debug view. The GATEWAY decides it - a client never works out what it may see - and the route it unlocks asks
    *  the same question for itself, so hiding a tab is never what protects anything. */
   staff?: boolean;
+  /** True when THIS Gateway holds its own DevThrottle sign-in - a self-hosted Gateway - so its own Log out
+   *  (POST /account/logout) means something. False on the hosted Gateway, which holds none. The Gateway rules;
+   *  the client never works out "hosted" for itself (devthrottle#3681, rule 7). */
+  gatewaySignIn?: boolean;
 }
 
 /** One device in the account device list (GET /account/devices). Every field is a display value the
@@ -82,6 +86,7 @@ export async function getAccountStatus(signal?: AbortSignal): Promise<AccountSta
   return {
     signedIn: Boolean(body?.signedIn),
     staff: Boolean(body?.staff),
+    gatewaySignIn: Boolean(body?.gatewaySignIn),
     email: body?.email ?? null,
     provider: body?.provider ?? null,
   };

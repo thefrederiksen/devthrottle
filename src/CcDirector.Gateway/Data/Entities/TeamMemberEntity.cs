@@ -24,4 +24,17 @@ public sealed class TeamMemberEntity
 
     /// <summary>When this account became a member (UTC).</summary>
     public DateTime JoinedAtUtc { get; set; }
+
+    /// <summary>For a made-up showcase member only: the name shown in place of an account's email. Null for every
+    /// real member, whose display email is read from their own tenant row.</summary>
+    public string? DisplayName { get; set; }
+
+    /// <summary>For a made-up showcase member only: the email shown. Never sent to - a showcase member is not an
+    /// account, and nothing mails a member list.</summary>
+    public string? DisplayEmail { get; set; }
+
+    /// <summary>The showcase tag this row was written under by the administrator showcase route
+    /// (<see cref="Teams.TeamShowcase"/>), or null for every real row. Removing a showcase deletes exactly the rows
+    /// carrying its tag.</summary>
+    public string? ShowcaseTag { get; set; }
 }

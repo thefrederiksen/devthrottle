@@ -117,6 +117,16 @@ function renderAt(url: string) {
             </>
           }
         />
+        {/* Where it lives now: the Plan and usage tab of Settings (owner, 8 Oct 2026). */}
+        <Route
+          path="/settings"
+          element={
+            <>
+              <YourThrottleView />
+              <LocationProbe />
+            </>
+          }
+        />
       </Routes>
     </MemoryRouter>,
   );
@@ -155,6 +165,19 @@ describe("YourThrottleView at the mentor report's link", () => {
     await screen.findByRole("button", { name: "Last 14 days", pressed: true });
     expect((await screen.findByTestId("thr-window")).textContent).toContain("Last 14 days");
     expect(screen.queryByTestId("thr-window-week")).toBeNull();
+  });
+
+  // As the Plan and usage tab of Settings the tab rides in the same address: choosing a length replaces only the window,
+  // so it never throws the reader out of the tab.
+  it("choosing a length inside Settings keeps the tab in the address", async () => {
+    const fetchMock = stubGateway();
+    renderAt("/settings?tab=usage&week=2026-W35");
+    await screen.findByTestId("thr-window-week");
+
+    fireEvent.click(screen.getByRole("button", { name: "Last 14 days" }));
+
+    await waitFor(() => expect(fetchMock.mock.calls.map((c) => String(c[0]))).toContain("/stats/data?days=14"));
+    expect(screen.getByTestId("location").textContent).toBe("/settings?tab=usage&days=14");
   });
 
   it("a URL with neither asks for the Gateway's default and shows the served label", async () => {

@@ -37,8 +37,12 @@ public sealed record FactoriesScreenInputs(
 /// (The two build rulings of 2026-10-06, PLAN.md "Decisions added during the build".)
 ///
 /// Every status but RUNNING carries a one-line reason shown under the word, and a link to the items it is about on
-/// the factory's page (round 2, mandate item 1). The factory's head is the registry's <c>ceoSeat</c>, whatever its
-/// title: the page says that seat's own role ("CFO Ruth Calder").
+/// the factory's page (round 2, mandate item 1). The factory's BOSS is the registry's <c>bossSeat</c> (the owner's
+/// ruling of 8 October 2026: not every factory is a company, but every factory has a boss - the word is Boss, never
+/// CEO or head). The boss has no name of its own: the product says "the boss", "Talk to the boss", "Latest from the
+/// boss", never a person's name, because real-sounding names across thirteen factories were confusing and collided.
+/// The page header shows the boss seat's own role word, which is "Boss" unless the factory registered a distinct
+/// one ("CFO" for Center Consulting).
 ///
 /// Only registry seats are seats. A row written by a session that is not a seat ("Owner Session") counts toward
 /// what is waiting on the owner and toward FAILING - both are the factory's - but it never becomes a row on the
@@ -54,8 +58,8 @@ public static class FactoriesScreenFold
     /// <summary>How far back a failed run makes a factory FAILING.</summary>
     public static readonly TimeSpan FailingWindow = TimeSpan.FromHours(24);
 
-    /// <summary>How many of the CEO's lines the page shows.</summary>
-    public const int CeoLines = 3;
+    /// <summary>How many of the boss's lines the page shows.</summary>
+    public const int BossLines = 3;
 
     /// <summary>A schedule's last status when the firing could not start its session.</summary>
     public const string ScheduleNotStarted = "not-started";
@@ -81,26 +85,29 @@ public static class FactoriesScreenFold
         // An archived factory is not on the list, nor in its status order (round 2); it is under Show archived.
         var listed = input.Registry.Where(f => f.ArchivedAtUtc is null).ToList();
         var archived = input.Registry.Where(f => f.ArchivedAtUtc is not null).ToList();
-        var duplicateCeoNames = DuplicateCeoNames(listed);
-
         var rows = listed.Select(f =>
             {
                 var status = Status(f, input, open);
-                var talk = CeoTalk(f, duplicateCeoNames);
+                var talk = BossTalk(f);
+                var waiting = open.Where(r => SameId(r.Factory, f.Factory)).ToList();
                 return (Rank: status.Rank, Row: new FactoryListRowDto
                 {
                     Id = f.Factory,
                     Title = f.Title,
                     StatusWord = status.Word,
                     StatusTone = status.Tone,
+                    StatusRank = status.Rank,
                     StatusReason = status.Reason,
                     StatusLine = status.Line,
                     StatusHref = status.Href,
-                    WaitingText = WaitingText(open.Where(r => SameId(r.Factory, f.Factory)).ToList()),
-                    WaitingHref = open.Any(r => SameId(r.Factory, f.Factory)) ? WaitingHref(f.Factory) : null,
+                    WaitingText = WaitingText(waiting),
+                    WaitingCount = WaitingCount(waiting),
+                    WaitingHref = waiting.Count > 0 ? WaitingHref(f.Factory) : null,
                     Href = PageHref(f.Factory),
                     Talk = talk,
-                    NoCeoText = talk is null ? NoHead : null,
+                    NoBossText = talk is null ? NoBoss : null,
+                    Purpose = string.IsNullOrWhiteSpace(f.Purpose) ? null : f.Purpose.Trim(),
+                    BossName = Boss(f) is { } boss ? BossRole(boss) : null,
                 });
             })
             .OrderBy(x => x.Rank)
@@ -197,7 +204,7 @@ public static class FactoriesScreenFold
         var now = input.Activity.NowUtc;
         var open = OpenWaiting(input.Activity).Where(r => SameId(r.Factory, factory.Factory)).ToList();
         var status = Status(factory, input, open);
-        var ceo = Ceo(factory);
+        var boss = Boss(factory);
         input.LatestGoalNumbers.TryGetValue(factory.Factory, out var number);
 
         return new FactoryPageViewDto
@@ -211,10 +218,10 @@ public static class FactoriesScreenFold
             StatusReason = status.Reason,
             StatusLine = status.Line,
             StatusHref = status.Href,
-            CeoText = ceo is null ? NoHead : HeadText(ceo),
+            BossText = boss is null ? NoBoss : BossRole(boss),
             SeatCountText = Count(factory.Seats.Count, "seat"),
             ComputerText = $"runs on {factory.Computer}",
-            Talk = CeoTalk(factory, DuplicateCeoNames(input.Registry.Where(f => f.ArchivedAtUtc is null).ToList())),
+            Talk = BossTalk(factory),
             Tabs = PageTabs(factory.Seats.Count),
             Goal = GoalCard(factory),
             GoalNumber = GoalNumberCard(number, factory, zone, now),
@@ -228,7 +235,7 @@ public static class FactoriesScreenFold
                 BulkHandled = FactoryOwnerActions.BulkHandledAction(factory, open, zone, now),
                 BulkHandledNote = FactoryOwnerActions.BulkHandledNote(open, now),
             },
-            CeoLatest = CeoLatest(factory, ceo, input),
+            BossLatest = BossLatest(factory, boss, input),
             LastTalk = LastTalk(factory, input.Talks, input.Schedules, zone, now),
             DocumentsText = DocumentsText,
             TruncatedText = Truncated(input.Activity),
@@ -259,6 +266,7 @@ public static class FactoriesScreenFold
     public static List<FactoryTabDto> PageTabs(int seats) => new()
     {
         new() { Key = "overview", Label = "Overview" },
+        new() { Key = "floor", Label = "Floor" },
         new() { Key = "seats", Label = $"Seats ({seats})" },
         new() { Key = "activity", Label = "Activity" },
         new() { Key = "reports", Label = "Reports" },
@@ -294,31 +302,31 @@ public static class FactoriesScreenFold
         };
     }
 
-    private static FactoryCeoLatestDto CeoLatest(RegisteredFactoryDto f, RegisteredFactorySeatDto? ceo, FactoriesScreenInputs input)
+    private static FactoryBossLatestDto BossLatest(RegisteredFactoryDto f, RegisteredFactorySeatDto? boss, FactoriesScreenInputs input)
     {
         var a = input.Activity;
-        if (ceo is null)
-            return new FactoryCeoLatestDto { Heading = "Latest from the head", EmptyText = "This factory has no head named." };
-        var dto = new FactoryCeoLatestDto { Heading = $"Latest from the {HeadRole(ceo)}" };
-        var clock = SeatClock(SchedulesOf(ceo, input.Schedules), a.Zone);
+        if (boss is null)
+            return new FactoryBossLatestDto { Heading = "Latest from the boss", EmptyText = "This factory has no boss named." };
+        var dto = new FactoryBossLatestDto { Heading = "Latest from the boss" };
+        var clock = SeatClock(SchedulesOf(boss, input.Schedules), a.Zone);
         if (clock.ZoneName is not null) dto.Heading += $" ({clock.ZoneName} time)";
         var lines = a.WindowRows
-            .Where(r => SameId(r.Factory, f.Factory) && SameId(r.FactoryAgent, ceo.Id)
+            .Where(r => SameId(r.Factory, f.Factory) && SameId(r.FactoryAgent, boss.Id)
                         && r.Outcome is not FactoryActivityOutcome.Started and not FactoryActivityOutcome.NothingToDo
                             and not FactoryActivityOutcome.Paused and not FactoryActivityOutcome.Skipped)
             .OrderByDescending(r => r.OccurredUtc)
-            .Take(CeoLines)
+            .Take(BossLines)
             .Select(r => $"{clock.When(r.OccurredUtc, a.NowUtc, capital: true, named: false)} - {r.What}")
             .ToList();
         dto.Lines = lines;
-        dto.EmptyText = lines.Count == 0 ? $"Nothing from {ceo.Name} {WindowPhrase(a.Window)}." : null;
+        dto.EmptyText = lines.Count == 0 ? $"Nothing from the boss {WindowPhrase(a.Window)}." : null;
         dto.AllLabel = "All reports";
-        dto.AllHref = $"{ListHref}?tab=activity&factory={Uri.EscapeDataString(f.Factory)}&agent={Uri.EscapeDataString(ceo.Id)}";
+        dto.AllHref = $"{ListHref}?tab=activity&factory={Uri.EscapeDataString(f.Factory)}&agent={Uri.EscapeDataString(boss.Id)}";
         return dto;
     }
 
     /// <summary>The newest talk, told in the clock of the seat that talked - the same clock as that seat's lines on
-    /// the page, named when it is not the account's. Before this (live QA, 7 Oct 2026) the CEO card above said
+    /// the page, named when it is not the account's. Before this (live QA, 7 Oct 2026) the boss card above said
     /// "Today 17:18" in Toronto time and this line said "today 21:18", the UTC time of the same talk.</summary>
     private static FactoryLastTalkDto LastTalk(RegisteredFactoryDto f, IReadOnlyList<FactoryActivityDto> talks,
         IReadOnlyList<CronJobDto> schedules, TimeZoneInfo zone, DateTime now)
@@ -342,7 +350,7 @@ public static class FactoriesScreenFold
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(input);
         var rows = factory.Seats
-            .OrderBy(s => SameId(s.Id, factory.CeoSeat ?? "") ? 0 : 1)
+            .OrderBy(s => SameId(s.Id, factory.BossSeat ?? "") ? 0 : 1)
             .Select(s => SeatRow(factory, s, input))
             .ToList();
         return new FactorySeatsViewDto
@@ -352,7 +360,7 @@ public static class FactoriesScreenFold
             Crumb = $"Factories / {factory.Title} / Seats",
             Columns = new() { "Seat", "When it runs", "Last run", "Computer" },
             Rows = rows,
-            Note = "Only seats the CEO hired are listed. Sessions that only wrote activity rows are not seats and do not appear.",
+            Note = "Only seats the boss hired are listed. Sessions that only wrote activity rows are not seats and do not appear.",
         };
     }
 
@@ -379,7 +387,8 @@ public static class FactoriesScreenFold
             Talk = new FactoryTalkDto
             {
                 Label = "Talk",
-                BusyLabel = $"Starting the talk with {seat.Name}...",
+                // The boss has no name of its own: its row says "the boss" where another seat says its name.
+                BusyLabel = $"Starting the talk with {(SameId(seat.Id, f.BossSeat ?? "") ? "the boss" : seat.Name)}...",
                 FactoryId = f.Factory,
                 SeatId = seat.Id,
             },
@@ -642,6 +651,10 @@ public static class FactoriesScreenFold
         return parts.Count == 0 ? "-" : string.Join(", ", parts);
     }
 
+    /// <summary>The number <see cref="WaitingText"/> describes: its questions plus its decisions.</summary>
+    public static int WaitingCount(IReadOnlyList<FactoryActivityDto> open) =>
+        open.Count(r => r.Outcome is FactoryActivityOutcome.Asked or FactoryActivityOutcome.Escalated);
+
     // ---------------------------------------------------------------------------------------------------------
     // Shared
 
@@ -655,40 +668,34 @@ public static class FactoriesScreenFold
     /// <summary>The waiting items on the factory's page - where NEEDS YOU and the waiting count link to.</summary>
     public static string WaitingHref(string factory) => $"{PageHref(factory)}#waiting";
 
-    /// <summary>What a factory with no head says where the head's Talk button would be.</summary>
-    public const string NoHead = "No head named";
+    /// <summary>What a factory with no boss says where the boss's Talk button would be.</summary>
+    public const string NoBoss = "No boss named";
 
-    /// <summary>"CFO Ruth Calder", "CEO Nora Hale": the head's own role, then its name.</summary>
-    private static string HeadText(RegisteredFactorySeatDto head) => $"{HeadRole(head)} {head.Name}";
+    /// <summary>The product's word for the boss seat's role: "Boss", or the distinct role word the factory registered
+    /// ("CFO"). Never the seat's name - the boss has none (the owner's ruling of 8 October 2026).</summary>
+    public const string BossRoleWord = "Boss";
 
-    private static string HeadRole(RegisteredFactorySeatDto head) =>
-        string.IsNullOrWhiteSpace(head.Role) ? "head" : head.Role.Trim();
+    private static string BossRole(RegisteredFactorySeatDto boss) =>
+        string.IsNullOrWhiteSpace(boss.Role) ? BossRoleWord : boss.Role.Trim();
 
-    /// <summary>
-    /// The head's Talk button: "Talk to Ruth Calder", or "Talk to the CEO" (the head's own role) when another
-    /// registered factory's head has the same name, so two buttons on one list never read alike. Null when the
-    /// factory has no head.
-    /// </summary>
-    private static FactoryTalkDto? CeoTalk(RegisteredFactoryDto f, IReadOnlySet<string> duplicateNames)
+    /// <summary>The boss's Talk button: always "Talk to the boss". Null when the factory has no boss.</summary>
+    public const string TalkToTheBoss = "Talk to the boss";
+
+    private static FactoryTalkDto? BossTalk(RegisteredFactoryDto f)
     {
-        var ceo = Ceo(f);
-        if (ceo is null) return null;
-        var who = duplicateNames.Contains(ceo.Name) ? $"the {HeadRole(ceo)}" : ceo.Name;
+        var boss = Boss(f);
+        if (boss is null) return null;
         return new FactoryTalkDto
         {
-            Label = $"Talk to {who}",
-            BusyLabel = $"Starting the talk with {who}...",
+            Label = TalkToTheBoss,
+            BusyLabel = "Starting the talk with the boss...",
             FactoryId = f.Factory,
-            SeatId = ceo.Id,
+            SeatId = boss.Id,
         };
     }
 
-    private static IReadOnlySet<string> DuplicateCeoNames(IReadOnlyList<RegisteredFactoryDto> registry) =>
-        registry.Select(Ceo).Where(c => c is not null).GroupBy(c => c!.Name.Trim(), StringComparer.OrdinalIgnoreCase)
-            .Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-    private static RegisteredFactorySeatDto? Ceo(RegisteredFactoryDto f) =>
-        f.CeoSeat is null ? null : f.Seats.FirstOrDefault(s => SameId(s.Id, f.CeoSeat));
+    private static RegisteredFactorySeatDto? Boss(RegisteredFactoryDto f) =>
+        f.BossSeat is null ? null : f.Seats.FirstOrDefault(s => SameId(s.Id, f.BossSeat));
 
     private static string SeatName(RegisteredFactoryDto f, string seatId) =>
         f.Seats.FirstOrDefault(s => SameId(s.Id, seatId))?.Name ?? FactoryAgentsFold.Humanize(seatId);

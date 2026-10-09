@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factory Design and Improvements - design report</title>
+<style>
+  :root { --ink: #1f2430; --dim: #5b6372; --line: #d9dde5; --paper: #ffffff; --soft: #f4f6f9; --amber: #b7791f; --red: #b42318; --green: #1f7a4d; --blue: #1f5fbf; }
+  body { margin: 0; padding: 0 16px 48px; background: var(--paper); color: var(--ink); font: 16px/1.5 Georgia, "Times New Roman", serif; max-width: 920px; margin-left: auto; margin-right: auto; }
+  h1 { font-size: 26px; margin: 28px 0 4px; }
+  h2 { font-size: 20px; margin: 32px 0 8px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+  h3 { font-size: 17px; margin: 20px 0 6px; }
+  p { margin: 8px 0; }
+  .status { display: inline-block; padding: 2px 10px; border-radius: 12px; font: 13px/1.6 Arial, sans-serif; letter-spacing: .3px; background: #fff4e0; color: var(--amber); border: 1px solid #f0d9a8; }
+  .meta { color: var(--dim); font: 14px/1.5 Arial, sans-serif; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 14px; font-size: 15px; }
+  th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); font-family: Arial, sans-serif; font-size: 13px; }
+  code, pre { font: 13.5px/1.45 Consolas, "Courier New", monospace; }
+  code { background: var(--soft); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--soft); border: 1px solid var(--line); padding: 10px 12px; overflow-x: auto; border-radius: 4px; }
+  .q { border: 1px solid var(--line); border-left: 4px solid var(--blue); background: var(--soft); padding: 10px 14px; margin: 12px 0; border-radius: 4px; }
+  .q h3 { margin: 0 0 6px; }
+  .q label { display: block; margin: 4px 0; }
+  .q textarea { width: 100%; min-height: 48px; margin-top: 6px; font: 14px Arial, sans-serif; }
+  .note { color: var(--dim); font-size: 14px; }
+  .warn { color: var(--red); }
+  ul { margin: 6px 0 10px; padding-left: 22px; }
+  li { margin: 3px 0; }
+  .card { border: 1px solid var(--line); border-radius: 4px; padding: 10px 14px; margin: 10px 0; }
+  .ok { color: var(--green); }
+</style>
+</head>
+<body>
+
+<header data-dev-report="header" data-dev-report-status="waiting-on-you">
+  <h1>Factory Design and Improvements - the design, before any code</h1>
+  <p class="meta">Session "Factory Design and Improvements" (be9f089f), 8 October 2026. Read from origin/main at 308fe0064 in a fresh worktree. Version 4: both items are built, reviewed and green. Item A waits on your yes to commit and merge; Item B waits on your yes to follow it. <span class="status">Waiting on you</span></p>
+</header>
+
+<section data-dev-report="summary">
+  <h2>Summary</h2>
+  <div class="card">
+    <p><strong>Your decisions, 8 October 2026 (version 1 of this report):</strong></p>
+    <ul>
+      <li><strong>Item A:</strong> go, as designed.</li>
+      <li><strong>The role word:</strong> rename it to "Boss" in every factory whose role is literally "CEO"; a distinct role like CFO stays.</li>
+      <li><strong>Boss names</strong>, in your words: "We should also remove the names of the bosses we don't want actual real human names it's just really confusing we should just remove and just call it the factory boss and then it will be the boss of this factory or the boss of that factory."</li>
+      <li><strong>Seat ids:</strong> keep them as each factory chose them.</li>
+      <li><strong>Other repositories:</strong> edit Website Business's own files now; list the other eight factories' files for a separate go each.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <p><strong>Where things stand, 8 October 2026, evening:</strong></p>
+    <ul>
+      <li><strong>Item A is built</strong> in its own worktree, on today's main. A separate review session read the whole change and found nothing; its review is in the mission record (<code>reviews/review-item-a.md</code>). The default local gate is green on every suite (the one failure on the first run was this session's own factory variable leaking into a test that expects none; it passes with the variable cleared, and the factory's memory now says so). The Gateway unit tests pass. The two new command line tests and the Talk seed tests pass.</li>
+      <li><strong>One proof is still owed on Item A:</strong> the parked route test that drives the two reads with a real session key could not run. The Gateway test suite takes a machine-wide lock, and a test host from another session (started 14:41, from the devthrottle-team-manage worktree, session 893fac7b) has held it for over two hours; three more sessions' runs are queued behind it. I did not touch it. I will run that test the moment the lock frees. The reviewer read the test instead and confirmed its assertions are red on the old endpoint code by construction.</li>
+      <li><strong>Item B is built and reviewed</strong> in a second worktree on top of Item A, with your two rulings in: the role word is Boss, and the boss has no name. The product never shows a boss by a person's name; the registry refuses a boss seat named anything but Boss; both migrations are a column rename, so the thirteen registrations keep their boss. A separate review session read the whole change (<code>reviews/review-item-b.md</code>) and found five things, all low, all fixed since. The one that mattered: the Gateway itself still accepted a manifest with the old key <code>ceoSeat</code> and quietly registered the factory with no boss - only the command line refused it. The Gateway now refuses any manifest key it does not know, naming the key and the fix ("The manifest's key 'ceoSeat' was renamed 'bossSeat' on 8 October 2026"), with a test that binds the body the way the route does. The other four were stale words: a contract comment and a history note that still said head or the wrong old name, Cockpit and command line fixtures that still showed bosses by a person's name, and test names that described a rule that no longer exists. After the fixes the whole Gateway unit suite is green (9,881 tests), and so are the Cockpit (87), client-core (17) and command line (542) suites.</li>
+      <li><strong>Still owed on both items:</strong> the parked route tests. The lock holder from 14:41 is still running at 16:45, with two more sessions' test hosts queued behind it, so neither item's route test has run tonight. For Item A the reviewer read the test and it is red on the old code by construction; for Item B the route test only re-registers with the new key and reads the new words. If you say merge, I merge on the green unit, Cockpit, client-core and command line suites and run the route tests on main the moment the lock frees, as the trunk rule allows; if you would rather wait for them, say so in the question.</li>
+      <li><strong>Website Business's own files:</strong> the boss skill now runs the status at the start and the end of every night (in a cc-consult worktree, uncommitted). The wider CEO-to-Boss sweep of Malik's brief, skill and tools comes after the product change lands, so his nightly run never meets a Gateway that refuses his manifest.</li>
+    </ul>
+  </div>
+  <p><strong>The design as it was agreed (version 1):</strong> Item A gives a factory's boss the same Factories screen you see: a session key may read the two screen routes, a new command <code>cc-devthrottle factory status</code> prints the screen's own answer, and the boss runs it at the start and end of every run and in every talk. Item B renames the factory "CEO" to "Boss" across the product, with no alias: a renamed manifest key, a renamed database column with a migration that keeps the thirteen registrations, renamed labels, command line fields, documentation, and a list of the per-factory files in other repositories that still say CEO.</p>
+  <p><strong>What I recommend, in one breath:</strong> build Item A first as one small pull request, because it unblocks Malik tonight and touches nothing the rename touches. Then Item B as one product pull request (Gateway, Cockpit, command line, docs, the committed manifests), deployed before any factory re-registers. Then the per-factory files, factory by factory, with your go per repository. Keep the seat id <code>ceo</code> as it is - it is a key in 49 activity rows and 6 schedules and never appears on your screen - and change the role word the screen shows from "CEO" to "Boss".</p>
+  <p>Two decisions are yours now, below: whether Item A goes to main tonight, and whether Item B follows it. The four from version 1 are answered and kept beneath them.</p>
+</section>
+
+<section data-dev-report="questions">
+  <h2>Decisions I need from you</h2>
+  <div class="q" data-dev-report-question="merge-item-a" data-dev-report-question-text="Commit and merge Item A to main now, and deploy the Gateway so Malik can run factory status tonight?">
+    <h3>Commit and merge Item A now?</h3>
+    <p class="note">Committing and merging need your explicit yes in this session. Item A is reviewed and green. Merging first and deploying the Gateway afterwards is what lets Malik run the status command on tonight's 01:00 run; without the deploy the hosted Gateway still answers 403.</p>
+    <label><input type="radio" name="merge-item-a" value="commit-merge-deploy" data-recommended> Yes - commit, open the pull request, merge it, and deploy the Gateway with the deploy skill. (Recommended: the route test still owed is behind another session's lock, the reviewer read it and it is red on the old code by construction; the deploy is what makes tonight's run see the screen.)</label>
+    <label><input type="radio" name="merge-item-a" value="commit-merge-no-deploy"> Yes - commit, open the pull request and merge, but do not deploy the Gateway yet.</label>
+    <label><input type="radio" name="merge-item-a" value="wait-for-route-test"> Not yet - wait for the parked route test to run first, then ask again.</label>
+    <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+  </div>
+  <div class="q" data-dev-report-question="merge-item-b" data-dev-report-question-text="Once Item A is on main, commit and merge Item B (the CEO-to-Boss rename with the no-name rule) and deploy it too?">
+    <p><strong>Once Item A is on main, commit and merge Item B (the CEO-to-Boss rename with the no-name rule) and deploy it too?</strong></p>
+    <p class="note">Item B sits on top of Item A, so it cannot go first. After the Gateway with Item B is deployed, a manifest that still says <code>ceoSeat</code> or names its boss is refused with the fix in the message, so the per-factory files (Website Business first, the other eight with your go each) follow it. Until each factory re-registers, its registration is intact: the migration renames the column and keeps every value, and nothing on the screen needs the factory to register again.</p>
+    <label><input type="radio" name="merge-item-b" value="merge-and-deploy" data-recommended> Yes - after Item A, rebase Item B on main, commit, open the pull request, merge and deploy the Gateway. (Recommended: one deploy for both, and the thirteen registrations keep their boss through it.)</label>
+    <label><input type="radio" name="merge-item-b" value="merge-no-deploy"> Yes - merge it after Item A, but hold the deploy until I say.</label>
+    <label><input type="radio" name="merge-item-b" value="hold"> Not yet - leave Item B in its worktree and ask again.</label>
+    <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+  </div>
+  <p class="note">The four questions below were answered in version 1 and are kept as the record.</p>
+
+  <div class="card" style="opacity:.75">
+  <div data-dev-report-answered="go-item-a">
+    <h3>1. Build Item A as designed below?</h3>
+    <p class="ok">[chosen] Go - build it as designed: allow the two reads, add factory status, teach the Talk seed and the Website Business boss. (Recommended: it is the smallest change that meets the done condition, and it is what you asked for on 8 October.)</p>
+    <p class="note">[not chosen] Change something first - say what in the comment.</p>
+  </div>
+
+  <div data-dev-report-answered="role-word">
+    <h3>2. Item B: the role word the screen shows - rename it in every factory, or only the product's words?</h3>
+    <p class="note">"Talk to the CEO" and "CEO Nora Hale" on the screen are not product words: they are each factory's own role text from its manifest. The product only adds its own words ("No head named", "Latest from the head", "Only seats the CEO hired are listed"). Renaming the product alone leaves the screen saying CEO on eleven factories.</p>
+    <p class="ok">[chosen] Rename the role word to "Boss" in every factory whose role is literally "CEO" (eleven), keep a distinct role like "CFO" where it is one (Center Consulting). (Recommended: your reasoning was that CEO is the wrong word, so leaving it in the role text keeps the wrong word on the screen.)</p>
+    <p class="note">[not chosen] Rename only the product's own words and keys; each factory keeps whatever role word it chose.</p>
+  </div>
+
+  <div data-dev-report-answered="seat-ids">
+    <h3>3. Item B: the seat id <code>ceo</code> - keep it, or rename it to <code>boss</code>?</h3>
+    <p class="note">The seat id is a key, never shown on the screen (the screen shows the seat's name and role). It is in 49 activity rows of Website Business alone, in 6 schedules (seat = ceo or cfo), in every factory's own tools (<code>--actor ceo</code>, <code>factory_agent: ceo</code>) and in the brief file names. The activity record is append-only, so old rows would keep <code>ceo</code> for ever, and the "Latest from the boss" card would lose every line written before the rename.</p>
+    <p class="ok">[chosen] Keep the seat id as each factory chose it. The no-alias rule is about the product's words and keys; a seat id is the factory's own data. (Recommended: a rename here breaks history and gains nothing you can see.)</p>
+    <p class="note">[not chosen] Rename it to <code>boss</code> everywhere: re-register every factory, relink its schedules, change every factory's tools, and accept that rows before the rename read as a seat called "Ceo".</p>
+  </div>
+
+  <div data-dev-report-answered="other-repos">
+    <h3>4. Item B: the per-factory files in other repositories - what may this mission edit?</h3>
+    <p class="ok">[chosen] Edit Website Business's own files now (Malik's brief, skill, tools and tests, in cc-consult), and list the other eight factories' files for a separate go each. (Recommended: this session belongs to the Website Business factory; the others are other bosses' repositories.)</p>
+    <p class="note">[not chosen] Edit every factory's files in this mission, nine repositories, one pull request each.</p>
+    <p class="note">[not chosen] Edit none of them here; the product change only, and each factory catches up when it next registers.</p>
+  </div>
+  </div>
+</section>
+
+<section data-dev-report="detail">
+  <h2>Item A - a factory's boss can see its own Factories screen (issue 3685)</h2>
+
+  <h3>The problem</h3>
+  <p>On 8 October you saw Website Business marked FAILING. Malik, its boss, could not read that word. A session key is refused on the two routes the screen reads - <code>/gateway/factories</code> and <code>/gateway/factories/{id}</code> - with 403 <code>session_key_out_of_scope</code>, because the guard's read list (<code>SessionKeyGuard.IsAllowed</code>, around line 337) names the activity record, the registry and the goal numbers but not the screen. And even past the guard, the endpoint helper <code>FactoryAgentsViewEndpoints.Owner</code> refuses any calling session on its own, so the guard alone is not the whole fix. Malik rebuilt the rule by hand from the activity record (unhandled failed, blocked and sent-back rows) and asked you to refresh the screen. Five rows were already resolved and simply never marked handled.</p>
+
+  <h3>The design</h3>
+  <table>
+    <tr><th style="width:26%">Where</th><th>What changes</th></tr>
+    <tr><td><code>SessionKeyGuard.cs</code></td><td>The read list gains two shapes: <code>gateway/factories</code> and <code>gateway/factories/{id}</code> (exactly three path parts). The Seats tab (four parts) and every write - Handled, handled-older, archive, restore, Talk - stay owner-only. The guard's comment says why: a factory's own sessions read their factory's status; the account binding of the key already limits them to their own account.</td></tr>
+    <tr><td><code>FactoriesScreenEndpoints.cs</code></td><td>The list and the page use a new helper that admits the owner and a session of the same account (the registry endpoints already work this way through <code>resolveTenant</code>); the Seats read and the Handled write keep the owner-only helper. The page's owner-only action texts (archive, restore, bulk handled) are still in the answer; a session cannot act on them because the writes stay refused.</td></tr>
+    <tr><td><code>tools/cc-devthrottle</code> - new <code>factory_status_ops.py</code>, <code>cli.py</code>, the actions catalogue</td><td><code>cc-devthrottle factory status [--factory &lt;id&gt;] [--json]</code>. Without a factory: one line per factory from the list route - id, status word, waiting text, the status line. With a factory: the page route - the status word and its reason, the waiting count, then every failing item (its row id, seat, when, what, and whether Handled applies - a schedule that could not start has no row and clears by itself) and every waiting item (row id, asked or escalated, seat, when, what). After the items it prints the exact command to mark one handled. <code>--json</code> prints the Gateway's answer verbatim - the screen's own data. A 404 says factory agents are off, as the other factory commands do.</td></tr>
+    <tr><td><code>FactoryTalkSeed.cs</code> (the first prompt of every talk)</td><td>The "read before you say anything" list gains the factory's status as you see it, and the "before the talk ends" list gains a third step: run the status again, mark every resolved failing or waiting item handled with its evidence, and tell you the word the factory ends on.</td></tr>
+    <tr><td>Website Business's own files (cc-consult, with your go)</td><td>The boss skill <code>website-ceo</code>: step 1 (Start) runs the status before anything else; step 12 (Finish) runs it again and marks the resolved items. The nightly schedule's seed text already says "follow your skill from step 1 to the end", so it needs no change. The other eight bosses' briefs and skills are listed under Item B.</td></tr>
+    <tr><td><code>docs/cli-reference.md</code></td><td>The new command, beside the registry and goal number commands.</td></tr>
+  </table>
+
+  <h3>How a boss marks an item handled</h3>
+  <p>No new write. The screen's Handled button appends a correcting row; the boss does the same with the existing record command, which the guard already allows:</p>
+<pre>cc-devthrottle factory record --factory website-business --agent &lt;the row's seat&gt; --outcome done \
+    --corrects &lt;row id&gt; --what "Handled by Malik Grant (boss): &lt;evidence&gt;"</pre>
+  <p>The fold counts a failure as over when any later row corrects it, so the status turns as soon as the last open item is corrected. The rule Malik wrote into the factory's memory stands: never mark an item that is not actually resolved.</p>
+
+  <h3>The proof</h3>
+  <ul>
+    <li><strong>Guard tests</strong> (<code>SessionKeyGuardTests</code>): the two reads are allowed; the Seats read, Handled, handled-older, archive and restore are still refused by name.</li>
+    <li><strong>Route test</strong> (<code>FactoryRegistryRouteTests</code>, in the parked Gateway.Tests suite): the test that today asserts a session key is refused the screen becomes: a session key reads the list and the page and gets the same status word the owner gets; Seats and Handled still answer 403.</li>
+    <li><strong>Command line tests</strong> (new <code>test_factory_status_ops.py</code>, against the fake Gateway the other factory tests use): the word, the items with their row ids, the handled command, the no-row note for a schedule that could not start, the 404 wording, exit codes.</li>
+    <li><strong>Talk seed test</strong> (<code>FactoryTalkSeedTests</code>): the status command is in the seed, with the factory's id.</li>
+    <li><strong>The gate</strong>: <code>.\scripts\test-local.ps1 -Parked</code> (the Gateway suites are parked, and Gateway.Tests needs Docker).</li>
+    <li><strong>The done condition, live</strong>: after the merge and a Gateway deploy, a Website Business session runs <code>cc-devthrottle factory status --factory website-business</code>, you open the Factories screen, both show one word and the same items; the boss marks the last resolved item handled and the word turns to RUNNING on both. This last step needs the deploy, which is your call, and I will ask before it.</li>
+  </ul>
+  <p class="note">Review: a separate review session before the merge - Codex first, else a Claude Code session on Fable. Merge needs your explicit yes in this session.</p>
+</section>
+
+<section data-dev-report="detail">
+  <h2>Item B - rename the factory "CEO" to "Boss"</h2>
+
+  <h3>Your reasoning, as I have it</h3>
+  <p>Not every factory is a company, but every factory has a boss. One word for one idea, no alias: rename and migrate.</p>
+
+  <h3>What already happened, and what has not</h3>
+  <p>Round 2 of the Factories screen already half-moved away from CEO: the fold says "head" in its own words ("No head named", "Latest from the head", the fallback role "head") and shows each seat's own role from the manifest ("CEO Nora Hale", "CFO Ruth Calder", "Talk to the CEO" when two bosses share a name). So the screen today mixes three words - head, CEO and the role - and the code, the manifest key <code>ceoSeat</code>, the database column <code>CeoSeat</code>, the command line field <code>ceo</code> and the documentation all still say CEO. This rename finishes that move with one word.</p>
+
+  <h3>The product word</h3>
+  <p><strong>Boss</strong> - the seat that runs a factory: decides, hires the other seats, posts the goal number, answers the owner's talk. One per factory, or none. The terminology skill gets this line (edited in its one source, <code>src/CcDirector.Gateway/Skills/Content/terminology.skill.md</code>, the repository copy regenerated, shipped by a Gateway deploy). "Head" and "CEO" are retired as product words; a seat's own role text is the factory's (question 2).</p>
+
+  <h3>The boss has no name (your ruling of 8 October)</h3>
+  <p>The product never shows a boss by a person's name. A boss is "the boss of Website Business": the Talk button reads "Talk to the boss", the page header reads "Boss", the card reads "Latest from the boss", a talk session is named "Website Business - Boss - talk with the owner", and the Talk seed opens "You are the boss of Website Business". The seat's registered <code>name</code> becomes "Boss" in every manifest that names a boss (eleven), so the data agrees with the screen; the fold's duplicate-name rule ("Talk to the CEO" when two bosses share a name) goes away because there is nothing left to collide. The names collide today - Max Ridley is the boss of two factories and Iris Calloway is a boss and a ClickFunnels seat - which is the confusion you named.</p>
+  <p class="note">Every other seat is already named by its role (Scout, Sender, Mail Desk, Cost Watch), except four in ClickFunnels: Leo Vance (hacker), Theo Banks (outreach), Iris Calloway (marketing), Nadia Brooks (sales manager). They are listed with ClickFunnels's files below and are not touched here.</p>
+
+  <h3>Scope inside this repository</h3>
+  <table>
+    <tr><th style="width:30%">Layer</th><th>Today</th><th>After</th></tr>
+    <tr><td>Manifest key (the wire shape of <code>factory register</code>)</td><td><code>ceoSeat</code></td><td><code>bossSeat</code>. An old manifest sending <code>ceoSeat</code> is refused as an unknown key, with the fix in the message, by the command line AND by the Gateway. The review found the Gateway alone did not refuse it (its binding drops a key it does not know, so the factory registered with no boss and no error); it now refuses any key it does not know and names the fix. No alias.</td></tr>
+    <tr><td>Contracts (<code>FactoryRegistryDtos.cs</code>, <code>FactoriesScreenDtos.cs</code>)</td><td><code>CeoSeat</code>, <code>CeoText</code>, <code>CeoLatest</code>, <code>FactoryCeoLatestDto</code>, <code>NoCeoText</code></td><td><code>BossSeat</code>, <code>BossText</code>, <code>BossLatest</code>, <code>FactoryBossLatestDto</code>, <code>NoBossText</code></td></tr>
+    <tr><td>Database (<code>FactoryRegistryEntity.cs</code>, <code>GatewayDbContext.cs</code>)</td><td>column <code>CeoSeat</code></td><td>column <code>BossSeat</code>: one rename-column migration for SQLite and one for PostgreSQL. A rename keeps the value, so the thirteen registrations survive with no backfill.</td></tr>
+    <tr><td>The fold (<code>FactoriesScreenFold.cs</code>) and the registry store</td><td>"No head named", "Latest from the head", fallback role "head", "Only seats the CEO hired are listed", the refusal "The CEO seat 'x' is not one of the factory's seats", helpers <code>Ceo</code>, <code>CeoTalk</code>, <code>CeoLines</code></td><td>"No boss named", "Latest from the boss", fallback role "boss", "Only seats the boss hired are listed", "The boss seat ...", helpers renamed to match</td></tr>
+    <tr><td>Guard comments, Talk seed comments, entity comments</td><td>CEO</td><td>boss</td></tr>
+    <tr><td>Command line (<code>factory_registry_ops.py</code>, <code>cli.py</code>)</td><td>manifest key <code>ceoSeat</code>; <code>factory list</code> field <code>ceo</code>; help text "CEO"</td><td><code>bossSeat</code>; field <code>boss</code>; help text "boss". The actions catalogue descriptions change (these entries are outside the pinned set, so the pin test stays as it is).</td></tr>
+    <tr><td>Cockpit and client-core (<code>FactoriesView.tsx</code>, <code>FactoryView.tsx</code>, <code>fixtures.ts</code>, <code>FactoriesScreen.test.tsx</code>, <code>factoriesScreenClient.ts</code>)</td><td><code>noCeoText</code>, <code>ceoText</code>, <code>ceoLatest</code>, test id <code>fa-ceo-latest</code></td><td><code>noBossText</code>, <code>bossText</code>, <code>bossLatest</code>, <code>fa-boss-latest</code>. The Cockpit renders the Gateway's words, so no label is written there.</td></tr>
+    <tr><td>Tests</td><td>nine Gateway test files, one command line test file, one Cockpit test file name the key or the word</td><td>renamed with the code; no test is deleted</td></tr>
+    <tr><td>Documentation</td><td><code>docs/cli-reference.md</code> (registry section); the eleven committed manifests under <code>docs/missions/factories-screen-2026-10-06/manifests/</code>, which are the manifests the factories were registered from</td><td>the reference says boss; the eleven manifests get the new key (and the new role word if you choose it in question 2). The mission's own prose, reviews and the v2.17.0 release notes stay as written: they are a record of what was built then.</td></tr>
+    <tr><td>Not in scope (CEO meaning something else)</td><td colspan="2">A contact's job title in <code>ContentItem.cs</code> and a vault test; a dictation test transcript "who is the ceo"; a voice plan example. None is the factory word.</td></tr>
+  </table>
+
+  <h3>Scope outside this repository - the per-factory files that say CEO</h3>
+  <p>Nine factories have a boss seat; thirteen are registered (Machine Care and Money Saver have none; the three mindzie factories share one folder). The files below are what a search for the word found in each factory's folder. Nothing here is edited without your go (question 4).</p>
+  <table>
+    <tr><th style="width:22%">Factory (boss)</th><th>Folder</th><th>Files that say CEO</th></tr>
+    <tr><td>Website Business (Malik Grant)</td><td><code>cc-consult/ideas/website-factory/factory</code></td><td><code>agents/ceo.yaml</code>, <code>.claude/skills/website-ceo/SKILL.md</code>, the business-review and prospect skills, <code>agents/business-reviewer.yaml</code>, <code>mail-warmer.yaml</code>, <code>scout.yaml</code>, <code>cc_website_factory/ceo.py</code>, <code>cli.py</code>, <code>review.py</code>, <code>runs.py</code>, <code>sentmail.py</code>, <code>factory.yaml</code>, <code>GOAL.md</code>, <code>README.md</code>, <code>CHAINS.md</code>, <code>COCKPIT.md</code>, <code>map.dot</code>, <code>map.svg</code>, six test files. The seat id, the <code>--actor ceo</code> flag and the <code>ceo-ship</code> tool name are keys (question 3).</td></tr>
+    <tr><td>DevThrottle (Ada Brennan)</td><td><code>devthrottle-factory/factory</code></td><td><code>agents/ceo.yaml</code>, <code>onboarding.yaml</code>, <code>outreach.yaml</code>, <code>sales-desk.yaml</code>, <code>CEO-BRIEF.md</code>, <code>AUTONOMY.md</code>, <code>EXPANSION.md</code>, <code>FACTORY.md</code>, <code>MAP.html</code>, <code>README.md</code></td></tr>
+    <tr><td>ClickFunnels (Hazel Morgan)</td><td><code>cc-clickfunnels/factory</code></td><td><code>agents/ceo.yaml</code> and six other agent briefs, <code>CEO-BRIEF.md</code>, <code>FACTORY.md</code>, three reviews, <code>schedules.json</code>, <code>.claude/hooks/guard.py</code>, four tools (<code>lessons.py</code>, <code>morning_email.py</code>, <code>outbox.py</code>, <code>runlog.py</code>)</td></tr>
+    <tr><td>WarmForward (Nora Hale)</td><td><code>cc-consult/ideas/warmforward-factory</code></td><td><code>agents/ceo.yaml</code>, <code>savings-engineer.yaml</code>, <code>value-hunter.yaml</code>, <code>CEO-BRIEF.md</code>, <code>AUTONOMY.md</code>, <code>FACTORY.md</code>, <code>factory.yaml</code>, <code>GOAL.md</code>, <code>LESSONS.md</code>, <code>MONEY-PLAN.md</code>, <code>PLAN-WINTER-2026.md</code>, <code>README.md</code>, <code>WARMBOARD-TARGETS.md</code></td></tr>
+    <tr><td>Business Research (Victor Lane)</td><td><code>cc-consult/ideas/business-research/factory</code></td><td><code>agents/ceo.yaml</code>, <code>cto.yaml</code>, <code>reviewer.yaml</code>, <code>sales-leader.yaml</code>, <code>.claude/skills/research-ceo/SKILL.md</code>, <code>ceo_ship.py</code>, <code>partner_desk.py</code>, <code>permissions/deny_direct_mail.py</code>, <code>tests/test_partner_desk.py</code></td></tr>
+    <tr><td>Tallyhand (Max Ridley)</td><td><code>cc-consult/ideas/tallyhand</code></td><td><code>CEO-BRIEF.md</code> (the registered brief), <code>agents/cto.yaml</code>, <code>market-scout.yaml</code>, <code>BUSINESS-PLAN.md</code> and its draft, <code>FACTORY.md</code>, <code>README.md</code>, <code>model/build_model.py</code>, three research notes</td></tr>
+    <tr><td>M-AI Reports (Max Ridley)</td><td><code>D:/wt/ai-reports-factory/factory/ai-reports</code></td><td><code>agents/ceo.yaml</code> and three other briefs, <code>CEO-BRIEF.md</code>, <code>CEO-BRIEF-2-system-cubes.md</code>, <code>factory.yaml</code>, <code>NIGHTLY.md</code>, <code>PLAN.md</code>, <code>README.md</code>, <code>HANDOVER.md</code>, <code>MOVE-TO-TRIGGER.md</code>, and about twenty-five sales, research and report files (history; most should stay as written)</td></tr>
+    <tr><td>M-Studio, M-BPM Studio, M-Cube PI (Nora Lindqvist, Theo Marsh, Iris Calloway)</td><td><code>ReposMindzie/mindzieWeb/factory</code></td><td><code>agents/ceo.yaml</code>, <code>bpm-studio/agents/ceo.yaml</code>, <code>cube-pi/agents/ceo.yaml</code>, <code>factory.yaml</code> (only the <code>factory</code> subfolder was searched; the rest of mindzieWeb is the product's own source)</td></tr>
+    <tr><td>Center Consulting (Ruth Calder, CFO)</td><td><code>cc-consult/ideas/cc-factory</code></td><td><code>agents/cfo.yaml</code>, <code>FACTORY.md</code>, <code>README.md</code> mention CEO in passing; the boss role here is CFO and I recommend it stays CFO</td></tr>
+  </table>
+  <p class="note">In every factory the three kinds of change are different in cost: the role word in the brief and manifest (one line each), the prose in briefs, plans and skills (reads "the CEO" and should read "the boss"), and the keys - seat id, brief file name, tool names, flags - which question 3 settles.</p>
+
+  <h3>The order I recommend</h3>
+  <ol>
+    <li><strong>Item A, one pull request</strong>: guard, endpoints, the command, the Talk seed, tests, the reference. Reviewed, merged, deployed. Website Business's skill edits go in cc-consult with your go. Malik can see his screen from the next run.</li>
+    <li><strong>Item B product, one pull request</strong>: contracts, entity and the two migrations, the fold's words, the store, the command line, the Cockpit, client-core, the terminology skill, the reference, the eleven committed manifests. One pull request because the manifest key, the column and the command line field change together and must deploy together. Deploy the Gateway. From that moment the stored boss seats are intact and a manifest with the old key is refused with the fix.</li>
+    <li><strong>Item B per factory</strong>: with your go per repository, each factory's manifest and brief get the new key and the new role word, prose says boss, and the factory is registered again. The order among them is yours; Website Business first, since this session is its.</li>
+  </ol>
+  <p>The proof for Item B so far: the existing test suites renamed with the code and green (the whole Gateway unit suite, the Cockpit, client-core and the command line), the two migrations read as a column rename by the reviewer and me, and the no-name rule and the old-key refusal each pinned by a test that goes red without the code. Still owed, after the merge and the deploy: both migrations applied on the gate's throwaway PostgreSQL (behind the suite lock), <code>factory list</code> showing the thirteen registrations with their boss on the live Gateway, and the Factories screen opened live with the new words.</p>
+</section>
+
+<section data-dev-report="evidence">
+  <h2>What this rests on, and what I did not check</h2>
+  <ul>
+    <li><strong>Read, not run.</strong> Every claim about the code comes from origin/main at 308fe0064, read in a fresh worktree cut today. I built nothing and ran no test. The file and line counts of the rename are from a word search, so a CEO that is spelt in another way (a variable like <code>chief</code>) would be missed; I saw none.</li>
+    <li><strong>The live numbers</strong> - thirteen registered factories, 49 Website Business rows by the seat <code>ceo</code>, 6 schedules whose seat is ceo or cfo, 7 factory memory notes - were read from the live Gateway with the command line today.</li>
+    <li><strong>The per-factory file lists</strong> are from searching each registered folder for the word. The mindzieWeb search was limited to its <code>factory</code> subfolder; the first attempt over the whole repository timed out. I did not read the content of those files, so the split between a one-line role change and a prose change is an estimate.</li>
+    <li><strong>The committed manifests are the live ones</strong> as far as I can tell: no factory folder holds a manifest with the key, and the eleven files in this repository match the registry. Three registrations (M-BPM Studio, M-Cube PI, Money Saver) have no committed manifest; whoever registers them next needs the new key.</li>
+    <li><strong>Not verified:</strong> that the session-key account binding reaches the two screen routes exactly as it does the registry route (I read the pattern, I did not trace the middleware); the migration generation command for both providers; whether the hosted PostgreSQL rename is instant on the registry table (thirteen rows, so it should be).</li>
+    <li><strong>Neither migration has run against a real database yet.</strong> The reviewer and I read both as a single rename-column step, and each generated model matches its provider's snapshot, but the parked suite that applies them on a throwaway PostgreSQL is behind the lock. The hosted Gateway applies migrations at start-up, so the deploy is where this is proven; a rename of one column on a thirteen-row table is the smallest migration there is.</li>
+    <li><strong>The done condition is live.</strong> The last proof of Item A needs a Gateway deploy and your screen beside Malik's command; it cannot be proven in a test alone.</li>
+  </ul>
+</section>
+
+</body>
+</html>

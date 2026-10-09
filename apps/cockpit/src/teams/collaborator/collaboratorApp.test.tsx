@@ -25,7 +25,10 @@ vi.mock("@devthrottle/client-core/net/useKeepWarm", () => ({
 }));
 vi.mock("@devthrottle/client-core/dictation/dictionaryClient", () => ({ getSuggestionCount: vi.fn(async () => 0) }));
 vi.mock("@devthrottle/client-core/dictation/backgroundSend", () => ({ resumePendingDictations: vi.fn(async () => {}) }));
-vi.mock("@devthrottle/client-core/auth/accountActions", () => ({ signOutAccount: vi.fn(async () => ({ ok: true })) }));
+vi.mock("@devthrottle/client-core/auth/accountActions", () => ({
+  signOutAccount: vi.fn(async () => ({ ok: true })),
+  switchAccount: vi.fn(async () => {}),
+}));
 vi.mock("@devthrottle/client-core/fleetmanager/pageClient", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   getFleetManagerPage: vi.fn(async () => ({ waitingCount: 0 })),
@@ -69,7 +72,6 @@ vi.mock("../../fleet/FleetMapView", () => ({ FleetMapView: () => <div>fleet map 
 vi.mock("../../fleet/DirectorsView", () => ({ DirectorsView: () => <div>directors page</div> }));
 vi.mock("../../skills/SkillsView", () => ({ SkillsView: () => <div>skills page</div> }));
 vi.mock("../../settings/SettingsView", () => ({ SettingsView: () => <div>settings page</div> }));
-vi.mock("../../account/AccountView", () => ({ AccountView: () => <div>account page</div> }));
 
 // The count beside a team page (S8, devthrottle_internal#2307 review F8): every read is recorded by the path it asked,
 // and answers the count the test sets.
@@ -163,20 +165,50 @@ function rememberTeam(id: string) {
 }
 
 function railLabels(): string[] {
-  const list = document.querySelector(".nav-list:not(.nav-list-foot)");
-  if (list === null) throw new Error("the shell rendered no main nav list");
-  return Array.from(list.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+  const nav = document.querySelector(".nav");
+  if (nav === null) throw new Error("the shell rendered no rail");
+  return Array.from(nav.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+}
+
+/** The rows of the team's block in the whole app's rail - it sits between Work and Set up (owner, 8 Oct 2026). Empty
+ *  while there is no block. */
+function teamBlockLabels(): string[] {
+  const block = document.querySelector("[data-testid='nav-team']");
+  return block === null ? [] : Array.from(block.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+}
+
+/** The rows of Work in the whole app's rail. Reports is there now, for everyone (owner, 8 Oct 2026). */
+function workLabels(): string[] {
+  const work = document.querySelector("[data-testid='nav-work']");
+  return work === null ? [] : Array.from(work.querySelectorAll(".nav-link-label")).map((el) => el.textContent ?? "");
+}
+
+/** Open the menu behind your name at the bottom of the rail (owner, 8 Oct 2026), and answer it. */
+function openYourMenu(): HTMLElement {
+  fireEvent.click(screen.getByTestId("you-card"));
+  return screen.getByTestId("you-menu");
+}
+
+/** True when the menu behind your name offers the whole app's own pages (Settings and the rest). */
+function menuOffersSettings(): boolean {
+  const menu = openYourMenu();
+  const offered = within(menu).queryByRole("menuitem", { name: "Settings" }) !== null;
+  fireEvent.keyDown(menu, { key: "Escape" });
+  return offered;
 }
 
 async function whenRailIs(labels: string[]) {
   await waitFor(() => expect(railLabels()).toEqual(labels));
 }
 
-function pickTeam(optionText: string) {
-  const select = within(screen.getByTestId("team-switcher")).getByRole("combobox") as HTMLSelectElement;
-  const option = Array.from(select.options).find((o) => o.textContent === optionText);
-  if (option === undefined) throw new Error(`the switcher offers no "${optionText}"`);
-  fireEvent.change(select, { target: { value: option.value } });
+/** Pick a team (by its name) in Working in, in the menu behind your name - where the team switch lives now. */
+function pickTeam(teamName: string) {
+  const working = within(openYourMenu()).getByRole("group", { name: "Working in" });
+  const choice = within(working)
+    .getAllByRole("menuitemradio")
+    .find((c) => c.querySelector(".you-menu-main")?.textContent === teamName);
+  if (choice === undefined) throw new Error(`Working in offers no "${teamName}"`);
+  fireEvent.click(choice);
 }
 
 describe("The Collaborator's app", () => {
@@ -206,8 +238,9 @@ describe("The Collaborator's app", () => {
 
     await whenRailIs(["Questions", "Requests", "Reports"]);
     expect(document.querySelectorAll(".nav-link")).toHaveLength(3);
-    expect(document.querySelector(".nav-list-foot")).toBeNull();
-    expect(screen.getByTestId("team-switcher")).toBeTruthy();
+    // No Settings, Usage, Phone or About: a pages-only app has none of those pages. The team switch is still in reach.
+    expect(menuOffersSettings()).toBe(false);
+    expect(within(openYourMenu()).getByRole("group", { name: "Working in" })).toBeTruthy();
     expect((await screen.findAllByText("No questions waiting on you.")).length).toBeGreaterThan(0);
   });
 
@@ -291,12 +324,13 @@ describe("The Collaborator's app", () => {
     renderAt("/questions");
     await whenRailIs(["Questions", "Requests", "Reports"]);
 
-    pickTeam("Paul's project - Developer");
+    pickTeam("Paul's project");
 
     await waitFor(() => expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]));
     expect(railLabels()).toContain("Skills");
-    expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]);
-    expect(document.querySelector(".nav-list-foot")).not.toBeNull();
+    expect(teamBlockLabels()).toEqual(["Team", "Questions", "Requests"]);
+    expect(workLabels().at(-1)).toBe("Reports");
+    expect(menuOffersSettings()).toBe(true);
     expect(await screen.findByText("sessions page")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/sessions");
     expect(screen.queryByTestId("team-page-not-available")).toBeNull();
@@ -306,7 +340,9 @@ describe("The Collaborator's app", () => {
     rememberTeam(DEVELOPER_TEAM.id);
     renderAt("/sessions");
 
-    await waitFor(() => expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
+    // Questions and Requests in the team's block; Reports in Work (owner, 8 Oct 2026).
+    await waitFor(() => expect(teamBlockLabels()).toEqual(["Team", "Questions", "Requests"]));
+    expect(workLabels().at(-1)).toBe("Reports");
     expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
     fireEvent.click(screen.getByRole("link", { name: "Reports" }));
     expect(await screen.findByTestId("team-page-reports")).toBeTruthy();
@@ -318,7 +354,8 @@ describe("The Collaborator's app", () => {
     rememberTeam(DEVELOPER_TEAM.id);
     renderAt("/sessions");
 
-    await waitFor(() => expect(railLabels().at(-1)).toBe("Reports"));
+    await waitFor(() => expect(teamBlockLabels()).toEqual(["Team"]));
+    expect(workLabels().at(-1)).toBe("Reports");
     expect(railLabels()).not.toContain("Questions");
     expect(railLabels()).not.toContain("Requests");
   });
@@ -348,7 +385,7 @@ describe("The Collaborator's app", () => {
     rememberTeam(DEVELOPER_TEAM.id);
     renderAt("/sessions");
 
-    await waitFor(() => expect(railLabels().slice(-3)).toEqual(["Questions", "Requests", "Reports"]));
+    await waitFor(() => expect(teamBlockLabels()).toEqual(["Team", "Questions", "Requests"]));
     await waitFor(() => expect(railBadge("Questions")).toBe("2"));
     expect(new Set(pageCounts.asked)).toEqual(new Set(["/teams/team-paul/questions?odd-count"]));
   });
@@ -387,20 +424,23 @@ describe("The Collaborator's app", () => {
     expect(document.querySelector(".nav-link .nav-badge")).toBeNull();
   });
 
-  it("OwnAccount_TheRailListsNoTeamPages", async () => {
+  it("OwnAccount_TheRailListsNoTeamPages_AndReportsIsThePersonsOwn", async () => {
     renderAt("/sessions");
 
     expect(await screen.findByText("sessions page")).toBeTruthy();
-    await screen.findByTestId("team-switcher");
-    for (const label of ["Questions", "Requests", "Reports"]) expect(railLabels()).not.toContain(label);
+    await waitFor(() => expect(screen.getByTestId("you-card").textContent).toContain("Personal"));
+    for (const label of ["Questions", "Requests"]) expect(railLabels()).not.toContain(label);
+    // Reports is in Work on the own account too (owner, 8 Oct 2026): the person's own sessions' reports.
+    expect(workLabels().at(-1)).toBe("Reports");
+    expect(screen.queryByTestId("nav-team")).toBeNull();
   });
 
   it("SwitchTeam_FromTheOwnAccountToACollaboratorTeam_OpensItsLandingPage", async () => {
     renderAt("/sessions");
-    await screen.findByTestId("team-switcher");
+    await waitFor(() => expect(screen.getByTestId("you-card").textContent).toContain("Personal"));
     expect(railLabels()[0]).toBe("Sessions");
 
-    pickTeam("DevThrottle - Collaborator");
+    pickTeam("DevThrottle");
 
     await whenRailIs(["Questions", "Requests", "Reports"]);
     expect(screen.getByTestId("where").textContent).toBe("/questions");
@@ -410,7 +450,7 @@ describe("The Collaborator's app", () => {
   it("OwnAccount_TheTeamPageAddresses_AreThePlainPageNotFound", async () => {
     renderAt("/questions");
 
-    await screen.findByTestId("team-switcher");
+    await waitFor(() => expect(screen.getByTestId("you-card").textContent).toContain("Personal"));
     expect(screen.getByText("Page not found")).toBeTruthy();
     expect(screen.queryByTestId("team-page-questions")).toBeNull();
   });
@@ -421,9 +461,10 @@ describe("The Collaborator's app", () => {
 
     expect(await screen.findByText("sessions page")).toBeTruthy();
     expect(railLabels().slice(0, 3)).toEqual(["Sessions", "Fleet Map", "Fleet Manager"]);
-    for (const label of ["Questions", "Requests", "Reports"]) expect(railLabels()).not.toContain(label);
-    expect(document.querySelector(".nav-list-foot")).not.toBeNull();
-    expect(screen.queryByTestId("team-switcher")).toBeNull();
+    for (const label of ["Questions", "Requests"]) expect(railLabels()).not.toContain(label);
+    expect(workLabels().at(-1)).toBe("Reports");
+    expect(screen.queryByTestId("nav-team")).toBeNull();
+    expect(menuOffersSettings()).toBe(true);
     // A team page address waits for the list of teams (round 3 review, R1), then is the ordinary "Page not found".
     renderAt("/requests");
     expect((await screen.findAllByText("Page not found")).length).toBeGreaterThan(0);
@@ -469,7 +510,9 @@ describe("The Collaborator's app", () => {
     expect(chooser.textContent).toContain("Developer - 2 people");
     expect(screen.queryByText("sessions page")).toBeNull();
     expect(railLabels()).toEqual([]);
-    expect(screen.queryByTestId("team-switcher")).toBeNull();
+    // While the chooser is on screen it IS the choice: the menu behind your name offers no second one.
+    expect(within(openYourMenu()).queryByRole("group", { name: "Working in" })).toBeNull();
+    fireEvent.keyDown(screen.getByTestId("you-menu"), { key: "Escape" });
     // The chooser takes the short rail: a bar at phone width, never collapsed.
     expect(document.querySelector(".shell-team-pages")).not.toBeNull();
     expect(screen.queryByTestId("rail-toggle")).toBeNull();
@@ -502,7 +545,9 @@ describe("The Collaborator's app", () => {
     expect(reads.keepWarm.at(-1)).toBe(false);
   });
 
-  it("WholeApp_TheFiveReads_AreStillMade", async () => {
+  // The rail no longer asks the factory switch: Factories is always in the menu (owner, 8 Oct 2026), and only the
+  // Factories pages ask it.
+  it("WholeApp_TheShellsReads_AreStillMade_AndTheFactorySwitchIsNotOneOfThem", async () => {
     renderAt("/sessions");
     expect(await screen.findByText("sessions page")).toBeTruthy();
 
@@ -510,22 +555,24 @@ describe("The Collaborator's app", () => {
     expect(resumePendingDictations).toHaveBeenCalled();
     // The Fleet Manager's rail count is off for now (7 Oct 2026), so the rail no longer reads it.
     expect(getFleetManagerPage).not.toHaveBeenCalled();
-    expect(getFactoryAgentsSwitch).toHaveBeenCalled();
+    expect(getFactoryAgentsSwitch).not.toHaveBeenCalled();
     expect(reads.keepWarm.at(-1)).toBe(true);
   });
 
-  it("PagesOnly_TheFootShowsWhoIsSignedInAndTheirRole_AndSignsOut", async () => {
+  // A Collaborator's app has no Account page, and on a shared computer a person must be able to see who is signed in and
+  // leave (review finding F3): you, at the bottom - who, the team and role on screen - and the one sign-out.
+  it("PagesOnly_YouShowWhoIsSignedInAndTheirRole_AndSignOut", async () => {
     rememberTeam(COLLABORATOR_TEAM.id);
     renderAt("/questions");
 
-    const foot = await screen.findByTestId("team-pages-foot");
-    expect(foot.textContent).toContain("mike@example.com");
-    expect(foot.textContent).toContain("Collaborator");
-    fireEvent.click(within(foot).getByRole("button", { name: "Sign out" }));
+    await whenRailIs(["Questions", "Requests", "Reports"]);
+    const card = screen.getByTestId("you-card");
+    expect(card.textContent).toContain("mike@example.com");
+    expect(card.textContent).toContain("Collaborator");
+    fireEvent.click(within(openYourMenu()).getByRole("menuitem", { name: "Sign out of mike@example.com" }));
     // The confirmation's own button, which appears once the dialog opens.
-    await waitFor(() => expect(screen.getAllByRole("button", { name: "Sign out" })).toHaveLength(2));
-    const buttons = screen.getAllByRole("button", { name: "Sign out" });
-    fireEvent.click(buttons[buttons.length - 1]);
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sign out" }));
 
     await waitFor(() => expect(signOutAccount).toHaveBeenCalledWith("acct-1"));
   });
@@ -536,7 +583,7 @@ describe("The Collaborator's app", () => {
     renderAt("/questions");
 
     await whenRailIs(["Questions", "Requests", "Reports"]);
-    expect(screen.getByTestId("team-switcher")).toBeTruthy();
+    expect(screen.getByTestId("you-card").textContent).toContain("mike@example.com");
     expect(document.querySelector(".shell-rail-collapsed")).toBeNull();
     expect(screen.queryByTestId("rail-toggle")).toBeNull();
   });
@@ -575,9 +622,8 @@ describe("The Collaborator's app", () => {
     renderAt("/");
 
     await screen.findByTestId("team-chooser");
-    const foot = screen.getByTestId("team-pages-foot");
-    expect(foot.textContent).toContain("mike@example.com");
-    expect(within(foot).getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(screen.getByTestId("you-card").textContent).toContain("mike@example.com");
+    expect(within(openYourMenu()).getByRole("menuitem", { name: "Sign out of mike@example.com" })).toBeTruthy();
     expect(screen.queryByText("Cockpit (React)")).toBeNull();
   });
 
@@ -587,9 +633,11 @@ describe("The Collaborator's app", () => {
     renderAt("/questions");
 
     await screen.findByTestId("team-unreadable");
-    const foot = screen.getByTestId("team-pages-foot");
-    expect(foot.textContent).toContain("mike@example.com");
-    expect(within(foot).getByRole("button", { name: "Sign out" })).toBeTruthy();
+    expect(screen.getByTestId("you-card").textContent).toContain("mike@example.com");
+    const menu = openYourMenu();
+    expect(within(menu).getByRole("menuitem", { name: "Sign out of mike@example.com" })).toBeTruthy();
+    // The teams could not be read, and the person is told so where the team switch lives.
+    expect(within(menu).getByTestId("you-menu-teams-error").textContent).toMatch(/^Your teams could not be read just now: ./);
   });
 
   // ---- Round 3 review, R1 and R7 ----------------------------------------------------------------------------------
@@ -614,7 +662,8 @@ describe("The Collaborator's app", () => {
     expect(screen.queryByText("Page not found")).toBeNull();
   });
 
-  it("TeamCouldNotBeOpened_InACollapsedRail_DrawsNoSignOutFoot", async () => {
+  // Collapsed, you are your initials - and the sign-out is still one click behind them.
+  it("TeamCouldNotBeOpened_InACollapsedRail_StillOffersSignOutBehindYourInitials", async () => {
     window.localStorage.setItem("cockpit.railCollapsed", "true");
     myTeams.failure = new Error("Gateway restarting");
     rememberTeam(COLLABORATOR_TEAM.id);
@@ -622,6 +671,7 @@ describe("The Collaborator's app", () => {
 
     await screen.findByTestId("team-unreadable");
     expect(document.querySelector(".shell-rail-collapsed")).not.toBeNull();
-    expect(screen.queryByTestId("team-pages-foot")).toBeNull();
+    expect(screen.getByTestId("you-card").textContent).toBe("ME");
+    expect(within(openYourMenu()).getByRole("menuitem", { name: "Sign out of mike@example.com" })).toBeTruthy();
   });
 });

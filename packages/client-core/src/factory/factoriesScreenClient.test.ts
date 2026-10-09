@@ -14,7 +14,7 @@ import {
 //   * a 2XX that is not JSON - a Gateway older than the screen answering with the app's HTML shell - is refused
 //     with a sentence that says so, on the Talk request exactly as on the reads.
 
-const TARGET = { label: "Talk to Nora Hale", busyLabel: "Starting...", factoryId: "warmforward", seatId: "nora-hale" };
+const TARGET = { label: "Talk to the boss", busyLabel: "Starting...", factoryId: "warmforward", seatId: "nora-hale" };
 
 function answer(status: number, body: string, type = "application/json") {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(body, { status, headers: { "Content-Type": type } })));

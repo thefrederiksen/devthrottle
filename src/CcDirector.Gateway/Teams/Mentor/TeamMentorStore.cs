@@ -201,6 +201,14 @@ public sealed class TeamMentorStore
             .ToList();
     }
 
+    /// <summary>Whether any block, of any week, is stored about this person under this tenant. A personal page uses it to
+    /// say whether an empty week is the first one or just a quiet one.</summary>
+    public bool HasAnyBlockFor(TenantId tenant, string personSubject)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.TeamMentorBlocks.AsNoTracking().Any(b => b.PersonSubject == personSubject);
+    }
+
     private static MentorBlock ToBlock(TeamMentorBlockEntity e) => new(
         e.Week, e.PersonSubject, e.Tone, e.WorkedOn, e.HowItWent, e.WentBadlyAndWhy,
         JsonSerializer.Deserialize<List<MentorQuote>>(e.QuotesJson, QuoteJson)

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { getMentorPage, isoWeekOf, shiftWeek } from "./mentorClient";
+import { getMentorPage, getPersonalMentorPage, isoWeekOf, shiftWeek } from "./mentorClient";
 
 // GET /teams/{teamId}/mentor?week=YYYY-Www (devthrottle_internal#2305) read against its contract,
 // docs/proof/teams-2305/contract.md in the Gateway worktree. CONTRACT_EXAMPLE is the contract's own 200 example, copied
@@ -24,6 +24,7 @@ const CONTRACT_EXAMPLE = {
   blocks: [
     {
       personEmail: "rob@example.com",
+      personName: null,
       role: "Developer",
       tone: "hard",
       toneLabel: "a hard week",
@@ -70,7 +71,7 @@ describe("getMentorPage", () => {
 
     const answer = await getMentorPage("6f0c", "2026-W40");
 
-    expect(answer).toEqual({ kind: "page", page: CONTRACT_EXAMPLE });
+    expect(answer).toEqual({ kind: "page", page: { ...CONTRACT_EXAMPLE, emptyNote: null } });
     expect(fetchMock.mock.calls[0][0]).toBe("/teams/6f0c/mentor?week=2026-W40");
   });
 
@@ -100,7 +101,7 @@ describe("getMentorPage", () => {
   it("GetMentorPage_WrittenWithNoBlocks_IsAPageWithNoBlocks", async () => {
     answering({ ...CONTRACT_EXAMPLE, blocks: [] });
 
-    expect(await getMentorPage("6f0c")).toEqual({ kind: "page", page: { ...CONTRACT_EXAMPLE, blocks: [] } });
+    expect(await getMentorPage("6f0c")).toEqual({ kind: "page", page: { ...CONTRACT_EXAMPLE, blocks: [], emptyNote: null } });
   });
 
   it("GetMentorPage_NullEmails_AreAccepted", async () => {
@@ -250,6 +251,70 @@ describe("getMentorPage", () => {
     answering(body);
 
     await expect(getMentorPage("6f0c")).rejects.toMatchObject({ status: 502 });
+  });
+});
+
+// GET /account/mentor (owner, 8 Oct 2026): the person's own page, the same shape with scope "personal", no team, no
+// readers, and the Gateway's sentence for an empty week.
+function personal(overrides: Record<string, unknown> = {}): Body {
+  const body = example();
+  return {
+    ...body,
+    teamId: null,
+    scope: "personal",
+    readers: [],
+    emptyNote: null,
+    blocks: [{ ...body.blocks[0], isYou: true, role: "Personal account" }],
+    ...overrides,
+  } as Body;
+}
+
+describe("getPersonalMentorPage", () => {
+  it("GetPersonalMentorPage_ItsOwnBlock_IsAPersonalPage_ReadFromTheAccountRoute", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json(personal()));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const answer = await getPersonalMentorPage("2026-W40");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/account/mentor?week=2026-W40");
+    expect(answer.kind).toBe("page");
+    if (answer.kind !== "page") return;
+    expect(answer.page.scope).toBe("personal");
+    expect(answer.page.teamId).toBeNull();
+    expect(answer.page.readers).toEqual([]);
+    expect(answer.page.blocks[0].quotes[0].text).toBe("fix the signup thing so it doesnt break on mobile");
+  });
+
+  it("GetPersonalMentorPage_EmptyWeek_CarriesTheGatewaysSentence", async () => {
+    answering(personal({ blocks: [], written: false, emptyNote: "Your first Mentor page arrives after the Mentor's first weekly run." }));
+
+    const answer = await getPersonalMentorPage();
+
+    expect(answer).toMatchObject({ kind: "page", page: { emptyNote: "Your first Mentor page arrives after the Mentor's first weekly run." } });
+  });
+
+  it("GetPersonalMentorPage_TeamsDark404_IsNotOffered", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ error: "no" }, 404)));
+    expect(await getPersonalMentorPage()).toEqual({ kind: "not-offered" });
+  });
+
+  it.each([
+    ["lists a reader", { readers: [{ email: "boss@example.com", role: "Manager" }] }],
+    ["names a team", { teamId: "team-1" }],
+    ["calls itself a team page", { scope: "everyone" }],
+    ["holds a block about someone else", { blocks: [{ ...example().blocks[0], isYou: false }] }],
+    ["has a block and an empty sentence", { emptyNote: "Nothing this week." }],
+    ["has no block and no empty sentence", { blocks: [], written: false, emptyNote: null }],
+    ["says it is written with no block", { blocks: [], written: true, emptyNote: "Nothing this week." }],
+    ["says it is not written with a block", { written: false }],
+  ])("GetPersonalMentorPage_AnAnswerThat %s_IsThrown", async (_name, overrides) => {
+    answering(personal(overrides));
+    await expect(getPersonalMentorPage()).rejects.toThrow(/cannot read/);
+  });
+
+  it("GetMentorPage_ATeamAnswerCallingItselfPersonal_IsThrown", async () => {
+    answering({ ...example(), scope: "personal" });
+    await expect(getMentorPage("6f0c")).rejects.toThrow(/cannot read/);
   });
 });
 

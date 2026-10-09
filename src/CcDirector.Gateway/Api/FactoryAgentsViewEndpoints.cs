@@ -61,10 +61,23 @@ internal static class FactoryAgentsViewEndpoints
 
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
+    /// <summary>The sentence the Factories page shows while the area is off: that it is off, and how to switch it on on
+    /// THIS kind of Gateway. A self-hosted Gateway is switched in its own config.json; the hosted Gateway is switched
+    /// per account by an administrator (<see cref="AdminFactoryAgentsEndpoint"/>), never by the account itself.
+    /// Null when the area is on.</summary>
+    internal static string? HowToStart(bool enabled, bool hosted)
+    {
+        if (enabled) return null;
+        return hosted
+            ? "Factories is not switched on for your account yet. To start, ask DevThrottle to switch Factories on for your account."
+            : "Factories is off on this Gateway. To start, add \"factoryAgents\": { \"enabled\": true } to the Gateway's config.json, then restart the Gateway.";
+    }
+
     /// <summary>
     /// The Cockpit's question: is the Factory Agents area on FOR THE CALLING ACCOUNT? Always mapped, and never behind
     /// <see cref="FactoryAgentsGate"/>, because it is how the Cockpit learns the answer. It is asked through the same
-    /// gate test the routes use, so the rail item shows exactly when the routes answer.
+    /// gate test the routes use, so the Factories pages show the area exactly when the routes answer, and say how to
+    /// start (<see cref="HowToStart"/>) when they do not.
     /// </summary>
     public static void MapSwitch(IEndpointRouteBuilder app, Factory.FactoryAgentsSwitch factorySwitch,
         Func<HttpContext, TenantId?> resolveTenant)
@@ -75,7 +88,7 @@ internal static class FactoryAgentsViewEndpoints
         {
             var enabled = FactoryAgentsGate.IsOnFor(ctx, factorySwitch, resolveTenant, out var why);
             FileLog.Write($"[FactoryAgentsViewEndpoints] GET switch: enabled={enabled} ({why})");
-            return Results.Json(new FactoryAgentsSwitchDto { Enabled = enabled });
+            return Results.Json(new FactoryAgentsSwitchDto { Enabled = enabled, HowToStart = HowToStart(enabled, GatewayHostedMode.IsHosted) });
         });
         FileLog.Write($"[FactoryAgentsViewEndpoints] mapped {Prefix}/switch (machine switch={(factorySwitch.MachineWide ? "on" : "off")}, per account otherwise)");
     }
@@ -270,17 +283,33 @@ internal static class FactoryAgentsViewEndpoints
     // through `cc-devthrottle factory activity`, never the owner's screens.
     internal static IResult Owner(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what,
         Func<TenantId, IResult> handle)
+        => Guarded(ctx, resolveTenant, what, admitSession: false, handle);
+
+    // A page the owner AND a session of the same account read (issue #3685): the Factories screen's list and a
+    // factory's page, which a factory's boss reads with `cc-devthrottle factory status` so it sees the same word the
+    // owner sees. The account is the key's own; the tenant binding settled that before the handler ran. The writes
+    // on those pages stay with Owner above.
+    internal static IResult OwnerOrSession(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what,
+        Func<TenantId, IResult> handle)
+        => Guarded(ctx, resolveTenant, what, admitSession: true, handle);
+
+    private static IResult Guarded(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant, string what,
+        bool admitSession, Func<TenantId, IResult> handle)
     {
         FileLog.Write($"[FactoryAgentsViewEndpoints] {what}");
         try
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Results.Json(new { error = "no account is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
-            if (AuthMiddleware.CallingSession(ctx) is not null)
+            if (AuthMiddleware.CallingSession(ctx) is { } session)
             {
-                FileLog.Write($"[FactoryAgentsViewEndpoints] REFUSED: a session key asked for the owner's page ({what})");
-                return Results.Json(new { error = "The Factory Agents pages are the owner's. A session reads the record with cc-devthrottle factory activity." },
-                    statusCode: StatusCodes.Status403Forbidden);
+                if (!admitSession)
+                {
+                    FileLog.Write($"[FactoryAgentsViewEndpoints] REFUSED: a session key asked for the owner's page ({what})");
+                    return Results.Json(new { error = "The Factory Agents pages are the owner's. A session reads the record with cc-devthrottle factory activity." },
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
+                FileLog.Write($"[FactoryAgentsViewEndpoints] {what}: read by session {session.SessionId}");
             }
             return handle(tenant);
         }

@@ -141,6 +141,10 @@ public static class TeamEndpointRules
         // Managers; every change (start, renew, auto-renew, cancel) is "change the billing" - the Owner alone.
         new TeamEndpointRule(Api.TeamEndpoints.BillPath, TeamMethods.Read, TeamAction.SeeTeamBill, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
         new TeamEndpointRule(Api.TeamEndpoints.BillPath, TeamMethods.Write, TeamAction.BillingRenameOrDeleteTeam, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId),
+        // The team's Governance tab (Teams v1). Reading the rules and their change record is "see the team's governance rules" -
+        // the Owner, Managers and Developers; changing them is "change the team's governance rules" - the Owner and Managers.
+        new TeamEndpointRule(Api.TeamGovernanceEndpoints.GovernancePath, TeamMethods.Read, TeamAction.SeeTeamGovernance, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
+        new TeamEndpointRule(Api.TeamGovernanceEndpoints.GovernancePath, TeamMethods.Write, TeamAction.ChangeTeamGovernance, TeamTarget.Team, TeamFrom: TeamFrom.RouteTeamId, Exact: true),
 
         // The team's Fleet Map (devthrottle_internal#2312): every Director on the team, by person, names and status only.
         // A Developer's cell is "their own Directors", so the endpoint cuts its answer to the caller's own Directors.
@@ -246,6 +250,10 @@ public static class TeamEndpointRules
         // refused for every role until the owner decides (an owner decision, not built here).
         new TeamEndpointRule(Contracts.SessionColourLegend.Route, TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
         new TeamEndpointRule("/gateway/snooze-presets", TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
+        // DEMO MODE (owner, 8 Oct 2026): whether the team's Cockpit blurs what its factories and sessions do. Every
+        // member's Cockpit READS it, so every screen on the team blurs together; the WRITE stays undeclared and refused
+        // in a team like every other team-wide setting above, until the owner says which role may switch it.
+        new TeamEndpointRule("/gateway/demo-mode", TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
         new TeamEndpointRule(CcDirector.Core.Sessions.InjectedTextStore.GatewayPath, TeamMethods.Read, Sessions, TeamTarget.Team, Exact: true),
         // The workspace list, cut to the workspaces captured from the caller's own Directors. A workspace written by hand
         // belongs to no Director, so it cannot be shown to be anyone's and is left out; every other workspace route stays

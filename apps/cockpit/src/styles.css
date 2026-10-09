@@ -180,16 +180,63 @@ body {
   line-height: 15px;
 }
 
-/* The rail body. It grows to fill the rail so the footer sits at the bottom.
+/* The rail body. It grows to fill the rail so you (the card behind your name) sit at the bottom.
 
-   The labeled sections (issue #1247) are gone (issue #1617): the rail is one flat list of fleet
-   destinations plus a second, unlabeled list pinned to the bottom for the app's own pages. See
-   AppShell for why the labels went. */
+   THREE LABELLED SECTIONS (owner, 8 Oct 2026, Mockup 1): Work, the team on screen under its name, and Set up. The
+   labelled sections of issue #1247 were removed in #1617 because their dim labels were noise over a grouping that
+   meant nothing; these have a plain meaning each, and readable labels - bold, not the dim thin uppercase that lost to
+   the rows. See AppShell. */
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   flex: 1;
+}
+
+.nav-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 10px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.nav-section-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Whose fleet Set up changes: quieter than the label, in plain case. */
+.nav-section-sub {
+  flex: none;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.75;
+}
+
+/* The team on screen: its block carries a green edge and a green label, so it reads as the team's, not the app's. */
+.nav-section-team {
+  border-left: 2px solid var(--ok);
+  padding-left: 4px;
+}
+
+.nav-section-team .nav-section-heading {
+  color: var(--ok-text);
+}
+
+/* Collapsed to icons, a thin line stands in for each label. */
+.nav-section-rule {
+  height: 1px;
+  margin: 2px 6px 8px;
+  background: var(--border);
 }
 
 .nav-list {
@@ -199,13 +246,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-/* The app's own destinations sit at the bottom of the rail, separated from the fleet work by
-   whitespace rather than a labeled header. margin-top:auto eats the free space above it, so the
-   grouping holds whether the rail is taller than the list or not. */
-.nav-list-foot {
-  margin-top: auto;
 }
 
 /* A rail row: icon then label. The icon is what carries the scan now that the section headers are
@@ -250,6 +290,16 @@ body {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+/* A headline feature the owner promotes (Fleet Manager, Factories): a brighter, heavier label and a highlighted icon. */
+.nav-link-promoted {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.nav-link-promoted .nav-icon {
+  color: var(--warn);
+}
+
 /* Red attention count on a nav row (devthrottle #2075). The Gateway computes the number of pending
    dictionary suggestions; this only renders it. Red is reserved for attention, never for an action. */
 .nav-badge {
@@ -264,12 +314,6 @@ body {
   text-align: center;
   font-variant-numeric: tabular-nums;
   flex: none;
-}
-
-.rail-foot {
-  padding: 12px 8px 4px;
-  font-size: 11px;
-  color: var(--text-dim);
 }
 
 .main-pane {
@@ -3800,4 +3844,26 @@ body {
   .chat-index-jump {
     right: 4px;
   }
+}
+
+/* DEMO MODE (owner, 8 Oct 2026). While the account is in demo mode the shell (and the body, so dialogs rendered
+   outside the shell are covered too) carries `demo-mode`, and every element a screen marked `dt-private` is
+   blurred. A filter does not move anything, so the layout stays exactly as it was. Hovering does NOT unblur:
+   a presenter's mouse wanders. */
+.demo-mode .dt-private {
+  filter: blur(6px);
+  user-select: none;
+}
+
+/* The marker at the top of the rail, so the owner never forgets demo mode is on. */
+.demo-mode-badge {
+  align-self: flex-start;
+  margin: 0 0 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }

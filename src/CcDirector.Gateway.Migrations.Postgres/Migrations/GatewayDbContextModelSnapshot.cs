@@ -368,6 +368,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(64)")
                         .UseCollation("C");
 
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -540,6 +544,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<int>("SentVersion")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("text")
@@ -608,6 +616,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<Guid>("ReportId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1086,7 +1098,7 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("ArchivedSchedulesJson")
                         .HasColumnType("text");
 
-                    b.Property<string>("CeoSeat")
+                    b.Property<string>("BossSeat")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
@@ -1110,6 +1122,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<string>("GoalText")
                         .HasColumnType("text");
+
+                    b.Property<string>("Purpose")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
 
                     b.Property<DateTime>("RegisteredAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -2975,6 +2991,137 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.ToTable("teams", "gateway");
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceChangeEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("text")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("changed_by");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("TeamId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("team_id");
+
+                    b.Property<string>("What")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("what");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeamId", "CreatedAtUtc");
+
+                    b.ToTable("team_governance_changes", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceEntity", b =>
+                {
+                    b.Property<string>("TeamId")
+                        .HasColumnType("text")
+                        .HasColumnName("team_id");
+
+                    b.Property<int?>("AgentHoursPerWeek")
+                        .HasColumnType("integer")
+                        .HasColumnName("agent_hours_per_week");
+
+                    b.Property<bool>("AgentReviewsPullRequests")
+                        .HasColumnType("boolean")
+                        .HasColumnName("agent_reviews_pull_requests");
+
+                    b.Property<bool>("AllowClaudeCode")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_claude_code");
+
+                    b.Property<bool>("AllowCodex")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_codex");
+
+                    b.Property<bool>("AllowOtherAgents")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_other_agents");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int?>("KeepMentorPagesMonths")
+                        .HasColumnType("integer")
+                        .HasColumnName("keep_mentor_pages_months");
+
+                    b.Property<bool>("NoSelfMerge")
+                        .HasColumnType("boolean")
+                        .HasColumnName("no_self_merge");
+
+                    b.Property<int?>("SessionsAtOnce")
+                        .HasColumnType("integer")
+                        .HasColumnName("sessions_at_once");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.Property<bool>("WorkStartsAsAssignedIssue")
+                        .HasColumnType("boolean")
+                        .HasColumnName("work_starts_as_assigned_issue");
+
+                    b.HasKey("TeamId");
+
+                    b.ToTable("team_governance", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceItemEntity", b =>
+                {
+                    b.Property<string>("TeamId")
+                        .HasColumnType("text")
+                        .HasColumnName("team_id");
+
+                    b.Property<string>("Kind")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("level");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("TeamId", "Kind", "ItemId");
+
+                    b.ToTable("team_governance_items", "gateway");
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamInvitationEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -3055,6 +3202,16 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("text")
                         .HasColumnName("account_subject");
 
+                    b.Property<string>("DisplayEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)")
+                        .HasColumnName("display_email");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("display_name");
+
                     b.Property<DateTime>("JoinedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("joined_at_utc");
@@ -3064,6 +3221,11 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("role");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("showcase_tag");
 
                     b.HasKey("TeamId", "AccountSubject");
 
@@ -3105,6 +3267,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("QuotesJson")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("Tone")
                         .IsRequired()
@@ -3212,6 +3378,11 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("request_id");
 
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("showcase_tag");
+
                     b.Property<string>("State")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -3249,6 +3420,11 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<DateTime>("SentAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("sent_at_utc");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("showcase_tag");
 
                     b.Property<string>("State")
                         .IsRequired()
@@ -4344,6 +4520,33 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamBillEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceChangeEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceItemEntity", b =>
                 {
                     b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
                         .WithMany()

@@ -8,7 +8,7 @@
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, waitFor, fireEvent, within } from "@testing-library/react";
-import { Outlet, RouterProvider, createMemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router-dom";
 import type { TeamBill, TeamPage } from "@devthrottle/client-core/teams/teamPageClient";
 
 const TEAM = "3f1d2c9e-0000-4000-8000-000000000002";
@@ -37,9 +37,8 @@ vi.mock("@devthrottle/client-core/teams/teamPageClient", () => ({
   cancelTeamPlan: (teamId: string) => client.cancelTeamPlan(teamId),
 }));
 vi.mock("@devthrottle/client-core/teams/invitationsClient", () => ({ resendInvitation: vi.fn(), cancelInvitation: vi.fn() }));
-vi.mock("../AppShell", () => ({ AppShell: () => <Outlet /> }));
 
-import { COCKPIT_ROUTES } from "../routes";
+import { TeamPageView } from "./TeamPageView";
 
 const CHECKOUT = {
   seatsLine: "3 paid seats",
@@ -118,9 +117,14 @@ function page(role: string, teamBill: TeamBill | null): TeamPage {
   };
 }
 
+// The Billing section is the Team plan tab of Settings now (owner, 8 Oct 2026), for the team on screen; the tab's
+// wiring is proved in settings/settingsTabs.test.tsx. These tests are about what the tab draws.
 function renderPage() {
-  const router = createMemoryRouter(COCKPIT_ROUTES, { initialEntries: [`/team/${TEAM}/members`] });
-  return render(<RouterProvider router={router} />);
+  return render(
+    <MemoryRouter>
+      <TeamPageView teamId={TEAM} section="plan" />
+    </MemoryRouter>,
+  );
 }
 
 async function billing(): Promise<HTMLElement> {
@@ -227,7 +231,7 @@ describe("the Billing section, for everyone else", () => {
     client.getTeamPage.mockResolvedValue(page("Developer", null));
     renderPage();
 
-    await screen.findByText("Team DevThrottle");
+    await screen.findByRole("heading", { name: "Team plan" });
     expect(screen.queryByRole("region", { name: "Billing" })).toBeNull();
   });
 

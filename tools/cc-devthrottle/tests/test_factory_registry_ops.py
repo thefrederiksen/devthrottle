@@ -99,11 +99,11 @@ def _manifest(tmp_path, folder, **overrides):
         "title": "WarmForward",
         "folder": str(folder),
         "computer": "SOREN_NORTH",
-        "ceoSeat": "nora-hale",
+        "bossSeat": "nora-hale",
         "goalFile": "GOAL.md",
         "goalApprovedOn": "2026-10-04",
         "seats": [
-            {"id": "nora-hale", "name": "Nora Hale", "role": "CEO", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"]},
+            {"id": "nora-hale", "name": "Boss", "role": "Boss", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"]},
             {"id": "value-hunter", "name": "Value Hunter", "role": "Value Hunter", "briefFile": "agents/value.yaml", "schedules": []},
         ],
     }
@@ -115,9 +115,9 @@ def _manifest(tmp_path, folder, **overrides):
 
 REGISTERED = {
     "factory": "warmforward", "title": "WarmForward", "folder": "D:\\f", "computer": "SOREN_NORTH",
-    "ceoSeat": "nora-hale", "goalText": "A cash engine.", "goalFile": "GOAL.md", "goalApprovedOn": "2026-10-04",
+    "bossSeat": "nora-hale", "goalText": "A cash engine.", "goalFile": "GOAL.md", "goalApprovedOn": "2026-10-04",
     "seats": [
-        {"id": "nora-hale", "name": "Nora Hale", "role": "CEO", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"], "computer": "SOREN_NORTH"},
+        {"id": "nora-hale", "name": "Boss", "role": "Boss", "briefFile": "agents/ceo.yaml", "schedules": ["cj_a721e6"], "computer": "SOREN_NORTH"},
         {"id": "value-hunter", "name": "Value Hunter", "role": "Value Hunter", "briefFile": "agents/value.yaml", "schedules": [], "computer": "SOREN_NORTH"},
     ],
     "registeredBy": "session s1", "registeredAtUtc": "2026-10-06T12:00:00Z",
@@ -146,7 +146,7 @@ def test_register_SendsTheManifestWithTheGoalFilesText_AndPrintsTheSeats(gateway
     assert "goal: set, approved 2026-10-04 (GOAL.md)" in result.stdout
     _, seats = axi_output.parse_list(result.stdout, "seats")
     assert [s["id"] for s in seats] == ["nora-hale", "value-hunter"]
-    assert seats[0]["name"] == "Nora Hale"
+    assert seats[0]["name"] == "Boss"
 
 
 def test_register_NoGoalFile_SendsNoGoalText(gateway_answering, tmp_path):
@@ -189,7 +189,7 @@ def test_register_UnknownManifestKey_IsRefusedNotDropped(gateway_answering, tmp_
 def test_register_UnknownSeatKey_IsRefused(gateway_answering, tmp_path):
     gw = gateway_answering(200, REGISTERED)
     folder = _factory_folder(tmp_path)
-    seats = [{"id": "nora-hale", "name": "Nora Hale", "role": "CEO", "briefFile": "a.yaml", "schedules": [], "brief": "x"}]
+    seats = [{"id": "nora-hale", "name": "Boss", "role": "Boss", "briefFile": "a.yaml", "schedules": [], "brief": "x"}]
 
     result = runner.invoke(app, ["factory", "register", "--manifest", str(_manifest(tmp_path, folder, seats=seats))])
 
@@ -198,7 +198,22 @@ def test_register_UnknownSeatKey_IsRefused(gateway_answering, tmp_path):
     assert gw.calls == []
 
 
-@pytest.mark.parametrize("goal_file", ["../secret.txt", "sub/../../secret.txt", "/etc/passwd", "C:/secret.txt", r"\\server\share\x.md"])
+@pytest.mark.parametrize(
+    "goal_file",
+    [
+        "../secret.txt",
+        "sub/../../secret.txt",
+        "/etc/passwd",
+        # A drive letter is outside the folder only on Windows. On Linux and macOS "C:/secret.txt" is a relative
+        # name INSIDE the factory's folder, so the command refuses it for another reason (no such file), which is
+        # right and is not what this test is about (#3594).
+        pytest.param(
+            "C:/secret.txt",
+            marks=pytest.mark.skipif(sys.platform != "win32", reason="a drive letter is an absolute path only on Windows"),
+        ),
+        r"\\server\share\x.md",
+    ],
+)
 def test_register_GoalFileOutsideTheFolder_IsRefusedBeforeAnythingIsRead(gateway_answering, tmp_path, goal_file):
     gw = gateway_answering(200, REGISTERED)
     (tmp_path / "secret.txt").write_text("TOP-SECRET", encoding="utf-8")
@@ -307,7 +322,7 @@ def test_register_Json_PrintsTheGatewaysAnswer(gateway_answering, tmp_path):
 
 def test_list_PrintsEveryFactoryInFull_WithACount(gateway_answering):
     other = dict(REGISTERED, factory="website-business-factory-long-id", title="Website Business, Inc.",
-                 ceoSeat=None, goalText=None)
+                 bossSeat=None, goalText=None)
     gw = gateway_answering(200, {"count": 2, "factories": [REGISTERED, other]})
 
     result = runner.invoke(app, ["factory", "list"])
@@ -316,10 +331,10 @@ def test_list_PrintsEveryFactoryInFull_WithACount(gateway_answering):
     assert gw.calls[0]["path"] == "/gateway/factory/registry"
     assert "count: 2" in result.stdout
     fields, rows = axi_output.parse_list(result.stdout, "factories")
-    assert fields == ["id", "title", "ceo", "seats"]
+    assert fields == ["id", "title", "boss", "seats"]
     assert [r["id"] for r in rows] == ["warmforward", "website-business-factory-long-id"]
     assert rows[1]["title"] == "Website Business, Inc."
-    assert rows[0]["ceo"] == "nora-hale" and rows[1]["ceo"] is None
+    assert rows[0]["boss"] == "nora-hale" and rows[1]["boss"] is None
     assert rows[0]["seats"] == "2"
 
 
@@ -506,4 +521,100 @@ def test_actions_ListTheRegistryVerbs():
 
     assert result.exit_code == 0
     ids = {action["id"] for action in json.loads(result.output)["actions"]}
-    assert {"factory-register", "factory-list", "factory-goal-number-post", "factory-goal-number-show"}.issubset(ids)
+    assert {"factory-register", "factory-list", "factory-purpose", "factory-goal-number-post", "factory-goal-number-show"}.issubset(ids)
+
+
+# ---------------------------------------------------------------------------------------------------
+# factory purpose (the Factories cards, 8 Oct 2026)
+# ---------------------------------------------------------------------------------------------------
+
+def test_register_ManifestPurpose_IsSentAsIs(gateway_answering, tmp_path):
+    gw = gateway_answering(200, dict(REGISTERED, purpose="Heating monitoring for homeowners"))
+    folder = _factory_folder(tmp_path)
+
+    result = runner.invoke(app, ["factory", "register", "--manifest",
+                                 str(_manifest(tmp_path, folder, purpose="Heating monitoring for homeowners"))])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"]["purpose"] == "Heating monitoring for homeowners"
+    assert "purpose: Heating monitoring for homeowners" in result.stdout
+
+
+def test_purpose_PutsTheTrimmedLineOnTheFactorysOwnRoute_AndPrintsWhatIsKept(gateway_answering):
+    gw = gateway_answering(200, dict(REGISTERED, purpose="Heating monitoring for homeowners"))
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "  Heating monitoring for homeowners  "])
+
+    assert result.exit_code == 0, result.output
+    call = gw.calls[0]
+    assert call["method"] == "PUT"
+    assert call["path"] == "/gateway/factory/registry/warmforward/purpose"
+    assert call["body"] == {"purpose": "Heating monitoring for homeowners"}
+    assert "factory: warmforward" in result.stdout
+    assert "purpose: Heating monitoring for homeowners" in result.stdout
+
+
+def test_purpose_Clear_SendsNull_AndSaysCleared(gateway_answering):
+    gw = gateway_answering(200, dict(REGISTERED, purpose=None))
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "--clear"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[0]["body"] == {"purpose": None}
+    assert "purpose: none (cleared)" in result.stdout
+
+
+def test_purpose_NoLineAndNoClear_IsAUsageError(gateway_answering):
+    gw = gateway_answering(200, REGISTERED)
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward"])
+
+    assert result.exit_code == 2
+    assert "--clear" in result.stderr
+    assert gw.calls == []
+
+
+def test_purpose_LineAndClear_IsAUsageError(gateway_answering):
+    gw = gateway_answering(200, REGISTERED)
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "A line", "--clear"])
+
+    assert result.exit_code == 2
+    assert gw.calls == []
+
+
+def test_purpose_GatewayRefusesTooLong_ExitsNonZeroWithItsSentence(gateway_answering):
+    gateway_answering(400, {"error": "The purpose is 121 characters; it takes at most 120. Shorten it to one line."})
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "x" * 121])
+
+    assert result.exit_code == 1
+    assert "at most 120" in result.stderr
+
+
+def test_purpose_NotRegistered_ExitsNonZeroWithTheReason(gateway_answering):
+    gateway_answering(409, {"error": "No factory 'nobody' is registered in this account."})
+
+    result = runner.invoke(app, ["factory", "purpose", "nobody", "A line"])
+
+    assert result.exit_code == 1
+    assert "No factory 'nobody' is registered" in result.stderr
+
+
+def test_purpose_Json_IsTheGatewaysAnswerUnchanged(gateway_answering):
+    answer = dict(REGISTERED, purpose="A line")
+    gateway_answering(200, answer)
+
+    result = runner.invoke(app, ["factory", "purpose", "warmforward", "A line", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == answer
+
+
+def test_list_ShowsThePurposeWhenAsked(gateway_answering):
+    gateway_answering(200, {"count": 1, "factories": [dict(REGISTERED, purpose="A line")]})
+
+    result = runner.invoke(app, ["factory", "list", "--fields", "id,purpose"])
+
+    assert result.exit_code == 0, result.output
+    assert "A line" in result.stdout

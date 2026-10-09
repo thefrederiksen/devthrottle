@@ -54,6 +54,19 @@ FAMILY to the people who did the work - if the fleet is Claude Code, the Inspect
 using the word; it is not a sixth role, because the constraint is already proved by the agent kind
 recorded on every session and every run participant.
 
+## The factories
+
+- **Factory** - one business or one job that runs on its own, toward a goal the owner set, with its own
+  seats, schedules, memory and activity record. The Factories screen lists them.
+- **Seat** - one registered agent of a factory, named by its role (Scout, Sender, Mail Desk). A seat is
+  not a session: a session is one run of a seat.
+- **Boss** - the seat that runs a factory: it decides, hires the other seats, posts the goal number, and
+  answers the owner's talk. One per factory, or none. The word is Boss, never CEO and never head: not
+  every factory is a company, but every factory has a boss (the owner, 8 October 2026). **The boss has no
+  name of its own.** It is "the boss of Website Business"; the product says "Talk to the boss" and "Latest
+  from the boss", and a manifest that names the boss seat anything but Boss is refused. Its role word is
+  Boss unless the factory registered a distinct one (Center Consulting's boss is its CFO).
+
 ## How sessions relate
 
 - **Owner** - who a session ANSWERS TO: either another session, or the USER. Every session has
@@ -124,6 +137,7 @@ prose, use the word on the left.
 | Team | `Crew`, `CrewSummary`, `crewAge`, `crew-*` in the stylesheets |
 | Workers (in `message send all`) | "team" in older broadcast prose and warnings |
 | Reviewer | nothing - the role does not exist yet |
+| Boss | `CEO`, `ceoSeat`, `CeoSeat`, "head" in prose and code older than 8 October 2026 |
 
 Do not "fix" these opportunistically in unrelated work; each is a deliberate rename with its own
 cost, and a half-applied rename is worse than either name.

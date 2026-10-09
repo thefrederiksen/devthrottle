@@ -170,16 +170,30 @@ describe("The Factory Agents switch gate", () => {
     );
   }
 
-  it("off: shows nothing of the area - the ordinary page not found", async () => {
-    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: false });
+  // Factories is always in the menu (owner, 8 Oct 2026), so off is no longer "Page not found": the page says so and how
+  // to start, in the Gateway's own sentence.
+  it("off: says Factories is off and how to start, in the Gateway's own words, and shows nothing of the area", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: false, howToStart: "Factories is off on this Gateway. To start, do the thing." });
     renderGate();
 
-    expect(await screen.findByText("Page not found")).toBeTruthy();
+    const off = await screen.findByTestId("factories-off");
+    expect(off.textContent).toContain("Factories is off on this Gateway. To start, do the thing.");
+    expect(screen.queryByText("Page not found")).toBeNull();
+    expect(screen.queryByText("the factory area")).toBeNull();
+  });
+
+  // The Gateway's contract is a sentence with every "off"; without one the page says so as an error, in the page -
+  // never a blank screen (the Cockpit has no error boundary).
+  it("off without the Gateway's sentence: says so as an error, in the page", async () => {
+    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: false, howToStart: null });
+    renderGate();
+
+    expect((await screen.findByRole("alert")).textContent).toContain("did not say how to start it");
     expect(screen.queryByText("the factory area")).toBeNull();
   });
 
   it("on: shows the area", async () => {
-    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: true });
+    client.getFactoryAgentsSwitch.mockResolvedValue({ enabled: true, howToStart: null });
     renderGate();
 
     expect(await screen.findByText("the factory area")).toBeTruthy();

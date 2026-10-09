@@ -59,10 +59,10 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
         Title = "Website Business",
         Folder = @"D:\ReposFred\cc-consult\ideas\website-factory",
         Computer = "SOREN_NORTH",
-        CeoSeat = "malik",
+        BossSeat = "malik",
         Seats =
         {
-            new FactorySeatManifest { Id = "malik", Name = "Malik Grant", Role = "CEO", BriefFile = "agents/ceo.yaml", Schedules = { "cj_ceo" } },
+            new FactorySeatManifest { Id = "malik", Name = "Boss", Role = "Boss", BriefFile = "agents/ceo.yaml", Schedules = { "cj_ceo" } },
             new FactorySeatManifest { Id = "sender", Name = "Sender", Role = "Sender", BriefFile = "agents/sender.yaml", Schedules = { "cj_send", "cj_off" } },
         },
     };
@@ -216,7 +216,7 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
             Title = "Machine Care",
             Folder = @"D:\ReposFred\machine-care",
             Computer = "SOREN_NORTH",
-            Seats = { new FactorySeatManifest { Id = "caretaker", Name = "Caretaker", Role = "CEO", BriefFile = "agents/ceo.yaml" } },
+            Seats = { new FactorySeatManifest { Id = "caretaker", Name = "Boss", Role = "Boss", BriefFile = "agents/ceo.yaml" } },
         }, "the owner (test)", Now.AddDays(-20));
         var ours = Waiting("malik", "escalated", "Old website decision", Now.AddDays(-13));
         var theirs = _record!.Append(TenantId.Local, new AppendFactoryActivityRequest

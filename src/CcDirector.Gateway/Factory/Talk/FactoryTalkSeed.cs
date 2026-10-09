@@ -19,13 +19,18 @@ public static class FactoryTalkSeed
     /// <summary>The goal file a factory that names none is told to write, in its folder.</summary>
     public const string DefaultGoalFile = "GOAL.md";
 
-    /// <summary>The session name a talk carries: <c>&lt;Factory title&gt; - &lt;Seat name&gt; - talk with the owner</c>.</summary>
+    /// <summary>The session name a talk carries: <c>&lt;Factory title&gt; - &lt;Seat name&gt; - talk with the owner</c>,
+    /// and for the boss <c>&lt;Factory title&gt; - Boss - talk with the owner</c>: the boss has no name of its own.</summary>
     public static string SessionName(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(seat);
-        return $"{factory.Title} - {seat.Name} - talk with the owner";
+        return $"{factory.Title} - {(IsBoss(factory, seat) ? FactoriesScreenFold.BossRoleWord : seat.Name)} - talk with the owner";
     }
+
+    /// <summary>Whether this seat is the factory's boss (the registry's <c>bossSeat</c>).</summary>
+    public static bool IsBoss(RegisteredFactoryDto factory, RegisteredFactorySeatDto seat) =>
+        factory.BossSeat is not null && string.Equals(factory.BossSeat.Trim(), seat.Id.Trim(), StringComparison.OrdinalIgnoreCase);
 
     /// <param name="factory">The registered factory.</param>
     /// <param name="seat">The seat the owner pressed Talk on; one of <paramref name="factory"/>'s seats.</param>
@@ -41,8 +46,20 @@ public static class FactoryTalkSeed
         var goalPath = InFolder(factory.Folder, goalFile);
         var sb = new StringBuilder();
 
-        sb.Append("You are ").Append(seat.Name).Append(", ").Append(seat.Role).Append(" of ").Append(factory.Title)
-          .Append(" (factory id: ").Append(factory.Factory).Append("; your agent id: ").Append(seat.Id).AppendLine(").");
+        // The boss is "the boss of <factory>", never a person's name (the owner's ruling of 8 October 2026). A seat
+        // whose registered role is a distinct word (CFO) is still introduced as the boss, with that role beside it.
+        if (IsBoss(factory, seat))
+        {
+            sb.Append("You are the boss of ").Append(factory.Title);
+            if (!string.IsNullOrWhiteSpace(seat.Role) && !string.Equals(seat.Role.Trim(), FactoriesScreenFold.BossRoleWord, StringComparison.OrdinalIgnoreCase))
+                sb.Append(" (its ").Append(seat.Role.Trim()).Append(')');
+            sb.Append(" (factory id: ").Append(factory.Factory).Append("; your agent id: ").Append(seat.Id).AppendLine(").");
+        }
+        else
+        {
+            sb.Append("You are ").Append(seat.Name).Append(", ").Append(seat.Role).Append(" of ").Append(factory.Title)
+              .Append(" (factory id: ").Append(factory.Factory).Append("; your agent id: ").Append(seat.Id).AppendLine(").");
+        }
         sb.AppendLine();
         sb.AppendLine("The owner is here now and is talking with you. This is the owner's own session, opened from the "
                       + "Factories screen's Talk button. It is not one of your scheduled runs, and nobody is waiting on a "
@@ -56,6 +73,9 @@ public static class FactoryTalkSeed
             : goalPath);
         sb.AppendLine("- the factory's memory: cc-devthrottle factory memory list, then cc-devthrottle factory memory get <name> for each note that matters");
         sb.Append("- the factory's recent activity: cc-devthrottle factory activity --factory ").Append(factory.Factory).AppendLine(" -n 30");
+        sb.Append("- the factory's status as the owner sees it on the Factories screen: ").AppendLine(StatusCommand(factory));
+        sb.AppendLine("  It prints the same word the owner sees (FAILING, NEEDS YOU, PAUSED or RUNNING) and every failing and "
+                      + "waiting item with its row id. Say that word to the owner when you open.");
         sb.AppendLine();
 
         sb.AppendLine("You work under the same rules as your scheduled runs.");
@@ -94,13 +114,22 @@ public static class FactoryTalkSeed
                   + "Factory registry and goal number).");
         sb.AppendLine();
 
-        sb.AppendLine("Before the talk ends you MUST do both of these:");
+        sb.AppendLine("Before the talk ends you MUST do all three of these:");
         sb.Append("1. Record one activity line: cc-devthrottle factory record --factory ").Append(factory.Factory)
           .Append(" --agent ").Append(seat.Id).AppendLine(" --outcome talked --what \"<one line of what was decided>\"");
         sb.AppendLine("2. Write what was decided into the factory's memory: cc-devthrottle factory memory set <name> \"<what was decided>\"");
+        sb.Append("3. Run ").Append(StatusCommand(factory)).AppendLine(" again. For every failing or waiting item that is "
+                  + "now resolved, mark it handled with its evidence - and only if it is resolved:");
+        sb.Append("   cc-devthrottle factory record --factory ").Append(factory.Factory)
+          .AppendLine(" --agent <the item's seat> --outcome done --corrects <the item's row id> --what \"Handled: <the evidence>\"");
+        sb.AppendLine("   Then tell the owner the word the factory ends on.");
 
         return sb.ToString();
     }
+
+    /// <summary>What a factory's boss runs to read its own Factories screen (issue #3685).</summary>
+    public static string StatusCommand(RegisteredFactoryDto factory) =>
+        $"cc-devthrottle factory status --factory {factory.Factory}";
 
     // The folder is a path on the factory's own computer, which may not be this one, so it is joined with that
     // folder's own separator rather than this machine's.

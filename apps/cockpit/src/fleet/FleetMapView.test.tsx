@@ -510,7 +510,34 @@ describe("FleetMapView - what the colours mean", () => {
     };
   });
 
+  it("starts with the colour panel closed, so the map has the full width", () => {
+    render(<FleetMapView />);
+    expect(screen.queryByRole("complementary", { name: "What the colours mean" })).toBeNull();
+    expect(screen.getByRole("button", { name: "What do the colours mean?" })).toBeTruthy();
+  });
+
+  it("opens and closes the colour panel, and remembers the choice", async () => {
+    const first = render(<FleetMapView />);
+    fireEvent.click(screen.getByRole("button", { name: "What do the colours mean?" }));
+    expect(screen.getByRole("complementary", { name: "What the colours mean" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "What do the colours mean?" })).toBeNull();
+    expect(window.localStorage.getItem("cockpit.fleetMapLegendOpen")).toBe("1");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Hide colours" }));
+    await screen.findByText(LEGEND.entries[0].means);
+
+    // A fresh mount (a reload) comes back open.
+    first.unmount();
+    render(<FleetMapView />);
+    expect(screen.getByRole("complementary", { name: "What the colours mean" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide colours" }));
+    expect(screen.queryByRole("complementary", { name: "What the colours mean" })).toBeNull();
+    expect(window.localStorage.getItem("cockpit.fleetMapLegendOpen")).toBe("0");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "What do the colours mean?" }));
+  });
+
   it("shows the Gateway's legend beside the map, every colour it sends", async () => {
+    window.localStorage.setItem("cockpit.fleetMapLegendOpen", "1");
     render(<FleetMapView />);
     const panel = screen.getByRole("complementary", { name: "What the colours mean" });
     for (const entry of LEGEND.entries) {
@@ -520,6 +547,7 @@ describe("FleetMapView - what the colours mean", () => {
   });
 
   it("hovers a calm dot as Nothing needed from you, not as the Director's 'needs you'", async () => {
+    window.localStorage.setItem("cockpit.fleetMapLegendOpen", "1");
     const { container } = render(<FleetMapView />);
     await screen.findByText(LEGEND.entries[2].means);
     const dot = container.querySelector(".fmap-card .fmap-dot") as HTMLElement;

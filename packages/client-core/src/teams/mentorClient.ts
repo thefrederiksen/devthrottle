@@ -35,6 +35,8 @@ export interface MentorQuote {
 export interface MentorBlock {
   /** How the block is headed - the way the Team page shows people. null when the person has no email on record. */
   personEmail: string | null;
+  /** The name shown above the email, when the Gateway holds one for the person; null otherwise. */
+  personName: string | null;
   /** The person's role in the team now, as the Team page names it. */
   role: string;
   /** good, mixed or hard - used only to colour the label beside the person. */
@@ -59,26 +61,32 @@ export interface MentorReader {
   role: string;
 }
 
-/** The 200 answer for one team and one week. */
+/** The 200 answer for one team and one week, or for a person's own account and one week. */
 export interface MentorPage {
-  teamId: string;
+  /** The team's id; null on a person's own page (scope "personal"). */
+  teamId: string | null;
   /** The ISO week, for example "2026-W40". */
   week: string;
   /** The Monday and the Sunday of that week in the team's own time zone, as calendar dates (YYYY-MM-DD). */
   weekStart: string;
   weekEnd: string;
   timeZone: string;
-  /** "everyone" for an Owner or Manager, "own" for a Developer. Who is in `blocks` is already decided. */
-  scope: "everyone" | "own";
-  /** Whether the Mentor's run for this team and week has happened. Written with no block for someone does not say
-   *  why - the Gateway does not tell, so a page must not guess. */
+  /** "everyone" for an Owner or Manager, "own" for a Developer, "personal" on a person's own account. Who is in `blocks`
+   *  is already decided. */
+  scope: "everyone" | "own" | "personal";
+  /** On a team's page: whether the Mentor's run for this team and week has happened. Written with no block for someone
+   *  does not say why - the Gateway does not tell, so a page must not guess. On a person's own page: whether the week
+   *  holds their block. */
   written: boolean;
   /** The Gateway's line for a week still being written - `written` false WITH blocks: the blocks so far are shown
    *  under it. null otherwise. Shown as given. */
   writingNote: string | null;
   blocks: MentorBlock[];
-  /** Who else reads the caller's page, in the Gateway's order. */
+  /** Who else reads the caller's page, in the Gateway's order. Empty only on a person's own page: nobody else reads it. */
   readers: MentorReader[];
+  /** On a person's own page with no block, the Gateway's sentence for it ("your first page arrives after..."); null
+   *  otherwise. Shown as given. */
+  emptyNote: string | null;
 }
 
 export type MentorAnswer = { kind: "page"; page: MentorPage } | { kind: "refused" } | { kind: "not-offered" };
@@ -95,8 +103,20 @@ function contentType(res: Response): string {
  * team's time zone - the Gateway decides which week that is.
  */
 export async function getMentorPage(teamId: string, week?: string, signal?: AbortSignal): Promise<MentorAnswer> {
+  return readMentor(`/teams/${encodeURIComponent(teamId)}/mentor`, false, week, signal);
+}
+
+/**
+ * The Mentor's page for the person's OWN account (owner, 8 Oct 2026): the same page, about them only, read from
+ * GET /account/mentor. The same four kinds of answer as a team's page.
+ */
+export async function getPersonalMentorPage(week?: string, signal?: AbortSignal): Promise<MentorAnswer> {
+  return readMentor("/account/mentor", true, week, signal);
+}
+
+async function readMentor(path: string, personal: boolean, week: string | undefined, signal: AbortSignal | undefined): Promise<MentorAnswer> {
   const query = week === undefined ? "" : `?week=${encodeURIComponent(week)}`;
-  const res = await gatewayFetch(`/teams/${encodeURIComponent(teamId)}/mentor${query}`, {
+  const res = await gatewayFetch(`${path}${query}`, {
     headers: { ...authHeaders(), Accept: "application/json" },
     signal,
   });
@@ -123,7 +143,7 @@ export async function getMentorPage(teamId: string, week?: string, signal?: Abor
   } catch {
     throw new GatewayError(502, `${UNREADABLE}: its answer is not valid JSON.`);
   }
-  const page = readPage(parsed);
+  const page = readPage(parsed, personal);
   // A week the page did not ask for would put one week in the title and another in the blocks (review of the delta, D3).
   if (week !== undefined && page.week !== week) {
     throw new GatewayError(502, `${UNREADABLE}: it was asked for week ${week} and answered week ${page.week}.`);
@@ -160,10 +180,10 @@ function isTextOrNull(value: unknown): value is string | null {
   return value === null || typeof value === "string";
 }
 
-function readPage(raw: unknown): MentorPage {
+function readPage(raw: unknown, personal: boolean): MentorPage {
   const p = (raw ?? {}) as Record<string, unknown>;
   if (
-    !isText(p.teamId) ||
+    !(personal ? p.teamId === null : isText(p.teamId)) ||
     !isText(p.week) ||
     !isDate(p.weekStart) ||
     !isDate(p.weekEnd) ||
@@ -176,9 +196,12 @@ function readPage(raw: unknown): MentorPage {
   ) {
     throw new GatewayError(502, `${UNREADABLE}: it is missing its week, its dates, its scope, its blocks or its readers.`);
   }
-  if (p.scope !== "everyone" && p.scope !== "own") {
-    throw new GatewayError(502, `${UNREADABLE}: its scope "${p.scope}" is neither "everyone" nor "own".`);
+  // A team's page is "everyone" or "own"; a person's own page is "personal" and nothing else - a team page that called
+  // itself personal, or the reverse, would be drawn with the wrong readers.
+  if (personal ? p.scope !== "personal" : p.scope !== "everyone" && p.scope !== "own") {
+    throw new GatewayError(502, `${UNREADABLE}: its scope "${p.scope}" is not one this page can have.`);
   }
+  const scope = p.scope as MentorPage["scope"];
   // The chooser steps a week at a time from the Monday, so the week must be the Monday-to-Sunday ISO week it names
   // (review of the delta, D3).
   if (isoWeekOf(p.weekStart) !== p.week || weekday(p.weekStart) !== 1 || daysBetween(p.weekStart, p.weekEnd) !== 6) {
@@ -187,11 +210,11 @@ function readPage(raw: unknown): MentorPage {
       `${UNREADABLE}: week ${p.week} is not the Monday ${p.weekStart} to the Sunday ${p.weekEnd}.`,
     );
   }
-  if (p.scope === "own" && p.blocks.length > 1) {
+  if (scope !== "everyone" && p.blocks.length > 1) {
     throw new GatewayError(502, `${UNREADABLE}: a person's own page holds more than one block.`);
   }
   const blocks = p.blocks.map(readBlock);
-  if (p.scope === "own" && blocks.some((b) => !b.isYou)) {
+  if (scope !== "everyone" && blocks.some((b) => !b.isYou)) {
     throw new GatewayError(502, `${UNREADABLE}: a person's own page holds a block about someone else.`);
   }
   if (blocks.filter((b) => b.isYou).length > 1) {
@@ -204,20 +227,34 @@ function readPage(raw: unknown): MentorPage {
   if (stillBeingWritten !== (p.writingNote !== null) || p.writingNote === "") {
     throw new GatewayError(502, `${UNREADABLE}: its "still writing" line does not match the week it is on.`);
   }
-  if (p.readers.length === 0) {
+  if (personal) {
+    // Nobody else reads a person's own page; a reader listed there would be a false sentence on screen.
+    if (p.readers.length !== 0) {
+      throw new GatewayError(502, `${UNREADABLE}: a person's own page lists someone else as reading it.`);
+    }
+    // A person's own week is written exactly when it holds their block.
+    if (p.written !== blocks.length > 0) {
+      throw new GatewayError(502, `${UNREADABLE}: a person's own week says it is ${p.written ? "" : "not "}written and holds ${blocks.length} blocks.`);
+    }
+    // The empty sentence is there exactly when the page has no block.
+    if (!isTextOrNull(p.emptyNote) || (blocks.length === 0) !== (typeof p.emptyNote === "string" && p.emptyNote.trim() !== "")) {
+      throw new GatewayError(502, `${UNREADABLE}: its empty-week sentence does not match the blocks it holds.`);
+    }
+  } else if (p.readers.length === 0) {
     throw new GatewayError(502, `${UNREADABLE}: nobody is listed as reading the page, yet every team has an Owner.`);
   }
   return {
-    teamId: p.teamId,
+    teamId: personal ? null : (p.teamId as string),
     week: p.week,
     weekStart: p.weekStart,
     weekEnd: p.weekEnd,
     timeZone: p.timeZone,
-    scope: p.scope,
+    scope,
     written: p.written,
     writingNote: p.writingNote,
     blocks,
     readers: p.readers.map(readReader),
+    emptyNote: personal ? (p.emptyNote as string | null) : null,
   };
 }
 
@@ -225,6 +262,7 @@ function readBlock(raw: unknown): MentorBlock {
   const b = (raw ?? {}) as Record<string, unknown>;
   if (
     !isEmailOrNull(b.personEmail) ||
+    !(b.personName === undefined || isTextOrNull(b.personName)) ||
     !isLabel(b.role) ||
     !(isText(b.tone) && TONES.includes(b.tone)) ||
     !isText(b.toneLabel) ||
@@ -251,6 +289,7 @@ function readBlock(raw: unknown): MentorBlock {
   }
   return {
     personEmail: b.personEmail,
+    personName: typeof b.personName === "string" ? b.personName : null,
     role: b.role,
     tone: b.tone,
     toneLabel: b.toneLabel,

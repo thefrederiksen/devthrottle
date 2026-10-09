@@ -9,9 +9,9 @@ import type { FactoryTab, FactoryTone, FactoryWaitingItem } from "./factoryAgent
 
 /** What a Talk button starts: the Cockpit sends the two ids back and never works out which agent a button means. */
 export interface FactoryTalkTarget {
-  /** "Talk to Nora Hale", "Talk to the CEO", or "Talk" on a seat row. */
+  /** "Talk to the boss", or "Talk" on a seat row. */
   label: string;
-  /** What the button says while the talk is being started: "Starting the talk with Nora Hale...". */
+  /** What the button says while the talk is being started: "Starting the talk with the boss...", or the seat's name on a seat row. */
   busyLabel: string;
   factoryId: string;
   seatId: string;
@@ -62,6 +62,8 @@ export interface FactoryListRow {
   /** Exactly one of FAILING, NEEDS YOU, PAUSED, RUNNING. */
   statusWord: string;
   statusTone: FactoryTone;
+  /** Where statusWord stands worst first: 0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING. The Cockpit sorts by it. */
+  statusRank: number;
   statusReason: string;
   /** The one short line under the status word ("Nothing scheduled", "Sender: 4 failures, ..."); null for RUNNING. */
   statusLine: string | null;
@@ -69,13 +71,20 @@ export interface FactoryListRow {
   statusHref: string | null;
   /** "1 question", "2 decisions", or "-". */
   waitingText: string;
+  /** How many open items waitingText counts (questions plus decisions); 0 for "-". The Cockpit sorts by it. */
+  waitingCount: number;
   /** Where clicking the waiting count goes; null when nothing is waiting. */
   waitingHref: string | null;
   href: string;
-  /** The factory head's Talk button ("Talk to Ruth Calder"), whatever the head's title. */
+  /** The boss's Talk button ("Talk to the boss"); null when the factory has no boss. */
   talk: FactoryTalkTarget | null;
-  /** "No head named" when talk is null. */
-  noCeoText: string | null;
+  /** "No boss named" when talk is null. */
+  noBossText: string | null;
+  /** The factory's one-line purpose from the registry, shown under its name on the card; null when none is set. */
+  purpose: string | null;
+  /** The boss's role word ("Boss", or "CFO") for the card's avatar and name line - never a person's name; null
+   *  when no boss is named. */
+  bossName: string | null;
 }
 
 export interface FactoriesListView {
@@ -86,7 +95,9 @@ export interface FactoriesListView {
   /** "Factory", "Waiting on you", "Status". */
   columns: string[];
   /** Worst first, as the Gateway sorted them. */
+  /** Worst first, then by title; the Cockpit re-sorts them in the order the owner picked. */
   rows: FactoryListRow[];
+  /** The Gateway's old "Worst first: ..." line, kept for older clients; the Cockpit states its own order instead. */
   footerText: string | null;
   emptyText: string | null;
   truncatedText: string | null;
@@ -174,7 +185,7 @@ export interface FactoryPageFailures {
   items: FactoryFailureItem[];
 }
 
-export interface FactoryCeoLatest {
+export interface FactoryBossLatest {
   heading: string;
   lines: string[];
   emptyText: string | null;
@@ -200,8 +211,8 @@ export interface FactoryPageView {
   statusLine: string | null;
   /** Where clicking the status word goes (the failures, the waiting items, or the Seats tab); null for RUNNING. */
   statusHref: string | null;
-  /** The head's own role and name - "CEO Nora Hale", "CFO Ruth Calder" - or "No head named". */
-  ceoText: string;
+  /** The boss seat's role word - "Boss", or a distinct one the factory registered ("CFO") - or "No boss named". */
+  bossText: string;
   /** "4 seats". */
   seatCountText: string;
   /** "runs on SOREN_NORTH". */
@@ -214,7 +225,7 @@ export interface FactoryPageView {
   /** What is failing now (where FAILING links to); null when nothing is. */
   failures: FactoryPageFailures | null;
   waiting: FactoryPageWaiting;
-  ceoLatest: FactoryCeoLatest;
+  bossLatest: FactoryBossLatest;
   lastTalk: FactoryLastTalk;
   /** What the Documents tab says: the definitions are not on the Gateway yet. */
   documentsText: string;
@@ -259,6 +270,95 @@ export interface FactoryTalkStarted {
   seat: string;
   computer: string;
   directorId: string;
+}
+
+// The factory floor (owner decision, 8 October 2026), mirroring FactoryFloorDtos.cs. Every position, word and tone
+// is the Gateway's; the Cockpit only draws it.
+export type FactoryFloorLine = "solid" | "dashed" | "dotted";
+
+export interface FactoryFloorOffice {
+  title: string;
+  sub: string;
+  tone: FactoryTone;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FactoryFloorLane {
+  name: string;
+  hue: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FactoryFloorBay {
+  id: string;
+  kind: "seat" | "source";
+  title: string;
+  sub: string;
+  tone: FactoryTone;
+  toneText: string;
+  dashed: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  href: string | null;
+}
+
+export interface FactoryFloorArrow {
+  from: string;
+  to: string;
+  label: string;
+  tone: FactoryTone;
+  line: FactoryFloorLine;
+  path: string;
+  head: string;
+  labelX: number;
+  labelY: number;
+}
+
+export interface FactoryFloorDeskItem {
+  title: string;
+  text: string;
+  tone: FactoryTone;
+  href: string | null;
+}
+
+export interface FactoryFloorDesk {
+  title: string;
+  sub: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  items: FactoryFloorDeskItem[];
+  emptyText: string | null;
+  note: string | null;
+}
+
+export interface FactoryFloorLegend {
+  text: string;
+  tone: FactoryTone;
+  line: FactoryFloorLine;
+}
+
+export interface FactoryFloorView {
+  factoryId: string;
+  title: string;
+  width: number;
+  height: number;
+  office: FactoryFloorOffice | null;
+  lanes: FactoryFloorLane[];
+  bays: FactoryFloorBay[];
+  arrows: FactoryFloorArrow[];
+  desk: FactoryFloorDesk;
+  legend: FactoryFloorLegend[];
+  notes: string[];
 }
 
 const PREFIX = "/gateway/factories";
@@ -311,6 +411,11 @@ export function getFactoryPage(factory: string, signal?: AbortSignal): Promise<F
 
 export function getFactorySeats(factory: string, signal?: AbortSignal): Promise<FactorySeatsView> {
   return getJson<FactorySeatsView>(`${PREFIX}/${encodeURIComponent(factory)}/seats`, "load this factory's seats", signal);
+}
+
+/** The factory's floor: its production lines, bays, arrows and the owner's desk, laid out by the Gateway. */
+export function getFactoryFloor(factory: string, signal?: AbortSignal): Promise<FactoryFloorView> {
+  return getJson<FactoryFloorView>(`${PREFIX}/${encodeURIComponent(factory)}/floor`, "load this factory's floor", signal);
 }
 
 /**

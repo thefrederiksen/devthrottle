@@ -22,12 +22,12 @@ public sealed class FactoryTalkSeedTests
         Title = "WarmForward",
         Folder = @"D:\ReposFred\cc-consult\ideas\warmforward-factory",
         Computer = "SOREN_NORTH",
-        CeoSeat = "nora-hale",
+        BossSeat = "nora-hale",
         GoalText = goalText,
         GoalFile = goalFile,
         Seats =
         {
-            new RegisteredFactorySeatDto { Id = "nora-hale", Name = "Nora Hale", Role = "CEO", BriefFile = "agents/ceo.yaml", Schedules = { "cj_a721e6" }, Computer = "SOREN_NORTH" },
+            new RegisteredFactorySeatDto { Id = "nora-hale", Name = "Boss", Role = "Boss", BriefFile = "agents/ceo.yaml", Schedules = { "cj_a721e6" }, Computer = "SOREN_NORTH" },
         },
     };
 
@@ -37,7 +37,24 @@ public sealed class FactoryTalkSeedTests
     public void SessionName_IsFactoryThenSeatThenTalkWithTheOwner()
     {
         var f = WarmForward();
-        Assert.Equal("WarmForward - Nora Hale - talk with the owner", FactoryTalkSeed.SessionName(f, Nora(f)));
+        Assert.Equal("WarmForward - Boss - talk with the owner", FactoryTalkSeed.SessionName(f, Nora(f)));
+    }
+
+    [Fact]
+    public void Compose_ADistinctBossRole_IsSaidBesideTheBoss_AndANonBossSeat_IsSeatedByNameAndRole()
+    {
+        // The boss has no name (the owner, 8 October 2026). A distinct role word (CFO) is said beside it; any other seat
+        // is introduced by its name and role as before.
+        var f = WarmForward();
+        f.Seats[0].Role = "CFO";
+        Assert.StartsWith("You are the boss of WarmForward (its CFO) (factory id: warmforward; your agent id: nora-hale).",
+            FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun));
+
+        var engineer = new RegisteredFactorySeatDto { Id = "savings-engineer", Name = "Savings Engineer", Role = "Savings Engineer", BriefFile = "agents/savings.yaml", Computer = "SOREN_NORTH" };
+        f.Seats.Add(engineer);
+        Assert.StartsWith("You are Savings Engineer, Savings Engineer of WarmForward (factory id: warmforward; your agent id: savings-engineer).",
+            FactoryTalkSeed.Compose(f, engineer, null, null));
+        Assert.Equal("WarmForward - Savings Engineer - talk with the owner", FactoryTalkSeed.SessionName(f, engineer));
     }
 
     [Fact]
@@ -46,7 +63,7 @@ public sealed class FactoryTalkSeedTests
         var f = WarmForward();
         var seed = FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun);
 
-        Assert.StartsWith("You are Nora Hale, CEO of WarmForward (factory id: warmforward; your agent id: nora-hale).", seed);
+        Assert.StartsWith("You are the boss of WarmForward (factory id: warmforward; your agent id: nora-hale).", seed);
         Assert.Contains("The owner is here now and is talking with you. This is the owner's own session", seed);
     }
 
@@ -91,9 +108,29 @@ public sealed class FactoryTalkSeedTests
         var f = WarmForward();
         var seed = FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun);
 
-        Assert.Contains("Before the talk ends you MUST do both of these:", seed);
+        Assert.Contains("Before the talk ends you MUST do all three of these:", seed);
         Assert.Contains("cc-devthrottle factory record --factory warmforward --agent nora-hale --outcome talked --what \"<one line of what was decided>\"", seed);
         Assert.Contains("cc-devthrottle factory memory set <name> \"<what was decided>\"", seed);
+    }
+
+    [Fact]
+    public void Compose_ReadsTheFactoriesScreenStatusFirst_AndSettlesItBeforeTheTalkEnds()
+    {
+        // Issue #3685: the boss reads the same word the owner sees, says it when it opens, and before the talk ends
+        // marks every RESOLVED failing or waiting item handled with its evidence - never one that is not resolved.
+        var f = WarmForward();
+        var seed = FactoryTalkSeed.Compose(f, Nora(f), "cj_a721e6", MorningRun);
+
+        Assert.Contains("- the factory's status as the owner sees it on the Factories screen: cc-devthrottle factory status --factory warmforward", seed);
+        Assert.Contains("FAILING, NEEDS YOU, PAUSED or RUNNING", seed);
+        Assert.Contains("Say that word to the owner when you open.", seed);
+        Assert.Contains("3. Run cc-devthrottle factory status --factory warmforward again.", seed);
+        Assert.Contains("and only if it is resolved", seed);
+        Assert.Contains("cc-devthrottle factory record --factory warmforward --agent <the item's seat> --outcome done --corrects <the item's row id> --what \"Handled: <the evidence>\"", seed);
+        Assert.Contains("Then tell the owner the word the factory ends on.", seed);
+        // The status read comes before the rules of the scheduled run, and the settle step after the memory note.
+        Assert.True(seed.IndexOf("factory status", StringComparison.Ordinal) < seed.IndexOf("You work under the same rules", StringComparison.Ordinal));
+        Assert.True(seed.IndexOf("2. Write what was decided", StringComparison.Ordinal) < seed.IndexOf("3. Run cc-devthrottle factory status", StringComparison.Ordinal));
     }
 
     [Fact]

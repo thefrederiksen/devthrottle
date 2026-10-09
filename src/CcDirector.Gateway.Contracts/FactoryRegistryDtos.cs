@@ -1,9 +1,12 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// One factory's registration, as <c>cc-devthrottle factory register --manifest</c> sends it (Factories screen
 /// mission, phase A). The registry is an INDEX of a factory, not its definition: the briefs stay on disk and the
-/// registry says where they are, who the CEO is, which schedules run each seat, and what the owner's goal is.
+/// registry says where they are, which seat is the boss, which schedules run each seat, and what the owner's goal is.
 /// Registering a factory that is already registered replaces its whole row, seats included.
 /// </summary>
 public sealed class RegisterFactoryRequest
@@ -20,8 +23,9 @@ public sealed class RegisterFactoryRequest
     /// <summary>The computer (machine name) the factory runs on.</summary>
     public string Computer { get; set; } = "";
 
-    /// <summary>The id of the seat that is the factory's CEO, or null when it has none.</summary>
-    public string? CeoSeat { get; set; }
+    /// <summary>The id of the seat that is the factory's boss, or null when it has none. The boss seat's name is the
+    /// word Boss - the boss has no name of its own - and its role is "Boss" or a distinct word the factory chose ("CFO").</summary>
+    public string? BossSeat { get; set; }
 
     /// <summary>The goal's text, or null when the factory has no goal yet. The command reads it from the goal
     /// file the manifest names; the Gateway never reads a file.</summary>
@@ -34,11 +38,23 @@ public sealed class RegisterFactoryRequest
     /// <summary>The day the owner approved the goal (<c>YYYY-MM-DD</c>), or null.</summary>
     public string? GoalApprovedOn { get; set; }
 
+    /// <summary>One line on what the factory is for, as the owner's Factories cards show it under the name
+    /// ("Builds and sells websites for local trades"). Trimmed; at most <c>FactoryRegistryStore.MaxPurposeChars</c>
+    /// characters; null or empty when the factory has none yet.</summary>
+    public string? Purpose { get; set; }
+
     /// <summary>Every seat of the factory. At least one.</summary>
     public List<FactorySeatManifest> Seats { get; set; } = new();
+
+    /// <summary>Every key the body carried that this contract does not name. The registry refuses the whole
+    /// registration when there is one, naming the key and the fix: the default binding drops an unknown member
+    /// without a word, which is how a manifest still saying <c>ceoSeat</c> (the key's name until 8 October 2026)
+    /// would have registered a factory with no boss and no error.</summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? UnknownKeys { get; set; }
 }
 
-/// <summary>One seat of a factory: one agent the CEO hired, as registered.</summary>
+/// <summary>One seat of a factory: one agent the boss hired, as registered.</summary>
 public sealed class FactorySeatManifest
 {
     /// <summary>The seat id - the same spelling the factory activity record uses for the factory agent.</summary>
@@ -47,7 +63,7 @@ public sealed class FactorySeatManifest
     /// <summary>The seat's display name, for example <c>Nora Hale</c>.</summary>
     public string Name { get; set; } = "";
 
-    /// <summary>The seat's role, for example <c>CEO</c> or <c>Savings Engineer</c>.</summary>
+    /// <summary>The seat's role, for example <c>Boss</c> or <c>Savings Engineer</c>.</summary>
     public string Role { get; set; } = "";
 
     /// <summary>The seat's brief, relative to the factory's folder.</summary>
@@ -58,6 +74,10 @@ public sealed class FactorySeatManifest
 
     /// <summary>The computer this seat runs on. Left out, it is the factory's computer.</summary>
     public string? Computer { get; set; }
+
+    /// <summary>The production line this seat works on, as the factory names it ("Night shift", "Find and sell"):
+    /// the lane its bay sits in on the factory's floor. Left out, the seat sits in a lane called "Other".</summary>
+    public string? Line { get; set; }
 }
 
 /// <summary>One registered factory, as the registry holds it.</summary>
@@ -67,10 +87,14 @@ public sealed class RegisteredFactoryDto
     public string Title { get; set; } = "";
     public string Folder { get; set; } = "";
     public string Computer { get; set; } = "";
-    public string? CeoSeat { get; set; }
+    public string? BossSeat { get; set; }
     public string? GoalText { get; set; }
     public string? GoalFile { get; set; }
     public string? GoalApprovedOn { get; set; }
+
+    /// <summary>One line on what the factory is for, or null when none is set.</summary>
+    public string? Purpose { get; set; }
+
     public List<RegisteredFactorySeatDto> Seats { get; set; } = new();
 
     /// <summary>Who registered it: <c>session &lt;id&gt;</c> or <c>the owner (&lt;credential&gt;)</c>.</summary>
@@ -98,6 +122,18 @@ public sealed class RegisteredFactorySeatDto
     public string BriefFile { get; set; } = "";
     public List<string> Schedules { get; set; } = new();
     public string Computer { get; set; } = "";
+
+    /// <summary>The production line this seat works on, or null when the factory named none.</summary>
+    public string? Line { get; set; }
+}
+
+/// <summary>
+/// <c>PUT /gateway/factory/registry/{factory}/purpose</c>: set or clear a registered factory's one-line purpose
+/// without registering it again (<c>cc-devthrottle factory purpose</c>). Null or empty clears it.
+/// </summary>
+public sealed class SetFactoryPurposeRequest
+{
+    public string? Purpose { get; set; }
 }
 
 /// <summary>Every registered factory in the account, by title.</summary>
@@ -107,7 +143,7 @@ public sealed class FactoryRegistryListDto
     public List<RegisteredFactoryDto> Factories { get; set; } = new();
 }
 
-/// <summary>A factory's goal number, as its CEO posts it on a run (Factories screen mission, phase A).</summary>
+/// <summary>A factory's goal number, as its boss posts it on a run (Factories screen mission, phase A).</summary>
 public sealed class PostGoalNumberRequest
 {
     /// <summary>The registered factory the number is for.</summary>

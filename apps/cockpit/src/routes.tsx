@@ -31,23 +31,17 @@ import { WorkflowDetail } from "./workflows/WorkflowDetail";
 import { SkillsView } from "./skills/SkillsView";
 // With a team on screen, Skills and Workflows open the team's shared library (devthrottle_internal#2304, S5).
 import { TeamOrOwn } from "./teams/TeamLibraryView";
-import { DictionaryView } from "./dictionary/DictionaryView";
 import { TranscriptsView } from "./transcripts/TranscriptsView";
-import { YourThrottleView } from "./throttle/YourThrottleView";
-import { TranscriptionHealthView } from "./transcription/TranscriptionHealthView";
-import { NetworkDiagnosticsView } from "./network/NetworkDiagnosticsView";
-import { AccountView } from "./account/AccountView";
-import { PhoneView } from "./phone/PhoneView";
 import { AboutView } from "./about/AboutView";
 import { SettingsView } from "./settings/SettingsView";
-import { InviteView } from "./team/InviteView";
+import { SettingsRedirect, TeamAddressRedirect } from "./settings/SettingsRedirect";
+import { NetworkDiagnosticsView } from "./network/NetworkDiagnosticsView";
 import { AcceptInviteView } from "./team/AcceptInviteView";
 import { TeamPageRoute } from "./teams/collaborator/TeamPageRoute";
 import { QuestionsPage } from "./teams/collaborator/QuestionsPage";
 import { RequestsPage } from "./teams/collaborator/RequestsPage";
-import { ReportsPage } from "./teams/collaborator/ReportsPage";
+import { ReportsRoute } from "./reports/ReportsRoute";
 import { MentorView } from "./mentor/MentorView";
-import { TeamPageView } from "./team/TeamPageView";
 import { TeamRequestsRoute } from "./team/RequestsView";
 
 // THE COCKPIT'S ROUTE TABLE, IN ONE PLACE THE TESTS CAN MOUNT (dev reports mission, phase 3b).
@@ -144,7 +138,7 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // envelope through client-core.
           { path: "/fleet-map", element: <FleetMapView /> },
           // Factories (Factories screen mission): every factory as one row, a factory's page with its goal, goal
-          // number and Seats, and a Talk button on the CEO and every seat. Behind the Gateway's factoryAgents.enabled
+          // number and Seats, and a Talk button on the boss and every seat. Behind the Gateway's factoryAgents.enabled
           // switch: while the Gateway says it is off, every one of these routes is the ordinary "Page not found".
           // "waiting" is a static route and wins over a factory id; "agents/:agent" is the factory agent's own page
           // (where a session's factory agent chip links).
@@ -198,7 +192,9 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // local_builds slots - that issue #1247 put in the end-user rail by mistake, its /exes route
           // gone but the Gateway endpoints kept, see ExesEndpoints.cs); and Learning, which was never
           // finished - Help now points straight at the public documentation site (see AppShell).
-          { path: "/dictionary", element: <DictionaryView /> },
+          // Dictionary is a tab of Settings now (owner, 8 Oct 2026); its old address - which the daily email's
+          // dictionary block links to - leads there.
+          { path: "/dictionary", element: <SettingsRedirect tab="dictionary" /> },
           { path: "/transcripts", element: <TranscriptsView /> },
           // The settings/misc + account pages (issue #978, the last page-port): one-to-one ports of the
           // Blazor Account.razor (identity + Log out + Your devices), About.razor (Gateway diagnostics),
@@ -208,19 +204,24 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // Your Throttle (devthrottle-stats mission): the in-Cockpit port of the standalone Gateway
           // /stats page. Reads the same GET /stats/data feed through client-core so the user sees
           // their throttle in the app rather than at a bare URL.
-          { path: "/your-throttle", element: <YourThrottleView /> },
+          // It is the Plan and usage tab of Settings now (owner, 8 Oct 2026). The old address leads there and keeps its
+          // ?week= or ?days=, which a Mentor report's link carries.
+          { path: "/your-throttle", element: <SettingsRedirect tab="usage" /> },
           // Repos (the PRIVATE per-repo split) was its own route + rail entry until 2026-07-14; it is
           // now the fourth tab of Your Throttle (owner ask). Tabs are mutually exclusive, so it still
           // never shows on-screen alongside the shareable throttle. Redirect so old bookmarks land.
-          { path: "/repos", element: <Navigate to="/your-throttle" replace /> },
+          { path: "/repos", element: <SettingsRedirect tab="usage" /> },
           // Transcription Health: read-only view over the local transcription history the Gateway
           // records (latency, failures, most-corrected words). Same Gateway REST surface via client-core.
-          { path: "/transcription", element: <TranscriptionHealthView /> },
+          // It is the bottom half of the Transcription tab of Settings now, beneath the checks (owner, 8 Oct 2026).
+          { path: "/transcription", element: <SettingsRedirect tab="transcription" /> },
+          // Account and Phone are tabs of Settings now (owner, 8 Oct 2026): Account, and Devices and phone
+          // (devthrottle_internal #1508: the scannable code, the address, and how to install the mobile app). Their old
+          // addresses lead there. Network Diagnostics stays a page of its own, a row of Set up in the menu (owner's
+          // menu ruling, 8 Oct 2026).
           { path: "/network", element: <NetworkDiagnosticsView /> },
-          { path: "/account", element: <AccountView /> },
-          // Phone (devthrottle_internal #1508): the scannable code, the address, and how to install the
-          // mobile app - the entry point the Cockpit did not have.
-          { path: "/phone", element: <PhoneView /> },
+          { path: "/account", element: <SettingsRedirect tab="account" /> },
+          { path: "/phone", element: <SettingsRedirect tab="devices" /> },
           { path: "/about", element: <AboutView /> },
           // The Settings page (issue #1025): a real React port of the retired Blazor
           // wwwroot/pages/settings.html (the "This machine" gateway-connection tab + the "AI"
@@ -228,24 +229,27 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // a dead full-load anchor to /settings (nothing served it, so it fell through to "Not found");
           // it is now this route, reading/writing same-origin through the Gateway settings endpoints.
           { path: "/settings", element: <SettingsView /> },
-          // Invite someone to a team (screen S2, devthrottle_internal#2301), with the team's waiting invitations. No
-          // navigation entry yet: Teams is dark until the owner releases it, and while it is the Gateway answers this
-          // page's reads with "not available".
-          { path: "/team/:teamId/invite", element: <InviteView /> },
+          // Invite someone to a team (screen S2, devthrottle_internal#2301), with the team's waiting invitations. It opens
+          // from the Members tab of Settings now (owner, 8 Oct 2026); the old address puts its team on screen and
+          // leads there.
+          { path: "/team/:teamId/invite", element: <TeamAddressRedirect invite /> },
           // The team pages (screens S8-S10, devthrottle_internal#2306): a Collaborator's whole app in a team, and open to
           // anyone else the Gateway's page verdict lists them for. Outside such a team each is the ordinary "Page not
           // found". The content of each is its own issue - Questions #2307, Requests #2308, Reports #2309 - filled in
           // the page component alone; neither the route nor the rail changes for it.
           { path: "/questions", element: <TeamPageRoute pageId="questions"><QuestionsPage /></TeamPageRoute> },
           { path: "/requests", element: <TeamPageRoute pageId="requests"><RequestsPage /></TeamPageRoute> },
-          { path: "/reports", element: <TeamPageRoute pageId="reports"><ReportsPage /></TeamPageRoute> },
-          // The Mentor's weekly page for the team on screen (screens S6 and S7, devthrottle_internal#2305). For a person
-          // with no team, or on a Gateway with Teams off, it is the ordinary missing page - they see no change.
+          // Reports is in Work for everyone (owner, 8 Oct 2026): the team's page with a team on screen (still only where the
+          // Gateway's verdict lists it), the person's own sessions' reports on their own account.
+          { path: "/reports", element: <ReportsRoute /> },
+          // The Mentor's weekly page for the team on screen (screens S6 and S7, devthrottle_internal#2305), or on the
+          // person's own account their own page (owner, 8 Oct 2026). On a Gateway with Teams off it is the ordinary
+          // missing page - they see no change.
           { path: "/mentor", element: <MentorView /> },
-          // The Team page (screen S1, devthrottle_internal#2303): members, roles, seats and waiting invitations. The team
-          // comes from the address until the Cockpit's team switcher (#2312) lands; no navigation entry yet, for the same
-          // reason as the invite form.
-          { path: "/team/:teamId/members", element: <TeamPageView /> },
+          // The Team page (screen S1, devthrottle_internal#2303): members, roles, seats and waiting invitations. It is the
+          // Members and Team plan tabs of Settings now (owner, 8 Oct 2026), reached from "Team" in the rail's team block;
+          // the old address puts its team on screen and leads there.
+          { path: "/team/:teamId/members", element: <TeamAddressRedirect /> },
           // The team's Requests list, for its Owner and Managers (screen S9, devthrottle_internal#2308): accept a request,
           // mark it Not doing this with a reason, or mark it Done. The team comes from the address, as on the Team page;
           // the Gateway answers anyone else with its refusal, which the page shows. No navigation entry yet, for the

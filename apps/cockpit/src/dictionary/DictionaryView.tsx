@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useBlocker } from "react-router-dom";
+import { useBlocker } from "react-router-dom";
 import {
   getDictionary,
   saveDictionary,
@@ -21,6 +21,7 @@ import {
 } from "@devthrottle/client-core/dictation/dictionaryEdits";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { ConfirmDialog } from "../components";
+import { suggestionsChanged } from "./useSuggestionCount";
 
 // The dictation Dictionary editor (issue #977, epic #967) - the React port of the Blazor Cockpit
 // Dictionary.razor (#183). The human edits the vocabulary chips and the common-mistranscriptions
@@ -79,7 +80,7 @@ export function DictionaryView() {
   const clearMsgTimer = useRef<number | null>(null);
 
   // Guard against losing unsaved edits on navigation (issue #1255). useBlocker intercepts in-app route
-  // changes (for example the "Sessions" back-link) while there are unsaved edits, so the person is asked
+  // changes (for example choosing another Settings tab) while there are unsaved edits, so the person is asked
   // before the page unmounts and the edits vanish. The browser's own beforeunload covers a tab close or
   // refresh, which React Router cannot intercept.
   const blocker = useBlocker(dirty);
@@ -290,6 +291,7 @@ export function DictionaryView() {
     setSuggestMsg("Adding...");
     try {
       const result = await applySuggestions(terms);
+      suggestionsChanged();
       setDict(result.dictionary);
       setSuggestions(result.suggestions);
       setSuggestMsg(
@@ -310,6 +312,7 @@ export function DictionaryView() {
     setSuggestBusy(true);
     try {
       await dismissSuggestion(term);
+      suggestionsChanged();
       await Promise.all([refreshSuggestions(), refreshDismissed()]);
     } catch (err) {
       setSuggestMsg(`dismiss failed: ${gatewayErrorMessage(err)}`);
@@ -324,6 +327,7 @@ export function DictionaryView() {
     setSuggestBusy(true);
     try {
       await restoreDismissed(term);
+      suggestionsChanged();
       await Promise.all([refreshSuggestions(), refreshDismissed()]);
     } catch (err) {
       setSuggestMsg(`restore failed: ${gatewayErrorMessage(err)}`);
@@ -359,9 +363,6 @@ export function DictionaryView() {
       <div className="dc-wrap">
         <div className="dc-top">
           <h1>Dictionary</h1>
-          <Link className="dc-back" to="/">
-            &larr; Sessions
-          </Link>
         </div>
         <p className="dc-sub">
           The Gateway is the single source of truth for this glossary. It is used by{" "}

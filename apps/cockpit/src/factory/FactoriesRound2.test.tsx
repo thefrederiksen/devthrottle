@@ -16,6 +16,7 @@ const screenClient = vi.hoisted(() => ({
   getFactoriesList: vi.fn(),
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),
+  getFactoryFloor: vi.fn(() => new Promise(() => {})),
   startFactoryTalk: vi.fn(),
   markFactoryFailureHandled: vi.fn(),
 }));
@@ -60,6 +61,10 @@ const where = () => screen.getByTestId("where").textContent;
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
+  // These tests read the TABLE's rows; the list opens on Cards since 8 Oct 2026 (FactoriesCards.test.tsx), so the
+  // table is asked for the way the owner would pick it: remembered in this browser.
+  window.localStorage.clear();
+  window.localStorage.setItem("cockpit.factoriesView", JSON.stringify("table"));
   screenClient.getFactoriesList.mockResolvedValue(FACTORY_LIST);
   screenClient.getFactoryPage.mockResolvedValue(FACTORY_PAGE);
 });
@@ -71,7 +76,7 @@ describe("Factories round 2 - every status explains itself", () => {
     const failing = await screen.findByTestId("fa-factory-mindzie-web");
     expect(within(failing).getByTestId("fa-status-line").textContent).toBe("Sender: 4 failures, newest today 12:02 (fixture)");
     expect(within(screen.getByTestId("fa-factory-warmforward")).getByTestId("fa-status-line").textContent).toBe(
-      "Nora Hale, today 06:20: Is the bunkie meant to be at 20 C? (fixture)",
+      "Boss, today 06:20: Is the bunkie meant to be at 20 C? (fixture)",
     );
     const running = screen.getByTestId("fa-factory-devthrottle");
     expect(within(running).queryByTestId("fa-status-line")).toBeNull();
@@ -98,7 +103,7 @@ describe("Factories round 2 - every status explains itself", () => {
     renderAt("/factories/warmforward");
 
     const line = await screen.findByTestId("fa-page-status-line");
-    expect(line.textContent).toBe("Nora Hale, today 06:20: Is the bunkie meant to be at 20 C? (fixture)");
+    expect(line.textContent).toBe("Boss, today 06:20: Is the bunkie meant to be at 20 C? (fixture)");
     expect(within(line).getByRole("link").getAttribute("href")).toBe("/factories/warmforward#waiting");
     expect(screen.getByTestId("fa-page-waiting").id).toBe("waiting");
   });

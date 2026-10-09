@@ -27,10 +27,16 @@ public static class FactoryTone
 }
 
 /// <summary><c>GET /gateway/factory-agents/switch</c>: whether the Factory Agents area is on for this Gateway. Always
-/// mapped, so the Cockpit can ask even when the area is off; when off, the rail item does not render.</summary>
+/// mapped, so the Cockpit can ask even when the area is off. The Factories menu row is always shown (owner, 8 Oct
+/// 2026); when the area is off the Factories page shows <see cref="HowToStart"/> verbatim.</summary>
 public sealed class FactoryAgentsSwitchDto
 {
     public bool Enabled { get; set; }
+
+    /// <summary>When the area is off: the Gateway's own sentence saying so and how to switch it on, which differs
+    /// between a self-hosted Gateway (its config.json) and the hosted one (an administrator, per account). Null when
+    /// the area is on.</summary>
+    public string? HowToStart { get; set; }
 }
 
 /// <summary>One of the four tabs, with its finished label ("All factory agents (9)").</summary>

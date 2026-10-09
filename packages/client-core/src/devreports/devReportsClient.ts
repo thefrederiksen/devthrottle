@@ -65,16 +65,35 @@ function reportPath(reportId: string): string {
   return `/dev-reports/${encodeURIComponent(reportId)}`;
 }
 
-/** GET /dev-reports?sessionId= - one session's reports. */
-export async function listDevReports(sessionId: string, signal?: AbortSignal): Promise<DevReportSummary[]> {
+/** How many reports one page of the list holds. */
+export const DEV_REPORT_PAGE_SIZE = 20;
+
+/** One page of the reports list, newest first. `next` is the Gateway's marker for the page after this one - handed back
+ *  as is, never read - or null when no report is older than this page. */
+export interface DevReportListPage {
+  reports: DevReportSummary[];
+  next: string | null;
+}
+
+/** GET /dev-reports?sessionId=&limit=&after= - one page of one session's reports; with no session, of every report the
+ *  account's sessions sent (the Reports page of a person's own account). `after` is the `next` of the page before, or
+ *  null for the newest page. */
+export async function listDevReports(
+  sessionId: string | undefined,
+  after: string | null,
+  signal?: AbortSignal,
+): Promise<DevReportListPage> {
+  const query = new URLSearchParams({ limit: String(DEV_REPORT_PAGE_SIZE) });
+  if (sessionId !== undefined) query.set("sessionId", sessionId);
+  if (after !== null) query.set("after", after);
   const res = await gatewayFetch(
-    `/dev-reports?sessionId=${encodeURIComponent(sessionId)}`,
+    `/dev-reports?${query.toString()}`,
     { method: "GET", headers: { Accept: "application/json", ...authHeaders() }, signal },
     { timeoutMs: POLL_TIMEOUT_MS },
   );
   if (!res.ok) throw await GatewayError.from(res, "load the reports");
-  const body = (await res.json()) as { reports: DevReportSummary[] };
-  return body.reports;
+  const body = (await res.json()) as { reports: DevReportSummary[]; next?: string | null };
+  return { reports: body.reports, next: body.next ?? null };
 }
 
 /** GET /dev-reports/{id} - the report with its items and replies, or null when the Gateway has no such report. */

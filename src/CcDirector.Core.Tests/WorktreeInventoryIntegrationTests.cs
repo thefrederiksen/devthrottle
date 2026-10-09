@@ -567,6 +567,68 @@ public sealed class WorktreeInventoryIntegrationTests : IDisposable
         return (branchWt, detachedWt);
     }
 
+    // -------------------------------------------------------------------------------------------
+    // Issue #3668: a superseded scan cancels the inventory mid-git. That cancellation belongs to the
+    // caller (RepositoryMonitor, RepositoryStatusService and the collector all treat it as one); it
+    // must reach them as a cancellation, never come back as "inventory FAILED: A task was canceled".
+    // -------------------------------------------------------------------------------------------
+    [Fact]
+    public async Task CancelledWhileListingWorktrees_PropagatesCancellation_NotAFailure()
+    {
+        using var cts = new CancellationTokenSource();
+        var git = new CancelOnWorktreeListGitRunner(cts);
+        var service = new WorktreeInventoryService(git);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => service.GetInventoryAsync(_primary, fetchPrune: false, ct: cts.Token));
+    }
+
+    [Fact]
+    public async Task Reaper_CancelledWhileListingWorktrees_ReturnsCancelled_AndReportsNoError()
+    {
+        // The reaper calls the same inventory (#3668). Its own loop already answers a cancellation with a
+        // plain "reap cancelled" result; a cancellation before the loop must do the same, not log FAILED.
+        using var cts = new CancellationTokenSource();
+        var git = new CancelOnWorktreeListGitRunner(cts);
+        var reaper = new WorktreeReaperService(
+            git: git,
+            reservations: new WorktreeReservationStore(Path.Combine(_root, "reservations")),
+            leftovers: new WorktreeLeftoverStore(Path.Combine(_root, "leftovers")));
+        var errors = new List<string>();
+        var previous = CcDirector.Core.Utilities.FileLog.ErrorObserver;
+        using var scope = CcDirector.Core.Utilities.FileLog.RedirectForTests();
+        try
+        {
+            CcDirector.Core.Utilities.FileLog.ErrorObserver = errors.Add;
+
+            var result = await reaper.ReapAsync(
+                _primary, _ => Task.FromResult<IReadOnlyList<LiveSessionRef>>(Array.Empty<LiveSessionRef>()), ct: cts.Token);
+
+            Assert.False(result.Success);
+            Assert.Contains("cancelled", result.Error ?? "", StringComparison.Ordinal);
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            CcDirector.Core.Utilities.FileLog.ErrorObserver = previous;
+        }
+    }
+
+    /// <summary>Cancels the caller's token as `git worktree list` starts - the moment a superseding rescan arrives.</summary>
+    private sealed class CancelOnWorktreeListGitRunner : GitCommandRunner
+    {
+        private readonly CancellationTokenSource _cts;
+
+        public CancelOnWorktreeListGitRunner(CancellationTokenSource cts) => _cts = cts;
+
+        public override Task<GitCommandResult> RunAsync(string workingDirectory, string[] args, CancellationToken ct = default)
+        {
+            if (args.Length > 1 && args[0] == "worktree" && args[1] == "list")
+                _cts.Cancel();
+            return base.RunAsync(workingDirectory, args, ct);
+        }
+    }
+
     private static bool PathsEqual(string a, string b)
         => string.Equals(WorktreeReaperService.NormalizePath(a), WorktreeReaperService.NormalizePath(b), StringComparison.OrdinalIgnoreCase);
 

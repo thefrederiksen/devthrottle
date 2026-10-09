@@ -246,8 +246,14 @@ public sealed class SessionKeyGuardTests
     // The factory registry and goal numbers: `cc-devthrottle factory register|list|goal-number post|show`.
     [InlineData("PUT", "/gateway/factory/registry")]
     [InlineData("GET", "/gateway/factory/registry")]
+    // A factory's one-line purpose: `cc-devthrottle factory purpose <factory> "<line>"` (the Factories cards, 8 Oct 2026).
+    [InlineData("PUT", "/gateway/factory/registry/warmforward/purpose")]
     [InlineData("POST", "/gateway/factory/goal-numbers")]
     [InlineData("GET", "/gateway/factory/goal-numbers")]
+    // The Factories screen's list and one factory's page (issue #3685): `cc-devthrottle factory status`, so a
+    // factory's boss reads the same status word and the same failing and waiting rows the owner sees.
+    [InlineData("GET", "/gateway/factories")]
+    [InlineData("GET", "/gateway/factories/website-business")]
     public void The_methods_and_paths_the_shipped_clients_send_are_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is what the shipped client sends; refusing it returns 403 to every agent");
@@ -279,12 +285,34 @@ public sealed class SessionKeyGuardTests
     [InlineData("DELETE", "/gateway/factory/registry")]
     [InlineData("POST", "/gateway/factory/registry")]
     [InlineData("PUT", "/gateway/factory/registry/warmforward")]
+    [InlineData("GET", "/gateway/factory/registry/warmforward/purpose")]
+    [InlineData("POST", "/gateway/factory/registry/warmforward/purpose")]
+    [InlineData("DELETE", "/gateway/factory/registry/warmforward/purpose")]
+    [InlineData("PUT", "/gateway/factory/registry/warmforward/title")]
     [InlineData("PUT", "/gateway/factory/goal-numbers")]
     [InlineData("DELETE", "/gateway/factory/goal-numbers")]
     [InlineData("POST", "/gateway/factory/goal-numbers/abc")]
     public void Factory_registry_shapes_the_commands_do_not_send_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is not a shape the factory commands send and must not be authorized");
+
+    [Theory]
+    // The Factories screen (issue #3685): a session reads the list and a factory's page, and nothing else on it.
+    // The Seats tab, Handled, the bulk handled, archive, restore and Talk are the owner's; a boss marks its own rows
+    // handled through the activity record, which the guard already allows.
+    [InlineData("GET", "/gateway/factories/website-business/seats")]
+    [InlineData("POST", "/gateway/factories")]
+    [InlineData("POST", "/gateway/factories/website-business")]
+    [InlineData("PUT", "/gateway/factories/website-business")]
+    [InlineData("DELETE", "/gateway/factories/website-business")]
+    [InlineData("POST", "/gateway/factories/website-business/failures/6f1c2b9e-0000-4000-8000-00000000abcd/handled")]
+    [InlineData("POST", "/gateway/factories/website-business/waiting/handled-older")]
+    [InlineData("POST", "/gateway/factories/website-business/archive")]
+    [InlineData("POST", "/gateway/factories/website-business/restore")]
+    [InlineData("POST", "/gateway/factories/website-business/seats/ceo/talk")]
+    public void Factories_screen_shapes_beyond_the_two_reads_stay_refused(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
+            $"{method} {path} is the owner's on the Factories screen and must not be open to a session key");
 
     [Theory]
     // A check report decides whether a session starts, so a session that could forge one could start sessions at

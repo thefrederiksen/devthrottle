@@ -33,6 +33,12 @@
   overflow-wrap: anywhere;
 }
 
+.dev-report-row-session {
+  color: var(--text-dim);
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+}
+
 .dev-report-row-meta {
   display: flex;
   flex-wrap: wrap;
@@ -45,6 +51,22 @@
   font-weight: 600;
   color: var(--accent);
 }
+
+/* "Show older reports" under the list: a quiet full-width row, so it reads as more of the list, not an action. */
+.dev-report-more {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+.dev-report-more:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+.dev-report-more:disabled { cursor: default; opacity: 0.7; }
 
 .dev-report-empty {
   padding: 8px 0;

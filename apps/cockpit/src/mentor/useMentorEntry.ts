@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { reportClientError } from "@devthrottle/client-core/errors/reportClientError";
 import { retryDelayMs, useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
-import { getMentorPage } from "@devthrottle/client-core/teams/mentorClient";
+import { getMentorPage, getPersonalMentorPage } from "@devthrottle/client-core/teams/mentorClient";
 
 // WHETHER THE RAIL OFFERS "Mentor" (devthrottle_internal#2305). The rail never works it out from a role label (rule 7;
 // finding F5 of the team switcher's review, devthrottle#3527): it asks the Gateway the same question the page asks, for
@@ -19,12 +19,21 @@ import { getMentorPage } from "@devthrottle/client-core/teams/mentorClient";
 //
 // Asked once each time the team on screen changes, not on every route change: who may read a team's Mentor page does
 // not change while one team stays on screen.
+//
+// ON THE PERSON'S OWN ACCOUNT (owner, 8 Oct 2026) the question is the personal page's: GET /account/mentor. A Gateway
+// with Teams dark, or a self-hosted one, answers it 404 and the entry stays hidden there, as it always was.
 
 const SURFACE = "cockpit-mentor-entry";
 
+/** The key for the person's own account, which has no team id. Not a team id the Gateway could ever mint. */
+const OWN = "(own account)";
+
 export function useMentorEntry(): boolean {
-  const { current } = useCurrentTeam();
-  const teamId = current?.id ?? null;
+  const { current, status, resolving, choosing } = useCurrentTeam();
+  // Which page to ask about: the team on screen, or the person's own account once the shell knows it is the own
+  // account on screen (not while it is still learning the team).
+  const settled = status !== "loading" && !resolving && !choosing;
+  const teamId = current?.id ?? (settled ? OWN : null);
   const [offered, setOffered] = useState<{ teamId: string; offered: boolean } | null>(null);
 
   useEffect(() => {
@@ -34,7 +43,7 @@ export function useMentorEntry(): boolean {
     let failures = 0;
 
     const ask = () => {
-      getMentorPage(teamId, undefined, controller.signal).then(
+      (teamId === OWN ? getPersonalMentorPage(undefined, controller.signal) : getMentorPage(teamId, undefined, controller.signal)).then(
         (answer) => {
           if (!controller.signal.aborted) setOffered({ teamId, offered: answer.kind === "page" });
         },
@@ -45,7 +54,7 @@ export function useMentorEntry(): boolean {
           reportClientError(
             SURFACE,
             window.location.pathname,
-            `read the Mentor page for team ${teamId} to decide the Mentor entry (failure ${failures}, asking again)`,
+            `read the Mentor page for ${teamId === OWN ? "the own account" : `team ${teamId}`} to decide the Mentor entry (failure ${failures}, asking again)`,
             err,
           );
           setOffered({ teamId, offered: true });

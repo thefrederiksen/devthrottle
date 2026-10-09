@@ -68,6 +68,11 @@ public sealed class TenantGateArchitectureTests
         // request's tenant - so, like the teams table, scoping them would be circular.
         nameof(TeamBillEntity),
         nameof(TeamBillChargeEntity),
+        // A team's governance rules, the skills and workflows they name, and their record of changes (Teams v1, the Governance
+        // tab). Keyed by the team id, which IS a tenant id, like the team's bill above.
+        nameof(TeamGovernanceEntity),
+        nameof(TeamGovernanceItemEntity),
+        nameof(TeamGovernanceChangeEntity),
         nameof(AccountTrialEntity),       // free-trial ledger, keyed by account subject and read pre-tenant (#2117)
         // Teams and their members (devthrottle_internal#2300). A team IS a tenant, and these two tables are what say
         // which tenants a person may act in - read by the verified account subject BEFORE a tenant is chosen, so

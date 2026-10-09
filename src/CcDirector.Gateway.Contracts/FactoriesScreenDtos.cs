@@ -11,10 +11,10 @@ namespace CcDirector.Gateway.Contracts;
 /// </summary>
 public sealed class FactoryTalkDto
 {
-    /// <summary>The button's words: "Talk to Nora Hale", "Talk to the CEO", or "Talk" on a seat row.</summary>
+    /// <summary>The button's words: "Talk to the boss", or "Talk" on a seat row.</summary>
     public string Label { get; set; } = "";
 
-    /// <summary>What the button says while the talk is being started: "Starting the talk with Nora Hale...".</summary>
+    /// <summary>What the button says while the talk is being started: "Starting the talk with the boss...".</summary>
     public string BusyLabel { get; set; } = "";
 
     public string FactoryId { get; set; } = "";
@@ -34,10 +34,12 @@ public sealed class FactoriesListViewDto
     /// <summary>The column headings, in order: "Factory", "Waiting on you", "Status".</summary>
     public List<string> Columns { get; set; } = new();
 
-    /// <summary>Worst first (FAILING, NEEDS YOU, PAUSED, RUNNING), then by title.</summary>
+    /// <summary>Worst first (FAILING, NEEDS YOU, PAUSED, RUNNING), then by title. The Cockpit re-sorts them in the
+    /// order the owner picks; this order stays for older clients.</summary>
     public List<FactoryListRowDto> Rows { get; set; } = new();
 
-    /// <summary>The sentence under the list ("Worst first: ...").</summary>
+    /// <summary>The sentence under the list ("Worst first: ..."). Kept for older clients; the Cockpit now states the
+    /// order the owner picked instead.</summary>
     public string? FooterText { get; set; }
 
     /// <summary>Set when no factory is registered; the list is then empty.</summary>
@@ -163,7 +165,7 @@ public sealed class FactoryOwnerActionResultDto
     public List<string> SchedulesSwitched { get; set; } = new();
 }
 
-/// <summary>One factory on the list: name, status, what is waiting on the owner, and the CEO's Talk button.</summary>
+/// <summary>One factory on the list: name, status, what is waiting on the owner, and the boss's Talk button.</summary>
 public sealed class FactoryListRowDto
 {
     public string Id { get; set; } = "";
@@ -172,6 +174,10 @@ public sealed class FactoryListRowDto
     /// <summary>Exactly one of FAILING, NEEDS YOU, PAUSED, RUNNING.</summary>
     public string StatusWord { get; set; } = "";
     public string StatusTone { get; set; } = "";
+
+    /// <summary>Where <see cref="StatusWord"/> stands worst first: 0 FAILING, 1 NEEDS YOU, 2 PAUSED, 3 RUNNING. The
+    /// Cockpit sorts by it when the owner picks "Status (worst first)"; the meaning stays the Gateway's.</summary>
+    public int StatusRank { get; set; }
 
     /// <summary>Why the status is what it is, in full, for a tooltip ("Nora Hale failed today 06:20: ...").</summary>
     public string StatusReason { get; set; } = "";
@@ -188,6 +194,10 @@ public sealed class FactoryListRowDto
     /// <summary>"1 question", "2 decisions", "1 question, 1 decision", or "-".</summary>
     public string WaitingText { get; set; } = "";
 
+    /// <summary>How many open items <see cref="WaitingText"/> counts (questions plus decisions); 0 for "-". The Cockpit
+    /// sorts by it when the owner picks "Waiting on you".</summary>
+    public int WaitingCount { get; set; }
+
     /// <summary>Where clicking the waiting count goes - the waiting items on the factory's page. Null when nothing
     /// is waiting.</summary>
     public string? WaitingHref { get; set; }
@@ -195,12 +205,20 @@ public sealed class FactoryListRowDto
     /// <summary>The factory's page.</summary>
     public string Href { get; set; } = "";
 
-    /// <summary>The factory head's Talk button ("Talk to Ruth Calder"), or null when the factory has no head.
-    /// The head is the registry's <c>ceoSeat</c>, whatever its title.</summary>
+    /// <summary>The boss's Talk button ("Talk to the boss"), or null when the factory has no boss. The boss is the
+    /// registry's <c>bossSeat</c>; it has no name of its own.</summary>
     public FactoryTalkDto? Talk { get; set; }
 
-    /// <summary>"No head named" when <see cref="Talk"/> is null, else null.</summary>
-    public string? NoCeoText { get; set; }
+    /// <summary>"No boss named" when <see cref="Talk"/> is null, else null.</summary>
+    public string? NoBossText { get; set; }
+
+    /// <summary>The factory's one-line purpose from the registry ("Builds and sells websites for local trades"),
+    /// shown under the name on its card; null when none is set.</summary>
+    public string? Purpose { get; set; }
+
+    /// <summary>The boss's role word ("Boss", or "CFO") for the card's avatar and name line - never a person's
+    /// name (the owner, 8 October 2026); null when no boss is named.</summary>
+    public string? BossName { get; set; }
 }
 
 /// <summary><c>GET /gateway/factories/{factory}</c>: one factory's page - its header, tabs and Overview.</summary>
@@ -226,8 +244,9 @@ public sealed class FactoryPageViewDto
     /// items for NEEDS YOU, its Seats tab for PAUSED. Null for RUNNING.</summary>
     public string? StatusHref { get; set; }
 
-    /// <summary>The head's own role and name - "CEO Nora Hale", "CFO Ruth Calder" - or "No head named".</summary>
-    public string CeoText { get; set; } = "";
+    /// <summary>The boss seat's role word - "Boss", or a distinct one the factory registered ("CFO") - or "No boss
+    /// named". Never a person's name: the boss has none.</summary>
+    public string BossText { get; set; } = "";
 
     /// <summary>"4 seats".</summary>
     public string SeatCountText { get; set; } = "";
@@ -235,7 +254,7 @@ public sealed class FactoryPageViewDto
     /// <summary>"runs on SOREN_NORTH".</summary>
     public string ComputerText { get; set; } = "";
 
-    /// <summary>The CEO's Talk button, or null when there is no CEO.</summary>
+    /// <summary>The boss's Talk button, or null when there is no boss.</summary>
     public FactoryTalkDto? Talk { get; set; }
 
     /// <summary>Overview, Seats (n), Activity, Reports, Memory, Documents - in that order.</summary>
@@ -248,7 +267,7 @@ public sealed class FactoryPageViewDto
     public FactoryPageFailuresDto? Failures { get; set; }
 
     public FactoryPageWaitingDto Waiting { get; set; } = new();
-    public FactoryCeoLatestDto CeoLatest { get; set; } = new();
+    public FactoryBossLatestDto BossLatest { get; set; } = new();
     public FactoryLastTalkDto LastTalk { get; set; } = new();
 
     /// <summary>What the Documents tab says. The definitions are not on the Gateway yet, so it says that, and
@@ -285,7 +304,7 @@ public sealed class FactoryGoalCardDto
     public string? EmptyText { get; set; }
 }
 
-/// <summary>The newest goal number the CEO posted.</summary>
+/// <summary>The newest goal number the boss posted.</summary>
 public sealed class FactoryGoalNumberCardDto
 {
     /// <summary>"Goal number - posted by Nora Hale, today 06:20", or "Goal number" when none was posted.</summary>
@@ -372,19 +391,20 @@ public sealed class FactoryFailureItemDto
     public string? Note { get; set; }
 }
 
-/// <summary>The CEO's latest lines in the activity record.</summary>
-public sealed class FactoryCeoLatestDto
+/// <summary>The boss's latest lines in the activity record.</summary>
+public sealed class FactoryBossLatestDto
 {
-    /// <summary>"Latest from the CEO".</summary>
+    /// <summary>"Latest from the boss".</summary>
     public string Heading { get; set; } = "";
 
     /// <summary>Newest first: "Today 06:20 - Feed healthy. Found zone 8 holding 20 C; asked you."</summary>
     public List<string> Lines { get; set; } = new();
 
-    /// <summary>Set when there is nothing to show ("No CEO." or "Nothing from Nora Hale in the last 7 days.").</summary>
+    /// <summary>Set when there is nothing to show ("This factory has no boss named." or "Nothing from the boss in the
+    /// last 7 days.").</summary>
     public string? EmptyText { get; set; }
 
-    /// <summary>"All reports" and where it goes: the Activity tab filtered to the CEO. Null when there is no CEO.</summary>
+    /// <summary>"All reports" and where it goes: the Activity tab filtered to the boss. Null when there is no boss.</summary>
     public string? AllLabel { get; set; }
     public string? AllHref { get; set; }
 }
@@ -399,7 +419,7 @@ public sealed class FactoryLastTalkDto
     public string Text { get; set; } = "";
 }
 
-/// <summary><c>GET /gateway/factories/{factory}/seats</c>: the Seats tab - every registered seat, CEO first.</summary>
+/// <summary><c>GET /gateway/factories/{factory}/seats</c>: the Seats tab - every registered seat, the boss first.</summary>
 public sealed class FactorySeatsViewDto
 {
     public string FactoryId { get; set; } = "";
@@ -413,7 +433,7 @@ public sealed class FactorySeatsViewDto
 
     public List<FactorySeatRowDto> Rows { get; set; } = new();
 
-    /// <summary>"Only seats the CEO hired are listed. ..."</summary>
+    /// <summary>"Only seats the boss hired are listed. ..."</summary>
     public string Note { get; set; } = "";
 }
 
@@ -425,7 +445,7 @@ public sealed class FactorySeatRowDto
     /// <summary>"Nora Hale".</summary>
     public string Name { get; set; } = "";
 
-    /// <summary>"CEO".</summary>
+    /// <summary>"Boss", "Scout".</summary>
     public string Role { get; set; } = "";
 
     /// <summary>"Daily 06:15", "06:00 and 18:00", "Wednesday 05:30", "Not scheduled".</summary>

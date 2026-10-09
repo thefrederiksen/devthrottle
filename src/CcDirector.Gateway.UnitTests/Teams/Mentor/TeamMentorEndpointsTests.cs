@@ -130,7 +130,9 @@ public sealed class TeamMentorEndpointsTests : IDisposable
         var quote = Assert.Single(rob.GetProperty("quotes").EnumerateArray());
         Assert.Equal(_robQuoted.Id, quote.GetProperty("promptId").GetString());
         Assert.Equal(_robQuoted.Text, quote.GetProperty("text").GetString());
-        Assert.False(rob.TryGetProperty("personName", out _));
+        // A real member's block carries no name: the Gateway holds none for an account. Only a made-up showcase member,
+        // which has a name on its own row, is given one.
+        Assert.Equal(JsonValueKind.Null, rob.GetProperty("personName").ValueKind);
     }
 
     // ---- devthrottle_internal#2305, test 3 ---------------------------------------------------------------------------

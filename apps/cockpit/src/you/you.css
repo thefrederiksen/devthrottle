@@ -1,0 +1,256 @@
+/* You, at the bottom of the rail, and the menu behind your name (owner, 8 Oct 2026). Every colour is a theme token. */
+
+.you {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.you-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.you-card:hover,
+.you-card[aria-expanded="true"] {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.you-card:focus-visible,
+.you-menu-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.you-initials {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--owner-bubble-bg);
+  border: 1px solid var(--owner-bubble-border);
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+/* Dictionary suggestions waiting: a red dot on your initials, the attention signal the Dictionary row carried. */
+.you-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--attention);
+  border: 2px solid var(--surface);
+}
+
+.you-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.you-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Where you are working wraps rather than cutting off your role: "Example Test Team - Owner" is the line that says what
+   you may do here, so its end is the part that matters. Two lines at most. */
+.you-working {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.you-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.you-working {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.you-caret {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.you-collapsed .you-card {
+  justify-content: center;
+  padding: 6px 0;
+}
+
+/* The menu. Fixed, from the card's position, so the rail's scrolling cannot clip it and it can be wider than a
+   collapsed rail. */
+.you-menu {
+  position: fixed;
+  z-index: 50;
+  width: 290px;
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.you-menu-email {
+  padding: 8px 10px 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.you-menu-note {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.you-menu-group {
+  padding: 4px 0;
+  border-top: 1px solid var(--border);
+}
+
+.you-menu-heading {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.you-menu-rule {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+.you-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.you-menu-item:hover,
+.you-menu-item:focus {
+  background: var(--surface-2);
+}
+
+.you-menu-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.you-menu-choice.is-current .you-menu-mark {
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.you-menu-choice-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.you-menu-main,
+.you-menu-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.you-menu-sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.you-menu-check {
+  flex: none;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.you-menu-badge {
+  margin-left: auto;
+  background: var(--attention);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 7px;
+  min-width: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* At a narrow width a pages-only app's rail is a bar along the top; you sit at the end of it. */
+@media (max-width: 600px) {
+  .shell-team-pages .you {
+    margin-top: 8px;
+    padding-top: 8px;
+  }
+}
+
+/* Text for a screen reader only: the Settings row count read as "3 dictionary suggestions pending". */
+.you-menu-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

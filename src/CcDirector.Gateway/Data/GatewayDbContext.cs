@@ -284,7 +284,7 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>The registered factories, one row per factory (Factories screen mission, phase A).</summary>
     public DbSet<FactoryRegistryEntity> FactoryRegistry => Set<FactoryRegistryEntity>();
 
-    /// <summary>Every goal number a factory's CEO posted (Factories screen mission, phase A).</summary>
+    /// <summary>Every goal number a factory's boss posted (Factories screen mission, phase A).</summary>
     public DbSet<FactoryGoalNumberEntity> FactoryGoalNumbers => Set<FactoryGoalNumberEntity>();
 
     /// <summary>The durable repository catalog used by machine-scoped session creation search.</summary>
@@ -459,6 +459,16 @@ public sealed class GatewayDbContext : DbContext
 
     /// <summary>The billing history of each team's plan (<c>team_bill_charges</c>): one line per period.</summary>
     public DbSet<TeamBillChargeEntity> TeamBillCharges => Set<TeamBillChargeEntity>();
+
+    /// <summary>The team's governance rules (<c>team_governance</c>, Teams v1 - the team's Governance tab): one row per team
+    /// that has changed them.</summary>
+    public DbSet<TeamGovernanceEntity> TeamGovernance => Set<TeamGovernanceEntity>();
+
+    /// <summary>The skills and workflows a team's governance names as Required or Suggested (<c>team_governance_items</c>).</summary>
+    public DbSet<TeamGovernanceItemEntity> TeamGovernanceItems => Set<TeamGovernanceItemEntity>();
+
+    /// <summary>The record of every change to a team's governance rules (<c>team_governance_changes</c>): who, what and when.</summary>
+    public DbSet<TeamGovernanceChangeEntity> TeamGovernanceChanges => Set<TeamGovernanceChangeEntity>();
 
     /// <summary>
     /// The free-trial ledger (<c>account_trials</c>, issue #2117) - the Gateway's OWN record of which accounts
@@ -889,6 +899,7 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.Key }).IsUnique();
             // A team member's own reports (devthrottle_internal#2309): their Reports page reads by author.
             b.HasIndex(e => new { e.TenantId, e.AuthorSubject });
+            b.Property(e => e.ShowcaseTag).HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
         });
 
         modelBuilder.Entity<DevReportVersionEntity>(b =>
@@ -898,6 +909,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.ByteHash).HasMaxLength(64);
             b.Property(e => e.Status).HasMaxLength(32);
             b.HasIndex(e => new { e.TenantId, e.ReportId, e.Version }).IsUnique();
+            b.Property(e => e.ShowcaseTag).HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
         });
 
         modelBuilder.Entity<DevReportItemEntity>(b =>
@@ -939,6 +951,7 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.ReportId, e.RecipientSubject }).IsUnique();
             // A recipient's Reports page: what was sent to them, newest first.
             b.HasIndex(e => new { e.TenantId, e.RecipientSubject, e.SentAtUtc });
+            b.Property(e => e.ShowcaseTag).HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
         });
 
         modelBuilder.Entity<DevReportCommentEntity>(b =>
@@ -1196,9 +1209,10 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Title).HasMaxLength(120);
             b.Property(e => e.Folder).HasMaxLength(1024);
             b.Property(e => e.Computer).HasMaxLength(128);
-            b.Property(e => e.CeoSeat).HasMaxLength(64);
+            b.Property(e => e.BossSeat).HasMaxLength(64);
             b.Property(e => e.GoalFile).HasMaxLength(512);
             b.Property(e => e.GoalApprovedOn).HasMaxLength(10);
+            b.Property(e => e.Purpose).HasMaxLength(120);
             b.Property(e => e.RegisteredBy).HasMaxLength(256);
             b.Property(e => e.ArchivedBy).HasMaxLength(256);
         });
@@ -1358,6 +1372,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Week).HasMaxLength(8);
             b.Property(e => e.Tone).HasMaxLength(10);
             b.Property(e => e.Model).HasMaxLength(200);
+            b.Property(e => e.ShowcaseTag).HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
         });
 
         modelBuilder.Entity<TeamMentorOutcomeEntity>(b =>
@@ -1571,6 +1586,56 @@ public sealed class GatewayDbContext : DbContext
             b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
         });
 
+        // The team's governance rules (Teams v1, the team's Governance tab). GLOBAL like the team's bill: keyed by the team
+        // id, which is the team's tenant id. The rules, their items and their record of changes cannot outlive their team.
+        modelBuilder.Entity<TeamGovernanceEntity>(b =>
+        {
+            b.ToTable("team_governance");
+            b.HasKey(e => e.TeamId);
+            b.Property(e => e.TeamId).HasColumnName("team_id").ValueGeneratedNever();
+            b.Property(e => e.AgentReviewsPullRequests).HasColumnName("agent_reviews_pull_requests").IsRequired();
+            b.Property(e => e.NoSelfMerge).HasColumnName("no_self_merge").IsRequired();
+            b.Property(e => e.WorkStartsAsAssignedIssue).HasColumnName("work_starts_as_assigned_issue").IsRequired();
+            b.Property(e => e.AllowClaudeCode).HasColumnName("allow_claude_code").IsRequired();
+            b.Property(e => e.AllowCodex).HasColumnName("allow_codex").IsRequired();
+            b.Property(e => e.AllowOtherAgents).HasColumnName("allow_other_agents").IsRequired();
+            b.Property(e => e.AgentHoursPerWeek).HasColumnName("agent_hours_per_week");
+            b.Property(e => e.SessionsAtOnce).HasColumnName("sessions_at_once");
+            b.Property(e => e.KeepMentorPagesMonths).HasColumnName("keep_mentor_pages_months");
+            b.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            b.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            // Bumped by every write; a second Gateway process saving a stale copy is refused (TeamGovernanceStore).
+            b.Property(e => e.Version).HasColumnName("version").IsRequired().IsConcurrencyToken();
+            b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TeamGovernanceItemEntity>(b =>
+        {
+            b.ToTable("team_governance_items");
+            b.HasKey(e => new { e.TeamId, e.Kind, e.ItemId });
+            b.Property(e => e.TeamId).HasColumnName("team_id").ValueGeneratedNever();
+            b.Property(e => e.Kind).HasColumnName("kind").IsRequired().HasMaxLength(20);
+            b.Property(e => e.ItemId).HasColumnName("item_id").IsRequired().HasMaxLength(200);
+            b.Property(e => e.Name).HasColumnName("name").IsRequired().HasMaxLength(200);
+            b.Property(e => e.Level).HasColumnName("level").IsRequired().HasMaxLength(20);
+            b.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TeamGovernanceChangeEntity>(b =>
+        {
+            b.ToTable("team_governance_changes");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
+            b.Property(e => e.TeamId).HasColumnName("team_id").IsRequired();
+            b.Property(e => e.ChangedBy).HasColumnName("changed_by").IsRequired().HasMaxLength(100);
+            b.Property(e => e.What).HasColumnName("what").IsRequired().HasMaxLength(500);
+            b.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
+            // A team's record, newest first.
+            b.HasIndex(e => new { e.TeamId, e.CreatedAtUtc });
+            b.HasOne<TeamEntity>().WithMany().HasForeignKey(e => e.TeamId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<TenantEntity>(b =>
         {
             b.ToTable("tenants");
@@ -1609,6 +1674,11 @@ public sealed class GatewayDbContext : DbContext
                 .HasConversion(r => CcDirector.Gateway.Teams.TeamRoles.ToStored(r), s => CcDirector.Gateway.Teams.TeamRoles.FromStored(s))
                 .HasMaxLength(20);
             b.Property(e => e.JoinedAtUtc).HasColumnName("joined_at_utc").IsRequired();
+            // A made-up showcase member (TeamShowcase): its tag, and the name and email shown for it. Null on every
+            // real member.
+            b.Property(e => e.ShowcaseTag).HasColumnName("showcase_tag").HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
+            b.Property(e => e.DisplayName).HasColumnName("display_name").HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxNameLength);
+            b.Property(e => e.DisplayEmail).HasColumnName("display_email").HasMaxLength(CcDirector.Gateway.Teams.TeamInvitationRules.MaxEmailLength);
             // "Which teams am I in?" - the team switcher's read - is by account subject.
             b.HasIndex(e => e.AccountSubject);
             // AT MOST one Owner per team, enforced at the database so two racing writes can never give a team two
@@ -1660,6 +1730,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.State).HasColumnName("state").IsRequired().HasMaxLength(20);
             b.Property(e => e.SentAtUtc).HasColumnName("sent_at_utc").IsRequired();
             b.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc").IsRequired();
+            b.Property(e => e.ShowcaseTag).HasColumnName("showcase_tag").HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
             // The sender's own list: their requests in this team, newest first.
             b.HasIndex(e => new { e.TenantId, e.SenderSubject, e.SentAtUtc });
             // The Owner and Managers' list: the team's requests, newest first.
@@ -1676,6 +1747,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.BySubject).HasColumnName("by_subject").IsRequired().HasMaxLength(128);
             b.Property(e => e.AtUtc).HasColumnName("at_utc").IsRequired();
             b.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(CcDirector.Gateway.Teams.TeamRequestStates.MaxReasonLength);
+            b.Property(e => e.ShowcaseTag).HasColumnName("showcase_tag").HasMaxLength(CcDirector.Gateway.Teams.TeamShowcase.MaxTagLength);
             // A request's trail, in order.
             b.HasIndex(e => new { e.TenantId, e.RequestId, e.AtUtc });
             // A step cannot outlive its request.

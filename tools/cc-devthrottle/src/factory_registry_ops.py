@@ -3,11 +3,13 @@
 Four verbs:
 
 - `factory register --manifest <file>` registers a factory on the Gateway from a JSON manifest: its title,
-  folder, computer, CEO, goal and seats. Registering again replaces the whole registration, seats included.
+  folder, computer, boss, goal and seats. Registering again replaces the whole registration, seats included.
   When the manifest names a goal file, this command reads it from the factory's folder and sends its text,
   so it runs on the factory's own computer.
 - `factory list` lists the registered factories.
-- `factory goal-number post` posts the number a factory's goal is measured by. A CEO runs it on every run.
+- `factory purpose <factory> "<line>"` sets the one line that says what a factory is for, shown under its name
+  on the owner's Factories cards, without registering it again; `--clear` removes it.
+- `factory goal-number post` posts the number a factory's goal is measured by. A boss runs it on every run.
 - `factory goal-number show` reads a factory's goal numbers back, newest first.
 
 THE MANIFEST is JSON (no extra dependency, and the Gateway's own shape), with exactly these keys:
@@ -17,12 +19,14 @@ THE MANIFEST is JSON (no extra dependency, and the Gateway's own shape), with ex
       "title": "WarmForward",                         its name as the owner reads it
       "folder": "D:\\ReposFred\\cc-consult\\...",      absolute path on its computer
       "computer": "SOREN_NORTH",                      the machine it runs on
-      "ceoSeat": "nora-hale",                         optional: the seat that is the CEO
+      "bossSeat": "boss",                             optional: the seat that is the boss
       "goalFile": "GOAL.md",                          optional: relative to the folder; its text is sent
       "goalApprovedOn": "2026-10-04",                 optional: the day the owner approved the goal
+      "purpose": "Heating monitoring for homeowners",  optional: one line on what it is for (max 120 chars);
+                                                      left out, a line set with `factory purpose` is kept
       "seats": [
-        {"id": "nora-hale", "name": "Nora Hale", "role": "CEO",
-         "briefFile": "agents/ceo.yaml",               relative to the folder
+        {"id": "boss", "name": "Boss", "role": "Boss",   the boss has no name of its own: its name is Boss
+         "briefFile": "agents/boss.yaml",              relative to the folder
          "schedules": ["cj_a721e6"],                   the Gateway schedules that run this seat
          "computer": "SOREN_NORTH"}                    optional: defaults to the factory's computer
       ]
@@ -52,12 +56,12 @@ REGISTRY_ROUTE = "gateway/factory/registry"
 GOAL_NUMBERS_ROUTE = "gateway/factory/goal-numbers"
 
 #: The keys a manifest may hold, and a seat inside it. Anything else is refused.
-MANIFEST_KEYS = ("factory", "title", "folder", "computer", "ceoSeat", "goalFile", "goalApprovedOn", "seats")
-SEAT_KEYS = ("id", "name", "role", "briefFile", "schedules", "computer")
+MANIFEST_KEYS = ("factory", "title", "folder", "computer", "bossSeat", "goalFile", "goalApprovedOn", "purpose", "seats")
+SEAT_KEYS = ("id", "name", "role", "briefFile", "schedules", "computer", "line")
 
 #: `factory list`: every field it can show, and the few it shows unless asked (docs/axi-standard.md).
-LIST_FIELDS = ("id", "title", "ceo", "seats", "computer", "goal", "folder")
-LIST_DEFAULT_FIELDS = ("id", "title", "ceo", "seats")
+LIST_FIELDS = ("id", "title", "boss", "seats", "computer", "goal", "purpose", "folder")
+LIST_DEFAULT_FIELDS = ("id", "title", "boss", "seats")
 
 #: `factory goal-number show`: every field, and the default few.
 GOAL_FIELDS = ("asOf", "value", "unit", "postedBy", "postedAtUtc", "link", "id")
@@ -74,6 +78,7 @@ FEATURE_OFF = (
 )
 
 _LIST = "cc-devthrottle factory list"
+_PURPOSE = 'cc-devthrottle factory purpose <factory> "<one line>"'
 _REGISTER = "cc-devthrottle factory register --manifest <file>"
 _SHOW = "cc-devthrottle factory goal-number show --factory <id>"
 _POST = ("cc-devthrottle factory goal-number post --factory <id> --value <text> --unit <text> "
@@ -213,8 +218,9 @@ def register(manifest_path: str, json_output: bool) -> None:
             f"title: {axi_output.format_value(answer.get('title'))}",
             f"computer: {axi_output.format_value(answer.get('computer'))}",
             f"folder: {axi_cli.ascii_text(str(answer.get('folder')))}",
-            f"ceo: {axi_output.format_value(answer.get('ceoSeat') or 'none')}",
+            f"boss: {axi_output.format_value(answer.get('bossSeat') or 'none')}",
             f"goal: {goal}",
+            f"purpose: {axi_output.format_value(answer.get('purpose') or 'none')}",
         ]),
         axi_output.render_list("seats", ["id", "name", "role", "computer", "schedules"], [_seat_cells(s) for s in seats]),
         axi_output.format_help([_LIST, f"cc-devthrottle factory goal-number show --factory {axi_cli.bare(answer['factory'], '<id>')}"]),
@@ -248,9 +254,10 @@ def list_factories(json_output: bool, fields: Optional[str] = None) -> None:
             "id": f.get("factory"),
             "title": f.get("title"),
             "computer": f.get("computer"),
-            "ceo": f.get("ceoSeat"),
+            "boss": f.get("bossSeat"),
             "seats": len(f.get("seats") or []),
             "goal": "yes" if f.get("goalText") else "no",
+            "purpose": f.get("purpose"),
             "folder": f.get("folder"),
         }
         for f in factories
@@ -260,6 +267,40 @@ def list_factories(json_output: bool, fields: Optional[str] = None) -> None:
         axi_output.format_count(len(records)),
         axi_output.render_list("factories", chosen, [{k: r[k] for k in chosen} for r in records]),
         axi_output.format_help([_REGISTER] if not records else [_SHOW, _REGISTER]),
+    )
+
+
+# ---------- purpose ----------
+
+
+def set_purpose(factory: str, line: Optional[str], clear: bool, json_output: bool) -> None:
+    """Set or clear a registered factory's one-line purpose. Exits non-zero whenever it was not kept."""
+    if clear and line is not None:
+        usage_errors.usage_error("give the purpose line or --clear, not both.")
+    if not clear and (line is None or not line.strip()):
+        usage_errors.usage_error("give the purpose as one line in quotes, or --clear to remove it: " + _PURPOSE)
+    body: Dict[str, Any] = {"purpose": None if clear else line.strip()}
+    path = f"{REGISTRY_ROUTE}/{gateway.path_segment(factory)}/purpose"
+    try:
+        answer = gateway.put_json(path, body)
+    except gateway.GatewayError as exc:
+        axi_cli.fail(f"Not set: {_reason(exc)}", [_LIST])
+
+    if not isinstance(answer, dict) or not answer.get("factory"):
+        axi_cli.fail("Not set: the Gateway answered without the factory, so this command cannot show the purpose "
+                     "was kept. Treat it as not set.", [_LIST])
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+    kept = answer.get("purpose")
+    axi_output.write_blocks(
+        sys.stdout,
+        "\n".join([
+            f"factory: {axi_cli.ascii_text(str(answer['factory']))}",
+            f"title: {axi_output.format_value(answer.get('title'))}",
+            f"purpose: {axi_output.format_value(kept) if kept else 'none (cleared)'}",
+        ]),
+        axi_output.format_help([_LIST]),
     )
 
 

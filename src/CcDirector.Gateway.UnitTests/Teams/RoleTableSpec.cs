@@ -49,6 +49,10 @@ public static class RoleTableSpec
         new(TeamAction.SeeTeamPage, "YYYN", "GET", "/teams/{teamId}/page", TeamOwnership.Unknown, null),
         // Teams v1, the team bill without Stripe (the Delivery Lead's brief): "a Manager may see the bill, may not change it".
         new(TeamAction.SeeTeamBill, "YYNN", "GET", "/teams/{teamId}/bill", TeamOwnership.Unknown, null),
+        // Teams v1, the team's Governance tab (the owner, 8 Oct 2026): "seen by every member who sees the team tabs; changed
+        // only by Owner and Manager".
+        new(TeamAction.SeeTeamGovernance, "YYYN", "GET", "/teams/{teamId}/governance", TeamOwnership.Unknown, null),
+        new(TeamAction.ChangeTeamGovernance, "YYNN", "PUT", "/teams/{teamId}/governance", TeamOwnership.Unknown, null),
     };
 
     public static readonly TeamRole[] Columns = { TeamRole.Owner, TeamRole.Manager, TeamRole.Developer, TeamRole.Collaborator };

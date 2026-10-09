@@ -333,12 +333,13 @@ public sealed class TeamBillStore
         }
     }
 
-    /// <summary>How many of a team's members hold a paid seat (Owner, Manager, Developer - <see cref="TeamSeatRoles"/>).</summary>
+    /// <summary>How many of a team's members hold a paid seat (Owner, Manager, Developer - <see cref="TeamSeatRoles"/>).
+    /// A made-up showcase member (<see cref="TeamShowcase"/>) is not an account and is never on the bill.</summary>
     public static int PaidSeats(GatewayDbContext ctx, string teamId)
     {
         ArgumentNullException.ThrowIfNull(ctx);
         return ctx.TeamMembers.AsNoTracking()
-            .Where(m => m.TeamId == teamId)
+            .Where(m => m.TeamId == teamId && m.ShowcaseTag == null)
             .Select(m => m.Role)
             .ToList()
             .Count(role => TeamSeatRoles.IsPaidSeat(TeamRoles.ToStored(role)));

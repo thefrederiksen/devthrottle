@@ -3,6 +3,7 @@ import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { useCurrentTeam } from "@devthrottle/client-core/teams/CurrentTeam";
 import {
   getMentorPage,
+  getPersonalMentorPage,
   shiftWeek,
   type MentorAnswer,
   type MentorBlock,
@@ -25,8 +26,10 @@ import "./mentor.css";
 // of code, no sorting of people by how they did, and no link or control that browses anything else a person typed -
 // only the prompts the Mentor quoted, shown as quotes, exactly as the Gateway sent them.
 //
-// A PERSON NOT ON A TEAM SEES NO CHANGE. With no team on this Gateway (or Teams not turned on) the address answers the
-// Cockpit's ordinary "Page not found", exactly as it did before this page existed.
+// ON THE PERSON'S OWN ACCOUNT (owner, 8 Oct 2026: "the mentor should also be for my personal account") the page is
+// theirs alone: the same week chooser and the same block, read from GET /account/mentor. A Gateway that answers that
+// read 404 (Teams not turned on, or a self-hosted Gateway) makes the address the Cockpit's ordinary "Page not found",
+// exactly as it was before this page existed.
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -40,6 +43,12 @@ function dayAndMonth(date: string): string {
   return `${day} ${MONTHS[month - 1]}`;
 }
 
+/** The calendar day before a YYYY-MM-DD date, as a date. */
+function dayBefore(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d) - 86_400_000).toISOString().slice(0, 10);
+}
+
 /** The words for someone the contract lists with no email on record (Tech Lead ruling, review F1): their role and
  *  that plain fact - never a made-up name. */
 function personLabel(email: string | null, role: string): string {
@@ -47,24 +56,20 @@ function personLabel(email: string | null, role: string): string {
 }
 
 export function MentorView() {
-  const { status, teams, current, resolving, error } = useCurrentTeam();
+  const { status, current, resolving, error } = useCurrentTeam();
 
   if (status === "loading" || resolving) {
     if (status === "error" && error !== null) return <ErrorBanner message={error} />;
     return <LoadingState message="Loading the Mentor's page..." />;
   }
-  if (status !== "ready" || teams.length === 0) return <NotFound />;
-  if (current === null) {
-    return (
-      <section className="mentor-page">
-        <PageHeader title="Mentor" />
-        <EmptyState message="The Mentor writes about a team. Choose one of your teams at the top of the menu to read its Mentor page." />
-      </section>
-    );
-  }
-  // Keyed by the team, so switching team starts again at that team's most recent week.
-  return <MentorTeamPage key={current.id} teamId={current.id} />;
+  // Keyed by the team (or the own account), so switching starts again at that page's most recent week.
+  if (current === null) return <MentorWeekPage key="own" load={getPersonalMentorPage} />;
+  const teamId = current.id;
+  return <MentorWeekPage key={teamId} load={(week, signal) => getMentorPage(teamId, week, signal)} />;
 }
+
+/** Reads one week of the page on screen: a team's, or the person's own. */
+type LoadWeek = (week: string | undefined, signal: AbortSignal) => Promise<MentorAnswer>;
 
 /** The week being asked for. No week means the Gateway's own choice: the most recent one that has closed. */
 interface WeekRequest {
@@ -75,7 +80,7 @@ interface WeekRequest {
 
 type Read = { state: "loading" } | { state: "failed"; message: string } | { state: "answered"; answer: MentorAnswer };
 
-function MentorTeamPage({ teamId }: { teamId: string }) {
+function MentorWeekPage({ load }: { load: LoadWeek }) {
   const [request, setRequest] = useState<WeekRequest>({});
   const [read, setRead] = useState<Read>({ state: "loading" });
   // The last page the Gateway sent, of any week: its scope and readers keep the heading in place while another week
@@ -88,7 +93,7 @@ function MentorTeamPage({ teamId }: { teamId: string }) {
   useEffect(() => {
     const controller = new AbortController();
     setRead({ state: "loading" });
-    getMentorPage(teamId, request.week, controller.signal).then(
+    load(request.week, controller.signal).then(
       (answer) => {
         if (controller.signal.aborted) return;
         setRead({ state: "answered", answer });
@@ -102,7 +107,8 @@ function MentorTeamPage({ teamId }: { teamId: string }) {
       },
     );
     return () => controller.abort();
-  }, [teamId, request, attempt]);
+    // `load` is left out on purpose: it is fixed for the life of this page, which is keyed by the page it reads.
+  }, [request, attempt]);
 
   // The Gateway refused (a Collaborator - the Mentor writes nothing about someone who runs no sessions) or knows no
   // such team for this person. Either way there is no Mentor page for them, so the address is an ordinary missing page.
@@ -126,13 +132,23 @@ function MentorTeamPage({ teamId }: { teamId: string }) {
   }
 
   const own = lastPage.scope === "own";
+  const personal = lastPage.scope === "personal";
   const step = (weeks: number) => setRequest(shiftWeek(weekStart, weeks));
+  // The week the chooser is on, named from the request as soon as it moves - never the last page's dates while the next
+  // week loads (review finding 4). A week is the Monday and the six days after it.
+  const weekEnd = shiftWeek(weekStart, 1).weekStart;
 
   return (
     <section className="mentor-page" data-testid="mentor-page">
       <PageHeader
-        title={own ? "Your week, from the Mentor" : `Mentor - week of ${dayAndMonth(weekStart)}`}
-        subtitle={own ? readersSentence(lastPage.readers) : "Each person reads their own block, word for word."}
+        title={personal ? "Mentor" : own ? "Your week, from the Mentor" : `Mentor - week of ${dayAndMonth(weekStart)}`}
+        subtitle={
+          personal
+            ? `Your week, ${dayAndMonth(weekStart)} - ${dayAndMonth(dayBefore(weekEnd))}. Written by the Mentor from your sessions; only you read this page.`
+            : own
+              ? readersSentence(lastPage.readers)
+              : "Each person reads their own block, word for word."
+        }
       />
 
       <nav className="mentor-weeks" aria-label="Week">
@@ -175,6 +191,18 @@ export function readersSentence(readers: MentorReader[]): string {
 }
 
 function MentorWeek({ page }: { page: MentorPage }) {
+  // A person's own page: the Gateway says what an empty week means for them (their first page has not come yet, or
+  // nothing was written this week), and the block is drawn without a name over it - it is the reader's own.
+  if (page.scope === "personal") {
+    if (page.blocks.length === 0) return <EmptyState message={page.emptyNote ?? ""} />;
+    return (
+      <div className="mentor-blocks">
+        {page.blocks.map((block, index) => (
+          <MentorBlockCard key={index} block={block} personal />
+        ))}
+      </div>
+    );
+  }
   if (!page.written && page.blocks.length === 0) {
     return <EmptyState message="The Mentor has not written this week yet." />;
   }
@@ -207,18 +235,21 @@ function MentorWeek({ page }: { page: MentorPage }) {
 }
 
 /** One person's week. The ONE drawing of a block - the Owner's, the Manager's and the person's own page all use it. */
-export function MentorBlockCard({ block }: { block: MentorBlock }) {
-  const who = personLabel(block.personEmail, block.role);
+export function MentorBlockCard({ block, personal = false }: { block: MentorBlock; personal?: boolean }) {
+  const who = personal ? "Your week" : (block.personName ?? personLabel(block.personEmail, block.role));
   return (
     <article className="mentor-block" data-testid="mentor-block" aria-label={who}>
       <header className="mentor-who">
-        <span className="mentor-person">{who}</span>
+        {!personal && <span className="mentor-person">{who}</span>}
         {/* With no email on record the role is already in the heading. */}
-        {block.personEmail !== null && <span className="mentor-role">{block.role}</span>}
+        {!personal && block.personEmail !== null && <span className="mentor-role">{block.role}</span>}
+        {!personal && block.personName !== null && block.personEmail !== null && (
+          <span className="mentor-role" data-testid="mentor-person-email">{block.personEmail}</span>
+        )}
         <span className={`mentor-tone mentor-tone-${block.tone}`}>{block.toneLabel}</span>
       </header>
 
-      <h3 className="mentor-hd">Worked on</h3>
+      <h3 className="mentor-hd">{personal ? "What you worked on" : "Worked on"}</h3>
       <p className="mentor-text">{block.workedOn}</p>
 
       {block.howItWent !== null && (

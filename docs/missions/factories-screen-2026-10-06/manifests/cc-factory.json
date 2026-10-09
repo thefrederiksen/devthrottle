@@ -3,11 +3,11 @@
   "title": "Center Consulting",
   "folder": "D:\\ReposFred\\cc-consult\\ideas\\cc-factory",
   "computer": "SOREN_NORTH",
-  "ceoSeat": "cfo",
+  "bossSeat": "cfo",
   "seats": [
     {
       "id": "cfo",
-      "name": "Ruth Calder",
+      "name": "Boss",
       "role": "CFO",
       "briefFile": "agents/cfo.yaml",
       "schedules": [

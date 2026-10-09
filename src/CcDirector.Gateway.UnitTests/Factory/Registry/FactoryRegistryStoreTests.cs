@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Factory;
@@ -46,13 +47,13 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         Title = "WarmForward",
         Folder = @"D:\ReposFred\cc-consult\ideas\warmforward-factory",
         Computer = "SOREN_NORTH",
-        CeoSeat = "nora-hale",
+        BossSeat = "nora-hale",
         GoalText = "A cash engine of $15,000-$40,000 a year that runs without your time.",
         GoalFile = "GOAL.md",
         GoalApprovedOn = "2026-10-04",
         Seats =
         {
-            new FactorySeatManifest { Id = "nora-hale", Name = "Nora Hale", Role = "CEO", BriefFile = "agents/ceo.yaml" },
+            new FactorySeatManifest { Id = "nora-hale", Name = "Boss", Role = "Boss", BriefFile = "agents/ceo.yaml" },
             new FactorySeatManifest { Id = "savings-engineer", Name = "Savings Engineer", Role = "Savings Engineer", BriefFile = "agents/savings.yaml", Computer = "DEVLINUX" },
         },
     };
@@ -65,6 +66,109 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         AsOf = "2026-10-06",
         Link = "https://github.com/thefrederiksen/websites/issues/276",
     };
+
+    // ---------- the purpose line (the Factories cards, 8 Oct 2026) ----------
+
+    [Fact]
+    public void Register_WithAPurpose_KeepsItTrimmed_AndListsIt()
+    {
+        var store = NewStore();
+        var m = WarmForward();
+        m.Purpose = "  Heating monitoring for homeowners  ";
+
+        var registered = store.Register(A, m, "the owner (test)", Now);
+
+        Assert.Equal("Heating monitoring for homeowners", registered.Purpose);
+        Assert.Equal("Heating monitoring for homeowners", Assert.Single(store.List(A)).Purpose);
+    }
+
+    [Fact]
+    public void Register_WithoutAPurpose_HasNone_AndABlankOneIsNone()
+    {
+        var store = NewStore();
+        Assert.Null(store.Register(A, WarmForward(), "the owner (test)", Now).Purpose);
+        var m = WarmForward();
+        m.Purpose = "   ";
+        Assert.Null(store.Register(A, m, "the owner (test)", Now).Purpose);
+    }
+
+    [Fact]
+    public void SetPurpose_SetsItWithoutTouchingTheRest_AndClearIsNull()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now.AddDays(-3));
+
+        var set = store.SetPurpose(A, "warmforward", " Heating monitoring for homeowners ");
+
+        Assert.Equal("Heating monitoring for homeowners", set.Purpose);
+        Assert.Equal("WarmForward", set.Title);
+        Assert.Equal(2, set.Seats.Count);
+        Assert.Equal("nora-hale", set.BossSeat);
+        Assert.Equal(Now.AddDays(-3), set.RegisteredAtUtc);
+        Assert.Equal("Heating monitoring for homeowners", store.Find(A, "warmforward")!.Purpose);
+
+        Assert.Null(store.SetPurpose(A, "warmforward", null).Purpose);
+        store.SetPurpose(A, "warmforward", "again");
+        Assert.Null(store.SetPurpose(A, "warmforward", "   ").Purpose);
+        Assert.Null(store.Find(A, "warmforward")!.Purpose);
+    }
+
+    [Fact]
+    public void SetPurpose_TooLong_IsRefusedNamingTheLimit_AndNothingChanges()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now);
+        store.SetPurpose(A, "warmforward", "Before");
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() => store.SetPurpose(A, "warmforward", new string('x', 121)));
+
+        Assert.Contains("121 characters", ex.Message);
+        Assert.Contains("at most 120", ex.Message);
+        Assert.Equal("Before", store.Find(A, "warmforward")!.Purpose);
+        // Exactly the limit is fine.
+        Assert.Equal(120, store.SetPurpose(A, "warmforward", new string('y', 120)).Purpose!.Length);
+    }
+
+    [Fact]
+    public void SetPurpose_TwoLines_IsRefused()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now);
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() => store.SetPurpose(A, "warmforward", "One line\nand another"));
+
+        Assert.Contains("one line", ex.Message);
+    }
+
+    [Fact]
+    public void SetPurpose_NotRegistered_IsRefusedAsNotRegistered()
+    {
+        var store = NewStore();
+        var ex = Assert.Throws<FactoryNotRegisteredException>(() => store.SetPurpose(A, "nobody", "A line"));
+        Assert.Contains("nobody", ex.Message);
+    }
+
+    [Fact]
+    public void Register_Again_WithoutAPurposeKey_KeepsTheLineSetByHand_AndABlankOneClearsIt()
+    {
+        var store = NewStore();
+        store.Register(A, WarmForward(), "the owner (test)", Now);
+        store.SetPurpose(A, "warmforward", "Set by hand");
+
+        // A manifest that says nothing about the purpose keeps it: the line is set by hand after the owner approves
+        // the wording, and a factory re-registering from its own computer must not erase it (review finding, 8 Oct).
+        Assert.Equal("Set by hand", store.Register(A, WarmForward(), "the owner (test)", Now).Purpose);
+        Assert.Equal("Set by hand", store.Find(A, "warmforward")!.Purpose);
+
+        var replacing = WarmForward();
+        replacing.Purpose = "From the manifest";
+        Assert.Equal("From the manifest", store.Register(A, replacing, "the owner (test)", Now).Purpose);
+
+        var clearing = WarmForward();
+        clearing.Purpose = "";
+        Assert.Null(store.Register(A, clearing, "the owner (test)", Now).Purpose);
+        Assert.Null(store.Find(A, "warmforward")!.Purpose);
+    }
 
     // ---------- archive and restore (round 2) ----------
 
@@ -132,7 +236,7 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         Assert.Equal("WarmForward", f.Title);
         Assert.Equal(@"D:\ReposFred\cc-consult\ideas\warmforward-factory", f.Folder);
         Assert.Equal("SOREN_NORTH", f.Computer);
-        Assert.Equal("nora-hale", f.CeoSeat);
+        Assert.Equal("nora-hale", f.BossSeat);
         Assert.StartsWith("A cash engine", f.GoalText);
         Assert.Equal("GOAL.md", f.GoalFile);
         Assert.Equal("2026-10-04", f.GoalApprovedOn);
@@ -179,11 +283,11 @@ public sealed class FactoryRegistryStoreTests : IDisposable
     {
         var m = WarmForward();
         m.Factory = " WarmForward ";
-        m.CeoSeat = "Nora-Hale";
+        m.BossSeat = "Nora-Hale";
         m.Seats[0].Id = "NORA-HALE";
         var f = NewStore().Register(A, m, "session s1", Now);
         Assert.Equal("warmforward", f.Factory);
-        Assert.Equal("nora-hale", f.CeoSeat);
+        Assert.Equal("nora-hale", f.BossSeat);
         Assert.Equal("nora-hale", f.Seats[0].Id);
     }
 
@@ -217,7 +321,11 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         yield return new object[] { "no computer", (Action<RegisterFactoryRequest>)(m => m.Computer = ""), "computer" };
         yield return new object[] { "no seats", (Action<RegisterFactoryRequest>)(m => m.Seats.Clear()), "seat" };
         yield return new object[] { "two seats one id", (Action<RegisterFactoryRequest>)(m => m.Seats[1].Id = "nora-hale"), "Two seats" };
-        yield return new object[] { "CEO not a seat", (Action<RegisterFactoryRequest>)(m => m.CeoSeat = "max-ridley"), "CEO" };
+        yield return new object[] { "boss not a seat", (Action<RegisterFactoryRequest>)(m => m.BossSeat = "max-ridley"), "boss seat" };
+        // The boss has no name of its own (the owner, 8 October 2026): a person's name on the boss seat is refused with the fix.
+        yield return new object[] { "boss named a person", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Name = "Nora Hale"), "set its name to \"Boss\"" };
+        yield return new object[] { "empty line", (Action<RegisterFactoryRequest>)(m => m.Seats[1].Line = "  "), "empty line" };
+        yield return new object[] { "long line", (Action<RegisterFactoryRequest>)(m => m.Seats[1].Line = new string('x', 41)), "at most 40" };
         yield return new object[] { "seat with no name", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Name = ""), "name of seat" };
         yield return new object[] { "seat with no role", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Role = ""), "role of seat" };
         yield return new object[] { "absolute brief", (Action<RegisterFactoryRequest>)(m => m.Seats[0].BriefFile = @"C:\briefs\ceo.yaml"), "relative" };
@@ -253,12 +361,48 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         Assert.Equal(folder, NewStore().Register(A, m, "s", Now).Folder);
     }
 
+    [Theory]
+    [InlineData("ceoSeat", "The manifest's key 'ceoSeat' was renamed 'bossSeat' on 8 October 2026.")]
+    [InlineData("owner", "The manifest has a key the Gateway does not know: 'owner'. A manifest's keys are factory, title, folder, computer, bossSeat, goalText, goalFile, goalApprovedOn and seats.")]
+    public void Register_AKeyTheGatewayDoesNotKnow_IsRefusedWithTheFix_NeverDroppedWithoutAWord(string key, string reason)
+    {
+        // The Item B review, 8 October 2026: the route's binding ignores an unknown member, so a manifest still
+        // saying "ceoSeat" bound BossSeat = null and registered a factory with no boss and no error. The body is
+        // bound here the way the route binds it (case-insensitive names), so the proof covers the binding.
+        var manifest = WarmForward();
+        manifest.BossSeat = null;
+        var json = JsonSerializer.Serialize(manifest).TrimEnd('}') + $",\"{key}\":\"nora-hale\"}}";
+        var m = JsonSerializer.Deserialize<RegisterFactoryRequest>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+        Assert.Equal(key, Assert.Single(m.UnknownKeys!).Key);
+        var store = NewStore();
+
+        var ex = Assert.Throws<FactoryViewValidationException>(() => store.Register(A, m, "session s1", Now));
+
+        Assert.StartsWith(reason, ex.Message, StringComparison.Ordinal);
+        Assert.Empty(store.List(A));
+    }
+
     [Fact]
-    public void Register_NoCeo_IsAllowed()
+    public void Register_ASeatsLine_IsKeptTrimmed_AndASeatWithNoLineHasNone()
+    {
+        // The factory floor (8 October 2026): a seat's line is the lane its bay stands in.
+        var m = WarmForward();
+        m.Seats[1].Line = "  Savings  ";
+        var store = NewStore();
+
+        store.Register(A, m, "session s1", Now);
+
+        var seats = store.List(A).Single().Seats;
+        Assert.Null(seats.Single(s => s.Id == "nora-hale").Line);
+        Assert.Equal("Savings", seats.Single(s => s.Id == "savings-engineer").Line);
+    }
+
+    [Fact]
+    public void Register_NoBoss_IsAllowed()
     {
         var m = WarmForward();
-        m.CeoSeat = null;
-        Assert.Null(NewStore().Register(A, m, "s", Now).CeoSeat);
+        m.BossSeat = null;
+        Assert.Null(NewStore().Register(A, m, "s", Now).BossSeat);
     }
 
     // ---------- goal numbers ----------

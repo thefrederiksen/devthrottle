@@ -1683,12 +1683,42 @@ The Gateway stamps the calling session as the actor and as the row's session.
 `activity` reads newest first; `--from` is inclusive and `--to` exclusive. `--count` defaults to 50
 (at most 1000); when more rows match it says which `--offset` shows the next page.
 
+#### Factory status - the Factories screen as the owner sees it
+
+A factory's boss reads the same screen the owner reads (issue #3685): the same two routes, folded once on
+the Gateway, so the word a boss sees is the word the owner sees - never a rule rebuilt by hand from the
+activity record.
+
+```
+USAGE: cc-devthrottle factory status [--factory ID] [--json]
+```
+
+Without `--factory`, one line per registered factory: its id, its status word - exactly one of `FAILING`,
+`NEEDS YOU`, `PAUSED`, `RUNNING`, worst first - what is waiting on the owner, and the line shown under the
+word. With `--factory`, that factory's page: the word, the reason, how many items wait on the owner, then
+every failing item and every waiting item, each with its row id first, who wrote it and when, its subject
+and its words. A failing item with `(no row)` is a schedule that could not start its run; it is not a row,
+clears by itself, and the line says how.
+
+A boss acts on an item and then marks it handled the way the screen's Handled button does - a new row that
+corrects it, never a change to the row itself - and only when it is actually resolved:
+
+```
+cc-devthrottle factory record --factory website-business --agent <the item's seat> --outcome done \
+    --corrects <row id> --what "Handled: <the evidence>"
+```
+
+The word turns the moment the last open item is corrected. `--json` prints the Gateway's answer verbatim
+(the screen's own data). A session key reads the list and a factory's page and nothing else on the screen:
+the Seats tab, the bulk Handled, archive, restore and Talk stay the owner's. The route answers 404 while
+factory agents are switched off, and the command says so.
+
 #### Factory registry and goal number
 
 The factory registry: one entry per factory, on the Gateway, saying what the owner's Factories screen
-lists - its title, folder, computer, CEO, goal and seats. It is an index of the factory, not its
+lists - its title, folder, computer, boss, goal and seats. It is an index of the factory, not its
 definition: the briefs stay in the factory's folder. The goal number is the number a factory's goal is
-measured by; its CEO posts it on every run, every post is kept, and the newest is shown on the factory's
+measured by; its boss posts it on every run, every post is kept, and the newest is shown on the factory's
 page. These commands need factory agents switched on for the account, like the activity record.
 
 ```
@@ -1697,6 +1727,8 @@ USAGE: cc-devthrottle factory COMMAND [ARGS]...
 COMMANDS:
   register --manifest FILE [--json]
   list [--fields F,F] [--json]
+  purpose FACTORY "ONE LINE" [--json]
+  purpose FACTORY --clear [--json]
   goal-number post --factory ID --value TEXT --unit TEXT --date YYYY-MM-DD --link URL
                    [--by SEAT] [--json]
   goal-number show --factory ID [--count N | -n N] [--fields F,F] [--full] [--json]
@@ -1711,12 +1743,13 @@ registers a factory with a field silently missing):
   "title": "WarmForward",
   "folder": "D:\\ReposFred\\cc-consult\\ideas\\warmforward-factory",   absolute, on its computer
   "computer": "SOREN_NORTH",
-  "ceoSeat": "nora-hale",                           optional; one of the seats
+  "bossSeat": "boss",                               optional; one of the seats - the boss has no name: its name is Boss
   "goalFile": "GOAL.md",                            optional; relative to the folder
   "goalApprovedOn": "2026-10-04",                   optional; YYYY-MM-DD
+  "purpose": "Heating monitoring for homeowners",    optional; one line, at most 120 characters
   "seats": [
-    {"id": "nora-hale", "name": "Nora Hale", "role": "CEO",
-     "briefFile": "agents/ceo.yaml",                relative to the folder
+    {"id": "boss", "name": "Boss", "role": "Boss",
+     "briefFile": "agents/boss.yaml",               relative to the folder
      "schedules": ["cj_a721e6"],                    optional; checked, never stored (see below)
      "computer": "SOREN_NORTH"}                     optional; the factory's computer when left out
   ]
@@ -1728,6 +1761,22 @@ computer; it stops with the reason when the file is not there. The goal file mus
 folder: an absolute path, a `..`, or a link whose target is outside the folder is refused before anything
 is read (a link to a file inside the folder is followed). Registering again replaces the whole
 entry, seats included. It exits 1 whenever the factory was not registered.
+
+`purpose` sets the one line that says what a factory is for - the line the Factories cards show under
+the factory's name - on an already registered factory, without registering it again; nothing else in
+the entry changes. The line is trimmed and takes at most 120 characters; the Gateway refuses a longer
+one or one with a line break, with the reason. `--clear` removes it. It exits 1 whenever the line was
+not kept. Registering again from a manifest with no `purpose` key keeps the line; a manifest that carries
+`"purpose": ""` clears it.
+
+**A seat's line** (the factory floor, 8 October 2026). A seat may carry `"line": "Night shift"`: the production
+line it works on, which is the lane its bay stands in on the factory's Floor (one line of at most 40 characters).
+A seat with no line stands in a lane called "Other"; when no seat names a line, every seat stands in one lane.
+
+**The boss has no name of its own** (the owner, 8 October 2026). The seat `bossSeat` names is registered with
+the name `Boss`; a manifest that gives it a person's name is refused with the fix. Its role is `Boss` unless
+the factory has a distinct word for it (`CFO`). The screen says "the boss", "Talk to the boss" and "Latest
+from the boss", never a name, so thirteen factories' bosses no longer read like thirteen people.
 
 **A seat's schedules live on the schedules (issue #3650).** There are no factory agents without a
 factory: a schedule that runs factory work names its factory AND its seat, and both must already be
@@ -1754,7 +1803,7 @@ knows the seat and `--by` is left out (naming another seat, or another factory, 
 `--by SEAT` names it. `--link` is an http or https address showing how the number was measured. A
 factory that is not registered is refused with the reason. It exits 0 only when the Gateway kept the post.
 
-`list` shows `id,title,ceo,seats` by default; `--fields` picks from `id, title, ceo, seats, computer,
+`list` shows `id,title,boss,seats` by default; `--fields` picks from `id, title, boss, seats, computer,
 goal, folder`. `goal-number show` shows `asOf,value,unit,postedBy` by default; `--fields` picks from
 `asOf, value, unit, postedBy, postedAtUtc, link, id`, and a value or link over 80 characters is cut with
 its length unless `--full` is given. `--json` always carries every field and does not take `--fields`.

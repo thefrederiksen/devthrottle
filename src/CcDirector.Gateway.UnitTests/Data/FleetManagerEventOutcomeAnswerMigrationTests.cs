@@ -76,7 +76,15 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
             Assert.Equal("20261007180102_AddLinkRequestRequestedAmount", all[index + 25]);
             // The seat a schedule runs (issue #3650), after that.
             Assert.Equal("20261008043059_AddScheduleSeat", all[index + 26]);
-            Assert.Equal(index + 27, all.Count);
+            // The team's governance rules and their record of changes (Teams v1, the Governance tab), after that.
+            Assert.Equal("20261008191540_AddTeamGovernance", all[index + 27]);
+            // A factory's one-line purpose (the Factories cards, 8 Oct 2026), after that.
+            Assert.Equal("20261008200000_AddFactoryPurpose", all[index + 28]);
+            // The team showcase's tag, and a made-up member's name and email (team showcase, 8 Oct 2026), after that.
+            Assert.Equal("20261008211957_AddTeamShowcase", all[index + 29]);
+            // The factory registry's boss seat column, renamed from CeoSeat (Factory Design and Improvements), after that.
+            Assert.Equal("20261008220200_RenameCeoSeatToBossSeat", all[index + 30]);
+            Assert.Equal(index + 31, all.Count);
 
             // From an EMPTY database to the schema just before, with a stop stored as step 4 stores it.
             Assert.Empty(context.Database.GetAppliedMigrations());

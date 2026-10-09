@@ -23,7 +23,7 @@ namespace CcDirector.Gateway.Api;
 ///   POST /sessions/{sid}/dev-reports/{reportId}/replies       the agent replies
 ///
 /// OWNER ROUTES - a device key or the machine token:
-///   GET  /dev-reports?sessionId=                              the account's reports
+///   GET  /dev-reports?sessionId=&limit=&after=                one page of the account's reports, newest first
 ///   GET  /dev-reports/{reportId}                              one report, with items and replies
 ///   GET  /dev-reports/{reportId}/html?version=                the report's bytes, as plain text
 ///   POST /dev-reports/{reportId}/send                         the owner's notes and answers
@@ -52,6 +52,12 @@ internal static class DevReportEndpoints
     /// JSON escaping can grow a legal 10 MB report several times over, so the transport limit is set well above
     /// it and the report itself is measured after decoding.</summary>
     private const long PublishBodyLimitBytes = 128L * 1024 * 1024;
+
+    /// <summary>How many reports one page of the owner's list holds when the client does not say.</summary>
+    public const int DefaultListPageSize = 20;
+
+    /// <summary>The most reports one page may hold, whatever the client asks for.</summary>
+    public const int MaxListPageSize = 100;
 
     /// <param name="author">Who wrote a report published in a team's tenant (devthrottle_internal#2309): asked at every
     /// publish, it records nothing for a personal account and refuses a team's session whose person cannot be named.</param>
@@ -197,13 +203,36 @@ internal static class DevReportEndpoints
             if (RefuseSessionIdentity(ctx) is { } refused) return refused;
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             var sessionFilter = ctx.Request.Query["sessionId"].ToString();
-            var reports = store.List(tenant,
-                string.IsNullOrWhiteSpace(sessionFilter) ? null : DevReportDelivery.NormalizeSessionId(sessionFilter.Trim()));
-            // Settle the sessions this answer names - and only those - BEFORE counting, so openItems never counts an item
-            // an ended session still holds or one an idle session could have taken (phase 2 review round 2).
-            foreach (var sessionId in reports.Select(r => r.SessionId).Distinct(StringComparer.Ordinal))
+            if (ReadPageSize(ctx.Request.Query["limit"].ToString()) is not { } limit)
+                return Error(400, "bad_limit", $"limit must be a whole number from 1 to {MaxListPageSize}.");
+            var afterMarker = ctx.Request.Query["after"].ToString();
+            DevReportListPosition? after = null;
+            if (!string.IsNullOrEmpty(afterMarker))
+            {
+                after = DevReportListPosition.FromMarker(afterMarker);
+                if (after is null)
+                    return Error(400, "bad_after", "after must be the 'next' marker from an earlier page of this list; reload the list from the start.");
+            }
+
+            // ONE PAGE, cut by the database. The list used to read every report the account ever had and then settle
+            // every session behind them one by one - a lock, two updates and a history read each - on every five-second
+            // refresh, which on a long-lived account ran past the page's ten-second limit.
+            var page = store.ListPage(tenant,
+                string.IsNullOrWhiteSpace(sessionFilter) ? null : DevReportDelivery.NormalizeSessionId(sessionFilter.Trim()),
+                limit, after);
+            var reports = page.Reports;
+
+            // Settle only the sessions on THIS page that hold an unsettled item, BEFORE counting, so openItems never counts
+            // an item an ended session still holds or one an idle session could have taken (phase 2 review round 2). A
+            // session with nothing open has nothing a settle could change, so it is not visited; the background settle
+            // sweep still walks every session with open items on its own clock.
+            var open = store.OpenItemCounts(tenant, reports.Select(r => r.Id).ToList());
+            var toSettle = reports.Where(r => open.ContainsKey(r.Id)).Select(r => r.SessionId).Distinct(StringComparer.Ordinal).ToList();
+            foreach (var sessionId in toSettle)
                 await delivery.SettleAsync(tenant, sessionId, ct);
-            return Results.Json(new { count = reports.Count, reports = Summaries(store, delivery, naming, tenant, reports) });
+
+            var next = page.More && reports.Count > 0 ? DevReportListPosition.Of(reports[^1]).ToMarker() : null;
+            return Results.Json(new { count = reports.Count, reports = Summaries(store, delivery, naming, tenant, reports), next });
         });
 
         app.MapGet("/dev-reports/{reportId}", async (string reportId, HttpContext ctx, CancellationToken ct) =>
@@ -434,6 +463,15 @@ internal static class DevReportEndpoints
 
     private static IResult ReportNotFound(string reportId)
         => Error(404, "report_not_found", $"There is no dev report {reportId} here.");
+
+    /// <summary>The page size a list read asked for: the default when it asked for none, null when what it asked for is
+    /// not a whole number from 1 to <see cref="MaxListPageSize"/>.</summary>
+    internal static int? ReadPageSize(string? raw)
+    {
+        if (string.IsNullOrEmpty(raw)) return DefaultListPageSize;
+        return int.TryParse(raw, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n)
+               && n >= 1 && n <= MaxListPageSize ? n : null;
+    }
 
     private static IResult Error(int status, string code, string error)
         => Results.Json(new { error, code }, statusCode: status);

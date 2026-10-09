@@ -6,10 +6,108 @@
  * how one surface quietly drifts from the other; the shared stylesheet travels with the components and
  * is imported by them, so it cannot be forgotten.
  *
- * What is left here is what only the desktop page has: the page width, its heading, and the two lede
- * paragraphs above the tab strip. */
+ * What is left here is what only the desktop page has: the page width, its heading, and the tabs laid out down
+ * the left. */
 .settings {
   max-width: 820px;
+}
+
+/* ONE SETTINGS PAGE, TABS DOWN THE LEFT (owner, 8 Oct 2026). The tabs are the shared strip (client-core), laid out
+   here as a column under small group headings; the panel beside it holds the tab. Wide enough for the pages that
+   became tabs (Your Throttle, Dictionary, the team's members) to keep the width they had as pages. */
+.settings.settings-side {
+  max-width: 1260px;
+}
+
+.settings-who {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.settings-body {
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  margin-top: 16px;
+}
+
+.settings-tabs.settings-tabs-side {
+  flex-direction: column;
+  gap: 1px;
+  border-bottom: none;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+  margin-bottom: 0;
+  position: sticky;
+  top: 0;
+}
+
+.settings-tab-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-tab-group {
+  padding: 14px 10px 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-tab-row:first-child .settings-tab-group {
+  padding-top: 0;
+}
+
+.settings-tabs-side .settings-tab {
+  text-align: left;
+  padding: 7px 10px;
+  margin: 0;
+  border: none;
+  border-radius: 6px;
+}
+
+.settings-tabs-side .settings-tab.active {
+  color: var(--text);
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* The pages that became tabs keep their own headings; inside the panel they are the section's title, so they step
+   down a size and drop the page margins they had as pages. */
+.settings-panel {
+  min-width: 0;
+}
+
+.settings-panel > .page,
+.settings-panel > .team-page,
+.settings-panel > .dc-root .dc-wrap {
+  max-width: none;
+  padding: 0;
+  margin: 0;
+}
+
+.settings-panel .ui-page-title,
+.settings-panel .page-head h1,
+.settings-panel .dc-top h1 {
+  font-size: 18px;
+}
+
+@media (max-width: 760px) {
+  .settings-body {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-tabs.settings-tabs-side {
+    position: static;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0 0 10px;
+  }
 }
 
 .settings .page-head {
@@ -23,20 +121,4 @@
   font-size: 22px;
   font-weight: 600;
 }
-.settings-lede {
-  color: var(--text-dim);
-  font-size: 13px;
-  margin: 0 0 10px;
-}
-.settings-relocated {
-  color: var(--text-dim);
-  font-size: 12px;
-  margin: 0 0 18px;
-}
-.settings-relocated a {
-  color: var(--accent);
-  text-decoration: none;
-}
-.settings-relocated a:hover {
-  text-decoration: underline;
-}
+

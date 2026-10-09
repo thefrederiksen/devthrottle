@@ -355,6 +355,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -522,6 +526,10 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<int>("SentVersion")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("TenantId")
                         .IsRequired()
                         .HasColumnType("TEXT")
@@ -589,6 +597,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("ReportId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Status")
@@ -1063,7 +1075,7 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("ArchivedSchedulesJson")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("CeoSeat")
+                    b.Property<string>("BossSeat")
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
@@ -1086,6 +1098,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("GoalText")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Purpose")
+                        .HasMaxLength(120)
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("RegisteredAtUtc")
@@ -2912,6 +2928,137 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("teams", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceChangeEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ChangedBy")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("changed_by");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("TeamId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("team_id");
+
+                    b.Property<string>("What")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("what");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeamId", "CreatedAtUtc");
+
+                    b.ToTable("team_governance_changes", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceEntity", b =>
+                {
+                    b.Property<string>("TeamId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("team_id");
+
+                    b.Property<int?>("AgentHoursPerWeek")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("agent_hours_per_week");
+
+                    b.Property<bool>("AgentReviewsPullRequests")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("agent_reviews_pull_requests");
+
+                    b.Property<bool>("AllowClaudeCode")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("allow_claude_code");
+
+                    b.Property<bool>("AllowCodex")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("allow_codex");
+
+                    b.Property<bool>("AllowOtherAgents")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("allow_other_agents");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<int?>("KeepMentorPagesMonths")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("keep_mentor_pages_months");
+
+                    b.Property<bool>("NoSelfMerge")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("no_self_merge");
+
+                    b.Property<int?>("SessionsAtOnce")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("sessions_at_once");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<int>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("version");
+
+                    b.Property<bool>("WorkStartsAsAssignedIssue")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("work_starts_as_assigned_issue");
+
+                    b.HasKey("TeamId");
+
+                    b.ToTable("team_governance", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceItemEntity", b =>
+                {
+                    b.Property<string>("TeamId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("team_id");
+
+                    b.Property<string>("Kind")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("ItemId")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("level");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("TeamId", "Kind", "ItemId");
+
+                    b.ToTable("team_governance_items", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamInvitationEntity", b =>
                 {
                     b.Property<string>("Id")
@@ -2992,6 +3139,16 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("account_subject");
 
+                    b.Property<string>("DisplayEmail")
+                        .HasMaxLength(254)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("display_email");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("display_name");
+
                     b.Property<DateTime>("JoinedAtUtc")
                         .HasColumnType("TEXT")
                         .HasColumnName("joined_at_utc");
@@ -3001,6 +3158,11 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("TEXT")
                         .HasColumnName("role");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("showcase_tag");
 
                     b.HasKey("TeamId", "AccountSubject");
 
@@ -3041,6 +3203,10 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<string>("QuotesJson")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Tone")
@@ -3149,6 +3315,11 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("request_id");
 
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("showcase_tag");
+
                     b.Property<string>("State")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -3186,6 +3357,11 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<DateTime>("SentAtUtc")
                         .HasColumnType("TEXT")
                         .HasColumnName("sent_at_utc");
+
+                    b.Property<string>("ShowcaseTag")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("showcase_tag");
 
                     b.Property<string>("State")
                         .IsRequired()
@@ -4266,6 +4442,33 @@ namespace CcDirector.Gateway.Data.Migrations
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamBillEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceChangeEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceEntity", b =>
+                {
+                    b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
+                        .WithMany()
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TeamGovernanceItemEntity", b =>
                 {
                     b.HasOne("CcDirector.Gateway.Data.Entities.TeamEntity", null)
                         .WithMany()

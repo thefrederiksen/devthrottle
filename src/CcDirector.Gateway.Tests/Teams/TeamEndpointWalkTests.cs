@@ -341,7 +341,7 @@ public sealed class TeamEndpointWalkTests : IAsyncLifetime
         ("Voice Recorder", new[] { "/ingest/recordings" }),
         ("Transcription", new[] { "/voice-quality/summary" }),
         ("Your Throttle", new[] { "/stats/data" }),
-        ("Settings", new[] { "/gateway/settings", "/gateway/mentor-report" }),
+        ("Settings", new[] { "/gateway/settings", "/gateway/mentor-report", "/gateway/demo-mode" }),
         ("Account", new[] { "/account/status", "/account/devices" }),
         ("About", new[] { "/gateway/about" }),
     };

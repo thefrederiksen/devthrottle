@@ -548,6 +548,95 @@
   background: var(--surface-2);
 }
 
+/* The owner's sort order (8 Oct 2026, mockups A and B): the "Sort by" bar above the list wraps on a narrow screen,
+   so it never makes the page scroll sideways; the column headings are buttons that sort by their column. */
+.fa-sortbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.fa-sortbar-label {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fa-sortbar-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fa-sortbar-choice,
+.fa-sortbar-dir {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.fa-sortbar-choice + .fa-sortbar-choice {
+  border-left: 1px solid var(--border);
+}
+
+.fa-sortbar-choice:hover:not(.active),
+.fa-sortbar-dir:hover {
+  color: var(--text);
+}
+
+/* The segment clips its children (overflow: hidden), so the focus ring is drawn inside each button. */
+.fa-sortbar-choice:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.fa-sortbar-choice.active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.fa-sortbar-dir {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.fa-sortbar-count {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.fa-sort-heading {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fa-sort-heading:hover,
+.fa-sort-heading.active {
+  color: var(--text);
+}
+
+.fa-sort-arrow {
+  color: var(--accent);
+}
+
 .fa-flist-head > *,
 .fa-flist-row > * {
   min-width: 0;
@@ -783,6 +872,211 @@ a.fa-tab {
   }
 }
 
+/* The Factories tab as cards (owner decision, 8 Oct 2026, mockup B "grouped by state"): a strip of counts, then the
+   cards under three group headings. A card's left border and the group heading carry the state's colour; a failing
+   card is tinted so it is seen from across a room. Every colour is a palette token from styles.css. */
+.fa-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fa-strip-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-width: 0;
+}
+
+.fa-strip-num {
+  display: block;
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.fa-strip-label {
+  color: var(--text-dim);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.fa-strip-item.fa-tone-ok .fa-strip-num {
+  color: var(--ok-text);
+}
+
+.fa-strip-item.fa-tone-red .fa-strip-num {
+  color: var(--danger-text);
+}
+
+.fa-strip-item.fa-tone-amber .fa-strip-num {
+  color: var(--warn);
+}
+
+.fa-views {
+  margin-left: 8px;
+}
+
+.fa-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.fa-group-heading {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.fa-group-count {
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.fa-group-heading.fa-group-fixing {
+  color: var(--danger-text);
+}
+
+.fa-group-heading.fa-group-paused {
+  color: var(--warn);
+}
+
+.fa-group-heading.fa-group-running {
+  color: var(--ok-text);
+}
+
+.fa-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.fa-card {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 170px;
+}
+
+.fa-card-fixing {
+  border-left-color: var(--attention);
+  background: linear-gradient(180deg, var(--needsyou-bg) 0%, var(--surface) 60%);
+}
+
+.fa-card-paused {
+  border-left-color: var(--warn);
+}
+
+.fa-card-running {
+  border-left-color: var(--ok);
+}
+
+.fa-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.fa-card-name {
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 700;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.fa-card-name:hover {
+  text-decoration: underline;
+}
+
+.fa-card-purpose {
+  margin: 0;
+  color: var(--text);
+  opacity: 0.85;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* The status line, cut to three lines; the full line is on the factory's page and in the title tooltip. */
+.fa-card-line {
+  margin: 0;
+  flex: 1;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
+}
+
+.fa-card-fixing .fa-card-line {
+  color: var(--needsyou-text);
+}
+
+.fa-card-waiting {
+  color: var(--accent-text);
+  font-size: 13px;
+}
+
+.fa-card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  font-size: 13px;
+}
+
+.fa-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.fa-card-head-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.fa-avatar {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--accent-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.fa-avatar-none {
+  color: var(--text-dim);
+}
+
 /* Round 2: the owner's actions - the header's actions, the notice saying what an action did, the archived banner,
    the bulk "mark handled" button, and the archived factories under the list. */
 .fa-head-actions {
@@ -890,4 +1184,180 @@ a.fa-tab {
 .fa-outside-reason {
   margin-left: auto;
   color: var(--needsyou-fyi-text);
+}
+
+/* Phone width for the cards (8 Oct 2026): one column, the count strip two by two, so nothing scrolls sideways. This
+   block comes AFTER the base rules above on purpose - at equal specificity the later rule wins. */
+@media (max-width: 640px) {
+  .fa-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .fa-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fa-views {
+    margin-left: 0;
+  }
+}
+
+/* ---------- The factory floor (owner decision, 8 Oct 2026): on its own Floor tab, not on the Overview. ---------- */
+.ff-panel {
+  margin-bottom: 16px;
+}
+.ff-frame {
+  overflow-x: auto;
+  margin-top: 8px;
+}
+.ff-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  font-family: inherit;
+}
+.ff-full .ff-svg {
+  min-height: 60vh;
+}
+.ff-lane-body {
+  stroke-width: 1;
+}
+.ff-lane-label {
+  stroke: none;
+}
+.ff-hue-0 .ff-lane-body { fill: rgba(76, 141, 255, 0.08); stroke: rgba(76, 141, 255, 0.45); }
+.ff-hue-0 .ff-lane-label { fill: rgba(76, 141, 255, 0.16); }
+.ff-hue-1 .ff-lane-body { fill: rgba(31, 157, 85, 0.08); stroke: rgba(31, 157, 85, 0.45); }
+.ff-hue-1 .ff-lane-label { fill: rgba(31, 157, 85, 0.16); }
+.ff-hue-2 .ff-lane-body { fill: rgba(217, 154, 0, 0.08); stroke: rgba(217, 154, 0, 0.45); }
+.ff-hue-2 .ff-lane-label { fill: rgba(217, 154, 0, 0.16); }
+.ff-hue-3 .ff-lane-body { fill: rgba(140, 100, 230, 0.08); stroke: rgba(140, 100, 230, 0.45); }
+.ff-hue-3 .ff-lane-label { fill: rgba(140, 100, 230, 0.16); }
+.ff-lane-name {
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--text);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ff-office {
+  fill: var(--surface-2);
+  stroke: var(--border);
+}
+.ff-office-title {
+  font-size: 14px;
+  font-weight: 700;
+  fill: var(--text);
+}
+.ff-office-sub,
+.ff-desk-sub,
+.ff-bay-sub {
+  font-size: 10.5px;
+  fill: var(--text-dim);
+}
+.ff-bay rect {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1.2;
+}
+.ff-bay.ff-dashed rect {
+  stroke-dasharray: 5 4;
+}
+.ff-bay.ff-dashed .ff-bay-title {
+  fill: var(--text-dim);
+}
+.ff-bay.ff-source rect {
+  fill: var(--surface-2);
+}
+a:hover .ff-bay rect,
+a:focus .ff-bay rect {
+  stroke: var(--accent);
+}
+.ff-bay-title {
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--text);
+}
+.ff-light.ff-tone-ok,
+.ff-light.ff-tone-working { fill: var(--ok); }
+.ff-light.ff-tone-amber { fill: var(--warn); }
+.ff-light.ff-tone-red { fill: var(--attention); }
+.ff-light.ff-tone-blue { fill: var(--accent); }
+.ff-light.ff-tone-paused,
+.ff-light.ff-tone-idle,
+.ff-light.ff-tone-grey,
+.ff-light.ff-tone-neutral { fill: var(--text-dim); }
+.ff-desk {
+  fill: rgba(217, 154, 0, 0.1);
+  stroke: var(--warn);
+  stroke-width: 1.5;
+}
+.ff-desk-title {
+  font-size: 14px;
+  font-weight: 700;
+  fill: var(--warn);
+}
+.ff-desk-item {
+  fill: var(--surface);
+  stroke: var(--border);
+}
+.ff-desk-who {
+  font-size: 10.5px;
+  font-weight: 700;
+  fill: var(--text);
+}
+.ff-desk-text {
+  font-size: 10.5px;
+  fill: var(--text-dim);
+}
+.ff-desk-note {
+  font-size: 10px;
+  fill: var(--text-dim);
+}
+.ff-arrow path,
+.ff-arrow {
+  stroke-width: 1.8;
+}
+.ff-arrow path { fill: none; }
+.ff-arrow.ff-tone-ok path, line.ff-arrow.ff-tone-ok { stroke: var(--ok); }
+.ff-arrow.ff-tone-ok polygon { fill: var(--ok); }
+.ff-arrow.ff-tone-amber path, line.ff-arrow.ff-tone-amber { stroke: var(--warn); }
+.ff-arrow.ff-tone-amber polygon { fill: var(--warn); }
+.ff-arrow.ff-tone-red path, line.ff-arrow.ff-tone-red { stroke: var(--attention); }
+.ff-arrow.ff-tone-red polygon { fill: var(--attention); }
+.ff-arrow.ff-tone-neutral path, line.ff-arrow.ff-tone-neutral,
+.ff-arrow.ff-tone-grey path, line.ff-arrow.ff-tone-grey { stroke: var(--text-dim); }
+.ff-arrow.ff-tone-neutral polygon,
+.ff-arrow.ff-tone-grey polygon { fill: var(--text-dim); }
+.ff-arrow.ff-tone-grey { opacity: 0.55; }
+.ff-arrow.ff-line-dashed path, line.ff-arrow.ff-line-dashed { stroke-dasharray: 6 4; }
+.ff-arrow.ff-line-dotted path, line.ff-arrow.ff-line-dotted { stroke-dasharray: 2 4; }
+.ff-arrow-label {
+  font-size: 10px;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.ff-arrow-label.ff-tone-ok { fill: var(--ok-text); }
+.ff-arrow-label.ff-tone-amber { fill: var(--warn); }
+.ff-arrow-label.ff-tone-red { fill: var(--danger-text); }
+.ff-arrow-label.ff-tone-neutral,
+.ff-arrow-label.ff-tone-grey { fill: var(--text-dim); }
+.ff-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 4px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.ff-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ff-note {
+  margin: 4px 0 0;
+  font-size: 12px;
 }

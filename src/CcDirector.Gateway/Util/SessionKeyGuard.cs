@@ -342,12 +342,23 @@ public static class SessionKeyGuard
                 // the route is only mapped while the factory agents switch is on.
                 case "gateway/factory/registry":
                 case "gateway/factory/goal-numbers":
+                // The Factories screen's list (issue #3685): the status word of every factory in the account, as the
+                // owner sees it. A factory's boss reads it with `factory status`, so it sees FAILING the moment the
+                // owner does and can act. Account data; the route is only mapped while the factory agents switch is on.
+                case "gateway/factories":
                 // The errors this account's Directors and launchers reported (issue #3311), so an agent can
                 // look before it asks the owner. The route files the read under the key's own account; only
                 // the READ is here - reporting is a device's, never an agent's.
                 case "gateway/director-errors":
                     return true;
             }
+
+            // One factory's page on the Factories screen (issue #3685): its status word, the reason, what is
+            // failing and what is waiting on the owner, each with its row id - what `factory status --factory`
+            // prints. Exactly three parts: the Seats tab beneath it (four parts) and every write on the page -
+            // Handled, the bulk handled, archive, restore, Talk - stay the owner's, so a boss can read its screen
+            // and mark its own rows through the activity record, and nothing else.
+            if (s.Length == 3 && s[0] == "gateway" && s[1] == "factories") return true;
 
             // One session (the roster row) and its terminal scrollback. The buffer carries whatever any agent
             // typed, so it is account-scoped by the key's tenant - a session key can only ever read a session
@@ -524,7 +535,7 @@ public static class SessionKeyGuard
             // appends to our own record and reaches nothing outside the Gateway; there is no update or delete.
             if (Join(s) == "gateway/factory/activity") return true;
 
-            // A factory's CEO posts its goal number (Factories screen mission, phase A). It appends to our own
+            // A factory's boss posts its goal number (Factories screen mission, phase A). It appends to our own
             // record in the caller's account; the route settles the posting seat from the session's own start and
             // refuses a session posting for another factory.
             if (Join(s) == "gateway/factory/goal-numbers") return true;
@@ -601,10 +612,14 @@ public static class SessionKeyGuard
             // route is only mapped while the factory agents switch is on.
             if (Join(s) == "gateway/factory/map") return true;
 
-            // A factory is registered (Factories screen mission, phase A): its title, folder, computer, CEO, goal
+            // A factory is registered (Factories screen mission, phase A): its title, folder, computer, boss, goal
             // and seats, replacing its last registration in the caller's own account. An index of files on the
             // factory's own computer; it starts, schedules and reaches nothing.
             if (Join(s) == "gateway/factory/registry") return true;
+
+            // A registered factory's one-line purpose is set or cleared (the Factories cards, 8 Oct 2026): one
+            // line of text on the caller's own account's registration, nothing more. `cc-devthrottle factory purpose`.
+            if (s.Length == 5 && s[0] == "gateway" && s[1] == "factory" && s[2] == "registry" && s[4] == "purpose") return true;
             return false;
         }
 

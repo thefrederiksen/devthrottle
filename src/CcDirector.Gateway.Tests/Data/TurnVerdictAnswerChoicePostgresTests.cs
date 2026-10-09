@@ -115,7 +115,15 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             Assert.Equal("20261007180154_AddLinkRequestRequestedAmount", all[index + 24]);
             // The seat a schedule runs (issue #3650), after that.
             Assert.Equal("20261008043117_AddScheduleSeat", all[index + 25]);
-            Assert.Equal(index + 26, all.Count);
+            // The team's governance rules and their record of changes (Teams v1, the Governance tab), after that.
+            Assert.Equal("20261008191614_AddTeamGovernance", all[index + 26]);
+            // A factory's one-line purpose (the Factories cards, 8 Oct 2026), after that.
+            Assert.Equal("20261008200010_AddFactoryPurpose", all[index + 27]);
+            // The team showcase's tag, and a made-up member's name and email (team showcase, 8 Oct 2026), after that.
+            Assert.Equal("20261008212232_AddTeamShowcase", all[index + 28]);
+            // The factory registry's boss seat column, renamed from CeoSeat (Factory Design and Improvements), after that.
+            Assert.Equal("20261008220319_RenameCeoSeatToBossSeat", all[index + 29]);
+            Assert.Equal(index + 30, all.Count);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 

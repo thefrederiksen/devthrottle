@@ -7,7 +7,7 @@ import type { DevReportSnapshot } from "./controller";
 import { DevReportConversation } from "./DevReportConversation";
 import { DevReportList } from "./DevReportList";
 import { DevReportViewer } from "./DevReportViewer";
-import type { DevReportDetail, DevReportRecordedItem, DevReportSummary } from "./devReportsClient";
+import type { DevReportDetail, DevReportListPage, DevReportRecordedItem, DevReportSummary } from "./devReportsClient";
 import { emptyPageState } from "./protocol";
 
 // The note controls (issue #3077) are tested in noteControls.test.tsx; these tests are about the
@@ -18,9 +18,9 @@ const NOTE_CONTROLS = {
   connected: true,
 };
 
-const listDevReports = vi.fn<(sessionId: string, signal?: AbortSignal) => Promise<DevReportSummary[]>>();
+const listDevReports = vi.fn<(sessionId: string | undefined, after: string | null, signal?: AbortSignal) => Promise<DevReportListPage>>();
 vi.mock("./devReportsClient", () => ({
-  listDevReports: (sessionId: string, signal?: AbortSignal) => listDevReports(sessionId, signal),
+  listDevReports: (sessionId: string | undefined, after: string | null, signal?: AbortSignal) => listDevReports(sessionId, after, signal),
   getDevReport: vi.fn(),
   getDevReportHtml: vi.fn(),
   sendDevReportItems: vi.fn(),
@@ -74,13 +74,16 @@ const summary: DevReportSummary = {
   openItems: 3,
 };
 
+/** One page as the Gateway answers it: these reports, and no older page. */
+const only = (reports: DevReportSummary[]): DevReportListPage => ({ reports, next: null });
+
 describe("DevReportList", () => {
   it("renders every report with the Gateway's title, status, version and open items as sent", async () => {
-    listDevReports.mockResolvedValue([summary]);
+    listDevReports.mockResolvedValue(only([summary]));
     const onOpen = vi.fn();
     render(<DevReportList sessionId="s-1" onOpen={onOpen} />);
     const row = await screen.findByTestId("dev-report-row");
-    expect(listDevReports).toHaveBeenCalledWith("s-1", expect.anything());
+    expect(listDevReports).toHaveBeenCalledWith("s-1", null, expect.anything());
     expect(within(row).getByTestId("dev-report-row-title").textContent).toBe("Queue audit ~ odd title 17");
     expect(within(row).getByTestId("dev-report-row-status").textContent).toBe("waiting-on-you#odd");
     expect(within(row).getByTestId("dev-report-row-version").textContent).toBe("Version 7");
@@ -90,8 +93,25 @@ describe("DevReportList", () => {
     expect(onOpen).toHaveBeenCalledWith(summary);
   });
 
+  // The Reports page of a person's own account (owner, 8 Oct 2026): every report of the account, each naming the
+  // session it came from in the Gateway's words.
+  it("lists every report of the account, naming each one's session, when no session is given", async () => {
+    listDevReports.mockResolvedValue(only([{ ...summary, sessionLabel: "121 devthrottle - invoice export" }]));
+    render(<DevReportList sessionId={undefined} onOpen={() => {}} />);
+    const row = await screen.findByTestId("dev-report-row");
+    expect(listDevReports).toHaveBeenCalledWith(undefined, null, expect.anything());
+    expect(within(row).getByTestId("dev-report-row-session").textContent).toBe("121 devthrottle - invoice export");
+  });
+
+  it("names no session on one session's own list", async () => {
+    listDevReports.mockResolvedValue(only([{ ...summary, sessionLabel: "121 devthrottle - invoice export" }]));
+    render(<DevReportList sessionId="s-1" onOpen={() => {}} />);
+    const row = await screen.findByTestId("dev-report-row");
+    expect(within(row).queryByTestId("dev-report-row-session")).toBeNull();
+  });
+
   it("says so when the session has no reports", async () => {
-    listDevReports.mockResolvedValue([]);
+    listDevReports.mockResolvedValue(only([]));
     render(<DevReportList sessionId="s-1" onOpen={() => {}} />);
     expect(await screen.findByTestId("dev-report-list-empty")).toBeTruthy();
   });
@@ -101,6 +121,72 @@ describe("DevReportList", () => {
     listDevReports.mockRejectedValue(new GatewayError(403, "x", { reason: "No account is bound - odd 9." }));
     render(<DevReportList sessionId="s-1" onOpen={() => {}} />);
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("No account is bound - odd 9."));
+  });
+
+  // ONE PAGE AT A TIME (the Reports page timed out reading the whole history on every refresh).
+  it("offers no older reports when the Gateway says there are none", async () => {
+    listDevReports.mockResolvedValue(only([summary]));
+    render(<DevReportList sessionId={undefined} onOpen={() => {}} />);
+    await screen.findByTestId("dev-report-row");
+    expect(screen.queryByTestId("dev-report-list-more")).toBeNull();
+  });
+
+  it("shows older reports a page at a time, handing back the Gateway's marker, until there are no more", async () => {
+    const r = (n: number): DevReportSummary => ({ ...summary, id: `r-${n}`, title: `Report ${n}` });
+    listDevReports.mockImplementation(async (_sid, after) => {
+      if (after === null) return { reports: [r(1), r(2)], next: "page-2" };
+      if (after === "page-2") return { reports: [r(3), r(4)], next: "page-3" };
+      if (after === "page-3") return { reports: [r(5)], next: null };
+      throw new Error(`unexpected marker ${after}`);
+    });
+    render(<DevReportList sessionId={undefined} onOpen={() => {}} />);
+    await waitFor(() => expect(screen.getAllByTestId("dev-report-row")).toHaveLength(2));
+
+    fireEvent.click(screen.getByTestId("dev-report-list-more"));
+    await waitFor(() => expect(screen.getAllByTestId("dev-report-row")).toHaveLength(4));
+    fireEvent.click(screen.getByTestId("dev-report-list-more"));
+    await waitFor(() => expect(screen.getAllByTestId("dev-report-row")).toHaveLength(5));
+
+    expect(screen.getAllByTestId("dev-report-row-title").map((t) => t.textContent)).toEqual(
+      ["Report 1", "Report 2", "Report 3", "Report 4", "Report 5"]);
+    expect(screen.queryByTestId("dev-report-list-more")).toBeNull();
+    expect(listDevReports).toHaveBeenCalledWith(undefined, "page-2", undefined);
+    expect(listDevReports).toHaveBeenCalledWith(undefined, "page-3", undefined);
+  });
+
+  it("shows a report once, where it is newest, when it moved between pages while they were read", async () => {
+    const r = (n: number): DevReportSummary => ({ ...summary, id: `r-${n}`, title: `Report ${n}` });
+    // Report 2 also comes back on the older page: it was re-published between the two reads.
+    listDevReports.mockImplementation(async (_sid, after) =>
+      after === null ? { reports: [r(1), r(2)], next: "page-2" } : { reports: [r(2), r(3)], next: null });
+    render(<DevReportList sessionId={undefined} onOpen={() => {}} />);
+    await waitFor(() => expect(screen.getAllByTestId("dev-report-row")).toHaveLength(2));
+
+    fireEvent.click(screen.getByTestId("dev-report-list-more"));
+
+    await waitFor(() => expect(screen.getAllByTestId("dev-report-row-title").map((t) => t.textContent)).toEqual(
+      ["Report 1", "Report 2", "Report 3"]));
+  });
+
+  it("names what failed when older reports cannot be read, and keeps what is on screen", async () => {
+    const { GatewayError, GATEWAY_TIMED_OUT_CODE } = await import("../api/client");
+    listDevReports.mockImplementation(async (_sid, after) => {
+      if (after === null) return { reports: [summary], next: "page-2" };
+      throw new GatewayError(504, "Gateway request timed out", { code: GATEWAY_TIMED_OUT_CODE });
+    });
+    render(<DevReportList sessionId={undefined} onOpen={() => {}} />);
+    fireEvent.click(await screen.findByTestId("dev-report-list-more"));
+
+    expect((await screen.findByTestId("dev-report-list-more-error")).textContent).toBe(
+      "DevThrottle could not load older reports - the Gateway took too long to answer. Try again.");
+    expect(screen.getAllByTestId("dev-report-row")).toHaveLength(1);
+  });
+
+  it("says the Gateway is slow - not unreachable - when the list's own time limit runs out", async () => {
+    const { GatewayError, GATEWAY_TIMED_OUT_CODE, GATEWAY_TIMED_OUT_MESSAGE } = await import("../api/client");
+    listDevReports.mockRejectedValue(new GatewayError(504, "Gateway request timed out", { code: GATEWAY_TIMED_OUT_CODE }));
+    render(<DevReportList sessionId={undefined} onOpen={() => {}} />);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(GATEWAY_TIMED_OUT_MESSAGE));
   });
 });
 

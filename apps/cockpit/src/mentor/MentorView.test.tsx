@@ -34,6 +34,15 @@ vi.mock("@devthrottle/client-core/teams/mentorClient", async (importActual) => {
       if (answer instanceof Error) throw answer;
       return answer;
     }),
+    // The person's own page: staged under "personal" (or "personal:<week>"), recorded with no team.
+    getPersonalMentorPage: vi.fn(async (week?: string) => {
+      mentor.calls.push({ teamId: "(own account)", week });
+      const queue = mentor.answers.get(week === undefined ? "personal" : `personal:${week}`);
+      if (queue === undefined || queue.length === 0) throw new Error(`no personal answer staged for week ${week ?? "default"}`);
+      const answer = queue.length > 1 ? queue.shift() : queue[0];
+      if (answer instanceof Error) throw answer;
+      return answer;
+    }),
   };
 });
 
@@ -51,6 +60,7 @@ const ROB_QUOTE = "fix the signup thing so it doesnt break on mobile";
 
 const ROB_BLOCK: MentorBlock = {
   personEmail: "rob@example.com",
+  personName: null,
   role: "Developer",
   tone: "hard",
   toneLabel: "a hard week",
@@ -83,6 +93,7 @@ function week(overrides: Partial<MentorPage>): MentorAnswer {
       writingNote: null,
       blocks: [ROB_BLOCK],
       readers: READERS,
+      emptyNote: null,
       ...overrides,
     },
   };
@@ -174,6 +185,15 @@ describe("MentorView", () => {
     expect(blocks()[0].querySelector(".mentor-role")).toBeNull();
   });
 
+  it("MentorView_PersonWithAName_IsHeadedByTheNameWithTheEmailBeside", async () => {
+    stage("default", week({ blocks: [{ ...ROB_BLOCK, personName: "Mark Berg", personEmail: "mark@devthrottle.com" }] }));
+    renderAs(onTeam());
+
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    expect(blocks()[0].querySelector(".mentor-person")?.textContent).toBe("Mark Berg");
+    expect(blocks()[0].querySelector("[data-testid='mentor-person-email']")?.textContent).toBe("mark@devthrottle.com");
+  });
+
   it("MentorView_Refused_HasNoPage", async () => {
     stage("default", { kind: "refused" });
     renderAs(onTeam());
@@ -190,18 +210,56 @@ describe("MentorView", () => {
     expect(screen.queryByTestId("mentor-page")).toBeNull();
   });
 
-  it("MentorView_NotOnATeam_IsTheOrdinaryMissingPage_AndAsksNothing", async () => {
+  it("MentorView_OwnAccount_GatewayOffersNoPersonalPage_IsTheOrdinaryMissingPage", async () => {
+    stage("personal", { kind: "not-offered" });
     renderAs({ kind: "teams", teams: [], start: { where: "own-account" } }, null);
 
     await waitFor(() => expect(screen.getByText("Page not found")).toBeTruthy());
-    expect(mentor.calls).toEqual([]);
+    expect(mentor.calls).toEqual([{ teamId: "(own account)", week: undefined }]);
   });
 
   it("MentorView_TeamsNotOffered_IsTheOrdinaryMissingPage", async () => {
+    stage("personal", { kind: "not-offered" });
     renderAs({ kind: "not-offered", reason: "Teams are off." }, null);
 
     await waitFor(() => expect(screen.getByText("Page not found")).toBeTruthy());
-    expect(mentor.calls).toEqual([]);
+    expect(mentor.calls.every((c) => c.teamId === "(own account)")).toBe(true);
+  });
+
+  it("MentorView_OwnAccount_ShowsThePersonsOwnWeek_WithNoNameOverIt_AndOnlyYouReadsIt", async () => {
+    stage("personal", week({ teamId: null, scope: "personal", readers: [], blocks: [{ ...ROB_BLOCK, isYou: true, role: "Personal account" }] }));
+    renderAs({ kind: "teams", teams: [], start: { where: "own-account" } }, null);
+
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Mentor");
+    expect(
+      screen.getByText("Your week, 28 September - 4 October. Written by the Mentor from your sessions; only you read this page."),
+    ).toBeTruthy();
+    expect(screen.getByText("What you worked on")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("rob@example.com");
+    expect(screen.getByTestId("mentor-quote").textContent).toBe(ROB_QUOTE);
+  });
+
+  it("MentorView_OwnAccount_StepToThePreviousWeek_NamesThatWeekWhileItLoads", async () => {
+    stage("personal", week({ teamId: null, scope: "personal", readers: [], blocks: [{ ...ROB_BLOCK, isYou: true }] }));
+    stage(`personal:${W39.week}`, new Promise<MentorAnswer>(() => {}));
+    renderAs({ kind: "teams", teams: [], start: { where: "own-account" } }, null);
+
+    await waitFor(() => expect(blocks()).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: "Previous week" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/^Your week, 21 September - 27 September\./)).toBeTruthy(),
+    );
+  });
+
+  it("MentorView_OwnAccount_EmptyWeek_ShowsTheGatewaysSentence", async () => {
+    const note = "Your first Mentor page arrives after the Mentor's first weekly run. It is written from your sessions, once a week.";
+    stage("personal", week({ teamId: null, scope: "personal", readers: [], blocks: [], written: false, emptyNote: note }));
+    renderAs({ kind: "teams", teams: [], start: { where: "own-account" } }, null);
+
+    await waitFor(() => expect(screen.getByText(note)).toBeTruthy());
+    expect(blocks()).toHaveLength(0);
   });
 
   it("MentorView_QuoteText_IsExactlyTheTextInTheResponse", async () => {
