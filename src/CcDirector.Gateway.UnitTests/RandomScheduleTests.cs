@@ -342,14 +342,14 @@ public sealed class RandomScheduleTests
     }
 
     [Fact]
-    public void Validate_UnknownKind_NamesAllThreeKinds()
+    public void Validate_UnknownKind_NamesEveryKind()
     {
         var job = RandomJob("", OwnerSettings);
         job.ScheduleKind = "sometimes";
 
         var (_, error) = CronSchedule.Validate(job);
 
-        Assert.Equal("scheduleKind must be 'recurring', 'oneOff' or 'random'", error);
+        Assert.Equal("scheduleKind must be 'recurring', 'oneOff', 'random' or 'window'", error);
     }
 
     // ---- the words, and the plan the route returns ---------------------------------------------------

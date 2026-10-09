@@ -366,6 +366,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "factory-register", "factory-list", "factory-purpose", "factory-goal-number-post", "factory-goal-number-show",
     # Issue #3685: a factory's boss reads its own Factories screen.
     "factory-status",
+    # The Schedule page work (the owner, 2026-10-09): each machine's scheduled load over the next 24 hours.
+    "schedule-load",
 }
 
 

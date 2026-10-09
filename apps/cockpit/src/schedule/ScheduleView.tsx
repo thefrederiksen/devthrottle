@@ -79,7 +79,8 @@ interface FormState {
   seed: string;
   // "random" (issue #3622) is never offered for a new job here; it appears only when editing one made from
   // the command line, so an edit keeps the kind and its settings text rather than turning it into a one-off.
-  scheduleKind: "oneOff" | "recurring" | "random";
+  // "window" likewise: the Gateway chooses its minute, and it is made from the command line.
+  scheduleKind: "oneOff" | "recurring" | "random" | "window";
   cron: string;
   runAt: string;
   timeZone: string;
@@ -109,6 +110,8 @@ function validateForm(f: FormState): FormErrors {
     if (f.cron.trim().length === 0) errors.schedule = "Enter a 5-field cron expression, for example 0 0 * * *.";
   } else if (f.scheduleKind === "random") {
     if (f.cron.trim().length === 0) errors.schedule = "Enter the random settings, for example window=07:00-01:00 perDay=4 minGap=45.";
+  } else if (f.scheduleKind === "window") {
+    if (f.cron.trim().length === 0) errors.schedule = "Enter the window settings, for example window=00:00-06:30 deadline=07:00.";
   } else {
     if (f.runAt.trim().length === 0) errors.schedule = "Enter the local date and time to run once.";
   }
@@ -731,7 +734,7 @@ export function ScheduleView() {
             <dd>
               {scheduleEnglish(job)}
               {scheduleCron(job) !== null && <span className="sched-detail-cron">({scheduleCron(job)})</span>}
-              {isRandom(job) && <span className="sched-detail-cron">({job.cronExpression})</span>}
+              {hasGatewayWords(job) && <span className="sched-detail-cron">({job.cronExpression})</span>}
             </dd>
             {isRandom(job) && (
               <>
@@ -1068,10 +1071,23 @@ export function ScheduleView() {
                       <option value="oneOff">Run once</option>
                       <option value="recurring">Recurring (cron)</option>
                       {form.scheduleKind === "random" && <option value="random">At random times</option>}
+                      {form.scheduleKind === "window" && <option value="window">In a window (the Gateway picks the minute)</option>}
                     </select>
                   </div>
 
-                  {form.scheduleKind === "random" ? (
+                  {form.scheduleKind === "window" ? (
+                    <div className="sched-fld">
+                      <label className="sched-fld-label">Window settings</label>
+                      <input
+                        className={`mono${formErrors.schedule ? " invalid" : ""}`}
+                        value={form.cron}
+                        placeholder="window=00:00-06:30 deadline=07:00"
+                        onChange={(e) => setForm((f) => ({ ...f, cron: e.target.value }))}
+                      />
+                      <div className="sched-cron-preview">The Gateway chooses the minute again when you save.</div>
+                      {formErrors.schedule && <div className="sched-fld-err">{formErrors.schedule}</div>}
+                    </div>
+                  ) : form.scheduleKind === "random" ? (
                     <div className="sched-fld">
                       <label className="sched-fld-label">Random settings</label>
                       <input
@@ -1398,11 +1414,17 @@ function scheduleCron(j: CronJob): string | null {
 // The form's kind for a stored job. An unknown kind reads as one-off, as it always has.
 function formKind(kind: string): FormState["scheduleKind"] {
   const k = kind.trim().toLowerCase();
-  return k === "recurring" ? "recurring" : k === "random" ? "random" : "oneOff";
+  return k === "recurring" ? "recurring" : k === "random" ? "random" : k === "window" ? "window" : "oneOff";
 }
 
 function isRandom(j: CronJob): boolean {
   return j.scheduleKind.trim().toLowerCase() === "random";
+}
+
+// A random or window schedule: its words come from the Gateway, and its settings text is shown beside them.
+function hasGatewayWords(j: CronJob): boolean {
+  const k = j.scheduleKind.trim().toLowerCase();
+  return k === "random" || k === "window";
 }
 
 function scheduleEnglish(j: CronJob): string {
@@ -1410,6 +1432,8 @@ function scheduleEnglish(j: CronJob): string {
   // A random schedule's words are folded by the Gateway (issue #3622); its settings text is shown as stored
   // only when the Gateway sent no words, which it does for settings that no longer validate.
   if (isRandom(j)) return j.scheduleText ?? `Random: ${j.cronExpression ?? ""}`;
+  // A window schedule's words, with the minute the Gateway placed it at, are the Gateway's.
+  if (j.scheduleKind.trim().toLowerCase() === "window") return j.scheduleText ?? `Window: ${j.cronExpression ?? ""}`;
   const runAt = (j.runAt ?? "").trim();
   return runAt.length > 0 ? `Once at ${runAt}` : "Once (no time set)";
 }

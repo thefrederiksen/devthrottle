@@ -133,7 +133,7 @@ class TestRouteMapping:
         method, url = req.call_args.args
         assert method == "GET"
         # The opt-in that lets the Gateway list random schedules to this tool (issue #3622).
-        assert url == "http://127.0.0.1:7878/cron/jobs?include=random"
+        assert url == "http://127.0.0.1:7878/cron/jobs?include=random,window"
         assert len(jobs) == 2
 
     def test_create_posts_job_and_returns_created(self):

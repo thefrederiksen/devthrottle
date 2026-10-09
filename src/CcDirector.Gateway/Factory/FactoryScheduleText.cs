@@ -27,6 +27,10 @@ public static class FactoryScheduleText
             text = string.IsNullOrWhiteSpace(job.RunAt) ? "Once" : $"Once, {OneOffText(job.RunAt)}";
         else if (CronSchedule.IsRandom(job.ScheduleKind))
             text = RandomText(job.CronExpression);
+        else if (CronSchedule.IsWindow(job.ScheduleKind))
+            text = WindowSchedule.Parse(job.CronExpression).Settings is { } window
+                ? char.ToUpperInvariant(WindowSchedule.Describe(window)[0]) + WindowSchedule.Describe(window)[1..]
+                : Exact(job.CronExpression ?? "");
         else
             text = Cron(job.CronExpression);
 
