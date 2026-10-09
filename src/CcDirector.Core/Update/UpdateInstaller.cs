@@ -228,24 +228,51 @@ public static class UpdateInstaller
 
         WaitForProcessExit(parentPid, TimeSpan.FromSeconds(30));
 
+        // FROM HERE THE DIRECTOR THIS HELPER REPLACES HAS EXITED, so every way out of this method starts
+        // a Director (issue #3666). A failure before the swap starts the installed build untouched; a
+        // failure to arm the health check after it puts the previous build back and starts that. The
+        // staged record is left in place on both, so the next start tries again within its bounded
+        // attempts. Only a failure of the relaunch itself ends here with nothing running, and that throws
+        // to the caller, which says so.
+
         // Record which version we are about to install so the freshly-swapped build must
         // prove it can come up healthy before the update is trusted (issue #242). If that
         // build fails to reach its main window, a later startup sees this marker still set
         // (and the running version unchanged) and rolls back to the .old backup.
-        var versionBeingInstalled = UpdaterState.Load().StagedVersion;
+        string? versionBeingInstalled;
+        try
+        {
+            versionBeingInstalled = UpdaterState.Load().StagedVersion;
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux())
+                throw new PlatformNotSupportedException("Auto-update is only supported on Windows, macOS and Linux.");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[UpdateInstaller] ApplyUpdate: preparing the install FAILED ({ex.Message}); nothing was replaced, "
+                          + "starting the installed build instead.");
+            Relaunch(targetPath, instanceSlug);
+            FileLog.Stop();
+            return 1;
+        }
 
-        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux())
-            throw new PlatformNotSupportedException("Auto-update is only supported on Windows, macOS and Linux.");
-        Swap(targetPath);
+        try
+        {
+            Swap(targetPath);
+        }
+        catch (Exception ex)
+        {
+            // A swap that fell over part-way is put right by RecoverHalfAppliedSwap when the installed
+            // build starts, so starting it is also the repair.
+            FileLog.Write($"[UpdateInstaller] ApplyUpdate: Swap FAILED ({ex.Message}); starting the installed build instead.");
+            Relaunch(targetPath, instanceSlug);
+            FileLog.Stop();
+            return 1;
+        }
 
         // Arm the post-update health self-check (issue #242), then clear the staged marker BEFORE
         // relaunching so the freshly-installed build doesn't see itself as a pending update and loop.
-        //
-        // Arming comes first, and a failure to arm puts the previous build back (issue #3666): a build
-        // installed without its health marker has no way back if it then fails to start, and stopping
-        // here without relaunching would leave the machine with no Director running at all. The staged
-        // record is still in place, so the restored build tries the update again on its next start,
-        // within its bounded attempts.
+        // Arming comes first: a build installed without its health marker has no way back if it then
+        // fails to start, so a failure to arm puts the previous build back.
         try
         {
             ArmHealthCheck(versionBeingInstalled);
@@ -254,8 +281,15 @@ public static class UpdateInstaller
         {
             FileLog.Write($"[UpdateInstaller] ApplyUpdate: arming the health check for {versionBeingInstalled} FAILED ({ex.Message}); "
                           + "restoring the previous build and starting it instead.");
-            if (!DirectorBuildSwapper.RestoreBackup(targetPath, keepBackup: true))
-                FileLog.Write($"[UpdateInstaller] ApplyUpdate: restoring the previous build at {targetPath} FAILED (the line above says why); starting what is installed.");
+            try
+            {
+                if (!DirectorBuildSwapper.RestoreBackup(targetPath, keepBackup: true))
+                    FileLog.Write($"[UpdateInstaller] ApplyUpdate: restoring the previous build at {targetPath} FAILED (the line above says why); starting what is installed.");
+            }
+            catch (Exception restoreEx)
+            {
+                FileLog.Write($"[UpdateInstaller] ApplyUpdate: restoring the previous build at {targetPath} FAILED: {restoreEx.Message}; starting what is installed.");
+            }
             Relaunch(targetPath, instanceSlug);
             FileLog.Stop();
             return 1;
