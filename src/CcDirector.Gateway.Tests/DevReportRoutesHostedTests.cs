@@ -306,6 +306,52 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task TheUnfilteredList_ComesAPageAtATime_AndTheNextMarkerWalksToTheEnd()
+    {
+        // The personal Reports page timed out on a long-lived account: the list read every report and settled every
+        // session behind them on each refresh. It now answers one page, newest first, with a marker for the next.
+        var published = new List<string>();
+        for (var i = 0; i < 5; i++)
+            published.Add(await PublishAsync(_sessionA, $@"C:\work\paged-{i}.html", _sessionKeyA));
+        using var mine = Client(_deviceKeyA);
+
+        var walked = new List<string>();
+        string? next = null;
+        for (var pages = 0; pages < 10; pages++)
+        {
+            var path = "dev-reports?limit=2" + (next is null ? "" : "&after=" + Uri.EscapeDataString(next));
+            var (status, body) = await Send(mine, HttpMethod.Get, path);
+            Assert.Equal(HttpStatusCode.OK, status);
+            var reports = body.GetProperty("reports").EnumerateArray().ToList();
+            Assert.True(reports.Count <= 2);
+            Assert.Equal(reports.Count, body.GetProperty("count").GetInt32());
+            walked.AddRange(reports.Select(r => r.GetProperty("id").GetString()!));
+            var marker = body.GetProperty("next");
+            if (marker.ValueKind == JsonValueKind.Null) break;
+            next = marker.GetString();
+        }
+
+        Assert.Equal(walked.Count, walked.Distinct().Count());
+        Assert.All(published, id => Assert.Contains(id, walked));
+        // Newest first: the last report published is the first one listed.
+        Assert.Equal(published[^1], walked[0]);
+    }
+
+    [Fact]
+    public async Task TheList_RefusesALimitOutOfRange_AndAMarkerItDidNotMake()
+    {
+        using var mine = Client(_deviceKeyA);
+
+        var (tooMany, tooManyBody) = await Send(mine, HttpMethod.Get, "dev-reports?limit=101");
+        var (badMarker, badMarkerBody) = await Send(mine, HttpMethod.Get, "dev-reports?after=not-a-marker");
+
+        Assert.Equal(HttpStatusCode.BadRequest, tooMany);
+        Assert.Equal("bad_limit", tooManyBody.GetProperty("code").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, badMarker);
+        Assert.Equal("bad_after", badMarkerBody.GetProperty("code").GetString());
+    }
+
+    [Fact]
     public async Task TheHtmlRoute_ServesTheExactBytesAsPlainTextWithTheVersion()
     {
         var reportId = await PublishAsync(_sessionA, @"C:\work\bytes.html", _sessionKeyA);

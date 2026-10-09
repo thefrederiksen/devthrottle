@@ -525,17 +525,14 @@ export function creditsErrorFrom(body: unknown): CreditsError {
 // copy is truthful wherever it appears.
 export const GATEWAY_UNREACHABLE_MESSAGE = "Can't reach the Gateway - retrying.";
 
-// True when an error means the request never reached a healthy backend: the browser's bare fetch
-// rejection when the Gateway is down (a TypeError, not a GatewayError), or a Gateway/proxy status
-// that signals it could not reach the backend (Bad Gateway, Service Unavailable, Gateway Timeout, or
-// a synthetic 0). These are the "unreachable" cases, distinct from a reachable Gateway that answered
-// with an application error (400/404/409/500).
-function isGatewayUnreachable(err: unknown): boolean {
-  if (err instanceof GatewayError) {
-    return err.status === 0 || err.status === 502 || err.status === 503 || err.status === 504;
-  }
-  return err instanceof Error;
-}
+// The code on the error a poll throws when ITS OWN time limit ran out (gatewayFetch's timeoutMs). The Gateway may be
+// perfectly reachable and simply slow - a long list, a busy database - so this is worded as what it is, never as
+// "can't reach the Gateway": that line sent the owner looking for an outage while the Gateway was answering.
+export const GATEWAY_TIMED_OUT_CODE = "client_timeout";
+
+// The line a read shows when its time limit ran out and no action was named. Not every timed read is a poll that
+// tries again, so it promises nothing it may not do.
+export const GATEWAY_TIMED_OUT_MESSAGE = "The Gateway took too long to answer.";
 
 // The header the Gateway stamps when a failure is the DIRECTOR's and not its own - it did not answer in
 // time, or its tunnel died mid-command (issue #1153, TunnelCatchAllDispatch.FaultSideHeader).
@@ -568,7 +565,7 @@ function isDirectorFault(res: Response): boolean {
 // answered status - including 4xx/500 application errors - reports REACHABLE (the Gateway answered). A
 // bare fetch rejection (the backend is down) reports UNREACHABLE. A caller-initiated abort is not a
 // connection signal, so it is rethrown without any report. This mirrors the issue #1028 classification
-// used by isGatewayUnreachable; it does not invent a second taxonomy. Exported so the fleet client
+// of isUnreachableStatus; it does not invent a second taxonomy. Exported so the fleet client
 // (fleetClient.ts) routes its reads - including the roster envelope the mobile app now polls - through
 // the SAME choke point, keeping the connection-health signal fed no matter which reader is on screen.
 //
@@ -610,7 +607,7 @@ export async function gatewayFetch(
     // is reported and surfaced as an error rather than swallowed like a caller cancel.
     if (timedOut) {
       reportGatewayUnreachable();
-      throw new GatewayError(504, "Gateway request timed out");
+      throw new GatewayError(504, "Gateway request timed out", { code: GATEWAY_TIMED_OUT_CODE });
     }
     // A caller-initiated abort (the browser throws a DOMException named "AbortError", which extends
     // Error) is a cancel, not a connection signal - rethrow it without recording anything.
@@ -658,6 +655,12 @@ export function gatewayErrorMessage(err: unknown, what?: string): string {
     // The server's reason wins over every generic line we could write here.
     if (err.serverReason) return withRetryHint(err.serverReason, err.retryable);
     if (err.status === 401) return err.message;
+    // OUR OWN time limit ran out: the Gateway did not answer in time. Say that - not that it cannot be reached.
+    if (err.code === GATEWAY_TIMED_OUT_CODE) {
+      return what
+        ? `DevThrottle could not ${what} - the Gateway took too long to answer. Try again.`
+        : GATEWAY_TIMED_OUT_MESSAGE;
+    }
     // No reason from the server. A background POLL that could not reach the backend keeps the shared
     // line from issue #1028 - it is already a real sentence and it already implies the retry those
     // pages perform. Naming an action means a person pressed something and is waiting, so they get the
@@ -665,8 +668,14 @@ export function gatewayErrorMessage(err: unknown, what?: string): string {
     if (!what && isUnreachableStatus(err.status)) return GATEWAY_UNREACHABLE_MESSAGE;
     return withRetryHint(statusSentence(err.status, what), err.retryable);
   }
-  if (isGatewayUnreachable(err)) return GATEWAY_UNREACHABLE_MESSAGE;
-  return GATEWAY_UNREACHABLE_MESSAGE;
+  // The browser's own fetch failure - a TypeError, "Failed to fetch" - is the one case that truly means the request
+  // never reached the Gateway.
+  if (err instanceof TypeError) return GATEWAY_UNREACHABLE_MESSAGE;
+  // Anything else is not a connection problem, and calling it one hides it: say what actually went wrong. This used
+  // to answer "Can't reach the Gateway" for every error of every kind, including bugs in this client.
+  const action = what ? `could not ${what}` : "could not complete that";
+  if (err instanceof Error && err.message.trim().length > 0) return `DevThrottle ${action}: ${err.message.trim()}`;
+  return `DevThrottle ${action} - something unexpected went wrong.`;
 }
 
 /** The statuses that mean the request never reached a healthy backend. */
