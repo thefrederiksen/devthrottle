@@ -96,8 +96,39 @@ public sealed class ErrorReporter : IDisposable
         public required string Stack;
         public required DateTime FirstSeenUtc;
         public DateTime LastSeenUtc;
+        public required Stamp Context;
         public int Count = 1;
         public int Attempts;
+    }
+
+    /// <summary>
+    /// The <see cref="ErrorContext"/> fields of one report, scrubbed and capped. Empty text is null, so a report
+    /// with no context sends none of the optional fields and looks exactly as it did before them.
+    /// </summary>
+    internal sealed record Stamp(bool? UserVisible, string? Surface, string? Action, string? CorrelationId,
+        int? HttpStatus, string? ErrorCode, string? SessionId)
+    {
+        public static readonly Stamp None = new(null, null, null, null, null, null, null);
+
+        public static Stamp Of(ErrorContext? context)
+        {
+            if (context is null) return None;
+            return new Stamp(
+                context.UserVisible,
+                NullIfEmpty(ErrorTextScrubber.CleanOnThisMachine(context.Surface, ErrorReportLimits.MaxShortField)),
+                NullIfEmpty(ErrorTextScrubber.CleanOnThisMachine(context.Action, ErrorReportLimits.MaxAction)),
+                NullIfEmpty(ErrorTextScrubber.CleanOnThisMachine(context.CorrelationId, ErrorReportLimits.MaxShortField)),
+                context.HttpStatus,
+                NullIfEmpty(ErrorTextScrubber.CleanOnThisMachine(context.ErrorCode, ErrorReportLimits.MaxShortField)),
+                NullIfEmpty(ErrorTextScrubber.CleanOnThisMachine(context.SessionId, ErrorReportLimits.MaxShortField)));
+        }
+
+        /// <summary>The part of the grouping signature. Two errors with different context fields are two rows,
+        /// because a row carries one value per field: six refusals with six command ids stay six rows.</summary>
+        public string Signature => this == None ? "" :
+            string.Join('|', UserVisible, Surface, Action, CorrelationId, HttpStatus, ErrorCode, SessionId);
+
+        private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;
     }
 
     /// <summary>The running reporter for this process, once <see cref="Start"/> has run.</summary>
@@ -285,7 +316,9 @@ public sealed class ErrorReporter : IDisposable
         var cleanMessage = ErrorTextScrubber.CleanOnThisMachine(message, ErrorReportLimits.MaxMessage);
         var cleanType = ErrorTextScrubber.CleanOnThisMachine(exceptionType, ErrorReportLimits.MaxShortField);
         var cleanStack = ErrorTextScrubber.CleanOnThisMachine(stack, ErrorReportLimits.MaxStack);
-        var signature = string.Join('|', cleanSource, kind, cleanType, Digits.Replace(cleanMessage, "#"));
+        // The context open on the logging flow of execution - FileLog calls the observer on the thread that logged.
+        var context = Stamp.Of(ErrorContext.Current);
+        var signature = string.Join('|', cleanSource, kind, cleanType, Digits.Replace(cleanMessage, "#"), context.Signature);
         var now = _clock();
         var announceFull = false;
 
@@ -307,7 +340,7 @@ public sealed class ErrorReporter : IDisposable
             else
             {
                 _tableFullLogged = false;
-                AddPendingLocked(signature, cleanSource, kind, cleanMessage, cleanType, cleanStack, now);
+                AddPendingLocked(signature, cleanSource, kind, cleanMessage, cleanType, cleanStack, context, now);
             }
         }
 
@@ -317,7 +350,7 @@ public sealed class ErrorReporter : IDisposable
     }
 
     private void AddPendingLocked(string signature, string cleanSource, string kind, string cleanMessage,
-        string cleanType, string cleanStack, DateTime now)
+        string cleanType, string cleanStack, Stamp context, DateTime now)
     {
         var pending = new Pending
         {
@@ -329,6 +362,7 @@ public sealed class ErrorReporter : IDisposable
             Stack = cleanStack,
             FirstSeenUtc = now,
             LastSeenUtc = now,
+            Context = context,
         };
         _bySignature[signature] = _order.AddLast(pending);
     }
@@ -575,7 +609,14 @@ public sealed class ErrorReporter : IDisposable
         Os: _os,
         OsVersion: _osVersion,
         Arch: _arch,
-        MachineId: _machineId);
+        MachineId: _machineId,
+        UserVisible: p.Context.UserVisible,
+        Surface: p.Context.Surface,
+        Action: p.Context.Action,
+        CorrelationId: p.Context.CorrelationId,
+        HttpStatus: p.Context.HttpStatus,
+        ErrorCode: p.Context.ErrorCode,
+        SessionId: p.Context.SessionId);
 
     /// <summary>Put a failed batch back at the front, except what has used up its attempts.</summary>
     private void Requeue(List<Pending> batch)
