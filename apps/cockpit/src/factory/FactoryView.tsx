@@ -9,7 +9,6 @@ import {
 import { EmptyState, ErrorBanner, LoadingState } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { FailuresCard, useScrollToHash } from "./FactoryFailures";
-import { FactoryMapPanel } from "./FactoryMap";
 import { FactoryMemoryTab } from "./FactoryMemoryTab";
 import { OwnerActionButton, TalkButton, ToneChip } from "./FactoryParts";
 import { WaitingItem } from "./FactoryWaitingView";
@@ -158,8 +157,6 @@ function Overview({
         {goal.note !== null && <p className="fa-dim">{goal.note}</p>}
         {goal.emptyText !== null && <p className="fa-dim">{goal.emptyText}</p>}
       </section>
-
-      <FactoryMapPanel factory={page.id} />
 
       <section className="fa-panel" data-testid="fa-goal-number">
         <h2 className="fa-section-title">{goalNumber.heading}</h2>
