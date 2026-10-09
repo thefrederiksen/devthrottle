@@ -139,6 +139,56 @@ public sealed class WindowScheduleWiringTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Update_AFollowerWhoseAnchorIsPausedOrGone_CanStillBeSwitchedOff()
+    {
+        var anchor = await Create("backup", "recurring", $"0 {(Base + 1) % 24} * * *");
+        var follower = await Create("digest", "window", $"window={At(1)}-{At(5)} after={anchor.Id} gap=120");
+
+        anchor.Enabled = false;
+        Assert.Equal(HttpStatusCode.OK, (await _http.PutAsJsonAsync($"cron/jobs/{anchor.Id}", anchor)).StatusCode);
+
+        follower.Enabled = false;
+        var off = await _http.PutAsJsonAsync($"cron/jobs/{follower.Id}", follower);
+        Assert.Equal(HttpStatusCode.OK, off.StatusCode);
+        Assert.False(_store.Get(follower.Id)!.Enabled);
+
+        // Switching it back on places it again, and an anchor that will not run is the reason it cannot be.
+        follower.Enabled = true;
+        var on = await _http.PutAsJsonAsync($"cron/jobs/{follower.Id}", follower);
+        Assert.Equal(HttpStatusCode.BadRequest, on.StatusCode);
+        Assert.Contains("'backup' will not run (it is paused)", await on.Content.ReadAsStringAsync());
+
+        // Gone altogether: the switch-off still lands.
+        Assert.Equal(HttpStatusCode.OK, (await _http.DeleteAsync($"cron/jobs/{anchor.Id}")).StatusCode);
+        follower.Enabled = false;
+        Assert.Equal(HttpStatusCode.OK, (await _http.PutAsJsonAsync($"cron/jobs/{follower.Id}", follower)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_AScheduleOthersRunAfter_SaysWhichOnesLostTheirAnchor()
+    {
+        var anchor = await Create("backup", "recurring", $"0 {(Base + 1) % 24} * * *");
+        var follower = await Create("digest", "window", $"window={At(1)}-{At(5)} after={anchor.Id} gap=120");
+
+        var resp = await _http.DeleteAsync($"cron/jobs/{anchor.Id}");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Contains("'digest' ran after it: each keeps its minute and keeps running", await resp.Content.ReadAsStringAsync());
+        Assert.NotNull(_store.Get(follower.Id)!.NextRunUtc);
+    }
+
+    [Fact]
+    public async Task Get_AFollower_NamesTheScheduleItRunsAfter()
+    {
+        var anchor = await Create("backup", "recurring", $"0 {(Base + 1) % 24} * * *");
+        var follower = await Create("digest", "window", $"window={At(1)}-{At(5)} after={anchor.Id} gap=120");
+
+        var got = JsonSerializer.Deserialize<CronJobDto>(await _http.GetStringAsync($"cron/jobs/{follower.Id}"), JsonOpts)!;
+
+        Assert.EndsWith("at least 2h 00m after backup", got.ScheduleText);
+    }
+
+    [Fact]
     public async Task Create_AWindowThatCannotBePlaced_IsRefusedWithTheReason()
     {
         var resp = await _http.PostAsJsonAsync("cron/jobs",

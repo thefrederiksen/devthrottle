@@ -193,6 +193,44 @@ public sealed class WindowScheduleTests
     }
 
     [Fact]
+    public void ComputeNextRunUtc_AWindowAcrossMidnightOnWeekdays_FiresInTheWindowsThatOpenOnWeekdays()
+    {
+        // Weekday windows from 22:00 to 04:00, placed at 01:00: Thursday night's run is early Friday, Friday night's is
+        // early Saturday, and the next is Monday night's, early Tuesday - never early Monday, from Sunday night.
+        var job = Window("job", "window=22:00-04:00 days=1-5 placed=01:00");
+
+        var fires = new List<DateTime>();
+        var from = Now.AddHours(-1);
+        for (var i = 0; i < 3; i++)
+        {
+            from = CronSchedule.ComputeNextRunUtc(job, from)!.Value;
+            fires.Add(TimeZoneInfo.ConvertTimeFromUtc(from, Toronto));
+        }
+
+        Assert.Equal(new[]
+        {
+            new DateTime(2026, 10, 9, 1, 0, 0), new DateTime(2026, 10, 10, 1, 0, 0), new DateTime(2026, 10, 13, 1, 0, 0),
+        }, fires);
+    }
+
+    [Fact]
+    public void Place_OnTheNightTheClockSkipsAnHour_NeverChoosesAMinuteAfterTheWindowsEnd()
+    {
+        // Saturday 13 March 2027, 20:00 in Toronto; the clocks go forward at 02:00. The machine is full from 00:00 to
+        // 06:00, so the quiet minutes are at the very end of the window - which still ends at 06:30 by the clock.
+        var saturdayEvening = new DateTime(2027, 3, 14, 1, 0, 0, DateTimeKind.Utc);
+        var busy = Fixed("busy", "0 0 * * *");
+        var job = Window("job", "window=00:00-06:30");
+        var settings = WindowSchedule.Parse(job.CronExpression).Settings!;
+
+        var (placed, error) = WindowSchedule.Place(job, settings, new List<CronJobDto> { busy, job },
+            Lengths(("busy", 360), ("job", 20)), saturdayEvening);
+
+        Assert.True(placed is not null, error);
+        Assert.InRange(placed!.PlacedMinute!.Value, 0, Minute("06:30"));
+    }
+
+    [Fact]
     public void ComputeNextRunUtc_AWindowNotPlacedYet_HasNoNextRun()
     {
         Assert.Null(CronSchedule.ComputeNextRunUtc(Window("job", "window=00:00-06:30"), Now));
@@ -227,6 +265,7 @@ public sealed class WindowScheduleTests
     [InlineData("window=01:00-01:20", "window must be at least 30 minutes long, not 20; a narrower one is a fixed time")]
     [InlineData("window=25:00-03:00", "window must be HH:mm-HH:mm with real times of day, not '25:00-03:00'")]
     [InlineData("window=00:00-06:30 gap=60", "gap is the time after another schedule, so it needs after=<schedule id>")]
+    [InlineData("window=00:00-06:30 after=cj_a gap=800", "gap must be a whole number of minutes from 0 to 720, not '800'")]
     [InlineData("window=00:00-06:30 days=funday", "days must be a cron day-of-week field, for example 1-5 or 0,6, not 'funday'")]
     [InlineData("window=00:00-06:30 when=soon", "unknown window setting 'when'; the settings are window, days, deadline, after, gap, placed")]
     public void Parse_ABadSetting_SaysWhatIsWrong(string text, string expected)

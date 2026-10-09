@@ -78,7 +78,7 @@ internal static class CronJobEndpoints
                 return seatError!;
 
             // A WINDOW schedule's minute is chosen here, against the load, before it is stored (the owner, 2026-10-09).
-            if (CronSchedule.IsWindow(job.ScheduleKind) && PlaceWindow(job) is { } placeError)
+            if (CronSchedule.IsWindow(job.ScheduleKind) && job.Enabled && PlaceWindow(job) is { } placeError)
                 return Results.BadRequest(new { error = placeError });
 
             var created = store.Create(job);
@@ -185,7 +185,7 @@ internal static class CronJobEndpoints
             while (queue.Count > 0)
             {
                 var anchor = queue.Dequeue();
-                foreach (var dependent in store.ListAll().Where(j => CronSchedule.IsWindow(j.ScheduleKind)
+                foreach (var dependent in store.ListAll().Where(j => CronSchedule.IsWindow(j.ScheduleKind) && j.Enabled
                              && WindowSchedule.Parse(j.CronExpression).Settings?.AfterJobId == anchor).ToList())
                 {
                     if (!seen.Add(dependent.Id))
@@ -231,7 +231,7 @@ internal static class CronJobEndpoints
             var job = store.Get(id);
             return job is null
                 ? Results.NotFound(new { error = "no such cron job", id })
-                : Results.Json(CronSchedule.StampDisplay(job, DateTime.UtcNow));
+                : Results.Json(Describe(CronSchedule.StampDisplay(job, DateTime.UtcNow)));
         });
 
         // The planned fires of a random schedule (issue #3622). The plan is derived from the job id, the date and
@@ -314,14 +314,18 @@ internal static class CronJobEndpoints
             if (store.Get(id) is null)
                 return Results.NotFound(new { error = "no such cron job", id });
             incoming.Id = id;
-            if (CronSchedule.IsWindow(incoming.ScheduleKind) && PlaceWindow(incoming) is { } placeError)
+            // Only a schedule that will run is placed. A switch-off always lands, even when the schedule it runs after
+            // is gone or paused - otherwise it could not be stopped at all; it is placed again when switched back on.
+            if (CronSchedule.IsWindow(incoming.ScheduleKind) && incoming.Enabled && PlaceWindow(incoming) is { } placeError)
                 return Results.BadRequest(new { error = placeError, id });
 
             var updated = store.Update(id, incoming);
             if (updated is null)
                 return Results.NotFound(new { error = "no such cron job", id });
+            // The followers move first, so the load warning describes the night as it now is.
+            var followers = RePlaceDependents(id);
             var stamped = Describe(CronSchedule.StampDisplay(updated, DateTime.UtcNow));
-            stamped.LoadWarning = JoinWarnings(LoadWarningFor(stamped), RePlaceDependents(id));
+            stamped.LoadWarning = JoinWarnings(LoadWarningFor(stamped), followers);
             return Results.Json(stamped);
         });
 
@@ -332,9 +336,21 @@ internal static class CronJobEndpoints
             if (!Api.FactoryNaming.TryAct(ctx, sessionFactoryOf, store.Get(id)?.Factory, "schedule",
                     $"DELETE /cron/jobs/{id}", out var actError))
                 return actError!;
-            return store.Delete(id)
-                ? Results.Json(new { id, deleted = true })
-                : Results.NotFound(new { error = "no such cron job", id });
+            // A window schedule that runs after this one keeps the minute it has and keeps running; it cannot be
+            // placed again until its after= names a schedule that exists, and the answer says which ones.
+            var orphans = store.ListAll()
+                .Where(j => CronSchedule.IsWindow(j.ScheduleKind)
+                    && WindowSchedule.Parse(j.CronExpression).Settings?.AfterJobId == id)
+                .Select(j => j.Name)
+                .ToList();
+            if (!store.Delete(id))
+                return Results.NotFound(new { error = "no such cron job", id });
+            if (orphans.Count == 0)
+                return Results.Json(new { id, deleted = true });
+            var warning = $"{string.Join(", ", orphans.Select(n => $"'{n}'"))} ran after it: each keeps its minute and "
+                + "keeps running, and cannot be placed again until its after= names a schedule that exists.";
+            FileLog.Write($"[CronJobEndpoints] DELETE /cron/jobs/{id}: {warning}");
+            return Results.Json(new { id, deleted = true, warning });
         });
 
         FileLog.Write("[CronJobEndpoints] mapped /cron/jobs routes");

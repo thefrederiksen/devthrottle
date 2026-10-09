@@ -64,11 +64,14 @@ public static class WindowSchedule
     /// <summary>The shortest window accepted: a window narrower than this is a fixed time and should say so.</summary>
     public const int MinWindowMinutes = 30;
 
-    /// <summary>The largest gap accepted after another schedule.</summary>
-    public const int MaxGapMinutes = 23 * 60;
-
-    /// <summary>How far back the schedule a window runs after must have fired for the after-constraint to hold.</summary>
+    /// <summary>
+    /// How far back the schedule a window runs after must have fired for the after-constraint to hold: the two belong
+    /// to the same night or the same day, not to yesterday's run of the other one.
+    /// </summary>
     public static readonly TimeSpan AfterReach = TimeSpan.FromHours(12);
+
+    /// <summary>The largest gap accepted after another schedule - the reach, because a longer gap could never be met.</summary>
+    public const int MaxGapMinutes = 12 * 60;
 
     private static readonly TimeSpan Crowd = TimeSpan.FromMinutes(30);
 
@@ -165,14 +168,41 @@ public static class WindowSchedule
         return text.ToString();
     }
 
-    /// <summary>The next fire after <paramref name="fromUtc"/>: the placed minute on the next allowed day, or null when not placed.</summary>
+    /// <summary>
+    /// The next fire after <paramref name="fromUtc"/>: the placed minute in the next window that opens on an allowed
+    /// day, or null when not placed. <c>days</c> is the day the WINDOW OPENS, as in placement, so a window from 22:00
+    /// to 04:00 on weekdays placed at 01:00 fires early Tuesday to early Saturday, not Monday to Friday.
+    /// </summary>
     public static DateTime? NextAfter(WindowScheduleSettings settings, TimeZoneInfo zone, DateTime fromUtc)
     {
         ArgumentNullException.ThrowIfNull(settings);
         if (settings.PlacedMinute is not { } placed)
             return null;
-        var cron = TryCron($"{placed % 60} {placed / 60} * * {settings.Days ?? "*"}");
-        return cron?.GetNextOccurrence(DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc), zone, inclusive: false);
+        var from = DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc);
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(from, zone));
+        // A placed minute before the opening minute is past midnight, in the window that opened the day before.
+        var dayAfterOpening = placed < settings.StartMinute ? 1 : 0;
+        for (var i = -1; i <= 8; i++)
+        {
+            var opening = today.AddDays(i);
+            if (!OpensOn(settings, opening, zone))
+                continue;
+            var fire = Utc(opening.AddDays(dayAfterOpening), placed, zone);
+            if (fire > from)
+                return fire;
+        }
+        return null;
+    }
+
+    /// <summary>Whether the window opens on this local date, by its <c>days</c> field (every day when it has none).</summary>
+    private static bool OpensOn(WindowScheduleSettings settings, DateOnly date, TimeZoneInfo zone)
+    {
+        if (settings.Days is null)
+            return true;
+        var days = TryCron($"0 0 * * {settings.Days}")!;
+        var midnight = Utc(date, 0, zone);
+        var next = days.GetNextOccurrence(midnight.AddTicks(-1), zone, inclusive: false);
+        return next is not null && DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(next.Value, zone)) == date;
     }
 
     /// <summary>
@@ -285,20 +315,18 @@ public static class WindowSchedule
     private static (DateTime Open, DateTime Latest)? NextOpening(WindowScheduleSettings settings, TimeZoneInfo zone,
         DateTime now, TimeSpan length)
     {
-        var days = settings.Days is null ? null : TryCron($"0 0 * * {settings.Days}");
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(now, zone));
         for (var i = -1; i <= 8; i++)
         {
             var date = today.AddDays(i);
-            if (days is not null)
-            {
-                var midnight = Utc(date, 0, zone);
-                var next = days.GetNextOccurrence(midnight.AddTicks(-1), zone, inclusive: false);
-                if (next is null || DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(next.Value, zone)) != date)
-                    continue;
-            }
+            if (!OpensOn(settings, date, zone))
+                continue;
             var open = Utc(date, settings.StartMinute, zone);
-            var latest = open.AddMinutes(settings.WindowMinutes);
+            // The end by the WALL CLOCK, not by elapsed minutes: on the night the clock skips an hour, 00:00-06:30 still
+            // ends at 06:30, so no minute after it can be chosen.
+            // A window that reaches midnight or past it - 18:00-00:00 included - ends on the next date.
+            var crosses = settings.StartMinute + settings.WindowMinutes >= MinutesPerDay;
+            var latest = Utc(crosses ? date.AddDays(1) : date, settings.EndMinute, zone);
             if (settings.DeadlineMinute is { } deadlineMinute)
             {
                 // The first time the deadline's clock time comes round after the window opens.

@@ -3646,7 +3646,7 @@ def schedule_create(
         help="With --window: the schedule id it runs after. Alone, it starts once that one's sessions usually end.",
     ),
     gap: Optional[int] = typer.Option(
-        None, "--gap", help="With --after: the minutes it starts at least after that schedule starts, 0 to 1380."
+        None, "--gap", help="With --after: the minutes it starts at least after that schedule starts, 0 to 720."
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the created schedule as JSON."),
 ) -> None:
