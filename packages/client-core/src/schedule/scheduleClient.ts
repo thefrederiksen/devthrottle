@@ -72,6 +72,11 @@ export interface CronJob {
   factoryTitle?: string | null;
   /** The name without its leading factory segment, for under the factory's header. Folded by the Gateway. */
   shortName?: string | null;
+  /**
+   * On the answer to a create or update only: the Gateway's warning that this schedule's sessions land in an hour
+   * over its machine's capacity, or null when it fits. The schedule is saved either way. Read-only.
+   */
+  loadWarning?: string | null;
 }
 
 /** A schedule's run record in words (CronRunRecordSummaryDto): show `text` as given, coloured by `verdict`. */

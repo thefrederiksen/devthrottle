@@ -181,6 +181,9 @@ export function ScheduleView() {
   // Only WHICH hour was tapped is held; its schedules are read from the latest forecast, so the list never keeps
   // ids from a forecast the Gateway has since replaced.
   const [hourPick, setHourPick] = useState<{ machine: string; startUtc: string } | null>(null);
+  // The Gateway's warning on the schedule just saved or switched on, when it lands in an hour over capacity. It is
+  // shown until dismissed or until the next save, because the schedule is saved either way.
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
 
   // The cron job awaiting delete confirmation. Deleting a job removes the schedule permanently, so it
   // asks through the shared ConfirmDialog (issue #1244) instead of firing on the first click.
@@ -388,20 +391,18 @@ export function ScheduleView() {
     setFormError(null);
     try {
       const dto = buildFromForm(form);
-      if (form.editingId === null) {
-        await createCronJob(dto);
-      } else {
-        await updateCronJob(form.editingId, dto);
-      }
+      const saved = form.editingId === null ? await createCronJob(dto) : await updateCronJob(form.editingId, dto);
+      setLoadWarning(saved.loadWarning ?? null);
       closeForm();
       await refresh();
+      await refreshLoad();
     } catch (err) {
       // Surface the Gateway's message (incl. a 400 for an invalid cron) inline in the form.
       setFormError(gatewayErrorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [buildFromForm, form, formValid, refresh, closeForm]);
+  }, [buildFromForm, form, formValid, refresh, refreshLoad, closeForm]);
 
   const runNow = useCallback(
     async (job: CronJob) => {
@@ -442,13 +443,15 @@ export function ScheduleView() {
         // every field the toggle does not change, notify settings included, so flipping enabled
         // never silently clears them (Blazor #622), while keeping read-only scheduling state on the
         // Gateway.
-        await updateCronJob(job.id, toMutableDto(job, { enabled: !job.enabled }));
+        const saved = await updateCronJob(job.id, toMutableDto(job, { enabled: !job.enabled }));
+        setLoadWarning(saved.loadWarning ?? null);
         await refresh();
+        await refreshLoad();
       } catch (err) {
         setActionError(`Toggle failed: ${gatewayErrorMessage(err)}`);
       }
     },
-    [refresh],
+    [refresh, refreshLoad],
   );
 
   // ---- Director picker (the machine picker, #495) ----
@@ -842,6 +845,14 @@ export function ScheduleView() {
       {actionError !== null && <div className="sched-banner-error">{actionError}</div>}
 
       {loadError !== null && <div className="sched-banner-error">Load forecast: {loadError}</div>}
+      {loadWarning !== null && (
+        <div className="sched-banner-warn" role="status">
+          <span>Saved, but: {loadWarning}</span>
+          <button type="button" className="sched-groupbtn" onClick={() => setLoadWarning(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {load !== null && load.machines.length > 0 && (
         <LoadStrip
           load={load}

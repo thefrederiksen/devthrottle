@@ -658,13 +658,17 @@ def show_load(machine: Optional[str], json_output: bool) -> None:
               ["cc-devthrottle schedule load --json"])
         return
     if machine:
-        chosen = [m for m in machines if str(m.get("machine", "")).lower() == machine.lower()]
-        if not chosen:
-            known = ", ".join(axi_cli.ascii_text(m.get("machine")) for m in machines) or "none"
-            _fail(f"no active schedules run on '{axi_cli.ascii_text(machine)}'; machines with some: {known}.",
-                  ["cc-devthrottle schedule load", _FIND_A_SCHEDULE])
+        known = ", ".join(axi_cli.ascii_text(m.get("machine")) for m in machines) or "none"
+        machines = [m for m in machines if str(m.get("machine", "")).lower() == machine.lower()]
+        if not machines and not json_output:
+            # An empty filter result is an answer, not an error - the same as `schedule list --machine`.
+            axi_output.write_blocks(
+                sys.stdout,
+                axi_output.format_count(0),
+                f"No active schedules run on '{axi_cli.ascii_text(machine)}'. Machines with some: {known}.",
+                axi_output.format_help(["cc-devthrottle schedule load", _FIND_A_SCHEDULE]),
+            )
             return
-        machines = chosen
 
     if json_output:
         print(json.dumps(load if not machine else {**load, "machines": machines}, indent=2))

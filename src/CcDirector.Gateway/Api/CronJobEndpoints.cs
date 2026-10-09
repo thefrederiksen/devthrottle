@@ -113,18 +113,38 @@ internal static class CronJobEndpoints
 
         // The overload warning on a create or an update (the owner, 2026-10-09): the forecast with this schedule in it,
         // read the same way as GET /cron/load, so the warning and the strip can never disagree.
-        CronLoadDto Forecast()
+        (IReadOnlyList<CronJobDto> Jobs, IReadOnlyDictionary<string, TimeSpan> Lengths) ForecastInputs()
         {
             var jobs = store.ListAll();
-            return CronLoad.Build(jobs, runRecords.RunLengthsOf(jobs.Select(j => j.Id).ToList()), DateTime.UtcNow, CronLoad.DefaultCapacity);
+            var lengths = runRecords.RunLengthsOf(jobs.Select(j => j.Id).ToList());
+            FileLog.Write($"[CronJobEndpoints] forecast inputs: schedules={jobs.Count}, measured={lengths.Count}");
+            return (jobs, lengths);
         }
 
+        CronLoadDto Forecast()
+        {
+            var (jobs, lengths) = ForecastInputs();
+            return CronLoad.Build(jobs, lengths, DateTime.UtcNow, CronLoad.DefaultCapacity);
+        }
+
+        // The schedule is already saved when this runs, so a failure reading the forecast must not turn the saved
+        // write into a failed answer - an agent would retry and create a duplicate. It is logged and said in the
+        // warning itself, never swallowed: the caller sees that the load could not be checked.
         string? LoadWarningFor(CronJobDto job)
         {
-            var warning = CronLoad.WarningFor(Forecast(), job);
-            if (warning is not null)
-                FileLog.Write($"[CronJobEndpoints] load warning for {job.Id}: {warning}");
-            return warning;
+            try
+            {
+                var (jobs, lengths) = ForecastInputs();
+                var warning = CronLoad.WarningFor(jobs, lengths, DateTime.UtcNow, CronLoad.DefaultCapacity, job);
+                if (warning is not null)
+                    FileLog.Write($"[CronJobEndpoints] load warning for {job.Id}: {warning}");
+                return warning;
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[CronJobEndpoints] load warning for {job.Id} FAILED: {ex}");
+                return $"The schedule is saved, but its load could not be checked: {ex.Message}";
+            }
         }
 
         // THE LOAD STRIP (the owner, 2026-10-09): each machine's next 24 hours, one bar per hour, from every active

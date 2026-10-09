@@ -70,11 +70,12 @@ def test_load_for_one_machine_shows_only_that_machine_whatever_its_case():
     assert "devlinux (" not in result.output
 
 
-def test_load_for_a_machine_with_no_active_schedules_fails_and_names_the_ones_that_have_some():
+def test_load_for_a_machine_with_no_active_schedules_is_an_empty_answer_not_an_error():
     result = _run(["--machine", "nowhere"], _load([_machine("SOREN_NORTH")]))
 
-    assert result.exit_code != 0
-    assert "no active schedules run on 'nowhere'; machines with some: SOREN_NORTH." in result.output
+    assert result.exit_code == 0, result.output
+    assert "count: 0" in result.output
+    assert "No active schedules run on 'nowhere'. Machines with some: SOREN_NORTH." in result.output
 
 
 def test_load_prints_the_gateways_notes_about_guessed_and_unplaced_schedules():
@@ -114,8 +115,8 @@ _CREATE = [
     "--seed", "write the digest",
 ]
 
-_WARNING = ("SOREN_NORTH will have 7 scheduled sessions open at 07:00 with this one, over its capacity of 6. "
-            "The quietest hour is 21:00 (0 open) - see cc-devthrottle schedule load --machine SOREN_NORTH.")
+_WARNING = ("SOREN_NORTH will have 7 scheduled sessions open at once while this one runs from 07:00, over its capacity "
+            "of 6. The quietest hour is 21:00 (0 open) - see cc-devthrottle schedule load --machine SOREN_NORTH.")
 
 
 def _create(load_warning):
@@ -140,6 +141,18 @@ def test_create_into_an_hour_that_fits_prints_no_warning():
 
     assert result.exit_code == 0, result.output
     assert "WARNING" not in result.output
+
+
+def test_link_into_a_full_hour_prints_the_warning():
+    with patch("src.schedule_ops.ScheduleClient") as client_cls:
+        client_cls.return_value.get_job.return_value = {"id": "cj_a", "name": "Digest"}
+        client_cls.return_value.update_job.return_value = {
+            "id": "cj_a", "name": "Digest", "factory": "devthrottle", "seat": "mail-desk", "loadWarning": _WARNING,
+        }
+        result = runner.invoke(app, ["schedule", "link", "cj_a", "--factory", "devthrottle", "--seat", "mail-desk"])
+
+    assert result.exit_code == 0, result.output
+    assert f"WARNING:   {_WARNING}" in result.output
 
 
 def test_enable_into_a_full_hour_prints_the_warning():
