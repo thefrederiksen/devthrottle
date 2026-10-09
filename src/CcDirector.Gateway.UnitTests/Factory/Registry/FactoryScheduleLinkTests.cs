@@ -104,6 +104,26 @@ public sealed class FactoryScheduleLinkTests : IAsyncLifetime
     // ---------- point 1: the link is on the schedule, checked against the registry ----------
 
     [Fact]
+    public async Task List_AFactorySchedule_CarriesItsFactoryTitleAndShortName_APlainJobKeepsItsName()
+    {
+        // The owner's layout A (2026-10-09): the Schedule page heads each factory's group with its title and shows the
+        // seat's own name under it, without parsing names itself.
+        _registry.Register(T, Devthrottle("mail-desk"), "the owner (test)", Now);
+        await Post(Schedule("devthrottle", "mail-desk", name: "DevThrottle Factory - Mail Desk - 08:00"));
+        await Post(Schedule(factory: null, seat: null, name: "Daily job search"));
+
+        var body = await _http.GetFromJsonAsync<JsonElement>("cron/jobs");
+        var jobs = body.GetProperty("jobs").EnumerateArray().ToList();
+        var factoryJob = jobs.Single(j => j.GetProperty("factory").GetString() == "devthrottle");
+        var plainJob = jobs.Single(j => j.GetProperty("factory").ValueKind == JsonValueKind.Null);
+
+        Assert.Equal("DevThrottle", factoryJob.GetProperty("factoryTitle").GetString());
+        Assert.Equal("Mail Desk - 08:00", factoryJob.GetProperty("shortName").GetString());
+        Assert.Equal(JsonValueKind.Null, plainJob.GetProperty("factoryTitle").ValueKind);
+        Assert.Equal("Daily job search", plainJob.GetProperty("shortName").GetString());
+    }
+
+    [Fact]
     public async Task Create_NamingAFactoryThatIsNotRegistered_IsRefusedWithTheFix_AndNothingIsStored()
     {
         var (status, error, _) = await Post(Schedule("money-saver", "daily-report"));

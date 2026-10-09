@@ -139,6 +139,20 @@ public sealed class CronJobDto
     /// list read. Null when the read did not fold it (a single-job read or a write). Read-only.
     /// </summary>
     public CronRunRecordSummaryDto? RunRecord { get; set; }
+
+    /// <summary>
+    /// The registered title of <see cref="Factory"/> (for example "ClickFunnels"), stamped by the Gateway on a list read
+    /// so the Schedule page can head a factory's group without a second call. Null for a schedule in no factory, and
+    /// for one whose factory is not registered - the page then shows the factory id. Read-only.
+    /// </summary>
+    public string? FactoryTitle { get; set; }
+
+    /// <summary>
+    /// The name to show under the factory's header: <see cref="Name"/> without its leading factory segment
+    /// ("ClickFunnels Factory - Builder" reads "Builder"). The full name for a schedule in no factory. Folded by
+    /// <c>CronDisplayName</c> on a list read. Read-only.
+    /// </summary>
+    public string? ShortName { get; set; }
 }
 
 /// <summary>

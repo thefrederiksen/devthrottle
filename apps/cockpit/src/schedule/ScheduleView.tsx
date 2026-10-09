@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   createCronJob,
   deleteCronJob,
@@ -31,6 +32,7 @@ import {
   PageHeader,
   useDismissOnBackdrop,
   type DataTableColumn,
+  type DataTableGrouping,
 } from "../components";
 import {
   absoluteUtc,
@@ -42,6 +44,10 @@ import {
   nextRunInstant,
   nextRunLabel,
   promptBody,
+  compareScheduleGroups,
+  repeatsLabel,
+  scheduleGroupOf,
+  scheduleGroupTitle,
   scheduleListOf,
   type ScheduleList,
 } from "./scheduleFormat";
@@ -161,6 +167,8 @@ export function ScheduleView() {
   // Which list the grid shows (the owner, 2026-10-09): only the schedules that will still run, by default. A
   // spent one-off and a switched-off schedule are still reachable, behind the Paused and Historical tabs.
   const [list, setList] = useState<ScheduleList>("active");
+  // Layout A (the owner, 2026-10-09): grouped by factory by default; "Group: None" gives the flat list.
+  const [grouped, setGrouped] = useState(true);
 
   // The cron job awaiting delete confirmation. Deleting a job removes the schedule permanently, so it
   // asks through the shared ConfirmDialog (issue #1244) instead of firing on the first click.
@@ -482,7 +490,20 @@ export function ScheduleView() {
         width: "200px",
         sortable: true,
         sortValue: (job) => job.name.toLowerCase(),
-        render: (job) => <span className="sched-cell-name">{job.name}</span>,
+        render: (job) => (
+          <span className="sched-cell-name">
+            <span className="sched-cell-name-main">{grouped ? job.shortName ?? job.name : job.name}</span>
+            <span className="sched-cell-name-sub">
+              {scheduleGroupOf(job) === "" ? (
+                <span className="sched-plainbadge">scheduled job</span>
+              ) : grouped ? (
+                `seat: ${job.seat ?? "-"}`
+              ) : (
+                `${job.factoryTitle ?? job.factory} - seat: ${job.seat ?? "-"}`
+              )}
+            </span>
+          </span>
+        ),
       },
       {
         key: "runs",
@@ -522,6 +543,9 @@ export function ScheduleView() {
         sortValue: (job) => cronToEnglish(scheduleCron(job)).toLowerCase(),
         render: (job) => (
           <span className="sched-schedule" title={scheduleCron(job) ?? undefined}>
+            <span className={`sched-repeats ${repeatsLabel(job) === "ONCE" ? "once" : "repeats"}`}>
+              {repeatsLabel(job)}
+            </span>
             {scheduleEnglish(job)}
             {notifyEnabled(job) && (
               <span className="sched-notify-badge" title={notifyTitle(job)}>
@@ -602,6 +626,11 @@ export function ScheduleView() {
         className: "ui-table-cell-stop",
         render: (job) => (
           <span className="sched-actions">
+            {job.lifecycle === "paused" && (
+              <button className="sched-linkbtn" onClick={() => void toggleEnabled(job)}>
+                Resume
+              </button>
+            )}
             <button className="sched-linkbtn" onClick={() => void runNow(job)}>
               Run now
             </button>
@@ -615,8 +644,36 @@ export function ScheduleView() {
         ),
       },
     ],
-    [toggleEnabled, runNow, openEdit],
+    [toggleEnabled, runNow, openEdit, grouped],
   );
+
+  // One header per factory: its title, how many schedules, the soonest next run, and a way to the factory itself.
+  const grouping = useMemo<DataTableGrouping<CronJob> | undefined>(() => {
+    if (!grouped) return undefined;
+    const titleOf = (groupKey: string) =>
+      scheduleGroupTitle(groupKey, jobs.filter((job) => scheduleGroupOf(job) === groupKey));
+    return {
+      groupOf: scheduleGroupOf,
+      compareGroups: (a, b) => compareScheduleGroups(a, b, titleOf),
+      renderHeader: (groupKey, rows) => {
+        const soonest = [...rows].sort((a, b) => epochOrMax(nextRunInstant(a)) - epochOrMax(nextRunInstant(b)))[0];
+        return (
+          <span className={`sched-group${groupKey === "" ? " plain" : ""}`}>
+            <span className="sched-group-title">{scheduleGroupTitle(groupKey, rows)}</span>
+            <span className="sched-group-meta">
+              {rows.length} schedule{rows.length === 1 ? "" : "s"}
+              {list === "active" && soonest !== undefined ? ` - next ${nextRunLabel(soonest)}` : ""}
+            </span>
+            {groupKey !== "" && (
+              <Link className="sched-group-link" to={`/factories/${encodeURIComponent(groupKey)}`}>
+                Open factory
+              </Link>
+            )}
+          </span>
+        );
+      },
+    };
+  }, [grouped, jobs, list]);
 
   // The drawer body for a job: what it does, in full. The prompt lives here (read-only, scrollable,
   // monospace) alongside the plain-English schedule, the resolved next run, and recent run history.
@@ -760,10 +817,31 @@ export function ScheduleView() {
             list === "historical" ? { columnKey: "last", direction: "desc" } : { columnKey: "next", direction: "asc" }
           }
           emptyMessage={LIST_EMPTY[list]}
+          grouping={grouping}
           toolbarExtra={
-            <span className="sched-refreshed">
-              {lastRefresh === null ? "connecting..." : `updated ${clockLabel(lastRefresh)}`}
-            </span>
+            <>
+              <span className="sched-groupswitch" role="group" aria-label="Group the list">
+                <button
+                  type="button"
+                  className={`sched-groupbtn${grouped ? " on" : ""}`}
+                  aria-pressed={grouped}
+                  onClick={() => setGrouped(true)}
+                >
+                  Group: Factory
+                </button>
+                <button
+                  type="button"
+                  className={`sched-groupbtn${grouped ? "" : " on"}`}
+                  aria-pressed={!grouped}
+                  onClick={() => setGrouped(false)}
+                >
+                  Group: None
+                </button>
+              </span>
+              <span className="sched-refreshed">
+                {lastRefresh === null ? "connecting..." : `updated ${clockLabel(lastRefresh)}`}
+              </span>
+            </>
           }
           onRowActivate={(job) => void selectJob(job.id)}
           renderDetail={renderDetail}
