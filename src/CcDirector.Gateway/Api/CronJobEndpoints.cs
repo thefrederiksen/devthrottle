@@ -93,10 +93,18 @@ internal static class CronJobEndpoints
                 .Select(j => CronSchedule.StampDisplay(j, now))
                 .ToList();
             var records = runRecords.SummariesOf(jobs.Select(j => j.Id).ToList(), now);
+            // The factory titles, one registry read per factory named rather than per schedule.
+            var titles = jobs.Select(j => j.Factory).Where(f => !string.IsNullOrWhiteSpace(f)).Select(f => f!)
+                .Distinct(StringComparer.Ordinal)
+                .ToDictionary(f => f, f => findFactory(ctx, f)?.Title, StringComparer.Ordinal);
             foreach (var job in jobs)
+            {
                 job.RunRecord = records.TryGetValue(job.Id, out var record)
                     ? record
                     : new CronRunRecordSummaryDto { Verdict = "none", Text = "no runs yet", Runs = 0 };
+                job.FactoryTitle = string.IsNullOrWhiteSpace(job.Factory) ? null : titles[job.Factory];
+                job.ShortName = CronDisplayName.ShortName(job.Name, job.Factory, job.FactoryTitle);
+            }
             return Results.Json(new { jobs });
         });
 

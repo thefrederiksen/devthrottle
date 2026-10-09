@@ -28,7 +28,8 @@ export { StatusMessage } from "./StatusMessage";
 export type { StatusMessageProps } from "./StatusMessage";
 
 export { DataTable } from "./DataTable";
-export type { DataTableColumn, DataTableProps } from "./DataTable";
+export { groupRows } from "./DataTable";
+export type { DataTableColumn, DataTableGrouping, DataTableProps } from "./DataTable";
 
 export {
   matchesQuery,

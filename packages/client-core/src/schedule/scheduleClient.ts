@@ -64,6 +64,14 @@ export interface CronJob {
   lifecycle?: string | null;
   /** Whether this schedule's recent sessions closed themselves, folded by the Gateway on a list read. Read-only. */
   runRecord?: CronRunRecordSummary | null;
+  /** The schedule's factory id, or null for a plain scheduled job in no factory. */
+  factory?: string | null;
+  /** The factory seat this schedule runs, or null. */
+  seat?: string | null;
+  /** The factory's registered title, stamped by the Gateway on a list read; null in no factory or unregistered. */
+  factoryTitle?: string | null;
+  /** The name without its leading factory segment, for under the factory's header. Folded by the Gateway. */
+  shortName?: string | null;
 }
 
 /** A schedule's run record in words (CronRunRecordSummaryDto): show `text` as given, coloured by `verdict`. */

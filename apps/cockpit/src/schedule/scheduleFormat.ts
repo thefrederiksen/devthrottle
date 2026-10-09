@@ -119,6 +119,39 @@ function utcDate(iso: string | null | undefined): string {
   return full === "-" ? full : full.slice(0, 10);
 }
 
+// ===== Grouping by factory (the owner's layout A, 2026-10-09) ====================================
+
+/** The group key of a plain scheduled job in no factory. Factory groups are keyed by their factory id. */
+export const NO_FACTORY_GROUP = "";
+
+// Which group a schedule is listed under: its factory, from the schedule's own factory field. A schedule with no
+// factory is a plain scheduled job - its NAME is never read to guess one.
+export function scheduleGroupOf(job: CronJob): string {
+  const factory = (job.factory ?? "").trim();
+  return factory.length > 0 ? factory : NO_FACTORY_GROUP;
+}
+
+// Factory groups in title order, and the plain scheduled jobs last.
+export function compareScheduleGroups(a: string, b: string, titleOf: (groupKey: string) => string): number {
+  if (a === b) return 0;
+  if (a === NO_FACTORY_GROUP) return 1;
+  if (b === NO_FACTORY_GROUP) return -1;
+  return titleOf(a).localeCompare(titleOf(b), undefined, { sensitivity: "base" });
+}
+
+// A group's heading: the factory's registered title, the factory id when it is not registered, or "Scheduled
+// jobs" for the plain ones.
+export function scheduleGroupTitle(groupKey: string, rows: CronJob[]): string {
+  if (groupKey === NO_FACTORY_GROUP) return "Scheduled jobs";
+  const title = rows.find((job) => (job.factoryTitle ?? "").trim().length > 0)?.factoryTitle;
+  return title ?? groupKey;
+}
+
+// The badge beside a schedule: whether it repeats or runs once.
+export function repeatsLabel(job: CronJob): "REPEATS" | "ONCE" {
+  return job.scheduleKind === "oneOff" ? "ONCE" : "REPEATS";
+}
+
 // The absolute wall-clock form shown on hover: "yyyy-MM-dd HH:mm UTC", or "-" when absent. Kept in UTC
 // (matching the rest of the Schedule page) so a job's time reads the same on every machine.
 export function absoluteUtc(iso: string | null | undefined): string {

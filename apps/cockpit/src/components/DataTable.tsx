@@ -74,6 +74,20 @@ export interface DataTableProps<T> {
   /** Called when a row is activated (clicked, or Enter/Space with the row focused), before the drawer
    *  opens. A page uses this to load the row's detail data (for example, its run history). */
   onRowActivate?: (row: T) => void;
+  /** Optional grouping. When given, the filtered and sorted rows are shown under one header row per group, each
+   *  group keeping the table's sort inside it. Search still runs over every row first, so a group with no match
+   *  disappears rather than showing an empty header. */
+  grouping?: DataTableGrouping<T>;
+}
+
+/** How a DataTable groups its rows: which group a row belongs to, the order of the groups, and each header. */
+export interface DataTableGrouping<T> {
+  /** The key of the group a row belongs to. */
+  groupOf: (row: T) => string;
+  /** Orders two group keys (negative puts the first one first). */
+  compareGroups: (a: string, b: string) => number;
+  /** The header row's content for a group, given the group's visible rows. */
+  renderHeader: (groupKey: string, rows: T[]) => ReactNode;
 }
 
 export function DataTable<T>({
@@ -90,6 +104,7 @@ export function DataTable<T>({
   detailTitle,
   detailActions,
   onRowActivate,
+  grouping,
 }: DataTableProps<T>) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortState | null>(defaultSort ?? null);
@@ -180,7 +195,14 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((row) => {
+            {(grouping === undefined ? [{ groupKey: null, rows: visibleRows }] : groupRows(visibleRows, grouping)).map(
+              (group) => [
+                group.groupKey === null || grouping === undefined ? null : (
+                  <tr key={`group:${group.groupKey}`} className="ui-table-group">
+                    <td colSpan={columns.length}>{grouping.renderHeader(group.groupKey, group.rows)}</td>
+                  </tr>
+                ),
+                ...group.rows.map((row) => {
               const key = rowKey(row);
               return (
                 <tr
@@ -211,7 +233,9 @@ export function DataTable<T>({
                   ))}
                 </tr>
               );
-            })}
+                }),
+              ],
+            )}
           </tbody>
         </table>
       )}
@@ -258,4 +282,22 @@ function cellClass<T>(column: DataTableColumn<T>): string {
 
 function ariaSort(direction: SortDirection): "ascending" | "descending" {
   return direction === "asc" ? "ascending" : "descending";
+}
+
+// Split already filtered and sorted rows into their groups, keeping the sort inside each group, and order the
+// groups. Pure, so the grouping rule is the same however the table is drawn.
+export function groupRows<T>(
+  rows: T[],
+  grouping: Pick<DataTableGrouping<T>, "groupOf" | "compareGroups">,
+): { groupKey: string; rows: T[] }[] {
+  const byGroup = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = grouping.groupOf(row);
+    const bucket = byGroup.get(key);
+    if (bucket === undefined) byGroup.set(key, [row]);
+    else bucket.push(row);
+  }
+  return Array.from(byGroup.entries())
+    .sort(([a], [b]) => grouping.compareGroups(a, b))
+    .map(([groupKey, groupRowsInOrder]) => ({ groupKey, rows: groupRowsInOrder }));
 }
