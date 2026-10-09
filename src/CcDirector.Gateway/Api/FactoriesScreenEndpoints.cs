@@ -69,6 +69,19 @@ internal static class FactoriesScreenEndpoints
                 return Results.Json(dto);
             }));
 
+        // The factory's floor (owner decision, 8 October 2026): its production lines, bays, arrows and the owner's desk,
+        // laid out here and drawn as it is by the Cockpit.
+        app.MapGet(Prefix + "/{factory}/floor", (HttpContext ctx, string factory) =>
+            FactoryAgentsViewEndpoints.Owner(ctx, resolveTenant, $"GET factory floor {factory}", tenant =>
+            {
+                if (sources.Registry.Find(tenant, factory) is not { } registered) return NotRegistered(factory);
+                var input = Inputs(sources, tenant, FactoryAgentsFold.WindowLast7d, registered.Factory);
+                var dto = FactoryFloorFold.View(registered, FactoriesScreenFold.Seats(registered, input),
+                    FactoriesScreenFold.Page(registered, input), sources.Activity.Maps.Find(tenant, registered.Factory));
+                FileLog.Write($"[FactoriesScreenEndpoints] GET floor: {registered.Factory} lanes={dto.Lanes.Count}, bays={dto.Bays.Count}, arrows={dto.Arrows.Count}");
+                return Results.Json(dto);
+            }));
+
         // "Handled" on a failure (round 2): a NEW row correcting it, as an escalation's "I have handled it" is. The
         // failed row itself is never changed, so the record keeps what went wrong and who said it was over.
         app.MapPost(Prefix + "/{factory}/failures/{id:guid}/handled", (HttpContext ctx, string factory, Guid id) =>

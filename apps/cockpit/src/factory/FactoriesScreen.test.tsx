@@ -23,6 +23,7 @@ const screenClient = vi.hoisted(() => ({
   getFactoriesList: vi.fn(),
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),
+  getFactoryFloor: vi.fn(() => new Promise(() => {})),
   startFactoryTalk: vi.fn(),
   runFactoryOwnerAction: vi.fn(),
 }));
@@ -264,6 +265,7 @@ describe("A factory's page (mockup 2)", () => {
     const tabs = within(screen.getByRole("navigation", { name: "WarmForward view" })).getAllByRole("link");
     expect(tabs.map((t) => [t.textContent, t.getAttribute("href")])).toEqual([
       ["Overview", "/factories/warmforward"],
+      ["Floor", "/factories/warmforward/floor"],
       ["Seats (4)", "/factories/warmforward/seats"],
       ["Activity", "/factories/warmforward/activity"],
       ["Reports", "/factories/warmforward/reports"],

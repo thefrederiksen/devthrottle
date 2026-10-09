@@ -74,6 +74,10 @@ public sealed class FactorySeatManifest
 
     /// <summary>The computer this seat runs on. Left out, it is the factory's computer.</summary>
     public string? Computer { get; set; }
+
+    /// <summary>The production line this seat works on, as the factory names it ("Night shift", "Find and sell"):
+    /// the lane its bay sits in on the factory's floor. Left out, the seat sits in a lane called "Other".</summary>
+    public string? Line { get; set; }
 }
 
 /// <summary>One registered factory, as the registry holds it.</summary>
@@ -118,6 +122,9 @@ public sealed class RegisteredFactorySeatDto
     public string BriefFile { get; set; } = "";
     public List<string> Schedules { get; set; } = new();
     public string Computer { get; set; } = "";
+
+    /// <summary>The production line this seat works on, or null when the factory named none.</summary>
+    public string? Line { get; set; }
 }
 
 /// <summary>

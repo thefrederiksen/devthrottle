@@ -295,6 +295,20 @@ public sealed partial class FactoryRegistryStore
 
     // ---------- the rules ----------
 
+    /// <summary>The longest production line name a seat may carry: it is a lane's label on the floor.</summary>
+    internal const int MaxLineChars = 40;
+
+    /// <summary>A seat's production line: optional, trimmed, one line of at most <see cref="MaxLineChars"/>.</summary>
+    internal static string? SeatLine(string? raw, string seatId)
+    {
+        if (raw is null) return null;
+        var line = raw.Trim();
+        if (line.Length == 0) throw Refuse($"Seat '{seatId}' names an empty line. Leave the line out, or name it.");
+        if (line.Length > MaxLineChars) throw Refuse($"Seat '{seatId}' names a line of {line.Length} characters; a line takes at most {MaxLineChars}.");
+        if (line.Contains('\r') || line.Contains('\n')) throw Refuse($"Seat '{seatId}' names a line with a line break in it.");
+        return line;
+    }
+
     /// <summary>The keys a manifest may carry, as the refusal names them (the same list the command line enforces).</summary>
     private const string KnownManifestKeys = "factory, title, folder, computer, bossSeat, goalText, goalFile, goalApprovedOn and seats";
 
@@ -360,6 +374,7 @@ public sealed partial class FactoryRegistryStore
                 Name = Required(s.Name, $"name of seat '{seatId}'", MaxTitleChars),
                 Role = Required(s.Role, $"role of seat '{seatId}'", MaxTitleChars),
                 BriefFile = RelativePath(s.BriefFile, $"brief file of seat '{seatId}'"),
+                Line = SeatLine(s.Line, seatId),
                 // What the manifest SAYS runs the seat. Checked against the schedules' own links at registration
                 // (CheckAgainstSchedules) and never stored: the seat's list is derived from those links (#3650).
                 Schedules = schedules,
@@ -401,7 +416,7 @@ public sealed partial class FactoryRegistryStore
 
     private static RegisteredFactorySeatDto WithoutSchedules(RegisteredFactorySeatDto s) => new()
     {
-        Id = s.Id, Name = s.Name, Role = s.Role, BriefFile = s.BriefFile, Schedules = new List<string>(), Computer = s.Computer,
+        Id = s.Id, Name = s.Name, Role = s.Role, BriefFile = s.BriefFile, Schedules = new List<string>(), Computer = s.Computer, Line = s.Line,
     };
 
     private static IReadOnlySet<string> ArchivedScheduleIds(FactoryRegistryEntity? row) =>
