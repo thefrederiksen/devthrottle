@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { gatewayErrorMessage } from "../api/client";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
 import { listDevReports, type DevReportSummary } from "./devReportsClient";
@@ -27,26 +27,64 @@ function formatTime(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString();
 }
 
+/** The Gateway's list order: newest update first, then session, then key, all ordinal. */
+function byListOrder(a: DevReportSummary, b: DevReportSummary): number {
+  const at = Date.parse(b.updatedAtUtc) - Date.parse(a.updatedAtUtc);
+  if (at !== 0) return at;
+  if (a.sessionId !== b.sessionId) return a.sessionId < b.sessionId ? -1 : 1;
+  if (a.key !== b.key) return a.key < b.key ? -1 : 1;
+  return 0;
+}
+
+/** Fold freshly read reports into those on screen: one row per report, the later version of a report winning, in the
+ *  list's order. Used once older pages are on screen, so a report pushed off the newest page by a newer one stays where
+ *  the person can see it instead of vanishing (older pages are never re-read). */
+function fold(shown: DevReportSummary[], read: DevReportSummary[]): DevReportSummary[] {
+  const byId = new Map(shown.map((r) => [r.id, r]));
+  for (const r of read) {
+    const kept = byId.get(r.id);
+    if (kept === undefined || Date.parse(r.updatedAtUtc) >= Date.parse(kept.updatedAtUtc)) byId.set(r.id, r);
+  }
+  return [...byId.values()].sort(byListOrder);
+}
+
 export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
-  // The newest page, re-read on every refresh, and its marker for the page after it.
-  const [newest, setNewest] = useState<DevReportSummary[] | null>(null);
+  // The reports on screen: the newest page alone until the person asks for older ones, then everything read so far.
+  const [reports, setReports] = useState<DevReportSummary[] | null>(null);
+  // The newest page's marker for the page after it, and - once older pages are read - the last older page's.
   const [newestNext, setNewestNext] = useState<string | null>(null);
-  // The older pages the person asked for, kept as read, and the marker for the page after the last of them.
-  const [older, setOlder] = useState<DevReportSummary[]>([]);
   const [olderNext, setOlderNext] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderError, setOlderError] = useState<string | null>(null);
+  // Which list this is: bumped when the session changes, so an answer for the previous session is dropped, never shown.
+  const generation = useRef(0);
+  const olderOnScreen = useRef(false);
+
+  // Another session's list starts from nothing: no reports, no markers, no older pages of the session before.
+  useEffect(() => {
+    generation.current += 1;
+    olderOnScreen.current = false;
+    setReports(null);
+    setNewestNext(null);
+    setOlderNext(undefined);
+    setError(null);
+    setOlderError(null);
+    setLoadingOlder(false);
+  }, [sessionId]);
 
   const refresh = useCallback(
     async (signal: AbortSignal) => {
+      const asked = generation.current;
       try {
         const page = await listDevReports(sessionId, null, signal);
-        setNewest(page.reports);
+        if (asked !== generation.current) return;
+        setReports((shown) => (olderOnScreen.current && shown !== null ? fold(shown, page.reports) : page.reports));
         setNewestNext(page.next);
         setError(null);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
+        if (asked !== generation.current) return;
         setError(gatewayErrorMessage(err));
       }
     },
@@ -59,23 +97,22 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
 
   const showOlder = async () => {
     if (nextMarker === null) return;
+    const asked = generation.current;
     setLoadingOlder(true);
     setOlderError(null);
     try {
       const page = await listDevReports(sessionId, nextMarker);
-      setOlder((kept) => [...kept, ...page.reports]);
+      if (asked !== generation.current) return;
+      olderOnScreen.current = true;
+      setReports((shown) => fold(shown ?? [], page.reports));
       setOlderNext(page.next);
     } catch (err) {
+      if (asked !== generation.current) return;
       setOlderError(gatewayErrorMessage(err, "load older reports"));
     } finally {
-      setLoadingOlder(false);
+      if (asked === generation.current) setLoadingOlder(false);
     }
   };
-
-  // A report updated since an older page was read moves into the newest page; it is shown once, where it is newest.
-  const reports = newest === null
-    ? null
-    : [...newest, ...older.filter((o) => !newest.some((n) => n.id === o.id))];
 
   return (
     <div className="dev-report-list" data-testid="dev-report-list">

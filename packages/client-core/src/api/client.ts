@@ -530,8 +530,9 @@ export const GATEWAY_UNREACHABLE_MESSAGE = "Can't reach the Gateway - retrying."
 // "can't reach the Gateway": that line sent the owner looking for an outage while the Gateway was answering.
 export const GATEWAY_TIMED_OUT_CODE = "client_timeout";
 
-// The line a background poll shows when its time limit ran out. The poll tries again on its own clock, so it says so.
-export const GATEWAY_TIMED_OUT_MESSAGE = "The Gateway is taking too long to answer - trying again.";
+// The line a read shows when its time limit ran out and no action was named. Not every timed read is a poll that
+// tries again, so it promises nothing it may not do.
+export const GATEWAY_TIMED_OUT_MESSAGE = "The Gateway took too long to answer.";
 
 // The header the Gateway stamps when a failure is the DIRECTOR's and not its own - it did not answer in
 // time, or its tunnel died mid-command (issue #1153, TunnelCatchAllDispatch.FaultSideHeader).

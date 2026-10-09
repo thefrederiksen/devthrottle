@@ -87,6 +87,8 @@ describe("gatewayErrorMessage", () => {
 
     expect(gatewayErrorMessage(timedOut)).toBe(GATEWAY_TIMED_OUT_MESSAGE);
     expect(gatewayErrorMessage(timedOut)).not.toBe(GATEWAY_UNREACHABLE_MESSAGE);
+    // Not every timed read is a poll that retries, so the plain line promises no retry (review finding).
+    expect(GATEWAY_TIMED_OUT_MESSAGE).not.toMatch(/again|retry/i);
     expect(gatewayErrorMessage(timedOut, "load older reports")).toBe(
       "DevThrottle could not load older reports - the Gateway took too long to answer. Try again.",
     );

@@ -1,5 +1,5 @@
-using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using CcDirector.Gateway.Data.Entities;
 
 namespace CcDirector.Gateway.DevReports;
@@ -18,11 +18,14 @@ public readonly record struct DevReportListPosition(DateTime UpdatedAtUtc, strin
     /// <summary>The position just past this report.</summary>
     public static DevReportListPosition Of(DevReportEntity report) => new(report.UpdatedAtUtc, report.SessionId, report.Key);
 
-    /// <summary>The marker the client hands back: update time in ticks, then session, then key, as URL-safe base64.</summary>
+    private sealed record Wire(long T, string S, string K);
+
+    /// <summary>The marker the client hands back: update time in ticks, session and key as JSON - so a key may hold any
+    /// character, a line break included - then URL-safe base64.</summary>
     public string ToMarker()
     {
-        var text = UpdatedAtUtc.Ticks.ToString(CultureInfo.InvariantCulture) + "\n" + SessionId + "\n" + Key;
-        return Convert.ToBase64String(Encoding.UTF8.GetBytes(text)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var json = JsonSerializer.SerializeToUtf8Bytes(new Wire(UpdatedAtUtc.Ticks, SessionId, Key));
+        return Convert.ToBase64String(json).TrimEnd('=').Replace('+', '-').Replace('/', '_');
     }
 
     /// <summary>Reads a marker <see cref="ToMarker"/> made. Null for anything else: the caller answers that with a
@@ -32,13 +35,12 @@ public readonly record struct DevReportListPosition(DateTime UpdatedAtUtc, strin
         if (string.IsNullOrWhiteSpace(marker) || marker.Length > 2048) return null;
         var b64 = marker.Replace('-', '+').Replace('_', '/');
         b64 = b64.PadRight(b64.Length + (4 - b64.Length % 4) % 4, '=');
-        byte[] bytes;
-        try { bytes = Convert.FromBase64String(b64); }
+        Wire? wire;
+        try { wire = JsonSerializer.Deserialize<Wire>(Convert.FromBase64String(b64)); }
         catch (FormatException) { return null; }
-        var parts = Encoding.UTF8.GetString(bytes).Split('\n');
-        if (parts.Length != 3 || parts[1].Length == 0 || parts[2].Length == 0) return null;
-        if (!long.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks)
-            || ticks < DateTime.MinValue.Ticks || ticks > DateTime.MaxValue.Ticks) return null;
-        return new DevReportListPosition(new DateTime(ticks, DateTimeKind.Utc), parts[1], parts[2]);
+        catch (JsonException) { return null; }
+        if (wire is null || string.IsNullOrEmpty(wire.S) || string.IsNullOrEmpty(wire.K)) return null;
+        if (wire.T < DateTime.MinValue.Ticks || wire.T > DateTime.MaxValue.Ticks) return null;
+        return new DevReportListPosition(new DateTime(wire.T, DateTimeKind.Utc), wire.S, wire.K);
     }
 }

@@ -118,12 +118,26 @@ public sealed class DevReportListPageTests : IDisposable
         Assert.Equal(new[] { "old", "new" }, _store.ListPage(Tenant, null, 20, null).Reports.Select(r => r.Key));
     }
 
-    [Fact]
-    public void Marker_RoundTrips_KeysWithAnyCharacter()
+    [Theory]
+    [InlineData(@"C:\work\a b+c/d=.html")]
+    [InlineData("two\nlines")]
+    [InlineData("tab\tand \"quotes\" and \u00e9")]
+    public void Marker_RoundTrips_KeysWithAnyCharacter(string key)
     {
-        var position = new DevReportListPosition(T0.AddTicks(1234567), "6f1d2c9e-0000-4000-8000-000000000001", @"C:\work\a b+c/d=.html");
+        var position = new DevReportListPosition(T0.AddTicks(1234567), "6f1d2c9e-0000-4000-8000-000000000001", key);
 
         Assert.Equal(position, DevReportListPosition.FromMarker(position.ToMarker()));
+    }
+
+    [Fact]
+    public void ListPage_AKeyWithALineBreak_EndingAFullPage_StillLeadsToTheNextPage()
+    {
+        // Review finding: a marker split on line breaks could not carry such a key, and every older report was cut off.
+        Publish("sid", "newest", T0.AddMinutes(2));
+        Publish("sid", "line\nbreak", T0.AddMinutes(1));
+        Publish("sid", "oldest", T0);
+
+        Assert.Equal(new[] { "newest", "line\nbreak", "oldest" }, WalkAll(null, 2).Select(id => _store.Get(Tenant, id)!.Key));
     }
 
     [Theory]
