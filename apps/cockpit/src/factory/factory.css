@@ -1200,7 +1200,7 @@ a.fa-tab {
   }
 }
 
-/* ---------- The factory floor (owner decision, 8 Oct 2026): full width, above the Overview's cards. ---------- */
+/* ---------- The factory floor (owner decision, 8 Oct 2026): on its own Floor tab, not on the Overview. ---------- */
 .ff-panel {
   margin-bottom: 16px;
 }
