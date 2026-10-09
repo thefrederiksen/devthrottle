@@ -184,6 +184,7 @@ public sealed class ErrorGroupsAndSummariesTests : IDisposable
 
         var stored = Assert.Single(store.Query(Everything()).Records);
         Assert.Equal(ErrorFingerprint.Of("director", "Session", null, "Save FAILED"), stored.Fingerprint);
+        Assert.Equal(ErrorFingerprint.RulesVersion, stored.FingerprintRules);
     }
 
     [Fact]
@@ -197,6 +198,24 @@ public sealed class ErrorGroupsAndSummariesTests : IDisposable
         var stored = Assert.Single(NewStore().Query(Everything()).Records);
 
         Assert.Equal(ErrorFingerprint.Of("director", "Session", null, "Save FAILED"), stored.Fingerprint);
+        Assert.Equal(ErrorFingerprint.RulesVersion, stored.FingerprintRules);
+    }
+
+    [Fact]
+    public void Append_TheHttpStatusAndErrorCode_AreInTheFingerprint()
+    {
+        // The same words from two different Gateway answers are two problems (review of pull request 3724).
+        var store = NewStore();
+        DirectorErrorEndpoints.HandlePost(store, TenantA, UniqueDevice(), Batch(
+            Item("Send FAILED", httpStatus: 403, errorCode: "forbidden"),
+            Item("Send FAILED", httpStatus: 503, errorCode: "forbidden"),
+            Item("Send FAILED", httpStatus: 503, errorCode: "director_timeout"),
+            Item("Send FAILED", httpStatus: 503, errorCode: "director_timeout")), Now);
+
+        var page = store.Group(Everything());
+
+        Assert.Equal(3, page.TotalGroups);
+        Assert.Equal(2, page.Groups[0].Count);
     }
 
     // ---- The grouped read --------------------------------------------------------------------------------------
@@ -357,7 +376,7 @@ public sealed class ErrorGroupsAndSummariesTests : IDisposable
         Assert.DoesNotContain("distinctive", text);
         Assert.DoesNotContain(TenantA.Value, text);
         Assert.DoesNotContain(ErrorReportMachineId.Of("devthrottle-pc"), text);
-        Assert.Equal(["fingerprint", "component", "source", "count", "occurrences", "first_seen_utc", "last_seen_utc"], keys);
+        Assert.Equal(["fingerprint", "fingerprint_rules", "component", "source", "count", "occurrences", "first_seen_utc", "last_seen_utc"], keys);
     }
 
     [Fact]
@@ -369,6 +388,31 @@ public sealed class ErrorGroupsAndSummariesTests : IDisposable
         File.WriteAllText(file, "{ not json");
 
         Assert.ThrowsAny<JsonException>(() => store.Summaries());
+    }
+
+    [Fact]
+    public void Summary_AFileThatDoesNotParse_FailsNamingTheFile()
+    {
+        // One unreadable summary stops every grouped read until it is repaired by hand on the share, so the failure
+        // must say WHICH file - the review of pull request 3724 found the parser's own message did not.
+        var store = NewStore();
+        DirectorErrorEndpoints.HandlePost(store, TenantA, UniqueDevice(), Batch(Item()), Now);
+        var file = Assert.Single(Directory.GetFiles(Path.Combine(_root, ErrorReportStore.SummaryFolder)));
+        File.WriteAllText(file, "{ not json");
+
+        var ex = Assert.ThrowsAny<JsonException>(() => store.Group(Everything()));
+
+        Assert.Contains(file, ex.Message);
+    }
+
+    [Fact]
+    public void Summary_CarriesTheFingerprintRulesVersion()
+    {
+        DirectorErrorEndpoints.HandlePost(NewStore(), TenantA, UniqueDevice(), Batch(Item()), Now);
+
+        var summary = Assert.Single(NewStore().Summaries());
+
+        Assert.Equal(ErrorFingerprint.RulesVersion, summary.FingerprintRules);
     }
 
     // ---- Linking a problem to its work item ------------------------------------------------------------------

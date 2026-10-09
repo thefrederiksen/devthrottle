@@ -76,6 +76,40 @@ public sealed class ErrorFingerprintTests
     }
 
     [Fact]
+    public void Of_TheSameMessageWithADifferentHttpStatusOrErrorCode_IsADifferentProblem()
+    {
+        // "Gateway answered 403" and "... 503" fold to one message, so the status itself must be in the basis.
+        var baseline = ErrorFingerprint.Of(Component, Source, Exception, "Gateway answered 403 for the prompt", 403, "forbidden");
+
+        Assert.NotEqual(baseline, ErrorFingerprint.Of(Component, Source, Exception, "Gateway answered 503 for the prompt", 503, "forbidden"));
+        Assert.NotEqual(baseline, ErrorFingerprint.Of(Component, Source, Exception, "Gateway answered 403 for the prompt", 403, "not_owner"));
+        Assert.Equal(baseline, ErrorFingerprint.Of(Component, Source, Exception, "Gateway answered 403 for the prompt", 403, "forbidden"));
+    }
+
+    [Theory]
+    [InlineData("POST /sessions/2c3c4215/prompt FAILED: 503", "POST /fleet/messages FAILED: 503")]
+    [InlineData("GET /gateway/skills FAILED: no answer", "GET /gateway/director-errors FAILED: no answer")]
+    public void Of_TwoDifferentRequestRoutes_AreDifferentProblems(string first, string second)
+    {
+        Assert.NotEqual(Of(first), Of(second));
+    }
+
+    [Fact]
+    public void Of_OneRouteWithDifferentIds_IsOneProblem()
+    {
+        Assert.Equal(
+            Of("POST /sessions/2c3c4215/prompt FAILED: 503"),
+            Of("POST /sessions/9f8eab7d/prompt FAILED: 504"));
+        Assert.Equal("POST /sessions/<hex>/prompt FAILED: <n>", ErrorFingerprint.Normalise("POST /sessions/2c3c4215/prompt FAILED: 503"));
+    }
+
+    [Fact]
+    public void Normalise_AFilePathNotAfterAVerb_StillFolds()
+    {
+        Assert.Equal("open <path> FAILED", ErrorFingerprint.Normalise("open /var/lib/one/x FAILED"));
+    }
+
+    [Fact]
     public void Of_IsSixteenLowerCaseHexCharacters_AndStable()
     {
         var a = Of("Save FAILED: disk full");

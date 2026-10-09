@@ -714,8 +714,10 @@ OPTIONS:
 **Reported errors (issues #3311 and #3675).** `errors list` reads one row per report, newest first;
 `errors groups` reads one row per problem, the most reported first. A problem is decided by the
 fingerprint the Gateway stamps on every report when it stores it - built from the component, the
-class that logged it, the exception type, and the message with ids, guids, hexadecimal values,
-numbers, paths, times and quoted text taken out - so the same failure on two sessions is one row.
+class that logged it, the exception type, the status and error code of the Gateway answer that caused
+it, and the message with ids, guids, hexadecimal values,
+numbers, file paths, times and quoted text taken out (a request route keeps its words) - so the
+same failure on two sessions is one row.
 Both read this account on the session's own key, or every account with `--all-accounts`, `--account`
 or `--email` on the administrator token
 (`cc-secrets run admin-service-token -- cc-devthrottle errors groups --all-accounts`), and both take

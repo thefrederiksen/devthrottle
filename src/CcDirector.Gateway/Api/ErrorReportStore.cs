@@ -47,6 +47,15 @@ internal sealed record ErrorReportRecord
     /// <summary>Which problem this is (<see cref="ErrorFingerprint"/>). Stamped by <see cref="ErrorReportStore.Append"/>
     /// whatever the writer set, so it is only ever computed in one place.</summary>
     [JsonPropertyName("fingerprint")] public string? Fingerprint { get; init; }
+    /// <summary>Which version of the fingerprint rules made <see cref="Fingerprint"/> (<see cref="ErrorFingerprint.RulesVersion"/>).</summary>
+    [JsonPropertyName("fingerprint_rules")] public int? FingerprintRules { get; init; }
+
+    /// <summary>This record with its fingerprint and the rules version computed here - the one way either is set.</summary>
+    internal ErrorReportRecord Stamped() => this with
+    {
+        Fingerprint = ErrorFingerprint.Of(Component, Source, ExceptionType, Message, HttpStatus, ErrorCode),
+        FingerprintRules = ErrorFingerprint.RulesVersion,
+    };
 }
 
 /// <summary>
@@ -58,6 +67,9 @@ internal sealed record ErrorReportRecord
 internal sealed record ErrorProblemSummary
 {
     [JsonPropertyName("fingerprint")] public string Fingerprint { get; init; } = "";
+    /// <summary>Which version of the fingerprint rules made the fingerprint, so a later change to the rules shows
+    /// as a fork rather than as a problem that silently stopped happening.</summary>
+    [JsonPropertyName("fingerprint_rules")] public int FingerprintRules { get; init; }
     [JsonPropertyName("component")] public string Component { get; init; } = "";
     /// <summary>The class that logged it - a name from our own code, never user text.</summary>
     [JsonPropertyName("source")] public string Source { get; init; } = "";
@@ -191,7 +203,7 @@ internal sealed class ErrorReportStore
         var day = records.Max(r => r.ReceivedUtc);
         var now = _clock();
         // The one place a fingerprint is computed (rule 7): whatever the writer set is replaced.
-        var stamped = records.Select(r => r with { Fingerprint = ErrorFingerprint.Of(r.Component, r.Source, r.ExceptionType, r.Message) }).ToList();
+        var stamped = records.Select(r => r.Stamped()).ToList();
         var sb = new StringBuilder();
         foreach (var r in stamped)
             sb.Append(JsonSerializer.Serialize(r, LineJson)).Append('\n');
@@ -371,6 +383,7 @@ internal sealed class ErrorReportStore
                 ? new ErrorProblemSummary
                 {
                     Fingerprint = g.Key,
+                    FingerprintRules = ErrorFingerprint.RulesVersion,
                     Component = newest.Component,
                     Source = newest.Source,
                     Count = count,
@@ -398,8 +411,17 @@ internal sealed class ErrorReportStore
         using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
         using (var reader = new StreamReader(stream, Encoding.UTF8))
             text = reader.ReadToEnd();
-        return JsonSerializer.Deserialize<ErrorProblemSummary>(text)
-            ?? throw new JsonException($"the summary {file} is empty");
+        ErrorProblemSummary? summary;
+        try
+        {
+            summary = JsonSerializer.Deserialize<ErrorProblemSummary>(text);
+        }
+        catch (JsonException ex)
+        {
+            // Name the file: it is the one thing the person who must repair it by hand on the share needs to know.
+            throw new JsonException($"the summary {file} does not parse: {ex.Message}", ex);
+        }
+        return summary ?? throw new JsonException($"the summary {file} is empty");
     }
 
     private void WriteSummary(ErrorProblemSummary summary)
@@ -459,9 +481,7 @@ internal sealed class ErrorReportStore
             if (record is null) continue;
             // A record stored before fingerprints existed (issue #3675) is given one as it is read, by the same code
             // that stamps every new record, so old and new reports of one problem group together.
-            yield return record.Fingerprint is null
-                ? record with { Fingerprint = ErrorFingerprint.Of(record.Component, record.Source, record.ExceptionType, record.Message) }
-                : record;
+            yield return record.Fingerprint is null ? record.Stamped() : record;
         }
     }
 
