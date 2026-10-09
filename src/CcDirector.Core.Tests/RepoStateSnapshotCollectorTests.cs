@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Git;
+using CcDirector.Core.Utilities;
 using Xunit;
 
 namespace CcDirector.Core.Tests;
@@ -158,6 +159,75 @@ public sealed class RepoStateSnapshotCollectorTests : IDisposable
 
         Assert.Single(snapshots);
         Assert.Equal(_repo, snapshots[0].Path);
+    }
+
+    [Fact]
+    public async Task A_registered_folder_that_is_not_a_git_repository_is_skipped_and_reports_no_error()
+    {
+        // Issue #3669: sessions are started in plain folders too, and those folders are registered. Such a
+        // folder is a normal case, not a failure - it must be left out WITHOUT an error line, because every
+        // error line is sent to the Gateway as an error report, on every push cycle.
+        var plainFolder = Path.Combine(_root, "plain-folder");
+        Directory.CreateDirectory(plainFolder);
+        var errors = new List<string>();
+        var previous = FileLog.ErrorObserver;
+        using var scope = FileLog.RedirectForTests();
+        try
+        {
+            FileLog.ErrorObserver = errors.Add;
+
+            var snapshots = await new RepoStateSnapshotCollector()
+                .CollectAsync(new[] { Repo(), Repo(plainFolder) });
+
+            Assert.Single(snapshots);
+            Assert.Equal(_repo, snapshots[0].Path);
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            FileLog.ErrorObserver = previous;
+        }
+    }
+
+    [Fact]
+    public async Task A_folder_with_a_broken_git_link_still_fails_loudly_and_is_omitted()
+    {
+        // The skip for plain folders (#3669) must not swallow a real failure: a folder that claims to be a
+        // repository (a .git file) and cannot be read by git is still an error, and still left out of the batch.
+        var broken = Path.Combine(_root, "broken-link");
+        Directory.CreateDirectory(broken);
+        File.WriteAllText(Path.Combine(broken, ".git"), "gitdir: " + Path.Combine(_root, "no-such-git-dir"));
+        var errors = new List<string>();
+        var previous = FileLog.ErrorObserver;
+        using var scope = FileLog.RedirectForTests();
+        try
+        {
+            FileLog.ErrorObserver = errors.Add;
+
+            var snapshots = await new RepoStateSnapshotCollector()
+                .CollectAsync(new[] { Repo(), Repo(broken) });
+
+            Assert.Single(snapshots);
+            Assert.Equal(_repo, snapshots[0].Path);
+            Assert.Contains(errors, e => e.Contains("CollectOne FAILED", StringComparison.Ordinal));
+        }
+        finally
+        {
+            FileLog.ErrorObserver = previous;
+        }
+    }
+
+    [Fact]
+    public async Task A_registered_folder_inside_a_repository_is_still_collected()
+    {
+        // git answers for a folder inside a repository's working tree, so the check for "is this a
+        // repository" must look up the parents as git does, not only at the folder itself.
+        var inner = Path.Combine(_repo, "inner");
+        Directory.CreateDirectory(inner);
+
+        var snapshot = Assert.Single(await new RepoStateSnapshotCollector().CollectAsync(new[] { Repo(inner) }));
+
+        Assert.Equal(inner, snapshot.Path);
     }
 
     [Fact]
