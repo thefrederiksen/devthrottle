@@ -7,8 +7,11 @@ import {
   cronToEnglish,
   epochOrMax,
   lastOutcome,
+  nextRunInstant,
+  nextRunLabel,
   promptBody,
   relativeUntil,
+  scheduleListOf,
 } from "./scheduleFormat";
 
 // A minimal CronJob builder for the display tests - only the fields these pure helpers read.
@@ -183,5 +186,55 @@ describe("absoluteUtc", () => {
 
   it("returns a dash when absent", () => {
     expect(absoluteUtc(null)).toBe("-");
+  });
+});
+
+// The owner, 2026-10-09: the page lists only schedules that will still run, and a one-off that already ran must
+// never read "overdue". The lifecycle comes from the Gateway; these check the page files each one correctly.
+describe("scheduleListOf", () => {
+  it("lists an active schedule as active", () => {
+    expect(scheduleListOf(job({ lifecycle: "active" }))).toBe("active");
+  });
+
+  it("lists a switched-off repeating schedule as paused, never as active", () => {
+    expect(scheduleListOf(job({ enabled: false, lifecycle: "paused" }))).toBe("paused");
+  });
+
+  it("lists a spent one-off and one switched off before it ran as historical", () => {
+    expect(scheduleListOf(job({ scheduleKind: "oneOff", enabled: false, lifecycle: "spent" }))).toBe("historical");
+    expect(scheduleListOf(job({ scheduleKind: "oneOff", enabled: false, lifecycle: "off" }))).toBe("historical");
+  });
+
+  it("lists a job with no lifecycle as active, so nothing can vanish from the default view", () => {
+    expect(scheduleListOf(job({ lifecycle: undefined }))).toBe("active");
+  });
+});
+
+describe("nextRunLabel", () => {
+  const now = Date.parse("2026-10-09T12:00:00Z");
+
+  it("reads 'ran <date>' for a spent one-off, never 'overdue'", () => {
+    const spent = job({
+      scheduleKind: "oneOff",
+      enabled: false,
+      lifecycle: "spent",
+      nextRunUtc: "2026-08-03T14:30:00Z",
+      lastFiredUtc: "2026-08-03T14:30:05Z",
+    });
+    expect(nextRunLabel(spent, now)).toBe("ran 2026-08-03");
+    expect(nextRunInstant(spent)).toBe("2026-08-03T14:30:05Z");
+  });
+
+  it("reads 'paused' and 'off' for the switched-off kinds", () => {
+    expect(nextRunLabel(job({ enabled: false, lifecycle: "paused", nextRunUtc: "2026-10-10T07:00:00Z" }), now)).toBe(
+      "paused",
+    );
+    expect(nextRunLabel(job({ scheduleKind: "oneOff", enabled: false, lifecycle: "off" }), now)).toBe("off");
+  });
+
+  it("counts down to the next run for an active schedule", () => {
+    const active = job({ lifecycle: "active", nextRunUtc: "2026-10-09T15:00:00Z" });
+    expect(nextRunLabel(active, now)).toBe("in 3h");
+    expect(nextRunInstant(active)).toBe("2026-10-09T15:00:00Z");
   });
 });

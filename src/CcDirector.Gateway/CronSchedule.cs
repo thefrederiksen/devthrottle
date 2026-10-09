@@ -176,14 +176,15 @@ public static class CronSchedule
     public static TimeZoneInfo? FindZone(string? id) => TryFindTimeZone(id);
 
     /// <summary>
-    /// Stamp a random job's display fields (<see cref="CronJobDto.ScheduleText"/> and
-    /// <see cref="CronJobDto.RemainingToday"/>) as of <paramref name="nowUtc"/>, so a client shows them as given.
-    /// Leaves every other kind, and a random job whose stored settings no longer validate, untouched.
-    /// Returns the same job.
+    /// Stamp a job's display fields as of <paramref name="nowUtc"/>, so a client shows them as given: every job gets
+    /// its <see cref="CronJobDto.Lifecycle"/>, and a random job also gets <see cref="CronJobDto.ScheduleText"/> and
+    /// <see cref="CronJobDto.RemainingToday"/>. A random job whose stored settings no longer validate gets only its
+    /// lifecycle. Returns the same job.
     /// </summary>
     public static CronJobDto StampDisplay(CronJobDto job, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(job);
+        job.Lifecycle = LifecycleOf(job);
         if (!IsRandom(job.ScheduleKind) || !Validate(job).Ok)
             return job;
         var plan = BuildPlan(job, nowUtc, days: 1);
@@ -196,6 +197,22 @@ public static class CronSchedule
         job.RemainingToday = plan.Fires.Where(f => f.Local.StartsWith(todayText, StringComparison.Ordinal))
             .Select(f => f.Local[11..]).ToList();
         return job;
+    }
+
+    /// <summary>
+    /// Whether the job will still run (<see cref="CronLifecycle"/>). A job that is switched on is active - including
+    /// a one-off whose time has passed but has not fired yet, because the engine still fires it. A switched-off
+    /// one-off that has fired is spent: the engine switches a one-off off as it fires it. One switched off by hand
+    /// before it ever fired is off. Any other switched-off job repeats, so it is paused rather than finished.
+    /// </summary>
+    public static string LifecycleOf(CronJobDto job)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        if (job.Enabled)
+            return CronLifecycle.Active;
+        if (IsOneOff(job.ScheduleKind))
+            return job.LastFiredUtc is null ? CronLifecycle.Off : CronLifecycle.Spent;
+        return CronLifecycle.Paused;
     }
 
     /// <summary>The most windows <see cref="BuildPlan"/> will list.</summary>
