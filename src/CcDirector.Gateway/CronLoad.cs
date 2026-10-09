@@ -55,8 +55,19 @@ public static class CronLoad
         return new CronLoadDto { GeneratedUtc = now, Capacity = capacity, Machines = machines };
     }
 
-    private static CronMachineLoadDto MachineLoad(string machine, List<CronJobDto> jobs,
-        IReadOnlyDictionary<string, TimeSpan> runLengths, DateTime now, int capacity)
+    /// <summary>One machine's runs over the forecast window, before they are cut into hours.</summary>
+    private sealed record MachinePlan(
+        string Machine,
+        string ZoneId,
+        TimeZoneInfo Zone,
+        DateTime WindowStart,
+        DateTime WindowEnd,
+        List<(string JobId, DateTime Start, DateTime End)> Runs,
+        List<string> Estimated,
+        List<string> Unplaced);
+
+    private static MachinePlan PlanMachine(string machine, List<CronJobDto> jobs,
+        IReadOnlyDictionary<string, TimeSpan> runLengths, DateTime now)
     {
         // A schedule whose stored zone this host does not know cannot be placed in time. It is named rather than
         // failing the whole forecast, the way the list degrades one job's next run rather than every job's.
@@ -89,6 +100,13 @@ public static class CronLoad
             runs.AddRange(FiresBetween(job, windowStart - length, windowEnd, now)
                 .Select(start => (job.Id, start, start + length)));
         }
+        return new MachinePlan(machine, zoneId, zone, windowStart, windowEnd, runs, estimated, unplaced);
+    }
+
+    private static CronMachineLoadDto MachineLoad(string machine, List<CronJobDto> jobs,
+        IReadOnlyDictionary<string, TimeSpan> runLengths, DateTime now, int capacity)
+    {
+        var (_, zoneId, zone, windowStart, _, runs, estimated, unplaced) = PlanMachine(machine, jobs, runLengths, now);
 
         var hours = new List<CronLoadHourDto>(Hours);
         for (var i = 0; i < Hours; i++)
@@ -140,6 +158,54 @@ public static class CronLoad
                 _ => $"{unplaced.Count} schedules are not counted: their time zones are not known on this host",
             },
         };
+    }
+
+    /// <summary>
+    /// The warning for a schedule just written, from a forecast that already includes it: the worst hour its sessions
+    /// are open in that is over capacity, and the machine's quietest hour. Null when every hour it touches fits.
+    ///
+    /// Only this schedule's runs still to START are judged - one that would have begun before now did not happen, the
+    /// schedule having just been written - and each is judged over the moments it is itself open, so a run that sits
+    /// beside a crowded hour without overlapping the crowd is not blamed for it.
+    /// </summary>
+    public static string? WarningFor(IEnumerable<CronJobDto> jobs, IReadOnlyDictionary<string, TimeSpan> runLengths,
+        DateTime nowUtc, int capacity, CronJobDto job)
+    {
+        ArgumentNullException.ThrowIfNull(jobs);
+        ArgumentNullException.ThrowIfNull(job);
+        if (CronSchedule.LifecycleOf(job) != CronLifecycle.Active)
+            return null;
+        var now = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc);
+        var load = Build(jobs, runLengths, now, capacity);
+        var machine = load.Machines.FirstOrDefault(m =>
+            string.Equals(m.Machine, job.Target.Machine, StringComparison.OrdinalIgnoreCase));
+        if (machine is null)
+            return null;
+
+        var machineJobs = jobs
+            .Where(j => CronSchedule.LifecycleOf(j) == CronLifecycle.Active
+                && string.Equals(j.Target.Machine, machine.Machine, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var plan = PlanMachine(machine.Machine, machineJobs, runLengths, now);
+        var own = plan.Runs.Where(r => r.JobId == job.Id && r.Start >= now).ToList();
+        var judged = own
+            .Select(r =>
+            {
+                var end = r.End < plan.WindowEnd ? r.End : plan.WindowEnd;
+                var overlapping = plan.Runs.Where(o => o.Start < end && o.End > r.Start).ToList();
+                return (Run: r, Open: PeakOpen(overlapping, r.Start, end));
+            })
+            .Where(x => x.Open > capacity)
+            .ToList();
+        if (judged.Count == 0)
+            return null;
+
+        var worst = judged.OrderByDescending(x => x.Open).ThenBy(x => x.Run.Start).First();
+        var at = TimeZoneInfo.ConvertTimeFromUtc(worst.Run.Start, plan.Zone).ToString("HH:mm", CultureInfo.InvariantCulture);
+        var more = judged.Count == 1 ? "" : $" ({judged.Count} of its runs in the next 24 hours are)";
+        return $"{machine.Machine} will have {worst.Open} scheduled sessions open at once while this one runs from {at}, "
+            + $"over its capacity of {capacity}{more}. The quietest hour is {machine.Quietest.Label} "
+            + $"({machine.Quietest.Concurrent} open) - see cc-devthrottle schedule load --machine {machine.Machine}.";
     }
 
     /// <summary>The start of the hour <paramref name="now"/> is in, on the clock of <paramref name="zone"/>, in UTC.</summary>

@@ -176,6 +176,53 @@ public sealed class CronLoadTests
     }
 
     [Fact]
+    public void WarningFor_AScheduleThatRunsInsideTheCrowd_NamesHowManyAreOpenAndTheQuietestHour()
+    {
+        var jobs = new[] { Daily("a", "0 7 * * *"), Daily("b", "0 7 * * *"), Daily("new", "30 7 * * *") };
+
+        Assert.Equal(
+            "SOREN_NORTH will have 3 scheduled sessions open at once while this one runs from 07:30, over its capacity "
+            + "of 2. The quietest hour is 00:00 (0 open) - see cc-devthrottle schedule load --machine SOREN_NORTH.",
+            CronLoad.WarningFor(jobs, Lengths(("a", 90), ("b", 90), ("new", 20)), Now, 2, jobs[2]));
+    }
+
+    [Fact]
+    public void WarningFor_AScheduleThatFits_IsNull_EvenWhenAnotherHourIsOver()
+    {
+        var jobs = new[] { Daily("a", "0 7 * * *"), Daily("b", "0 7 * * *"), Daily("c", "0 7 * * *"), Daily("new", "0 13 * * *") };
+        var lengths = Lengths(("a", 30), ("b", 30), ("c", 30), ("new", 30));
+
+        Assert.True(CronLoad.Build(jobs, lengths, Now, 2).Machines[0].Hours.Single(h => h.Label == "07:00").Over);
+        Assert.Null(CronLoad.WarningFor(jobs, lengths, Now, 2, jobs[3]));
+        // A paused schedule starts nothing, so it is never warned about.
+        var paused = Daily("paused", "0 7 * * *", enabled: false);
+        Assert.Null(CronLoad.WarningFor(jobs.Append(paused), lengths, Now, 2, paused));
+    }
+
+    [Fact]
+    public void WarningFor_ARunInTheCrowdedHourThatDoesNotOverlapTheCrowd_IsNotBlamedForIt()
+    {
+        // Three at 07:00 for 30 min fill the hour; the new one at 07:50 is alone by then.
+        var jobs = new[] { Daily("a", "0 7 * * *"), Daily("b", "0 7 * * *"), Daily("c", "0 7 * * *"), Daily("new", "50 7 * * *") };
+        var lengths = Lengths(("a", 30), ("b", 30), ("c", 30), ("new", 20));
+
+        Assert.True(CronLoad.Build(jobs, lengths, Now, 2).Machines[0].Hours.Single(h => h.Label == "07:00").Over);
+        Assert.Null(CronLoad.WarningFor(jobs, lengths, Now, 2, jobs[3]));
+    }
+
+    [Fact]
+    public void WarningFor_AScheduleWrittenJustAfterItsTimeToday_IsJudgedOnTomorrowsRunNotTheOneThatDidNotHappen()
+    {
+        // 07:20 in Toronto: the crowd at 07:00 is open, and a new 07:00 schedule's first run is tomorrow, outside the
+        // forecast, so it adds nothing to today's 07:00.
+        var at0720 = new DateTime(2026, 10, 9, 11, 20, 0, DateTimeKind.Utc);
+        var jobs = new[] { Daily("a", "0 7 * * *"), Daily("b", "0 7 * * *"), Daily("new", "0 7 * * *") };
+        var lengths = Lengths(("a", 30), ("b", 30), ("new", 30));
+
+        Assert.Null(CronLoad.WarningFor(jobs, lengths, at0720, 2, jobs[2]));
+    }
+
+    [Fact]
     public void Build_AnEveryFifteenMinutesSchedule_StartsFourTimesAnHour()
     {
         var machine = Assert.Single(CronLoad.Build(new[] { Daily("often", "*/15 * * * *") }, Lengths(("often", 5)), Now, 6).Machines);

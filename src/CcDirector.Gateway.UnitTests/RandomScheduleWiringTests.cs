@@ -189,6 +189,50 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Rest_Create_AScheduleThatOverfillsAnHour_IsSavedWithALoadWarning_AndOneThatFitsHasNone()
+    {
+        // Three hours ahead of now on the schedules' own clock, so every run is inside the forecast whatever time the
+        // test runs at, and none has already started.
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("America/Toronto");
+        var hour = (TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, zone).Hour + 3) % 24;
+        var label = $"{hour:00}:00";
+        CronJobDto Seven(int i) => new()
+        {
+            Name = $"seven-{i}",
+            ScheduleKind = "recurring",
+            CronExpression = $"0 {hour} * * *",
+            TimeZoneId = "America/Toronto",
+            Target = new CronJobTarget { Machine = "busy-box" },
+            Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
+        };
+        for (var i = 0; i < CronLoad.DefaultCapacity; i++)
+        {
+            var fits = await _http.PostAsJsonAsync("cron/jobs", Seven(i));
+            var fitted = JsonSerializer.Deserialize<CronJobDto>(await fits.Content.ReadAsStringAsync(), JsonOpts)!;
+            Assert.Null(fitted.LoadWarning);
+        }
+
+        var resp = await _http.PostAsJsonAsync("cron/jobs", Seven(99));
+
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        var created = JsonSerializer.Deserialize<CronJobDto>(await resp.Content.ReadAsStringAsync(), JsonOpts)!;
+        Assert.NotNull(_store.Get(created.Id));
+        Assert.StartsWith($"busy-box will have {CronLoad.DefaultCapacity + 1} scheduled sessions open at once while this one runs from {label}",
+            created.LoadWarning);
+
+        // An update through PUT - here switching it off and on again, as `schedule disable` and `enable` do - is
+        // warned on the same terms: off starts nothing, on lands back in the crowd.
+        created.Enabled = false;
+        var off = JsonSerializer.Deserialize<CronJobDto>(
+            await (await _http.PutAsJsonAsync($"cron/jobs/{created.Id}", created)).Content.ReadAsStringAsync(), JsonOpts)!;
+        Assert.Null(off.LoadWarning);
+        created.Enabled = true;
+        var on = JsonSerializer.Deserialize<CronJobDto>(
+            await (await _http.PutAsJsonAsync($"cron/jobs/{created.Id}", created)).Content.ReadAsStringAsync(), JsonOpts)!;
+        Assert.StartsWith("busy-box will have", on.LoadWarning);
+    }
+
+    [Fact]
     public async Task Rest_List_WithoutTheOptIn_LeavesRandomJobsOut_AndStillParses()
     {
         var random = _store.Create(RandomJob());

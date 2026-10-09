@@ -78,7 +78,9 @@ internal static class CronJobEndpoints
                 return seatError!;
 
             var created = store.Create(job);
-            return Results.Json(CronSchedule.StampDisplay(created, DateTime.UtcNow), statusCode: StatusCodes.Status201Created);
+            var stamped = CronSchedule.StampDisplay(created, DateTime.UtcNow);
+            stamped.LoadWarning = LoadWarningFor(stamped);
+            return Results.Json(stamped, statusCode: StatusCodes.Status201Created);
         });
 
         // RANDOM SCHEDULES ARE LISTED ONLY TO A CALLER THAT ASKS (issue #3622). Every cc-devthrottle released before
@@ -109,15 +111,48 @@ internal static class CronJobEndpoints
             return Results.Json(new { jobs });
         });
 
+        // The overload warning on a create or an update (the owner, 2026-10-09): the forecast with this schedule in it,
+        // read the same way as GET /cron/load, so the warning and the strip can never disagree.
+        (IReadOnlyList<CronJobDto> Jobs, IReadOnlyDictionary<string, TimeSpan> Lengths) ForecastInputs()
+        {
+            var jobs = store.ListAll();
+            var lengths = runRecords.RunLengthsOf(jobs.Select(j => j.Id).ToList());
+            FileLog.Write($"[CronJobEndpoints] forecast inputs: schedules={jobs.Count}, measured={lengths.Count}");
+            return (jobs, lengths);
+        }
+
+        CronLoadDto Forecast()
+        {
+            var (jobs, lengths) = ForecastInputs();
+            return CronLoad.Build(jobs, lengths, DateTime.UtcNow, CronLoad.DefaultCapacity);
+        }
+
+        // The schedule is already saved when this runs, so a failure reading the forecast must not turn the saved
+        // write into a failed answer - an agent would retry and create a duplicate. It is logged and said in the
+        // warning itself, never swallowed: the caller sees that the load could not be checked.
+        string? LoadWarningFor(CronJobDto job)
+        {
+            try
+            {
+                var (jobs, lengths) = ForecastInputs();
+                var warning = CronLoad.WarningFor(jobs, lengths, DateTime.UtcNow, CronLoad.DefaultCapacity, job);
+                if (warning is not null)
+                    FileLog.Write($"[CronJobEndpoints] load warning for {job.Id}: {warning}");
+                return warning;
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[CronJobEndpoints] load warning for {job.Id} FAILED: {ex}");
+                return $"The schedule is saved, but its load could not be checked: {ex.Message}";
+            }
+        }
+
         // THE LOAD STRIP (the owner, 2026-10-09): each machine's next 24 hours, one bar per hour, from every active
         // schedule's fires and its own measured run length. Random schedules count: they start sessions like any other.
         app.MapGet("/cron/load", () =>
         {
-            var now = DateTime.UtcNow;
-            var jobs = store.ListAll();
-            var lengths = runRecords.RunLengthsOf(jobs.Select(j => j.Id).ToList());
-            var load = CronLoad.Build(jobs, lengths, now, CronLoad.DefaultCapacity);
-            FileLog.Write($"[CronJobEndpoints] GET /cron/load: machines={load.Machines.Count}, measured={lengths.Count}/{jobs.Count}");
+            var load = Forecast();
+            FileLog.Write($"[CronJobEndpoints] GET /cron/load: machines={load.Machines.Count}");
             return Results.Json(load);
         });
 
@@ -207,9 +242,11 @@ internal static class CronJobEndpoints
                 return seatError!;
 
             var updated = store.Update(id, incoming);
-            return updated is null
-                ? Results.NotFound(new { error = "no such cron job", id })
-                : Results.Json(CronSchedule.StampDisplay(updated, DateTime.UtcNow));
+            if (updated is null)
+                return Results.NotFound(new { error = "no such cron job", id });
+            var stamped = CronSchedule.StampDisplay(updated, DateTime.UtcNow);
+            stamped.LoadWarning = LoadWarningFor(stamped);
+            return Results.Json(stamped);
         });
 
         app.MapDelete("/cron/jobs/{id}", (string id, HttpContext ctx) =>

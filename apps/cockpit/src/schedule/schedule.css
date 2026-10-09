@@ -1150,3 +1150,16 @@
   margin: 0 0 8px;
   font-size: 13px;
 }
+
+.sched-banner-warn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 8px;
+  font-size: 13px;
+}

@@ -153,6 +153,13 @@ public sealed class CronJobDto
     /// <c>CronDisplayName</c> on a list read. Read-only.
     /// </summary>
     public string? ShortName { get; set; }
+
+    /// <summary>
+    /// Set on the answer to a create or an update when this schedule's sessions will be open in an hour that is over
+    /// its machine's capacity (the owner, 2026-10-09), naming the worst hour and the quietest one. Null when it fits.
+    /// The schedule is saved either way: this is a warning, not a refusal. Read-only.
+    /// </summary>
+    public string? LoadWarning { get; set; }
 }
 
 /// <summary>
