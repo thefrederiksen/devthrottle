@@ -38,8 +38,11 @@ public sealed class CronJobEndpointsTests : IAsyncLifetime
         builder.Logging.ClearProviders();
         _app = builder.Build();
         _app.Urls.Add(bindUrl);
-        CronJobEndpoints.Map(_app, new CronJobStore(_h.Open(), _storePath), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
-            findFactory: (_, _) => null);
+        var db = _h.Open();
+        CronJobEndpoints.Map(_app, new CronJobStore(db, _storePath), sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
+            findFactory: (_, _) => null,
+            runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(new CronRunHistoryStore(db, _storePath + ".runs.json"),
+                new CcDirector.Gateway.History.SessionHistoryStore(db).EndingsOf));
         await _app.StartAsync();
         var baseUrl = $"http://127.0.0.1:{BoundPort.Of(_app)}";
 

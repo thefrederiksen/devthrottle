@@ -62,6 +62,16 @@ export interface CronJob {
   remainingToday?: string[] | null;
   /** Whether the schedule will still run, folded by the Gateway: "active" | "paused" | "spent" | "off". Read-only. */
   lifecycle?: string | null;
+  /** Whether this schedule's recent sessions closed themselves, folded by the Gateway on a list read. Read-only. */
+  runRecord?: CronRunRecordSummary | null;
+}
+
+/** A schedule's run record in words (CronRunRecordSummaryDto): show `text` as given, coloured by `verdict`. */
+export interface CronRunRecordSummary {
+  /** "ok" (its sessions close themselves), "bad" (some were stopped by someone or left open) or "none". */
+  verdict: string;
+  text: string;
+  runs: number;
 }
 
 /** One execution of a cron job. The two status fields are deliberately separate: infraStatus is
@@ -74,6 +84,10 @@ export interface CronRunRecord {
   sessionId?: string | null;
   infraStatus: string;
   taskStatus: string;
+  /** How the run's session ended, folded by the Gateway (CronRunEndings), for example "closed-itself". Read-only. */
+  ending?: string | null;
+  /** The ending in words, for example "closed itself after 6 min". Read-only. */
+  endingText?: string | null;
 }
 
 // Pull the Gateway's own { error } message out of a non-2xx body so the caller shows the real

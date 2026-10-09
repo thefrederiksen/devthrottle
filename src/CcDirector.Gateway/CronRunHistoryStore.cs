@@ -142,6 +142,89 @@ public sealed class CronRunHistoryStore
         }
     }
 
+    /// <summary>
+    /// Record how a scheduled run's session ended, at the moment a Gateway route carried the request that ends it
+    /// (the owner, 2026-10-09): the session asked to close itself, a person stopped it, or another session did. Only
+    /// the route knows who asked, so it is written then rather than worked out later.
+    ///
+    /// The LATEST request wins, because it is the one that ended the session: a session that flagged itself and was
+    /// then stopped by hand before the reaper reached it was stopped by hand. A run whose session no schedule started
+    /// has no row, and this does nothing for it - which is every session that is not a scheduled one.
+    /// </summary>
+    /// <returns>How many runs were stamped: 0 for a session no schedule started.</returns>
+    public int StampEnding(Core.Tenancy.TenantId tenant, string sessionId, string ending)
+    {
+        if (!CronRunEndings.IsRecorded(ending))
+            throw new ArgumentException($"only a recorded ending may be stamped, not '{ending}'", nameof(ending));
+        if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return 0;
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var rows = ctx.CronRuns.Where(e => e.SessionId == sessionId).ToList();
+            foreach (var row in rows)
+                row.TaskStatus = ending;
+            if (rows.Count > 0)
+            {
+                ctx.SaveChanges();
+                FileLog.Write($"[CronRunHistoryStore] StampEnding: session={sessionId}, ending={ending}, runs={rows.Count}");
+            }
+            return rows.Count;
+        }
+    }
+
+    /// <summary>
+    /// Take back a recorded ending when the request that made it is undone - a pending deletion cancelled in its
+    /// grace window - so a session that is carrying on is not reported as having closed itself.
+    /// </summary>
+    public int ClearEnding(Core.Tenancy.TenantId tenant, string sessionId)
+    {
+        if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return 0;
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var rows = ctx.CronRuns.Where(e => e.SessionId == sessionId).ToList()
+                .Where(e => CronRunEndings.IsRecorded(e.TaskStatus)).ToList();
+            foreach (var row in rows)
+                row.TaskStatus = TaskStatusUnknown;
+            if (rows.Count > 0)
+            {
+                ctx.SaveChanges();
+                FileLog.Write($"[CronRunHistoryStore] ClearEnding: session={sessionId}, runs={rows.Count}");
+            }
+            return rows.Count;
+        }
+    }
+
+    /// <summary>The task status a fire writes, before anything is known about how the work ended.</summary>
+    public const string TaskStatusUnknown = "unknown";
+
+    /// <summary>
+    /// The newest <paramref name="perJob"/> runs of each of <paramref name="jobIds"/>, newest first, in ONE query - what
+    /// the schedule list folds each job's run record from on every poll, so it must not cost a query per job. Only the
+    /// listed jobs are read: run history outlives a deleted schedule, and its rows must not ride along on every poll.
+    /// What is read is bounded by the per-job cap <see cref="Append"/> keeps (<see cref="MaxRecordsPerJob"/>).
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> RecentByJob(IReadOnlyCollection<string> jobIds, int perJob)
+    {
+        ArgumentNullException.ThrowIfNull(jobIds);
+        if (perJob < 1) throw new ArgumentOutOfRangeException(nameof(perJob), perJob, "perJob must be at least 1");
+        if (jobIds.Count == 0) return new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            return ctx.CronRuns.AsNoTracking()
+                .Where(e => jobIds.Contains(e.JobId))
+                .OrderByDescending(e => e.Sequence)
+                .ToList()
+                .GroupBy(e => e.JobId, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key,
+                    g => (IReadOnlyList<CronRunRecord>)g.Take(perJob).Select(ToRecord).ToList(),
+                    StringComparer.Ordinal);
+        }
+    }
+
     private static CronRunEntity ToEntity(string jobId, CronRunRecord r, long sequence, string tenantId) => new()
     {
         JobId = jobId,

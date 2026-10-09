@@ -467,6 +467,28 @@ public sealed class SessionHistoryStore
         }
     }
 
+    /// <summary>
+    /// How each of these sessions ended, in ONE query, for the Schedule page's run record (the owner, 2026-10-09). A
+    /// session with a row and no ending is still open; a session with no row is absent from the result, because the
+    /// Gateway never saw it or its history has aged out - and that is a different answer from "still open".
+    /// Reads in the ambient tenant, like every other read here.
+    /// </summary>
+    public IReadOnlyDictionary<string, SessionEndingFact> EndingsOf(IReadOnlyCollection<string> sessionIds)
+    {
+        ArgumentNullException.ThrowIfNull(sessionIds);
+        if (sessionIds.Count == 0)
+            return new Dictionary<string, SessionEndingFact>(StringComparer.Ordinal);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            return ctx.SessionHistory.AsNoTracking()
+                .Where(e => sessionIds.Contains(e.SessionId))
+                .Select(e => new { e.SessionId, e.EndingKind, e.EndedAtUtc })
+                .ToList()
+                .ToDictionary(e => e.SessionId, e => new SessionEndingFact(e.EndingKind, e.EndedAtUtc), StringComparer.Ordinal);
+        }
+    }
+
     /// <summary>One session's folded record, or null.</summary>
     public WorkHistorySessionDto? Get(string sessionId)
     {
@@ -547,4 +569,7 @@ public sealed record SessionOriginTotals(
 /// <param name="FirstStartedUtc">When that earliest kept session started.</param>
 /// <param name="FirstAgent">The agent that session ran, or null when it was not recorded.</param>
 /// <param name="LastSeenUtc">When any session on this computer was last seen.</param>
+/// <summary>How one session ended: <see cref="SessionHistoryEndings"/> kind (null while it is open) and when.</summary>
+public sealed record SessionEndingFact(string? EndingKind, DateTime? EndedAtUtc);
+
 public sealed record MachineHistory(string MachineName, DateTime FirstStartedUtc, string? FirstAgent, DateTime LastSeenUtc);

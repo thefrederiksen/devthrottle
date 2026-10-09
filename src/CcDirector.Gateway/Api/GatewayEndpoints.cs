@@ -346,7 +346,12 @@ internal static partial class GatewayEndpoints
         // with no unsent words of the owner's in its composer, before it types (PromptRequest.OnlyWhenWaitingForInput).
         // A session types into a session it owns only through such a Director. Null means no Director is known to
         // check, so nothing is typed for a session key - the refusal says why.
-        Func<TenantId, string, bool>? directorChecksBeforeTyping = null)
+        Func<TenantId, string, bool>? directorChecksBeforeTyping = null,
+        // The scheduled-run history (the owner, 2026-10-09): a stop or a deletion request that ends a session a
+        // schedule started is written onto that run as who ended it - the session itself, another session, or a
+        // person - because only these routes know who asked. Null (tests, older callers) records no ending, and the
+        // Schedule page then reads such a run as closed with its closer not recorded.
+        CronRunHistoryStore? scheduledRuns = null)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         if ((raisedSessions is null) != (raisedRecord is null))
@@ -2333,6 +2338,7 @@ internal static partial class GatewayEndpoints
                 FileLog.Write($"[GatewayEndpoints] stop {sid}: {response.Headline} (actor={actor})");
 
                 RecordOnce(response.Verdict);
+                StampScheduledRunEnding(ctx, tenant.Value, session.SessionId);
 
                 // The stop is reported exactly as it happened; what is added here is a SECOND fact, about the
                 // record rather than about the session. The verdict word does not move - the session really
@@ -2404,6 +2410,26 @@ internal static partial class GatewayEndpoints
         // Who asked, read ONCE off the items the authentication gate stamped - never re-derived from the raw
         // request, because two parsers of one request eventually disagree. The words themselves are composed
         // in the fold, which is pure and testable without a server.
+        // Write who ended a scheduled run's session onto the run (the owner, 2026-10-09). Called only after the
+        // Director accepted the stop or the deletion request. A failure to write is LOGGED, never answered: the
+        // session really was stopped or flagged, and telling the caller otherwise would report a failure for an
+        // operation that succeeded. The run then reads as closed with its closer not recorded, which is true.
+        void StampScheduledRunEnding(HttpContext ctx, TenantId tenant, string sessionId)
+        {
+            if (scheduledRuns is null)
+                return;
+            var ending = Running.CronRunEndingFold.EndingForRequest(
+                AuthMiddleware.CallingSession(ctx)?.SessionId.ToString(), sessionId);
+            try
+            {
+                scheduledRuns.StampEnding(tenant, sessionId, ending);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[GatewayEndpoints] StampScheduledRunEnding FAILED: session={sessionId}, ending={ending}: {ex.Message}");
+            }
+        }
+
         string StopActorFor(HttpContext ctx)
         {
             var callingSession = AuthMiddleware.CallingSession(ctx);
@@ -2568,9 +2594,11 @@ internal static partial class GatewayEndpoints
             // Tunnel-only. The Ok result is success and synthesizes the { pendingDeletion } body; a null result
             // (Director not connected) collapses to 502.
             var streamResult = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "request-deletion", sid, body, ct, machineName: director.MachineName);
-            return streamResult is not null && streamResult.Ok
-                ? Results.Json(new { pendingDeletion = true })
-                : TunnelFailure(streamResult);
+            if (streamResult is null || !streamResult.Ok)
+                return TunnelFailure(streamResult);
+            if (ResolveReadTenant(ctx, tenantBoundary) is { } deletionTenant)
+                StampScheduledRunEnding(ctx, deletionTenant, session.SessionId);
+            return Results.Json(new { pendingDeletion = true });
         });
 
         // Forward "cancel the pending deletion" to the owning Director (grace-window undo).
@@ -2582,9 +2610,12 @@ internal static partial class GatewayEndpoints
             // Gateway Cleanup (Phase 2, PR C): tunnel-first, HTTP fallback on a null return (byte-identical).
             // Post-cut: tunnel-only. A null result (Director not connected) collapses to 502.
             var streamResult = await DirectorCommandRouter.TrySendAsync(sendCommand, director.DirectorId, "cancel-deletion", sid, null, ct, machineName: director.MachineName);
-            return streamResult is not null && streamResult.Ok
-                ? Results.Json(new { pendingDeletion = false })
-                : TunnelFailure(streamResult);
+            if (streamResult is null || !streamResult.Ok)
+                return TunnelFailure(streamResult);
+            // The deletion is undone, so the session carries on: take back the ending the request recorded.
+            if (scheduledRuns is not null && ResolveReadTenant(ctx, tenantBoundary) is { } cancelTenant)
+                scheduledRuns.ClearEnding(cancelTenant, session.SessionId);
+            return Results.Json(new { pendingDeletion = false });
         });
 
         // Phase 4b: forward wingman observability through the Gateway so the merged

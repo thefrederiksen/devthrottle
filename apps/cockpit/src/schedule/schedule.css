@@ -915,3 +915,21 @@
   letter-spacing: 0.04em;
   color: var(--text-dim);
 }
+
+/* Whether a schedule's sessions close themselves - the Gateway's verdict, coloured. */
+.sched-runrecord {
+  font-size: 12px;
+}
+
+.sched-runrecord.ok {
+  color: var(--ok-text);
+}
+
+.sched-runrecord.bad {
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
+.sched-runrecord.none {
+  color: var(--text-dim);
+}

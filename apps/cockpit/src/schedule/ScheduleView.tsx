@@ -564,6 +564,20 @@ export function ScheduleView() {
         },
       },
       {
+        // Whether this schedule's sessions close themselves (the owner, 2026-10-09). The words and the verdict are
+        // the Gateway's; the page only colours the verdict it is given.
+        key: "closes",
+        header: "Closes itself",
+        width: "230px",
+        sortable: true,
+        sortValue: (job) => runRecordRank(job.runRecord?.verdict),
+        render: (job) => (
+          <span className={`sched-runrecord ${runRecordClass(job.runRecord?.verdict)}`}>
+            {job.runRecord?.text ?? "-"}
+          </span>
+        ),
+      },
+      {
         key: "enabled",
         header: "Status",
         width: "90px",
@@ -644,6 +658,8 @@ export function ScheduleView() {
               {job.lastFiredUtc ? relativeTime(job.lastFiredUtc, { withAgo: true }) : "never"}{" "}
               <span className="dim">({absoluteUtc(job.lastFiredUtc)})</span>
             </dd>
+            <dt>Closes itself</dt>
+            <dd className={`sched-runrecord ${runRecordClass(job.runRecord?.verdict)}`}>{job.runRecord?.text ?? "-"}</dd>
             <dt>Notify</dt>
             <dd>{notifyDescription(job)}</dd>
           </dl>
@@ -665,7 +681,7 @@ export function ScheduleView() {
                   <th>Scheduled</th>
                   <th>Fired</th>
                   <th>Infra</th>
-                  <th>Task</th>
+                  <th>How it ended</th>
                 </tr>
               </thead>
               <tbody>
@@ -676,7 +692,7 @@ export function ScheduleView() {
                     <td>
                       <span className={`sched-st ${infraClass(r.infraStatus)}`}>{r.infraStatus}</span>
                     </td>
-                    <td className="dim">{r.taskStatus}</td>
+                    <td className="dim">{r.endingText ?? r.taskStatus}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1241,6 +1257,21 @@ function fmtUtc(iso: string | null | undefined): string {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(
     d.getUTCMinutes(),
   )} UTC`;
+}
+
+// The colour of a run record, from the verdict the Gateway stamped. Layout only: the verdict itself is never
+// worked out here.
+function runRecordClass(verdict: string | null | undefined): string {
+  if (verdict === "ok") return "ok";
+  if (verdict === "bad") return "bad";
+  return "none";
+}
+
+// Sort order for the Closes itself column: schedules whose sessions are left behind first, so they are found.
+function runRecordRank(verdict: string | null | undefined): number {
+  if (verdict === "bad") return 0;
+  if (verdict === "ok") return 2;
+  return 1;
 }
 
 function infraClass(infra: string): string {

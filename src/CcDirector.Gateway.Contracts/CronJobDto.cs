@@ -133,6 +133,12 @@ public sealed class CronJobDto
     /// Read-only, like <see cref="ScheduleText"/>: computed on every read, ignored on a write.
     /// </summary>
     public string? Lifecycle { get; set; }
+
+    /// <summary>
+    /// Whether this schedule's recent sessions closed themselves, folded by the Gateway from the run history on a
+    /// list read. Null when the read did not fold it (a single-job read or a write). Read-only.
+    /// </summary>
+    public CronRunRecordSummaryDto? RunRecord { get; set; }
 }
 
 /// <summary>
