@@ -129,6 +129,22 @@ public sealed class DevReportListPageTests : IDisposable
         Assert.Equal(position, DevReportListPosition.FromMarker(position.ToMarker()));
     }
 
+    [Theory]
+    [InlineData('"')]
+    [InlineData('é')]
+    [InlineData('<')]
+    public void Marker_RoundTrips_TheLongestKeyMadeOfCharactersJsonEscapes(char c)
+    {
+        // Review round 2: escaping can make a marker for an accepted key longer than the parser once allowed.
+        var key = new string(c, DevReportEndpoints.MaxKeyLength);
+        var position = new DevReportListPosition(T0, "6f1d2c9e-0000-4000-8000-000000000001", key);
+
+        var marker = position.ToMarker();
+
+        Assert.True(marker.Length <= DevReportListPosition.MaxMarkerLength, $"marker is {marker.Length} characters");
+        Assert.Equal(position, DevReportListPosition.FromMarker(marker));
+    }
+
     [Fact]
     public void ListPage_AKeyWithALineBreak_EndingAFullPage_StillLeadsToTheNextPage()
     {

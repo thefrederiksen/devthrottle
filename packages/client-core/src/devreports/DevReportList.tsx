@@ -98,12 +98,14 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
   const showOlder = async () => {
     if (nextMarker === null) return;
     const asked = generation.current;
+    // From the moment older reports are ASKED for, a refresh folds rather than replaces: a refresh that lands while this
+    // page is in flight must not drop the report it pushes off the newest page (review round 2).
+    olderOnScreen.current = true;
     setLoadingOlder(true);
     setOlderError(null);
     try {
       const page = await listDevReports(sessionId, nextMarker);
       if (asked !== generation.current) return;
-      olderOnScreen.current = true;
       setReports((shown) => fold(shown ?? [], page.reports));
       setOlderNext(page.next);
     } catch (err) {

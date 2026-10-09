@@ -66,6 +66,25 @@ describe("DevReportList, one page at a time", () => {
     expect(titles()).toEqual(["Report X", "Report A", "Report B", "Report C", "Report D"]);
   });
 
+  it("keeps the pushed-out report when a refresh lands while older reports are still loading", async () => {
+    // Review round 2: the refresh used to replace the list because the older page had not answered yet.
+    const A = report("A", 40), B = report("B", 30), C = report("C", 20), D = report("D", 10), X = report("X", 50);
+    let newest: DevReportListPage = { reports: [A, B], next: "after-B" };
+    let answerOlder: (page: DevReportListPage) => void = () => {};
+    listDevReports.mockImplementation((_sid, after) => after === null
+      ? Promise.resolve(newest)
+      : new Promise<DevReportListPage>((resolve) => { answerOlder = resolve; }));
+    render(<DevReportList sessionId={undefined} onOpen={() => {}} />);
+    await waitFor(() => expect(titles()).toEqual(["Report A", "Report B"]));
+
+    fireEvent.click(screen.getByTestId("dev-report-list-more"));
+    newest = { reports: [X, A], next: "after-A" };
+    await act(() => refreshNow());
+    await act(async () => answerOlder({ reports: [C, D], next: null }));
+
+    expect(titles()).toEqual(["Report X", "Report A", "Report B", "Report C", "Report D"]);
+  });
+
   it("shows only the newest page, as the Gateway sent it, while no older page has been asked for", async () => {
     let newest: DevReportListPage = { reports: [report("A", 40), report("B", 30)], next: "after-B" };
     listDevReports.mockImplementation(async () => newest);

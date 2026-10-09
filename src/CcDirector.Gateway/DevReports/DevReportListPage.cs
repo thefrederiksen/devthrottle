@@ -20,6 +20,11 @@ public readonly record struct DevReportListPosition(DateTime UpdatedAtUtc, strin
 
     private sealed record Wire(long T, string S, string K);
 
+    /// <summary>The longest marker read back. A key may be <see cref="Api.DevReportEndpoints.MaxKeyLength"/> characters,
+    /// and JSON writes a character it escapes as up to six, so the longest real marker is about 4,200 characters of
+    /// base64; this leaves room above that and still refuses an absurd one.</summary>
+    public const int MaxMarkerLength = 16 * 1024;
+
     /// <summary>The marker the client hands back: update time in ticks, session and key as JSON - so a key may hold any
     /// character, a line break included - then URL-safe base64.</summary>
     public string ToMarker()
@@ -32,7 +37,7 @@ public readonly record struct DevReportListPosition(DateTime UpdatedAtUtc, strin
     /// plain refusal, never a guess at where the list was.</summary>
     public static DevReportListPosition? FromMarker(string? marker)
     {
-        if (string.IsNullOrWhiteSpace(marker) || marker.Length > 2048) return null;
+        if (string.IsNullOrWhiteSpace(marker) || marker.Length > MaxMarkerLength) return null;
         var b64 = marker.Replace('-', '+').Replace('_', '/');
         b64 = b64.PadRight(b64.Length + (4 - b64.Length % 4) % 4, '=');
         Wire? wire;
