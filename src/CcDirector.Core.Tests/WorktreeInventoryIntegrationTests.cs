@@ -567,6 +567,37 @@ public sealed class WorktreeInventoryIntegrationTests : IDisposable
         return (branchWt, detachedWt);
     }
 
+    // -------------------------------------------------------------------------------------------
+    // Issue #3668: a superseded scan cancels the inventory mid-git. That cancellation belongs to the
+    // caller (RepositoryMonitor, RepositoryStatusService and the collector all treat it as one); it
+    // must reach them as a cancellation, never come back as "inventory FAILED: A task was canceled".
+    // -------------------------------------------------------------------------------------------
+    [Fact]
+    public async Task CancelledWhileListingWorktrees_PropagatesCancellation_NotAFailure()
+    {
+        using var cts = new CancellationTokenSource();
+        var git = new CancelOnWorktreeListGitRunner(cts);
+        var service = new WorktreeInventoryService(git);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => service.GetInventoryAsync(_primary, fetchPrune: false, ct: cts.Token));
+    }
+
+    /// <summary>Cancels the caller's token as `git worktree list` starts - the moment a superseding rescan arrives.</summary>
+    private sealed class CancelOnWorktreeListGitRunner : GitCommandRunner
+    {
+        private readonly CancellationTokenSource _cts;
+
+        public CancelOnWorktreeListGitRunner(CancellationTokenSource cts) => _cts = cts;
+
+        public override Task<GitCommandResult> RunAsync(string workingDirectory, string[] args, CancellationToken ct = default)
+        {
+            if (args.Length > 1 && args[0] == "worktree" && args[1] == "list")
+                _cts.Cancel();
+            return base.RunAsync(workingDirectory, args, ct);
+        }
+    }
+
     private static bool PathsEqual(string a, string b)
         => string.Equals(WorktreeReaperService.NormalizePath(a), WorktreeReaperService.NormalizePath(b), StringComparison.OrdinalIgnoreCase);
 
