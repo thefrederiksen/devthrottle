@@ -31,4 +31,13 @@ public sealed class CronRunRecord
 
     /// <summary>Did the WORK finish? (e.g. <c>completed</c> / <c>needs-human</c> / <c>unknown</c>.)</summary>
     public string TaskStatus { get; set; } = "";
+
+    /// <summary>
+    /// How the run's session ended - one of the <see cref="CronRunEndings"/> - folded by the Gateway on every read.
+    /// Read-only: ignored on a write.
+    /// </summary>
+    public string? Ending { get; set; }
+
+    /// <summary>The ending in words for the run table, for example "closed itself after 6 min". Read-only.</summary>
+    public string? EndingText { get; set; }
 }

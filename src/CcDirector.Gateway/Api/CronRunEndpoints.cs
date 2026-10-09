@@ -14,11 +14,11 @@ namespace CcDirector.Gateway.Api;
 /// the Gateway's background timer; these routes let a caller fire immediately and read past runs.
 ///
 ///   POST /cron/jobs/{id}/run    -> 200 CronRunRecord | 409 (overlap) | 404
-///   GET  /cron/jobs/{id}/runs   -> { jobId, runs: [ CronRunRecord ] }
+///   GET  /cron/jobs/{id}/runs   -> { jobId, runs: [ CronRunRecord ] }, each with its ending folded on
 /// </summary>
 internal static class CronRunEndpoints
 {
-    public static void Map(IEndpointRouteBuilder app, CronEngine engine, CronRunHistoryStore history,
+    public static void Map(IEndpointRouteBuilder app, CronEngine engine, CronRunRecordReader history,
         // Factory Memory mission (phase 1's gate, extended by review finding 2): which factory a schedule belongs
         // to, and which factory the calling session belongs to. Running a factory's schedule NOW starts a session
         // the Gateway stamps into that factory, so it is limited the same way editing the schedule is.
@@ -52,7 +52,7 @@ internal static class CronRunEndpoints
         });
 
         app.MapGet("/cron/jobs/{id}/runs", (string id) =>
-            Results.Json(new { jobId = id, runs = history.List(id) }));
+            Results.Json(new { jobId = id, runs = history.RunsOf(id, DateTime.UtcNow) }));
 
         FileLog.Write("[CronRunEndpoints] mapped /cron/jobs/{id}/run + /runs routes");
     }

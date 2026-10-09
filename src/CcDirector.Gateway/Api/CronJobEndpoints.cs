@@ -34,10 +34,15 @@ internal static class CronJobEndpoints
         // Issue #3650: the calling account's registration of a factory id, or null when it is not registered. A
         // schedule's factory and seat are checked against it on every write (FactoryScheduleLink). REQUIRED for the
         // same reason as the lookup above: a harness that forgot it must fail to compile, not skip the check.
-        Func<HttpContext, string, RegisteredFactoryDto?> findFactory)
+        Func<HttpContext, string, RegisteredFactoryDto?> findFactory,
+        // Whether each schedule's sessions close themselves (the owner, 2026-10-09), folded onto every listed job.
+        // REQUIRED for the same reason as the two above: a wiring line that forgot it would list every schedule with
+        // no run record and fail nothing.
+        Running.CronRunRecordReader runRecords)
     {
         ArgumentNullException.ThrowIfNull(sessionFactoryOf);
         ArgumentNullException.ThrowIfNull(findFactory);
+        ArgumentNullException.ThrowIfNull(runRecords);
         app.MapPost("/cron/jobs", async (HttpContext ctx) =>
         {
             CronJobDto? job;
@@ -83,10 +88,15 @@ internal static class CronJobEndpoints
         {
             var now = DateTime.UtcNow;
             var includeRandom = IncludesRandom(ctx.Request.Query["include"].ToString());
+            var records = runRecords.SummariesOf(now);
             var jobs = store.ListAll()
                 .Where(j => includeRandom || !CronSchedule.IsRandom(j.ScheduleKind))
                 .Select(j => CronSchedule.StampDisplay(j, now))
                 .ToList();
+            foreach (var job in jobs)
+                job.RunRecord = records.TryGetValue(job.Id, out var record)
+                    ? record
+                    : new CronRunRecordSummaryDto { Verdict = "none", Text = "no runs yet", Runs = 0 };
             return Results.Json(new { jobs });
         });
 

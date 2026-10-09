@@ -4493,6 +4493,8 @@ public sealed class GatewayHost : IAsyncDisposable
             typedPrompts: TypedPrompts,
             // Parent Control, fix 1: a session types into a session it owns only through a Director that checks first.
             directorChecksBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
+            // Who ended a scheduled run's session is written onto its run by the stop and deletion routes (the owner, 2026-10-09).
+            scheduledRuns: _cronRuns,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -5451,11 +5453,14 @@ public sealed class GatewayHost : IAsyncDisposable
         // next-run recompute). Inherits the host-wide token middleware above.
         // Factory Memory mission (phase 1): a schedule may name the factory its sessions are born into, and only a
         // person or a session already in that factory may name it - read through the history row like everywhere else.
+        // Each run's ending, from the run history and the session work history (the owner, 2026-10-09).
+        var cronRunRecords = new Running.CronRunRecordReader(_cronRuns, _sessionHistory.EndingsOf);
         CronJobEndpoints.Map(_app, _cronJobs, sessionFactoryOf: _sessionHistory.FactoryOf,
             // Issue #3650: a schedule's factory and seat must be in the calling account's registry.
             findFactory: (ctx, factory) => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary) is { } tenant
                 ? FactoryRegistry.Find(tenant, factory)
-                : null);
+                : null,
+            runRecords: cronRunRecords);
 
         // Cron firing surface (epic #479, part 2 = #483): run-now and run-history over the engine.
         // Scheduled firing runs on the background sweep timer started below in StartAsync.
@@ -5468,7 +5473,7 @@ public sealed class GatewayHost : IAsyncDisposable
             sessionFactoryOf: _sessionHistory.FactoryOf,
             nowUtc: () => DateTime.UtcNow);
 
-        CronRunEndpoints.Map(_app, _cronEngine, _cronRuns,
+        CronRunEndpoints.Map(_app, _cronEngine, cronRunRecords,
             // Factory Memory mission: running a factory's schedule on demand is limited to a person or a session
             // of that factory, so this route needs the schedule's factory and the caller's.
             jobById: id => _cronJobs.Get(id),

@@ -807,6 +807,64 @@ public sealed class SessionStopEndpointTests : IDisposable
         return store;
     }
 
+    // ---------------------------------------------------------------------------------------------------
+    // A scheduled run records who ended its session (the owner, 2026-10-09). Only the route knows who asked,
+    // so it writes it onto the run the moment the Director has carried the request out.
+    // ---------------------------------------------------------------------------------------------------
+
+    private CronRunHistoryStore ScheduledRunFor(string sessionId)
+    {
+        var runs = new CronRunHistoryStore(_db.Open(), _db.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
+        runs.Append("job-mail-desk", new CronRunRecord
+        {
+            ScheduledUtc = DateTime.UtcNow, FiredUtc = DateTime.UtcNow, Machine = Machine,
+            TargetDirectorId = DirectorId, SessionId = sessionId, InfraStatus = "started", TaskStatus = "unknown",
+        });
+        return runs;
+    }
+
+    [Fact]
+    public async Task A_person_stopping_a_scheduled_session_is_written_onto_its_run()
+    {
+        var runs = ScheduledRunFor(Sid);
+        await WithGateway(StoreWith(Row()), Stopped(), async (http, _, _) =>
+        {
+            var reply = await http.PostAsJsonAsync($"/sessions/{Sid}/stop", new SessionStopRequest { Reason = "it was done" });
+
+            Assert.Equal(HttpStatusCode.OK, reply.StatusCode);
+            Assert.Equal(CronRunEndings.StoppedByYou, Assert.Single(runs.List("job-mail-desk")).TaskStatus);
+        }, scheduledRuns: runs);
+    }
+
+    [Fact]
+    public async Task A_deletion_request_is_written_onto_the_run_and_cancelling_it_takes_it_back()
+    {
+        var runs = ScheduledRunFor(Sid);
+        await WithGateway(StoreWith(Row()), DirectorCommandResult.Success(null), async (http, sent, _) =>
+        {
+            var flagged = await http.PostAsJsonAsync($"/sessions/{Sid}/request-deletion", new { reason = "finished" });
+            Assert.Equal(HttpStatusCode.OK, flagged.StatusCode);
+            Assert.Equal(CronRunEndings.StoppedByYou, Assert.Single(runs.List("job-mail-desk")).TaskStatus);
+
+            var cancelled = await http.DeleteAsync($"/sessions/{Sid}/request-deletion");
+            Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+            Assert.Equal("unknown", Assert.Single(runs.List("job-mail-desk")).TaskStatus);
+            Assert.Equal(new[] { "request-deletion", "cancel-deletion" }, sent.Select(c => c.Verb));
+        }, scheduledRuns: runs);
+    }
+
+    [Fact]
+    public async Task A_stop_the_director_refused_writes_nothing_onto_the_run()
+    {
+        var runs = ScheduledRunFor(Sid);
+        await WithGateway(StoreWith(Row()), DirectorCommandResult.Fail(DirectorCommandStatus.Error, "the session is busy"), async (http, _, _) =>
+        {
+            await http.PostAsJsonAsync($"/sessions/{Sid}/stop", new SessionStopRequest { Reason = "try" });
+
+            Assert.Equal("unknown", Assert.Single(runs.List("job-mail-desk")).TaskStatus);
+        }, scheduledRuns: runs);
+    }
+
     private Task WithGateway(
         SessionDto? session,
         DirectorCommandResult? killAnswer,
@@ -848,7 +906,8 @@ public sealed class SessionStopEndpointTests : IDisposable
         Func<HttpClient, List<DirectorCommand>, GovernanceAuditLog?, Task> assertion,
         GovernanceAuditLog? audit = null,
         bool auditSupplied = true,
-        DirectorCommandRouter.SendDirectorCommandAsync? sendOverride = null)
+        DirectorCommandRouter.SendDirectorCommandAsync? sendOverride = null,
+        CronRunHistoryStore? scheduledRuns = null)
     {
         audit ??= auditSupplied ? new GovernanceAuditLog(_db.Open()) : null;
 
@@ -882,7 +941,8 @@ public sealed class SessionStopEndpointTests : IDisposable
                     sent.Add(command);
                     return sendOverride is null ? killAnswer : await sendOverride(directorId, command, token);
                 },
-                governanceAudit: audit, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown);
+                governanceAudit: audit, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
+                scheduledRuns: scheduledRuns);
 
             await app.StartAsync();
             started = true;

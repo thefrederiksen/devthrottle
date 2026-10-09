@@ -46,7 +46,9 @@ public sealed class FactoryScheduleLinkTests : IAsyncLifetime
         // No credential on these requests, so the factory-naming gate treats them as the account's own token and
         // lets the factory through: what is under test here is the registry check, not who may name a factory.
         CronJobEndpoints.Map(_app, _schedules, sessionFactoryOf: _ => CcDirector.Gateway.History.SessionFactoryLookup.NotKnown,
-            findFactory: (_, id) => _registry.Find(T, id));
+            findFactory: (_, id) => _registry.Find(T, id),
+            runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(new CronRunHistoryStore(_db, _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json")),
+                new CcDirector.Gateway.History.SessionHistoryStore(_db).EndingsOf));
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First() + "/") };
     }

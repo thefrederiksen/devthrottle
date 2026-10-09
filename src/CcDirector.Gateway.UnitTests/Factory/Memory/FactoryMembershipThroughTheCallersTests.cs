@@ -182,8 +182,9 @@ public sealed class FactoryMembershipThroughTheCallersTests : IDisposable
             // Issue #3650: a factory schedule names a registered seat, so the factory these tests write into has one.
             findFactory: (_, id) => id == TheFactory
                 ? new RegisteredFactoryDto { Factory = TheFactory, Title = "Website Factory", Seats = { new RegisteredFactorySeatDto { Id = "scout" } } }
-                : null);
-        CronRunEndpoints.Map(app, engine, runs, jobById: id => _schedules.Get(id), sessionFactoryOf: _history.FactoryOf);
+                : null,
+            runRecords: new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf));
+        CronRunEndpoints.Map(app, engine, new CcDirector.Gateway.Running.CronRunRecordReader(runs, _history.EndingsOf), jobById: id => _schedules.Get(id), sessionFactoryOf: _history.FactoryOf);
 
         _triggers = new TriggerService(new TriggerStore(_db.Open()), new FactoryActivityRecord(_db.Open()),
             (_, _, _) => Task.FromResult(TriggerStartAttempt.Failed("no machine in this test")),
