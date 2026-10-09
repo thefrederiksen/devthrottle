@@ -3671,7 +3671,7 @@ def factory_purpose(
     clear: bool = typer.Option(False, "--clear", help="Remove the purpose line instead of setting one."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the factory as JSON."),
 ) -> None:
-    """Set the one line that says what a factory is for, shown under its name on the Factories cards.
+    """Set the one-line purpose shown under a factory's name on the Factories cards.
 
     Sets it on an already registered factory without registering it again; the rest of the registration is
     untouched. The line is trimmed and must fit in 120 characters. Exits non-zero when it was not set.
@@ -3697,7 +3697,7 @@ def factory_status(
     factory: Optional[str] = typer.Option(None, "--factory", help="One factory: its page, with every failing and waiting item."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON - the screen's own data."),
 ) -> None:
-    """The Factories screen as the owner sees it: the status word of every factory, or one factory's page.
+    """The Factories screen: every factory's status word, or one factory's page.
 
     Without --factory: one line per registered factory - id, status word (FAILING, NEEDS YOU, PAUSED or
     RUNNING), what is waiting on the owner, and the status line under the word. With --factory: that
