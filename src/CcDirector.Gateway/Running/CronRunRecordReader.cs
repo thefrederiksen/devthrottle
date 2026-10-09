@@ -45,6 +45,40 @@ public sealed class CronRunRecordReader
         return result;
     }
 
+    /// <summary>
+    /// How long each of these schedules' sessions typically stay open: the middle of its recent runs that have ended,
+    /// from the fire to the end of the session, however it ended - a run left open until someone closed it really did
+    /// hold a session that long. A schedule none of whose recent runs has ended is absent, and the load forecast says
+    /// its length is a guess (<see cref="CronLoad.UnmeasuredRunLength"/>).
+    /// </summary>
+    public IReadOnlyDictionary<string, TimeSpan> RunLengthsOf(IReadOnlyCollection<string> jobIds)
+    {
+        // Read deeper than the sample: a schedule that fires every few minutes and holds each session for an hour
+        // always has its newest runs open, so the sample is the newest runs that ENDED, found among these.
+        var byJob = _runs.RecentByJob(jobIds, RunLengthReadDepth);
+        var endings = _endingsOf(SessionIdsOf(byJob.Values.SelectMany(r => r)));
+        var result = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
+        foreach (var (jobId, runs) in byJob)
+        {
+            var lengths = runs
+                .Where(r => r.SessionId is not null)
+                .Select(r => endings.TryGetValue(r.SessionId!, out var f) && f.EndedAtUtc is { } e && e >= r.FiredUtc
+                    ? (TimeSpan?)(e - r.FiredUtc)
+                    : null)
+                .Where(l => l is not null)
+                .Select(l => l!.Value)
+                .Take(CronRunEndingFold.SummaryRuns)
+                .OrderBy(l => l)
+                .ToList();
+            if (lengths.Count > 0)
+                result[jobId] = lengths[lengths.Count / 2];
+        }
+        return result;
+    }
+
+    /// <summary>How many of a schedule's newest runs are read to find the newest ones that ended.</summary>
+    public const int RunLengthReadDepth = 100;
+
     private static IReadOnlyCollection<string> SessionIdsOf(IEnumerable<CronRunRecord> runs) =>
         runs.Select(r => r.SessionId).Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!)
             .Distinct(StringComparer.Ordinal).ToList();

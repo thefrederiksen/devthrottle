@@ -234,6 +234,8 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/cron/jobs/cj_abc/run")]
     [InlineData("GET", "/cron/jobs/cj_abc/runs")]
     [InlineData("GET", "/cron/jobs/cj_abc/plan")]
+    // The load strip and `schedule load`: each machine's next 24 hours.
+    [InlineData("GET", "/cron/load")]
     // Factory triggers: `cc-devthrottle trigger add|list|show|pause|resume|runs`.
     [InlineData("GET", "/triggers")]
     [InlineData("POST", "/triggers")]

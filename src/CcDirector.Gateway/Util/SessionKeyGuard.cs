@@ -1105,6 +1105,9 @@ public static class SessionKeyGuard
 
     private static bool IsScheduleRoute(string verb, string[] s)
     {
+        // /cron/load - each machine's next 24 hours (the load strip), which `schedule load` reads.
+        if (s.Length == 2 && s[0] == "cron" && s[1] == "load") return verb is "GET" or "HEAD";
+
         if (s.Length < 2 || s[0] != "cron" || s[1] != "jobs") return false;
 
         // /cron/jobs - list, or create.

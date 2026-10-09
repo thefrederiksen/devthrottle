@@ -16,6 +16,7 @@ namespace CcDirector.Gateway.Api;
 ///
 ///   POST   /cron/jobs            body CronJobDto    -> 201 CronJobDto | 400 (also: a factory or seat the registry does not have, #3650)
 ///   GET    /cron/jobs[?include=random] -> { jobs: [ CronJobDto ] } (random jobs only with the opt-in)
+///   GET    /cron/load            -> CronLoadDto (each machine's next 24 hours, the Schedule page's load strip)
 ///   GET    /cron/jobs/{id}       -> CronJobDto | 404
 ///   GET    /cron/jobs/{id}/plan?days=N -> CronPlanDto | 400 (not random, bad days) | 404   (issue #3622)
 ///   PUT    /cron/jobs/{id}       body CronJobDto    -> 200 CronJobDto | 400 | 404
@@ -106,6 +107,18 @@ internal static class CronJobEndpoints
                 job.ShortName = CronDisplayName.ShortName(job.Name, job.Factory, job.FactoryTitle);
             }
             return Results.Json(new { jobs });
+        });
+
+        // THE LOAD STRIP (the owner, 2026-10-09): each machine's next 24 hours, one bar per hour, from every active
+        // schedule's fires and its own measured run length. Random schedules count: they start sessions like any other.
+        app.MapGet("/cron/load", () =>
+        {
+            var now = DateTime.UtcNow;
+            var jobs = store.ListAll();
+            var lengths = runRecords.RunLengthsOf(jobs.Select(j => j.Id).ToList());
+            var load = CronLoad.Build(jobs, lengths, now, CronLoad.DefaultCapacity);
+            FileLog.Write($"[CronJobEndpoints] GET /cron/load: machines={load.Machines.Count}, measured={lengths.Count}/{jobs.Count}");
+            return Results.Json(load);
         });
 
         app.MapGet("/cron/jobs/{id}", (string id) =>

@@ -98,6 +98,47 @@ export interface CronRunRecord {
   endingText?: string | null;
 }
 
+/** Each machine's next 24 hours (CronLoadDto), folded by the Gateway for the load strip. Render it as given. */
+export interface CronLoad {
+  generatedUtc: string;
+  /** How many scheduled sessions one machine is meant to have open at once. */
+  capacity: number;
+  /** Busiest first. */
+  machines: CronMachineLoad[];
+}
+
+export interface CronMachineLoad {
+  machine: string;
+  timeZoneId: string;
+  schedules: number;
+  peak: number;
+  hoursOver: number;
+  quietest: CronLoadHour;
+  /** One sentence for the caption, for example "peak 7 at 07:00 - 2 hours over 6 - quietest 13:00 (0 open)". */
+  summary: string;
+  /** The 24 hours, starting with the current one. */
+  hours: CronLoadHour[];
+  estimatedJobIds: string[];
+  /** Says which bars are partly a guess, or "" when every run length was measured. */
+  estimateNote: string;
+  /** The schedules left out because their time zone is not known on the Gateway's host. */
+  unplacedJobIds: string[];
+  /** Says some schedules are left out, or "". */
+  unplacedNote: string;
+}
+
+export interface CronLoadHour {
+  startUtc: string;
+  /** The hour on the machine's clock, "07:00". */
+  label: string;
+  /** The most scheduled sessions open at once during the hour. */
+  concurrent: number;
+  starts: number;
+  over: boolean;
+  /** The schedules with a session open during the hour. */
+  jobIds: string[];
+}
+
 // Pull the Gateway's own { error } message out of a non-2xx body so the caller shows the real
 // reason (an invalid cron, an overlap) rather than a bare status. Falls back to the status code when
 // the body is not the expected shape.
@@ -123,6 +164,17 @@ export async function getCronJobs(signal?: AbortSignal): Promise<CronJob[]> {
   if (!res.ok) throw await gatewayErrorFrom(res, "GET /cron/jobs");
   const body = (await res.json()) as { jobs?: CronJob[] };
   return body.jobs ?? [];
+}
+
+// GET /cron/load -> CronLoadDto: each machine's next 24 hours, for the load strip.
+export async function getCronLoad(signal?: AbortSignal): Promise<CronLoad> {
+  const res = await fetch("/cron/load", {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) throw await gatewayErrorFrom(res, "GET /cron/load");
+  return (await res.json()) as CronLoad;
 }
 
 // POST /cron/jobs (body CronJobDto) -> 201 CronJobDto. Throws on failure (incl. a 400 for an invalid

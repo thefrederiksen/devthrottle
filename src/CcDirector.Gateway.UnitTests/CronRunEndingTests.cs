@@ -324,4 +324,47 @@ public sealed class CronRunEndingTests : IDisposable
         Assert.Equal("ok", summary.Verdict);
         Assert.Equal("closes itself - 1 of 1, about 6 min", summary.Text);
     }
+
+    [Fact]
+    public void Reader_RunLengthsOf_TakesTheMiddleOfTheRunsThatEnded_AndLeavesOutAScheduleWithNone()
+    {
+        var db = _h.Open();
+        var runs = new CronRunHistoryStore(db, _h.LegacyPath("lengths.runs.json"));
+        var history = new SessionHistoryStore(db);
+        var fired = DateTime.UtcNow.AddHours(-3);
+
+        void Session(string jobId, int? endedAfterMinutes)
+        {
+            var sid = Guid.NewGuid().ToString();
+            runs.Append(jobId, Run(sid, fired: fired));
+            history.UpsertLive("dir-1", new SessionDto
+            {
+                SessionId = sid, Name = jobId, RepoPath = @"D:\repo", Agent = "ClaudeCode",
+                MachineName = "SOREN_NORTH", CreatedAt = fired, ActivityState = "Working", Status = "Running",
+            }, fired);
+            if (endedAfterMinutes is { } m)
+                history.RecordEnding(sid, SessionHistoryEndings.Closed, crashed: false, fired.AddMinutes(m));
+        }
+
+        // Three that ended - one of them left open for 40 minutes, which really held a session that long - and one
+        // still open, which says nothing about its length yet.
+        Session("job-a", 6);
+        Session("job-a", 10);
+        Session("job-a", 40);
+        Session("job-a", null);
+        Session("job-open", null);
+        var reader = new CronRunRecordReader(runs, history.EndingsOf);
+
+        var lengths = reader.RunLengthsOf(new[] { "job-a", "job-open" });
+
+        Assert.Equal(TimeSpan.FromMinutes(10), lengths["job-a"]);
+        Assert.False(lengths.ContainsKey("job-open"));
+
+        // A schedule whose newest runs are all still open is measured from the older ones that ended, not counted
+        // as never having finished.
+        Session("job-busy", 50);
+        for (var i = 0; i < CronRunEndingFold.SummaryRuns + 5; i++)
+            Session("job-busy", null);
+        Assert.Equal(TimeSpan.FromMinutes(50), reader.RunLengthsOf(new[] { "job-busy" })["job-busy"]);
+    }
 }
