@@ -4851,10 +4851,6 @@ public sealed class GatewayHost : IAsyncDisposable
             tenantBoundary: _tenantBoundary,
             transcripts: _transcripts);
 
-        // The browser error channel (client error logging build): every error a browser app shows the
-        // user is also reported here and lands in the Gateway log, tenant-partitioned, with a queryable
-        // recent ring - no on-screen error exists only on the user's screen.
-        Api.ClientErrorEndpoints.Map(_app, _tenantBoundary);
         // Editable/versioned wingman instructions settings surface (issue #537), incl. A/B test
         // over saved training sessions (reads the shared training store; uses the hosted wingman brain).
         WingmanInstructionsEndpoint.Map(_app, _instructionsStore, WingmanBrainAsync);
@@ -5177,6 +5173,10 @@ public sealed class GatewayHost : IAsyncDisposable
             ?? throw new InvalidOperationException("the error store is created before the pipeline and must exist when the routes are mapped");
         InstallReportEndpoints.Map(_app, errorReports);
         DirectorErrorEndpoints.Map(_app, errorReports, _tenantBoundary, TenantRegistry);
+        // The browser error channel: every error the Cockpit or the phone app shows the user is also reported
+        // here, into the SAME durable store under the caller's account (the Error Logging mission, issue #3675) -
+        // no on-screen error exists only on the user's screen.
+        Api.ClientErrorEndpoints.Map(_app, errorReports, _tenantBoundary);
         // The corrections the Wingman's verdicts were given (the Wingman-on-every-turn mission, slice G). The
         // labelled corpus lives in another repository and is pulled by a job holding no account credential, so
         // this is the only path an owner label has out of the database.

@@ -22,7 +22,7 @@ ensureGatewayCookie();
 configureUnauthorizedRedirect(mobileSignInRedirect);
 
 // The client error channel: uncaught browser errors and un-awaited promise failures are reported to
-// the Gateway (POST /client-errors) so they land in the server log - no error exists only on the
+// the Gateway (POST /client-errors) so they land in the durable error store - no error exists only on the
 // phone's screen. Pages that handle and render errors report those explicitly at their call sites.
 installGlobalErrorReporting("mobile");
 

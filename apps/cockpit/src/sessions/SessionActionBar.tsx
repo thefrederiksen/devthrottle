@@ -3,8 +3,8 @@ import { sendEscape, sendInterrupt, type SessionDto } from "@devthrottle/client-
 import { classifyOrNull } from "@devthrottle/client-core/sessions/ordering";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
-// The surface label on every client-error report from this bar, so the Gateway log and
-// GET /client-errors/recent name where the user was standing (issue #2189).
+// The surface label on every client-error report from this bar, so the stored error
+// report names where the user was standing (issue #2189).
 const SURFACE = "cockpit-session-actions";
 
 // THE STRIP UNDER THE COMPOSER (owner ruling, 2026-09-20). This was a row of five driver buttons drawn

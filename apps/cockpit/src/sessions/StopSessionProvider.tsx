@@ -15,8 +15,8 @@ import {
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useDismissOnBackdrop } from "../components";
 
-// The surface label on every client-error report from this dialog, so the Gateway log and
-// GET /client-errors/recent name where the user was standing (issue #2189).
+// The surface label on every client-error report from this dialog, so the stored error
+// report names where the user was standing (issue #2189).
 const SURFACE = "cockpit-stop-session";
 
 // What is recorded when the user writes no note (issue internal#1992). The Gateway requires a reason on

@@ -19,6 +19,11 @@ vi.mock("../api/client", () => ({
   uploadDictationToSession: vi.fn(),
   abandonDictation: vi.fn(),
 }));
+// The error report boundary: what this module reports when a delivery goes wrong (issue #3675).
+vi.mock("../errors/reportClientError", () => ({
+  reportClientError: vi.fn(),
+  errorFacts: (err: unknown) => (err instanceof Error ? { exception_type: err.name } : {}),
+}));
 vi.mock("./heldPromptStore", () => ({
   saveHeldPrompt: vi.fn(),
   listHeldPrompts: vi.fn(),
@@ -34,6 +39,7 @@ vi.mock("./pendingStore", () => ({
 
 import { readPromptOutcome, sendPrompt, type DictationOutcomeRead, type DictationSubmitResult } from "../api/client";
 import { resumePendingDictations } from "./backgroundSend";
+import { reportClientError } from "../errors/reportClientError";
 import { deleteHeldPrompt, getHeldPrompt, listHeldPrompts, saveHeldPrompt, type HeldPrompt } from "./heldPromptStore";
 import { allDictationStatuses, clearDictationStatus } from "./status";
 import {
@@ -428,10 +434,16 @@ describe("Send anyway on a typed prompt shown back not delivered", () => {
     disk.set(DELIVERY_ID, held({ shownBack: true, shownBackReason: "not-delivered", offerSendAnyway: true }));
     vi.mocked(sendPrompt).mockRejectedValueOnce(new BadGateway("bad gateway"));
 
+    vi.mocked(reportClientError).mockClear();
     await sendTypedPromptAnyway(DELIVERY_ID);
 
     expect(disk.has(DELIVERY_ID)).toBe(true);
     expect(statusFor(DELIVERY_ID)).toMatchObject({ phase: "dropped", recoverableText: TEXT, offerSendAnyway: true });
+    // The failure is shown, so it is reported - with the session and the action, and never the words.
+    expect(reportClientError).toHaveBeenCalledTimes(1);
+    const report = vi.mocked(reportClientError).mock.calls[0][0];
+    expect(report).toMatchObject({ action: "send prompt", user_visible: true, session_id: SID });
+    expect(JSON.stringify(report)).not.toContain(TEXT);
   });
 });
 

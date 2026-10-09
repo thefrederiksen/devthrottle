@@ -3,6 +3,7 @@ import type { SpokenSpan } from "./composerProvenance";
 import { activeAccount, listAccounts } from "../auth/accountStore";
 import { deleteHeldPrompt, getHeldPrompt, listHeldPrompts, saveHeldPrompt, type HeldPrompt } from "./heldPromptStore";
 import { clearDictationStatus, publishDictationStatus } from "./status";
+import { errorFacts, reportClientError } from "../errors/reportClientError";
 
 // A typed prompt the Gateway has not finished delivering (voice delivery phase 5, contract section 7, T6).
 //
@@ -85,7 +86,7 @@ export async function sendTypedPrompt(
   ensureListeners();
   if (answer.deliveryId === undefined) {
     // A 202 with nothing to read it by. The words may be in, so they are not handed back for a second send.
-    console.error(`[typedPromptDelivery] the Gateway answered 202 for a typed prompt in ${sessionId} with no deliveryId`);
+    reportDeliveryFailure(sessionId, `the Gateway answered 202 for a typed prompt in ${sessionId} with no deliveryId`, true);
     publishDictationStatus({
       sessionId,
       uploadId: `typed-${Date.now()}`,
@@ -107,7 +108,7 @@ export async function sendTypedPrompt(
     await saveHeldPrompt(rec);
   } catch (err) {
     // The device could not keep it. This page still reads the outcome; only a reload loses track of it.
-    console.error(`[typedPromptDelivery] could not keep held typed message ${rec.deliveryId} on this device: ${errText(err)}`);
+    reportDeliveryFailure(sessionId, `could not keep held typed message ${rec.deliveryId} on this device: ${errText(err)}`, false, err);
     _unkept.set(rec.deliveryId, rec);
   }
   publishDelivering(rec);
@@ -180,7 +181,7 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       return;
     }
     if (rec.shownBack !== true || rec.offerSendAnyway !== true) {
-      console.error(`[typedPromptDelivery] Send anyway refused for typed message ${deliveryId}: the Gateway did not offer it`);
+      reportDeliveryFailure(rec.sessionId, `Send anyway refused for typed message ${deliveryId}: the Gateway did not offer it`, false);
       if (rec.shownBack) publishShownBack(rec);
       return;
     }
@@ -189,8 +190,9 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       // The claim names the ORIGINAL delivery id, so the Gateway - not this tab - is the gate that lets exactly one
       // press through. A 202 back with the SAME id means the claim is held on the same record.
       answer = await sendPrompt(rec.sessionId, rec.text, true, undefined, undefined, undefined, rec.deliveryId);
-    } catch {
-      // Keep the record and the words on screen; the owner decides again.
+    } catch (err) {
+      // Keep the record and the words on screen; the owner decides again. The failure is shown, so it is reported.
+      reportDeliveryFailure(rec.sessionId, `Send anyway failed for typed message ${rec.deliveryId}: ${errText(err)}`, true, err);
       publishShownBack(rec, SEND_ANYWAY_FAILED_MESSAGE);
       return;
     }
@@ -253,7 +255,7 @@ export async function sendTypedPromptAnyway(deliveryId: string): Promise<void> {
       try {
         await saveHeldPrompt(fresh);
       } catch (err) {
-        console.error(`[typedPromptDelivery] could not keep held typed message ${fresh.deliveryId} on this device: ${errText(err)}`);
+        reportDeliveryFailure(fresh.sessionId, `could not keep held typed message ${fresh.deliveryId} on this device: ${errText(err)}`, false, err);
         _unkept.set(fresh.deliveryId, fresh);
       }
       publishDelivering(fresh);
@@ -281,6 +283,31 @@ export async function dismissTypedPrompt(deliveryId: string): Promise<void> {
 
 // ---- internals -------------------------------------------------------------------------------------
 
+/**
+ * A delivery failure: written to the console AND reported to the Gateway (the Error Logging mission, issue
+ * #3675). Before this these failures lived only in the browser console, so a typed prompt that went wrong on a
+ * phone left no record anywhere the nightly reader could see. `shown` says whether the person sees it (a red
+ * strip) or not (only the device lost its copy). The message names the delivery id and the cause - NEVER the
+ * words of the prompt.
+ *
+ * The outcome read that fails and is simply asked again later stays a console warning only: nothing is shown
+ * and nothing is lost, and a phone with no signal would otherwise fill the report queue with one line a tick.
+ */
+function reportDeliveryFailure(sessionId: string, message: string, shown: boolean, err?: unknown): void {
+  console.error(`[typedPromptDelivery] ${message}`);
+  reportClientError({
+    surface: "typed-prompt-delivery",
+    action: SEND_ACTION,
+    message,
+    user_visible: shown,
+    session_id: sessionId,
+    ...(err === undefined ? {} : errorFacts(err)),
+  });
+}
+
+/** What the user was doing, as every report from this module names it. */
+const SEND_ACTION = "send prompt";
+
 async function findHeld(deliveryId: string): Promise<HeldPrompt | null> {
   return (await getHeldPrompt(deliveryId)) ?? _unkept.get(deliveryId) ?? null;
 }
@@ -293,7 +320,7 @@ async function keepHeld(rec: HeldPrompt): Promise<void> {
   try {
     await saveHeldPrompt(rec);
   } catch (err) {
-    console.error(`[typedPromptDelivery] could not keep typed message ${rec.deliveryId} on this device: ${errText(err)}`);
+    reportDeliveryFailure(rec.sessionId, `could not keep typed message ${rec.deliveryId} on this device: ${errText(err)}`, false, err);
     _unkept.set(rec.deliveryId, rec);
   }
 }
@@ -340,7 +367,7 @@ async function applyOutcome(rec: HeldPrompt, read: DictationOutcomeRead): Promis
   }
   if (read.kind === "not-found") {
     // Never a reason to send again: the words may already be in. The copy is kept on the device.
-    console.error(`[typedPromptDelivery] outcome read for typed message ${rec.deliveryId} answered 404, but the Gateway was holding it`);
+    reportDeliveryFailure(rec.sessionId, `outcome read for typed message ${rec.deliveryId} answered 404, but the Gateway was holding it`, true);
     publishFailed(rec, notFoundMessage(rec.deliveryId));
     return;
   }
@@ -348,7 +375,7 @@ async function applyOutcome(rec: HeldPrompt, read: DictationOutcomeRead): Promis
     // The dictation-only handback kinds (out of credits, permanent, incomplete) are never answered for a
     // typed prompt - it is not transcribed, and its outcome reader produces none of them - so a kind that
     // is neither delivering, not-found nor resolved is a defect, not a state: said loudly, never guessed at.
-    console.error(`[typedPromptDelivery] outcome for typed message ${rec.deliveryId} answered ${read.kind}, which a typed prompt cannot`);
+    reportDeliveryFailure(rec.sessionId, `outcome for typed message ${rec.deliveryId} answered ${read.kind}, which a typed prompt cannot`, true);
     publishFailed(rec, unexpectedAnswerMessage(rec.deliveryId));
     return;
   }
@@ -369,7 +396,7 @@ async function applyOutcome(rec: HeldPrompt, read: DictationOutcomeRead): Promis
     publishShownBack(shown);
     return;
   }
-  console.error(`[typedPromptDelivery] outcome for typed message ${rec.deliveryId} was neither delivered nor shown back`);
+  reportDeliveryFailure(rec.sessionId, `outcome for typed message ${rec.deliveryId} was neither delivered nor shown back`, true);
   publishFailed(rec, unexpectedAnswerMessage(rec.deliveryId));
 }
 

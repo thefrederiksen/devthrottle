@@ -6,8 +6,8 @@ import {
 } from "@devthrottle/client-core/api/client";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
-// The surface label on every client-error report from this view, so the Gateway log and
-// GET /client-errors/recent name where the user was standing (issue #2189).
+// The surface label on every client-error report from this view, so the stored error
+// report names where the user was standing (issue #2189).
 const SURFACE = "cockpit-source-control";
 
 // The Cockpit Source Control tab (issue #1266): a READ-ONLY view of the selected session's repository -

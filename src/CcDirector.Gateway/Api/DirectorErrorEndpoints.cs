@@ -49,11 +49,10 @@ namespace CcDirector.Gateway.Api;
 /// reports an hour, the whole route <see cref="MaxReportsPerHour"/>. Over the limit the batch is refused with
 /// 429 and the client backs off.
 ///
-/// WHAT IS NOT HERE. Browser errors (<see cref="ClientErrorEndpoints"/>) do not join this store. A browser
-/// error payload can carry anything on the page - a prompt, a dictation - and that channel's durable record
-/// was deliberately made content-free after review, so it could never carry customer content. The Director
-/// and launcher text is written by our own code, not captured from a page. Moving browser errors into a
-/// durable store is a decision about customer content, and is left to the owner.
+/// Browser errors (<see cref="ClientErrorEndpoints"/>) are written into this same store under components
+/// <c>cockpit</c> and <c>mobile</c>, through their own route, and read back through the reads here. The owner ruled
+/// on that on 8 October 2026 (issue #3675): stored, scrubbed the same way, readable only by that account and the
+/// administrator token, with no free-text detail.
 /// </summary>
 internal static class DirectorErrorEndpoints
 {

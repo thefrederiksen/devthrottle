@@ -4,8 +4,8 @@ import { Button } from "./Button";
 import { useDismissOnBackdrop } from "./useDismissOnBackdrop";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
-// The surface label on every client-error report from the shared confirm dialog, so the Gateway log and
-// GET /client-errors/recent name where the user was standing (issue #2189).
+// The surface label on every client-error report from the shared confirm dialog, so the stored error
+// report names where the user was standing (issue #2189).
 const SURFACE = "cockpit-confirm";
 
 // The one confirmation dialog every destructive action in the Cockpit routes through (issue #1244).
