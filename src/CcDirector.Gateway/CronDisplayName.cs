@@ -31,9 +31,14 @@ public static class CronDisplayName
 
         var namesTheFactory =
             first.EndsWith("Factory", StringComparison.OrdinalIgnoreCase)
-            || first.Equals(factory.Trim(), StringComparison.OrdinalIgnoreCase)
+            // The id written out: "mindzie AI Reports" names mindzie-ai-reports, whose registered title is "M-AI Reports".
+            || Letters(first) == Letters(factory)
             || (!string.IsNullOrWhiteSpace(factoryTitle)
-                && first.Contains(factoryTitle.Trim(), StringComparison.OrdinalIgnoreCase));
+                && first.StartsWith(factoryTitle.Trim(), StringComparison.OrdinalIgnoreCase));
         return namesTheFactory ? rest : name;
     }
+
+    // Letters and digits only, lower case, so "mindzie AI Reports" and "mindzie-ai-reports" compare equal.
+    private static string Letters(string text) =>
+        new string(text.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 }

@@ -462,10 +462,20 @@ export function ScheduleView() {
   );
 
   // The searchable text of a job: name, machine, repository, and the prompt text - so the search box
-  // finds a job by any of them (issue #1245), including a word buried in the instructions.
+  // finds a job by any of them (issue #1245), including a word buried in the instructions - and the factory and
+  // seat the row now shows, so whatever is on screen can be searched for.
   const searchableText = useCallback(
     (job: CronJob): string =>
-      [job.name, job.target.machine, job.action.repoPath, job.action.seed, job.action.workListName ?? ""].join(" "),
+      [
+        job.name,
+        job.target.machine,
+        job.action.repoPath,
+        job.action.seed,
+        job.action.workListName ?? "",
+        job.factory ?? "",
+        job.factoryTitle ?? "",
+        job.seat ?? "",
+      ].join(" "),
     [],
   );
 
@@ -621,7 +631,8 @@ export function ScheduleView() {
       {
         key: "actions",
         header: "",
-        width: "165px",
+        // Wide enough for Resume, Run now, Edit and Delete on a paused row without clipping Delete.
+        width: "225px",
         align: "right",
         className: "ui-table-cell-stop",
         render: (job) => (

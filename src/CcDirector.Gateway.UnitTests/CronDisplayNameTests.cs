@@ -15,6 +15,7 @@ public sealed class CronDisplayNameTests
     [InlineData("CC Factory - Ruth Calder - weekly CFO memo", "cc-factory", "Center Consulting", "Ruth Calder - weekly CFO memo")]
     [InlineData("M-Studio - AI Spend Watch - nightly", "mindzie-web", "M-Studio", "AI Spend Watch - nightly")]
     [InlineData("Money saver - daily cost report", "money-saver", "Money Saver", "daily cost report")]
+    [InlineData("mindzie AI Reports - CEO - nightly partner outreach", "mindzie-ai-reports", "M-AI Reports", "CEO - nightly partner outreach")]
     public void ShortName_AFactorySchedule_DropsTheLeadingFactorySegment(string name, string factory, string title, string expected)
     {
         Assert.Equal(expected, CronDisplayName.ShortName(name, factory, title));
