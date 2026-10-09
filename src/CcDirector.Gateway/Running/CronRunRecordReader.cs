@@ -31,10 +31,10 @@ public sealed class CronRunRecordReader
         return runs;
     }
 
-    /// <summary>Every schedule's run record, keyed by job id. A schedule that never ran is absent.</summary>
-    public IReadOnlyDictionary<string, CronRunRecordSummaryDto> SummariesOf(DateTime nowUtc)
+    /// <summary>The run record of each of these schedules, keyed by job id. A schedule that never ran is absent.</summary>
+    public IReadOnlyDictionary<string, CronRunRecordSummaryDto> SummariesOf(IReadOnlyCollection<string> jobIds, DateTime nowUtc)
     {
-        var byJob = _runs.RecentByJob(CronRunEndingFold.SummaryRuns);
+        var byJob = _runs.RecentByJob(jobIds, CronRunEndingFold.SummaryRuns);
         var endings = _endingsOf(SessionIdsOf(byJob.Values.SelectMany(r => r)));
         var result = new Dictionary<string, CronRunRecordSummaryDto>(StringComparer.Ordinal);
         foreach (var (jobId, runs) in byJob)

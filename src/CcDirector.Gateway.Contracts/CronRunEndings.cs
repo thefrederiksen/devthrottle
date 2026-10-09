@@ -11,8 +11,14 @@ namespace CcDirector.Gateway.Contracts;
 /// </summary>
 public static class CronRunEndings
 {
-    /// <summary>The fire started no session, so there is nothing to end.</summary>
+    /// <summary>The fire failed to start a session, so there is nothing to end.</summary>
     public const string NoSession = "no-session";
+
+    /// <summary>
+    /// The fire drained a work list. A drain starts many sessions and the run records none of them, so how they ended
+    /// is not known here.
+    /// </summary>
+    public const string WorkList = "work-list";
 
     /// <summary>The session is still open.</summary>
     public const string StillOpen = "still-open";

@@ -64,7 +64,12 @@ public static class CronRunEndingFold
         ArgumentNullException.ThrowIfNull(run);
         ArgumentNullException.ThrowIfNull(endings);
         if (string.IsNullOrWhiteSpace(run.SessionId))
-            return (CronRunEndings.NoSession, null);
+        {
+            // A work-list fire records no session BY DESIGN (CronEngine: a drain starts many, and an empty or busy list
+            // starts none on purpose), so it is not a failed start. Its own infra status says how the drain went.
+            var workList = run.InfraStatus.StartsWith("worklist-", StringComparison.Ordinal);
+            return (workList ? CronRunEndings.WorkList : CronRunEndings.NoSession, null);
+        }
 
         endings.TryGetValue(run.SessionId, out var fact);
         // A session the history still holds open IS open, whatever was asked of it: a session flagged for deletion
@@ -93,7 +98,8 @@ public static class CronRunEndingFold
         var after = endedUtc is { } e && e >= firedUtc ? $" after {Duration(e - firedUtc)}" : "";
         return ending switch
         {
-            CronRunEndings.NoSession => "started no session",
+            CronRunEndings.NoSession => "did not start a session",
+            CronRunEndings.WorkList => "drained a work list - its sessions are not tracked here",
             CronRunEndings.StillOpen => nowUtc - firedUtc >= LeftOpenAfter
                 ? $"left open - {Duration(nowUtc - firedUtc)} so far"
                 : $"running - {Duration(nowUtc - firedUtc)} so far",
@@ -109,15 +115,16 @@ public static class CronRunEndingFold
 
     /// <summary>
     /// A schedule's run record from its newest runs (newest first), already stamped by <see cref="Stamp"/>. A run
-    /// that closed itself counts for the schedule; one stopped by someone, or left open past
-    /// <see cref="LeftOpenAfter"/>, counts against it. Everything else - a run that is still young, one whose closer
-    /// was not recorded, one that ended with its Director - is left out, because it says nothing either way.
+    /// that closed itself counts for the schedule; one stopped by someone, left open past <see cref="LeftOpenAfter"/>,
+    /// or that failed to start a session at all counts against it. Everything else - a run that is still young, one
+    /// whose closer was not recorded, one that ended with its Director, a work-list drain - is left out, because it
+    /// says nothing either way.
     /// </summary>
     public static CronRunRecordSummaryDto Summarize(IReadOnlyList<CronRunRecord> runs, IReadOnlyDictionary<string, SessionEndingFact> endings, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(runs);
         ArgumentNullException.ThrowIfNull(endings);
-        var considered = runs.Where(r => r.Ending is not null && r.Ending != CronRunEndings.NoSession).Take(SummaryRuns).ToList();
+        var considered = runs.Where(r => r.Ending is not null).Take(SummaryRuns).ToList();
         if (considered.Count == 0)
             return new CronRunRecordSummaryDto { Verdict = "none", Text = "no runs yet", Runs = 0 };
 
@@ -125,12 +132,13 @@ public static class CronRunEndingFold
         var byYou = considered.Count(r => r.Ending == CronRunEndings.StoppedByYou);
         var bySession = considered.Count(r => r.Ending == CronRunEndings.StoppedBySession);
         var leftOpen = considered.Count(r => r.Ending == CronRunEndings.StillOpen && nowUtc - r.FiredUtc >= LeftOpenAfter);
-        var judged = closedItself.Count + byYou + bySession + leftOpen;
+        var didNotStart = considered.Count(r => r.Ending == CronRunEndings.NoSession);
+        var judged = closedItself.Count + byYou + bySession + leftOpen + didNotStart;
 
         if (judged == 0)
             return new CronRunRecordSummaryDto { Verdict = "none", Text = "nothing recorded yet", Runs = considered.Count };
 
-        if (byYou + bySession + leftOpen == 0)
+        if (byYou + bySession + leftOpen + didNotStart == 0)
         {
             var minutes = closedItself
                 .Select(r => endings.TryGetValue(r.SessionId!, out var f) && f.EndedAtUtc is { } e && e >= r.FiredUtc
@@ -153,6 +161,7 @@ public static class CronRunEndingFold
         if (byYou > 0) parts.Add($"{byYou} stopped by you");
         if (bySession > 0) parts.Add($"{bySession} stopped by another session");
         if (leftOpen > 0) parts.Add($"{leftOpen} left open");
+        if (didNotStart > 0) parts.Add($"{didNotStart} did not start");
         return new CronRunRecordSummaryDto
         {
             Verdict = "bad",

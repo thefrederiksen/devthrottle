@@ -88,11 +88,11 @@ internal static class CronJobEndpoints
         {
             var now = DateTime.UtcNow;
             var includeRandom = IncludesRandom(ctx.Request.Query["include"].ToString());
-            var records = runRecords.SummariesOf(now);
             var jobs = store.ListAll()
                 .Where(j => includeRandom || !CronSchedule.IsRandom(j.ScheduleKind))
                 .Select(j => CronSchedule.StampDisplay(j, now))
                 .ToList();
+            var records = runRecords.SummariesOf(jobs.Select(j => j.Id).ToList(), now);
             foreach (var job in jobs)
                 job.RunRecord = records.TryGetValue(job.Id, out var record)
                     ? record

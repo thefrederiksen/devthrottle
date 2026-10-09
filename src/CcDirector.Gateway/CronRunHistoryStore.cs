@@ -201,16 +201,21 @@ public sealed class CronRunHistoryStore
     public const string TaskStatusUnknown = "unknown";
 
     /// <summary>
-    /// The newest <paramref name="perJob"/> runs of every job, newest first, in ONE query - what the schedule list folds
-    /// each job's run record from on every poll, so it must not cost a query per job.
+    /// The newest <paramref name="perJob"/> runs of each of <paramref name="jobIds"/>, newest first, in ONE query - what
+    /// the schedule list folds each job's run record from on every poll, so it must not cost a query per job. Only the
+    /// listed jobs are read: run history outlives a deleted schedule, and its rows must not ride along on every poll.
+    /// What is read is bounded by the per-job cap <see cref="Append"/> keeps (<see cref="MaxRecordsPerJob"/>).
     /// </summary>
-    public IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> RecentByJob(int perJob)
+    public IReadOnlyDictionary<string, IReadOnlyList<CronRunRecord>> RecentByJob(IReadOnlyCollection<string> jobIds, int perJob)
     {
+        ArgumentNullException.ThrowIfNull(jobIds);
         if (perJob < 1) throw new ArgumentOutOfRangeException(nameof(perJob), perJob, "perJob must be at least 1");
+        if (jobIds.Count == 0) return new Dictionary<string, IReadOnlyList<CronRunRecord>>(StringComparer.Ordinal);
         lock (_gate)
         {
             using var ctx = _db.CreateContext();
             return ctx.CronRuns.AsNoTracking()
+                .Where(e => jobIds.Contains(e.JobId))
                 .OrderByDescending(e => e.Sequence)
                 .ToList()
                 .GroupBy(e => e.JobId, StringComparer.Ordinal)

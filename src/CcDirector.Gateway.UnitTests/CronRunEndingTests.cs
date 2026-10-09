@@ -178,12 +178,34 @@ public sealed class CronRunEndingTests : IDisposable
     }
 
     [Fact]
-    public void Summarize_NoRunThatStartedASession_IsNoRunsYet()
+    public void Summarize_NoRuns_IsNoRunsYet()
     {
-        var summary = Summarize(new[] { Run(null) }, Facts());
+        var summary = Summarize(Array.Empty<CronRunRecord>(), Facts());
 
         Assert.Equal("none", summary.Verdict);
         Assert.Equal("no runs yet", summary.Text);
+    }
+
+    [Fact]
+    public void Summarize_FiresThatFailedToStart_CountAgainstTheSchedule()
+    {
+        // Review finding: a schedule whose every fire failed to start used to read "no runs yet", contradicting its
+        // own run table.
+        var summary = Summarize(new[] { Run(null), Run(null) }, Facts());
+
+        Assert.Equal("bad", summary.Verdict);
+        Assert.Equal("0 of 2 closed itself - 2 did not start", summary.Text);
+    }
+
+    [Fact]
+    public void EndingOf_AWorkListDrain_IsAWorkListNotAFailedStart()
+    {
+        // Review finding: a drain records no session by design (it starts many), so it is not "did not start".
+        var drain = Run(null);
+        drain.InfraStatus = "worklist-started";
+
+        Assert.Equal(CronRunEndings.WorkList, CronRunEndingFold.EndingOf(drain, Facts()).Ending);
+        Assert.Equal("none", Summarize(new[] { drain }, Facts()).Verdict);
     }
 
     // ---- the stored half -------------------------------------------------------------------------------------
@@ -237,10 +259,13 @@ public sealed class CronRunEndingTests : IDisposable
             runs.Append("job-a", Run($"a{i}"));
         runs.Append("job-b", Run("b0"));
 
-        var recent = runs.RecentByJob(2);
+        runs.Append("job-deleted", Run("d0"));
+
+        var recent = runs.RecentByJob(new[] { "job-a", "job-b" }, 2);
 
         Assert.Equal(new[] { "a3", "a2" }, recent["job-a"].Select(r => r.SessionId));
         Assert.Equal(new[] { "b0" }, recent["job-b"].Select(r => r.SessionId));
+        Assert.False(recent.ContainsKey("job-deleted"));
     }
 
     // ---- end to end through the reader -----------------------------------------------------------------------
@@ -271,7 +296,7 @@ public sealed class CronRunEndingTests : IDisposable
         var run = reader.RunsOf("job-a", DateTime.UtcNow).Single();
         Assert.Equal(CronRunEndings.ClosedItself, run.Ending);
         Assert.Equal("closed itself after 6 min", run.EndingText);
-        var summary = reader.SummariesOf(DateTime.UtcNow)["job-a"];
+        var summary = reader.SummariesOf(new[] { "job-a" }, DateTime.UtcNow)["job-a"];
         Assert.Equal("ok", summary.Verdict);
         Assert.Equal("closes itself - 1 of 1, about 6 min", summary.Text);
     }
