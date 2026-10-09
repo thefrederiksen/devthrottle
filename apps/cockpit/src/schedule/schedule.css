@@ -1033,3 +1033,120 @@
   border-color: var(--accent);
   color: var(--text);
 }
+
+/* The load strip (the owner, 2026-10-09): one machine's next 24 hours against its capacity line. */
+.sched-load {
+  margin: 4px 0 14px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.sched-load-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+}
+
+.sched-load-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.sched-load-summary {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.sched-load-chart {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 72px;
+}
+
+.sched-load-col {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.sched-load-col:disabled {
+  cursor: default;
+}
+
+.sched-load-col:hover:not(:disabled),
+.sched-load-col.selected {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.sched-load-bar {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.sched-load-col.selected .sched-load-bar {
+  opacity: 1;
+}
+
+.sched-load-bar.over {
+  background: var(--danger-text);
+}
+
+.sched-load-capacity {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed var(--text-dim);
+  pointer-events: none;
+}
+
+.sched-load-capacity span {
+  position: absolute;
+  right: 0;
+  top: -15px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.sched-load-axis {
+  display: flex;
+  gap: 2px;
+  margin-top: 3px;
+}
+
+.sched-load-axis span {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.sched-load-note {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.sched-hourfilter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 13px;
+}

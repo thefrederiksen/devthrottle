@@ -169,6 +169,26 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Rest_Load_ForecastsTheMachineOfARandomJob_OverTwentyFourHours()
+    {
+        // A random schedule starts sessions like any other, so the load strip counts it.
+        var created = _store.Create(RandomJob("load"));
+
+        var resp = await _http.GetAsync("cron/load");
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var load = JsonSerializer.Deserialize<CronLoadDto>(await resp.Content.ReadAsStringAsync(), JsonOpts)!;
+        Assert.Equal(CronLoad.DefaultCapacity, load.Capacity);
+        var machine = Assert.Single(load.Machines);
+        Assert.Equal("workstation-A", machine.Machine);
+        Assert.Equal("America/Toronto", machine.TimeZoneId);
+        Assert.Equal(24, machine.Hours.Count);
+        Assert.True(machine.Hours.Sum(h => h.Starts) >= 1);
+        // It has never run, so its length is a guess, and the forecast says so.
+        Assert.Equal(new[] { created.Id }, machine.EstimatedJobIds);
+    }
+
+    [Fact]
     public async Task Rest_List_WithoutTheOptIn_LeavesRandomJobsOut_AndStillParses()
     {
         var random = _store.Create(RandomJob());

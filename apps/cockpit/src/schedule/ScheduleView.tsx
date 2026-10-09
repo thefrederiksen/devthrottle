@@ -4,12 +4,16 @@ import {
   createCronJob,
   deleteCronJob,
   getCronJobs,
+  getCronLoad,
   getCronRuns,
   runCronJobNow,
   updateCronJob,
   type CronJob,
+  type CronLoad,
+  type CronLoadHour,
   type CronRunRecord,
 } from "@devthrottle/client-core/schedule/scheduleClient";
+import { LoadStrip } from "./LoadStrip";
 import {
   ENDPOINT_STATE_UNREACHABLE_BY_NAME,
   getFleetDirectors,
@@ -61,6 +65,7 @@ import {
 //
 // Polling matches the Blazor page: the job list refreshes every 5s; a refresh never blocks the modal.
 const POLL_MS = 5000;
+const LOAD_POLL_MS = 60000;
 
 // The create/edit form state, kept together so open/close/reset is one object (mirrors the Blazor
 // _f* fields). enabled + preventOverlap have no form control but are preserved across an edit so
@@ -169,6 +174,12 @@ export function ScheduleView() {
   const [list, setList] = useState<ScheduleList>("active");
   // Layout A (the owner, 2026-10-09): grouped by factory by default; "Group: None" gives the flat list.
   const [grouped, setGrouped] = useState(true);
+  // The load strip (the owner, 2026-10-09): the Gateway's 24-hour forecast, the machine it shows, and the hour the
+  // list is filtered to when a bar is tapped.
+  const [load, setLoad] = useState<CronLoad | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadMachine, setLoadMachine] = useState("");
+  const [hourFilter, setHourFilter] = useState<{ machine: string; hour: CronLoadHour } | null>(null);
 
   // The cron job awaiting delete confirmation. Deleting a job removes the schedule permanently, so it
   // asks through the shared ConfirmDialog (issue #1244) instead of firing on the first click.
@@ -201,6 +212,18 @@ export function ScheduleView() {
   // The schedule list refresh is visibility-aware (issue #1239): a hidden tab stops polling and resumes,
   // refetching at once, when it returns to the foreground.
   useVisiblePolling(refresh, POLL_MS);
+
+  // The forecast moves by the hour, not by the second, so it is read far less often than the list.
+  const refreshLoad = useCallback(async (signal?: AbortSignal) => {
+    try {
+      setLoad(await getCronLoad(signal));
+      setLoadError(null);
+    } catch (err) {
+      if (signal?.aborted === true) return;
+      setLoadError(gatewayErrorMessage(err));
+    }
+  }, []);
+  useVisiblePolling(refreshLoad, LOAD_POLL_MS);
 
   const selectJob = useCallback(async (id: string) => {
     setSelectedId(id);
@@ -781,6 +804,13 @@ export function ScheduleView() {
 
   const activeCount = byList.active.length;
 
+  // A tapped bar narrows the list to the schedules the Gateway says are open in that hour.
+  const shownRows = useMemo(() => {
+    if (hourFilter === null) return byList[list];
+    const ids = new Set(hourFilter.hour.jobIds);
+    return byList[list].filter((job) => ids.has(job.id));
+  }, [byList, list, hourFilter]);
+
   return (
     <div className="sched">
       <PageHeader
@@ -796,6 +826,28 @@ export function ScheduleView() {
       {lastError !== null && <div className="sched-banner-error">Gateway error: {lastError}</div>}
       {actionError !== null && <div className="sched-banner-error">{actionError}</div>}
 
+      {loadError !== null && <div className="sched-banner-error">Load forecast: {loadError}</div>}
+      {load !== null && load.machines.length > 0 && (
+        <LoadStrip
+          load={load}
+          machine={loadMachine}
+          onMachine={(m) => {
+            setLoadMachine(m);
+            setHourFilter(null);
+          }}
+          selectedHour={hourFilter?.hour.startUtc ?? null}
+          onSelectHour={(hour) => {
+            const shown = load.machines.find((m) => m.machine === loadMachine) ?? load.machines[0];
+            if (hour === null || shown === undefined) {
+              setHourFilter(null);
+              return;
+            }
+            setList("active");
+            setHourFilter({ machine: shown.machine, hour });
+          }}
+        />
+      )}
+
       {lastRefresh !== null && (
         <div className="sched-tabs sched-listtabs" role="tablist" aria-label="Which schedules">
           {LIST_TABS.map((t) => (
@@ -806,11 +858,24 @@ export function ScheduleView() {
               aria-selected={list === t.key}
               className={`sched-tab${list === t.key ? " active" : ""}`}
               title={t.title}
-              onClick={() => setList(t.key)}
+              onClick={() => {
+                setList(t.key);
+                setHourFilter(null);
+              }}
             >
               {t.label} <span className="sched-listtab-count">{byList[t.key].length}</span>
             </button>
           ))}
+        </div>
+      )}
+
+      {hourFilter !== null && (
+        <div className="sched-hourfilter">
+          Showing the {shownRows.length} schedule{shownRows.length === 1 ? "" : "s"} open on {hourFilter.machine} in the{" "}
+          {hourFilter.hour.label} hour.{" "}
+          <button type="button" className="sched-groupbtn" onClick={() => setHourFilter(null)}>
+            Show all
+          </button>
         </div>
       )}
 
@@ -820,7 +885,7 @@ export function ScheduleView() {
           // run first for history.
           key={list}
           columns={columns}
-          rows={byList[list]}
+          rows={shownRows}
           rowKey={(job) => job.id}
           searchableText={searchableText}
           searchPlaceholder="Search name, machine, repository, or prompt"
