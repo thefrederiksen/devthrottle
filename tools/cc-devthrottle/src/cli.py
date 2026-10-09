@@ -1746,7 +1746,9 @@ def errors_list(
     until: str = typer.Option(None, "--until", help="Up to this time: ISO 8601, or an age. Default now."),
     machine: str = typer.Option(None, "--machine", help="Only this machine, by its name (only a hash of it is stored)."),
     version: str = typer.Option(None, "--version", help="Only product versions starting with this, e.g. 2.8."),
-    component: str = typer.Option(None, "--component", help="Only director, launcher or install."),
+    component: str = typer.Option(
+        None, "--component",
+        help="Only director, launcher, install, tool, cockpit, mobile, gateway, gateway-app or website."),
     limit: int = typer.Option(100, "--limit", "-n", help="At most this many, newest first (1 to 500)."),
     fields: str = typer.Option(
         None,
@@ -1778,6 +1780,76 @@ def errors_list(
         full=full,
         gateway_url=gateway_url,
     )
+
+
+@errors_app.command("groups")
+def errors_groups(
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output the Gateway's answer as JSON: every field of every group. Filters still apply."
+    ),
+    all_accounts: bool = typer.Option(
+        False,
+        "--all-accounts",
+        help="Every account and every installer failure. Needs ADMIN_SERVICE_TOKEN: "
+        "cc-secrets run admin-service-token -- cc-devthrottle errors groups --all-accounts",
+    ),
+    account: str = typer.Option(None, "--account", help="Only this account id (implies --all-accounts)."),
+    email: str = typer.Option(None, "--email", help="Only the account recorded against this email (implies --all-accounts)."),
+    since: str = typer.Option(None, "--since", help="From this time: ISO 8601, or an age such as 30m, 6h, 7d. Default 24h."),
+    until: str = typer.Option(None, "--until", help="Up to this time: ISO 8601, or an age. Default now."),
+    machine: str = typer.Option(None, "--machine", help="Only this machine, by its name (only a hash of it is stored)."),
+    version: str = typer.Option(None, "--version", help="Only product versions starting with this, e.g. 2.8."),
+    component: str = typer.Option(
+        None, "--component",
+        help="Only director, launcher, install, tool, cockpit, mobile, gateway, gateway-app or website."),
+    limit: int = typer.Option(100, "--limit", "-n", help="At most this many problems, the most reported first (1 to 500)."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: fingerprint,count,visible,last_seen,component,message. "
+        "Valid: fingerprint, count, occurrences, visible, machines, versions, component, source, exception, "
+        "first_seen, last_seen, "
+        "issue, message.",
+    ),
+    full: bool = typer.Option(False, "--full", help="Show whole sample messages instead of a preview."),
+    gateway_url: str = typer.Option(
+        None, "--gateway", help="Read from this Gateway instead of CC_GATEWAY_URL, e.g. the hosted one."
+    ),
+) -> None:
+    """Reported errors, one row per problem, the most reported first."""
+    from .errors_ops import group_errors
+
+    group_errors(
+        json_output=json_output,
+        all_accounts=all_accounts,
+        account=account,
+        email=email,
+        since=since,
+        until=until,
+        machine=machine,
+        version=version,
+        component=component,
+        limit=limit,
+        fields=fields,
+        full=full,
+        gateway_url=gateway_url,
+    )
+
+
+@errors_app.command("link")
+def errors_link(
+    fingerprint: str = typer.Argument(..., help="The problem's fingerprint, as `errors groups` shows it."),
+    issue: str = typer.Argument(None, help="The work item: #3675, owner/repo#3675 or a GitHub issue address."),
+    clear: bool = typer.Option(False, "--clear", help="Remove the link instead of setting one."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the updated summary as JSON."),
+    gateway_url: str = typer.Option(
+        None, "--gateway", help="Write to this Gateway instead of CC_GATEWAY_URL, e.g. the hosted one."
+    ),
+) -> None:
+    """Link a problem to the issue filed for it. Needs ADMIN_SERVICE_TOKEN."""
+    from .errors_ops import link_issue
+
+    link_issue(fingerprint=fingerprint, issue=issue, clear=clear, json_output=json_output, gateway_url=gateway_url)
 
 
 @repo_app.command("list")

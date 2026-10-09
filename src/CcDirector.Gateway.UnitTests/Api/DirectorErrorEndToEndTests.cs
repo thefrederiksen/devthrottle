@@ -77,4 +77,73 @@ public sealed class DirectorErrorEndToEndTests : IDisposable
             await again.DisposeAsync();
         }
     }
+
+    [Fact]
+    public async Task One_failure_on_two_sessions_reads_back_as_one_problem_over_HTTP()
+    {
+        // Issue #3675, over the real route: two reports that differ only by a session id that carries letters
+        // come back from GET /gateway/director-errors/groups as ONE row with a count of two.
+        var (app, url) = await StartAsync(new ErrorReportStore(_root));
+        try
+        {
+            using var client = new HttpClient();
+            var batch = new ErrorReportBatch(
+            [
+                new ErrorReportItem("director", "Session", "logged", "WAIT ENDED session=2c3c4215 verb=prompt", null, null, 1,
+                    DateTime.UtcNow, DateTime.UtcNow, "2.18.0", "windows", "10", "x64", ErrorReportMachineId.Of("pc"),
+                    UserVisible: true, Action: "send a prompt to the session"),
+                new ErrorReportItem("director", "Session", "logged", "WAIT ENDED session=9f8eab7d verb=prompt", null, null, 1,
+                    DateTime.UtcNow, DateTime.UtcNow, "2.18.0", "windows", "10", "x64", ErrorReportMachineId.Of("pc")),
+            ]);
+            var post = await client.PostAsJsonAsync($"{url}/gateway/director-errors", batch);
+            Assert.Equal(System.Net.HttpStatusCode.Accepted, post.StatusCode);
+
+            var answer = await client.GetFromJsonAsync<JsonElement>($"{url}/gateway/director-errors/groups");
+
+            Assert.Equal("account", answer.GetProperty("scope").GetString());
+            Assert.Equal(1, answer.GetProperty("total_groups").GetInt32());
+            Assert.Equal(2, answer.GetProperty("total_reports").GetInt32());
+            Assert.Equal(90, answer.GetProperty("retention_days").GetInt32());
+            var group = answer.GetProperty("groups")[0];
+            Assert.Equal(2, group.GetProperty("count").GetInt32());
+            Assert.Equal(1, group.GetProperty("user_visible").GetInt32());
+            Assert.Equal(16, group.GetProperty("fingerprint").GetString()!.Length);
+        }
+        finally
+        {
+            await app.StopAsync();
+            await app.DisposeAsync();
+        }
+    }
+    [Fact]
+    public async Task A_report_in_the_old_wire_shape_is_stored_over_HTTP()
+    {
+        // Issue #3675: every new field is optional on the wire. This is the exact body a Director built before the
+        // mission sends - none of the new fields - posted as raw text so no serializer of ours fills them in.
+        var (app, url) = await StartAsync(new ErrorReportStore(_root));
+        try
+        {
+            using var client = new HttpClient();
+            const string oldWire = """
+                {"reports":[{"component":"director","source":"SessionManager","kind":"logged","message":"Save FAILED: disk full",
+                "exception_type":null,"stack":null,"repeat_count":1,"first_seen_utc":"2026-10-08T11:00:00Z",
+                "last_seen_utc":"2026-10-08T11:01:00Z","product_version":"2.17.0","os":"windows","os_version":"10",
+                "arch":"x64","machine_id":"0123456789abcdef"}]}
+                """;
+            var post = await client.PostAsync($"{url}/gateway/director-errors",
+                new StringContent(oldWire, System.Text.Encoding.UTF8, "application/json"));
+            Assert.Equal(System.Net.HttpStatusCode.Accepted, post.StatusCode);
+
+            var answer = await client.GetFromJsonAsync<JsonElement>($"{url}/gateway/director-errors");
+            var error = Assert.Single(answer.GetProperty("errors").EnumerateArray());
+            Assert.Equal("Save FAILED: disk full", error.GetProperty("message").GetString());
+            Assert.Equal("2.17.0", error.GetProperty("product_version").GetString());
+            Assert.Equal(16, error.GetProperty("fingerprint").GetString()!.Length);
+        }
+        finally
+        {
+            await app.StopAsync();
+            await app.DisposeAsync();
+        }
+    }
 }

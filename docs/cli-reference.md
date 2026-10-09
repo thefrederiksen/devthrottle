@@ -678,6 +678,11 @@ COMMANDS:
   worktree get     Take a pooled worktree to work in (runs cc-worktrees).
   worktree return  Give a pooled worktree back (runs cc-worktrees).
   mission list     List the missions on the Gateway, active ones by default.
+  errors list      The errors this account's Directors, launchers and other surfaces reported
+                   (--all-accounts: every account and every installer failure, administrator token).
+  errors groups    The same errors one row per problem (the Gateway's fingerprint): count, how many
+                   the user saw, first and last seen, a sample message. Same scopes and filters.
+  errors link      Record the issue filed for a problem on its permanent summary (administrator).
   fleet digest     Everything the Fleet Manager reads at the start of a conversation.
   fleet ready      File a Ready record (also: fleet finding, fleet decision).
   fleet outcomes   List the account's outcome records (also: fleet show, fleet answer, fleet advise).
@@ -704,6 +709,37 @@ COMMANDS:
 
 OPTIONS:
   --version -v
+```
+
+**Reported errors (issues #3311 and #3675).** `errors list` reads one row per report, newest first;
+`errors groups` reads one row per problem, the most reported first. A problem is decided by the
+fingerprint the Gateway stamps on every report when it stores it - built from the component, the
+class that logged it, the exception type, the status and error code of the Gateway answer that caused
+it, and the message with ids, guids, hexadecimal values,
+numbers, file paths, times and quoted text taken out (a request route keeps its words) - so the
+same failure on two sessions is one row.
+Both read this account on the session's own key, or every account with `--all-accounts`, `--account`
+or `--email` on the administrator token
+(`cc-secrets run admin-service-token -- cc-devthrottle errors groups --all-accounts`), and both take
+`--since`, `--until`, `--machine`, `--version`, `--component`, `--limit`, `--fields`, `--full` and
+`--json`. The components are director, launcher, install, tool (every cc-* command line tool), cockpit,
+mobile, gateway (the hosted Gateway itself), gateway-app (the self-hosted Gateway app) and website.
+Each problem also says how many machines and which versions reported it (`--fields machines,versions`).
+Full reports are kept 90 days; a summary of each problem (count, first and last seen, linked issue,
+no message text) is kept for good, and `errors link <fingerprint> <issue>` (or `--clear`) records
+the issue filed for it.
+
+```
+$ cc-devthrottle errors groups --since 7d
+scope: this account, 2026-10-01T12:00:00Z to 2026-10-08T12:00:00Z (kept 90 days)
+count: 2 of 2 total
+reports in these problems: 31
+groups[2]{fingerprint,count,visible,last_seen,component,message}:
+  3f9a0c1d2e4b5a67,28,3,2026-10-08T11:58:02Z,director,"WAIT ENDED session=2c3c4215 verb=prompt"
+  b71e22c09d4f3a10,3,0,2026-10-07T18:20:44Z,launcher,"Update check FAILED: the Gateway did not answer"
+help[5]:
+  cc-devthrottle errors groups --json
+  ...
 ```
 
 `cc-devthrottle actions` prints every action as a list, `actions[N]{id,command,changes-state}`,

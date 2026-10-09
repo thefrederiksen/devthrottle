@@ -350,6 +350,8 @@ public static class SessionKeyGuard
                 // look before it asks the owner. The route files the read under the key's own account; only
                 // the READ is here - reporting is a device's, never an agent's.
                 case "gateway/director-errors":
+                // The same errors, one row per problem (issue #3675). The same account scoping as the list.
+                case "gateway/director-errors/groups":
                     return true;
             }
 
