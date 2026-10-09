@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   CreditsError,
   GatewayError,
+  GATEWAY_TIMED_OUT_CODE,
+  GATEWAY_TIMED_OUT_MESSAGE,
   GATEWAY_UNREACHABLE_MESSAGE,
   gatewayErrorMessage,
   type HostedAiUnavailable,
@@ -77,8 +79,28 @@ describe("gatewayErrorMessage", () => {
     expect(msg.replace(/[^a-z]/gi, "").length).toBeGreaterThan(25);
   });
 
-  it("falls back to the friendly line for a non-Error throw", () => {
-    expect(gatewayErrorMessage("something odd")).toBe(GATEWAY_UNREACHABLE_MESSAGE);
-    expect(gatewayErrorMessage(null)).toBe(GATEWAY_UNREACHABLE_MESSAGE);
+  // CONTRACT CHANGE (the Reports page, 8 Oct 2026): every error of every kind used to read "Can't reach the
+  // Gateway - retrying.", so a slow answer, or a bug in this client, sent the owner looking for an outage while the
+  // Gateway was answering. Only the browser's own fetch failure says that now.
+  it("says the Gateway took too long - never that it cannot be reached - when the poll's own time limit ran out", () => {
+    const timedOut = new GatewayError(504, "Gateway request timed out", { code: GATEWAY_TIMED_OUT_CODE });
+
+    expect(gatewayErrorMessage(timedOut)).toBe(GATEWAY_TIMED_OUT_MESSAGE);
+    expect(gatewayErrorMessage(timedOut)).not.toBe(GATEWAY_UNREACHABLE_MESSAGE);
+    expect(gatewayErrorMessage(timedOut, "load older reports")).toBe(
+      "DevThrottle could not load older reports - the Gateway took too long to answer. Try again.",
+    );
+  });
+
+  it("says what actually went wrong for an error that is not a connection failure", () => {
+    const msg = gatewayErrorMessage(new SyntaxError("Unexpected token < in JSON at position 0"));
+
+    expect(msg).not.toBe(GATEWAY_UNREACHABLE_MESSAGE);
+    expect(msg).toBe("DevThrottle could not complete that: Unexpected token < in JSON at position 0");
+  });
+
+  it("says something unexpected went wrong for a throw that is not an Error", () => {
+    expect(gatewayErrorMessage("something odd")).toBe("DevThrottle could not complete that - something unexpected went wrong.");
+    expect(gatewayErrorMessage(null, "load the reports")).toBe("DevThrottle could not load the reports - something unexpected went wrong.");
   });
 });

@@ -8,6 +8,10 @@ import "./devReports.css";
 // named, every report the account's sessions sent, for the Cockpit's Reports page on a person's own account. Every
 // field is the Gateway's - title, status, version, updated time, open items - rendered as sent; this list
 // decides nothing about what a status means. The shell supplies the frame and what opening a report does.
+//
+// ONE PAGE AT A TIME. The list reads the newest page and re-reads only that page while it is on screen; older reports
+// come a page at a time when the person asks for them ("Show older reports"), and are not re-read. Reading the whole
+// history on every refresh is what made the account's Reports page time out.
 
 /** How often the list is re-read while it is on screen. There is no push for dev reports. */
 export const DEV_REPORT_POLL_MS = 5000;
@@ -24,14 +28,22 @@ function formatTime(iso: string): string {
 }
 
 export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
-  const [reports, setReports] = useState<DevReportSummary[] | null>(null);
+  // The newest page, re-read on every refresh, and its marker for the page after it.
+  const [newest, setNewest] = useState<DevReportSummary[] | null>(null);
+  const [newestNext, setNewestNext] = useState<string | null>(null);
+  // The older pages the person asked for, kept as read, and the marker for the page after the last of them.
+  const [older, setOlder] = useState<DevReportSummary[]>([]);
+  const [olderNext, setOlderNext] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [olderError, setOlderError] = useState<string | null>(null);
 
   const refresh = useCallback(
     async (signal: AbortSignal) => {
       try {
-        const next = await listDevReports(sessionId, signal);
-        setReports(next);
+        const page = await listDevReports(sessionId, null, signal);
+        setNewest(page.reports);
+        setNewestNext(page.next);
         setError(null);
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
@@ -41,6 +53,29 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
     [sessionId],
   );
   useVisiblePolling(refresh, DEV_REPORT_POLL_MS);
+
+  // Where the next older page starts: after the last older page read, or after the newest page.
+  const nextMarker = olderNext === undefined ? newestNext : olderNext;
+
+  const showOlder = async () => {
+    if (nextMarker === null) return;
+    setLoadingOlder(true);
+    setOlderError(null);
+    try {
+      const page = await listDevReports(sessionId, nextMarker);
+      setOlder((kept) => [...kept, ...page.reports]);
+      setOlderNext(page.next);
+    } catch (err) {
+      setOlderError(gatewayErrorMessage(err, "load older reports"));
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
+
+  // A report updated since an older page was read moves into the newest page; it is shown once, where it is newest.
+  const reports = newest === null
+    ? null
+    : [...newest, ...older.filter((o) => !newest.some((n) => n.id === o.id))];
 
   return (
     <div className="dev-report-list" data-testid="dev-report-list">
@@ -88,6 +123,22 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
             </span>
           </button>
         ))}
+      {reports !== null && nextMarker !== null && (
+        <button
+          type="button"
+          className="dev-report-more"
+          data-testid="dev-report-list-more"
+          disabled={loadingOlder}
+          onClick={() => void showOlder()}
+        >
+          {loadingOlder ? "Loading older reports..." : "Show older reports"}
+        </button>
+      )}
+      {olderError !== null && (
+        <div className="dev-report-error" role="alert" data-testid="dev-report-list-more-error">
+          {olderError}
+        </div>
+      )}
     </div>
   );
 }

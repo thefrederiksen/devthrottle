@@ -183,6 +183,40 @@ internal sealed class DevReportStore
     }
 
     /// <summary>
+    /// ONE PAGE of the account's reports - or one session's - newest update first, for the owner's Reports list. The
+    /// database sorts and cuts the page, so a list read costs the same with ten reports as with ten thousand; reading
+    /// every row and sorting it here is what made the whole-account list time out. The order is total - update time,
+    /// newest first, then session id, then key, all ordinal - because a session's key is unique, so a page never
+    /// repeats or skips a report. <paramref name="after"/> is the last report of the page before (null for the first
+    /// page); the answer says whether any report is older than this page.
+    /// </summary>
+    public DevReportListPage ListPage(TenantId tenant, string? sessionId, int limit, DevReportListPosition? after)
+    {
+        if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit), limit, "A page holds at least one report.");
+        using var ctx = _db.CreateContext(tenant);
+        var query = ctx.DevReports.AsNoTracking();
+        if (!string.IsNullOrEmpty(sessionId))
+            query = query.Where(r => r.SessionId == sessionId);
+        if (after is { } a)
+        {
+            var at = a.UpdatedAtUtc;
+            var sid = a.SessionId;
+            var key = a.Key;
+            query = query.Where(r => r.UpdatedAtUtc < at
+                                     || (r.UpdatedAtUtc == at && (string.Compare(r.SessionId, sid) > 0
+                                         || (r.SessionId == sid && string.Compare(r.Key, key) > 0))));
+        }
+        var rows = query
+            .OrderByDescending(r => r.UpdatedAtUtc).ThenBy(r => r.SessionId).ThenBy(r => r.Key)
+            .Take(limit + 1)
+            .ToList();
+        var more = rows.Count > limit;
+        if (more) rows.RemoveAt(rows.Count - 1);
+        FileLog.Write($"[DevReportStore] ListPage: tenant={tenant.ToLogString()} sid={sessionId ?? "(all)"} limit={limit} after={(after is null ? "none" : "set")} count={rows.Count} more={more}");
+        return new DevReportListPage(rows, more);
+    }
+
+    /// <summary>
     /// The reports one person wrote in a team's tenant, newest update first (devthrottle_internal#2309). Read by the
     /// author column and its index, so the author's Reports page grows with what they wrote, not with the team's history.
     /// </summary>
