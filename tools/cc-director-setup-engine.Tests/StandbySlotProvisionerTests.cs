@@ -248,7 +248,8 @@ public class StandbySlotProvisionerTests : IDisposable
         // this fails instead of the gate silently reading every check as clear.
         var path = InstanceState("default");
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new InvalidOperationException("no directory"));
-        new UpdaterState { PendingHealthCheckVersion = "2.4.0" }.SaveTo(path);
+        // Written the way product code writes it since #3680, which made SaveTo internal to the Core.
+        UpdaterState.UpdateAt(path, s => s.PendingHealthCheckVersion = "2.4.0");
 
         Assert.Equal(HealthGate.PendingForThisBuild, StandbySlotProvisioner.ReadHealthGate(_root, Self));
     }
