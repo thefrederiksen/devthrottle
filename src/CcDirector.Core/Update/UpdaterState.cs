@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CcDirector.Core.Storage;
@@ -160,6 +162,7 @@ public sealed class UpdaterState
         FileLog.Write($"[UpdaterState] Load: {path}");
         try
         {
+            using var _ = FileLock.Acquire(path);
             if (!File.Exists(path))
                 return new UpdaterState();
 
@@ -200,9 +203,75 @@ public sealed class UpdaterState
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(this, JsonOptions);
         // Write beside the file and move it over, so an interrupted save leaves the old file whole
-        // instead of a truncated, zero-byte one (issue #3666).
-        var temporary = path + ".tmp";
-        File.WriteAllText(temporary, json);
-        File.Move(temporary, path, overwrite: true);
+        // instead of a truncated, zero-byte one (issue #3666). The Director, the launcher and the update
+        // helper all read and write this file, so every load and save takes the file's lock: without it
+        // two saves at once collided on the temporary file or on the replace, and one threw.
+        using var _ = FileLock.Acquire(path);
+        var temporary = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(temporary, json);
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+        }
+    }
+
+    /// <summary>
+    /// One lock per updater state file, shared by every process on the machine (issue #3666). A named
+    /// operating-system mutex whose name is derived from the file's full path, in the <c>Global\</c>
+    /// namespace on Windows because the launcher and a Director started by the Task Scheduler can run in
+    /// different logon sessions. The same pattern as <see cref="Skills.SharedSkillFolderLock"/>.
+    ///
+    /// A load or save takes milliseconds, so a wait past <see cref="Wait"/> means something is wrong and
+    /// it throws rather than touching the file unlocked. A lock left by a process that died holding it is
+    /// taken over and said so in the log: the file itself is always whole, because a save only ever
+    /// replaces it with a complete one.
+    /// </summary>
+    private sealed class FileLock : IDisposable
+    {
+        private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+        private readonly Mutex _mutex;
+
+        private FileLock(Mutex mutex) => _mutex = mutex;
+
+        public static FileLock Acquire(string path)
+        {
+            var name = NameFor(path);
+            var mutex = new Mutex(initiallyOwned: false, name);
+            bool got;
+            try
+            {
+                got = mutex.WaitOne(Wait);
+            }
+            catch (AbandonedMutexException)
+            {
+                FileLog.Write($"[UpdaterState] {name} was left held by a process that ended mid-save; taken over");
+                got = true;
+            }
+            if (!got)
+            {
+                mutex.Dispose();
+                throw new TimeoutException($"Updater state file {path} stayed locked by another process for {Wait.TotalSeconds:0}s");
+            }
+            return new FileLock(mutex);
+        }
+
+        private static string NameFor(string path)
+        {
+            var full = Path.GetFullPath(path);
+            if (OperatingSystem.IsWindows())
+                full = full.ToUpperInvariant();
+            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(full)))[..32];
+            return (OperatingSystem.IsWindows() ? @"Global\" : "") + "devthrottle-updater-state-" + hash;
+        }
+
+        public void Dispose()
+        {
+            _mutex.ReleaseMutex();
+            _mutex.Dispose();
+        }
     }
 }

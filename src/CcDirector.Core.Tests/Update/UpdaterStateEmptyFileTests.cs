@@ -47,4 +47,23 @@ public sealed class UpdaterStateEmptyFileTests : IDisposable
         Assert.Equal("2.0.0", UpdaterState.LoadFrom(StatePath).StagedVersion);
         Assert.Equal(new[] { StatePath }, Directory.GetFiles(_dir));
     }
+
+    /// <summary>
+    /// The Director, the launcher and the update helper all write this file and nothing serialises
+    /// them. With one shared temporary name, two saves at once collided on it and one threw; a load holding
+    /// the file open can refuse a save's replace the same way.
+    /// </summary>
+    [Fact]
+    public async Task SaveTo_ConcurrentSaves_AllSucceedAndLeaveOneValidFile()
+    {
+        var saves = Enumerable.Range(0, 200)
+            .Select(i => Task.Run(() => new UpdaterState { StagedVersion = $"1.0.{i}" }.SaveTo(StatePath)))
+            .Concat(Enumerable.Range(0, 200).Select(_ => Task.Run(() => { UpdaterState.LoadFrom(StatePath); })))
+            .ToArray();
+
+        await Task.WhenAll(saves);
+
+        Assert.StartsWith("1.0.", UpdaterState.LoadFrom(StatePath).StagedVersion);
+        Assert.Equal(new[] { StatePath }, Directory.GetFiles(_dir));
+    }
 }
