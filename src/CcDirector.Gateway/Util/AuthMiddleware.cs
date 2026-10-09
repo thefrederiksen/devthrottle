@@ -249,6 +249,12 @@ internal static class AuthMiddleware
         // Exempt for the same reason as the admin routes above and behind the same service-token gate. The
         // report route and the account read are NOT exempt: they need the device's own credential.
         Api.DirectorErrorEndpoints.AdminPath,
+        // Issue #3675: the administrator's grouped read, the per-problem summaries kept for good, and linking a
+        // problem to its work item. Same reason, same service-token gate, each exact-match. The summaries carry
+        // no message text; linking writes one issue reference onto one summary and nothing else.
+        Api.DirectorErrorEndpoints.AdminGroupsPath,
+        Api.DirectorErrorEndpoints.AdminSummariesPath,
+        Api.DirectorErrorEndpoints.AdminLinkedIssuePath,
         // The administrator read of the corrections people made to the Wingman's verdicts (the
         // Wingman-on-every-turn mission, slice G), exempt for the same reason and behind the same gate: the
         // daily corpus pull is a job with no device key on this Gateway. It names ONE account - a blank one is

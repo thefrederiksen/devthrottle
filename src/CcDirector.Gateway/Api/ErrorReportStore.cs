@@ -36,6 +36,61 @@ internal sealed record ErrorReportRecord
     [JsonPropertyName("installer")] public string? Installer { get; init; }
     [JsonPropertyName("step")] public string? Step { get; init; }
     [JsonPropertyName("diagnostics")] public string? Diagnostics { get; init; }
+    // The Error Logging mission (issue #3675). All optional: a record from an older sender has none of them.
+    [JsonPropertyName("user_visible")] public bool? UserVisible { get; init; }
+    [JsonPropertyName("surface")] public string? Surface { get; init; }
+    [JsonPropertyName("action")] public string? Action { get; init; }
+    [JsonPropertyName("correlation_id")] public string? CorrelationId { get; init; }
+    [JsonPropertyName("http_status")] public int? HttpStatus { get; init; }
+    [JsonPropertyName("error_code")] public string? ErrorCode { get; init; }
+    [JsonPropertyName("session_id")] public string? SessionId { get; init; }
+    /// <summary>Which problem this is (<see cref="ErrorFingerprint"/>). Stamped by <see cref="ErrorReportStore.Append"/>
+    /// whatever the writer set, so it is only ever computed in one place.</summary>
+    [JsonPropertyName("fingerprint")] public string? Fingerprint { get; init; }
+}
+
+/// <summary>
+/// The permanent record of one problem (issue #3675): kept for good, after its full reports have aged out. The
+/// owner's words: "a small per-problem summary kept for good (count, first and last seen, linked issue - no
+/// message text)". So it holds no message, no stack, no account and no machine: only what identifies the problem
+/// and how often it happened.
+/// </summary>
+internal sealed record ErrorProblemSummary
+{
+    [JsonPropertyName("fingerprint")] public string Fingerprint { get; init; } = "";
+    [JsonPropertyName("component")] public string Component { get; init; } = "";
+    /// <summary>The class that logged it - a name from our own code, never user text.</summary>
+    [JsonPropertyName("source")] public string Source { get; init; } = "";
+    /// <summary>How many reports were stored.</summary>
+    [JsonPropertyName("count")] public long Count { get; init; }
+    /// <summary>How many times it happened: a sender folds repeats into one report and says how many.</summary>
+    [JsonPropertyName("occurrences")] public long Occurrences { get; init; }
+    [JsonPropertyName("first_seen_utc")] public DateTime FirstSeenUtc { get; init; }
+    [JsonPropertyName("last_seen_utc")] public DateTime LastSeenUtc { get; init; }
+    /// <summary>The work item filed for it ("#3675", "owner/repo#12" or a GitHub issue address), or null.</summary>
+    [JsonPropertyName("linked_issue")] public string? LinkedIssue { get; init; }
+}
+
+/// <summary>One problem in the grouped read: every matching report with the same fingerprint, counted.</summary>
+internal sealed record ErrorReportGroup
+{
+    [JsonPropertyName("fingerprint")] public string Fingerprint { get; init; } = "";
+    [JsonPropertyName("component")] public string Component { get; init; } = "";
+    [JsonPropertyName("source")] public string Source { get; init; } = "";
+    [JsonPropertyName("exception_type")] public string? ExceptionType { get; init; }
+    [JsonPropertyName("count")] public int Count { get; init; }
+    [JsonPropertyName("occurrences")] public long Occurrences { get; init; }
+    /// <summary>How many of the reports said the user saw the error.</summary>
+    [JsonPropertyName("user_visible")] public int UserVisible { get; init; }
+    [JsonPropertyName("first_seen_utc")] public DateTime FirstSeenUtc { get; init; }
+    [JsonPropertyName("last_seen_utc")] public DateTime LastSeenUtc { get; init; }
+    /// <summary>How many different machines reported it, counted by their hashed ids (issue #3646).</summary>
+    [JsonPropertyName("machines")] public int Machines { get; init; }
+    /// <summary>Every product version that reported it, sorted (issue #3646).</summary>
+    [JsonPropertyName("versions")] public IReadOnlyList<string> Versions { get; init; } = [];
+    /// <summary>The newest report's message, already scrubbed when it was stored.</summary>
+    [JsonPropertyName("sample_message")] public string SampleMessage { get; init; } = "";
+    [JsonPropertyName("linked_issue")] public string? LinkedIssue { get; init; }
 }
 
 /// <summary>The store could not take a write in time - the storage share is stalled or busy. The route answers
@@ -55,6 +110,10 @@ internal sealed record ErrorReportQuery(
 /// <summary>The answer: the newest matching records, and how many matched in all.</summary>
 internal sealed record ErrorReportPage(IReadOnlyList<ErrorReportRecord> Records, int TotalMatched, IReadOnlyDictionary<string, int> ByComponent);
 
+/// <summary>The grouped answer: the problems with the most reports first, how many problems matched, and how many
+/// reports they hold between them.</summary>
+internal sealed record ErrorGroupPage(IReadOnlyList<ErrorReportGroup> Groups, int TotalGroups, int TotalReports);
+
 /// <summary>
 /// The durable record of error reports (issue #3311), kept as files on the Gateway's DURABLE storage root -
 /// on hosted, the Azure Files share mounted at <c>/home/gateway/cc-director</c>, which a deploy does not
@@ -70,12 +129,22 @@ internal sealed record ErrorReportPage(IReadOnlyList<ErrorReportRecord> Records,
 /// mounted without byte-range locks, and two writers on one file clobber each other mid-record. A reader
 /// reads every file in a day folder. A line that does not parse (a write cut short) is skipped.
 ///
-/// RETENTION. Day folders older than <see cref="RetentionDays"/> are deleted - only folders whose name IS a
-/// date, so nothing else that ever lands under the root can be swept by mistake.
+/// RETENTION (the owner's ruling, issue #3675): "Full reports for 90 days, plus a small per-problem summary kept
+/// for good (count, first and last seen, linked issue - no message text)." Day folders older than
+/// <see cref="RetentionDays"/> are deleted - only folders whose name IS a date, so nothing else that ever lands
+/// under the root can be swept by mistake. The summaries live in <c>&lt;root&gt;/summaries/&lt;fingerprint&gt;.json</c>,
+/// a folder whose name is not a date, so the sweep never touches them.
+///
+/// THE SUMMARIES AND A DEPLOY. A summary is read, updated and replaced whole (written to a temporary file and
+/// moved over the old one, so a reader never sees half a file). Inside one process the write lock orders every
+/// update. Two containers share the files only for the seconds a deploy overlaps them, and an update from each in
+/// that window can cost a summary the count of one batch. The full reports are unaffected, and the grouped read
+/// counts from those.
 /// </summary>
 internal sealed class ErrorReportStore
 {
-    public const int RetentionDays = 30;
+    public const int RetentionDays = 90;
+    internal const string SummaryFolder = "summaries";
     public const int MaxLimit = 500;
 
     private static readonly JsonSerializerOptions LineJson = new()
@@ -121,8 +190,10 @@ internal sealed class ErrorReportStore
         // before midnight is filed under the day a query for that day will open.
         var day = records.Max(r => r.ReceivedUtc);
         var now = _clock();
+        // The one place a fingerprint is computed (rule 7): whatever the writer set is replaced.
+        var stamped = records.Select(r => r with { Fingerprint = ErrorFingerprint.Of(r.Component, r.Source, r.ExceptionType, r.Message) }).ToList();
         var sb = new StringBuilder();
-        foreach (var r in records)
+        foreach (var r in stamped)
             sb.Append(JsonSerializer.Serialize(r, LineJson)).Append('\n');
 
         if (!Monitor.TryEnter(_writeLock, WriteLockTimeout))
@@ -143,6 +214,17 @@ internal sealed class ErrorReportStore
                 var bytes = Encoding.UTF8.GetBytes(sb.ToString());
                 stream.Write(bytes, 0, bytes.Length);
                 stream.Flush(flushToDisk: true);
+            }
+
+            // The reports are stored. A summary that cannot be updated costs the summary one batch's count, and is
+            // logged as a failure; turning it into a 503 would make the sender retry and store every report twice.
+            try
+            {
+                UpdateSummaries(stamped);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                FileLog.Write($"[ErrorReportStore] UpdateSummaries FAILED ({ex.GetType().Name}): {ex.Message}; {stamped.Count} report(s) stored, their summary count is short");
             }
 
             if (now - _lastPruneUtc > TimeSpan.FromHours(1))
@@ -182,24 +264,168 @@ internal sealed class ErrorReportStore
     public ErrorReportPage Query(ErrorReportQuery q)
     {
         var limit = Math.Clamp(q.Limit, 1, MaxLimit);
-        var matched = new List<ErrorReportRecord>();
-        if (Directory.Exists(_root))
-        {
-            for (var day = q.UntilUtc.Date; day >= q.SinceUtc.Date; day = day.AddDays(-1))
-            {
-                var dir = Path.Combine(_root, DayName(day));
-                if (!Directory.Exists(dir)) continue;
-                foreach (var file in Directory.EnumerateFiles(dir, "*.jsonl"))
-                    foreach (var record in ReadFile(file))
-                        if (Matches(record, q)) matched.Add(record);
-            }
-        }
+        var matched = Scan(q);
 
         var byComponent = matched
             .GroupBy(r => r.Component, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         var newest = matched.OrderByDescending(r => r.ReceivedUtc).Take(limit).ToList();
         return new ErrorReportPage(newest, matched.Count, byComponent);
+    }
+
+    /// <summary>
+    /// The grouped read (issue #3675): every matching report, one row per fingerprint, the problem with the most
+    /// reports first. The same filters as <see cref="Query"/>; the limit counts problems, not reports. Each group
+    /// carries the linked issue from its permanent summary, when one was set.
+    /// </summary>
+    public ErrorGroupPage Group(ErrorReportQuery q)
+    {
+        var limit = Math.Clamp(q.Limit, 1, MaxLimit);
+        var matched = Scan(q);
+        var groups = matched
+            .GroupBy(r => r.Fingerprint!, StringComparer.Ordinal)
+            .Select(g =>
+            {
+                var newest = g.MaxBy(r => r.ReceivedUtc)!;
+                return new ErrorReportGroup
+                {
+                    Fingerprint = g.Key,
+                    Component = newest.Component,
+                    Source = newest.Source,
+                    ExceptionType = newest.ExceptionType,
+                    Count = g.Count(),
+                    Occurrences = g.Sum(r => (long)Math.Max(1, r.RepeatCount)),
+                    UserVisible = g.Count(r => r.UserVisible == true),
+                    FirstSeenUtc = g.Min(r => r.FirstSeenUtc ?? r.ReceivedUtc),
+                    LastSeenUtc = g.Max(r => r.LastSeenUtc ?? r.ReceivedUtc),
+                    Machines = g.Select(r => r.MachineId).Where(m => !string.IsNullOrEmpty(m)).Distinct(StringComparer.Ordinal).Count(),
+                    Versions = g.Select(r => r.ProductVersion).Where(v => !string.IsNullOrEmpty(v))
+                        .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList(),
+                    SampleMessage = newest.Message,
+                };
+            })
+            .OrderByDescending(g => g.Count)
+            .ThenByDescending(g => g.LastSeenUtc)
+            .ToList();
+
+        var page = groups.Take(limit)
+            .Select(g => g with { LinkedIssue = ReadSummary(g.Fingerprint)?.LinkedIssue })
+            .ToList();
+        return new ErrorGroupPage(page, groups.Count, matched.Count);
+    }
+
+    /// <summary>Every permanent summary, the most recently seen first.</summary>
+    public IReadOnlyList<ErrorProblemSummary> Summaries()
+    {
+        var dir = Path.Combine(_root, SummaryFolder);
+        if (!Directory.Exists(dir)) return [];
+        var list = new List<ErrorProblemSummary>();
+        foreach (var file in Directory.EnumerateFiles(dir, "*.json"))
+        {
+            var fingerprint = Path.GetFileNameWithoutExtension(file);
+            if (!ErrorFingerprint.IsFingerprint(fingerprint)) continue;
+            if (ReadSummary(fingerprint) is { } summary) list.Add(summary);
+        }
+        return list.OrderByDescending(s => s.LastSeenUtc).ToList();
+    }
+
+    /// <summary>
+    /// Link a problem to the work item filed for it, or clear the link with null. Returns the updated summary, or
+    /// null when no report with that fingerprint was ever stored - a link to a problem nobody has seen is refused,
+    /// not invented. Throws <see cref="StoreBusyException"/> on a stalled share, like a write.
+    /// </summary>
+    public ErrorProblemSummary? SetLinkedIssue(string fingerprint, string? linkedIssue)
+    {
+        if (!ErrorFingerprint.IsFingerprint(fingerprint))
+            throw new ArgumentException("a fingerprint is 16 lower-case hexadecimal characters", nameof(fingerprint));
+        if (!Monitor.TryEnter(_writeLock, WriteLockTimeout))
+            throw new StoreBusyException(
+                $"the error store did not free up within {WriteLockTimeout.TotalSeconds:0} seconds; the storage share may be stalled");
+        try
+        {
+            var existing = ReadSummary(fingerprint);
+            if (existing is null) return null;
+            var updated = existing with { LinkedIssue = linkedIssue };
+            WriteSummary(updated);
+            FileLog.Write($"[ErrorReportStore] SetLinkedIssue: fingerprint={fingerprint} linked_issue={linkedIssue ?? "(cleared)"}");
+            return updated;
+        }
+        finally
+        {
+            Monitor.Exit(_writeLock);
+        }
+    }
+
+    /// <summary>Fold one stored batch into the permanent summaries. Called under the write lock.</summary>
+    private void UpdateSummaries(IReadOnlyList<ErrorReportRecord> stored)
+    {
+        foreach (var g in stored.GroupBy(r => r.Fingerprint!, StringComparer.Ordinal))
+        {
+            var newest = g.MaxBy(r => r.ReceivedUtc)!;
+            var first = g.Min(r => r.FirstSeenUtc ?? r.ReceivedUtc);
+            var last = g.Max(r => r.LastSeenUtc ?? r.ReceivedUtc);
+            var count = g.Count();
+            var occurrences = g.Sum(r => (long)Math.Max(1, r.RepeatCount));
+            var existing = ReadSummary(g.Key);
+            WriteSummary(existing is null
+                ? new ErrorProblemSummary
+                {
+                    Fingerprint = g.Key,
+                    Component = newest.Component,
+                    Source = newest.Source,
+                    Count = count,
+                    Occurrences = occurrences,
+                    FirstSeenUtc = first,
+                    LastSeenUtc = last,
+                }
+                : existing with
+                {
+                    Count = existing.Count + count,
+                    Occurrences = existing.Occurrences + occurrences,
+                    FirstSeenUtc = first < existing.FirstSeenUtc ? first : existing.FirstSeenUtc,
+                    LastSeenUtc = last > existing.LastSeenUtc ? last : existing.LastSeenUtc,
+                });
+        }
+    }
+
+    /// <summary>One summary, or null when none exists. A file that does not parse throws - a summary kept for good
+    /// is never silently started again from nothing.</summary>
+    internal ErrorProblemSummary? ReadSummary(string fingerprint)
+    {
+        var file = SummaryPath(fingerprint);
+        if (!File.Exists(file)) return null;
+        string text;
+        using (var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (var reader = new StreamReader(stream, Encoding.UTF8))
+            text = reader.ReadToEnd();
+        return JsonSerializer.Deserialize<ErrorProblemSummary>(text)
+            ?? throw new JsonException($"the summary {file} is empty");
+    }
+
+    private void WriteSummary(ErrorProblemSummary summary)
+    {
+        var file = SummaryPath(summary.Fingerprint);
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        var temp = $"{file}.{_instance}.tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(summary, LineJson), Encoding.UTF8);
+        File.Move(temp, file, overwrite: true);
+    }
+
+    private string SummaryPath(string fingerprint) => Path.Combine(_root, SummaryFolder, fingerprint + ".json");
+
+    private List<ErrorReportRecord> Scan(ErrorReportQuery q)
+    {
+        var matched = new List<ErrorReportRecord>();
+        if (!Directory.Exists(_root)) return matched;
+        for (var day = q.UntilUtc.Date; day >= q.SinceUtc.Date; day = day.AddDays(-1))
+        {
+            var dir = Path.Combine(_root, DayName(day));
+            if (!Directory.Exists(dir)) continue;
+            foreach (var file in Directory.EnumerateFiles(dir, "*.jsonl"))
+                foreach (var record in ReadFile(file))
+                    if (Matches(record, q)) matched.Add(record);
+        }
+        return matched;
     }
 
     private static bool Matches(ErrorReportRecord r, ErrorReportQuery q)
@@ -230,7 +456,12 @@ internal sealed class ErrorReportStore
                 // A line cut short by a write in progress, or by a container stopped mid-write.
                 continue;
             }
-            if (record is not null) yield return record;
+            if (record is null) continue;
+            // A record stored before fingerprints existed (issue #3675) is given one as it is read, by the same code
+            // that stamps every new record, so old and new reports of one problem group together.
+            yield return record.Fingerprint is null
+                ? record with { Fingerprint = ErrorFingerprint.Of(record.Component, record.Source, record.ExceptionType, record.Message) }
+                : record;
         }
     }
 

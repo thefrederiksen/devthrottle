@@ -12,6 +12,15 @@ Two reads, chosen explicitly - never one standing in for the other:
                                 `cc-secrets run admin-service-token -- cc-devthrottle errors list --all-accounts`.
                                 --account and --email imply it.
 
+The grouped read and the linked issue (the Error Logging mission, issue #3675):
+
+  errors groups               - the same errors, one row per PROBLEM: the Gateway's fingerprint, how many
+                                reports, how many the user saw, first and last seen, a sample message. The same
+                                two scopes and the same filters as `errors list`.
+  errors link <fingerprint> <issue>
+                              - record the work item filed for a problem on its permanent summary (or --clear
+                                it). Administrator only.
+
 Output follows docs/axi-standard.md: a count line, a compact list, truncated messages with a size hint,
 help[] lines, and `--json` for the Gateway's answer unchanged.
 """
@@ -22,7 +31,7 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
@@ -38,8 +47,34 @@ ADMIN_TOKEN_COMMAND = "cc-secrets run admin-service-token -- cc-devthrottle erro
 
 ACCOUNT_PATH = "gateway/director-errors"
 ADMIN_PATH = "gateway/admin/director-errors"
+GROUPS_PATH = "gateway/director-errors/groups"
+ADMIN_GROUPS_PATH = "gateway/admin/director-errors/groups"
+ADMIN_LINKED_ISSUE_PATH = "gateway/admin/director-errors/linked-issue"
+ADMIN_LINK_COMMAND = "cc-secrets run admin-service-token -- cc-devthrottle errors link <fingerprint> <issue>"
 
-COMPONENTS = ("director", "launcher", "install")
+# The same list, in the same order, as ErrorReportLimits.Components in
+# src/CcDirector.Core/ErrorReports/ErrorReportContract.cs - the one place the components are defined.
+# test_errors_groups.py reads that file and fails when the two differ.
+COMPONENTS = ("director", "launcher", "install", "tool", "cockpit", "mobile", "gateway", "gateway-app", "website")
+
+GROUP_FIELDS = (
+    "fingerprint",
+    "count",
+    "occurrences",
+    "visible",
+    "machines",
+    "versions",
+    "component",
+    "source",
+    "exception",
+    "first_seen",
+    "last_seen",
+    "issue",
+    "message",
+)
+GROUP_DEFAULT_FIELDS = ("fingerprint", "count", "visible", "last_seen", "component", "message")
+
+FINGERPRINT_LENGTH = 16
 
 ERROR_FIELDS = (
     "time",
@@ -90,7 +125,8 @@ def _row(record: Dict[str, Any], full: bool) -> Dict[str, Any]:
     }
 
 
-def list_errors(
+def _prepare_read(
+    verb: str,
     *,
     json_output: bool,
     all_accounts: bool,
@@ -103,9 +139,10 @@ def list_errors(
     component: Optional[str],
     limit: int,
     fields: Optional[str],
-    full: bool,
     gateway_url: Optional[str],
-) -> None:
+) -> Tuple[bool, str, Optional[str]]:
+    """The checks and the query string `errors list` and `errors groups` share, so the two reads can never scope or
+    filter differently. Returns (administrator read?, query string, bearer token or None for this session's key)."""
     # Usage errors first: a bad flag is the caller's to fix whatever the Gateway holds.
     if json_output and fields is not None:
         _usage_error(axi_cli.FIELDS_WITH_JSON)
@@ -124,24 +161,56 @@ def list_errors(
         # refuse anyway. --gateway exists for the administrator read, which carries its own token.
         _usage_error("--gateway is only for --all-accounts, --account or --email: this account's read uses "
                      "this session's key, which is only ever sent to CC_GATEWAY_URL.")
-    chosen = usage_errors.parse_fields(fields, ERROR_FIELDS, ADMIN_DEFAULT_FIELDS if admin else ERROR_DEFAULT_FIELDS)
 
     params: Dict[str, str] = {"limit": str(limit)}
     for key, value in (("since", since), ("until", until), ("machine", machine), ("version", version),
                        ("component", component), ("account", account), ("email", email)):
         if value:
             params[key] = value
-    path = f"{ADMIN_PATH if admin else ACCOUNT_PATH}?{urlencode(params)}"
 
     bearer: Optional[str] = None
     if admin:
-        bearer = os.environ.get(ADMIN_TOKEN_VARIABLE, "").strip()
-        if not bearer:
-            axi_cli.fail(
-                f"reading every account's errors needs the administrator service token in {ADMIN_TOKEN_VARIABLE}, "
-                "and it is not set.",
-                [ADMIN_TOKEN_COMMAND, "cc-devthrottle errors list"],
-            )
+        bearer = _admin_token(
+            "reading every account's errors",
+            f"cc-secrets run admin-service-token -- cc-devthrottle errors {verb} --all-accounts",
+            f"cc-devthrottle errors {verb}",
+        )
+    return admin, urlencode(params), bearer
+
+
+def _admin_token(what: str, *next_commands: str) -> str:
+    bearer = os.environ.get(ADMIN_TOKEN_VARIABLE, "").strip()
+    if not bearer:
+        axi_cli.fail(
+            f"{what} needs the administrator service token in {ADMIN_TOKEN_VARIABLE}, and it is not set.",
+            list(next_commands),
+        )
+    return bearer
+
+
+def list_errors(
+    *,
+    json_output: bool,
+    all_accounts: bool,
+    account: Optional[str],
+    email: Optional[str],
+    since: Optional[str],
+    until: Optional[str],
+    machine: Optional[str],
+    version: Optional[str],
+    component: Optional[str],
+    limit: int,
+    fields: Optional[str],
+    full: bool,
+    gateway_url: Optional[str],
+) -> None:
+    admin, query, bearer = _prepare_read(
+        "list", json_output=json_output, all_accounts=all_accounts, account=account, email=email, since=since,
+        until=until, machine=machine, version=version, component=component, limit=limit, fields=fields,
+        gateway_url=gateway_url,
+    )
+    chosen = usage_errors.parse_fields(fields, ERROR_FIELDS, ADMIN_DEFAULT_FIELDS if admin else ERROR_DEFAULT_FIELDS)
+    path = f"{ADMIN_PATH if admin else ACCOUNT_PATH}?{query}"
 
     try:
         answer = gateway.get_json(path, bearer=bearer, base_url=gateway_url)
@@ -182,6 +251,140 @@ def list_errors(
     if total > len(rows):
         next_steps.append(f"cc-devthrottle errors list --limit {min(500, max(limit, total))}")
     next_steps.append("cc-devthrottle errors list --machine <machine-name> --since 7d")
+    next_steps.append("cc-devthrottle errors groups --since 7d")
     if not admin:
         next_steps.append(ADMIN_TOKEN_COMMAND)
     axi_cli.print_next(next_steps)
+
+
+def _group_row(group: Dict[str, Any], full: bool) -> Dict[str, Any]:
+    message = str(group.get("sample_message") or "")
+    if not full and len(message) > MESSAGE_PREVIEW:
+        message = f"{message[:MESSAGE_PREVIEW]}... (truncated, {len(message)} chars total - use --full)"
+    return {
+        "fingerprint": str(group.get("fingerprint") or ""),
+        "count": int(group.get("count") or 0),
+        "occurrences": int(group.get("occurrences") or 0),
+        "visible": int(group.get("user_visible") or 0),
+        "machines": int(group.get("machines") or 0),
+        "versions": ",".join(str(v) for v in (group.get("versions") or [])),
+        "component": str(group.get("component") or ""),
+        "source": str(group.get("source") or ""),
+        "exception": str(group.get("exception_type") or ""),
+        "first_seen": str(group.get("first_seen_utc") or ""),
+        "last_seen": str(group.get("last_seen_utc") or ""),
+        "issue": str(group.get("linked_issue") or ""),
+        "message": axi_output.escape_ascii(message),
+    }
+
+
+def group_errors(
+    *,
+    json_output: bool,
+    all_accounts: bool,
+    account: Optional[str],
+    email: Optional[str],
+    since: Optional[str],
+    until: Optional[str],
+    machine: Optional[str],
+    version: Optional[str],
+    component: Optional[str],
+    limit: int,
+    fields: Optional[str],
+    full: bool,
+    gateway_url: Optional[str],
+) -> None:
+    """`errors groups`: the reported errors one row per problem, the most reported first (issue #3675). The
+    fingerprint that decides which reports are one problem is the Gateway's; this command only shows it."""
+    admin, query, bearer = _prepare_read(
+        "groups", json_output=json_output, all_accounts=all_accounts, account=account, email=email, since=since,
+        until=until, machine=machine, version=version, component=component, limit=limit, fields=fields,
+        gateway_url=gateway_url,
+    )
+    chosen = usage_errors.parse_fields(fields, GROUP_FIELDS, GROUP_DEFAULT_FIELDS)
+    path = f"{ADMIN_GROUPS_PATH if admin else GROUPS_PATH}?{query}"
+
+    try:
+        answer = gateway.get_json(path, bearer=bearer, base_url=gateway_url)
+    except gateway.GatewayError as err:
+        axi_cli.fail(axi_output.escape_ascii(str(err)), [axi_cli.CHECK_GATEWAY])
+
+    if not isinstance(answer, dict) or not isinstance(answer.get("groups"), list):
+        axi_cli.fail(
+            "the Gateway's answer has no list of groups. This tool will not read that as none. "
+            "A Gateway older than this command does not have the route.",
+            [axi_cli.CHECK_GATEWAY],
+        )
+
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+
+    groups: List[Dict[str, Any]] = answer["groups"]
+    total = int(answer.get("total_groups") or 0)
+    rows = [_group_row(g, full) for g in groups]
+
+    blocks = [
+        f"scope: {'every account' if admin else 'this account'}, "
+        f"{answer.get('since_utc')} to {answer.get('until_utc')} (kept {answer.get('retention_days')} days)",
+        axi_output.format_count(len(rows), total=total),
+        f"reports in these problems: {int(answer.get('total_reports') or 0)}",
+        axi_output.render_list("groups", chosen, [{f: row[f] for f in chosen} for row in rows]),
+    ]
+    if not rows:
+        blocks.append("none match")
+    axi_output.write_blocks(sys.stdout, *blocks)
+
+    next_steps = ["cc-devthrottle errors groups --json"]
+    if total > len(rows):
+        next_steps.append(f"cc-devthrottle errors groups --limit {min(500, max(limit, total))}")
+    next_steps.append("cc-devthrottle errors groups --since 30d --component <component>")
+    next_steps.append("cc-devthrottle errors list --since 7d")
+    next_steps.append(ADMIN_LINK_COMMAND)
+    axi_cli.print_next(next_steps)
+
+
+def link_issue(
+    *,
+    fingerprint: str,
+    issue: Optional[str],
+    clear: bool,
+    json_output: bool,
+    gateway_url: Optional[str],
+) -> None:
+    """`errors link`: record on a problem's permanent summary the work item filed for it, or clear it (issue
+    #3675). Administrator only: the summaries span every account."""
+    fingerprint = (fingerprint or "").strip()
+    if len(fingerprint) != FINGERPRINT_LENGTH or any(c not in "0123456789abcdef" for c in fingerprint):
+        _usage_error("the fingerprint is the 16 lower-case hexadecimal characters `cc-devthrottle errors groups` shows.")
+    if clear and issue:
+        _usage_error("give an issue to link, or --clear to remove the link - not both.")
+    if not clear and not issue:
+        _usage_error("give the issue to link (#3675, owner/repo#3675 or a GitHub issue address), or --clear.")
+
+    bearer = _admin_token("linking a problem to its issue", ADMIN_LINK_COMMAND)
+    body = {"fingerprint": fingerprint, "linked_issue": None if clear else issue.strip()}
+    try:
+        answer = gateway.put_json(ADMIN_LINKED_ISSUE_PATH, body, bearer=bearer, base_url=gateway_url)
+    except gateway.GatewayError as err:
+        axi_cli.fail(axi_output.escape_ascii(str(err)), ["cc-devthrottle errors groups --all-accounts"])
+
+    if not isinstance(answer, dict) or answer.get("fingerprint") != fingerprint:
+        axi_cli.fail(
+            "the Gateway's answer is not the updated summary, so this tool cannot say the link was recorded.",
+            [axi_cli.CHECK_GATEWAY],
+        )
+
+    if json_output:
+        print(json.dumps(answer, indent=2))
+        return
+
+    linked = answer.get("linked_issue")
+    axi_output.write_blocks(
+        sys.stdout,
+        f"fingerprint: {fingerprint}",
+        f"linked_issue: {axi_output.escape_ascii(str(linked)) if linked else '(none)'}",
+        f"count: {int(answer.get('count') or 0)} reports, first seen {answer.get('first_seen_utc')}, "
+        f"last seen {answer.get('last_seen_utc')}",
+    )
+    axi_cli.print_next(["cc-devthrottle errors groups --all-accounts"])

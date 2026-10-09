@@ -169,7 +169,7 @@ def test_long_message_is_truncated_with_a_size_hint_unless_full(calls):
 @pytest.mark.parametrize(
     "args",
     [
-        ["errors", "list", "--component", "gateway"],
+        ["errors", "list", "--component", "kitchen"],
         ["errors", "list", "--component", "install"],
         ["errors", "list", "--account", "a", "--email", "b"],
         ["errors", "list", "--limit", "0"],

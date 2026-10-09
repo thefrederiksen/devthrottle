@@ -100,6 +100,8 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     [Theory]
     [InlineData("install")]
     [InlineData("gateway")]
+    // There is no "cli" component: every command line tool reports as "tool" (issue #3675).
+    [InlineData("cli")]
     [InlineData("")]
     public void HandlePost_AComponentADeviceMayNotReportAs_IsRefused(string component)
     {
@@ -221,14 +223,14 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     [Fact]
     public void Prune_DeletesOnlyDateFoldersOlderThanRetention()
     {
-        Directory.CreateDirectory(Path.Combine(_root, "2026-07-01"));
+        Directory.CreateDirectory(Path.Combine(_root, "2026-06-01"));
         Directory.CreateDirectory(Path.Combine(_root, "2026-09-20"));
         Directory.CreateDirectory(Path.Combine(_root, "not-a-date"));
 
         var deleted = NewStore().Prune(Now);
 
         Assert.Equal(1, deleted);
-        Assert.False(Directory.Exists(Path.Combine(_root, "2026-07-01")));
+        Assert.False(Directory.Exists(Path.Combine(_root, "2026-06-01")));
         Assert.True(Directory.Exists(Path.Combine(_root, "2026-09-20")));
         Assert.True(Directory.Exists(Path.Combine(_root, "not-a-date")));
     }
@@ -258,7 +260,7 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     [InlineData("limit", "0")]
     [InlineData("limit", "many")]
     [InlineData("limit", "1000")]
-    [InlineData("component", "gateway")]
+    [InlineData("component", "kitchen")]
     public void TryBuildQuery_AMalformedFilter_IsA400NotIgnored(string key, string value)
     {
         var q = new QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues> { [key] = value });
