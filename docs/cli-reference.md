@@ -1769,6 +1769,10 @@ one or one with a line break, with the reason. `--clear` removes it. It exits 1 
 not kept. Registering again from a manifest with no `purpose` key keeps the line; a manifest that carries
 `"purpose": ""` clears it.
 
+**A seat's line** (the factory floor, 8 October 2026). A seat may carry `"line": "Night shift"`: the production
+line it works on, which is the lane its bay stands in on the factory's Floor (one line of at most 40 characters).
+A seat with no line stands in a lane called "Other"; when no seat names a line, every seat stands in one lane.
+
 **The boss has no name of its own** (the owner, 8 October 2026). The seat `bossSeat` names is registered with
 the name `Boss`; a manifest that gives it a person's name is refused with the fix. Its role is `Boss` unless
 the factory has a distinct word for it (`CFO`). The screen says "the boss", "Talk to the boss" and "Latest

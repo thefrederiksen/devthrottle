@@ -272,6 +272,95 @@ export interface FactoryTalkStarted {
   directorId: string;
 }
 
+// The factory floor (owner decision, 8 October 2026), mirroring FactoryFloorDtos.cs. Every position, word and tone
+// is the Gateway's; the Cockpit only draws it.
+export type FactoryFloorLine = "solid" | "dashed" | "dotted";
+
+export interface FactoryFloorOffice {
+  title: string;
+  sub: string;
+  tone: FactoryTone;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FactoryFloorLane {
+  name: string;
+  hue: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FactoryFloorBay {
+  id: string;
+  kind: "seat" | "source";
+  title: string;
+  sub: string;
+  tone: FactoryTone;
+  toneText: string;
+  dashed: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  href: string | null;
+}
+
+export interface FactoryFloorArrow {
+  from: string;
+  to: string;
+  label: string;
+  tone: FactoryTone;
+  line: FactoryFloorLine;
+  path: string;
+  head: string;
+  labelX: number;
+  labelY: number;
+}
+
+export interface FactoryFloorDeskItem {
+  title: string;
+  text: string;
+  tone: FactoryTone;
+  href: string | null;
+}
+
+export interface FactoryFloorDesk {
+  title: string;
+  sub: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  items: FactoryFloorDeskItem[];
+  emptyText: string | null;
+  note: string | null;
+}
+
+export interface FactoryFloorLegend {
+  text: string;
+  tone: FactoryTone;
+  line: FactoryFloorLine;
+}
+
+export interface FactoryFloorView {
+  factoryId: string;
+  title: string;
+  width: number;
+  height: number;
+  office: FactoryFloorOffice | null;
+  lanes: FactoryFloorLane[];
+  bays: FactoryFloorBay[];
+  arrows: FactoryFloorArrow[];
+  desk: FactoryFloorDesk;
+  legend: FactoryFloorLegend[];
+  notes: string[];
+}
+
 const PREFIX = "/gateway/factories";
 const TALK_PREFIX = "/gateway/factory-agents/factories";
 
@@ -322,6 +411,11 @@ export function getFactoryPage(factory: string, signal?: AbortSignal): Promise<F
 
 export function getFactorySeats(factory: string, signal?: AbortSignal): Promise<FactorySeatsView> {
   return getJson<FactorySeatsView>(`${PREFIX}/${encodeURIComponent(factory)}/seats`, "load this factory's seats", signal);
+}
+
+/** The factory's floor: its production lines, bays, arrows and the owner's desk, laid out by the Gateway. */
+export function getFactoryFloor(factory: string, signal?: AbortSignal): Promise<FactoryFloorView> {
+  return getJson<FactoryFloorView>(`${PREFIX}/${encodeURIComponent(factory)}/floor`, "load this factory's floor", signal);
 }
 
 /**

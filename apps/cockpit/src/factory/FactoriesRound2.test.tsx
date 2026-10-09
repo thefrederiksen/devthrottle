@@ -16,6 +16,7 @@ const screenClient = vi.hoisted(() => ({
   getFactoriesList: vi.fn(),
   getFactoryPage: vi.fn(),
   getFactorySeats: vi.fn(),
+  getFactoryFloor: vi.fn(() => new Promise(() => {})),
   startFactoryTalk: vi.fn(),
   markFactoryFailureHandled: vi.fn(),
 }));

@@ -355,6 +355,7 @@ export const FACTORY_PAGE: FactoryPageView = {
   talk: { label: "Talk to the boss", busyLabel: "Starting the talk with the boss (fixture)...", factoryId: "warmforward", seatId: "nora-hale" },
   tabs: [
     { key: "overview", label: "Overview" },
+    { key: "floor", label: "Floor" },
     { key: "seats", label: "Seats (4)" },
     { key: "activity", label: "Activity" },
     { key: "reports", label: "Reports" },

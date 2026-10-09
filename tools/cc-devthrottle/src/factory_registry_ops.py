@@ -57,7 +57,7 @@ GOAL_NUMBERS_ROUTE = "gateway/factory/goal-numbers"
 
 #: The keys a manifest may hold, and a seat inside it. Anything else is refused.
 MANIFEST_KEYS = ("factory", "title", "folder", "computer", "bossSeat", "goalFile", "goalApprovedOn", "purpose", "seats")
-SEAT_KEYS = ("id", "name", "role", "briefFile", "schedules", "computer")
+SEAT_KEYS = ("id", "name", "role", "briefFile", "schedules", "computer", "line")
 
 #: `factory list`: every field it can show, and the few it shows unless asked (docs/axi-standard.md).
 LIST_FIELDS = ("id", "title", "boss", "seats", "computer", "goal", "purpose", "folder")

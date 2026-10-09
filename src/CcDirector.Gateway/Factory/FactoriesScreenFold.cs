@@ -266,6 +266,7 @@ public static class FactoriesScreenFold
     public static List<FactoryTabDto> PageTabs(int seats) => new()
     {
         new() { Key = "overview", Label = "Overview" },
+        new() { Key = "floor", Label = "Floor" },
         new() { Key = "seats", Label = $"Seats ({seats})" },
         new() { Key = "activity", Label = "Activity" },
         new() { Key = "reports", Label = "Reports" },

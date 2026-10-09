@@ -324,6 +324,8 @@ public sealed class FactoryRegistryStoreTests : IDisposable
         yield return new object[] { "boss not a seat", (Action<RegisterFactoryRequest>)(m => m.BossSeat = "max-ridley"), "boss seat" };
         // The boss has no name of its own (the owner, 8 October 2026): a person's name on the boss seat is refused with the fix.
         yield return new object[] { "boss named a person", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Name = "Nora Hale"), "set its name to \"Boss\"" };
+        yield return new object[] { "empty line", (Action<RegisterFactoryRequest>)(m => m.Seats[1].Line = "  "), "empty line" };
+        yield return new object[] { "long line", (Action<RegisterFactoryRequest>)(m => m.Seats[1].Line = new string('x', 41)), "at most 40" };
         yield return new object[] { "seat with no name", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Name = ""), "name of seat" };
         yield return new object[] { "seat with no role", (Action<RegisterFactoryRequest>)(m => m.Seats[0].Role = ""), "role of seat" };
         yield return new object[] { "absolute brief", (Action<RegisterFactoryRequest>)(m => m.Seats[0].BriefFile = @"C:\briefs\ceo.yaml"), "relative" };
@@ -378,6 +380,21 @@ public sealed class FactoryRegistryStoreTests : IDisposable
 
         Assert.StartsWith(reason, ex.Message, StringComparison.Ordinal);
         Assert.Empty(store.List(A));
+    }
+
+    [Fact]
+    public void Register_ASeatsLine_IsKeptTrimmed_AndASeatWithNoLineHasNone()
+    {
+        // The factory floor (8 October 2026): a seat's line is the lane its bay stands in.
+        var m = WarmForward();
+        m.Seats[1].Line = "  Savings  ";
+        var store = NewStore();
+
+        store.Register(A, m, "session s1", Now);
+
+        var seats = store.List(A).Single().Seats;
+        Assert.Null(seats.Single(s => s.Id == "nora-hale").Line);
+        Assert.Equal("Savings", seats.Single(s => s.Id == "savings-engineer").Line);
     }
 
     [Fact]

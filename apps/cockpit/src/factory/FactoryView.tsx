@@ -9,6 +9,7 @@ import {
 import { EmptyState, ErrorBanner, LoadingState } from "../components";
 import { ActivityTab, ReportsTab, useView } from "./FactoryActivityTabs";
 import { FailuresCard, useScrollToHash } from "./FactoryFailures";
+import { FactoryFloorPanel } from "./FactoryFloor";
 import { FactoryMemoryTab } from "./FactoryMemoryTab";
 import { OwnerActionButton, TalkButton, ToneChip } from "./FactoryParts";
 import { WaitingItem } from "./FactoryWaitingView";
@@ -105,7 +106,9 @@ export function FactoryView() {
       </nav>
 
       {page.truncatedText !== null && <div className="fa-warn">{page.truncatedText}</div>}
+      {tab === "overview" && <FactoryFloorPanel factory={page.id} />}
       {tab === "overview" && <Overview page={page} onChanged={view.reload} onDone={done} />}
+      {tab === "floor" && <FactoryFloorPanel factory={page.id} full />}
       {tab === "seats" &&
         (seats.error !== null ? (
           <ErrorBanner message={seats.error} onRetry={seats.reload} />
