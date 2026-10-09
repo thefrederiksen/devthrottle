@@ -189,6 +189,33 @@ public sealed class RandomScheduleWiringTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Rest_Create_AScheduleThatOverfillsAnHour_IsSavedWithALoadWarning_AndOneThatFitsHasNone()
+    {
+        CronJobDto Seven(int i) => new()
+        {
+            Name = $"seven-{i}",
+            ScheduleKind = "recurring",
+            CronExpression = "0 7 * * *",
+            TimeZoneId = "America/Toronto",
+            Target = new CronJobTarget { Machine = "busy-box" },
+            Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
+        };
+        for (var i = 0; i < CronLoad.DefaultCapacity; i++)
+        {
+            var fits = await _http.PostAsJsonAsync("cron/jobs", Seven(i));
+            var fitted = JsonSerializer.Deserialize<CronJobDto>(await fits.Content.ReadAsStringAsync(), JsonOpts)!;
+            Assert.Null(fitted.LoadWarning);
+        }
+
+        var resp = await _http.PostAsJsonAsync("cron/jobs", Seven(99));
+
+        Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
+        var created = JsonSerializer.Deserialize<CronJobDto>(await resp.Content.ReadAsStringAsync(), JsonOpts)!;
+        Assert.NotNull(_store.Get(created.Id));
+        Assert.StartsWith($"busy-box will have {CronLoad.DefaultCapacity + 1} scheduled sessions open at 07:00", created.LoadWarning);
+    }
+
+    [Fact]
     public async Task Rest_List_WithoutTheOptIn_LeavesRandomJobsOut_AndStillParses()
     {
         var random = _store.Create(RandomJob());

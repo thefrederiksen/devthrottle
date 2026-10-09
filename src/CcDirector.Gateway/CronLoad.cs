@@ -142,6 +142,28 @@ public static class CronLoad
         };
     }
 
+    /// <summary>
+    /// The warning for a schedule just written, from a forecast that already includes it: the worst hour its sessions
+    /// are open in that is over capacity, and the machine's quietest hour. Null when every hour it touches fits.
+    /// </summary>
+    public static string? WarningFor(CronLoadDto load, CronJobDto job)
+    {
+        ArgumentNullException.ThrowIfNull(load);
+        ArgumentNullException.ThrowIfNull(job);
+        var machine = load.Machines.FirstOrDefault(m =>
+            string.Equals(m.Machine, job.Target.Machine, StringComparison.OrdinalIgnoreCase));
+        if (machine is null)
+            return null;
+        var over = machine.Hours.Where(h => h.Over && h.JobIds.Contains(job.Id, StringComparer.Ordinal)).ToList();
+        if (over.Count == 0)
+            return null;
+        var worst = over.OrderByDescending(h => h.Concurrent).ThenBy(h => h.StartUtc).First();
+        var more = over.Count == 1 ? "" : $" ({over.Count} of its hours are over)";
+        return $"{machine.Machine} will have {worst.Concurrent} scheduled sessions open at {worst.Label} with this one, "
+            + $"over its capacity of {load.Capacity}{more}. The quietest hour is {machine.Quietest.Label} "
+            + $"({machine.Quietest.Concurrent} open) - see cc-devthrottle schedule load --machine {machine.Machine}.";
+    }
+
     /// <summary>The start of the hour <paramref name="now"/> is in, on the clock of <paramref name="zone"/>, in UTC.</summary>
     private static DateTime HourStart(DateTime now, TimeZoneInfo zone)
     {

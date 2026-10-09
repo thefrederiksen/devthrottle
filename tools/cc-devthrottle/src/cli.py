@@ -931,6 +931,13 @@ _ACTIONS = [
         "args": [{"name": "id", "required": True}, {"name": "days", "required": False}],
     },
     {
+        "id": "schedule-load",
+        "description": "Show each machine's scheduled load over the next 24 hours, hour by hour, and its quietest hour.",
+        "command": "cc-devthrottle schedule load --machine <machine>",
+        "mutatesState": False,
+        "args": [{"name": "machine", "required": False}],
+    },
+    {
         "id": "schedule-run",
         "description": "Fire a Gateway schedule immediately.",
         "command": "cc-devthrottle schedule run <id>",
@@ -3499,6 +3506,15 @@ def schedule_plan(
 ) -> None:
     """Show the fire times still to come of a random schedule."""
     schedule_ops.show_plan(job_id, days, json_output)
+
+
+@schedule_app.command("load")
+def schedule_load(
+    machine: Optional[str] = typer.Option(None, "--machine", help="Only this machine. Default: every machine."),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's forecast as JSON."),
+) -> None:
+    """Show how many scheduled sessions each machine has open, hour by hour, over the next 24 hours."""
+    schedule_ops.show_load(machine, json_output)
 
 
 @schedule_app.command("create")

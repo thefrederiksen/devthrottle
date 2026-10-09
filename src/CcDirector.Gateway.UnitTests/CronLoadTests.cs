@@ -176,6 +176,31 @@ public sealed class CronLoadTests
     }
 
     [Fact]
+    public void WarningFor_AScheduleOpenInAnHourOverCapacity_NamesTheWorstHourAndTheQuietest()
+    {
+        var jobs = new[] { Daily("a", "0 7 * * *"), Daily("b", "0 7 * * *"), Daily("new", "30 7 * * *") };
+        var load = CronLoad.Build(jobs, Lengths(("a", 90), ("b", 90), ("new", 20)), Now, capacity: 2);
+
+        Assert.Equal(
+            "SOREN_NORTH will have 3 scheduled sessions open at 07:00 with this one, over its capacity of 2. "
+            + "The quietest hour is 00:00 (0 open) - see cc-devthrottle schedule load --machine SOREN_NORTH.",
+            CronLoad.WarningFor(load, jobs[2]));
+    }
+
+    [Fact]
+    public void WarningFor_AScheduleThatFits_IsNull_EvenWhenAnotherHourIsOver()
+    {
+        var jobs = new[] { Daily("a", "0 7 * * *"), Daily("b", "0 7 * * *"), Daily("c", "0 7 * * *"), Daily("new", "0 13 * * *") };
+        var load = CronLoad.Build(jobs, Lengths(("a", 30), ("b", 30), ("c", 30), ("new", 30)), Now, capacity: 2);
+
+        Assert.True(load.Machines[0].Hours.Single(h => h.Label == "07:00").Over);
+        Assert.Null(CronLoad.WarningFor(load, jobs[3]));
+        // A paused schedule starts nothing, so it is never warned about.
+        var paused = Daily("paused", "0 7 * * *", enabled: false);
+        Assert.Null(CronLoad.WarningFor(CronLoad.Build(jobs.Append(paused), Lengths(), Now, 2), paused));
+    }
+
+    [Fact]
     public void Build_AnEveryFifteenMinutesSchedule_StartsFourTimesAnHour()
     {
         var machine = Assert.Single(CronLoad.Build(new[] { Daily("often", "*/15 * * * *") }, Lengths(("often", 5)), Now, 6).Machines);

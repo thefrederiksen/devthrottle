@@ -157,6 +157,9 @@ class ScheduleClient:
         data = self._ok_or_raise(self._request("GET", f"/cron/jobs/{job_id}/runs"))
         return list(data.get("runs", []))
 
+    def get_load(self) -> Dict[str, Any]:
+        return self._ok_or_raise(self._request("GET", "/cron/load"))
+
     def get_plan(self, job_id: str, days: int) -> Dict[str, Any]:
         return self._ok_or_raise(self._request("GET", f"/cron/jobs/{job_id}/plan?days={days}"))
 
@@ -601,6 +604,7 @@ def create_job(
         # `schedule list` afterwards and recognising somebody else's jobs (issue #2201).
         f"  Gateway:   {gateway_override or resolve_base_url()}",
     )
+    _write_load_warning(created)
     job_ref = axi_cli.bare(created.get("id"), "<schedule-id>")
     axi_cli.print_next([
         f"cc-devthrottle schedule get {job_ref}",
@@ -628,6 +632,66 @@ def _random_settings(
     if not shape_text:
         _create_usage_error(f"--shape needs a value: {SHAPE_HUMAN}, or 24 comma-separated hourly weights.")
     return f"window={window.strip()} perDay={per_day} minGap={min_gap} shape={shape_text}"
+
+
+def _write_load_warning(job: Dict[str, Any]) -> None:
+    """The Gateway's warning when a schedule just written lands in an hour over its machine's capacity. The schedule
+    is saved either way; the warning says where it is crowded and which hour is quietest."""
+    warning = job.get("loadWarning")
+    if warning:
+        axi_cli.write_lines(f"  WARNING:   {axi_cli.ascii_text(warning)}")
+
+
+def show_load(machine: Optional[str], json_output: bool) -> None:
+    """Each machine's next 24 hours, straight from the Gateway's forecast (GET /cron/load), which the Schedule page's
+    load strip draws: the most scheduled sessions open at once in each hour, against the capacity."""
+    try:
+        load = _client().get_load()
+    except GatewayError as ex:
+        _fail(str(ex), ["cc-devthrottle schedule endpoint"])
+        return
+
+    machines = load.get("machines") if isinstance(load, dict) else None
+    if not isinstance(machines, list):
+        # Absent is not empty: an answer with no list of machines must never read as "nothing scheduled".
+        _fail("the Gateway answered the load forecast with no list of machines; --json shows the raw answer.",
+              ["cc-devthrottle schedule load --json"])
+        return
+    if machine:
+        chosen = [m for m in machines if str(m.get("machine", "")).lower() == machine.lower()]
+        if not chosen:
+            known = ", ".join(axi_cli.ascii_text(m.get("machine")) for m in machines) or "none"
+            _fail(f"no active schedules run on '{axi_cli.ascii_text(machine)}'; machines with some: {known}.",
+                  ["cc-devthrottle schedule load", _FIND_A_SCHEDULE])
+            return
+        machines = chosen
+
+    if json_output:
+        print(json.dumps(load if not machine else {**load, "machines": machines}, indent=2))
+        return
+
+    blocks = [f"capacity: {load.get('capacity')} scheduled sessions open at once per machine"]
+    if not machines:
+        blocks.append("No active schedules, so nothing is forecast.")
+    for m in machines:
+        records = [
+            {"hour": h.get("label"), "open": h.get("concurrent"), "starts": h.get("starts"),
+             "over": "OVER" if h.get("over") else ""}
+            for h in m.get("hours", [])
+        ]
+        lines = [f"{axi_cli.ascii_text(m.get('machine'))} ({axi_cli.ascii_text(m.get('timeZoneId'))}), "
+                 f"{m.get('schedules')} active schedules: {axi_cli.ascii_text(m.get('summary'))}"]
+        for note in (m.get("estimateNote"), m.get("unplacedNote")):
+            if note:
+                lines.append(f"note: {axi_cli.ascii_text(note)}")
+        blocks.append("\n".join(lines))
+        blocks.append(axi_output.render_list("hours", ["hour", "open", "starts", "over"], records))
+    blocks.append(axi_output.format_help([
+        "cc-devthrottle schedule list --machine <machine>",
+        "cc-devthrottle schedule create --help",
+        "cc-devthrottle schedule load --json",
+    ]))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def show_plan(job_id: str, days: int, json_output: bool) -> None:
@@ -717,6 +781,7 @@ def link_job(job_id: str, factory: str, seat: str, json_output: bool) -> None:
         print(json.dumps(linked, indent=2))
         return
     axi_cli.write_lines(f"Linked {_fmt(linked.get('name'))} ({_fmt(linked.get('id'))}) to {_seat_label(linked)}.")
+    _write_load_warning(linked)
     job_ref = axi_cli.bare(linked.get("id"), "<schedule-id>")
     axi_cli.print_next([f"cc-devthrottle schedule get {job_ref}", "cc-devthrottle factory list"])
 
@@ -728,6 +793,7 @@ def enable_job(job_id: str) -> None:
         _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle schedule endpoint"])
         return
     axi_cli.write_lines(f"Enabled {_fmt(job.get('name'))} ({_fmt(job.get('id'))}).")
+    _write_load_warning(job)
     job_ref = axi_cli.bare(job.get("id"), "<schedule-id>")
     axi_cli.print_next([
         f"cc-devthrottle schedule get {job_ref}",
