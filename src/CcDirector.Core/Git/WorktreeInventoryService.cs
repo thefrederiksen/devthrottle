@@ -119,6 +119,12 @@ public sealed class WorktreeInventoryService
                 Success = true,
             };
         }
+        catch (OperationCanceledException)
+        {
+            // A superseded scan cancelled this inventory (#3668). The caller owns that outcome and
+            // already handles it as a cancellation; it is not a failed inventory.
+            throw;
+        }
         catch (Exception ex)
         {
             FileLog.Write($"[WorktreeInventoryService] GetInventoryAsync FAILED: {ex.Message}");
