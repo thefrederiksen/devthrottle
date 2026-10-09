@@ -60,6 +60,8 @@ export interface CronJob {
   scheduleText?: string | null;
   /** A random schedule's fire times still to come today, local "HH:mm" (issue #3622); null otherwise. Read-only. */
   remainingToday?: string[] | null;
+  /** Whether the schedule will still run, folded by the Gateway: "active" | "paused" | "spent" | "off". Read-only. */
+  lifecycle?: string | null;
 }
 
 /** One execution of a cron job. The two status fields are deliberately separate: infraStatus is

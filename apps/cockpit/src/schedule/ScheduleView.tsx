@@ -39,8 +39,11 @@ import {
   cronToEnglish,
   epochOrMax,
   lastOutcome,
+  nextRunInstant,
+  nextRunLabel,
   promptBody,
-  relativeUntil,
+  scheduleListOf,
+  type ScheduleList,
 } from "./scheduleFormat";
 
 // The Schedule page (issue #976, epic #967) - the React port of the Blazor Cockpit Schedule.razor
@@ -154,6 +157,10 @@ export function ScheduleView() {
   const [activeTab, setActiveTab] = useState<"settings" | "instructions">("settings");
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Which list the grid shows (the owner, 2026-10-09): only the schedules that will still run, by default. A
+  // spent one-off and a switched-off schedule are still reachable, behind the Paused and Historical tabs.
+  const [list, setList] = useState<ScheduleList>("active");
 
   // The cron job awaiting delete confirmation. Deleting a job removes the schedule permanently, so it
   // asks through the shared ConfirmDialog (issue #1244) instead of firing on the first click.
@@ -529,10 +536,10 @@ export function ScheduleView() {
         header: "Next run",
         width: "90px",
         sortable: true,
-        sortValue: (job) => epochOrMax(job.nextRunUtc),
+        sortValue: (job) => epochOrMax(nextRunInstant(job)),
         render: (job) => (
-          <span className="mono" title={absoluteUtc(job.nextRunUtc)}>
-            {relativeUntil(job.nextRunUtc)}
+          <span className="mono" title={absoluteUtc(nextRunInstant(job))}>
+            {nextRunLabel(job)}
           </span>
         ),
       },
@@ -629,8 +636,8 @@ export function ScheduleView() {
             )}
             <dt>Next run</dt>
             <dd>
-              {relativeUntil(job.nextRunUtc)}{" "}
-              <span className="dim">({absoluteUtc(job.nextRunUtc)})</span>
+              {nextRunLabel(job)}{" "}
+              <span className="dim">({absoluteUtc(nextRunInstant(job))})</span>
             </dd>
             <dt>Last run</dt>
             <dd>
@@ -681,11 +688,20 @@ export function ScheduleView() {
     [runs, selectedId],
   );
 
+  // The jobs split into the three lists, in one pass, so the tab counts and the grid always agree.
+  const byList = useMemo(() => {
+    const lists: Record<ScheduleList, CronJob[]> = { active: [], paused: [], historical: [] };
+    for (const job of jobs) lists[scheduleListOf(job)].push(job);
+    return lists;
+  }, [jobs]);
+
+  const activeCount = byList.active.length;
+
   return (
     <div className="sched">
       <PageHeader
         title="Schedule"
-        subtitle={`${jobs.length} cron job${jobs.length === 1 ? "" : "s"} across the fleet.`}
+        subtitle={`${activeCount} active cron job${activeCount === 1 ? "" : "s"} across the fleet.`}
         actions={
           <Button variant="primary" onClick={openCreate}>
             New cron job
@@ -697,14 +713,37 @@ export function ScheduleView() {
       {actionError !== null && <div className="sched-banner-error">{actionError}</div>}
 
       {lastRefresh !== null && (
+        <div className="sched-tabs sched-listtabs" role="tablist" aria-label="Which schedules">
+          {LIST_TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={list === t.key}
+              className={`sched-tab${list === t.key ? " active" : ""}`}
+              title={t.title}
+              onClick={() => setList(t.key)}
+            >
+              {t.label} <span className="sched-listtab-count">{byList[t.key].length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {lastRefresh !== null && (
         <DataTable<CronJob>
+          // Remounted per list so each opens on its own sort: soonest next run for the live lists, most recent
+          // run first for history.
+          key={list}
           columns={columns}
-          rows={jobs}
+          rows={byList[list]}
           rowKey={(job) => job.id}
           searchableText={searchableText}
           searchPlaceholder="Search name, machine, repository, or prompt"
-          defaultSort={{ columnKey: "next", direction: "asc" }}
-          emptyMessage="No cron jobs yet. Create one to schedule a session or a work-list drain on a machine."
+          defaultSort={
+            list === "historical" ? { columnKey: "last", direction: "desc" } : { columnKey: "next", direction: "asc" }
+          }
+          emptyMessage={LIST_EMPTY[list]}
           toolbarExtra={
             <span className="sched-refreshed">
               {lastRefresh === null ? "connecting..." : `updated ${clockLabel(lastRefresh)}`}
@@ -1089,6 +1128,19 @@ export function ScheduleView() {
     </div>
   );
 }
+
+// The three list tabs, in order. Active is the default and the one the header counts.
+const LIST_TABS: { key: ScheduleList; label: string; title: string }[] = [
+  { key: "active", label: "Active", title: "Schedules that will still run" },
+  { key: "paused", label: "Paused", title: "Repeating schedules that are switched off; switch one on to resume it" },
+  { key: "historical", label: "Historical", title: "One-off schedules that have run, or were switched off before they ran" },
+];
+
+const LIST_EMPTY: Record<ScheduleList, string> = {
+  active: "No active cron jobs. Create one to schedule a session or a work-list drain on a machine.",
+  paused: "No paused cron jobs.",
+  historical: "No historical cron jobs.",
+};
 
 // Reduce a full CronJob (as read back from the Gateway, carrying its computed nextRunUtc /
 // lastFiredUtc / lastStatus / createdUtc) to a clean create/update DTO of ONLY the mutable fields,

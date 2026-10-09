@@ -71,6 +71,54 @@ export function relativeUntil(iso: string | null | undefined, now: number = Date
   return `in ${Math.floor(hours / 24)}d`;
 }
 
+// ===== Active, paused and historical ==========================================================
+
+/** The three lists the Schedule page shows, one tab each. Active is the default. */
+export type ScheduleList = "active" | "paused" | "historical";
+
+// Which tab a job belongs on, read from the lifecycle the Gateway stamped on it - the page never works out
+// for itself whether a schedule will still run. A spent one-off (it fired) and a one-off switched off before
+// it fired are both history; a switched-off recurring schedule is paused, because switching it back on resumes
+// it. A job with no lifecycle is listed as active, so a schedule can never vanish from the default view.
+export function scheduleListOf(job: CronJob): ScheduleList {
+  switch (job.lifecycle) {
+    case "paused":
+      return "paused";
+    case "spent":
+    case "off":
+      return "historical";
+    default:
+      return "active";
+  }
+}
+
+// The Next run cell. Only an active schedule has a next run to count down to: a spent one-off ran, so it reads
+// "ran <date>" and never "overdue"; a paused schedule reads "paused"; a one-off switched off before it fired
+// reads "off".
+export function nextRunLabel(job: CronJob, now: number = Date.now()): string {
+  switch (job.lifecycle) {
+    case "spent":
+      return `ran ${utcDate(job.lastFiredUtc)}`;
+    case "paused":
+      return "paused";
+    case "off":
+      return "off";
+    default:
+      return relativeUntil(job.nextRunUtc, now);
+  }
+}
+
+// The instant the Next run cell's hover shows: when a spent one-off ran, otherwise when the job next runs.
+export function nextRunInstant(job: CronJob): string | null | undefined {
+  return job.lifecycle === "spent" ? job.lastFiredUtc : job.nextRunUtc;
+}
+
+// "yyyy-MM-dd" in UTC, matching the rest of the page, or "-" when absent.
+function utcDate(iso: string | null | undefined): string {
+  const full = absoluteUtc(iso);
+  return full === "-" ? full : full.slice(0, 10);
+}
+
 // The absolute wall-clock form shown on hover: "yyyy-MM-dd HH:mm UTC", or "-" when absent. Kept in UTC
 // (matching the rest of the Schedule page) so a job's time reads the same on every machine.
 export function absoluteUtc(iso: string | null | undefined): string {

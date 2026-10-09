@@ -125,6 +125,33 @@ public sealed class CronJobDto
     /// <see cref="TimeZoneId"/> (issue #3622). Null for the other kinds. Read-only, like <see cref="ScheduleText"/>.
     /// </summary>
     public List<string>? RemainingToday { get; set; }
+
+    /// <summary>
+    /// Whether this schedule will still run, folded by the Gateway on every read: one of the <see cref="CronLifecycle"/>
+    /// values. The Schedule page lists only <c>active</c> schedules by default and puts the rest behind its Paused
+    /// and Historical tabs, so a one-off that fired weeks ago no longer sits at the top of the list marked overdue.
+    /// Read-only, like <see cref="ScheduleText"/>: computed on every read, ignored on a write.
+    /// </summary>
+    public string? Lifecycle { get; set; }
+}
+
+/// <summary>
+/// The answer to "will this schedule still run?" stamped on <see cref="CronJobDto.Lifecycle"/>. One word per state,
+/// so no client works it out for itself from the enabled flag, the kind and the last fire.
+/// </summary>
+public static class CronLifecycle
+{
+    /// <summary>Switched on: a recurring or random schedule, or a one-off that has not yet fired. It will run.</summary>
+    public const string Active = "active";
+
+    /// <summary>A recurring or random schedule someone switched off. Switching it back on resumes it.</summary>
+    public const string Paused = "paused";
+
+    /// <summary>A one-off that has fired and switched itself off. It ran; it will never run again.</summary>
+    public const string Spent = "spent";
+
+    /// <summary>A one-off that was switched off before it ever fired. It will not run unless switched back on.</summary>
+    public const string Off = "off";
 }
 
 /// <summary>

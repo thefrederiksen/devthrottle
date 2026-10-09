@@ -505,6 +505,19 @@
   border-bottom-color: var(--accent);
 }
 
+/* The Active / Paused / Historical list tabs above the grid. They reuse the editor's tab look; this only seats
+   them on the page with a rule underneath, and dims the count beside each label. */
+.sched-listtabs {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.sched-listtab-count {
+  margin-left: 4px;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
 .sched-tab-warn {
   display: inline-block;
   margin-left: 6px;
