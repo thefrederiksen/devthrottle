@@ -501,7 +501,7 @@ public sealed class DirectorUpdateOwner
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorUpdateOwner] could not record decision {decision} in {staged.StateFilePath}: {ex.Message}");
+            FileLog.Write($"[DirectorUpdateOwner] Record FAILED: could not record decision {decision} in {staged.StateFilePath}: {ex.Message}");
         }
 
         return decision;
@@ -534,7 +534,7 @@ public sealed class DirectorUpdateOwner
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorUpdateOwner] could not clear the staged record in {staged.StateFilePath}: {ex.Message}");
+            FileLog.Write($"[DirectorUpdateOwner] ClearStagedRecord FAILED: could not clear the staged record in {staged.StateFilePath}: {ex.Message}");
         }
     }
 
@@ -548,7 +548,7 @@ public sealed class DirectorUpdateOwner
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorUpdateOwner] could not pin {staged.Version} in {staged.StateFilePath}: {ex.Message}");
+            FileLog.Write($"[DirectorUpdateOwner] PinBadVersion FAILED: could not pin {staged.Version} in {staged.StateFilePath}: {ex.Message}");
         }
     }
 

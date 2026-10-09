@@ -99,24 +99,32 @@ public sealed class UpdaterStateConcurrencyTests : IDisposable
     }
 
     /// <summary>
-    /// A read that cannot get the lock reports a failure and gives the empty state a broken file has
-    /// always given - and that empty state cannot be written over the real one, because every change is
-    /// an edit that re-reads the file under the lock.
+    /// A read that cannot get the lock THROWS. It used to come back as an empty state, and an empty state
+    /// is a statement - "no health check pending" - that startup cleanup acted on by deleting the rollback
+    /// backup while the real file said the new build had not yet proved itself.
     /// </summary>
     [Fact]
-    public void ARead_ThatCannotGetTheLock_CannotCostTheRealState()
+    public void ARead_ThatCannotGetTheLock_Throws_RatherThanClaimingTheFileIsEmpty()
     {
-        UpdaterState.UpdateAt(StatePath, s => s.PinnedBadVersion = "2.0.5");
+        UpdaterState.UpdateAt(StatePath, s => s.PendingHealthCheckVersion = "9.9.9");
 
-        UpdaterState blankRead;
         using (new LockHolder(StatePath))
-            blankRead = UpdaterState.LoadFrom(StatePath, TimeSpan.FromMilliseconds(200));
-        UpdaterState.UpdateAt(StatePath, s => s.LastCheckOutcome = "UpToDate");
+            Assert.Throws<TimeoutException>(() => UpdaterState.LoadFrom(StatePath, TimeSpan.FromMilliseconds(200)));
 
-        Assert.Null(blankRead.PinnedBadVersion);
-        var now = UpdaterState.LoadFrom(StatePath);
-        Assert.Equal("2.0.5", now.PinnedBadVersion);
-        Assert.Equal("UpToDate", now.LastCheckOutcome);
+        Assert.Equal("9.9.9", UpdaterState.LoadFrom(StatePath).PendingHealthCheckVersion);
+    }
+
+    /// <summary>The three cases where an empty state is the truth: no file yet, zero bytes, and not JSON.</summary>
+    [Fact]
+    public void ARead_IsEmpty_OnlyWhenTheFileHoldsNothing()
+    {
+        Assert.Null(UpdaterState.LoadFrom(StatePath).StagedVersion);
+
+        File.WriteAllText(StatePath, "");
+        Assert.Null(UpdaterState.LoadFrom(StatePath).StagedVersion);
+
+        File.WriteAllText(StatePath, "{ not json");
+        Assert.Null(UpdaterState.LoadFrom(StatePath).StagedVersion);
     }
 
     /// <summary>

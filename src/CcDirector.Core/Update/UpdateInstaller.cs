@@ -238,11 +238,29 @@ public static class UpdateInstaller
             throw new PlatformNotSupportedException("Auto-update is only supported on Windows, macOS and Linux.");
         Swap(targetPath);
 
-        // Clear the staged marker BEFORE relaunching so the freshly-installed build
-        // doesn't see itself as a pending update and loop. Arm the post-update health
-        // self-check at the same time (issue #242).
+        // Arm the post-update health self-check (issue #242), then clear the staged marker BEFORE
+        // relaunching so the freshly-installed build doesn't see itself as a pending update and loop.
+        //
+        // Arming comes first, and a failure to arm puts the previous build back (issue #3666): a build
+        // installed without its health marker has no way back if it then fails to start, and stopping
+        // here without relaunching would leave the machine with no Director running at all. The staged
+        // record is still in place, so the restored build tries the update again on its next start,
+        // within its bounded attempts.
+        try
+        {
+            ArmHealthCheck(versionBeingInstalled);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[UpdateInstaller] ApplyUpdate: arming the health check for {versionBeingInstalled} FAILED ({ex.Message}); "
+                          + "restoring the previous build and starting it instead.");
+            if (!DirectorBuildSwapper.RestoreBackup(targetPath, keepBackup: true))
+                FileLog.Write($"[UpdateInstaller] ApplyUpdate: restoring the previous build at {targetPath} FAILED (the line above says why); starting what is installed.");
+            Relaunch(targetPath, instanceSlug);
+            FileLog.Stop();
+            return 1;
+        }
         ClearStagedState(versionBeingInstalled);
-        ArmHealthCheck(versionBeingInstalled);
         Relaunch(targetPath, instanceSlug);
 
         // WAIT FOR A WITNESS. This used to log "complete" here, having proved nothing beyond
@@ -288,7 +306,19 @@ public static class UpdateInstaller
             // readability choice as much as a timing one: often enough to exit promptly on a good start,
             // rare enough that the log of a failed one is still readable.
             Thread.Sleep(2000);
-            if (string.IsNullOrEmpty(UpdaterState.Load().PendingHealthCheckVersion))
+            UpdaterState state;
+            try
+            {
+                state = UpdaterState.Load();
+            }
+            catch (Exception ex)
+            {
+                // A read that fails says nothing about the new build either way (issue #3666); the next
+                // look decides, and a build that never reports healthy runs out the timeout as before.
+                FileLog.Write($"[UpdateInstaller] WaitForRelaunchedBuildToReportHealthy: reading the health marker FAILED: {ex.Message}");
+                continue;
+            }
+            if (string.IsNullOrEmpty(state.PendingHealthCheckVersion))
                 return true;
         }
         return false;

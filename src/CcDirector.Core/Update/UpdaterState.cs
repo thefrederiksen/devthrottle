@@ -140,10 +140,7 @@ public sealed class UpdaterState
     public static string FilePath =>
         Path.Combine(CcStorage.ToolConfig("director"), "updater-state.json");
 
-    /// <summary>
-    /// Load persisted state. Returns an empty state when the file is missing or
-    /// unreadable -- a corrupt state file must never block startup or updates.
-    /// </summary>
+    /// <summary>Load persisted state from <see cref="FilePath"/>; see <see cref="LoadFrom(string)"/>.</summary>
     public static UpdaterState Load() => LoadFrom(FilePath);
 
     /// <summary>
@@ -160,9 +157,14 @@ public sealed class UpdaterState
     /// anyone has it open, so an unlocked reader made a concurrent save fail, and a reader racing the
     /// replace found no file at all. The lock is held for milliseconds.
     ///
-    /// A load that cannot be completed - the lock not had in time, the file unreadable or not JSON - logs
-    /// a failure and returns an empty state, as it always has, because a broken state file must never
-    /// block startup. That empty state can no longer destroy anything: nothing saves a loaded copy back.
+    /// WHAT A LOAD RETURNS (issue #3666, review of #3680). An empty state means the file holds nothing:
+    /// it does not exist yet, it is zero bytes long, or it is not JSON - in all three there is nothing
+    /// to recover, and the last two are logged as failures. A file that EXISTS but cannot be read - the
+    /// lock not had in time, access denied - THROWS. It used to be returned as an empty state too, and
+    /// an empty state is a statement: "nothing staged, nothing pinned, no health check pending". Startup
+    /// cleanup acting on that deleted the rollback backup while the real file said a new build had not
+    /// yet proved itself. Every caller catches, logs a failure and skips what it was about to do.
+    ///
     /// To CHANGE the state, use <see cref="Update"/> or <see cref="UpdateAt(string, Action{UpdaterState})"/>,
     /// which re-reads the file under the lock and applies only the caller's own change.
     /// </summary>
@@ -172,29 +174,37 @@ public sealed class UpdaterState
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         FileLog.Write($"[UpdaterState] Load: {path}");
+        if (!File.Exists(path))
+            return new UpdaterState();
+
+        using var _ = AcquireLock(path, wait);
+
+        // Zero bytes is a save cut off between truncating the file and writing it (issue #3666); the
+        // serializer never writes an empty string. Nothing else rewrites the file on a machine whose
+        // Director does not check, so replace it now or every hourly load fails on it forever. The file
+        // holds nothing either way, so a repair that fails is logged and the empty state is still true.
+        if (File.Exists(path) && new FileInfo(path).Length == 0)
+        {
+            FileLog.Write($"[UpdaterState] Load: {path} is empty, an interrupted save; replacing it with an empty state");
+            var replacement = new UpdaterState();
+            try
+            {
+                replacement.WriteFile(path);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[UpdaterState] Load: replacing the empty file {path} FAILED: {ex.Message}");
+            }
+            return replacement;
+        }
+
         try
         {
-            if (!File.Exists(path))
-                return new UpdaterState();
-
-            using var _ = AcquireLock(path, wait);
-
-            // Zero bytes is a save cut off between truncating the file and writing it (issue #3666); the
-            // serializer never writes an empty string. Nothing else rewrites the file on a machine whose
-            // Director does not check, so replace it now or every hourly load fails on it forever.
-            if (File.Exists(path) && new FileInfo(path).Length == 0)
-            {
-                FileLog.Write($"[UpdaterState] Load: {path} is empty, an interrupted save; replacing it with an empty state");
-                var replacement = new UpdaterState();
-                replacement.WriteFile(path);
-                return replacement;
-            }
-
             return ReadFile(path);
         }
-        catch (Exception ex)
+        catch (JsonException ex)
         {
-            FileLog.Write($"[UpdaterState] Load FAILED (using empty state): {ex.Message}");
+            FileLog.Write($"[UpdaterState] Load FAILED, {path} is not valid JSON (using empty state): {ex.Message}");
             return new UpdaterState();
         }
     }
