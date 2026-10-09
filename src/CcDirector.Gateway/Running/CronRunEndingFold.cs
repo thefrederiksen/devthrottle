@@ -16,6 +16,10 @@ namespace CcDirector.Gateway.Running;
 /// </summary>
 public static class CronRunEndingFold
 {
+    // The two work-list outcomes that are not a failed fire (CronEngine.WorkListStatusSuffix).
+    private const string WorkListStarted = "worklist-started";
+    private const string WorkListEmpty = "worklist-empty";
+
     /// <summary>How many of a schedule's newest runs its run record covers.</summary>
     public const int SummaryRuns = 10;
 
@@ -65,10 +69,10 @@ public static class CronRunEndingFold
         ArgumentNullException.ThrowIfNull(endings);
         if (string.IsNullOrWhiteSpace(run.SessionId))
         {
-            // A work-list fire records no session BY DESIGN (CronEngine: a drain starts many, and an empty or busy list
-            // starts none on purpose), so it is not a failed start. Its own infra status says how the drain went.
-            var workList = run.InfraStatus.StartsWith("worklist-", StringComparison.Ordinal);
-            return (workList ? CronRunEndings.WorkList : CronRunEndings.NoSession, null);
+            // A work-list fire records no session BY DESIGN (CronEngine: a drain starts many), so a drain that started -
+            // or found its list empty, which starts nothing on purpose - is not a failed start. Every other work-list
+            // outcome (no such list, no Director, the machine busy, already claimed) is a fire that did not run.
+            return (run.InfraStatus is WorkListStarted or WorkListEmpty ? CronRunEndings.WorkList : CronRunEndings.NoSession, null);
         }
 
         endings.TryGetValue(run.SessionId, out var fact);
@@ -99,7 +103,7 @@ public static class CronRunEndingFold
         return ending switch
         {
             CronRunEndings.NoSession => "did not start a session",
-            CronRunEndings.WorkList => "drained a work list - its sessions are not tracked here",
+            CronRunEndings.WorkList => "a work-list drain - its sessions are not tracked here",
             CronRunEndings.StillOpen => nowUtc - firedUtc >= LeftOpenAfter
                 ? $"left open - {Duration(nowUtc - firedUtc)} so far"
                 : $"running - {Duration(nowUtc - firedUtc)} so far",

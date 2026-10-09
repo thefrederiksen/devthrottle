@@ -208,6 +208,30 @@ public sealed class CronRunEndingTests : IDisposable
         Assert.Equal("none", Summarize(new[] { drain }, Facts()).Verdict);
     }
 
+    [Theory]
+    [InlineData("worklist-no-list")]
+    [InlineData("worklist-already-claimed")]
+    [InlineData("worklist-no-director")]
+    [InlineData("worklist-machine-busy")]
+    [InlineData("worklist-unknown")]
+    public void EndingOf_AWorkListFireThatDidNotRun_IsAFailedStart(string infraStatus)
+    {
+        // Second review finding: these outcomes drained nothing, so they must not read as a drain.
+        var fire = Run(null);
+        fire.InfraStatus = infraStatus;
+
+        Assert.Equal(CronRunEndings.NoSession, CronRunEndingFold.EndingOf(fire, Facts()).Ending);
+    }
+
+    [Fact]
+    public void EndingOf_AnEmptyWorkList_IsAWorkListRunNotAFailure()
+    {
+        var fire = Run(null);
+        fire.InfraStatus = "worklist-empty";
+
+        Assert.Equal(CronRunEndings.WorkList, CronRunEndingFold.EndingOf(fire, Facts()).Ending);
+    }
+
     // ---- the stored half -------------------------------------------------------------------------------------
 
     private CronRunHistoryStore NewRuns() => new(_h.Open(), _h.LegacyPath(Guid.NewGuid().ToString("N") + ".runs.json"));
