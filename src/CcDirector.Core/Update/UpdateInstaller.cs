@@ -123,7 +123,7 @@ public static class UpdateInstaller
             {
                 FileLog.Start();
                 FileLog.Write($"[UpdateInstaller] Staged {state.StagedVersion} is pinned as a failed update; clearing without applying.");
-                ClearStagedState();
+                ClearStagedState(state.StagedVersion);
                 return false;
             }
 
@@ -133,7 +133,7 @@ public static class UpdateInstaller
                 // succeeded (or is obsolete). Clear it so we never re-evaluate it again.
                 FileLog.Start();
                 FileLog.Write($"[UpdateInstaller] Staged {state.StagedVersion} is not newer than running build; clearing.");
-                ClearStagedState();
+                ClearStagedState(state.StagedVersion);
                 return false;
             }
 
@@ -141,7 +141,7 @@ public static class UpdateInstaller
             {
                 FileLog.Start();
                 FileLog.Write($"[UpdateInstaller] Staged executable missing, clearing: {state.StagedExecutable}");
-                ClearStagedState();
+                ClearStagedState(state.StagedVersion);
                 return false;
             }
 
@@ -153,7 +153,7 @@ public static class UpdateInstaller
                 FileLog.Start();
                 FileLog.Write($"[UpdateInstaller] Giving up on staged update {state.StagedVersion} after {state.ApplyAttempts} failed apply attempts; clearing and booting current build.");
                 var version = state.StagedVersion;
-                ClearStagedState();
+                ClearStagedState(version);
                 failureNotice =
                     $"Director could not finish updating to {version} after {MaxApplyAttempts} attempts, " +
                     "so it has started on the current version instead. The pending update was cleared and " +
@@ -164,13 +164,17 @@ public static class UpdateInstaller
             // Record this attempt BEFORE launching, so a crash mid-apply still counts toward
             // the bound (otherwise a swap that crashes silently would never increment). Reset
             // the counter when a different version is now staged.
-            int priorAttempts = state.ApplyAttemptVersion == state.StagedVersion ? state.ApplyAttempts : 0;
-            state.ApplyAttemptVersion = state.StagedVersion;
-            state.ApplyAttempts = priorAttempts + 1;
-            state.Save();
+            // One locked edit on the state as it is now (issue #3666), counting for the version judged above.
+            var stagedVersion = state.StagedVersion;
+            var recorded = UpdaterState.Update(s =>
+            {
+                int priorAttempts = s.ApplyAttemptVersion == stagedVersion ? s.ApplyAttempts : 0;
+                s.ApplyAttemptVersion = stagedVersion;
+                s.ApplyAttempts = priorAttempts + 1;
+            });
 
             FileLog.Start();
-            FileLog.Write($"[UpdateInstaller] Applying staged update {state.StagedVersion} at startup (attempt {state.ApplyAttempts}/{MaxApplyAttempts}) -> {state.InstallTarget}");
+            FileLog.Write($"[UpdateInstaller] Applying staged update {stagedVersion} at startup (attempt {recorded.ApplyAttempts}/{MaxApplyAttempts}) -> {state.InstallTarget}");
             LaunchRelauncher(state.StagedExecutable, state.InstallTarget);
             return true;
         }
@@ -224,21 +228,73 @@ public static class UpdateInstaller
 
         WaitForProcessExit(parentPid, TimeSpan.FromSeconds(30));
 
+        // FROM HERE THE DIRECTOR THIS HELPER REPLACES HAS EXITED, so every way out of this method starts
+        // a Director (issue #3666). A failure before the swap starts the installed build untouched; a
+        // failure to arm the health check after it puts the previous build back and starts that. The
+        // staged record is left in place on both, so the next start tries again within its bounded
+        // attempts. Only a failure of the relaunch itself ends here with nothing running, and that throws
+        // to the caller, which says so.
+
         // Record which version we are about to install so the freshly-swapped build must
         // prove it can come up healthy before the update is trusted (issue #242). If that
         // build fails to reach its main window, a later startup sees this marker still set
         // (and the running version unchanged) and rolls back to the .old backup.
-        var versionBeingInstalled = UpdaterState.Load().StagedVersion;
+        string? versionBeingInstalled;
+        try
+        {
+            versionBeingInstalled = UpdaterState.Load().StagedVersion;
+            if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux())
+                throw new PlatformNotSupportedException("Auto-update is only supported on Windows, macOS and Linux.");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[UpdateInstaller] ApplyUpdate: preparing the install FAILED ({ex.Message}); nothing was replaced, "
+                          + "starting the installed build instead.");
+            Relaunch(targetPath, instanceSlug);
+            FileLog.Stop();
+            return 1;
+        }
 
-        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux())
-            throw new PlatformNotSupportedException("Auto-update is only supported on Windows, macOS and Linux.");
-        Swap(targetPath);
+        try
+        {
+            Swap(targetPath);
+        }
+        catch (Exception ex)
+        {
+            // A swap that fell over part-way is put right by RecoverHalfAppliedSwap when the installed
+            // build starts, so starting it is also the repair.
+            FileLog.Write($"[UpdateInstaller] ApplyUpdate: Swap FAILED ({ex.Message}); starting the installed build instead.");
+            Relaunch(targetPath, instanceSlug);
+            FileLog.Stop();
+            return 1;
+        }
 
-        // Clear the staged marker BEFORE relaunching so the freshly-installed build
-        // doesn't see itself as a pending update and loop. Arm the post-update health
-        // self-check at the same time (issue #242).
-        ClearStagedState();
-        ArmHealthCheck(versionBeingInstalled);
+        // Arm the post-update health self-check (issue #242), then clear the staged marker BEFORE
+        // relaunching so the freshly-installed build doesn't see itself as a pending update and loop.
+        // Arming comes first: a build installed without its health marker has no way back if it then
+        // fails to start, so a failure to arm puts the previous build back.
+        try
+        {
+            ArmHealthCheck(versionBeingInstalled);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[UpdateInstaller] ApplyUpdate: arming the health check for {versionBeingInstalled} FAILED ({ex.Message}); "
+                          + "restoring the previous build and starting it instead.");
+            try
+            {
+                if (!DirectorBuildSwapper.RestoreBackup(targetPath, keepBackup: true))
+                    FileLog.Write($"[UpdateInstaller] ApplyUpdate: restoring the previous build at {targetPath} FAILED (the line above says why); starting what is installed.");
+            }
+            catch (Exception restoreEx)
+            {
+                FileLog.Write($"[UpdateInstaller] ApplyUpdate: restoring the previous build at {targetPath} FAILED: {restoreEx.Message}; starting what is installed.");
+            }
+            Relaunch(targetPath, instanceSlug);
+            FileLog.Stop();
+            return 1;
+        }
+        ClearStagedState(versionBeingInstalled);
         Relaunch(targetPath, instanceSlug);
 
         // WAIT FOR A WITNESS. This used to log "complete" here, having proved nothing beyond
@@ -284,7 +340,19 @@ public static class UpdateInstaller
             // readability choice as much as a timing one: often enough to exit promptly on a good start,
             // rare enough that the log of a failed one is still readable.
             Thread.Sleep(2000);
-            if (string.IsNullOrEmpty(UpdaterState.Load().PendingHealthCheckVersion))
+            UpdaterState state;
+            try
+            {
+                state = UpdaterState.Load();
+            }
+            catch (Exception ex)
+            {
+                // A read that fails says nothing about the new build either way (issue #3666); the next
+                // look decides, and a build that never reports healthy runs out the timeout as before.
+                FileLog.Write($"[UpdateInstaller] WaitForRelaunchedBuildToReportHealthy: reading the health marker FAILED: {ex.Message}");
+                continue;
+            }
+            if (string.IsNullOrEmpty(state.PendingHealthCheckVersion))
                 return true;
         }
         return false;
@@ -429,9 +497,12 @@ public static class UpdateInstaller
                 return null;
 
             // Pin the bad version and clear the health marker so we do not loop.
-            state.PinnedBadVersion = pending;
-            state.PendingHealthCheckVersion = null;
-            state.Save();
+            UpdaterState.Update(s =>
+            {
+                s.PinnedBadVersion = pending;
+                if (s.PendingHealthCheckVersion == pending)
+                    s.PendingHealthCheckVersion = null;
+            });
 
             FileLog.Write($"[UpdateInstaller] TryRollBackFailedUpdate: restored previous build at {target}; pinned bad version {pending}.");
             return $"Update {pending} failed to start correctly, so Director rolled back to the " +
@@ -465,9 +536,13 @@ public static class UpdateInstaller
             if (string.IsNullOrEmpty(state.PendingHealthCheckVersion))
                 return false;
 
-            FileLog.Write($"[UpdateInstaller] MarkCurrentBuildHealthy: clearing pending health check for {state.PendingHealthCheckVersion}.");
-            state.PendingHealthCheckVersion = null;
-            state.Save();
+            var pending = state.PendingHealthCheckVersion;
+            FileLog.Write($"[UpdateInstaller] MarkCurrentBuildHealthy: clearing pending health check for {pending}.");
+            UpdaterState.Update(s =>
+            {
+                if (s.PendingHealthCheckVersion == pending)
+                    s.PendingHealthCheckVersion = null;
+            });
 
             // This build has now proved itself, so its predecessor's backup has no further purpose and
             // is deleted here rather than being left for the next startup. The startup cleanup keeps the
@@ -488,9 +563,7 @@ public static class UpdateInstaller
     {
         if (string.IsNullOrEmpty(version))
             return;
-        var state = UpdaterState.Load();
-        state.PendingHealthCheckVersion = version;
-        state.Save();
+        UpdaterState.Update(s => s.PendingHealthCheckVersion = version);
         FileLog.Write($"[UpdateInstaller] ArmHealthCheck: armed post-update health check for {version}.");
     }
 
@@ -609,17 +682,29 @@ public static class UpdateInstaller
         return psi;
     }
 
-    private static void ClearStagedState()
+    /// <summary>
+    /// Clear the staged record - but only while it still names <paramref name="judgedVersion"/>, the
+    /// version the caller decided about (issue #3666). If a check has staged a different build since, that
+    /// record is a new one nobody has judged yet, and clearing it would throw a verified download away.
+    /// </summary>
+    private static void ClearStagedState(string? judgedVersion)
     {
         try
         {
-            var s = UpdaterState.Load();
-            s.StagedVersion = null;
-            s.StagedExecutable = null;
-            s.InstallTarget = null;
-            s.ApplyAttempts = 0;
-            s.ApplyAttemptVersion = null;
-            s.Save();
+            UpdaterState.Update(s =>
+            {
+                if (s.StagedVersion != judgedVersion)
+                {
+                    FileLog.Write($"[UpdateInstaller] ClearStagedState: the staged record now names {s.StagedVersion ?? "nothing"}, "
+                                  + $"not {judgedVersion ?? "nothing"}; leaving it for whoever judges it next.");
+                    return;
+                }
+                s.StagedVersion = null;
+                s.StagedExecutable = null;
+                s.InstallTarget = null;
+                s.ApplyAttempts = 0;
+                s.ApplyAttemptVersion = null;
+            });
         }
         catch (Exception ex)
         {

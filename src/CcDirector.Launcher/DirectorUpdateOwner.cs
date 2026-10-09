@@ -336,7 +336,15 @@ public sealed class DirectorUpdateOwner
     {
         // Claim it BEFORE anything is started, so no Director that comes up during this can hand itself
         // to its own swap. See the class comment - the alternative is a rollback loop into a dead build.
-        ClearStagedRecord(staged);
+        // No claim, no swap (issue #3666): nothing has been stopped yet, so leaving the Director running
+        // and the record in place costs nothing, and the next pass looks again.
+        if (!ClearStagedRecord(staged))
+        {
+            FileLog.Write($"[DirectorUpdateOwner] SwapAsync FAILED: could not claim the staged record for {staged.Version}; "
+                          + "nothing was stopped or replaced.");
+            return Record(staged, DirectorUpdateDecision.Failed,
+                conflictNote + "The launcher could not claim the downloaded update, so it installed nothing and left the Director running.");
+        }
 
         var result = await _apply.ApplyAsync(
             staged.InstallTarget,
@@ -491,40 +499,58 @@ public sealed class DirectorUpdateOwner
     {
         try
         {
-            var state = UpdaterState.LoadFrom(staged.StateFilePath);
-            state.LastApplyDecision = decision.ToString();
-            state.LastApplyDecisionAt = DateTimeOffset.UtcNow;
-            state.LastApplyVersion = staged.Version;
-            state.LastApplyDetail = detail;
-            state.SaveTo(staged.StateFilePath);
+            UpdaterState.UpdateAt(staged.StateFilePath, state =>
+            {
+                state.LastApplyDecision = decision.ToString();
+                state.LastApplyDecisionAt = DateTimeOffset.UtcNow;
+                state.LastApplyVersion = staged.Version;
+                state.LastApplyDetail = detail;
+            });
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorUpdateOwner] could not record decision {decision} in {staged.StateFilePath}: {ex.Message}");
+            FileLog.Write($"[DirectorUpdateOwner] Record FAILED: could not record decision {decision} in {staged.StateFilePath}: {ex.Message}");
         }
 
         return decision;
     }
 
     /// <summary>
-    /// Clear the staged record in the file it was read from, leaving every other field alone. Read again
-    /// before writing, because the Director owns this file too and may have touched it since.
+    /// Clear the staged record in the file it was read from, leaving every other field alone. One locked
+    /// edit on the file as it is now, because the Director owns this file too and may have touched it
+    /// since (issue #3666) - and only while the record still names the version this pass judged: a
+    /// different build the Director has staged since is a new record nobody has judged yet.
+    ///
+    /// Returns whether the claim was made. The caller must NOT swap without it: an unclaimed record lets a
+    /// Director that comes up during the swap - the restored build after a rollback included - hand itself
+    /// the same update, which is the rollback loop the claim exists to prevent.
     /// </summary>
-    private static void ClearStagedRecord(StagedDirectorUpdate staged)
+    internal static bool ClearStagedRecord(StagedDirectorUpdate staged)
     {
         try
         {
-            var state = UpdaterState.LoadFrom(staged.StateFilePath);
-            state.StagedVersion = null;
-            state.StagedExecutable = null;
-            state.InstallTarget = null;
-            state.ApplyAttempts = 0;
-            state.ApplyAttemptVersion = null;
-            state.SaveTo(staged.StateFilePath);
+            var claimed = false;
+            UpdaterState.UpdateAt(staged.StateFilePath, state =>
+            {
+                if (state.StagedVersion != staged.Version)
+                {
+                    FileLog.Write($"[DirectorUpdateOwner] not clearing the staged record in {staged.StateFilePath}: it now names "
+                                  + $"{state.StagedVersion ?? "nothing"}, not {staged.Version}.");
+                    return;
+                }
+                state.StagedVersion = null;
+                state.StagedExecutable = null;
+                state.InstallTarget = null;
+                state.ApplyAttempts = 0;
+                state.ApplyAttemptVersion = null;
+                claimed = true;
+            });
+            return claimed;
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorUpdateOwner] could not clear the staged record in {staged.StateFilePath}: {ex.Message}");
+            FileLog.Write($"[DirectorUpdateOwner] ClearStagedRecord FAILED: could not clear the staged record in {staged.StateFilePath}: {ex.Message}");
+            return false;
         }
     }
 
@@ -533,14 +559,12 @@ public sealed class DirectorUpdateOwner
     {
         try
         {
-            var state = UpdaterState.LoadFrom(staged.StateFilePath);
-            state.PinnedBadVersion = staged.Version;
-            state.SaveTo(staged.StateFilePath);
+            UpdaterState.UpdateAt(staged.StateFilePath, state => state.PinnedBadVersion = staged.Version);
             FileLog.Write($"[DirectorUpdateOwner] pinned {staged.Version} as a build that does not start.");
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[DirectorUpdateOwner] could not pin {staged.Version} in {staged.StateFilePath}: {ex.Message}");
+            FileLog.Write($"[DirectorUpdateOwner] PinBadVersion FAILED: could not pin {staged.Version} in {staged.StateFilePath}: {ex.Message}");
         }
     }
 
