@@ -155,30 +155,42 @@ public sealed class UpdaterState
     /// folder. A launcher that asked for "the" updater state would read an empty file at the storage
     /// root and conclude, every single time, that no update was staged - the feature would look wired
     /// and never once fire. The launcher finds the Director's file and names it here.
+    ///
+    /// A load takes the file's lock for the read (issue #3666): Windows refuses to replace a file while
+    /// anyone has it open, so an unlocked reader made a concurrent save fail, and a reader racing the
+    /// replace found no file at all. The lock is held for milliseconds.
+    ///
+    /// A load that cannot be completed - the lock not had in time, the file unreadable or not JSON - logs
+    /// a failure and returns an empty state, as it always has, because a broken state file must never
+    /// block startup. That empty state can no longer destroy anything: nothing saves a loaded copy back.
+    /// To CHANGE the state, use <see cref="Update"/> or <see cref="UpdateAt(string, Action{UpdaterState})"/>,
+    /// which re-reads the file under the lock and applies only the caller's own change.
     /// </summary>
-    public static UpdaterState LoadFrom(string path)
+    public static UpdaterState LoadFrom(string path) => LoadFrom(path, FileLock.DefaultWait);
+
+    internal static UpdaterState LoadFrom(string path, TimeSpan wait)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         FileLog.Write($"[UpdaterState] Load: {path}");
         try
         {
-            using var _ = FileLock.Acquire(path);
             if (!File.Exists(path))
                 return new UpdaterState();
+
+            using var _ = AcquireLock(path, wait);
 
             // Zero bytes is a save cut off between truncating the file and writing it (issue #3666); the
             // serializer never writes an empty string. Nothing else rewrites the file on a machine whose
             // Director does not check, so replace it now or every hourly load fails on it forever.
-            if (new FileInfo(path).Length == 0)
+            if (File.Exists(path) && new FileInfo(path).Length == 0)
             {
                 FileLog.Write($"[UpdaterState] Load: {path} is empty, an interrupted save; replacing it with an empty state");
                 var replacement = new UpdaterState();
-                replacement.SaveTo(path);
+                replacement.WriteFile(path);
                 return replacement;
             }
 
-            var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<UpdaterState>(json, JsonOptions) ?? new UpdaterState();
+            return ReadFile(path);
         }
         catch (Exception ex)
         {
@@ -187,26 +199,85 @@ public sealed class UpdaterState
         }
     }
 
-    /// <summary>Persist this state to disk, creating the directory if needed.</summary>
-    public void Save() => SaveTo(FilePath);
+    /// <summary>Change the state in <see cref="FilePath"/>; see <see cref="UpdateAt(string, Action{UpdaterState})"/>.</summary>
+    public static UpdaterState Update(Action<UpdaterState> change) => UpdateAt(FilePath, change);
 
     /// <summary>
-    /// Persist this state to an explicit file, creating the directory if needed. The launcher writes
-    /// the Director's own state file this way once it has applied or rejected a staged build; see
-    /// <see cref="LoadFrom"/> for why the path cannot be assumed.
+    /// Change the state in an explicit file as ONE step: take the file's lock, read the file as it is now,
+    /// apply <paramref name="change"/>, write it, release (issue #3666). Returns the state as written.
+    ///
+    /// The Director, the launcher and the update helper all edit this file. Each used to load it, change
+    /// a field or two and save the whole thing back, so a Director that loaded it, spent a minute
+    /// downloading and then saved wrote its stale copy over whatever the launcher had recorded in
+    /// between - bringing back a staged record the launcher had cleared and erasing its decision. Under
+    /// the lock, every change lands on the latest state and touches only what the caller sets.
+    ///
+    /// The lock is held only for the read and the write, never across a download or any other wait.
+    /// THROWS when the lock cannot be had (<see cref="TimeoutException"/>) or the file cannot be read or
+    /// written; it never changes the file on a guess, and never starts from an empty state because a
+    /// read failed. A file that reads but is not JSON is treated as
+    /// empty, as a load has always treated it, and that is logged as a failure.
     /// </summary>
-    public void SaveTo(string path)
+    public static UpdaterState UpdateAt(string path, Action<UpdaterState> change) => UpdateAt(path, change, FileLock.DefaultWait);
+
+    internal static UpdaterState UpdateAt(string path, Action<UpdaterState> change, TimeSpan wait)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(change);
+        using var _ = AcquireLock(path, wait);
+
+        UpdaterState state;
+        try
+        {
+            state = ReadFile(path);
+        }
+        catch (JsonException ex)
+        {
+            FileLog.Write($"[UpdaterState] Update: reading {path} FAILED, it is not valid JSON ({ex.Message}); replacing it with an empty state");
+            state = new UpdaterState();
+        }
+
+        change(state);
+        state.WriteFile(path);
+        return state;
+    }
+
+    /// <summary>Replace the whole default file with this state; see <see cref="SaveTo"/>.</summary>
+    internal void Save() => SaveTo(FilePath);
+
+    /// <summary>
+    /// Replace the WHOLE file with this state, under the file's lock. For writing a state from scratch -
+    /// tests seeding one. Product code changes the state with <see cref="UpdateAt(string, Action{UpdaterState})"/>,
+    /// because saving a copy loaded earlier overwrites what other processes wrote since.
+    /// </summary>
+    internal void SaveTo(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        using var _ = AcquireLock(path, FileLock.DefaultWait);
+        WriteFile(path);
+    }
+
+    /// <summary>Read the file. Callers hold the file's lock. A file that does not exist yet is an empty state.</summary>
+    private static UpdaterState ReadFile(string path)
+    {
+        if (!File.Exists(path))
+            return new UpdaterState();
+        var json = File.ReadAllText(path);
+        if (json.Length == 0)
+            return new UpdaterState();
+        return JsonSerializer.Deserialize<UpdaterState>(json, JsonOptions) ?? new UpdaterState();
+    }
+
+    /// <summary>
+    /// Write beside the file and move it over, so an interrupted save leaves the old file whole instead of
+    /// a truncated, zero-byte one (issue #3666). Callers hold the file's lock.
+    /// </summary>
+    private void WriteFile(string path)
+    {
         FileLog.Write($"[UpdaterState] Save: {path}, stagedVersion={StagedVersion}, dismissedVersion={DismissedVersion}");
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         var json = JsonSerializer.Serialize(this, JsonOptions);
-        // Write beside the file and move it over, so an interrupted save leaves the old file whole
-        // instead of a truncated, zero-byte one (issue #3666). The Director, the launcher and the update
-        // helper all read and write this file, so every load and save takes the file's lock: without it
-        // two saves at once collided on the temporary file or on the replace, and one threw.
-        using var _ = FileLock.Acquire(path);
         var temporary = $"{path}.{Guid.NewGuid():N}.tmp";
         try
         {
@@ -219,32 +290,49 @@ public sealed class UpdaterState
         }
     }
 
+    /// <summary>Take the lock for one updater state file, waiting at most <paramref name="wait"/>.</summary>
+    internal static IDisposable AcquireLock(string path, TimeSpan wait) => FileLock.Acquire(path, wait);
+
     /// <summary>
-    /// One lock per updater state file, shared by every process on the machine (issue #3666). A named
-    /// operating-system mutex whose name is derived from the file's full path, in the <c>Global\</c>
-    /// namespace on Windows because the launcher and a Director started by the Task Scheduler can run in
-    /// different logon sessions. The same pattern as <see cref="Skills.SharedSkillFolderLock"/>.
+    /// The lock's name for one file: the same for every spelling of the path, different for every other
+    /// file. <c>Global\</c> on EVERY platform: on Windows a Director started by the Task Scheduler runs in a
+    /// different logon session from the launcher, and on Linux and macOS an unprefixed named mutex is
+    /// per session too - the launcher runs under launchd and starts the Director through
+    /// <c>/usr/bin/open</c>, so without the prefix the two would hold two different locks.
+    /// </summary>
+    internal static string LockNameFor(string path)
+    {
+        var full = Path.GetFullPath(path);
+        if (OperatingSystem.IsWindows())
+            full = full.ToUpperInvariant();
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(full)))[..32];
+        return @"Global\devthrottle-updater-state-" + hash;
+    }
+
+    /// <summary>
+    /// One lock per updater state file, shared by every process on the machine (issue #3666): a named
+    /// operating-system mutex, the same pattern as <see cref="Skills.SharedSkillFolderLock"/>.
     ///
-    /// A load or save takes milliseconds, so a wait past <see cref="Wait"/> means something is wrong and
-    /// it throws rather than touching the file unlocked. A lock left by a process that died holding it is
-    /// taken over and said so in the log: the file itself is always whole, because a save only ever
-    /// replaces it with a complete one.
+    /// A read and a write take milliseconds, so a wait past <see cref="DefaultWait"/> means something is
+    /// wrong and the caller is told by an exception - nothing touches the file unlocked. A lock left by
+    /// a process that died holding it is taken over and said so in the log: the file itself is always
+    /// whole, because a save only ever replaces it with a complete one.
     /// </summary>
     private sealed class FileLock : IDisposable
     {
-        private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
+        public static readonly TimeSpan DefaultWait = TimeSpan.FromSeconds(10);
         private readonly Mutex _mutex;
 
         private FileLock(Mutex mutex) => _mutex = mutex;
 
-        public static FileLock Acquire(string path)
+        public static FileLock Acquire(string path, TimeSpan wait)
         {
-            var name = NameFor(path);
+            var name = LockNameFor(path);
             var mutex = new Mutex(initiallyOwned: false, name);
             bool got;
             try
             {
-                got = mutex.WaitOne(Wait);
+                got = mutex.WaitOne(wait);
             }
             catch (AbandonedMutexException)
             {
@@ -254,18 +342,9 @@ public sealed class UpdaterState
             if (!got)
             {
                 mutex.Dispose();
-                throw new TimeoutException($"Updater state file {path} stayed locked by another process for {Wait.TotalSeconds:0}s");
+                throw new TimeoutException($"Updater state file {path} stayed locked by another process for {wait.TotalSeconds:0.#}s");
             }
             return new FileLock(mutex);
-        }
-
-        private static string NameFor(string path)
-        {
-            var full = Path.GetFullPath(path);
-            if (OperatingSystem.IsWindows())
-                full = full.ToUpperInvariant();
-            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(full)))[..32];
-            return (OperatingSystem.IsWindows() ? @"Global\" : "") + "devthrottle-updater-state-" + hash;
         }
 
         public void Dispose()

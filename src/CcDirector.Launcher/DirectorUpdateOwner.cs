@@ -491,12 +491,13 @@ public sealed class DirectorUpdateOwner
     {
         try
         {
-            var state = UpdaterState.LoadFrom(staged.StateFilePath);
-            state.LastApplyDecision = decision.ToString();
-            state.LastApplyDecisionAt = DateTimeOffset.UtcNow;
-            state.LastApplyVersion = staged.Version;
-            state.LastApplyDetail = detail;
-            state.SaveTo(staged.StateFilePath);
+            UpdaterState.UpdateAt(staged.StateFilePath, state =>
+            {
+                state.LastApplyDecision = decision.ToString();
+                state.LastApplyDecisionAt = DateTimeOffset.UtcNow;
+                state.LastApplyVersion = staged.Version;
+                state.LastApplyDetail = detail;
+            });
         }
         catch (Exception ex)
         {
@@ -507,20 +508,29 @@ public sealed class DirectorUpdateOwner
     }
 
     /// <summary>
-    /// Clear the staged record in the file it was read from, leaving every other field alone. Read again
-    /// before writing, because the Director owns this file too and may have touched it since.
+    /// Clear the staged record in the file it was read from, leaving every other field alone. One locked
+    /// edit on the file as it is now, because the Director owns this file too and may have touched it
+    /// since (issue #3666) - and only while the record still names the version this pass judged: a
+    /// different build the Director has staged since is a new record nobody has judged yet.
     /// </summary>
     private static void ClearStagedRecord(StagedDirectorUpdate staged)
     {
         try
         {
-            var state = UpdaterState.LoadFrom(staged.StateFilePath);
-            state.StagedVersion = null;
-            state.StagedExecutable = null;
-            state.InstallTarget = null;
-            state.ApplyAttempts = 0;
-            state.ApplyAttemptVersion = null;
-            state.SaveTo(staged.StateFilePath);
+            UpdaterState.UpdateAt(staged.StateFilePath, state =>
+            {
+                if (state.StagedVersion != staged.Version)
+                {
+                    FileLog.Write($"[DirectorUpdateOwner] not clearing the staged record in {staged.StateFilePath}: it now names "
+                                  + $"{state.StagedVersion ?? "nothing"}, not {staged.Version}.");
+                    return;
+                }
+                state.StagedVersion = null;
+                state.StagedExecutable = null;
+                state.InstallTarget = null;
+                state.ApplyAttempts = 0;
+                state.ApplyAttemptVersion = null;
+            });
         }
         catch (Exception ex)
         {
@@ -533,9 +543,7 @@ public sealed class DirectorUpdateOwner
     {
         try
         {
-            var state = UpdaterState.LoadFrom(staged.StateFilePath);
-            state.PinnedBadVersion = staged.Version;
-            state.SaveTo(staged.StateFilePath);
+            UpdaterState.UpdateAt(staged.StateFilePath, state => state.PinnedBadVersion = staged.Version);
             FileLog.Write($"[DirectorUpdateOwner] pinned {staged.Version} as a build that does not start.");
         }
         catch (Exception ex)

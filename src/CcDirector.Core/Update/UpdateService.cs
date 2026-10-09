@@ -144,19 +144,31 @@ public sealed class UpdateService
     {
         FileLog.Write($"[UpdateService] CheckAndStageAsync: current={_options.CurrentVersion}, enabled={_options.Enabled}");
 
+        var checkStartedAt = DateTimeOffset.UtcNow;
+
         // Every terminal path goes through here, so no conclusion can be reported to the user without
         // also being written down - the split that let a failed check render as "up to date".
-        UpdatePhase Conclude(UpdaterState state, UpdatePhase phase, string? version = null, string? error = null)
+        //
+        // It writes ONLY what this check found, onto the state as it is at that moment (issue #3666). The
+        // check reads the state before it goes to the network and may spend minutes downloading; saving
+        // that early copy back wrote over whatever the launcher had recorded in between, bringing back a
+        // staged record the launcher had just cleared. `extra` is the rest of this check's own findings -
+        // a pin it cleared, a build it staged.
+        UpdatePhase Conclude(UpdatePhase phase, string? version = null, string? error = null, Action<UpdaterState>? extra = null)
         {
-            state.LastCheckOutcome = phase.ToString();
-            state.LastCheckError = error;
-            state.LastCheckLatestVersion = version ?? state.LastCheckLatestVersion;
-            state.Save();
+            UpdaterState.Update(s =>
+            {
+                s.LastCheckedAt = checkStartedAt;
+                s.LastCheckOutcome = phase.ToString();
+                s.LastCheckError = error;
+                s.LastCheckLatestVersion = version ?? s.LastCheckLatestVersion;
+                extra?.Invoke(s);
+            });
             Report(new UpdateProgress(phase, version, Error: error));
             return phase;
         }
 
-        UpdaterState? loaded = null;
+        var checkStarted = false;
         try
         {
             if (!_options.Enabled)
@@ -172,8 +184,9 @@ public sealed class UpdateService
             var (os, arch) = _options.PlatformOverride ?? (GetOSPlatform(), RuntimeInformation.OSArchitecture);
             var assetName = AssetNameFor(os, arch);
 
-            var state = loaded = UpdaterState.Load();
-            state.LastCheckedAt = DateTimeOffset.UtcNow;
+            // A snapshot to DECIDE with. It is never saved back - see Conclude.
+            var state = UpdaterState.Load();
+            checkStarted = true;
 
             Report(new UpdateProgress(UpdatePhase.Checking));
             using var release = await FetchLatestReleaseAsync(ct);
@@ -182,17 +195,20 @@ public sealed class UpdateService
             if (latest is null)
             {
                 FileLog.Write($"[UpdateService] Could not parse version from tag '{tag}'; skipping.");
-                return Conclude(state, UpdatePhase.Failed, error: $"the latest release is tagged '{tag}', which is not a version");
+                return Conclude(UpdatePhase.Failed, error: $"the latest release is tagged '{tag}', which is not a version");
             }
 
             var versionText = $"{latest.Major}.{latest.Minor}.{Math.Max(latest.Build, 0)}";
 
+            // Decided on the snapshot, and applied again to the state as it is when the check concludes,
+            // where it is idempotent: it clears a pin only when this release is newer than that pin.
             ClearPinIfSuperseded(state, latest);
+            void ClearPin(UpdaterState s) => ClearPinIfSuperseded(s, latest);
 
             if (!ShouldStage(_options.CurrentVersion, latest, state))
             {
                 FileLog.Write($"[UpdateService] Up to date or dismissed (latest={latest}, dismissed={state.DismissedVersion}).");
-                return Conclude(state, UpdatePhase.UpToDate, versionText);
+                return Conclude(UpdatePhase.UpToDate, versionText, extra: ClearPin);
             }
 
             if (AlreadyStaged(versionText, state))
@@ -205,7 +221,7 @@ public sealed class UpdateService
                 // this one; if the staged file has meanwhile been deleted, the test below fails and the
                 // download runs again, which is the repair.
                 FileLog.Write($"[UpdateService] Release {tag} is already staged at {state.StagedExecutable}; not downloading it again.");
-                return Conclude(state, UpdatePhase.Staged, versionText);
+                return Conclude(UpdatePhase.Staged, versionText, extra: ClearPin);
             }
 
             var assetUrl = assetName is null ? null : FindAssetUrl(release.RootElement, assetName);
@@ -220,15 +236,15 @@ public sealed class UpdateService
                 // because it is what names and hashes everything else. Waiting fixes this.
                 FileLog.Write($"[UpdateService] Release {tag} has no manifest yet; its downloads have not been attached. "
                               + "Not up to date and not a failure - worth another look shortly.");
-                return Conclude(state, UpdatePhase.ReleaseNotReady, versionText);
+                return Conclude(UpdatePhase.ReleaseNotReady, versionText, extra: ClearPin);
             }
 
             if (assetName is null)
             {
                 var platform = $"{RuntimeInformation.OSDescription} on {arch}";
                 FileLog.Write($"[UpdateService] No Director build is published for {platform}; this machine cannot update itself.");
-                return Conclude(state, UpdatePhase.NoBuildForThisPlatform, versionText,
-                    $"no Director build is published for {platform}");
+                return Conclude(UpdatePhase.NoBuildForThisPlatform, versionText,
+                    $"no Director build is published for {platform}", ClearPin);
             }
 
             if (assetUrl is null)
@@ -238,20 +254,22 @@ public sealed class UpdateService
                 // must not drive the short retry: a machine would poll a finished release for ever.
                 FileLog.Write($"[UpdateService] Release {tag} is complete but has no '{assetName}'; there is no build for "
                               + "this platform in that release.");
-                return Conclude(state, UpdatePhase.NoBuildForThisPlatform, versionText,
-                    $"the release has no {assetName}");
+                return Conclude(UpdatePhase.NoBuildForThisPlatform, versionText,
+                    $"the release has no {assetName}", ClearPin);
             }
 
             var staged = await DownloadAndStageAsync(versionText, assetName, assetUrl, manifestUrl, ct);
             if (staged is null)
-                return Conclude(state, UpdatePhase.Failed, versionText, "the download could not be verified");
-
-            state.StagedVersion = versionText;
-            state.StagedExecutable = staged.StagedExecutable;
-            state.InstallTarget = staged.InstallTarget;
+                return Conclude(UpdatePhase.Failed, versionText, "the download could not be verified", ClearPin);
 
             FileLog.Write($"[UpdateService] Staged update {versionText}: {staged.StagedExecutable}");
-            var phase = Conclude(state, UpdatePhase.Staged, versionText);
+            var phase = Conclude(UpdatePhase.Staged, versionText, extra: s =>
+            {
+                ClearPin(s);
+                s.StagedVersion = versionText;
+                s.StagedExecutable = staged.StagedExecutable;
+                s.InstallTarget = staged.InstallTarget;
+            });
             UpdateStaged?.Invoke(staged);
             return phase;
         }
@@ -261,8 +279,19 @@ public sealed class UpdateService
             // Write the failure down too. A check that fell over on the network used to leave the last
             // successful conclusion in place, so the display kept claiming the machine was up to date on
             // the strength of a check that had not worked for days.
-            if (loaded is not null)
-                return Conclude(loaded, UpdatePhase.Failed, error: ex.Message);
+            if (checkStarted)
+            {
+                try
+                {
+                    return Conclude(UpdatePhase.Failed, error: ex.Message);
+                }
+                catch (Exception recordEx)
+                {
+                    // This is the root of a background task and must not throw; the failure to write the
+                    // failure down is logged as a failure of its own.
+                    FileLog.Write($"[UpdateService] CheckAndStageAsync: recording the failure FAILED: {recordEx.Message}");
+                }
+            }
             Report(new UpdateProgress(UpdatePhase.Failed, Error: ex.Message));
             return UpdatePhase.Failed;
         }

@@ -143,6 +143,29 @@ public class UpdateCheckOutcomeTests
     // ---- Harness ----------------------------------------------------------
 
     /// <summary>
+    /// The launcher applies the staged build while a check is in flight (issue #3666, review of #3680). The
+    /// check loaded the whole state before it went to the network and saved that whole copy when it
+    /// concluded, so the staged record the launcher had just cleared came back and the launcher's decision
+    /// was erased - the next start would try to install the same build again. A check writes only what it
+    /// found now.
+    /// </summary>
+    [Fact]
+    public async Task ACheck_DoesNotUndoWhatTheLauncherWroteWhileItWasRunning()
+    {
+        if (!Supported) return;
+
+        var staged = new UpdaterState { StagedVersion = "1.5.0", StagedExecutable = "x", InstallTarget = "y" };
+
+        var (outcome, state) = await CheckAgainstReleaseAsync(tag: "v1.0.0", withAssets: false,
+            seed: staged, handler: new LauncherAppliesDuringCheckHandler("v1.0.0"));
+
+        Assert.Equal(UpdatePhase.UpToDate, outcome);
+        Assert.Equal("UpToDate", state.LastCheckOutcome);
+        Assert.Null(state.StagedVersion);
+        Assert.Equal("Applied", state.LastApplyDecision);
+    }
+
+    /// <summary>
     /// Run one check against a fabricated "latest release", with the storage root redirected so the
     /// state file written is this test's own. Returns the conclusion and the state as it was left.
     /// </summary>
@@ -189,6 +212,29 @@ public class UpdateCheckOutcomeTests
                 entries.Add("""{"name":"release-manifest.json","browser_download_url":"https://example.invalid/m"}""");
             var assets = "[" + string.Join(",", entries) + "]";
             var body = $$"""{"tag_name":"{{tag}}","assets":{{assets}}}""";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            });
+        }
+    }
+
+    /// <summary>
+    /// Plays the launcher: while the check is waiting on the network, it installs the staged build, clears
+    /// the staged record and records its decision, then answers with a release that is not newer.
+    /// </summary>
+    private sealed class LauncherAppliesDuringCheckHandler(string tag) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var launcher = UpdaterState.Load();
+            launcher.StagedVersion = null;
+            launcher.StagedExecutable = null;
+            launcher.InstallTarget = null;
+            launcher.LastApplyDecision = "Applied";
+            launcher.Save();
+
+            var body = $$"""{"tag_name":"{{tag}}","assets":[]}""";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(body, Encoding.UTF8, "application/json"),
