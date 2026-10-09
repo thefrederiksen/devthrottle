@@ -30,9 +30,6 @@ public static class CronLoad
     /// <summary>The number of hours forecast.</summary>
     public const int Hours = 24;
 
-    // A schedule that fires every minute has 1,440 fires a day; anything past this is not a schedule a person wrote.
-    private const int MaxFiresPerJob = 2000;
-
     /// <summary>
     /// The forecast for these schedules. Only active ones count (<see cref="CronSchedule.LifecycleOf"/>): a paused,
     /// spent or switched-off schedule starts nothing. <paramref name="runLengths"/> is each schedule's measured typical
@@ -61,20 +58,25 @@ public static class CronLoad
     private static CronMachineLoadDto MachineLoad(string machine, List<CronJobDto> jobs,
         IReadOnlyDictionary<string, TimeSpan> runLengths, DateTime now, int capacity)
     {
-        var zoneId = jobs
-            .GroupBy(j => j.TimeZoneId, StringComparer.Ordinal)
-            .OrderByDescending(g => g.Count())
-            .ThenBy(g => g.Key, StringComparer.Ordinal)
-            .First().Key;
-        var zone = CronSchedule.FindZone(zoneId)
-            ?? throw new InvalidOperationException($"machine {machine}: the time zone {zoneId} of its schedules is not known on this host");
+        // A schedule whose stored zone this host does not know cannot be placed in time. It is named rather than
+        // failing the whole forecast, the way the list degrades one job's next run rather than every job's.
+        var unplaced = jobs.Where(j => CronSchedule.FindZone(j.TimeZoneId) is null).Select(j => j.Id).ToList();
+        var placed = jobs.Where(j => !unplaced.Contains(j.Id)).ToList();
+        var zoneId = placed.Count == 0
+            ? TimeZoneInfo.Utc.Id
+            : placed
+                .GroupBy(j => j.TimeZoneId, StringComparer.Ordinal)
+                .OrderByDescending(g => g.Count())
+                .ThenBy(g => g.Key, StringComparer.Ordinal)
+                .First().Key;
+        var zone = placed.Count == 0 ? TimeZoneInfo.Utc : CronSchedule.FindZone(zoneId)!;
 
         var windowStart = HourStart(now, zone);
         var windowEnd = windowStart.AddHours(Hours);
 
         var runs = new List<(string JobId, DateTime Start, DateTime End)>();
         var estimated = new List<string>();
-        foreach (var job in jobs)
+        foreach (var job in placed)
         {
             var measured = runLengths.TryGetValue(job.Id, out var length);
             if (!measured)
@@ -84,7 +86,7 @@ public static class CronLoad
             }
             if (length < TimeSpan.FromMinutes(1))
                 length = TimeSpan.FromMinutes(1);
-            runs.AddRange(FiresBetween(job, windowStart - length, windowEnd)
+            runs.AddRange(FiresBetween(job, windowStart - length, windowEnd, now)
                 .Select(start => (job.Id, start, start + length)));
         }
 
@@ -130,6 +132,13 @@ public static class CronLoad
                 1 => $"1 schedule has never finished a run, so it is counted at {CronRunEndingFold.Duration(UnmeasuredRunLength)}",
                 _ => $"{estimated.Count} schedules have never finished a run, so they are counted at {CronRunEndingFold.Duration(UnmeasuredRunLength)} each",
             },
+            UnplacedJobIds = unplaced,
+            UnplacedNote = unplaced.Count switch
+            {
+                0 => "",
+                1 => "1 schedule is not counted: its time zone is not known on this host",
+                _ => $"{unplaced.Count} schedules are not counted: their time zones are not known on this host",
+            },
         };
     }
 
@@ -143,17 +152,31 @@ public static class CronLoad
     }
 
     /// <summary>Every fire of the schedule at or after <paramref name="fromUtc"/> and before <paramref name="toUtc"/>.</summary>
-    private static IEnumerable<DateTime> FiresBetween(CronJobDto job, DateTime fromUtc, DateTime toUtc)
+    private static IEnumerable<DateTime> FiresBetween(CronJobDto job, DateTime fromUtc, DateTime toUtc, DateTime now)
     {
+        if (CronSchedule.IsOneOff(job.ScheduleKind))
+        {
+            // An active one-off whose time has passed has not fired yet, and the engine fires it on its next sweep
+            // (CronSchedule.LifecycleOf), so its session opens now, not at the time it was due.
+            if (CronSchedule.ComputeNextRunUtc(job, now) is { } due)
+            {
+                var fire = due < now ? now : due;
+                if (fire >= fromUtc && fire < toUtc)
+                    yield return fire;
+            }
+            yield break;
+        }
+
         // ComputeNextRunUtc is exclusive of its instant, so start a tick early to keep a fire exactly at fromUtc.
         var cursor = fromUtc.AddTicks(-1);
-        for (var i = 0; i < MaxFiresPerJob; i++)
+        // Nothing fires more than once a minute - a cron's finest step is a minute and a random schedule's least gap
+        // is ten - so this bound is never what stops the loop; it only proves the loop ends.
+        var bound = (int)Math.Ceiling((toUtc - fromUtc).TotalMinutes) + 2;
+        for (var i = 0; i < bound; i++)
         {
             var next = CronSchedule.ComputeNextRunUtc(job, cursor);
             if (next is not { } fire || fire >= toUtc)
                 yield break;
-            // A one-off has one instant and answers it for every cursor, so a fire that does not move on is one
-            // already counted.
             if (fire <= cursor)
                 yield break;
             if (fire >= fromUtc)

@@ -58,6 +58,12 @@ public sealed class CronMachineLoadDto
     /// are counted at 30 min each", or empty when every length was measured.
     /// </summary>
     public string EstimateNote { get; set; } = "";
+
+    /// <summary>The schedules left out because their time zone is not known on this host.</summary>
+    public List<string> UnplacedJobIds { get; set; } = new();
+
+    /// <summary>The sentence that says some schedules are left out, or empty when none are.</summary>
+    public string UnplacedNote { get; set; } = "";
 }
 
 /// <summary>One hour on one machine.</summary>

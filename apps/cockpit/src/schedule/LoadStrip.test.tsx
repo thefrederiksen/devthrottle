@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import type { CronLoad, CronLoadHour, CronMachineLoad } from "@devthrottle/client-core/schedule/scheduleClient";
-import { LoadStrip } from "./LoadStrip";
+import { LoadStrip, machineShown, resolveHourPick } from "./LoadStrip";
 
 // The load strip lays out what the Gateway folded (GET /cron/load) and never works anything out itself: these pin
 // that an hour over capacity is drawn as over, that tapping a bar hands its hour up to filter the list, that an
@@ -38,6 +38,8 @@ function machine(name: string, overrides: Partial<CronMachineLoad> = {}): CronMa
     hours,
     estimatedJobIds: [],
     estimateNote: "",
+    unplacedJobIds: [],
+    unplacedNote: "",
     ...overrides,
   };
 }
@@ -45,6 +47,37 @@ function machine(name: string, overrides: Partial<CronMachineLoad> = {}): CronMa
 function load(machines: CronMachineLoad[]): CronLoad {
   return { generatedUtc: "2026-10-09T04:10:00Z", capacity: 6, machines };
 }
+
+describe("resolveHourPick", () => {
+  it("reads the tapped hour's schedules from the latest forecast, not from the one that was tapped", () => {
+    const tapped = machine("SOREN_NORTH");
+    const later = machine("SOREN_NORTH");
+    later.hours[7] = { ...later.hours[7]!, jobIds: ["a", "b", "new"] };
+
+    const pick = { machine: "SOREN_NORTH", startUtc: tapped.hours[7]!.startUtc };
+
+    expect(resolveHourPick(later, pick)?.hour.jobIds).toEqual(["a", "b", "new"]);
+  });
+
+  it("ends the filter once its hour has passed out of the forecast", () => {
+    const m = machine("SOREN_NORTH");
+    expect(resolveHourPick(m, { machine: "SOREN_NORTH", startUtc: "an hour no longer forecast" })).toBeNull();
+  });
+
+  it("ends the filter when the strip shows another machine", () => {
+    const devlinux = machine("devlinux");
+    expect(resolveHourPick(devlinux, { machine: "SOREN_NORTH", startUtc: devlinux.hours[7]!.startUtc })).toBeNull();
+  });
+});
+
+describe("machineShown", () => {
+  it("keeps the picked machine when another becomes the busiest, and shows the busiest only without a pick", () => {
+    const strip = load([machine("devlinux"), machine("SOREN_NORTH")]);
+    expect(machineShown(strip, "SOREN_NORTH")?.machine).toBe("SOREN_NORTH");
+    expect(machineShown(strip, "")?.machine).toBe("devlinux");
+    expect(machineShown(strip, "a machine with no schedules left")?.machine).toBe("devlinux");
+  });
+});
 
 describe("LoadStrip", () => {
   it("draws 24 bars, shows the Gateway's summary, and marks the hour over capacity", () => {

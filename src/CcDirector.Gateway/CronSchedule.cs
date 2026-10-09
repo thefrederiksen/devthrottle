@@ -141,7 +141,7 @@ public static class CronSchedule
     private static bool IsRecurring(string? kind) =>
         string.Equals(kind?.Trim(), KindRecurring, StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsOneOff(string? kind) =>
+    internal static bool IsOneOff(string? kind) =>
         string.Equals(kind?.Trim(), KindOneOff, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>True when the kind is <see cref="KindRandom"/>, ignoring case and surrounding spaces.</summary>

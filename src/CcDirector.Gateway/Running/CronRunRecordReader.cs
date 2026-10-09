@@ -53,7 +53,9 @@ public sealed class CronRunRecordReader
     /// </summary>
     public IReadOnlyDictionary<string, TimeSpan> RunLengthsOf(IReadOnlyCollection<string> jobIds)
     {
-        var byJob = _runs.RecentByJob(jobIds, CronRunEndingFold.SummaryRuns);
+        // Read deeper than the sample: a schedule that fires every few minutes and holds each session for an hour
+        // always has its newest runs open, so the sample is the newest runs that ENDED, found among these.
+        var byJob = _runs.RecentByJob(jobIds, RunLengthReadDepth);
         var endings = _endingsOf(SessionIdsOf(byJob.Values.SelectMany(r => r)));
         var result = new Dictionary<string, TimeSpan>(StringComparer.Ordinal);
         foreach (var (jobId, runs) in byJob)
@@ -65,6 +67,7 @@ public sealed class CronRunRecordReader
                     : null)
                 .Where(l => l is not null)
                 .Select(l => l!.Value)
+                .Take(CronRunEndingFold.SummaryRuns)
                 .OrderBy(l => l)
                 .ToList();
             if (lengths.Count > 0)
@@ -72,6 +75,9 @@ public sealed class CronRunRecordReader
         }
         return result;
     }
+
+    /// <summary>How many of a schedule's newest runs are read to find the newest ones that ended.</summary>
+    public const int RunLengthReadDepth = 100;
 
     private static IReadOnlyCollection<string> SessionIdsOf(IEnumerable<CronRunRecord> runs) =>
         runs.Select(r => r.SessionId).Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s!)

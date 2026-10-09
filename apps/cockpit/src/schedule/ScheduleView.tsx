@@ -10,10 +10,9 @@ import {
   updateCronJob,
   type CronJob,
   type CronLoad,
-  type CronLoadHour,
   type CronRunRecord,
 } from "@devthrottle/client-core/schedule/scheduleClient";
-import { LoadStrip } from "./LoadStrip";
+import { LoadStrip, machineShown, resolveHourPick } from "./LoadStrip";
 import {
   ENDPOINT_STATE_UNREACHABLE_BY_NAME,
   getFleetDirectors,
@@ -179,7 +178,9 @@ export function ScheduleView() {
   const [load, setLoad] = useState<CronLoad | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadMachine, setLoadMachine] = useState("");
-  const [hourFilter, setHourFilter] = useState<{ machine: string; hour: CronLoadHour } | null>(null);
+  // Only WHICH hour was tapped is held; its schedules are read from the latest forecast, so the list never keeps
+  // ids from a forecast the Gateway has since replaced.
+  const [hourPick, setHourPick] = useState<{ machine: string; startUtc: string } | null>(null);
 
   // The cron job awaiting delete confirmation. Deleting a job removes the schedule permanently, so it
   // asks through the shared ConfirmDialog (issue #1244) instead of firing on the first click.
@@ -804,6 +805,20 @@ export function ScheduleView() {
 
   const activeCount = byList.active.length;
 
+  // The machine the strip shows: the one picked, held across polls even when another becomes the busiest, and the
+  // busiest only until one is picked or when the picked one has no active schedules left.
+  const shownMachine = useMemo(() => (load === null ? undefined : machineShown(load, loadMachine)), [load, loadMachine]);
+  useEffect(() => {
+    if (shownMachine !== undefined && shownMachine.machine !== loadMachine) setLoadMachine(shownMachine.machine);
+  }, [shownMachine, loadMachine]);
+
+  // The tapped hour, read from the latest forecast. Once that hour has passed out of the forecast, or the strip
+  // shows another machine, there is nothing to filter by and the filter ends.
+  const hourFilter = useMemo(() => resolveHourPick(shownMachine, hourPick), [hourPick, shownMachine]);
+  useEffect(() => {
+    if (hourPick !== null && hourFilter === null) setHourPick(null);
+  }, [hourPick, hourFilter]);
+
   // A tapped bar narrows the list to the schedules the Gateway says are open in that hour.
   const shownRows = useMemo(() => {
     if (hourFilter === null) return byList[list];
@@ -833,17 +848,16 @@ export function ScheduleView() {
           machine={loadMachine}
           onMachine={(m) => {
             setLoadMachine(m);
-            setHourFilter(null);
+            setHourPick(null);
           }}
           selectedHour={hourFilter?.hour.startUtc ?? null}
           onSelectHour={(hour) => {
-            const shown = load.machines.find((m) => m.machine === loadMachine) ?? load.machines[0];
-            if (hour === null || shown === undefined) {
-              setHourFilter(null);
+            if (hour === null || shownMachine === undefined) {
+              setHourPick(null);
               return;
             }
             setList("active");
-            setHourFilter({ machine: shown.machine, hour });
+            setHourPick({ machine: shownMachine.machine, startUtc: hour.startUtc });
           }}
         />
       )}
@@ -860,7 +874,7 @@ export function ScheduleView() {
               title={t.title}
               onClick={() => {
                 setList(t.key);
-                setHourFilter(null);
+                setHourPick(null);
               }}
             >
               {t.label} <span className="sched-listtab-count">{byList[t.key].length}</span>
@@ -873,7 +887,7 @@ export function ScheduleView() {
         <div className="sched-hourfilter">
           Showing the {shownRows.length} schedule{shownRows.length === 1 ? "" : "s"} open on {hourFilter.machine} in the{" "}
           {hourFilter.hour.label} hour.{" "}
-          <button type="button" className="sched-groupbtn" onClick={() => setHourFilter(null)}>
+          <button type="button" className="sched-groupbtn" onClick={() => setHourPick(null)}>
             Show all
           </button>
         </div>

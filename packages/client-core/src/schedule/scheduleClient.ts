@@ -121,6 +121,10 @@ export interface CronMachineLoad {
   estimatedJobIds: string[];
   /** Says which bars are partly a guess, or "" when every run length was measured. */
   estimateNote: string;
+  /** The schedules left out because their time zone is not known on the Gateway's host. */
+  unplacedJobIds: string[];
+  /** Says some schedules are left out, or "". */
+  unplacedNote: string;
 }
 
 export interface CronLoadHour {

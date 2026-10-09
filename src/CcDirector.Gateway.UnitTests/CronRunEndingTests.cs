@@ -359,5 +359,12 @@ public sealed class CronRunEndingTests : IDisposable
 
         Assert.Equal(TimeSpan.FromMinutes(10), lengths["job-a"]);
         Assert.False(lengths.ContainsKey("job-open"));
+
+        // A schedule whose newest runs are all still open is measured from the older ones that ended, not counted
+        // as never having finished.
+        Session("job-busy", 50);
+        for (var i = 0; i < CronRunEndingFold.SummaryRuns + 5; i++)
+            Session("job-busy", null);
+        Assert.Equal(TimeSpan.FromMinutes(50), reader.RunLengthsOf(new[] { "job-busy" })["job-busy"]);
     }
 }

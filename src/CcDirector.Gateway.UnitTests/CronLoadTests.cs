@@ -133,6 +133,49 @@ public sealed class CronLoadTests
     }
 
     [Fact]
+    public void Build_AnActiveOneOffWhoseTimeHasPassed_OpensNow_BecauseTheEngineStillFiresIt()
+    {
+        var overdue = new CronJobDto
+        {
+            Id = "overdue", Name = "overdue", Enabled = true, ScheduleKind = CronSchedule.KindOneOff,
+            RunAt = "2026-10-08T07:00:00", TimeZoneId = Zone,
+            Target = new CronJobTarget { Machine = "SOREN_NORTH" },
+            Action = new CronJobAction { RepoPath = @"D:\repo", Seed = "/help" },
+        };
+
+        var machine = Assert.Single(CronLoad.Build(new[] { overdue }, Lengths(("overdue", 20)), Now, 6).Machines);
+
+        Assert.Equal(1, Hour(machine, "00:00").Starts);
+        Assert.Equal(1, Hour(machine, "00:00").Concurrent);
+        Assert.Equal(1, machine.Hours.Sum(h => h.Starts));
+    }
+
+    [Fact]
+    public void Build_AnEveryMinuteScheduleWithALongRunLength_IsNeverCutShort()
+    {
+        // Sessions nobody closes: each lives three days, so the forecast reaches back three days of fires.
+        var machine = Assert.Single(CronLoad.Build(new[] { Daily("minutely", "* * * * *") }, Lengths(("minutely", 3 * 24 * 60)), Now, 6).Machines);
+
+        Assert.All(machine.Hours.Skip(1), h => Assert.Equal(60, h.Starts));
+        // One fire a minute, each open three days: at any moment exactly three days of fires are open.
+        Assert.Equal(3 * 24 * 60, Hour(machine, "01:00").Concurrent);
+    }
+
+    [Fact]
+    public void Build_AScheduleInAZoneThisHostDoesNotKnow_IsNamedAndLeftOut_TheRestStillForecast()
+    {
+        var lost = Daily("lost", "0 7 * * *");
+        lost.TimeZoneId = "Nowhere/Atlantis";
+
+        var machine = Assert.Single(CronLoad.Build(new[] { lost, Daily("a", "0 7 * * *") }, Lengths(("a", 20)), Now, 6).Machines);
+
+        Assert.Equal(new[] { "a" }, Hour(machine, "07:00").JobIds);
+        Assert.Equal(new[] { "lost" }, machine.UnplacedJobIds);
+        Assert.Equal("1 schedule is not counted: its time zone is not known on this host", machine.UnplacedNote);
+        Assert.Equal(Zone, machine.TimeZoneId);
+    }
+
+    [Fact]
     public void Build_AnEveryFifteenMinutesSchedule_StartsFourTimesAnHour()
     {
         var machine = Assert.Single(CronLoad.Build(new[] { Daily("often", "*/15 * * * *") }, Lengths(("often", 5)), Now, 6).Machines);
