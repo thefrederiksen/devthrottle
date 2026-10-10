@@ -458,3 +458,25 @@ describe("store writes and reporting wrappers (the 3c review, finding 4)", () =>
     expect(reportingFunctions([src]).has("failIt")).toBe(true);
   });
 });
+
+describe("an updater carrying a variable into an error member (the 3c review, finding 5)", () => {
+  it("scanSource_UpdaterSettingTheErrorMemberToAVariable_IsASite", () => {
+    const src = [
+      `const [load, setLoad] = useState({ error: null });`,
+      `setLoad((s) => ({ ...s, error: msg }));`,
+      `return <div role="alert">{load.error}</div>;`,
+    ].join("\n");
+
+    expect(bad(src).map((s) => s.name)).toEqual(["setLoad"]);
+  });
+
+  it("scanSource_UpdaterClearingTheErrorMember_IsNotASite", () => {
+    const src = [
+      `const [load, setLoad] = useState({ error: null });`,
+      `setLoad((s) => ({ ...s, error: null }));`,
+      `return <div role="alert">{load.error}</div>;`,
+    ].join("\n");
+
+    expect(scan(src)).toEqual([]);
+  });
+});

@@ -10,9 +10,9 @@ import {
   type RepoInfo,
 } from "@devthrottle/client-core/api/client";
 import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting";
 
 const SURFACE = "mobile-new-session";
-import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting";
 
 type ActiveStep = "director" | "agent" | "repository" | "review";
 

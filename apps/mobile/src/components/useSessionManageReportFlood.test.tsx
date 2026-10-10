@@ -27,7 +27,7 @@ const A = "6c1f0a44-0000-4000-8000-00000000000a";
 const UNSTAMPED = { sessionId: A, activityState: "WaitingForInput", effectiveColor: "red", stateLabel: "Needs you" };
 const STAMPED = { ...UNSTAMPED, triageBucket: "needsYou" };
 
-const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 202 }));
 const reports = () =>
   fetchMock.mock.calls
     .filter(([u]) => String(u) === "/client-errors")

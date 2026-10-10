@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
-
-const SURFACE = "restart-requests";
 import {
   acceptRestartRequest,
   declineRestartRequest,
@@ -9,6 +7,8 @@ import {
   visibleRestartRequests,
   type DirectorRestartRequest,
 } from "./restartRequests";
+
+const SURFACE = "restart-requests";
 
 // The "Needs you" item for a Director restart - issue #2725 (restart epic, Phase 6). Shared by the
 // Cockpit and the phone: ONE component, mounted by both shells above their "Needs you" group, so the

@@ -437,7 +437,12 @@ function clearsMapEntries(value: string): boolean {
 function carriesText(value: string, kind: ErrorDisplaySiteKind): boolean {
   if (kind === "catch") return true;
   if (!/^\s*(?:async\s*)?\(?[\w$\s,{}:]*\)?\s*=>/.test(value)) return true;
-  return /["'`]|\.message\b|[\w$]\s*\(/.test(value.replace(/^\s*(?:async\s*)?\(?[\w$\s,{}:]*\)?\s*=>/, ""));
+  const body = value.replace(/^\s*(?:async\s*)?\(?[\w$\s,{}:]*\)?\s*=>/, "");
+  // `(s) => ({ ...s, error: msg })` puts a variable's text into an error member (the 3c review, finding 5).
+  const errorMember = [...body.matchAll(/(?<![\w$])(error|[\w$]*Error|failure|problem)\s*:\s*([^,}]+)/g)].some(
+    ([, , v]) => !/^\s*(?:null|undefined|false|""|''|``)\s*$/.test(v),
+  );
+  return errorMember || /["'`]|\.message\b|[\w$]\s*\(/.test(body);
 }
 
 /** `function setError(` and a type's `onError(message: string): void` declare a name; they do not call it. */

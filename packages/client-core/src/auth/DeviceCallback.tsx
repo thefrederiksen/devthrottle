@@ -107,7 +107,7 @@ export function DeviceCallback() {
         if (cancelled) return;
         if (isGatewayNotSignedIn(err)) {
           setPhase("gatewaySignedOut");
-          // error-report-exempt: the person is not signed in to the Gateway yet and the page asks them to - nothing failed
+          // error-report-exempt: being signed out is the person's state, not a failure of ours - a user state is information, and the page asks them to sign in
           setMessage(err.message);
           return;
         }
