@@ -22,6 +22,8 @@
     <!-- The unlocked half of the same suite (the pure tests, split out so they no longer queue
          behind the machine-wide Gateway test lock). Same tests, same access, one assembly over. -->
     <InternalsVisibleTo Include="CcDirector.Gateway.UnitTests" />
+    <!-- The Gateway tests that need a real PostgreSQL, in a project of their own (scripts\test-database.ps1). -->
+    <InternalsVisibleTo Include="CcDirector.Gateway.DatabaseTests" />
     <InternalsVisibleTo Include="TerminalTest" />
     <!-- The prompt verb and the Gateway command handler use the send path's own wait notice
          (Drivers.SendWaitNotice), so their long waits write the same two lines every send wait writes. -->

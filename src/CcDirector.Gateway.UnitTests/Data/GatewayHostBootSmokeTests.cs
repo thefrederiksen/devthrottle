@@ -19,7 +19,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// The primary "the container carries the DLL" evidence is the publish-output check recorded in the QA doc
 /// (the host's publish output contains CcDirector.Gateway.Migrations.Postgres.dll and lists it in the host
 /// deps.json). These tests cover the other half: the migration set actually resolves by name (no database),
-/// and, when a real Postgres is configured, the real GatewayDatabase startup path applies it.
+/// and the migration chain holds its ordering. The half that needs a real server - the GatewayDatabase startup path
+/// applying the set - is GatewayHostBootPostgresTests in CcDirector.Gateway.DatabaseTests.
 /// </summary>
 public sealed class GatewayHostBootSmokeTests
 {
@@ -137,19 +138,6 @@ public sealed class GatewayHostBootSmokeTests
     // time one is added.
     private const string NewestPostgresMigration = "20261008220319_RenameCeoSeatToBossSeat";
     private const string NewestSqliteMigration = "20261008220200_RenameCeoSeatToBossSeat";
-
-    /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
-    /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
-    private sealed class RequiresConfiguredPostgresFactAttribute : FactAttribute
-    {
-        public RequiresConfiguredPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(
-                    Environment.GetEnvironmentVariable(GatewayDatabase.PostgresConnectionEnvVar)))
-                Skip = $"Set {GatewayDatabase.PostgresConnectionEnvVar} to a real PostgreSQL connection " +
-                       "string to run the live host-boot migration proof.";
-        }
-    }
 
     /// <summary>
     /// The Postgres migration set resolves BY ASSEMBLY NAME - the exact mechanism EF uses at runtime when the
@@ -458,23 +446,5 @@ public sealed class GatewayHostBootSmokeTests
             Assert.True(positions[i] >= 0, $"Migration {expected[i]} is missing.");
         for (var i = 1; i < expected.Length; i++)
             Assert.True(positions[i - 1] < positions[i], $"Migration {expected[i]} must sort after {expected[i - 1]}.");
-    }
-
-    /// <summary>
-    /// The real hosted startup path: constructing GatewayDatabase (the exact class the hosted host boots)
-    /// with CC_GATEWAY_DB_CONNECTION set runs Database.Migrate() against the configured Postgres, resolving
-    /// and applying the Postgres migration set. Asserting the applied-migrations list contains the
-    /// InitialPostgres migration proves the set was found by name and applied - end to end on a real server.
-    /// Env-gated: skips cleanly when unset, so CI connects to nothing.
-    /// </summary>
-    [RequiresConfiguredPostgresFact]
-    public void HostStartupPath_ResolvesAndAppliesPostgresMigrations_OnConfiguredPostgres()
-    {
-        using var db = new GatewayDatabase(new SingleTenantContext());
-        using var ctx = db.CreateContext();
-
-        var applied = ctx.Database.GetAppliedMigrations().ToList();
-
-        Assert.Contains(InitialPostgresMigration, applied);
     }
 }

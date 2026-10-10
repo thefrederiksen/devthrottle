@@ -13,24 +13,14 @@ namespace CcDirector.Gateway.Tests.Data;
 /// change, holding a stop stored as step 4 stores it, carried through <c>AddFleetManagerEventOutcomeAnswer</c>. The
 /// stop survives and the three new columns exist, empty on it.
 ///
-/// GATING. Like <see cref="RemoveAssistantSettingsPostgresTests"/>, the class is gated on
-/// <c>CC_GATEWAY_TEST_PG_CONNECTION</c> and reports SKIPPED when it is unset. Skipped is not passed.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 /// </summary>
 public sealed class FleetManagerEventOutcomeAnswerPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
     private const string MigrationBefore = "20260917110309_RemoveAssistantSettings";
     private const string MigrationUnderTest = "20260917110409_AddFleetManagerEventOutcomeAnswer";
-
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres " +
-                       "event answer columns proof.";
-        }
-    }
 
     private static string Connection => PostgresProofDatabase.Connection;
 

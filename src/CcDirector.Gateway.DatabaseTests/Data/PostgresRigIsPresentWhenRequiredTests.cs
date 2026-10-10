@@ -20,7 +20,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// spread through a suite of four thousand, and the release looked like a product defect for twenty
 /// minutes.
 ///
-/// Linked into both Postgres-bearing assemblies rather than copied, so neither can lose it in a split.
+/// It is a plain [Fact], not [RequiresPostgresFact], on purpose: it must run whether or not a database was
+/// promised, because its job is to say whether the promise holds.
 /// </summary>
 public sealed class PostgresRigIsPresentWhenRequiredTests
 {

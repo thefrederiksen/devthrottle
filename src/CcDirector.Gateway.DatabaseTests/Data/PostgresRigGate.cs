@@ -13,7 +13,7 @@ namespace CcDirector.Gateway.Tests.Data;
 /// summary, in the TRX counters and in every report built from them. So a release gate that lost its
 /// database reported a clean run over tests that never executed, and nobody could tell from the output.
 ///
-/// The gate script now BUILDS the database and says WHICH ONE it built, by putting the rig's instance
+/// scripts\test-database.ps1 BUILDS the database and says WHICH ONE it built, by putting the rig's instance
 /// name in <see cref="RequiredEnvVar"/>. That turns an unanswerable question - "is a database available"
 /// - into a checkable one: "is the database this run built the database these tests are pointed at".
 ///
@@ -31,13 +31,14 @@ namespace CcDirector.Gateway.Tests.Data;
 /// as the readable report in an ordinary run, and as the thing that fails if the initializer ever stops
 /// running.
 ///
-/// Linked into CcDirector.Gateway.UnitTests rather than copied, because both assemblies hold Postgres
-/// proofs and two copies of a rule this consequential drift.
+/// It is also the rule the shared [RequiresPostgresFact] reads: a test in this project runs exactly when a
+/// database was promised, and the promise is held here before any of them runs. Every Postgres-backed proof
+/// now lives in CcDirector.Gateway.DatabaseTests, so this exists once, in that assembly.
 /// </summary>
 internal static class PostgresRigGate
 {
     /// <summary>
-    /// Set by scripts\test-local.ps1 to the INSTANCE NAME of the throwaway rig it built for this run -
+    /// Set by scripts\test-database.ps1 to the INSTANCE NAME of the throwaway rig it built for this run -
     /// not a bare "1". The name is what makes the promise checkable: every database and role the rig
     /// creates is derived from it, so the tests can be held to the exact one.
     /// </summary>
@@ -154,7 +155,7 @@ internal static class PostgresRigGate
         + Environment.NewLine + Environment.NewLine
         + string.Join(Environment.NewLine, faults)
         + Environment.NewLine + Environment.NewLine
-        + "The database is created and destroyed by scripts\\test-local.ps1 for the run that needs it. "
+        + "The database is created and destroyed by scripts\\test-database.ps1 for the run that needs it. "
         + "Read that run's own output, not the other Postgres failures - they are all this same fault "
         + "repeated.";
 

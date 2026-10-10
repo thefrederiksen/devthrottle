@@ -14,23 +14,14 @@ namespace CcDirector.Gateway.Tests.Data;
 /// <c>dev_reports</c> without touching an existing report, keeps one recipient row per (team, report, member), and its Down
 /// removes both tables and the column again - the reversal the pull request names.
 ///
-/// GATING. Like the other PostgreSQL proofs, gated on <c>CC_GATEWAY_TEST_PG_CONNECTION</c>, which the parked run sets to
-/// a throwaway database it builds and destroys. It reports SKIPPED when unset. Skipped is not passed.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 /// </summary>
 public sealed class AddDevReportSharingPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
     private const string MigrationBefore = "20261005184813_AddFleetManagerLessons";
     private const string MigrationUnderTest = "20261005234644_AddDevReportSharing";
-
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres dev report sharing proof.";
-        }
-    }
 
     private static string Connection => PostgresProofDatabase.Connection;
 

@@ -270,13 +270,14 @@ and it is ONE command:**
 `-Parked` adds the three skipped suites. `-Configuration Release` matches what users download,
 because the script defaults to Debug while the continuous integration job it replaced ran Release.
 
-**`-Parked` needs Docker running, and says so rather than skipping (issue #2834).** Two of those three
-suites carry PostgreSQL-backed proofs, and the run now BUILDS its own throwaway PostgreSQL, uses it, and
-destroys it - there is no container to start by hand and no connection-string variable to set. Whatever
-is in your user environment is ignored. If Docker is not running the gate stops and says so, because the
-alternative is those proofs reporting SKIPPED, which is indistinguishable from a pass in every report we
-produce - a dead shared container did exactly that to the v2.1.2 release gate. The DEFAULT run starts no
-database and needs no Docker.
+**The gate starts no database, and needs no Docker - not by default, not with `-Parked`.** Every test
+that needs a real PostgreSQL lives in its own project, `src\CcDirector.Gateway.DatabaseTests`, and
+`.\scripts\test-database.ps1` is the only thing that runs it: it builds a throwaway PostgreSQL in Docker
+for its own run, runs only that project, and destroys the database after. It stops if Docker is not
+running, and it fails a run in which any test skipped, because under it every test has its database and a
+skip reads exactly like a pass in every report we produce. A plain `dotnet test` of the solution reports
+those tests SKIPPED with a reason naming the script. Whether a release also runs that script is the
+release process's decision, not this gate's.
 
 **The installer IS covered.** This section once said the gate was THREE commands, with the installer
 suites run by hand. The script names all three installer suites in its own project list -

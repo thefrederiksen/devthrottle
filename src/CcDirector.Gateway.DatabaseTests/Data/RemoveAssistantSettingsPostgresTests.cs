@@ -13,24 +13,14 @@ namespace CcDirector.Gateway.Tests.Data;
 /// the schema before the change, holding the removed Assistant keys for two accounts, carried through
 /// <c>RemoveAssistantSettings</c>. Only the two removed keys may go.
 ///
-/// GATING. Like <see cref="CallerSuppliedKeyUpgradePreservesRowsPostgresTests"/>, the class is gated on
-/// <c>CC_GATEWAY_TEST_PG_CONNECTION</c> and reports SKIPPED when it is unset. Skipped is not passed.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 /// </summary>
 public sealed class RemoveAssistantSettingsPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
     private const string MigrationBefore = "20260917110209_AddFleetOutcomeAdvice";
     private const string MigrationUnderTest = "20260917110309_RemoveAssistantSettings";
-
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres " +
-                       "settings clean-up proof.";
-        }
-    }
 
     private static string Connection => PostgresProofDatabase.Connection;
 

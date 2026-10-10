@@ -13,24 +13,14 @@ namespace CcDirector.Gateway.Tests.Data;
 /// holding a verdict answered as the answer route marked it then, carried through <c>AddTurnVerdictAnswerChoice</c>. The
 /// verdict survives and the new column exists, empty on it.
 ///
-/// GATING. Like <see cref="FleetManagerEventOutcomeAnswerPostgresTests"/>, the class is gated on
-/// <c>CC_GATEWAY_TEST_PG_CONNECTION</c> and reports SKIPPED when it is unset. Skipped is not passed.
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. Skipped is not passed.
 /// </summary>
 public sealed class TurnVerdictAnswerChoicePostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
     private const string MigrationBefore = "20260917110409_AddFleetManagerEventOutcomeAnswer";
     private const string MigrationUnderTest = "20260917110509_AddTurnVerdictAnswerChoice";
-
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres " +
-                       "verdict answer column proof.";
-        }
-    }
 
     private static string Connection => PostgresProofDatabase.Connection;
 

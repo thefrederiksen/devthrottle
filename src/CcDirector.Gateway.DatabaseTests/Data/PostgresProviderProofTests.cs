@@ -15,27 +15,14 @@ namespace CcDirector.Gateway.Tests.Data;
 /// the three shapes that could diverge between SQLite and Postgres - a JSON-owned column, a natural-key column
 /// whose ordering depends on the collation, and a UTC timestamp.
 ///
-/// The whole class is gated behind the <c>CC_GATEWAY_TEST_PG_CONNECTION</c> environment variable: with it
-/// UNSET (the normal SQLite test run and CI) every fact here reports SKIPPED and nothing touches a database.
-/// Set it to a Postgres connection string (a throwaway container) to run the proof. The migration assembly is
+/// GATING. [RequiresPostgresFact], the one rule for this project: it runs under scripts\test-database.ps1,
+/// against the throwaway PostgreSQL that run built, and reports SKIPPED anywhere else. The migration assembly is
 /// <c>CcDirector.Gateway.Migrations.Postgres</c>, referenced by this test project so it loads at runtime, and
 /// the migrations history table lives in the <c>gateway</c> schema - exactly as the runtime Gateway wires it.
 /// </summary>
 public sealed class PostgresProviderProofTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-
-    /// <summary>A Fact that skips itself when <see cref="ConnectionEnvVar"/> is unset, so the default test run
-    /// (SQLite, no Postgres server) is unaffected. Setting Skip in the attribute reports the test as skipped
-    /// rather than passed.</summary>
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres proof.";
-        }
-    }
 
     // Per RUN, not per operator: PostgresProofDatabase appends a unique suffix to the supplied
     // database name so two concurrent runs cannot EnsureDeleted() each other's schema (issue #1156).

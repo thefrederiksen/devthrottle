@@ -236,6 +236,13 @@ log - the Gateway's Postgres path logs only a redacted host+database target.
 
 ### The proof (a real integration run)
 
+**Deleted 10 October 2026, kept here as the record of the run below.** `GatewayDatabaseLivePostgresProofTests`
+was skipped in all 59 recorded test runs after this one, because nothing in any gate sets
+`CC_GATEWAY_DB_CONNECTION`. Each of its four checks is made on the throwaway PostgreSQL by
+`PostgresProviderProofTests`, and the startup path through `GatewayDatabase` is proved there by
+`GatewayHostBootPostgresTests`. Both live in `src/CcDirector.Gateway.DatabaseTests`, run by
+`scripts/test-database.ps1`.
+
 `GatewayDatabaseLivePostgresProofTests` (new) drives the REAL runtime path: each fact constructs a
 `GatewayDatabase` (the same class the running Gateway uses), whose constructor reads
 `CC_GATEWAY_DB_CONNECTION`, selects Npgsql, and runs `Database.Migrate()` - applying the Postgres migration

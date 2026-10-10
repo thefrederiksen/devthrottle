@@ -39,16 +39,12 @@ namespace CcDirector.Gateway.Tests.Stats;
 /// that survives is bound to the contested RELATION, and
 /// <see cref="TheRelationCheck_RefusesToCertify_AnUnrelatedLock"/> is what keeps it honest.
 ///
-/// Gated behind <c>CC_GATEWAY_TEST_PG_STATS_CONNECTION</c> - the RESTRICTED-role, statistics-database
-/// connection string that <c>scripts/pg-stats-proof-rig.ps1</c> hands out, whose role holds exactly the
-/// hosted role's measured grants and nothing more. With it unset (the ordinary SQLite test run and CI) every
-/// fact reports SKIPPED and nothing touches a database. Point it at a THROWAWAY local container - never at
-/// the hosted database, which staging shares with production; the guard below refuses any database whose name
-/// does not start with "ccpg", and the suite drops and recreates the whole gateway_stats schema.
-///
-/// Stand the rig up with your OWN instance and port - one instance per caller, so no two agents share a
-/// server and nobody's deliberate red is somebody else's privilege change:
-///   powershell -NoProfile -File scripts/pg-stats-proof-rig.ps1 -Instance w4 -Port 55434 -Verb up
+/// It reads <c>CC_GATEWAY_TEST_PG_STATS_CONNECTION</c> - the RESTRICTED-role, statistics-database connection
+/// string the rig hands out, whose role holds exactly the hosted role's measured grants and nothing more - and
+/// is gated by [RequiresPostgresFact]: it runs under scripts\test-database.ps1, against the throwaway database
+/// that run built, and reports SKIPPED anywhere else. Never point it at the hosted database, which staging
+/// shares with production; the guard below refuses any database whose name does not start with "ccpg", and the
+/// suite drops and recreates the whole gateway_stats schema.
 /// </summary>
 public sealed class GatewayStatsWritePathPostgresTests
 {
@@ -58,15 +54,6 @@ public sealed class GatewayStatsWritePathPostgresTests
     private const string Checkout = "D:\\ReposFred\\devthrottle";
     private const string TheAgent = "ClaudeCode";
     private static readonly TenantId Tenant = TenantId.Local;
-
-    private sealed class RequiresPostgresFactAttribute : FactAttribute
-    {
-        public RequiresPostgresFactAttribute()
-        {
-            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
-                Skip = $"Set {ConnectionEnvVar} (scripts/pg-stats-proof-rig.ps1) to run the write-path proof on real PostgreSQL.";
-        }
-    }
 
     private static string Connection =>
         Environment.GetEnvironmentVariable(ConnectionEnvVar)
