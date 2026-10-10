@@ -45,11 +45,21 @@ vi.mock("@devthrottle/client-core/dictation/DictationDialog", () => ({
   ),
 }));
 
+// The reply dialog opens only while a narration is playing, which needs a live voice Gateway. The REAL hook runs -
+// its send functions and their catches are the code under test - and only its display flag `responding` is held
+// on, so the page's own reply handlers (onRespondText, the audio reply) are reachable.
+vi.mock("@devthrottle/client-core/voice/useVoiceMode", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@devthrottle/client-core/voice/useVoiceMode")>();
+  return { ...real, useVoiceMode: (...args: Parameters<typeof real.useVoiceMode>) => ({ ...real.useVoiceMode(...args), responding: true }) };
+});
+
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { promptSendSites } from "@devthrottle/client-core/errors/promptSendSites.testkit";
 import { resetReportingForTests, setReportingComponent } from "@devthrottle/client-core/errors/reportClientError";
 import { resumePendingDictations } from "@devthrottle/client-core/dictation/backgroundSend";
 import { useVoiceMode } from "@devthrottle/client-core/voice/useVoiceMode";
 import { SessionControls } from "./components/SessionControls";
+import { VoiceMode } from "./pages/VoiceMode";
 
 const SID = "sess-42";
 
@@ -100,6 +110,19 @@ async function settle() {
   });
 }
 
+function renderVoicePage() {
+  render(
+    <MemoryRouter initialEntries={[`/session/${SID}/voice`]}>
+      <Routes>
+        <Route path="/session/:sessionId/voice" element={<VoiceMode />} />
+        <Route path="/" element={<div />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+const voiceReports = () => reports.filter((r) => r.includes('"surface":"voice-mode"'));
+
 /** One driver per derived site, keyed by the site's id. Each pushes the marker through that site and fails. */
 const DRIVERS: Record<string, () => Promise<void>> = {
   "apps/mobile/src/components/SessionControls.tsx#sendPrompt#sendKey": async () => {
@@ -129,6 +152,7 @@ const DRIVERS: Record<string, () => Promise<void>> = {
     await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).startsWith("/dictation"))).toBe(true));
   },
   "apps/mobile/src/pages/VoiceMode.tsx#useVoiceMode#VoiceMode": async () => {
+    const before = reports.length;
     const { result } = renderHook(() => useVoiceMode(SID));
     await act(async () => {
       await result.current.onRespondSend(`${MARKER} spoken reply`);
@@ -139,10 +163,22 @@ const DRIVERS: Record<string, () => Promise<void>> = {
     expect(result.current.error).toContain("owning director is not connected");
     await waitFor(() =>
       expect(
-        reports.map((r) => JSON.parse(r) as Record<string, unknown>).filter((r) => r.surface === "voice-mode"),
+        reports.slice(before).map((r) => JSON.parse(r) as Record<string, unknown>).filter((r) => r.surface === "voice-mode"),
       ).toEqual([expect.objectContaining({ action: "send prompt", http_status: 502, correlation_id: "corr-test-1", session_id: SID })]),
     );
     act(() =>result.current.onRespondSendAudio(capturedWithMarker() as never));
+  },
+  "apps/mobile/src/pages/VoiceMode.tsx#onRespondSend#onRespondText": async () => {
+    renderVoicePage();
+    const before = voiceReports().length;
+    fireEvent.click(await screen.findByRole("button", { name: "fake-dialog-send-text" }));
+    await waitFor(() => expect(voiceReports().length).toBeGreaterThan(before));
+  },
+  "apps/mobile/src/pages/VoiceMode.tsx#onRespondSendAudio#VoiceMode": async () => {
+    renderVoicePage();
+    const before = fetchMock.mock.calls.length;
+    fireEvent.click(await screen.findByRole("button", { name: "fake-dialog-send-audio" }));
+    await waitFor(() => expect(fetchMock.mock.calls.slice(before).some(([u]) => String(u).startsWith("/dictation"))).toBe(true));
   },
   "apps/mobile/src/routes.tsx#resumePendingDictations#GatedLayout": async () => {
     pending.set("pending-1", {
