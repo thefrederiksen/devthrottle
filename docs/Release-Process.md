@@ -7,12 +7,20 @@ workflow creates the release page, attaches every asset, and only then publishes
 
 ## How to Release a New Version
 
-1. **Write the release notes first** at `docs/public/release-notes/v<version>.md` and get them onto
-   `main`. This file IS the release page - it is published verbatim.
-2. Bump `<Version>` in `Directory.Build.props` (the single version source) and merge that to `main`.
-3. Create the tag `v<version>` on that merged commit and push it.
+The steps live in the `release-manager` skill (`.claude/skills/release-manager/SKILL.md`). In short:
 
-That is the whole procedure. The workflow then:
+1. **Freeze the candidate.** Write `docs/public/release-notes/v<version>.md` in a worktree cut from
+   origin/main and run `scripts/new-release.ps1`. It merges the version bump (in
+   `Directory.Build.props`, the single version source) and the notes in ONE pull request and
+   prints its merge commit: the candidate. The notes are never edited after that; work merged later
+   waits for the next release. Never merge the notes and the bump separately.
+2. **Gate the candidate once**, in a worktree detached at it:
+   `scripts\test-local.ps1 -Parked -Configuration Release`. A red candidate is not run again - fix
+   the cause on main and cut a new candidate.
+3. **Tag it:** `scripts/new-release.ps1 -Tag <candidate>`. It tags only a candidate that
+   `scripts/assert-gated.ps1` accepts.
+
+The workflow then:
 
 - verifies the tag matches `Directory.Build.props`, and that the written notes exist and say
   something;

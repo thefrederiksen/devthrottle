@@ -8,7 +8,6 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AssemblyName>cc-cleanup-storage</AssemblyName>
     <RootNamespace>CcCleanupStorage</RootNamespace>
-    <Version>1.0.0</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 

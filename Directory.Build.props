@@ -10,7 +10,8 @@
     self-identify as e.g. "0.6.3+1cc1abd...".
 
     Rules (see docs/architecture/VERSIONING.md):
-      - Bump ONLY here, via scripts/new-release.ps1 (it commits + tags vX.Y.Z).
+      - Bump ONLY here, via scripts/new-release.ps1 (it merges the bump with the
+        notes; its -Tag mode tags the candidate once the release gate passed).
       - No .csproj may declare its own <Version> (it would silently override
         this file).
       - UIs read the version from their assembly at runtime - never hardcode it.

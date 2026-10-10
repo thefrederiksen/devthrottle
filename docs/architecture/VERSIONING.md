@@ -61,42 +61,56 @@ release and its exact commit.
 
 ## How to cut a release
 
-**Two things to do. Write the notes, run the script.**
+**Three steps: freeze the candidate, gate it once, tag it.** The full run-book is the
+`release-manager` skill.
 
-1. **Write `docs/public/release-notes/vX.Y.Z.md`.** This file *is* the release
-   page - the workflow publishes it verbatim and **fails if it is missing or
-   under 200 non-whitespace characters**. It will not generate a substitute,
-   because a page of internal pull request titles looks like release notes and
-   therefore ships unread. Leave it uncommitted; the script commits it.
+1. **Write `docs/public/release-notes/vX.Y.Z.md`** in a worktree cut from
+   origin/main. This file *is* the release page - the workflow publishes it
+   verbatim and **fails if it is missing or under 200 non-whitespace
+   characters**. It will not generate a substitute, because a page of internal
+   pull request titles looks like release notes and therefore ships unread.
+   Leave it uncommitted; the script commits it.
 
-2. **Run `scripts/new-release.ps1` from `main`, with a clean tree.** It offers
-   the next patch version - press Enter to take it. That is the only decision.
+2. **Run `scripts/new-release.ps1` from that worktree.** It offers the next patch
+   version - press Enter to take it. It commits the bump WITH the notes, opens a
+   pull request, merges it, and prints the merge commit: **the candidate**. It
+   does not tag.
 
 ```
 Current version: 1.9.2
 New version [1.9.3]:          <- Enter
 ```
 
-Everything after that is automatic, and every step is checked before the next
-one runs.
+3. **Gate the candidate once, then tag it.** In a worktree detached at the
+   candidate, run `scripts	est-local.ps1 -Parked -Configuration Release`. When it
+   is green, the person releasing runs `scripts/new-release.ps1 -Tag <candidate>`.
 
 ### What the script does, and why in this order
 
-**main is protected by a ruleset requiring a pull request**, so the version bump
-cannot be pushed straight to it. The script therefore branches, opens a pull
-request, **merges it, and only then creates the tag** - after re-reading
-`Directory.Build.props` from the merged `main` to prove the bump actually landed.
+**The candidate is frozen.** The notes and the bump merge in one pull request,
+so the commit the gate runs on is the commit that is tagged, and the notes are
+never edited after it. When the notes and the bump merged separately, every notes
+edit was a new commit that voided any gate run already under way - v2.18.0's notes
+were rewritten four times. The script stops BEFORE merging if main moved since the
+worktree was cut, and after merging it checks the candidate's parent is that same
+base, so the candidate is exactly what the notes describe.
 
-That order is not a style preference. An earlier version of this script ran
+**main is protected by a ruleset requiring a pull request**, so the version bump
+cannot be pushed straight to it. An earlier version of this script ran
 `git push origin main` then `git push origin <tag>`: the branch push is rejected
 by the ruleset and the tag push succeeds, so the tag ends up pointing at a commit
-that is not on `main` - a released version whose bump and notes are missing from
-the branch everyone works from. It happened on **v1.9.2** and was repaired by
-hand. **A tag can never be un-pushed, so it is created last.**
+that is not on `main`. It happened on **v1.9.2** and was repaired by hand.
 
-It also refuses to start if: the notes are missing or too short, the tag already
-exists locally or on the remote, a `.csproj` declares its own `<Version>`, the
-tree has unrelated changes, you are not on `main`, or `main` is behind the remote.
+**A tag can never be un-pushed, so it is created last, and only for a gated
+candidate.** The `-Tag` step refuses unless the candidate is on origin/main, its
+notes are in it, and `scripts/assert-gated.ps1` accepts it - a commit with no green
+`-Parked` run recorded against it is refused. The release workflow runs no tests,
+so this is the only thing between an ungated commit and the users.
+
+Step 1 also refuses to start if: the notes are missing or too short, the tag
+already exists locally or on the remote, a `.csproj` declares its own
+`<Version>`, the tree has unrelated changes, or the checkout is not exactly
+origin/main.
 
 ### What happens after the tag
 

@@ -278,23 +278,22 @@ alternative is those proofs reporting SKIPPED, which is indistinguishable from a
 produce - a dead shared container did exactly that to the v2.1.2 release gate. The DEFAULT run starts no
 database and needs no Docker.
 
-**Corrected 2026-08-04, on evidence, by the remove-the-network-port mission.** This section used to
-say the gate was THREE commands, because the two installer projects were not in `cc-director.sln`
-and the script "runs nine projects, all under `src\`". That is no longer true of the script: it
-names `tools\cc-director-setup.Tests` and `tools\cc-director-setup-engine.Tests` in its own project
-list, its default run reports both (25 and 454 tests), and a `-Parked` run produces ELEVEN result
-files. Verified twice - a Manager's eleven result files, and the Architect reading the project list
-in `scripts\test-local.ps1` - rather than taken from either report. The two extra `dotnet test`
-commands were re-running suites the gate had already run. **If you are about to release, run the one
-command; the installer IS covered.**
+**The installer IS covered.** This section once said the gate was THREE commands, with the installer
+suites run by hand. The script names all three installer suites in its own project list -
+`tools\cc-director-setup.Tests`, `tools\cc-director-setup-engine.Tests` and
+`tools\cc-director-setup-cli.Tests` - so extra `dotnet test` commands only re-run suites the gate
+already ran. Read the project list in `scripts\test-local.ps1` rather than a count written here.
+**If you are about to release, run the one command.**
 
 **The frozen candidate.** The version bump and the release notes merge in ONE pull request, and its
 merge commit is the candidate. The notes are never edited after that merge. The gate runs once on
 the candidate, `scripts\assert-gated.ps1 <candidate>` must accept it, and the tag goes on the
 candidate even when main has moved on. Work merged after the candidate waits for the next release.
-A red from a flaky test means fix the test on main and rerun the gate on the same candidate; a red
-from a product defect means fix forward, and the fix's merge commit is the new candidate. The
-`release-manager` skill holds the steps. **Why:** v2.18.0's notes were rewritten four times, because
+A red candidate is not released and is not run again - the gate runs in a worktree detached at the
+candidate, so a fix made on main never reaches it, and a second run is a retry. Fix the cause on main
+(a flaky test is a defect in the test) and cut a new candidate. `scripts\new-release.ps1` freezes
+the candidate, and `scripts\new-release.ps1 -Tag <candidate>` tags it only once `assert-gated.ps1`
+accepts it. The `release-manager` skill holds the steps. **Why:** v2.18.0's notes were rewritten four times, because
 every notes edit was a new commit that voided the gate run under way, and every merge widened what
 the notes had to cover - a gate that takes hours cannot win that race.
 
