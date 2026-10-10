@@ -23,6 +23,8 @@
 //   alert     A role="alert" element whose content is NOT state set in the same file - a prop, a hook's field,
 //             or fixed text. The scan cannot follow the value to where it was made, so the element must name
 //             the function that reports it (see the markers below), and the scan checks that function reports.
+//   terminal  Text written into a terminal that names a failure: `this.statusLine("cannot open stream: ...")`,
+//             `term.write("[stream closed: ...]")`. PTY bytes and progress lines ("connecting...") are not sites.
 //
 // WHAT COUNTS AS REPORTED:
 //
@@ -50,7 +52,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
-export type ErrorDisplaySiteKind = "setter" | "catch" | "callback" | "alert";
+export type ErrorDisplaySiteKind = "setter" | "catch" | "callback" | "alert" | "terminal";
 
 export interface ErrorDisplaySite {
   /** Repository-relative path, forward slashes. */
@@ -227,6 +229,17 @@ export function scanSource(
     }
   }
 
+  // Text written into a terminal that names a failure (the 3c review, finding 2).
+  for (const m of src.matchAll(/(?<![\w$])(statusLine|write)\s*\(/g)) {
+    if (m[1] === "write" && src[m.index! - 1] !== ".") continue;
+    if (isDeclaration(src, m.index!)) continue;
+    const open = m.index! + m[0].length - 1;
+    const close = matchingClose(src, open);
+    if (close < 0) continue;
+    const value = src.slice(open + 1, close);
+    if (namesAFailure(value, src)) addCall(m.index!, "terminal", m[1], value);
+  }
+
   // Any setter inside a catch that shows the caught error.
   for (const c of catchBodies(src)) {
     const body = src.slice(c.start, c.end);
@@ -313,6 +326,20 @@ export function scanSource(
 }
 
 // ---- the rules' pieces ----------------------------------------------------------------------------------
+
+/** Words that make a line of terminal text a failure rather than progress. */
+const FAILURE_WORDS = /\b(?:cannot|can't|could not|failed|failure|error|lost|down|closed|refused|unreachable|offline|denied)\b/i;
+
+/** Whether a terminal write names a failure: its literal text says so, it shows a caught error's message, or a
+ *  variable it writes was built from such text (`const shown = "cannot open stream: " + ...; statusLine(shown)`). */
+function namesAFailure(value: string, src: string): boolean {
+  const literals = [...value.matchAll(/"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`/g)].map((l) => l[1] ?? l[2] ?? l[3]);
+  if (literals.some((l) => FAILURE_WORDS.test(l)) || /\.message\b/.test(value)) return true;
+  return [...value.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)(?![\w$]*\s*\()/g)].some(([, name]) => {
+    const made = new RegExp(`(?:const|let|var)\\s+${escape(name)}\\s*(?::[^=]+)?=\\s*([^;]*)`).exec(src);
+    return made !== null && namesAFailure(made[1], "");
+  });
+}
 
 /** A setter that holds an error by its name. */
 const ERROR_SETTER = /^set[\w$]*(?:Error|Err|Failure|Problem|Refusal)[\w$]*$/;

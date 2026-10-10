@@ -119,7 +119,9 @@ const hoisted = vi.hoisted(() => {
   }
   const terminals: FakeTerminal[] = [];
   const reportClientError = vi.fn();
-  return { FakeTerminal, terminals, sendPrompt, ensureGatewayCookie, reportClientError };
+  const reportShownError = vi.fn((_s: string, _a: string, message: string, _c?: unknown, _e?: unknown) => message);
+  const backgroundRecovered = vi.fn();
+  return { FakeTerminal, terminals, sendPrompt, ensureGatewayCookie, reportClientError, reportShownError, backgroundRecovered };
 });
 
 const sendPrompt = hoisted.sendPrompt;
@@ -131,6 +133,8 @@ vi.mock("@xterm/xterm", () => ({ Terminal: hoisted.FakeTerminal }));
 vi.mock("../errors/reportClientError", () => ({
   reportClientError: (report: unknown) => hoisted.reportClientError(report),
   errorFacts: (err: unknown) => ({ exception_type: err instanceof Error ? err.name : typeof err }),
+  reportShownError: (s: string, a: string, m: string, c?: unknown, e?: unknown) => hoisted.reportShownError(s, a, m, c, e),
+  backgroundRecovered: (s: string, a: string) => hoisted.backgroundRecovered(s, a),
 }));
 vi.mock("../api/client", () => ({
   sendPrompt: (sid: string, text: string, appendEnter: boolean) => hoisted.sendPrompt(sid, text, appendEnter),
@@ -214,6 +218,8 @@ beforeEach(() => {
   rafSeq = 0;
   sendPrompt.mockReset();
   hoisted.reportClientError.mockReset();
+  hoisted.reportShownError.mockClear();
+  hoisted.backgroundRecovered.mockClear();
   sendPrompt.mockImplementation((_sid: string, _text: string, _appendEnter: boolean) => Promise.resolve());
   ensureGatewayCookie.mockClear();
   windowOpen.mockReset();
@@ -686,5 +692,44 @@ describe("InteractiveTerminal dropped keystrokes (the Error Logging mission, iss
     await vi.runAllTimersAsync();
 
     expect(hoisted.reportClientError).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("InteractiveTerminal stream failures (the Error Logging mission, issue #3675, 3c review finding 2)", () => {
+  it("reports a lost stream as a background report with an unchanging sentence, and forgets it when the stream is live", () => {
+    startTerminal();
+    const term = hoisted.terminals[0];
+
+    reconnectOnce();
+    reconnectOnce();
+    reconnectOnce();
+
+    // Every attempt passes the SAME sentence as a background report: the reporter sends it once per outage.
+    const lost = hoisted.reportShownError.mock.calls.filter(([, action]) => action === "reconnect the terminal stream");
+    expect(lost).toHaveLength(3);
+    expect(new Set(lost.map(([, , message]) => message)).size).toBe(1);
+    expect(lost[0][3]).toEqual({ sessionId: SID, background: true });
+    // The attempt count is still on screen, on its own line.
+    expect(lastStatus(term)).toContain("attempt 4");
+
+    // A live byte ends the outage: all three stream actions are forgotten, so the next outage reports again.
+    FakeWebSocket.instances[FakeWebSocket.instances.length - 1].emitBinary(new Uint8Array([0x68]));
+    expect(hoisted.backgroundRecovered.mock.calls.map(([, action]) => action).sort()).toEqual([
+      "keep the terminal stream open",
+      "open the terminal stream",
+      "reconnect the terminal stream",
+    ]);
+  });
+
+  it("reports the drop to the slow probe once, as the terminal stream being down", () => {
+    startTerminal();
+    for (let i = 0; i < 33; i++) {
+      FakeWebSocket.instances[FakeWebSocket.instances.length - 1].triggerClose();
+      vi.advanceTimersByTime(15000);
+    }
+
+    const down = hoisted.reportShownError.mock.calls.filter(([, action]) => action === "keep the terminal stream open");
+    expect(down).toHaveLength(1);
+    expect(down[0][2]).toContain("is down after");
   });
 });

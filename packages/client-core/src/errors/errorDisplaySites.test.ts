@@ -386,3 +386,36 @@ describe("presentational alert components are followed to their callers (the ste
     expect(alertComponents([bar]).has("AppBar")).toBe(false);
   });
 });
+
+describe("text written into a terminal (the 3c review, finding 2)", () => {
+  it("scanSource_StatusLineNamingAFailure_IsAFailingSite", () => {
+    const sites = bad(`this.statusLine("cannot open stream: " + (err instanceof Error ? err.message : String(err)));`);
+
+    expect(sites).toHaveLength(1);
+    expect(sites[0]).toMatchObject({ kind: "terminal", name: "statusLine" });
+  });
+
+  it("scanSource_TermWriteNamingAFailure_IsAFailingSite", () => {
+    expect(bad(`term.write("[cannot open stream: " + err.message + "]");`)).toHaveLength(1);
+  });
+
+  it("scanSource_FailureTextBuiltInAVariable_IsStillASite", () => {
+    expect(bad(`const shown = "stream is down after 30 attempts";\nthis.statusLine(shown);`)).toHaveLength(1);
+  });
+
+  it("scanSource_ReportedTerminalLine_IsReported", () => {
+    const src = `this.statusLine(reportShownError("terminal", "open the terminal stream", "cannot open stream", ctx, err));`;
+
+    expect(scan(src, new Set(["describeAndReport", "reportShownError"]))[0].reported).toBe(true);
+  });
+
+  it("scanSource_ProgressLinesAndPtyBytes_AreNotSites", () => {
+    const src = [
+      `this.statusLine("connecting via gateway " + wsHost + "...");`,
+      `this.statusLine("attempt " + (this.attempts + 1) + "...");`,
+      `t.write(new Uint8Array(ev.data as ArrayBuffer));`,
+    ].join("\n");
+
+    expect(scan(src)).toEqual([]);
+  });
+});
