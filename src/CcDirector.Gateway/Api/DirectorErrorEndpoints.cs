@@ -629,7 +629,7 @@ internal static class DirectorErrorEndpoints
             ? credential as string ?? ""
             : "";
 
-    private static async Task<byte[]?> ReadCappedAsync(Stream body, int max, CancellationToken ct)
+    internal static async Task<byte[]?> ReadCappedAsync(Stream body, int max, CancellationToken ct)
     {
         using var buffer = new MemoryStream();
         var chunk = new byte[8192];

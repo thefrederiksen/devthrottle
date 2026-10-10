@@ -178,6 +178,49 @@ public sealed class AuthMiddlewareTests
         Assert.NotEqual(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
     }
 
+    // Issue #3675 (review of #3769): the website's error intake and the minting of its token are called by the
+    // website's SERVER, which holds no device key - the intake presents the website error token, the mint the
+    // administrator service token, and each route checks its own. If the PublicPaths lines were dropped, the device
+    // gate would 401 every website report before its own gate ran, and the only sign would be the website's unsent
+    // count. This pins both through the REAL middleware, with a sibling path as the control that the gate is live.
+    [Theory]
+    [InlineData(CcDirector.Gateway.Api.WebsiteErrorEndpoints.Path)]
+    [InlineData(CcDirector.Gateway.Api.WebsiteErrorEndpoints.TokenPath)]
+    public async Task Website_error_routes_pass_the_device_gate_to_their_own_gate(string path)
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = path;
+        ctx.Request.Method = "POST";
+        ctx.Request.Headers["Authorization"] = "Bearer dtwe_not-a-device-key-or-the-shared-token";
+
+        var passedThrough = false;
+        await AuthMiddleware.Run(
+            ctx,
+            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            () => { passedThrough = true; return Task.CompletedTask; });
+
+        Assert.True(passedThrough, $"{path} must reach its own token check; the device gate must not answer for it");
+        Assert.NotEqual(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_path_beside_the_website_error_routes_is_still_refused_by_the_device_gate()
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Path = CcDirector.Gateway.Api.WebsiteErrorEndpoints.Path + "-other";
+        ctx.Request.Method = "POST";
+        ctx.Request.Headers["Authorization"] = "Bearer dtwe_not-a-device-key-or-the-shared-token";
+
+        var passedThrough = false;
+        await AuthMiddleware.Run(
+            ctx,
+            new AuthMiddleware.RequireToken { Token = SharedToken, Devices = TempRegistry() },
+            () => { passedThrough = true; return Task.CompletedTask; });
+
+        Assert.False(passedThrough);
+        Assert.Equal(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
+    }
+
     // Hosted Multi-Tenancy increment 2a: the hosted enrollment endpoint is the BOOTSTRAP - a remote Director
     // has NO gateway token/device key yet; it presents its ACCOUNT (Supabase ES256) token to OBTAIN one, and
     // the handler validates that token itself. So the host-wide device-key/gateway-token gate must EXEMPT the

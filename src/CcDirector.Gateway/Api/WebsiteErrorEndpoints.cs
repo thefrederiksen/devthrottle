@@ -24,7 +24,9 @@ namespace CcDirector.Gateway.Api;
 /// the website cannot file through <c>/gateway/director-errors</c> as them. Its server files on their behalf and
 /// names them by <c>account_subject</c> - the sign-in's user id, which the website's server has VERIFIED, never one a
 /// browser asserted. The token that may do this can do nothing else, so the worst a leaked one can do is write
-/// website error rows. The subject is looked up, never minted: a person with no Gateway account yet has the report
+/// website error rows - under ANY existing account, because the token holder names the subject, and that account's
+/// owner would see them in their own read; bounded by <see cref="MaxReportsPerHour"/>, and rotated by minting again.
+/// The subject is looked up, never minted: a person with no Gateway account yet has the report
 /// filed under no account, the way an installer's is, and the administrator read still sees it.
 ///
 /// Every report is checked, capped and scrubbed by exactly the rules a Director's is
@@ -74,15 +76,14 @@ internal static class WebsiteErrorEndpoints
 
                 if (ctx.Request.ContentLength is > MaxBodyBytes)
                     return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
-                using var buffer = new MemoryStream();
-                await ctx.Request.Body.CopyToAsync(buffer, ctx.RequestAborted).ConfigureAwait(false);
-                if (buffer.Length > MaxBodyBytes)
+                var raw = await DirectorErrorEndpoints.ReadCappedAsync(ctx.Request.Body, MaxBodyBytes, ctx.RequestAborted).ConfigureAwait(false);
+                if (raw is null)
                     return Results.StatusCode(StatusCodes.Status413PayloadTooLarge);
 
                 WebsiteErrorBatch? batch;
                 try
                 {
-                    batch = JsonSerializer.Deserialize<WebsiteErrorBatch>(buffer.ToArray());
+                    batch = JsonSerializer.Deserialize<WebsiteErrorBatch>(raw);
                 }
                 catch (JsonException)
                 {
