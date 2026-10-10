@@ -3748,9 +3748,22 @@ public sealed class Session : IDisposable
     /// The one exception is a WORKING agent whose composer no longer shows the text (review finding 3): that send is still
     /// delivering, never failed, and its records go on being watched after it returns.
     /// </summary>
-    private async Task<TextSendOutcome> ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped)
+    /// <summary>
+    /// The short name a wait line gives a prompt: its first 60 characters, newlines made spaces, "..." when cut. It is the
+    /// prompt's own words, and a prompt holding an upper-case ERROR or FAILED makes the wait lines that quote it error
+    /// lines - so it is withheld in the send's error context, as the prompt itself is (issue #3675). Kept to that context:
+    /// a process-wide entry would blank ordinary words in unrelated reports.
+    /// </summary>
+    private static string PromptLabel(string typed)
     {
         var label = typed.Length > 60 ? typed[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : typed;
+        ErrorReports.ErrorContext.WithholdPrompt(label);
+        return label;
+    }
+
+    private async Task<TextSendOutcome> ConfirmArrivalAsync(ArrivalProof proof, string typed, Func<Task<string>> resend, Func<bool> ownerTyped)
+    {
+        var label = PromptLabel(typed);
         var current = typed;
         bool Arrived() => ArrivedIn(proof, current);
         var bytesAtEnter = _backend.Buffer?.TotalBytesWritten;
@@ -3864,6 +3877,12 @@ public sealed class Session : IDisposable
     /// </summary>
     private async Task<LateWatchEnd> WatchLateArrivalAsync(ArrivalProof? proof, string typed, string label, TimeSpan limit)
     {
+        // THE WATCH OUTLIVES THE SEND (the Error Logging mission, issue #3675): it runs on after SubmitTextAsync's scope and
+        // the prompt verb's are disposed, and a disposed scope stamps nothing. Opened here, before the first await, it nests
+        // under the send's still-open scope: its rows carry the send's correlation and session id, and its wait lines are
+        // checked against the chain that withholds the prompt and its label.
+        using var errorContext = ErrorReports.ErrorContext.Begin(
+            correlationId: ErrorReports.ErrorContext.Current?.CorrelationId, sessionId: Id.ToString());
         var notice = new Drivers.SendWaitNotice("Session",
             proof is null
                 ? $"the limit on '{label}' (session {Id}; the send already answered still delivering, and there are no records to watch)"
@@ -4119,7 +4138,7 @@ public sealed class Session : IDisposable
         // NO RECORDS TO WATCH (round 2c, case 1): the same late watch, with nothing to read, so the delivery stays
         // "delivering" until the same limit and then is not delivered - never delivering forever, never failed early.
         var lateLimit = LateArrivalLimitForTests ?? LateArrivalLimit;
-        var label = typed.Length > 60 ? typed[..60].Replace('\n', ' ').Replace('\r', ' ') + "..." : typed;
+        var label = PromptLabel(typed);
         FileLog.Write($"[Session] ConfirmLeftComposer: session={Id}: STILL DELIVERING - {reason}. Nothing is cleared or typed again; " +
                       $"with no records to watch, it stays delivering for up to {lateLimit.TotalMinutes:F1} minutes.");
         return TextSendOutcome.StillDelivering(reason, WatchLateArrivalAsync(null, typed, label, lateLimit), lateLimit);

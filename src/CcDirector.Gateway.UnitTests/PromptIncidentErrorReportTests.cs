@@ -392,4 +392,43 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         // ...and every row of it, the wait line among them, is one incident.
         Assert.All(rows, r => Assert.Equal("cmd-marker", r.CorrelationId));
     }
+
+    [Theory]
+    [InlineData("long", "fix the ERROR " + Marker + " in the build and then run the whole test suite again before you report")]
+    [InlineData("short", "fix the ERROR " + Marker + " in the build now")]
+    public async Task ASendStillDelivering_TheLateWatchsWaitLinesNeverCarryThePromptsWords_AndCarryTheCommandId(string shape, string text)
+    {
+        // A working Codex whose composer is hidden under a menu after the Enter: the send answers "still delivering" and
+        // the session's own late records watch runs on after every scope of the send is disposed, writing WAITING after 5
+        // seconds and WAIT ENDED at its limit - each quoting the prompt's first 60 characters. With an upper-case ERROR in
+        // them, both are error lines. "long" quotes a cut label, "short" the whole prompt.
+        var dir = Path.Combine(_dir, "codex-" + shape);
+        Directory.CreateDirectory(dir);
+        var transcript = Path.Combine(dir, Guid.NewGuid() + ".jsonl");
+        File.WriteAllText(transcript, "");
+        var terminal = new ScriptedAgentTerminal(AgentKind.Codex, transcript, dir) { Working = true, SwallowEnter = true, MenuAfterEnter = true };
+        var session = new Session(Guid.NewGuid(), dir, dir, null, terminal, SessionBackendType.ConPty) { AgentKind = AgentKind.Codex };
+        _cleanup.Add(terminal);
+        _cleanup.Add(session);
+        terminal.StartDrawing();
+        session.ApplyTerminalActivityState(ActivityState.Working);
+        session.ComposerReleaseWindowForTests = TimeSpan.FromSeconds(1);
+        session.LateArrivalLimitForTests = TimeSpan.FromSeconds(7);
+        _watchedSessionId = session.Id.ToString();
+
+        var late = await LateOutcomeFor("upload-watch-" + shape, () => PromptCommand(session, "cmd-watch", Prompt(text, "upload-watch-" + shape)));
+
+        Assert.Equal(DeliveryStates.Unconfirmed, late);
+        var rows = await SentAsync();
+        Console.WriteLine($"rows reported for the still-delivering send ({shape}): {rows.Count} ({string.Join(" | ", rows.Select(r => r.Message))})");
+        // The wait lines are error lines and are reported - the route this test closes is live...
+        Assert.Contains(rows, r => r.Message!.StartsWith("WAIT ENDED", StringComparison.Ordinal));
+        // ...none carries the prompt's words, in any field, and every row is this send's.
+        Assert.All(_handler.Bodies, body => Assert.DoesNotContain(Marker, body));
+        Assert.All(rows, r =>
+        {
+            Assert.Equal("cmd-watch", r.CorrelationId);
+            Assert.Equal(session.Id.ToString(), r.SessionId);
+        });
+    }
 }
