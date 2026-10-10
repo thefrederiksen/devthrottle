@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    THE DRIVER for scripts/prove-error-reporting.ps1 - the Error Logging mission's end-to-end proof
+    (issue #3675). It triggers errors through the real reporting classes (ErrorReporter, the installer's
+    InstallFailureReporter) and reads the store back on the administrator token.
+
+    It is a console project on purpose and it is NOT in cc-director.sln and NOT in the project list
+    scripts/test-local.ps1 runs. A proof that writes rows into a live Gateway's store is not a unit test,
+    and a test that skips itself when no Gateway is reachable would put a check that cannot fail into the
+    gate - which reads exactly like coverage and is not.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>prove-error-reporting</AssemblyName>
+    <RootNamespace>CcDirector.Proof.ErrorReporting</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CcDirector.Core\CcDirector.Core.csproj" />
+    <ProjectReference Include="..\..\tools\cc-director-setup-engine\CcDirector.Setup.Engine.csproj" />
+  </ItemGroup>
+
+</Project>
