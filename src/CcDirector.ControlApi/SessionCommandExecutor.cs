@@ -488,7 +488,7 @@ internal static class SessionCommandExecutor
                 FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: the send is still going after " +
                               $"{budget.TotalSeconds:F0}s - answering '{DeliveryStates.Delivering}' inside the Gateway's wait; the send carries on " +
                               "and its outcome is logged when it ends");
-                _ = RecordLateOutcomeAsync(session.Id, sending, request.DeliveryId, deliveries);
+                _ = RecordLateOutcomeAsync(session.Id, sending, request.DeliveryId, deliveries, ErrorContext.Current?.CorrelationId);
                 return DirectorCommandResult.Success(Serialize(new PromptResponse
                 {
                     Accepted = true,
@@ -515,7 +515,7 @@ internal static class SessionCommandExecutor
                 // would type again. The late outcome is written when the records answer.
                 FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: session={session.Id}: answering '{DeliveryStates.Delivering}' " +
                               $"- {outcome.Reason}");
-                _ = RecordLateOutcomeAsync(session.Id, sending, request.DeliveryId, deliveries);
+                _ = RecordLateOutcomeAsync(session.Id, sending, request.DeliveryId, deliveries, ErrorContext.Current?.CorrelationId);
                 return DirectorCommandResult.Success(Serialize(new PromptResponse
                 {
                     Accepted = true,
@@ -633,8 +633,13 @@ internal static class SessionCommandExecutor
     /// resends. A prompt with no delivery id has no record entry; its late outcome is logged. Nobody awaits this task - the
     /// verb has answered - so it is an entry point: anything it does not expect is logged as FAILED, never thrown unseen.
     /// </summary>
-    private static async Task RecordLateOutcomeAsync(Guid sessionId, Task<TextSendOutcome> sending, string? deliveryId, DeliveryRecord? deliveries)
+    ///
+    /// The verb's error context is disposed when the verb answers, and a scope disposed under a running task stamps
+    /// nothing, so the caller reads <paramref name="correlationId"/> while its scope is open and this task opens its own:
+    /// every row it writes, and the delivery record's final line, carry the send's id (issue #3675).
+    private static async Task RecordLateOutcomeAsync(Guid sessionId, Task<TextSendOutcome> sending, string? deliveryId, DeliveryRecord? deliveries, string? correlationId)
     {
+        using var errorContext = ErrorContext.Begin(correlationId: correlationId, sessionId: sessionId.ToString());
         try
         {
             await RecordLateOutcomeCoreAsync(sessionId, sending, deliveryId, deliveries);
@@ -1574,25 +1579,36 @@ internal static class SessionCommandExecutor
         var seedText = req.PrePrompt;
         if (!string.IsNullOrWhiteSpace(seedText))
         {
-            var prePrompt = seedText;
-            var waitMs = Math.Max(1000, req.PrePromptWaitMs);
-            var capturedSession = session;
-            _ = Task.Run(async () =>
-            {
-                // The create command's context flows in; this names the session it made (issue #3675).
-                using var errorContext = ErrorContext.Begin(sessionId: capturedSession.Id.ToString());
-                try
-                {
-                    await capturedSession.DeliverPrePromptAsync(prePrompt, TimeSpan.FromMilliseconds(waitMs));
-                }
-                catch (Exception ex)
-                {
-                    FileLog.Write($"[SessionCommandExecutor] PrePrompt FAILED: {ex.Message}");
-                }
-            });
+            _ = StartPrePrompt(session, seedText, TimeSpan.FromMilliseconds(Math.Max(1000, req.PrePromptWaitMs)));
         }
 
         return DirectorCommandResult.Success(Serialize(ControlEndpoints.Map(session, directorId)));
+    }
+
+    /// <summary>
+    /// Types a new session's first prompt on its own task, after the create verb has answered. Nobody awaits it, so it is
+    /// an entry point: a failure is logged as FAILED. The command's correlation id is read HERE, on the command's own
+    /// flow: the command's scope is disposed when the verb returns, which can be before the task runs, and a disposed
+    /// scope stamps nothing - so every row the first prompt's failure writes carries the command's id and the new
+    /// session's id whichever runs first (issue #3675). <paramref name="notBefore"/> holds the task back until it
+    /// completes; null in the Director, a test uses it to run the task after the command's scope is gone.
+    /// </summary>
+    internal static Task StartPrePrompt(Session session, string prePrompt, TimeSpan wait, Task? notBefore = null)
+    {
+        var correlationId = ErrorContext.Current?.CorrelationId;
+        return Task.Run(async () =>
+        {
+            if (notBefore is not null) await notBefore;
+            using var errorContext = ErrorContext.Begin(correlationId: correlationId, sessionId: session.Id.ToString());
+            try
+            {
+                await session.DeliverPrePromptAsync(prePrompt, wait);
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[SessionCommandExecutor] PrePrompt FAILED: session={session.Id}: {ex.Message}");
+            }
+        });
     }
 
     /// <summary>

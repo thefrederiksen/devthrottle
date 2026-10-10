@@ -174,11 +174,14 @@ public static class PromptDeliveryFailures
             action: SendPromptAction,
             userVisible: true);
         // The FAILED line is an error line, so it is REPORTED to the Gateway: it carries the session, the source, the
-        // length and the previous send, never the reason. The reason is a refusal's message, and a real one holds the
-        // prompt's first characters, the composer's text and the terminal's tail - no prompt words in a report. The
-        // reason is still written WHOLE, on the next line, which is not an error line (quoted, no marker in its head)
-        // and so stays in this machine's log, where the Prompt Delivery mission wanted it.
-        FileLog.Write($"[PromptDeliveryFailures] FAILED DELIVERY: session={sessionId}, source={source}, len={textLength}, {PreviousSend.Describe(sessionId)}");
+        // length and how the send before this one ended, never the reason. The reason is a refusal's message, and a
+        // real one holds the prompt's first characters, the composer's text and the terminal's tail - no prompt words
+        // in a report. The reason is still written WHOLE, on the next line, which is not an error line (quoted, no
+        // marker in its head) and so stays in this machine's log, where the Prompt Delivery mission wanted it. The
+        // previous send is read only when the send opened a PreviousSend scope: outside one, nothing is read.
+        var previousSend = PreviousSend.Describe(sessionId);
+        FileLog.Write($"[PromptDeliveryFailures] FAILED DELIVERY: session={sessionId}, source={source}, len={textLength}" +
+                      (previousSend is null ? "" : ", " + previousSend));
         FileLog.Write($"[PromptDeliveryFailures] why that delivery to session {sessionId} did not go, kept in this log only: \"{reason}\"");
     }
 

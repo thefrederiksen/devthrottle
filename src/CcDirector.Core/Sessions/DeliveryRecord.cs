@@ -237,6 +237,13 @@ public sealed class DeliveryRecord
     public DeliveryRecordEntry? LatestOtherThan(Guid sessionId, string? exceptDeliveryId)
     {
         FileLog.Write($"[DeliveryRecord] LatestOtherThan: session={sessionId}, except={exceptDeliveryId ?? "(none)"}");
+        // A session that never had a recorded send has no file, and so no previous send: answered without taking the
+        // lock, which would create the folder and a lock file for a session the record has never seen.
+        if (!File.Exists(FileFor(sessionId)))
+        {
+            FileLog.Write($"[DeliveryRecord] LatestOtherThan: session={sessionId}: no record file, no previous send");
+            return null;
+        }
         return UnderSessionLock<DeliveryRecordEntry?>(sessionId, "a read of the previous send", () =>
         {
             var entries = ReadEntries(sessionId);

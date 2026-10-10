@@ -15,9 +15,11 @@ namespace CcDirector.Core.Sessions;
 /// how each send ended - never from a second record. Every word here is written by our own code; nothing a person or a
 /// model wrote is ever part of it.
 ///
-/// The prompt verb opens a <see cref="Begin"/> scope naming its record and its own delivery id, so the current send is
-/// never taken for the previous one. A refusal outside any scope (a send typed on the desktop) reads the Director's
-/// shared record, where such a send has no line of its own.
+/// The answer is given only inside a <see cref="Begin"/> scope: the send that knows its record opens one. The prompt verb
+/// names its record and its own delivery id, so the current send is never taken for the previous one; the desktop's own
+/// send names the Director's shared record and no delivery id, since such a send has no line of its own. A refusal
+/// outside any scope - a framework send, or a test of the failure ledger - answers nothing and touches no disk: the
+/// recorder counts and logs, and never opens a record from inside a failure it did not ask for.
 /// </summary>
 public static class PreviousSend
 {
@@ -68,24 +70,29 @@ public static class PreviousSend
 
     /// <summary>
     /// <c>previous_send=&lt;word&gt;</c>, and <c>, previous_correlation_id=&lt;id&gt;</c> when the previous send was recorded
-    /// with one, for a refusal of a send to <paramref name="sessionId"/>. Never throws: it is written from inside a
-    /// failure, and an exception here would replace the failure being recorded. A record that cannot be read says so.
+    /// with one, for a refusal of a send to <paramref name="sessionId"/>; null when no <see cref="Begin"/> scope for that
+    /// session is open, and then nothing is read. Never throws: it is written from inside a failure, and an exception here
+    /// would replace the failure being recorded. A record that cannot be read or reached says so in the answer.
     /// </summary>
-    public static string Describe(Guid sessionId)
+    public static string? Describe(Guid sessionId)
     {
         var scope = CurrentScope.Value;
-        var inScope = scope is not null && scope.SessionId == sessionId;
-        var record = inScope ? scope!.Record : DeliveryRecord.Shared;
-        var except = inScope ? scope!.DeliveryId : null;
+        if (scope is null || scope.SessionId != sessionId) return null;
         DeliveryRecordEntry? previous;
         try
         {
-            previous = record.LatestOtherThan(sessionId, except);
+            previous = scope.Record.LatestOtherThan(sessionId, scope.DeliveryId);
         }
         catch (DeliveryRecordUnreadableException ex)
         {
             FileLog.Write($"[PreviousSend] Describe: session={sessionId}: the delivery record cannot be read: {ex.FilePath}");
             return "previous_send=unknown (the delivery record cannot be read)";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Reaching the record's folder or its lock file failed (a path that is a file, a permission, a full disk).
+            FileLog.Write($"[PreviousSend] Describe: session={sessionId}: the delivery record cannot be reached: {ex.Message}");
+            return "previous_send=unknown (the delivery record cannot be reached)";
         }
         if (previous is null) return $"previous_send={None}";
         DeliveryStates.TryParse(previous.State, out var state);
