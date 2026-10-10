@@ -247,6 +247,17 @@ export interface FactorySeatRow {
   lastRunTone: FactoryTone;
   computerText: string;
   talk: FactoryTalkTarget;
+  /** Each of the seat's schedules that exists, with its words and the button that edits it. */
+  schedules: FactorySeatSchedule[];
+}
+
+/** One schedule of a seat on the Seats tab (the owner, 2026-10-09: a factory's schedules are edited in the factory). */
+export interface FactorySeatSchedule {
+  jobId: string;
+  /** "Daily 06:15". */
+  whenText: string;
+  /** "Edit schedule". */
+  editLabel: string;
 }
 
 export interface FactorySeatsView {

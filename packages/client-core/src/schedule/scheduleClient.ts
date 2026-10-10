@@ -179,6 +179,17 @@ export async function getCronJobs(signal?: AbortSignal): Promise<CronJob[]> {
   return body.jobs ?? [];
 }
 
+// GET /cron/jobs/{id} -> CronJobDto: one schedule of any kind, for the editor a factory's Seats tab opens.
+export async function getCronJob(id: string, signal?: AbortSignal): Promise<CronJob> {
+  const res = await fetch(`/cron/jobs/${encodeURIComponent(id)}`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) throw await gatewayErrorFrom(res, `GET /cron/jobs/${id}`);
+  return (await res.json()) as CronJob;
+}
+
 // GET /cron/load -> CronLoadDto: each machine's next 24 hours, for the load strip.
 export async function getCronLoad(signal?: AbortSignal): Promise<CronLoad> {
   const res = await fetch("/cron/load", {

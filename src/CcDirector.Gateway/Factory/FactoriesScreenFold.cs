@@ -384,6 +384,17 @@ public static class FactoriesScreenFold
             LastRunText = lastText,
             LastRunTone = lastTone,
             ComputerText = seat.Computer,
+            // In the seat's own order, one per schedule that exists (the owner, 2026-10-09: edited in the factory).
+            Schedules = seat.Schedules
+                .Select(id => schedules.FirstOrDefault(j => j.Id == id))
+                .Where(job => job is not null)
+                .Select(job => new FactorySeatScheduleDto
+                {
+                    JobId = job!.Id,
+                    WhenText = FactoryScheduleText.Describe(job, a.Zone),
+                    EditLabel = "Edit schedule",
+                })
+                .ToList(),
             Talk = new FactoryTalkDto
             {
                 Label = "Talk",

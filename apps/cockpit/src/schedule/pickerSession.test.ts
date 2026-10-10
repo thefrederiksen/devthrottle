@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
 import { dotColor } from "@devthrottle/client-core/sessions/ordering";
-import { needsYouCount, pickerSession } from "./ScheduleView";
+import { needsYouCount, pickerSession } from "./ScheduleEditor";
 
 // Defect 9: the schedule page's Director picker ran an entire parallel triage fold (sessState /
 // sessClass), deriving "needs you" from the needsYouSince timestamp instead of the Gateway's stamped

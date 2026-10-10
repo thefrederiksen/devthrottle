@@ -459,4 +459,24 @@ public sealed class FactorySeatRowDto
     public string ComputerText { get; set; } = "";
 
     public FactoryTalkDto Talk { get; set; } = new();
+
+    /// <summary>
+    /// Each of the seat's schedules that exists, with its own words and the address the Cockpit edits it by - the
+    /// factory is where a factory's schedules are changed (the owner, 2026-10-09). A schedule the seat names but the
+    /// store no longer has is left out here; <see cref="WhenText"/> already says it is missing.
+    /// </summary>
+    public List<FactorySeatScheduleDto> Schedules { get; set; } = new();
+}
+
+/// <summary>One schedule of a seat on the Seats tab, with the button that edits it.</summary>
+public sealed class FactorySeatScheduleDto
+{
+    /// <summary>The schedule's id, which the Cockpit reads it by to open the editor.</summary>
+    public string JobId { get; set; } = "";
+
+    /// <summary>"Daily 06:15" - the same words as the seat's When it runs.</summary>
+    public string WhenText { get; set; } = "";
+
+    /// <summary>"Edit schedule".</summary>
+    public string EditLabel { get; set; } = "";
 }

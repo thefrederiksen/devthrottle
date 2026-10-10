@@ -473,6 +473,24 @@ public sealed class FactoriesScreenFoldTests
         Assert.Equal("Wednesday 05:30", seats["value-hunter"].WhenText);
     }
 
+    // ---------- a seat's schedules are edited in the factory (the owner, 2026-10-09) ----------
+
+    [Fact]
+    public void Seats_EachScheduleThatExists_CarriesItsIdItsWordsAndAnEdit_InTheSeatsOrder()
+    {
+        var f = Factory("x", "X", null, Seat("a", "A", "A", "cj_2", "cj_gone", "cj_1"), Seat("b", "B", "B"));
+        var jobs = new[] { Job("cj_1", "0 5 * * *"), Job("cj_2", "0 18 * * *") };
+
+        var rows = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: jobs)).Rows.ToDictionary(r => r.SeatId);
+
+        // The missing schedule is told in the seat's words and offers nothing to edit.
+        Assert.Contains("Schedule cj_gone is missing", rows["a"].WhenText);
+        Assert.Equal(new[] { "cj_2", "cj_1" }, rows["a"].Schedules.Select(s => s.JobId));
+        Assert.Equal(new[] { "Daily 18:00", "Daily 05:00" }, rows["a"].Schedules.Select(s => s.WhenText));
+        Assert.All(rows["a"].Schedules, s => Assert.Equal("Edit schedule", s.EditLabel));
+        Assert.Empty(rows["b"].Schedules);
+    }
+
     // ---------- one clock per seat (live QA, 6 Oct 2026) ----------
 
     private const string Toronto = "America/Toronto";
