@@ -551,8 +551,24 @@ try {
             $remainingMs = [int] [Math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)
             if (-not $r.Process.WaitForExit($remainingMs)) {
                 $overBudget += $r.Name
-                try { $r.Process.Kill($true) } catch { }
-                try { $r.Process.WaitForExit(10000) | Out-Null } catch { }
+                # THE WHOLE TREE, WITH A TOOL THAT EXISTS HERE. "dotnet test" is a parent whose test host is a
+                # child; killing the parent alone leaves the host running. This used to call
+                # Process.Kill($true) - the "entire process tree" overload - inside an empty catch. That
+                # overload is .NET Core only: under Windows PowerShell 5.1, which is what runs this gate, it
+                # does not exist, the call threw, the catch hid it, the suite ran on after the gate had
+                # printed "were STOPPED", and nobody saw. Verified on 2026-10-10: Kill($true) threw and the
+                # parent stayed alive; taskkill /T /F ended the parent and its test host.
+                $killed = $false
+                if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+                    & $env:ComSpec /d /c "taskkill /T /F /PID $($r.Process.Id) >nul 2>&1"
+                    $killed = ($LASTEXITCODE -eq 0)
+                } else {
+                    $r.Process.Kill()
+                    $killed = $true
+                }
+                if (-not $killed -or -not $r.Process.WaitForExit(10000)) {
+                    Write-Host ("  ERROR: could not stop {0} (process {1}) after the deadline - its test host may still be running. Stop it by hand before the next run." -f $r.Name, $r.Process.Id)
+                }
             }
         }
         $summary = ""
