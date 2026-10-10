@@ -1017,13 +1017,21 @@ jobs:
             longest_at=$(date -u -d "@${start_of_longest}" +%H:%M:%S)
             join_from=$(tail -n1 /tmp/deploy-poll/deploy-poll.log 2>/dev/null | awk '{print $1}')
             join_to=$(head -n1 /tmp/watch-poll.log 2>/dev/null | awk '{print $1}')
-            if [ -n "$join_from" ] && [ -n "$join_to" ] && [ "$start_of_longest" = "$join_from" ]; then
+            # SPANS the join, tested numerically: began at or before the deploy side's last sample and ended
+            # at or after the watch side's first. Not equality with the last line - the deploy side can end
+            # on a failed sample, and then the stretch began earlier and still contains the whole hole.
+            if [ -n "$join_from" ] && [ -n "$join_to" ] && \
+               awk -v s="$start_of_longest" -v l="$longest" -v a="$join_from" -v b="$join_to" 'BEGIN{exit !(s <= a && s + l >= b - 0.05)}'; then
               hole=$(awk -v a="$join_from" -v b="$join_to" 'BEGIN{printf "%.1f", b-a}')
               seen=$(awk -v l="$longest" -v h="$hole" 'BEGIN{d=l-h; if(d<0)d=0; printf "%.1f", d}')
-              join_note="it begins at the last deploy-side sample, so ${hole}s of it is the unsampled join between the jobs and ${seen}s was observed down"
+              join_note="it spans the unsampled join between the jobs, so ${hole}s of it is that hole and ${seen}s was observed down"
             fi
           fi
-          echo "Longest stretch began at ${longest_at} UTC${join_note:+ - $join_note}."
+          if [ "$longest_at" = "-" ]; then
+            echo "No unavailable stretch in the record."
+          else
+            echo "Longest stretch began at ${longest_at} UTC${join_note:+ - $join_note}."
+          fi
           echo "longest_began_at=${longest_at}" >> "$GITHUB_OUTPUT"
 
           # THE INSTRUMENT'S OWN RESOLUTION, reported beside the verdict (issue #2383). A measured outage
@@ -1075,7 +1083,11 @@ jobs:
           # for the full 600s window" - a pass written as an absence, untrue on its face, buried in a
           # ten-minute log. The pass line now carries the number and the budget it was judged against,
           # and goes into the run summary where it is read.
-          verdict="Longest outage ${longest}s (began ${longest_at} UTC), total ${total}s, against a ${MAX_ACCEPTABLE_OUTAGE_SECONDS}s budget"
+          if [ "$longest_at" = "-" ]; then
+            verdict="No unavailable sample in the record (longest outage ${longest}s), against a ${MAX_ACCEPTABLE_OUTAGE_SECONDS}s budget"
+          else
+            verdict="Longest outage ${longest}s (began ${longest_at} UTC), total ${total}s, against a ${MAX_ACCEPTABLE_OUTAGE_SECONDS}s budget"
+          fi
           [ -n "$join_note" ] && verdict="${verdict}; ${join_note}"
 
           # ABOVE THE OLD TEN-SECOND LINE IS FLAGGED, NOT FAILED. The budget is 120s by owner ruling
