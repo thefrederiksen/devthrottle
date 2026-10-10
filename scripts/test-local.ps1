@@ -559,7 +559,11 @@ try {
                 # printed "were STOPPED", and nobody saw. Verified on 2026-10-10: Kill($true) threw and the
                 # parent stayed alive; taskkill /T /F ended the parent and its test host.
                 $killed = $false
-                if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+                if ($r.Process.HasExited) {
+                    # It finished in the gap between the deadline and this line; there is nothing to kill, and
+                    # taskkill would answer 128 (no such process) and be reported as a failure to stop it.
+                    $killed = $true
+                } elseif ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
                     & $env:ComSpec /d /c "taskkill /T /F /PID $($r.Process.Id) >nul 2>&1"
                     $killed = ($LASTEXITCODE -eq 0)
                 } else {
