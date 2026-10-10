@@ -294,7 +294,7 @@ git -C $repoRoot fetch --quiet origin main
 $baseNow = git -C $repoRoot rev-parse origin/main
 if ($baseNow -ne $base) {
     $landed = git -C $repoRoot log --oneline "$base..$baseNow"
-    Fail "main moved while the candidate was being cut. These commits are not covered by the notes:`n$($landed -join "`n")" "The pull request is open and NOT merged. Close it (gh pr close $branch --delete-branch), then recut as the release-manager skill says in Step 8 under 'If main moved'."
+    Fail "main moved while the candidate was being cut. These commits are not covered by the notes:`n$($landed -join "`n")" "The pull request is open and NOT merged. Recut as the release-manager skill says in Step 8 under 'If main moved'."
 }
 
 Write-Host "Merging..." -ForegroundColor Cyan

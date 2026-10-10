@@ -224,19 +224,18 @@ the notes, opens the `release: v<version>` pull request and merges it - and it d
 The notes describe the last tag up to the base the pull request was cut from, so the
 candidate must be exactly that base plus this one commit. The script checks both ends:
 - If main moved before the merge, it stops with the pull request open and unmerged, and
-  lists what landed. **If main moved**, recut in this order, because the release branch
-  now exists locally and on origin:
+  lists what landed. **If main moved**, recut in the same worktree. Copy
+  `docs/public/release-notes/v<version>.md` out of it first, then, inside it:
 
-      gh pr close release/v<version> --delete-branch
-
-  Copy `docs/public/release-notes/v<version>.md` out of the release worktree, then leave
-  it and, from the main repository folder:
-
-      git worktree remove ../devthrottle-release-v<version>
+      gh pr close <pull request number>
+      git checkout --detach origin/main
       git branch -D release/v<version>
+      git push origin --delete release/v<version>
+      git fetch origin
+      git checkout -b release/v<version> origin/main
 
-  Then cut the worktree again as above, copy the saved notes back in, extend them to
-  cover what landed, and run the script again.
+  Detaching first frees the branch, which git will not delete while it is checked out.
+  Copy the notes back in, extend them to cover what landed, and run the script again.
 - After the merge it checks that the candidate's parent is that base. If not, it says so:
   the candidate carries work the notes do not cover, and must not be gated or tagged.
 
