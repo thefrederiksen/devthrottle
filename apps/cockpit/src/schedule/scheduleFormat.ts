@@ -142,7 +142,8 @@ export function compareScheduleGroups(a: string, b: string, titleOf: (groupKey: 
 // A group's heading: the factory's registered title, the factory id when it is not registered, or "Scheduled
 // jobs" for the plain ones.
 export function scheduleGroupTitle(groupKey: string, rows: CronJob[]): string {
-  if (groupKey === NO_FACTORY_GROUP) return "Scheduled jobs";
+  // The owner, 2026-10-09: a schedule in no factory is allowed, and it is filed under Personal rather than refused.
+  if (groupKey === NO_FACTORY_GROUP) return "Personal";
   const title = rows.find((job) => (job.factoryTitle ?? "").trim().length > 0)?.factoryTitle;
   return title ?? groupKey;
 }
