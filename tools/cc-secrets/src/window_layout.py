@@ -141,9 +141,29 @@ def list_geometry(prefs: ListPrefs, monitors: Sequence[Rect], pointer: Tuple[int
 
 def fit_height(top: int, title_bar: int, height: int, monitor: Rect, minimum: int) -> int:
     """The list's height so its frame - title bar included - ends inside the monitor. Tk sizes the content and
-    places the frame, so a list as tall as the work area would otherwise run a title bar's height past it."""
+    places the frame, so a list as tall as the work area would otherwise run a title bar's height past it.
+
+    `top` must be where the window ACTUALLY is, not where it was asked to go. macOS moves a window up on its
+    first showing to keep it clear of the Dock, and measuring from the asked-for place then trimmed a window
+    that was already wholly visible - and the trimmed height was saved, so the list came back shorter every
+    time it was left low on the screen.
+    """
     room = monitor[3] - top - title_bar
     return max(minimum, min(height, room))
+
+
+def minimum_size(needed: Tuple[int, int], floor: Tuple[int, int], monitor: Rect) -> Tuple[int, int]:
+    """The smallest the list may be dragged to: never below the floor, never below what the window needs to
+    draw itself whole, and never bigger than the monitor it is on.
+
+    The floor alone is not enough. It is a count of pixels, and the same words take more of them in one
+    system's font than in another's: the list needs 1013 by 514 in the macOS system font against a floor of
+    760 by 420, so on a Mac it could be dragged narrow enough to squeeze the search box down to a hundred
+    pixels and cut the end off the hint under the table. A window may not be made smaller than it needs.
+    """
+    width = min(max(floor[0], needed[0]), monitor[2] - monitor[0])
+    height = min(max(floor[1], needed[1]), monitor[3] - monitor[1])
+    return width, height
 
 
 def windows_monitors() -> List[Rect]:

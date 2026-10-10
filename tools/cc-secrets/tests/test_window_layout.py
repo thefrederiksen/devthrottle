@@ -77,6 +77,23 @@ def test_TheListsFrame_TitleBarIncluded_EndsInsideTheMonitor():
     assert wl.fit_height(top=900, title_bar=31, height=600, monitor=MAIN, minimum=420) == 420  # never below minimum
 
 
+def test_TheListMayNotBeDraggedSmallerThanItNeedsToDrawItself():
+    """The floor is a count of pixels and the same words are wider in one system font than in another. On macOS
+    the list needs 1013 by 514 against a floor of 760 by 420, and at the floor the search box was squeezed to
+    about a hundred pixels and the hint under the table had its end cut off."""
+    assert wl.minimum_size(needed=(1013, 514), floor=(760, 420), monitor=MAIN) == (1013, 514)
+
+
+def test_AWindowThatNeedsLessThanTheFloor_KeepsTheFloor():
+    assert wl.minimum_size(needed=(700, 300), floor=(760, 420), monitor=MAIN) == (760, 420)
+
+
+def test_TheMinimumIsNeverBiggerThanTheMonitor():
+    small = (0, 0, 900, 400)
+
+    assert wl.minimum_size(needed=(1013, 514), floor=(760, 420), monitor=small) == (900, 400)
+
+
 def test_StillVisible_NeedsEnoughOfTheTitleBarToGrab():
     assert wl.still_visible((1900, 100, 2900, 700), MONITORS)
     assert not wl.still_visible((3830, 100, 4830, 700), MONITORS)  # only 10 pixels on the second screen

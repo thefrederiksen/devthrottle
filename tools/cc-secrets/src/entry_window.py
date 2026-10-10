@@ -474,6 +474,11 @@ class ListWindow:
         self._tree.bind("<<TreeviewSelect>>", lambda _e: self._selection_changed())
         self._tree.bind("<Return>", lambda _e: self._edit())
         self._tree.bind("<Delete>", lambda _e: self._delete())
+        if sys.platform == "darwin":
+            # A Mac's main delete key sends BackSpace, not Delete: Delete is forward delete, which only a
+            # full-size keyboard with a numeric keypad has. Bound to Delete alone, the key the owner presses
+            # on a Mac mini's keyboard did nothing at all.
+            self._tree.bind("<BackSpace>", lambda _e: self._delete())
         self._tree.bind("<space>", lambda _e: self._toggle_selected())
         self._tree.bind("<Escape>", lambda _e: self._search.focus_set())
         right_click = ("<Button-3>",)
@@ -758,10 +763,15 @@ def show_list(actions: WindowActions) -> None:
     prefs_path = _prefs_path()
     prefs = window_layout.load_prefs(prefs_path)
     root = open_root(f"cc-secrets - passwords and settings ({platform.node()})")
-    root.minsize(LIST_MIN_WIDTH, LIST_MIN_HEIGHT)
     window = ListWindow(root, actions, prefs)
-    x, y, width, height = window_layout.list_geometry(prefs, monitors(root), root.winfo_pointerxy())
-    root.geometry(f"{width}x{height}+{x}+{y}")
+    screens = monitors(root)
+    x, y, width, height = window_layout.list_geometry(prefs, screens, root.winfo_pointerxy())
+    root.update_idletasks()  # so the window can say how much room its own contents need
+    smallest = window_layout.minimum_size((root.winfo_reqwidth(), root.winfo_reqheight()),
+                                          (LIST_MIN_WIDTH, LIST_MIN_HEIGHT),
+                                          window_layout.monitor_at(x, y, screens))
+    root.minsize(*smallest)
+    root.geometry(f"{max(width, smallest[0])}x{max(height, smallest[1])}+{x}+{y}")
 
     def close() -> None:
         try:
@@ -773,9 +783,15 @@ def show_list(actions: WindowActions) -> None:
     root.protocol("WM_DELETE_WINDOW", close)
     bring_to_front(root)
     root.update()
+    # Measure the trim from where the window ACTUALLY is. macOS moves a window up on its first showing to
+    # keep it clear of the Dock, so the place it was asked for is not the place it got, and trimming from
+    # the asked-for place shortened a window that was already wholly visible - and the shorter height was
+    # then remembered, so the list came back smaller every time it was left low on the screen.
     title_bar = max(0, root.winfo_rooty() - root.winfo_y())
-    monitor = window_layout.monitor_at(x + width // 2, y + title_bar, monitors(root))
-    fitted = window_layout.fit_height(y, title_bar, height, monitor, LIST_MIN_HEIGHT)
-    if fitted != height:
-        root.geometry(f"{width}x{fitted}")
+    placed_x, placed_y = root.winfo_x(), root.winfo_y()
+    placed_width, placed_height = root.winfo_width(), root.winfo_height()
+    monitor = window_layout.monitor_at(placed_x + placed_width // 2, placed_y + title_bar, screens)
+    fitted = window_layout.fit_height(placed_y, title_bar, placed_height, monitor, smallest[1])
+    if fitted != placed_height:
+        root.geometry(f"{placed_width}x{fitted}")
     root.mainloop()

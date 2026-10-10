@@ -1,10 +1,17 @@
-"""The cc-secrets list driven on a real screen: where the form opens, what it shows, how fast each click is, and
-what the list remembers when it closes. Skipped where there is no screen (a continuous integration runner).
+"""The cc-secrets list driven on a real screen: where the form opens, what it shows, how fast each click is, what
+the list remembers when it closes, that nothing is cut off, and that the key the keyboard labels delete works.
+Skipped where there is no screen (a continuous integration runner).
 
 These are the owner's complaints of 2026-10-10, each checked the way he met it: Edit opened its form on the
 wrong screen, the QA email's form was empty, and every click took about two seconds.
+
+The last three were found running the window on macOS, where the system font is wider and the window system
+moves a window up on its first showing to keep it clear of the Dock. All three are written to hold on every
+system rather than only on a Mac: they measure what the window needs and where it actually ended up, instead
+of a pixel count taken from one machine.
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -63,6 +70,74 @@ def window(store, tk_root):
 
 def _forms(root):
     return [w for w in root.winfo_children() if w.winfo_class() == "Toplevel"]
+
+
+def cut_off(window):
+    """Every widget on screen that was given less room than it asked for."""
+    found, stack = [], list(window.winfo_children())
+    while stack:
+        widget = stack.pop()
+        stack.extend(widget.winfo_children())
+        if not widget.winfo_ismapped():
+            continue
+        if widget.winfo_width() < widget.winfo_reqwidth() or widget.winfo_height() < widget.winfo_reqheight():
+            found.append(f"{widget.winfo_class()} needs {widget.winfo_reqwidth()}x{widget.winfo_reqheight()}, "
+                         f"got {widget.winfo_width()}x{widget.winfo_height()}")
+    return found
+
+
+def _open_the_list_and_report():
+    """Run show_list the way the owner runs it - its own process - and report where the window ended up."""
+    script = textwrap.dedent("""
+        import json, sys, tkinter as tk
+        sys.path.insert(0, sys.argv[1])
+        from src import entry_window, paths, window_layout
+        from src.audit import AuditLog, OwnerApproval
+        from src.store import SecretStore
+        from src.storefile import UserOnlyFile
+        from src.window_actions import WINDOW_RECORD, WindowActions
+        real = tk.Tk.mainloop
+        def report_then_close(self, n=0):
+            def act():
+                self.update()
+                title_bar = max(0, self.winfo_rooty() - self.winfo_y())
+                cut_off, stack = [], list(self.winfo_children())
+                while stack:
+                    widget = stack.pop()
+                    stack.extend(widget.winfo_children())
+                    if widget.winfo_ismapped() and (widget.winfo_width() < widget.winfo_reqwidth()
+                                                    or widget.winfo_height() < widget.winfo_reqheight()):
+                        cut_off.append("%s needs %dx%d, got %dx%d" % (
+                            widget.winfo_class(), widget.winfo_reqwidth(), widget.winfo_reqheight(),
+                            widget.winfo_width(), widget.winfo_height()))
+                print("PLACED " + json.dumps({
+                    "x": self.winfo_x(), "y": self.winfo_y(), "width": self.winfo_width(),
+                    "height": self.winfo_height(), "title_bar": title_bar,
+                    "minimum": list(self.wm_minsize()),
+                    "needed": [self.winfo_reqwidth(), self.winfo_reqheight()],
+                    "cut_off": cut_off,
+                    "monitor": list(window_layout.monitor_at(
+                        self.winfo_x() + self.winfo_width() // 2, self.winfo_y() + title_bar,
+                        entry_window.monitors(self))),
+                }))
+                self.tk.call(self.protocol("WM_DELETE_WINDOW"))
+            self.after(300, act)
+            real(self, n)
+        tk.Tk.mainloop = report_then_close
+        entry_window.show_list(WindowActions(SecretStore(UserOnlyFile(paths.store_path())),
+                                             AuditLog(paths.audit_path()),
+                                             OwnerApproval(text=WINDOW_RECORD, session_name=""),
+                                             detail=WINDOW_RECORD))
+    """)
+    tool = Path(entry_window.__file__).resolve().parent.parent
+    done = subprocess.run([sys.executable, "-c", script, str(tool)], capture_output=True, text=True, timeout=60,
+                          env=dict(os.environ, CC_SECRETS_HOME=str(paths.secrets_home())))
+    assert done.returncode == 0, done.stderr[-2000:]
+    reported = [line for line in done.stdout.splitlines() if line.startswith("PLACED ")]
+    assert len(reported) == 1, done.stdout
+    placed = json.loads(reported[0][len("PLACED "):])
+    placed["monitor"] = tuple(placed["monitor"])
+    return placed
 
 
 def _timed(root, action, undo=lambda: None):
@@ -146,9 +221,10 @@ def test_SavingFromTheForm_UpdatesTheList_AndSaysSo(window, store):
 
 def test_ClosingTheList_RemembersWhereItWas(store):
     """Run as the owner runs it - show_list in its own process - closed through the window's close button
-    handler a moment after it opens."""
+    handler a moment after it opens. It is moved to a little over its own minimum, because the minimum is
+    what the window needs to draw itself and that is more pixels in one system font than in another."""
     script = textwrap.dedent("""
-        import sys, tkinter as tk
+        import json, sys, tkinter as tk
         sys.path.insert(0, sys.argv[1])
         from src import entry_window, paths
         from src.audit import AuditLog, OwnerApproval
@@ -158,8 +234,10 @@ def test_ClosingTheList_RemembersWhereItWas(store):
         real = tk.Tk.mainloop
         def close_soon(self, n=0):
             def move_then_close():
-                self.geometry("900x500+150+120")
+                width, height = (n + 120 for n in self.wm_minsize())
+                self.geometry("%dx%d+150+120" % (width, height))
                 self.update()
+                print("MOVED " + json.dumps([150, 120, width, height]))
                 self.tk.call(self.protocol("WM_DELETE_WINDOW"))
             self.after(300, move_then_close)
             real(self, n)
@@ -174,5 +252,86 @@ def test_ClosingTheList_RemembersWhereItWas(store):
                           env=dict(os.environ, CC_SECRETS_HOME=str(paths.secrets_home())))
 
     assert done.returncode == 0, done.stderr[-2000:]
+    moved = [line for line in done.stdout.splitlines() if line.startswith("MOVED ")]
+    assert len(moved) == 1, done.stdout
     prefs = window_layout.load_prefs(paths.secrets_home() / entry_window.PREFS_FILE)
-    assert (prefs.x, prefs.y, prefs.width, prefs.height) == (150, 120, 900, 500)
+    assert [prefs.x, prefs.y, prefs.width, prefs.height] == json.loads(moved[0][len("MOVED "):])
+
+
+def test_TheKeyLabelledDelete_AsksToDeleteTheEntry(window, monkeypatch):
+    """A Mac's main delete key sends BackSpace; Delete is forward delete, which only a full-size keyboard with a
+    numeric keypad has. Bound to Delete alone, the key the owner actually presses on a Mac did nothing."""
+    from tkinter import messagebox
+
+    root, listing = window
+    asked = []
+    monkeypatch.setattr(messagebox, "askyesno", lambda title, message, **kw: asked.append(message) or False)
+    main_delete_key = "<BackSpace>" if sys.platform == "darwin" else "<Delete>"
+    entry_window.bring_to_front(root)  # a key reaches a widget only while its window is up and has the focus
+    listing._tree.selection_set("devlinux")
+    listing._tree.focus("devlinux")
+    listing._tree.focus_set()
+    root.update()
+
+    listing._tree.event_generate(main_delete_key, when="now")
+    root.update()
+
+    assert asked == ["Delete devlinux?"]
+    assert any(row.name == "devlinux" for row in listing._actions.rows()), "answering no still deleted it"
+
+
+def test_NothingIsCutOff_AtAnySizeTheListAllows(window):
+    """The list may not be dragged smaller than it needs to draw itself. Its floor is a count of pixels, and the
+    same words are wider in the macOS system font than in the Windows one: at the 760 by 420 floor on a Mac the
+    search box was squeezed to about a hundred pixels and the hint under the table lost its end."""
+    root, listing = window
+    root.update_idletasks()
+    smallest = window_layout.minimum_size((root.winfo_reqwidth(), root.winfo_reqheight()),
+                                          (entry_window.LIST_MIN_WIDTH, entry_window.LIST_MIN_HEIGHT),
+                                          entry_window.monitors(root)[0])
+    root.minsize(*smallest)
+
+    for width, height in (smallest, (smallest[0] + 200, smallest[1] + 200)):
+        root.geometry(f"{width}x{height}")
+        root.update()
+
+        assert cut_off(root) == []
+
+    root.geometry("400x200")
+    root.update()
+    assert (root.winfo_width(), root.winfo_height()) == smallest, "the window system let it go below the minimum"
+
+
+def test_TheListLeftLowOnTheScreen_IsNotTrimmedWhileItStillFits(store, tk_root):
+    """It is trimmed only by as much as the room at the place it ACTUALLY got, which is not always the place it
+    asked for: macOS moves a window up on its first showing to keep it clear of the Dock. Measured from the
+    asked-for place instead, the trim shortened a window that was already wholly visible - and the shorter
+    height was saved, so a list left low on the screen came back smaller every time, down to its minimum.
+
+    The remembered place is near the bottom of the screen, far enough down that the window cannot stay there,
+    but with enough of its title bar on screen to be worth going back to."""
+    prefs_path = paths.ensure_home() / entry_window.PREFS_FILE
+    asked_height = 620
+    low = tk_root.winfo_screenheight() - window_layout.MIN_VISIBLE_HEIGHT * 2
+    window_layout.save_prefs(prefs_path, window_layout.ListPrefs(x=100, y=low, width=1060, height=asked_height))
+
+    placed = _open_the_list_and_report()
+
+    room = placed["monitor"][3] - placed["y"] - placed["title_bar"]
+    allowed = min(asked_height, max(room, placed["minimum"][1]))
+    assert placed["height"] == allowed, placed
+    assert window_layout.load_prefs(prefs_path).height == placed["height"]
+
+
+def test_TheListCannotBeOpenedSmallerThanItNeedsToDrawItself(store):
+    """Opened at the size it was last left, 760 by 420 - the floor the tool used to allow. In the macOS system
+    font the list needs 1013 by 514, so at the floor the search box was squeezed to about a hundred pixels and
+    the hint under the table lost its end. It must come back at the size it needs, with nothing cut off."""
+    prefs_path = paths.ensure_home() / entry_window.PREFS_FILE
+    window_layout.save_prefs(prefs_path, window_layout.ListPrefs(x=120, y=140, width=760, height=420))
+
+    placed = _open_the_list_and_report()
+
+    assert placed["cut_off"] == [], placed
+    assert placed["width"] >= placed["needed"][0] and placed["height"] >= placed["needed"][1], placed
+    assert placed["minimum"] == placed["needed"], placed
