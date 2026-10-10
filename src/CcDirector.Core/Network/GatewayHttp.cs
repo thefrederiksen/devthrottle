@@ -26,6 +26,24 @@ namespace CcDirector.Core.Network;
 public static class GatewayHttp
 {
     /// <summary>
+    /// True when <paramref name="ex"/> says the Gateway could not be REACHED: no answer at all (the network is down,
+    /// the name does not resolve, the connection was refused, dropped or timed out), or a 502, 503 or 504 from what
+    /// stands in front of it while it restarts. A client that retries a connect treats these as the network's
+    /// doing, not our program's. Everything else - a certificate that is refused, a proxy that blocks the tunnel,
+    /// any other answer, a fault in our own code - is a failure worth an error report (issue #3641).
+    /// </summary>
+    public static bool IsUnreachable(Exception ex) => ex switch
+    {
+        HttpRequestException { StatusCode: HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout } => true,
+        HttpRequestException { StatusCode: not null } => false,
+        HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError or HttpRequestError.ConnectionError or HttpRequestError.ResponseEnded } => true,
+        HttpRequestException h => h.InnerException is SocketException or IOException { InnerException: SocketException },
+        SocketException or TimeoutException or OperationCanceledException => true,
+        IOException { InnerException: SocketException } => true,
+        _ => false,
+    };
+
+    /// <summary>
     /// Connect budget for a candidate address that HAS A NEXT ONE TO TRY. Short enough that a dead
     /// first address still leaves room for the next one inside the 5-second timeout the tightest
     /// gateway clients use.

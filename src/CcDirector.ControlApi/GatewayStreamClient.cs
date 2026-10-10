@@ -556,10 +556,17 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             FileLog.Write($"[GatewayStreamClient] connect REFUSED (401, {refusal.Kind}) - stopping reconnect");
             return ConnectOutcome.KeyRefused;
         }
+        catch (Exception ex) when (GatewayHttp.IsUnreachable(ex))
+        {
+            // not-an-error: the Gateway could not be reached (offline, no answer, or a 502-504 while it restarts); the connect is retried with back-off
+            FileLog.Write($"[GatewayStreamClient] connect failed (will retry): {ex.Message}");
+            return ConnectOutcome.Retry;
+        }
         catch (Exception ex)
         {
-            // not-an-error: a failed connect is retried with back-off; a machine that is offline is the network, not our program
-            FileLog.Write($"[GatewayStreamClient] connect failed (will retry): {ex.Message}");
+            // Reached the far side and still failed - a refused certificate, a proxy blocking the tunnel, our own
+            // code - so it is reported. Still retried: a repeat folds into one report with a count.
+            FileLog.Write($"[GatewayStreamClient] connect FAILED (will retry): {ex.GetType().Name}: {ex.Message}");
             return ConnectOutcome.Retry;
         }
     }
@@ -1044,10 +1051,14 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 await hub.PushRepoSnapshotAsync(repoSeq, _repoSnapshot().ToArray());
                 FileLog.Write($"[GatewayStreamClient] reseeded repository snapshot seq={repoSeq}");
             }
+            catch (Microsoft.AspNetCore.SignalR.HubException ex) when (IsMissingHubMethod(ex))
+            {
+                // not-an-error: an older Gateway has no repository reseed method; nothing is wrong on this side
+                FileLog.Write($"[GatewayStreamClient] repository reseed skipped (older Gateway): {ex.Message}");
+            }
             catch (Exception ex)
             {
-                // not-an-error: an older Gateway has no repository reseed; nothing is wrong on this side
-                FileLog.Write($"[GatewayStreamClient] repository reseed skipped (older Gateway?): {ex.Message}");
+                FileLog.Write($"[GatewayStreamClient] repository reseed FAILED: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -1256,12 +1267,23 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             await conn.InvokeAsync("DirectorStopping", timeout.Token);
             FileLog.Write("[GatewayStreamClient] sent DirectorStopping farewell");
         }
+        catch (Microsoft.AspNetCore.SignalR.HubException ex) when (IsMissingHubMethod(ex))
+        {
+            // not-an-error: an older Gateway has no farewell method, and the Director is leaving anyway
+            FileLog.Write($"[GatewayStreamClient] DirectorStopping farewell not delivered (older Gateway): {ex.Message}");
+        }
         catch (Exception ex)
         {
-            // not-an-error: an older Gateway has no farewell call, and the Director is leaving anyway
-            FileLog.Write($"[GatewayStreamClient] DirectorStopping farewell not delivered (older Gateway?): {ex.Message}");
+            // A timeout or any other fault: the Gateway will rule this Director's sessions "interrupted" instead
+            // of "Director stopped", so it is reported.
+            FileLog.Write($"[GatewayStreamClient] DirectorStopping farewell FAILED: {ex.GetType().Name}: {ex.Message}");
         }
     }
+
+    /// <summary>The answer a Gateway built before a hub method gives when that method is called - the words
+    /// the SignalR server sends for a target it does not have.</summary>
+    internal static bool IsMissingHubMethod(Microsoft.AspNetCore.SignalR.HubException ex)
+        => ex.Message.Contains("Method does not exist", StringComparison.Ordinal);
 
     public async Task StopAsync()
     {

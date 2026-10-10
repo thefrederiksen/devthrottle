@@ -212,7 +212,9 @@ public sealed class ErrorReporter : IDisposable
     /// </summary>
     internal int FlushAndKeep(TimeSpan budget)
     {
-        if (PendingCount == 0) return 0;
+        // A batch the periodic sender has already taken out of the table is in flight, not pending: the flush must
+        // still wait for it, so a failed answer is resent or kept and an unanswered one is named.
+        if (PendingCount == 0 && Volatile.Read(ref _inFlight) == 0) return 0;
         var delivered = 0;
         try
         {

@@ -1651,7 +1651,7 @@ public partial class FirstRunWizardDialog : Window, ISignInAddressDisplay
         }
         catch (Exception ex)
         {
-            // not-an-error: a picture file the image decoder cannot read is the user's file, not our failure; its thumbnail is left out
+            // not-an-error: whatever stops one thumbnail - a file the decoder cannot read, a file locked or removed while listed, or the decode itself failing - only leaves that one preview out; the folder step never depends on it
             FileLog.Write($"[FirstRunWizardDialog] LoadPreviewThumbnail skipped {file}: {ex.Message}");
             return null;
         }

@@ -980,12 +980,18 @@ internal static class SessionCommandExecutor
             // not-an-error: another remover took the row first, so the stop is already done
             FileLog.Write($"[SessionCommandExecutor] kill: session={guid} the row vanished mid-stop (raced with another remover)");
         }
+        catch (InvalidOperationException killEx)
+        {
+            // The process had already exited; that is not a reason to leave a zombie row, so log and fall through
+            // to removal. A stop always means gone (matches the desktop close flow).
+            // not-an-error: the process had already exited, and the stop removes the row either way
+            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} process already gone: {killEx.Message}");
+        }
         catch (Exception killEx)
         {
-            // The process may have already exited; that is not a reason to leave a zombie row, so log and
-            // fall through to removal. A stop always means gone (matches the desktop close flow).
-            // not-an-error: the process has usually exited already, and the stop removes the row either way
-            FileLog.Write($"[SessionCommandExecutor] kill: session={guid} kill raised (process likely already gone): {killEx.Message}");
+            // Any other fault in the kill may leave the process running; the row is still removed (a stop always
+            // means gone), but the failure is reported.
+            FileLog.Write($"[SessionCommandExecutor] kill FAILED: session={guid}: {killEx.GetType().Name}: {killEx.Message}");
         }
 
         // ---- did the BACKEND itself say the shutdown failed? ----

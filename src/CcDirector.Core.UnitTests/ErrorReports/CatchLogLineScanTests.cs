@@ -25,10 +25,14 @@ namespace CcDirector.Core.UnitTests.ErrorReports;
 ///
 /// WHICH CODE. The projects the Director and the launcher executables load, read from their own project files
 /// and followed through every project reference - never a hand-kept list, so a project either process starts
-/// loading is scanned the day it is referenced. The Gateway's own projects are not in that set and are not
-/// scanned. Core is: it is ONE assembly loaded by the Director, the launcher and the Gateway alike, so a Core
-/// line cannot be known statically to run only in the Gateway, and a line recognised as an error is the right
-/// answer in every process that writes it.
+/// loading is scanned the day it is referenced. Core is: it is ONE assembly loaded by the Director, the
+/// launcher and the Gateway alike, so a Core line cannot be known statically to run only in the Gateway, and a
+/// line recognised as an error is the right answer in every process that writes it.
+///
+/// WHAT IT DOES NOT COVER. A THIRD process runs an ErrorReporter: the self-hosted Gateway app
+/// (src/CcDirector.GatewayApp, issue #3643). It and the Gateway-only projects it loads - CcDirector.Gateway and
+/// CcDirector.HostedAgent - are left out on purpose: step 4 of the error-logging work is the Director and the
+/// launcher, and the Gateway side is a separate step. Their catch lines are NOT guarded by this test.
 ///
 /// AND WHAT A REPORT MAY CARRY. A line that becomes reportable leaves the machine, and the scrubber removes
 /// home folders and credentials, not words. So no reportable line may interpolate a value whose name says it
@@ -37,8 +41,9 @@ namespace CcDirector.Core.UnitTests.ErrorReports;
 /// </summary>
 public sealed class CatchLogLineScanTests
 {
-    /// <summary>The executables whose processes run an <see cref="ErrorReporter"/>.</summary>
-    private static readonly string[] ReportingExecutables =
+    /// <summary>The Director and launcher executables, two of the three whose processes run an
+    /// <see cref="ErrorReporter"/>; the self-hosted Gateway app is the third and is not scanned (see above).</summary>
+    internal static readonly string[] ReportingExecutables =
     {
         "src/CcDirector.Avalonia/CcDirector.Avalonia.csproj",
         "src/CcDirector.Launcher/CcDirector.Launcher.csproj",
@@ -51,7 +56,7 @@ public sealed class CatchLogLineScanTests
     // Names of values that hold somebody's words. Matched against each identifier in an interpolated hole; a
     // hole that ends in .Length / .Count is a size, not words, and is allowed.
     private static readonly Regex WordsName = new(
-        @"(?i)^(prompt|prompts|prompttext|transcript|transcripttext|dictation|dictationtext|utterance|spoken|spokentext|screentext|screen|screentail|terminaltext|buffertext|headline|reply|replytext|modeltext|modelreply|completion|narration|summarytext|raw|rawjson|rawtext|jsonline|line|output|stdout|stderr|text|content|body|chunk|typed)$",
+        @"(?i)^(prompt|prompts|prompttext|transcript|transcripttext|dictation|dictationtext|utterance|spoken|spokentext|screentext|screen|screentail|terminaltext|buffertext|headline|reply|replytext|modeltext|modelreply|completion|narration|summarytext|raw|rawjson|rawtext|jsonline|line|output|stdout|stderr|text|content|body|chunk|typed|args|arguments|commandline|json|response|request|payload|answer|question|html|markdown|note|notes)$",
         RegexOptions.CultureInvariant);
 
     private readonly ITestOutputHelper _output;
@@ -61,7 +66,7 @@ public sealed class CatchLogLineScanTests
     internal sealed record Site(string File, int Line, string Rendered, bool IsError, string? OptOutReason,
         IReadOnlyList<string> WordsHoles);
 
-    private static string RepositoryRoot()
+    internal static string RepositoryRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !Directory.Exists(Path.Combine(dir.FullName, "src", "CcDirector.Core")))
@@ -170,7 +175,8 @@ public sealed class CatchLogLineScanTests
             var names = hole.Expression.DescendantNodesAndSelf().OfType<IdentifierNameSyntax>()
                 .Where(i => i.Parent switch
                 {
-                    MemberAccessExpressionSyntax access => access.Name == i,
+                    // In a.b the value printed is b - unless b is a method called on a: prompt.Trim() is the prompt.
+                    MemberAccessExpressionSyntax access => access.Name == i || access.Parent is InvocationExpressionSyntax,
                     ConditionalAccessExpressionSyntax conditional => conditional.Expression != i,
                     _ => true,
                 })
@@ -354,6 +360,22 @@ public sealed class CatchLogLineScanTests
         var sites = CatchLogLineScanTests.SitesIn("C.cs", source).ToList();
         Assert.Equal(new[] { "Truncate(raw, 200)" }, sites[0].WordsHoles);
         Assert.Equal(new[] { "line[..Math.Min(100, line.Length)]" }, sites[1].WordsHoles);
+        Assert.Empty(sites[2].WordsHoles);
+    }
+
+    [Fact]
+    public void SitesIn_AMethodCalledOnAWordsValue_IsStillWords_ButOnAnExceptionIsNot()
+    {
+        const string source = """
+            class C { void M(string prompt, string answer) { try { } catch (System.Exception e) {
+                FileLog.Write($"[C] Send FAILED: {e.Message}, prompt={prompt.Trim()}");
+                FileLog.Write($"[C] Ask FAILED: {e.GetType().Name}, answer={answer.Substring(0, 80)}");
+                FileLog.Write($"[C] Ask FAILED: {e.GetType().Name}: {e.Message}");
+            } } }
+            """;
+        var sites = CatchLogLineScanTests.SitesIn("C.cs", source).ToList();
+        Assert.Equal(new[] { "prompt.Trim()" }, sites[0].WordsHoles);
+        Assert.Equal(new[] { "answer.Substring(0, 80)" }, sites[1].WordsHoles);
         Assert.Empty(sites[2].WordsHoles);
     }
 }

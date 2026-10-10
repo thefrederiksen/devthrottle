@@ -569,6 +569,43 @@ public sealed class ErrorReporterTests
     }
 
     [Fact]
+    public async Task FlushAndKeep_ASendAlreadyInFlight_IsWaitedFor_AndWhatItFailedToSendIsResent()
+    {
+        var release = new TaskCompletionSource();
+        var handler = new FirstCallHeldThenFailsHandler(release.Task);
+        var reporter = new ErrorReporter(ErrorReportLimits.Director, () => SignedIn, new HttpClient(handler),
+            () => _now, machineName: "M", productVersion: "v");
+        reporter.OnLogLine("[X] Save FAILED: one");
+        var periodic = reporter.SendPendingAsync(CancellationToken.None);
+        Assert.Equal(0, reporter.PendingCount);
+
+        // The table is empty - the batch is in flight - and the process starts to leave.
+        var flush = Task.Run(() => reporter.FlushAndKeep(TimeSpan.FromSeconds(30)));
+        SpinWait.SpinUntil(() => flush.IsCompleted, TimeSpan.FromMilliseconds(500));
+        Assert.False(flush.IsCompleted, "the flush returned while a send was still in flight");
+
+        release.SetResult();
+
+        Assert.Equal(0, await periodic);
+        Assert.Equal(1, await flush);
+        Assert.Equal(2, handler.Calls);
+        Assert.Equal(0, reporter.PendingCount);
+        Assert.Equal(0, reporter.Dropped);
+    }
+
+    private sealed class FirstCallHeldThenFailsHandler(Task release) : HttpMessageHandler
+    {
+        public int Calls;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref Calls) > 1) return new HttpResponseMessage(HttpStatusCode.Accepted);
+            await release;
+            return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+        }
+    }
+
+    [Fact]
     public void FlushAndKeep_NothingPending_SendsNothing()
     {
         var (reporter, handler, state, dir) = NewReporterWithOutbox();

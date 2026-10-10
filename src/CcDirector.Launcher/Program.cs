@@ -65,6 +65,7 @@ public static class Program
                 .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
                 .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
                 .FirstOrDefault()?.InformationalVersion, Console.Out, Console.Error);
+            // exits-without-flush: the error reporter is not started on the --version path, so nothing can be pending; the installer reads this answer on the console
             FileLog.Stop();
             return exit;
         }
