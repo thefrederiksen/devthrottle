@@ -15,7 +15,12 @@ namespace CcDirector.Gateway.Tests.Data;
 /// 38.5 seconds of 2 August 2026 (#2383) and the 46.7 seconds of 12 August (#2585).
 ///
 /// Shortening the wait only ever made it less likely. Splitting the open out is what makes it impossible.
+///
+/// In the process-environment collection because one test blanks the provider selection for a moment, and the
+/// statistics database does not take the environment gate the Gateway database takes: TeamDirectorTunnelTests failed
+/// in its constructor with "The hosted Gateway tried to open a SQLite database" while that test ran beside it.
 /// </summary>
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class DatabaseOpensAfterTheBindTests : IDisposable
 {
     private readonly List<string> _temp = new();

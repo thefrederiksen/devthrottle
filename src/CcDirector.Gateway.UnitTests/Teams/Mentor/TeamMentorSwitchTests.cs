@@ -3,7 +3,9 @@ using Xunit;
 
 namespace CcDirector.Gateway.Tests.Teams.Mentor;
 
-/// <summary>The Mentor's weekly writer runs only with BOTH switches on (devthrottle_internal#2305).</summary>
+/// <summary>The Mentor's weekly writer runs only with BOTH switches on (devthrottle_internal#2305). One test here
+/// clears the process-wide switch variable, so the class runs in the process-environment collection.</summary>
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class TeamMentorSwitchTests
 {
     [Theory]

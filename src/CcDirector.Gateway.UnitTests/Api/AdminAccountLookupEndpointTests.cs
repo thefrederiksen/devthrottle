@@ -21,7 +21,7 @@ namespace CcDirector.Gateway.Tests.Api;
 /// simply is not here. Each of those has to be a plain refusal rather than a confident answer about
 /// somebody nobody named.
 /// </summary>
-[Collection(AdminServiceTokenCollection.Name)]
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class AdminAccountLookupEndpointTests : IDisposable
 {
     private const string Token = "test-admin-service-token-a4f1";

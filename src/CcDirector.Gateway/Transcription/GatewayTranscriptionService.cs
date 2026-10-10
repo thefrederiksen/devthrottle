@@ -40,6 +40,10 @@ public sealed class GatewayTranscriptionService
     private readonly string _cleanupModel;
     private readonly TranscriptionHistoryLog _history;
     private readonly TranscriptionAudioArchive _audioArchive;
+
+    /// <summary>The transcoder every pipeline this service builds is given, or null for the pipeline's own ffmpeg.
+    /// A test hands in a transcoder pointed at an ffmpeg of its choosing; nothing reads the process for it.</summary>
+    private readonly IAudioTranscoder? _transcoder;
     private readonly TranscriptStore? _transcripts;
 
     /// <param name="vault">The Gateway key vault - the single store for the transcription key.</param>
@@ -76,7 +80,8 @@ public sealed class GatewayTranscriptionService
         string? cleanupModel = null,
         TranscriptionHistoryLog? history = null,
         TranscriptionAudioArchive? audioArchive = null,
-        TranscriptStore? transcripts = null)
+        TranscriptStore? transcripts = null,
+        IAudioTranscoder? transcoder = null)
     {
         _vault = vault ?? throw new ArgumentNullException(nameof(vault));
         _dictionaryProvider = dictionaryProvider ?? TenantGlossary.Load;
@@ -85,6 +90,7 @@ public sealed class GatewayTranscriptionService
         _cleanupModel = string.IsNullOrWhiteSpace(cleanupModel) ? CleanupOrchestrator.DefaultModel : cleanupModel;
         _history = history ?? new TranscriptionHistoryLog();
         _audioArchive = audioArchive ?? new TranscriptionAudioArchive();
+        _transcoder = transcoder;
         _transcripts = transcripts;
     }
 
@@ -329,7 +335,7 @@ public sealed class GatewayTranscriptionService
     {
         var name = string.IsNullOrWhiteSpace(fileName) ? "audio." + ExtensionFor(contentType) : fileName;
         using var pipeline = new BatchTranscriptionPipeline(
-            httpClient: _http, cleanupModel: _cleanupModel,
+            httpClient: _http, cleanupModel: _cleanupModel, transcoder: _transcoder,
             judge: DictationJudgeFactory.FromVault(_vault, tag.WithFeature(CcDirector.Core.HostedAi.AiFeature.DictationJudge)),
             judgeMode: DictationJudgeMode.Current, tag: tag);
         FileLog.Write($"[GatewayTranscriptionService] transcribe remote: bytes={audio.Length}, mode={routing.Mode.ToConfigString()}, model={routing.Endpoint.Model}, language={language ?? "auto"}");
