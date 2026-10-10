@@ -33,6 +33,17 @@ if [[ "$(id -u)" -eq 0 ]]; then
     printf 'and files created as root there stop macOS from starting DevThrottle.\n' >&2
     printf 'Run the same command again without sudo:\n\n' >&2
     printf '  curl -fsSL https://raw.githubusercontent.com/thefrederiksen/devthrottle/main/scripts/install-mac.sh | bash\n' >&2
+    # Reported (issue #3645), so a refusal is not only on this screen. Nothing is written: as root, a new
+    # install-id file in the user's Library would be the very root-owned file this refusal prevents, so an
+    # existing id is read and, when there is none, a fresh one is sent and not kept. The message is fixed text,
+    # so it needs no encoding and carries nothing of this Mac's.
+    refusal_id="$(cat "$HOME/Library/Application Support/cc-director/install-id" 2>/dev/null || uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+    # Only the shape the Gateway accepts goes into the hand-written JSON below.
+    if [[ "$refusal_id" =~ ^[A-Za-z0-9-]{8,64}$ ]]; then
+        curl -fsS -m 8 -H 'Content-Type: application/json' \
+            -d "{\"install_id\":\"$refusal_id\",\"installer\":\"install-mac.sh\",\"component\":\"setup-wizard\",\"step\":\"refused-as-root\",\"message\":\"install-mac.sh refused to run as root (sudo).\",\"diagnostics\":\"\",\"os\":\"macos\",\"os_version\":\"$(sw_vers -productVersion 2>/dev/null || true)\",\"arch\":\"$(uname -m)\",\"product_version\":\"latest\"}" \
+            "${DEVTHROTTLE_HOSTED_GATEWAY_URL:-https://gateway.devthrottle.com}/install-reports" >/dev/null 2>&1 || true
+    fi
     exit 1
 fi
 

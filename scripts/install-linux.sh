@@ -24,7 +24,8 @@
 #
 # Safe to re-run: it replaces any previous copy of the wizard.
 
-set -euo pipefail
+# -E makes the ERR trap below fire inside functions too.
+set -Eeuo pipefail
 
 REPO="${DEVTHROTTLE_REPO:-thefrederiksen/devthrottle}"
 ASSET="devthrottle-setup-linux-x64"
@@ -33,8 +34,61 @@ BIN_NAME="devthrottle-setup"
 DESTINATION_DIR="${DEVTHROTTLE_BIN_DIR:-$HOME/.local/bin}"
 BASE_URL="https://github.com/$REPO/releases/latest/download"
 
+GATEWAY_URL="${DEVTHROTTLE_HOSTED_GATEWAY_URL:-https://gateway.devthrottle.com}"
+STEP="preconditions"
+
 log()  { printf '%s\n' "$*"; }
-fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+# Send a failure to DevThrottle (issue #3645), so a Linux install that stops before the wizard runs - a
+# missing library, a failed download, a checksum mismatch - is not only on this screen. No sign-in exists yet
+# and none is needed: this is the public route every installer uses, with the same per-machine install
+# identifier the setup wizard keeps. It sends the step, the message, the distribution and the architecture,
+# with the home folder reduced to "~" and this machine's user name and host name replaced before anything
+# leaves; the Gateway scrubs again on receipt. A report that cannot be delivered changes nothing: the
+# install has already failed, and the reason is already on the screen.
+json_string() { # text -> one quoted JSON string, scrubbed of this machine's names
+    local text="$1" tilde='~' name
+    # The replacement is a variable because a bare ~ there is tilde-expanded straight back into $HOME.
+    if [[ -n "${HOME:-}" ]]; then text="${text//"$HOME"/$tilde}"; fi
+    # A name shorter than three letters is left: as a plain substring it would take ordinary words out.
+    name="$(hostname 2>/dev/null || true)"
+    if [[ ${#name} -ge 3 ]]; then text="${text//"$name"/<machine>}"; fi
+    name="$(id -un 2>/dev/null || true)"
+    if [[ ${#name} -ge 3 ]]; then text="${text//"$name"/<user>}"; fi
+    # Control characters other than tab and newline go; backslash, quote and tab are escaped; newlines are
+    # joined as \n. sed and awk, not python3: a missing python3 is one of the failures this reports.
+    printf '%s' "$text" | tr -d '\000-\010\013-\037' \
+        | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' \
+        | awk 'BEGIN { ORS = ""; print "\"" } NR > 1 { print "\\n" } { print } END { print "\"" }'
+}
+report_failure() { # message
+    local message="${1:0:4000}" id_dir id os_version
+    id_dir="${XDG_DATA_HOME:-$HOME/.local/share}/cc-director"
+    if [[ -s "$id_dir/install-id" ]]; then
+        id="$(cat "$id_dir/install-id")"
+    else
+        id="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)"
+        [[ -n "$id" ]] || return 1
+        { mkdir -p "$id_dir" && printf '%s' "$id" > "$id_dir/install-id"; } 2>/dev/null || true
+    fi
+    os_version="$( (. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-}") || true)"
+    local body
+    body="{\"install_id\":$(json_string "$id"),\"installer\":\"install-linux.sh\",\"component\":\"setup-wizard\",\"step\":$(json_string "$STEP"),\"message\":$(json_string "$message"),\"diagnostics\":$(json_string "uid=$(id -u 2>/dev/null || true)"),\"os\":\"linux\",\"os_version\":$(json_string "$os_version"),\"arch\":$(json_string "$(uname -m)"),\"product_version\":\"latest\"}"
+    command -v curl >/dev/null 2>&1 || return 1
+    curl -fsS -m 8 -H 'Content-Type: application/json' -d "$body" "$GATEWAY_URL/install-reports" >/dev/null 2>&1
+}
+fail() {
+    # The install has already failed: nothing below may stop the script before it has said so.
+    trap - ERR
+    set +e
+    printf 'ERROR: %s\n' "$*" >&2
+    if report_failure "$*"; then printf 'A report of this failure was sent to DevThrottle.\n' >&2; fi
+    exit 1
+}
+
+# A command that fails without its own "|| fail" (mkdir, mv, chmod...) stops the script through set -e.
+# Without this trap that stop was silent to us: no report.
+trap 'fail "Unexpected failure at line $LINENO while running: $BASH_COMMAND (exit $?)"' ERR
 
 # ----------------------------------------------------------------------------
 # Preconditions: 64-bit Intel/AMD Linux.
@@ -76,6 +130,8 @@ fi
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
+STEP="download"
+
 # ----------------------------------------------------------------------------
 # Download the wizard and the release manifest from the latest release.
 # ----------------------------------------------------------------------------
@@ -89,6 +145,7 @@ curl -fsSL -o "$WORK_DIR/$MANIFEST" "$BASE_URL/$MANIFEST" \
 # ----------------------------------------------------------------------------
 # Verify the download against the SHA-256 hash recorded in the manifest.
 # ----------------------------------------------------------------------------
+STEP="verify"
 log "Verifying the download against the release manifest..."
 expected_hash="$(python3 -c "
 import json
@@ -103,6 +160,7 @@ log "  SHA-256 verified: $actual_hash"
 # ----------------------------------------------------------------------------
 # Install to ~/.local/bin, replacing any previous copy.
 # ----------------------------------------------------------------------------
+STEP="place"
 mkdir -p "$DESTINATION_DIR"
 DESTINATION="$DESTINATION_DIR/$BIN_NAME"
 if [[ -e "$DESTINATION" ]]; then

@@ -527,6 +527,10 @@ internal static class Commands
         }
 
         var result = new UpdateRunResult { Results = applied };
+        // A component that could not be placed is printed as FAILED below; it is sent to DevThrottle too (#3645).
+        foreach (var failed in applied.Where(r => r.Status == ApplyStatus.Failed))
+            await ReportStepFailureAsync(layout, failed.ComponentId, "place", failed.Error ?? "no reason was given",
+                $"from version: {failed.FromVersion ?? "none"}\nto version: {failed.ToVersion ?? "unknown"}", json);
         if (applied.Count > 0)
         {
             PrintRun(result, installMode, json);
@@ -558,7 +562,11 @@ internal static class Commands
                 foreach (var s in tray.Steps) Console.WriteLine($"  {s}");
                 Console.WriteLine($"  {tray.Message}");
             }
-            if (!tray.Success) return Error;
+            if (!tray.Success)
+            {
+                await ReportStepFailureAsync(layout, "gateway", "tray", tray.Message, string.Join("\n", tray.Steps), json);
+                return Error;
+            }
         }
 
         // Per-user Python tools bundle (the shared venv with every cc-* tool). Installed for BOTH
@@ -579,7 +587,11 @@ internal static class Commands
                 Console.WriteLine(py.Success ? $"Python tools: {py.Message}" : $"Python tools FAILED: {py.Message}");
                 foreach (var s in py.Steps) Console.WriteLine($"  {s}");
             }
-            if (!py.Success) return Error;
+            if (!py.Success)
+            {
+                await ReportStepFailureAsync(layout, "tools", "install", py.Message, string.Join("\n", py.Steps), json);
+                return Error;
+            }
             toolsInstalled = py.ToolCount > 0;
         }
 
@@ -673,18 +685,26 @@ internal static class Commands
             }
             if (!launcherStart.Success)
             {
-                // Issue #3311: a failed install step is sent to DevThrottle, so it is not only on this screen.
-                var sent = await new InstallFailureReporter(layout, "setup-cli")
-                    .ReportAsync("launcher", "start", launcherStart.Message, launcherStart.Diagnostics);
-                if (!json)
-                    Console.WriteLine(sent
-                        ? "  A report of this failure was sent to DevThrottle."
-                        : "  A report of this failure could NOT be sent to DevThrottle (see the setup log).");
+                await ReportStepFailureAsync(layout, "launcher", "start", launcherStart.Message, launcherStart.Diagnostics, json);
                 return Error;
             }
         }
 
         return result.Failed > 0 ? Error : Ok;
+    }
+
+    /// <summary>
+    /// Send a failed install step to DevThrottle (issues #3311, #3645), so it is not only on this screen, and say
+    /// whether it arrived. A report that could not be delivered is logged by the reporter and changes nothing
+    /// else: the step has already failed and its reason is already printed.
+    /// </summary>
+    private static async Task ReportStepFailureAsync(InstallLayout layout, string component, string step, string message, string? diagnostics, bool json)
+    {
+        var sent = await new InstallFailureReporter(layout, "setup-cli").ReportAsync(component, step, message, diagnostics);
+        if (!json)
+            Console.WriteLine(sent
+                ? "  A report of this failure was sent to DevThrottle."
+                : "  A report of this failure could NOT be sent to DevThrottle (see the setup log).");
     }
 
     /// <summary>
