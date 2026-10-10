@@ -4150,7 +4150,15 @@ internal static partial class GatewayEndpoints
             var accepted = false;
             try
             {
-                return await PromptAfterAttributionAsync();
+                var answer = await PromptAfterAttributionAsync();
+                // THE PHONE'S RED BOX (the Error Logging mission, issue #3675): a prompt refused because the session's
+                // Director is offline or stale, did not answer in time, or did not take it, is stored with the session
+                // and the correlation id its answer carries. The row holds the route, the status and the answer's code -
+                // never the prompt's words.
+                GatewayRequestErrors.RecordRefusal(httpCtx, answer,
+                    account: ResolveReadTenant(httpCtx, tenantBoundary)?.Value ?? "",
+                    sessionId: sid, action: "send a prompt to the session");
+                return answer;
             }
             finally
             {
@@ -5124,7 +5132,7 @@ internal static partial class GatewayEndpoints
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[GatewayEndpoints] DELETE director FORCE-KILL FAILED: id={id} pid={director.Pid} error={ex.Message}");
+                    FileLog.Write($"[GatewayEndpoints] DELETE /directors/{{id}} FORCE-KILL FAILED: id={id} pid={director.Pid} error={ex.Message}");
                     return Results.Problem("could not kill process: " + ex.Message, statusCode: 500);
                 }
             }
@@ -6847,7 +6855,7 @@ internal static partial class GatewayEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer FAILED: sid={sid} verdict={verdictId} serviceAsked={serviceAsked}: {ex.GetType().FullName}: {ex.Message}");
+            FileLog.Write($"[GatewayEndpoints] POST /sessions/{{sid}}/turn-verdict/answer FAILED: sid={sid} verdict={verdictId} serviceAsked={serviceAsked}: {ex.GetType().FullName}: {ex.Message}");
             // Before the service is asked nothing can have been written, so it is a refusal; after, whether anything
             // reached the session is not known, so it is never recorded as a refusal.
             if (!serviceAsked)

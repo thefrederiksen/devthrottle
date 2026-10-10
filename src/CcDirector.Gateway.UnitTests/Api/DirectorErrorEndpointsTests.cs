@@ -270,10 +270,12 @@ public sealed class DirectorErrorEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void SessionKey_MayReadItsAccountsErrors_ButNeverReportThem()
+    public void SessionKey_MayReadAndSendItsAccountsErrors_ButNotTheAdministratorRead()
     {
+        // Sending was refused to a session key until the owner's ruling of 9 October (issue #3675): a command line tool
+        // an agent runs now reports with the session's key. SessionKeyErrorReportTests proves the account it lands in.
         Assert.True(SessionKeyGuard.Check("GET", DirectorErrorEndpoints.Path).Allowed);
-        Assert.False(SessionKeyGuard.Check("POST", DirectorErrorEndpoints.Path).Allowed);
+        Assert.True(SessionKeyGuard.Check("POST", DirectorErrorEndpoints.Path).Allowed);
         Assert.False(SessionKeyGuard.Check("GET", DirectorErrorEndpoints.AdminPath).Allowed);
     }
 

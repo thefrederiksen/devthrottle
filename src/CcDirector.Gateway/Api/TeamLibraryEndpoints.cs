@@ -102,7 +102,7 @@ internal static class TeamLibraryEndpoints
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[TeamLibraryEndpoints] GET library FAILED ({ex.GetType().Name}): {ex.Message}");
+                FileLog.Write($"[TeamLibraryEndpoints] GET {GroupPath}{LibraryPath} FAILED ({ex.GetType().Name}): {ex.Message}");
                 return Results.Json(new { error = "DevThrottle could not read the team's skills and workflows just now because of a fault. Try again shortly." },
                     statusCode: StatusCodes.Status500InternalServerError);
             }

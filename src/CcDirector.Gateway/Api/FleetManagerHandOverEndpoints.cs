@@ -102,7 +102,7 @@ internal static class FleetManagerHandOverEndpoints
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            FileLog.Write($"[FleetManagerHandOverEndpoints] POST hand-over FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerHandOverEndpoints] POST {HandOverRoute} FAILED: {ex.Message}");
             throw;
         }
     }

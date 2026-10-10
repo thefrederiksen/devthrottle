@@ -118,7 +118,7 @@ internal static class FleetManagerWalkthroughEndpoints
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetManagerWalkthroughEndpoints] GET walkthrough FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerWalkthroughEndpoints] GET {WalkthroughRoute} FAILED: {ex.Message}");
             throw;
         }
     }

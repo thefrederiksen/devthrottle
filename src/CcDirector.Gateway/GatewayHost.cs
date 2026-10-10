@@ -1510,6 +1510,11 @@ public sealed class GatewayHost : IAsyncDisposable
     private WebApplication? _app;
     private bool _stopped;
 
+    /// <summary>The durable error store (issue #3311) and the Gateway's own errors into it (issue #3675). Created in
+    /// StartAsync before the pipeline, because the first middleware hands every request's errors to the sink.</summary>
+    private ErrorReportStore? _errorReports;
+    private Api.GatewayErrorSink? _errorSink;
+
     /// <param name="instancesDirectory">
     /// Override the Director-discovery instances directory (see <see cref="DirectorRegistry"/>).
     /// Tests pass an isolated temp directory; production omits it for the shared default.
@@ -4134,6 +4139,15 @@ public sealed class GatewayHost : IAsyncDisposable
 
         _app = builder.Build();
 
+        // THE GATEWAY'S OWN ERRORS (the Error Logging mission, step 2, issue #3675). FIRST in the pipeline, ahead of the
+        // readiness gate: every request gets its correlation id here, every answer of 400 or more carries it, and any
+        // failure logged while the request is served is stored under it. The store lives on the durable storage root
+        // (on hosted, the share a deploy does not touch), the same store Director errors go to.
+        _errorReports = new ErrorReportStore(Path.Combine(CcDirector.Core.Storage.CcStorage.Root(), "error-reports"));
+        _errorSink = new Api.GatewayErrorSink(_errorReports);
+        _errorSink.Start();
+        Api.GatewayRequestErrors.Use(_app, _errorSink);
+
         _app.UseForwardedHeaders();
 
         // THE READINESS GATE. Nothing but /healthz is served until the database is open AND the device
@@ -4186,16 +4200,10 @@ public sealed class GatewayHost : IAsyncDisposable
             }
             catch (Exception ex)
             {
-                // Log full detail server-side; return a generic body so we never leak
-                // an exception type or message to a remote client.
-                Console.Error.WriteLine($"[GatewayHost] pipeline exception: {ex}");
-                FileLog.Write($"[GatewayHost] unhandled exception: {ctx.Request.Method} {Api.TeamInvitationEndpoints.RedactForLog(ctx.Request.Path.Value ?? "")}{Api.TeamInvitationEndpoints.RedactForLog(SafeQueryForLog(ctx.Request.Path, ctx.Request.QueryString))}: {ex}");
-                if (!ctx.Response.HasStarted)
-                {
-                    ctx.Response.StatusCode = StatusCodes.Status500InternalServerError;
-                    ctx.Response.ContentType = "application/json; charset=utf-8";
-                    await ctx.Response.WriteAsync("{\"error\":\"internal error\"}");
-                }
+                // Full detail server-side and one stored row with a correlation id; a generic body that carries the id,
+                // so we never leak an exception type or message to a remote client (issue #3675).
+                await Api.GatewayRequestErrors.AnswerUnhandledAsync(ctx, ex,
+                    () => $"{ctx.Request.Method} {Api.TeamInvitationEndpoints.RedactForLog(ctx.Request.Path.Value ?? "")}{Api.TeamInvitationEndpoints.RedactForLog(SafeQueryForLog(ctx.Request.Path, ctx.Request.QueryString))}");
             }
             finally
             {
@@ -4314,6 +4322,9 @@ public sealed class GatewayHost : IAsyncDisposable
         _app.UseWebSockets();
 
         _app.UseRouting();
+
+        // The route each request reached, as its pattern, for the rows its errors are stored as (issue #3675).
+        Api.GatewayRequestErrors.UseRouteNote(_app);
 
         // Teams, who can do what (devthrottle_internal#2302): after routing, so the gate knows which endpoint the
         // request reached, and before any endpoint runs. A request that acts in a team goes on only when the endpoint
@@ -5162,7 +5173,8 @@ public sealed class GatewayHost : IAsyncDisposable
         // Issue #3311: installer failure reports - public (no credential exists yet at install time), bounded -
         // and Director and launcher errors through the device credential. Both land in ONE durable store on
         // the Gateway's storage root (on hosted, the share a deploy does not touch).
-        var errorReports = new ErrorReportStore(Path.Combine(CcDirector.Core.Storage.CcStorage.Root(), "error-reports"));
+        var errorReports = _errorReports
+            ?? throw new InvalidOperationException("the error store is created before the pipeline and must exist when the routes are mapped");
         InstallReportEndpoints.Map(_app, errorReports);
         DirectorErrorEndpoints.Map(_app, errorReports, _tenantBoundary, TenantRegistry);
         // The corrections the Wingman's verdicts were given (the Wingman-on-every-turn mission, slice G). The
@@ -6751,6 +6763,9 @@ public sealed class GatewayHost : IAsyncDisposable
         }
         try { _sessionKeySweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session key sweep timer dispose error: {ex.Message}"); }
         _sessionKeySweepTimer = null;
+        // The Gateway's own errors: detach from the log and write what is waiting, the running flood hour included.
+        try { _errorSink?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] error sink dispose FAILED: {ex.Message}"); }
+        _errorSink = null;
 
 
         // Issue #640: stop the background token refresh timer.

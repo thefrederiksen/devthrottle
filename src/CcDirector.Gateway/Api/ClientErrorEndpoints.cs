@@ -105,8 +105,12 @@ internal static class ClientErrorEndpoints
 
             var deviceHash = Devices.DeviceHash.Of(AuthenticatedCredential(ctx));
             if (!AdmitWithinRate(deviceHash))
+            {
+                // Counted for the hour's flood record, so the error store says reports were lost (issue #3675).
+                ErrorIntakeFloods.Shared.Dropped(ErrorIntakeFloods.ClientErrors, 1, DateTime.UtcNow);
                 return Results.Json(new { recorded = false, reason = "rate limited" },
                     statusCode: StatusCodes.Status429TooManyRequests);
+            }
 
             var record = new ClientErrorRecord(
                 AtUtc: DateTime.UtcNow,

@@ -48,6 +48,9 @@ public static class GatewayEntryPoint
 
         FileLog.Start();
         FileLog.Write($"[Program] CC Director Gateway starting, log: {FileLog.CurrentLogPath}");
+        // This is the real Gateway process, so its own failure lines go into the error store as well as this log, which
+        // on hosted is lost on every deploy (the Error Logging mission, issue #3675).
+        Api.GatewayErrorSink.AttachToProcessLog = true;
         if (GatewayHostedMode.IsHostedImage)
         {
             // Correlation, not identity: the platform names containers by their id, so record what this

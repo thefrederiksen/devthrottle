@@ -159,7 +159,8 @@ internal static class InstallReportEndpoints
 
     /// <summary>Validate, bound, scrub and record one report. Internal so every branch is testable
     /// without standing a host up.</summary>
-    internal static IResult Handle(InstallReportPost? post, DateTime nowUtc, ErrorReportStore? store = null)
+    internal static IResult Handle(InstallReportPost? post, DateTime nowUtc, ErrorReportStore? store = null,
+        ErrorIntakeFloods? floods = null)
     {
         if (post is null)
             return Results.BadRequest(new { error = "the request body is empty" });
@@ -173,7 +174,11 @@ internal static class InstallReportEndpoints
             return Results.BadRequest(new { error = "message is required" });
 
         if (!TryAdmit(installId, nowUtc))
+        {
+            // Counted for the hour's flood record, so the store itself says reports were lost (issue #3675).
+            (floods ?? ErrorIntakeFloods.Shared).Dropped(ErrorIntakeFloods.InstallReports, 1, nowUtc);
             return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+        }
 
         var record = new InstallReportRecord(
             AtUtc: nowUtc,
