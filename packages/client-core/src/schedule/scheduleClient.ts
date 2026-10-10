@@ -138,6 +138,8 @@ export interface CronLoadHour {
   label: string;
   /** The most scheduled sessions open at once during the hour. */
   concurrent: number;
+  /** How many of those are factory schedules - the part of the bar in the factory colour. At most `concurrent`. */
+  factoryConcurrent: number;
   starts: number;
   over: boolean;
   /** The schedules with a session open during the hour. */

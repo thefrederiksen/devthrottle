@@ -1090,12 +1090,21 @@
 }
 
 .sched-load-bar {
-  display: block;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   min-height: 0;
+  overflow: hidden;
   border-radius: 2px 2px 0 0;
   background: var(--accent);
   opacity: 0.75;
+}
+
+/* The factory share sits on top of the owner's own jobs (the owner, 2026-10-09). */
+.sched-load-bar-factory {
+  display: block;
+  width: 100%;
+  background: var(--factory-bar, #8b5cf6);
 }
 
 .sched-load-col.selected .sched-load-bar {
@@ -1103,7 +1112,7 @@
 }
 
 .sched-load-bar.over {
-  background: var(--danger-text);
+  border-top: 3px solid var(--danger-text);
 }
 
 .sched-load-capacity {
@@ -1162,4 +1171,50 @@
   border: 1px solid rgba(245, 158, 11, 0.4);
   border-radius: 8px;
   font-size: 13px;
+}
+
+.sched-load-legend {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.sched-load-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin: 0 4px 0 10px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.sched-load-swatch:first-child {
+  margin-left: 0;
+}
+
+.sched-load-swatch.own {
+  background: var(--accent);
+}
+
+.sched-load-swatch.factory {
+  background: var(--factory-bar, #8b5cf6);
+}
+
+.sched-load-swatch.over {
+  background: var(--danger-text);
+}
+
+/* A schedule that runs in a factory is shown for the overview but changed in its factory, so it reads quieter. */
+.sched-cell-name.factory {
+  opacity: 0.7;
+}
+
+.sched-factoryswitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 12px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
 }

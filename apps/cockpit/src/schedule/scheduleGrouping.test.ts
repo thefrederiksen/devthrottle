@@ -3,6 +3,7 @@ import type { CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
 import { groupRows } from "../components/DataTable";
 import {
   compareScheduleGroups,
+  isFactorySchedule,
   NO_FACTORY_GROUP,
   repeatsLabel,
   scheduleGroupOf,
@@ -47,10 +48,15 @@ describe("scheduleGroupOf", () => {
 });
 
 describe("compareScheduleGroups", () => {
-  it("orders factories by title and puts the plain scheduled jobs last", () => {
-    const keys = [NO_FACTORY_GROUP, "warmforward", "clickfunnels", "devthrottle"];
+  it("puts the owner's own jobs first and orders factories by title", () => {
+    const keys = ["warmforward", NO_FACTORY_GROUP, "clickfunnels", "devthrottle"];
     keys.sort((a, b) => compareScheduleGroups(a, b, titleOf));
-    expect(keys).toEqual(["clickfunnels", "devthrottle", "warmforward", NO_FACTORY_GROUP]);
+    expect(keys).toEqual([NO_FACTORY_GROUP, "clickfunnels", "devthrottle", "warmforward"]);
+  });
+
+  it("says a schedule with a factory runs in one, and one without does not", () => {
+    expect(isFactorySchedule(job({ factory: "clickfunnels", seat: "builder" }))).toBe(true);
+    expect(isFactorySchedule(job({ factory: null }))).toBe(false);
   });
 });
 
@@ -89,9 +95,9 @@ describe("groupRows", () => {
     });
 
     expect(groups.map((g) => [g.groupKey, g.rows.map((r) => r.id)])).toEqual([
+      [NO_FACTORY_GROUP, ["a"]],
       ["clickfunnels", ["c"]],
       ["devthrottle", ["b", "d"]],
-      [NO_FACTORY_GROUP, ["a"]],
     ]);
   });
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   createCronJob,
   deleteCronJob,
@@ -49,6 +49,7 @@ import {
   promptBody,
   compareScheduleGroups,
   repeatsLabel,
+  isFactorySchedule,
   scheduleGroupOf,
   scheduleGroupTitle,
   scheduleListOf,
@@ -176,6 +177,14 @@ export function ScheduleView() {
   const [list, setList] = useState<ScheduleList>("active");
   // Layout A (the owner, 2026-10-09): grouped by factory by default; "Group: None" gives the flat list.
   const [grouped, setGrouped] = useState(true);
+  // The owner, 2026-10-09: the page is for his own jobs; factory schedules are changed in their factory, so they are
+  // hidden until this switch is on. Its position is remembered on this device only, as a convenience.
+  const [showFactory, setShowFactoryState] = useState(readShowFactory);
+  const setShowFactory = useCallback((on: boolean) => {
+    setShowFactoryState(on);
+    writeShowFactory(on);
+  }, []);
+  const navigate = useNavigate();
   // The load strip (the owner, 2026-10-09): the Gateway's 24-hour forecast, the machine it shows, and the hour the
   // list is filtered to when a bar is tapped.
   const [load, setLoad] = useState<CronLoad | null>(null);
@@ -531,7 +540,7 @@ export function ScheduleView() {
         sortable: true,
         sortValue: (job) => job.name.toLowerCase(),
         render: (job) => (
-          <span className="sched-cell-name">
+          <span className={`sched-cell-name${isFactorySchedule(job) ? " factory" : ""}`}>
             <span className="sched-cell-name-main">{grouped ? job.shortName ?? job.name : job.name}</span>
             <span className="sched-cell-name-sub">
               {scheduleGroupOf(job) === "" ? (
@@ -675,12 +684,21 @@ export function ScheduleView() {
             <button className="sched-linkbtn" onClick={() => void runNow(job)}>
               Run now
             </button>
-            <button className="sched-linkbtn" onClick={() => openEdit(job)}>
-              Edit
-            </button>
-            <button className="sched-linkbtn del" onClick={() => setPendingDelete(job)}>
-              Delete
-            </button>
+            {isFactorySchedule(job) ? (
+              // One place to change a factory's schedule: its factory (the owner, 2026-10-09).
+              <Link className="sched-linkbtn" to={factoryHref(job)}>
+                Edit in factory
+              </Link>
+            ) : (
+              <>
+                <button className="sched-linkbtn" onClick={() => openEdit(job)}>
+                  Edit
+                </button>
+                <button className="sched-linkbtn del" onClick={() => setPendingDelete(job)}>
+                  Delete
+                </button>
+              </>
+            )}
           </span>
         ),
       },
@@ -802,14 +820,22 @@ export function ScheduleView() {
     [runs, selectedId],
   );
 
-  // The jobs split into the three lists, in one pass, so the tab counts and the grid always agree.
-  const byList = useMemo(() => {
+  // The jobs split into the three lists, in one pass, so the tab counts and the grid always agree. `everything` holds
+  // factory schedules too; `byList` is what the switch lets the page show.
+  const everything = useMemo(() => {
     const lists: Record<ScheduleList, CronJob[]> = { active: [], paused: [], historical: [] };
     for (const job of jobs) lists[scheduleListOf(job)].push(job);
     return lists;
   }, [jobs]);
+  const byList = useMemo(() => {
+    if (showFactory) return everything;
+    const own = (rows: CronJob[]) => rows.filter((job) => !isFactorySchedule(job));
+    return { active: own(everything.active), paused: own(everything.paused), historical: own(everything.historical) };
+  }, [everything, showFactory]);
 
-  const activeCount = byList.active.length;
+  const ownActive = everything.active.filter((job) => !isFactorySchedule(job)).length;
+  const factoryActive = everything.active.length - ownActive;
+  const factoryInList = everything[list].length - everything[list].filter((job) => !isFactorySchedule(job)).length;
 
   // The machine the strip shows: the one picked, held across polls even when another becomes the busiest, and the
   // busiest only until one is picked or when the picked one has no active schedules left.
@@ -828,15 +854,16 @@ export function ScheduleView() {
   // A tapped bar narrows the list to the schedules the Gateway says are open in that hour.
   const shownRows = useMemo(() => {
     if (hourFilter === null) return byList[list];
+    // A tapped bar counts every schedule, factory ones included, so the hour shows all of them whatever the switch says.
     const ids = new Set(hourFilter.hour.jobIds);
-    return byList[list].filter((job) => ids.has(job.id));
-  }, [byList, list, hourFilter]);
+    return everything[list].filter((job) => ids.has(job.id));
+  }, [byList, everything, list, hourFilter]);
 
   return (
     <div className="sched">
       <PageHeader
         title="Schedule"
-        subtitle={`${activeCount} active cron job${activeCount === 1 ? "" : "s"} across the fleet.`}
+        subtitle={`${ownActive} of your own scheduled job${ownActive === 1 ? "" : "s"}, plus ${factoryActive} in factories.`}
         actions={
           <Button variant="primary" onClick={openCreate}>
             New cron job
@@ -924,6 +951,14 @@ export function ScheduleView() {
           grouping={grouping}
           toolbarExtra={
             <>
+              <label className="sched-factoryswitch">
+                <input
+                  type="checkbox"
+                  checked={showFactory}
+                  onChange={(e) => setShowFactory(e.target.checked)}
+                />
+                Show factory schedules ({factoryInList})
+              </label>
               <span className="sched-groupswitch" role="group" aria-label="Group the list">
                 <button
                   type="button"
@@ -955,9 +990,15 @@ export function ScheduleView() {
               <Button variant="secondary" onClick={() => void runNow(job)}>
                 Run now
               </Button>
-              <Button variant="secondary" onClick={() => openEdit(job)}>
-                Edit
-              </Button>
+              {isFactorySchedule(job) ? (
+                <Button variant="secondary" onClick={() => navigate(factoryHref(job))}>
+                  Edit in factory
+                </Button>
+              ) : (
+                <Button variant="secondary" onClick={() => openEdit(job)}>
+                  Edit
+                </Button>
+              )}
             </>
           )}
         />
@@ -1415,6 +1456,30 @@ function scheduleCron(j: CronJob): string | null {
 function formKind(kind: string): FormState["scheduleKind"] {
   const k = kind.trim().toLowerCase();
   return k === "recurring" ? "recurring" : k === "random" ? "random" : k === "window" ? "window" : "oneOff";
+}
+
+// The factory page a factory schedule is changed on.
+function factoryHref(job: CronJob): string {
+  return `/factories/${encodeURIComponent(job.factory ?? "")}`;
+}
+
+// The switch's remembered position. Browser storage can be missing or refuse, so a failure means "off", the default.
+const SHOW_FACTORY_KEY = "schedule.showFactorySchedules";
+
+function readShowFactory(): boolean {
+  try {
+    return window.localStorage.getItem(SHOW_FACTORY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeShowFactory(on: boolean): void {
+  try {
+    window.localStorage.setItem(SHOW_FACTORY_KEY, on ? "1" : "0");
+  } catch {
+    /* not remembered on this device; the switch still works for this visit */
+  }
 }
 
 function isRandom(j: CronJob): boolean {

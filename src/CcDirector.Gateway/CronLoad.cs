@@ -107,6 +107,7 @@ public static class CronLoad
         IReadOnlyDictionary<string, TimeSpan> runLengths, DateTime now, int capacity)
     {
         var (_, zoneId, zone, windowStart, _, runs, estimated, unplaced) = PlanMachine(machine, jobs, runLengths, now);
+        var factoryJobs = jobs.Where(j => !string.IsNullOrWhiteSpace(j.Factory)).Select(j => j.Id).ToHashSet(StringComparer.Ordinal);
 
         var hours = new List<CronLoadHourDto>(Hours);
         for (var i = 0; i < Hours; i++)
@@ -115,11 +116,15 @@ public static class CronLoad
             var to = from.AddHours(1);
             var inHour = runs.Where(r => r.Start < to && r.End > from).ToList();
             var concurrent = PeakOpen(inHour, from, to);
+            // The same peak counting only factory schedules - the strip draws them in their own colour (the owner,
+            // 2026-10-09). The two peaks can fall at different moments, so this is at most the whole peak.
+            var factoryConcurrent = PeakOpen(inHour.Where(r => factoryJobs.Contains(r.JobId)).ToList(), from, to);
             hours.Add(new CronLoadHourDto
             {
                 StartUtc = from,
                 Label = TimeZoneInfo.ConvertTimeFromUtc(from, zone).ToString("HH:mm", CultureInfo.InvariantCulture),
                 Concurrent = concurrent,
+                FactoryConcurrent = factoryConcurrent,
                 Starts = inHour.Count(r => r.Start >= from),
                 Over = concurrent > capacity,
                 JobIds = inHour.Select(r => r.JobId).Distinct(StringComparer.Ordinal).ToList(),
