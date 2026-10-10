@@ -843,6 +843,8 @@ jobs:
           # minutes, the machine is short of memory again - that is the shape the whole 20 September
           # investigation followed.
           MAX_ACCEPTABLE_OUTAGE_SECONDS: '120'
+          # The old ten-second line, kept as a WARNING, not a failure - see the verdict below.
+          OUTAGE_WARNING_SECONDS: '10'
         run: |
           STATE_LOG=/tmp/site-state.log; : > "$STATE_LOG"
           echo "Watching for ${WATCH_SECONDS}s past the deploy (the failure window is 2-4 minutes out)..."
@@ -1002,6 +1004,36 @@ jobs:
           echo "--- site state samples ---"; cat "$STATE_LOG"
           echo "Longest unavailable stretch: ${longest}s   Total unavailable: ${total}s"
 
+          # WHERE THE LONGEST STRETCH WAS, and whether it spans the join. On 2026-10-10 (run 38015983864)
+          # this step measured 19.5s and nothing in the run said when: the deploy-side record was clean
+          # after the pin and the watch-side record was thrown away on a pass, so the cause could not be
+          # placed. A stretch is measured from the LAST GOOD sample, so one that begins at the deploy
+          # job's final sample and ends in the watch job's record includes the whole unsampled join -
+          # the service may have gone down at any point inside it. The figure is kept as measured (it is
+          # the conservative reading, and the budget is judged on it), but the run now says how much of
+          # it was observed and how much is the hole.
+          longest_at="-"; join_note=""
+          if [ "$start_of_longest" != "-" ]; then
+            longest_at=$(date -u -d "@${start_of_longest}" +%H:%M:%S)
+            join_from=$(tail -n1 /tmp/deploy-poll/deploy-poll.log 2>/dev/null | awk '{print $1}')
+            join_to=$(head -n1 /tmp/watch-poll.log 2>/dev/null | awk '{print $1}')
+            # SPANS the join, tested numerically: began at or before the deploy side's last sample and ended
+            # at or after the watch side's first. Not equality with the last line - the deploy side can end
+            # on a failed sample, and then the stretch began earlier and still contains the whole hole.
+            if [ -n "$join_from" ] && [ -n "$join_to" ] && \
+               awk -v s="$start_of_longest" -v l="$longest" -v a="$join_from" -v b="$join_to" 'BEGIN{exit !(s <= a && s + l >= b - 0.05)}'; then
+              hole=$(awk -v a="$join_from" -v b="$join_to" 'BEGIN{printf "%.1f", b-a}')
+              seen=$(awk -v l="$longest" -v h="$hole" 'BEGIN{d=l-h; if(d<0)d=0; printf "%.1f", d}')
+              join_note="it spans the unsampled join between the jobs, so ${hole}s of it is that hole and ${seen}s was observed down"
+            fi
+          fi
+          if [ "$longest_at" = "-" ]; then
+            echo "No unavailable stretch in the record."
+          else
+            echo "Longest stretch began at ${longest_at} UTC${join_note:+ - $join_note}."
+          fi
+          echo "longest_began_at=${longest_at}" >> "$GITHUB_OUTPUT"
+
           # THE INSTRUMENT'S OWN RESOLUTION, reported beside the verdict (issue #2383). A measured outage
           # of 0.0s is a NULL result, and a null is only ever as strong as the instrument behind it: if the
           # samples were 1.2s apart, "no gap" cannot rule out a one-second outage - which is precisely the
@@ -1046,7 +1078,31 @@ jobs:
           elif awk -v a="$longest" -v b="$MAX_ACCEPTABLE_OUTAGE_SECONDS" 'BEGIN{exit !(a > b)}'; then
             fail="production was unavailable for ${longest}s, over the ${MAX_ACCEPTABLE_OUTAGE_SECONDS}s budget"
           fi
+          # THE VERDICT IS A STATEMENT OF WHAT WAS MEASURED, ON EVERY RUN, IN THE RUN SUMMARY. On
+          # 2026-10-10 this step measured 19.5s unavailable and then printed "Production stayed available
+          # for the full 600s window" - a pass written as an absence, untrue on its face, buried in a
+          # ten-minute log. The pass line now carries the number and the budget it was judged against,
+          # and goes into the run summary where it is read.
+          if [ "$longest_at" = "-" ]; then
+            verdict="No unavailable sample in the record (longest outage ${longest}s), against a ${MAX_ACCEPTABLE_OUTAGE_SECONDS}s budget"
+          else
+            verdict="Longest outage ${longest}s (began ${longest_at} UTC), total ${total}s, against a ${MAX_ACCEPTABLE_OUTAGE_SECONDS}s budget"
+          fi
+          [ -n "$join_note" ] && verdict="${verdict}; ${join_note}"
+
+          # ABOVE THE OLD TEN-SECOND LINE IS FLAGGED, NOT FAILED. The budget is 120s by owner ruling
+          # (2026-09-20, see above) and this does not move it. But a normal in-place deploy measures
+          # 4 to 7 seconds, and the old ten-second line (owner ruling 2026-08-20: "if the time gets over
+          # 10 seconds, then we start dealing with it") is where a deploy stops being normal. A 19.5s
+          # deploy passed with no mark anywhere a person looks; it now raises a warning annotation on
+          # the run page and says so in the summary.
+          over_warn=no
+          if awk -v a="$longest" -v b="$OUTAGE_WARNING_SECONDS" 'BEGIN{exit !(a > b)}'; then over_warn=yes; fi
+
           if [ -n "$fail" ]; then
+            echo "::error title=Deploy outage over budget::${fail}. ${verdict}."
+            echo "### Deploy outage: FAILED - ${fail}" >> "$GITHUB_STEP_SUMMARY"
+            echo "${verdict}." >> "$GITHUB_STEP_SUMMARY"
             echo "ERROR: $fail."
             echo "       The deploy SHIPPED - this is not a rollback signal, it is the outage report the old"
             echo "       8-second window could not produce. See issue #2203. The failing container's own"
@@ -1055,7 +1111,27 @@ jobs:
             echo "--- full production poll ---"; cat "$LOG"
             exit 1
           fi
-          echo "Production stayed available for the full ${WATCH_SECONDS}s window past the deploy."
+          if [ "$over_warn" = "yes" ]; then
+            echo "::warning title=Deploy outage over ${OUTAGE_WARNING_SECONDS}s::${verdict}. Within budget, but a normal deploy is 4 to 7 seconds."
+            echo "### Deploy outage: WITHIN BUDGET, OVER ${OUTAGE_WARNING_SECONDS}s - look at this one" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Deploy outage: within budget" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "${verdict}." >> "$GITHUB_STEP_SUMMARY"
+          echo "PASS: ${verdict}."
+
+      # KEEP THE WHOLE RECORD, PASS OR FAIL. Only the deploy-side half used to be uploaded, and the joined
+      # record was printed only on a failure - so a passing run that measured 19.5s left nothing behind to
+      # say when or why. The record is small (a few thousand lines) and it is the only evidence there is.
+      - name: Upload the joined production poll record
+        if: always() && needs.deploy.outputs.readiness_outcome == 'healthy'
+        uses: actions/upload-artifact@v4
+        with:
+          name: watch-poll-log
+          path: |
+            /tmp/joined-poll.log
+            /tmp/site-state.log
+          if-no-files-found: warn
 
       # PROVE THE PAGES WORK, NOT JUST THAT THE PROCESS ANSWERS.
       #
