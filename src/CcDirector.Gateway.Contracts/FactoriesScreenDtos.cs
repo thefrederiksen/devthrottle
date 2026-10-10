@@ -461,9 +461,10 @@ public sealed class FactorySeatRowDto
     public FactoryTalkDto Talk { get; set; } = new();
 
     /// <summary>
-    /// Each of the seat's schedules that exists, with its own words and the address the Cockpit edits it by - the
-    /// factory is where a factory's schedules are changed (the owner, 2026-10-09). A schedule the seat names but the
-    /// store no longer has is left out here; <see cref="WhenText"/> already says it is missing.
+    /// Every schedule the seat names, in its order, with its own words and the button that edits it - the factory is
+    /// where a factory's schedules are changed (the owner, 2026-10-09). One the store no longer has carries its
+    /// "is missing" sentence and no button. Empty when the seat has no schedule; the Cockpit then shows
+    /// <see cref="WhenText"/> ("Not scheduled").
     /// </summary>
     public List<FactorySeatScheduleDto> Schedules { get; set; } = new();
 }
@@ -474,9 +475,9 @@ public sealed class FactorySeatScheduleDto
     /// <summary>The schedule's id, which the Cockpit reads it by to open the editor.</summary>
     public string JobId { get; set; } = "";
 
-    /// <summary>"Daily 06:15" - the same words as the seat's When it runs.</summary>
+    /// <summary>"Daily 06:15", or "Schedule cj_x is missing" - the same words as the seat's When it runs.</summary>
     public string WhenText { get; set; } = "";
 
-    /// <summary>"Edit schedule".</summary>
-    public string EditLabel { get; set; } = "";
+    /// <summary>"Edit schedule"; null for a schedule the store no longer has, which has nothing to edit.</summary>
+    public string? EditLabel { get; set; }
 }

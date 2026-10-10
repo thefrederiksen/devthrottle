@@ -476,19 +476,21 @@ public sealed class FactoriesScreenFoldTests
     // ---------- a seat's schedules are edited in the factory (the owner, 2026-10-09) ----------
 
     [Fact]
-    public void Seats_EachScheduleThatExists_CarriesItsIdItsWordsAndAnEdit_InTheSeatsOrder()
+    public void Seats_EachScheduleTheSeatNames_CarriesItsWords_AndAnEditOnlyWhenItExists_InTheSeatsOrder()
     {
         var f = Factory("x", "X", null, Seat("a", "A", "A", "cj_2", "cj_gone", "cj_1"), Seat("b", "B", "B"));
         var jobs = new[] { Job("cj_1", "0 5 * * *"), Job("cj_2", "0 18 * * *") };
 
         var rows = FactoriesScreenFold.Seats(f, Inputs(new[] { f }, jobs: jobs)).Rows.ToDictionary(r => r.SeatId);
 
-        // The missing schedule is told in the seat's words and offers nothing to edit.
-        Assert.Contains("Schedule cj_gone is missing", rows["a"].WhenText);
-        Assert.Equal(new[] { "cj_2", "cj_1" }, rows["a"].Schedules.Select(s => s.JobId));
-        Assert.Equal(new[] { "Daily 18:00", "Daily 05:00" }, rows["a"].Schedules.Select(s => s.WhenText));
-        Assert.All(rows["a"].Schedules, s => Assert.Equal("Edit schedule", s.EditLabel));
+        Assert.Equal(new[] { "cj_2", "cj_gone", "cj_1" }, rows["a"].Schedules.Select(s => s.JobId));
+        Assert.Equal(new[] { "Daily 18:00", "Schedule cj_gone is missing", "Daily 05:00" }, rows["a"].Schedules.Select(s => s.WhenText));
+        // The missing schedule is still told, and offers nothing to edit.
+        Assert.Equal(new[] { "Edit schedule", null, "Edit schedule" }, rows["a"].Schedules.Select(s => s.EditLabel));
+        // Every word the list shows is also in the seat's own When it runs.
+        Assert.All(rows["a"].Schedules, s => Assert.Contains(s.WhenText, rows["a"].WhenText));
         Assert.Empty(rows["b"].Schedules);
+        Assert.Equal("Not scheduled", rows["b"].WhenText);
     }
 
     // ---------- one clock per seat (live QA, 6 Oct 2026) ----------

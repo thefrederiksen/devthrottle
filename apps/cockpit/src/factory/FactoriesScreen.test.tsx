@@ -367,12 +367,14 @@ describe("A factory's Seats tab (mockup 3)", () => {
       seat: "nora-hale",
     };
     cronClient.getCronJob.mockResolvedValue(boss);
-    cronClient.updateCronJob.mockResolvedValue(boss);
+    cronClient.updateCronJob.mockResolvedValue({ ...boss, loadWarning: "SOREN_NORTH has 7 sessions open at 06:00." });
     renderAt("/factories/warmforward/seats");
 
     const nora = await screen.findByTestId("fa-seat-nora-hale");
-    // A seat with no schedule offers no Edit.
-    expect(within(screen.getByTestId("fa-seat-value-hunter")).queryByRole("button", { name: "Edit schedule" })).toBeNull();
+    // A schedule that no longer exists is still told, and offers no Edit.
+    const hunter = screen.getByTestId("fa-seat-value-hunter");
+    expect(within(hunter).getByText("Schedule cj_value is missing")).toBeTruthy();
+    expect(within(hunter).queryByRole("button", { name: "Edit schedule" })).toBeNull();
     fireEvent.click(within(nora).getByRole("button", { name: "Edit schedule" }));
 
     const dialog = await screen.findByRole("dialog", { name: "Edit cron job" });
@@ -388,6 +390,8 @@ describe("A factory's Seats tab (mockup 3)", () => {
       expect.objectContaining({ cronExpression: "30 6 * * *", name: boss.name, enabled: true }),
     );
     await waitFor(() => expect(screenClient.getFactorySeats.mock.calls.length).toBeGreaterThan(seatReads));
+    // The Gateway's warning is shown here too, as on the Schedule page.
+    expect((await screen.findByText(/Saved, but:/)).textContent).toContain("SOREN_NORTH has 7 sessions open at 06:00.");
   });
 
   it("says so when the schedule cannot be read, instead of a button that does nothing", async () => {

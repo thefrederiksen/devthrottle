@@ -6,7 +6,7 @@ import {
   type FactoryPageView,
   type FactorySeatsView,
 } from "@devthrottle/client-core/factory/factoriesScreenClient";
-import { getCronJob } from "@devthrottle/client-core/schedule/scheduleClient";
+import { getCronJob, type CronJob } from "@devthrottle/client-core/schedule/scheduleClient";
 import { gatewayErrorMessage } from "@devthrottle/client-core/api/client";
 import { Button, EmptyState, ErrorBanner, LoadingState } from "../components";
 import { ScheduleEditor, type ScheduleEditorRequest } from "../schedule/ScheduleEditor";
@@ -234,6 +234,16 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
   // The schedule being fetched for the editor, so its button says so while it loads.
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The Gateway's warning on a save that lands in a crowded hour; the schedule is saved either way.
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
+
+  const onSaved = useCallback(
+    (saved: CronJob) => {
+      setLoadWarning(saved.loadWarning ?? null);
+      onChanged();
+    },
+    [onChanged],
+  );
 
   const openEditor = useCallback(async (jobId: string) => {
     setError(null);
@@ -250,6 +260,14 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
   return (
     <div className="fa-tab-body">
       {error !== null && <ErrorBanner message={error} />}
+      {loadWarning !== null && (
+        <div className="fa-warn" role="status">
+          Saved, but: {loadWarning}{" "}
+          <Button variant="secondary" onClick={() => setLoadWarning(null)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
       <div className="fa-scroll">
         <table className="fa-table fa-seats" data-testid="fa-seats-table">
           <thead>
@@ -273,13 +291,15 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
                     : seat.schedules.map((s) => (
                         <div className="fa-seat-schedule" key={s.jobId}>
                           <span>{s.whenText}</span>
-                          <Button
-                            variant="secondary"
-                            disabled={opening !== null}
-                            onClick={() => void openEditor(s.jobId)}
-                          >
-                            {opening === s.jobId ? "Opening..." : s.editLabel}
-                          </Button>
+                          {s.editLabel !== null && (
+                            <Button
+                              variant="secondary"
+                              disabled={opening !== null}
+                              onClick={() => void openEditor(s.jobId)}
+                            >
+                              {opening === s.jobId ? "Opening..." : s.editLabel}
+                            </Button>
+                          )}
                         </div>
                       ))}
                 </td>
@@ -296,7 +316,7 @@ function SeatsTab({ view: d, onChanged }: { view: FactorySeatsView; onChanged: (
         </table>
       </div>
       <p className="fa-footnote">{d.note}</p>
-      {editor !== null && <ScheduleEditor request={editor} onClose={() => setEditor(null)} onSaved={onChanged} />}
+      {editor !== null && <ScheduleEditor request={editor} onClose={() => setEditor(null)} onSaved={onSaved} />}
     </div>
   );
 }

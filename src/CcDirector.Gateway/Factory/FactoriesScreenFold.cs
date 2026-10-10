@@ -384,16 +384,17 @@ public static class FactoriesScreenFold
             LastRunText = lastText,
             LastRunTone = lastTone,
             ComputerText = seat.Computer,
-            // In the seat's own order, one per schedule that exists (the owner, 2026-10-09: edited in the factory).
+            // One per schedule the seat names, in its order, each with its Edit (the owner, 2026-10-09: edited in the
+            // factory). A missing one keeps its sentence on screen and offers nothing to edit.
             Schedules = seat.Schedules
-                .Select(id => schedules.FirstOrDefault(j => j.Id == id))
-                .Where(job => job is not null)
-                .Select(job => new FactorySeatScheduleDto
-                {
-                    JobId = job!.Id,
-                    WhenText = FactoryScheduleText.Describe(job, a.Zone),
-                    EditLabel = "Edit schedule",
-                })
+                .Select(id => schedules.FirstOrDefault(j => j.Id == id) is { } job
+                    ? new FactorySeatScheduleDto
+                    {
+                        JobId = job.Id,
+                        WhenText = FactoryScheduleText.Describe(job, a.Zone),
+                        EditLabel = "Edit schedule",
+                    }
+                    : new FactorySeatScheduleDto { JobId = id, WhenText = $"Schedule {id} is missing", EditLabel = null })
                 .ToList(),
             Talk = new FactoryTalkDto
             {
