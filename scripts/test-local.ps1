@@ -82,6 +82,11 @@
     run was aborted, or its outcome is one of the unfinished ones. None of them is a test failure
     (exit 1) and none of them is ever evidence.
 
+    THE TWO-MINUTE BUDGET IS ONE DEADLINE FROM LAUNCH, NOT TWO MINUTES PER SUITE. Until October 2026 each
+    suite was waited for in turn with its own full budget, so a suite later in the list had every earlier
+    wait on top of its own: Avalonia ran past the ceiling in 102 of 246 default runs and was never
+    stopped. Now every suite is measured against the same deadline set when they were launched.
+
     A -Parked OR -Gateway RUN NAMES A HUNG TEST. Every suite in those runs gets dotnet test's hang and
     crash detection: a test that runs longer than the hang timeout is dumped, named in a Sequence file
     in the run folder, and its host is killed, which turns "the release gate is slow" into "test X hung".
@@ -256,6 +261,10 @@ $parkedProjects = @(
 #
 # Exceeding it is not a test failure and must not be read as one - it is a statement that the suite no
 # longer belongs in the default run. Park it, and put it back the day it fits.
+#
+# ONE DEADLINE, SET WHEN THE SUITES ARE LAUNCHED. Each wait below gets only the time left on it. The
+# first version waited for each suite in turn with the full budget, which gave the last suite in the
+# list its two minutes on top of every wait before it - a ceiling that held for the first suite only.
 $BudgetSeconds = 120
 
 # A SINGLE TEST THAT RUNS THIS LONG HAS HUNG, in the -Parked and -Gateway runs that have no ceiling.
@@ -491,6 +500,7 @@ try {
     # which says how many tests there were. Judge a run by those two against a recorded baseline, never by
     # the console line. scripts/test-qualification.ps1 already judges its soak this way.
     $running = @()
+    $deadline = (Get-Date).AddSeconds($BudgetSeconds)
     foreach ($proj in $toRun) {
         $name = Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $proj)))
         $out = Join-Path $logDir "$name.log"
@@ -530,16 +540,40 @@ try {
     $failed = @()
     $overBudget = @()
     foreach ($r in $running) {
-        # Wait only up to the budget. A suite that has not finished by then is over the ceiling: kill it, so a
-        # single slow project cannot hold the whole gate, and record it separately from a real failure.
-        # -Parked and -Gateway deliberately suspend the ceiling: that run is the release gate and is EXPECTED
-        # to be slow, and a hung test in it is caught by the hang timeout instead.
+        # Wait only until the deadline set at launch - the time LEFT, not a fresh budget per suite. A suite
+        # that has not finished by then is over the ceiling: kill it, so a single slow project cannot hold
+        # the whole gate, and record it separately from a real failure. -Parked and -Gateway deliberately
+        # suspend the ceiling: that run is the release gate and is EXPECTED to be slow, and a hung test in it
+        # is caught by the hang timeout instead.
         if ($Parked -or $Gateway) {
             $r.Process.WaitForExit()
-        } elseif (-not $r.Process.WaitForExit($BudgetSeconds * 1000)) {
-            $overBudget += $r.Name
-            try { $r.Process.Kill($true) } catch { }
-            try { $r.Process.WaitForExit(10000) | Out-Null } catch { }
+        } else {
+            $remainingMs = [int] [Math]::Max(0, ($deadline - (Get-Date)).TotalMilliseconds)
+            if (-not $r.Process.WaitForExit($remainingMs)) {
+                $overBudget += $r.Name
+                # THE WHOLE TREE, WITH A TOOL THAT EXISTS HERE. "dotnet test" is a parent whose test host is a
+                # child; killing the parent alone leaves the host running. This used to call
+                # Process.Kill($true) - the "entire process tree" overload - inside an empty catch. That
+                # overload is .NET Core only: under Windows PowerShell 5.1, which is what runs this gate, it
+                # does not exist, the call threw, the catch hid it, the suite ran on after the gate had
+                # printed "were STOPPED", and nobody saw. Verified on 2026-10-10: Kill($true) threw and the
+                # parent stayed alive; taskkill /T /F ended the parent and its test host.
+                $killed = $false
+                if ($r.Process.HasExited) {
+                    # It finished in the gap between the deadline and this line; there is nothing to kill, and
+                    # taskkill would answer 128 (no such process) and be reported as a failure to stop it.
+                    $killed = $true
+                } elseif ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+                    & $env:ComSpec /d /c "taskkill /T /F /PID $($r.Process.Id) >nul 2>&1"
+                    $killed = ($LASTEXITCODE -eq 0)
+                } else {
+                    $r.Process.Kill()
+                    $killed = $true
+                }
+                if (-not $killed -or -not $r.Process.WaitForExit(10000)) {
+                    Write-Host ("  ERROR: could not stop {0} (process {1}) after the deadline - its test host may still be running. Stop it by hand before the next run." -f $r.Name, $r.Process.Id)
+                }
+            }
         }
         $summary = ""
         if (Test-Path $r.Log) {
