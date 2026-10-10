@@ -189,6 +189,8 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
                     // that page already reads. Adding them here is the acknowledgement this exact allow-list
                     // exists to demand - it went red on the day they were added, which is its whole job.
                     "turnVerdictJudgeEnabled", "turnVerdictColourEnabled",
+                    // Demo mode, the account-wide switch that blurs private text in the Cockpit (#3698).
+                    "demoMode",
                 }, properties);
                 Assert.True(root.GetProperty("mentorReportEnabled").GetBoolean());
                 // Both default OFF, and that direction is asserted rather than assumed: ON for the colour

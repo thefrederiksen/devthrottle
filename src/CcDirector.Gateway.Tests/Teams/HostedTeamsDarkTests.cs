@@ -95,7 +95,10 @@ public sealed class HostedTeamsDarkTests : IAsyncLifetime
         // A real team the person owns, so a mapped route would answer and a mapped PUT would save.
         var team = _gateway.TeamRegistry.CreateTeam(_subject, "Dark governance").Team!.TeamId;
 
-        Assert.DoesNotContain(MappedPatterns(), p => p.Contains("/governance", StringComparison.Ordinal));
+        // The TEAM's governance routes, under /teams. The Gateway also has its own governance event ledger at
+        // /gateway/governance/events, mapped whatever the Teams switch says, so "any /governance" is the wrong test.
+        Assert.DoesNotContain(MappedPatterns(),
+            p => p.StartsWith("/teams", StringComparison.Ordinal) && p.Contains("/governance", StringComparison.Ordinal));
         await AssertAnsweredAsAPathThatDoesNotExist(HttpMethod.Get, $"teams/{team}/governance", new { });
         await AssertAnsweredAsAPathThatDoesNotExist(HttpMethod.Put, $"teams/{team}/governance", new { review = new { noSelfMerge = true } });
 
