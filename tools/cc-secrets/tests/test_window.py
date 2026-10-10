@@ -17,12 +17,13 @@ import pytest
 from typer.testing import CliRunner
 
 from conftest import add_entry, new_secret
-from src import cli, entry_window, paths
+from src import cli, entry_window, paths, redact
 from src.audit import AuditLog, OwnerApproval
 from src.errors import CcSecretsError
 from src.store import KIND_SETTING, make_entry
-from src.window_actions import (MODE_ADD, MODE_EDIT, WINDOW_RECORD, FormInput, FormRequest, WindowActions,
-                                build_rows, filter_rows, last_used, relative_time)
+from src.window_actions import (MODE_ADD, MODE_EDIT, SHOW_ALL, SHOW_PASSWORDS, SHOW_SETTINGS, WINDOW_RECORD,
+                                FormInput, FormRequest, WindowActions, build_rows, filter_rows, last_used,
+                                relative_time, sort_rows)
 
 runner = CliRunner()
 APPROVAL = OwnerApproval(text=WINDOW_RECORD, session_name="")
@@ -328,3 +329,109 @@ def test_AddOverAnExistingEntry_KeepsItsVariableName(store, actions):
     assert actions.submit(_form(secret=new_secret()), MODE_ADD) is None
 
     assert store.get("devlinux").env_name == "DEVLINUX_PASSWORD"
+
+
+# --- The second round (owner's report 2026-10-10: slow, the QA email empty, forms in the wrong place) -----------
+
+def test_EditRequest_ForASetting_CarriesItsValue(store, actions):
+    store.put(make_entry("mindzie-qa-email", "", "qa@mindzie.com", [], "", True, ["run"], kind=KIND_SETTING))
+
+    assert actions.edit_request("mindzie-qa-email").setting_value == "qa@mindzie.com"
+
+
+def test_EditRequest_ForAPassword_CarriesNoValue(store, actions):
+    add_entry(store, name="devlinux")
+
+    assert actions.edit_request("devlinux").setting_value == ""
+
+
+def test_Edit_ASettingSavedUnchanged_KeepsItsValue(store, actions):
+    store.put(make_entry("mindzie-qa-email", "", "qa@mindzie.com", [], "n", True, ["run"], kind=KIND_SETTING))
+    request = actions.edit_request("mindzie-qa-email")
+
+    assert actions.submit(_form(name="mindzie-qa-email", secret=request.setting_value, setting=True, uses=("run",)),
+                          MODE_EDIT, "mindzie-qa-email") is None
+    assert store.get("mindzie-qa-email").secret.reveal() == "qa@mindzie.com"
+
+
+def _three(store):
+    add_entry(store, name="b-password", username="zed")
+    store.put(make_entry("a-setting", "amy", "host.example", [], "", True, ["run"], kind=KIND_SETTING))
+    add_entry(store, name="c-password", username="", agents=False)
+
+
+@pytest.mark.parametrize("show, names", [
+    (SHOW_ALL, ["a-setting", "b-password", "c-password"]),
+    (SHOW_PASSWORDS, ["b-password", "c-password"]),
+    (SHOW_SETTINGS, ["a-setting"]),
+])
+def test_Filter_ByKind(store, actions, show, names):
+    _three(store)
+
+    assert [r.name for r in filter_rows(actions.rows(), "", show)] == names
+
+
+def test_Filter_ByKindAndText_Together(store, actions):
+    _three(store)
+
+    assert [r.name for r in filter_rows(actions.rows(), "zed", SHOW_PASSWORDS)] == ["b-password"]
+    assert filter_rows(actions.rows(), "zed", SHOW_SETTINGS) == []
+
+
+def test_Filter_UnknownKind_Fails(store, actions):
+    with pytest.raises(ValueError):
+        filter_rows([], "", "secrets")
+
+
+@pytest.mark.parametrize("column, descending, names", [
+    ("name", False, ["a-setting", "b-password", "c-password"]),
+    ("name", True, ["c-password", "b-password", "a-setting"]),
+    ("kind", False, ["b-password", "c-password", "a-setting"]),
+    ("username", False, ["c-password", "a-setting", "b-password"]),
+    ("access", False, ["b-password", "c-password", "a-setting"]),  # "login, run" < "not allowed" < "run"
+])
+def test_Sort_ByEachColumn_TiesByName(store, actions, column, descending, names):
+    _three(store)
+
+    assert [r.name for r in sort_rows(actions.rows(), column, descending)] == names
+
+
+def test_Sort_ByLastUsed_NewestFirst_NeverUsedLast(store, actions):
+    _three(store)
+    audit = AuditLog(paths.audit_path())
+    audit.record("c-password", "run", "ok")
+    audit.record("b-password", "run", "ok")
+
+    rows = sort_rows(actions.rows(), "used", True)
+
+    assert [r.name for r in rows] == ["b-password", "c-password", "a-setting"]
+
+
+def test_Sort_UnknownColumn_Fails():
+    with pytest.raises(ValueError):
+        sort_rows([], "secret", False)
+
+
+def test_Row_SaysWhatAgentsMayDo_InWords(store, actions):
+    _three(store)
+    rows = {r.name: r for r in actions.rows()}
+
+    assert (rows["b-password"].access, rows["a-setting"].access, rows["c-password"].access) == \
+        ("login, run", "run", "not allowed")
+    assert (rows["b-password"].kind_label, rows["a-setting"].kind_label) == ("Password", "Setting")
+
+
+def test_TheWindowsReadTheStore_WithoutRebuildingTheScrubberEachTime(store, actions, monkeypatch):
+    """The cause of two seconds a click: each store read rebuilt the scrubber's needles for every secret held."""
+    for index in range(30):
+        add_entry(store, name=f"entry-{index}")
+    store.entries()
+    calls = []
+    real = redact._needle_pairs
+    monkeypatch.setattr(redact, "_needle_pairs", lambda *a: calls.append(1) or real(*a))
+
+    actions.rows()
+    actions.edit_request("entry-3")
+    actions.reveal("entry-3")
+
+    assert calls == []

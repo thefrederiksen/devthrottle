@@ -234,8 +234,14 @@ def test_Ask_HasNoParameterThatCouldCarryASecret():
 
 
 def test_FormRequest_HasNoSecretField():
+    """The one value it carries is a setting's (an email address shown in the edit form), and it refuses one for
+    a password. Ask never fills it: the agent pre-fills everything but the value."""
     fields = {f.name for f in dataclasses.fields(FormRequest)}
-    assert not any(word in field for field in fields for word in ("secret", "password", "value"))
+    assert not any(word in field for field in fields for word in ("secret", "password"))
+    assert [f for f in fields if "value" in f] == ["setting_value"]
+    with pytest.raises(ValueError):
+        FormRequest(mode=MODE_ASK, kind_setting=False, setting_value="hunter2-hunter2")
+    assert "setting_value" not in inspect.getsource(cli.ask)
 
 
 @pytest.mark.parametrize("option", ["--secret", "--password", "--value"])
