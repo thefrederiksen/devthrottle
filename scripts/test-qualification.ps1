@@ -9,6 +9,10 @@
     this repeatedly (use -Rounds, or rerun the script) until the ledger covers thousands of host
     starts.
 
+    The soak holds the release-gate lock and the Gateway suite lock (scripts\gate-lock.ps1) for its
+    whole run. If either is held when it starts, it stops at once with exit 6 naming the holder; it
+    never queues. While it holds them, every other run that includes the Gateway suite is refused.
+
 .DESCRIPTION
     What one round does:
       1. Ensures N worktrees exist under -WorkRoot, detached at the SAME commit this repo is on,
@@ -57,18 +61,11 @@ param(
 
     [string] $WorkRoot = "",
 
-    [switch] $TearDown,
-
-    # How long the parent waits for the machine-wide suite lock before giving up. The default matches
-    # the suite's own MaxWait. Raise it for overnight soaks on a busy machine. FAIRNESS NOTE: while the
-    # soak holds the lock, an ordinary run queues with ITS 45-minute refusal ticking - so on a busy
-    # fleet keep -Rounds low enough that one hold stays under about 40 minutes (one round of 2-4
-    # processes), and save multi-round invocations for quiet hours.
-    [ValidateRange(1, 720)]
-    [int] $LockWaitMinutes = 45
+    [switch] $TearDown
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'gate-lock.ps1')
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $TestProject = 'src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj'
@@ -154,36 +151,39 @@ function Read-Trx([string] $TrxPath) {
     }
 }
 
-function Acquire-SuiteLock {
-    # The parent holds the REAL machine-wide suite lock for the whole soak. The children bypass it by
-    # design - but an ordinary run from another session must never find itself overlapping them
-    # unawares, so the soak occupies the lock exactly like any other run and the fleet queues as usual.
-    $lockPath = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'cc-director\test-locks\gateway-test-suite.lock'
-    New-Item -ItemType Directory -Force (Split-Path $lockPath -Parent) | Out-Null
-    $deadline = (Get-Date).AddMinutes($LockWaitMinutes)
-    $announced = $false
-    while ($true) {
-        try {
-            $stream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate,
-                [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
-            $writer = New-Object System.IO.StreamWriter($stream)
-            $writer.WriteLine("processId=$PID")
-            $writer.WriteLine("processStartUtc=$((Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o'))")
-            $writer.WriteLine("acquiredUtc=$((Get-Date).ToUniversalTime().ToString('o'))")
-            $writer.WriteLine("session=qualification soak parent (scripts/test-qualification.ps1, issue #1156 step 4)")
-            $writer.WriteLine("machine=$env:COMPUTERNAME")
-            $writer.Flush()
-            Write-Step "Holding the machine-wide suite lock for the whole soak, so ordinary runs queue as usual."
-            return @{ Stream = $stream; Writer = $writer }
-        } catch [System.IO.IOException] {
-            if (-not $announced) {
-                $announced = $true
-                Write-Step "The suite lock is held by an ordinary run; the soak waits its turn (up to 45 minutes)."
-            }
-            if ((Get-Date) -gt $deadline) { throw "The suite lock did not free within $LockWaitMinutes minutes; rerun the soak later." }
-            Start-Sleep -Seconds 3
-        }
+function Acquire-GateLocks([string] $Commit) {
+    # The parent holds BOTH locks for the whole soak: the release-gate lock, so no gate run that includes
+    # the Gateway suite starts beside it, and the suite's own lock, so no hand-run "dotnet test" of the
+    # suite joins the children (which bypass that lock by design). A held lock is a refusal, never a
+    # queue - the same rule as scripts\test-local.ps1 and for the same reason (see scripts\gate-lock.ps1):
+    # until October 2026 this waited up to 45 minutes, and a queue hides the conflict it is in.
+    $fields = [ordered]@{
+        session = (Get-GateLockSessionName); commit = $Commit
+        command = "test-qualification.ps1 -Processes $Processes -Rounds $Rounds"; directory = $RepoRoot
     }
+    $gatePath = Get-ReleaseGateLockPath
+    $gate = Enter-GateLock $gatePath $fields
+    if ($null -eq $gate) {
+        Write-Step ("REFUSED: another run that includes the Gateway suite is in progress on this machine. Holder: " +
+            (Format-GateLockHolder (Read-GateLockHolder $gatePath)) + ". Lock file: $gatePath. Wait for it to finish and run the soak again.")
+        exit 6
+    }
+    # The first lock is released if the second cannot be taken for ANY reason - a holder, or a setup fault
+    # that throws - so a soak that stops here never leaves the release-gate lock in a shell's hands.
+    $suitePath = Get-GatewaySuiteLockPath
+    $suite = $null
+    try {
+        $suite = Enter-GateLock $suitePath $fields
+    } finally {
+        if ($null -eq $suite) { Exit-GateLock $gate }
+    }
+    if ($null -eq $suite) {
+        Write-Step ("REFUSED: a run of CcDirector.Gateway.Tests is in progress on this machine. Holder: " +
+            (Format-GateLockHolder (Read-GateLockHolder $suitePath)) + ". Lock file: $suitePath. Wait for it to finish and run the soak again.")
+        exit 6
+    }
+    Write-Step "Holding the release-gate lock and the suite lock for the whole soak; other runs are refused, not queued."
+    return @{ Gate = $gate; Suite = $suite }
 }
 
 function Get-LedgerHostStarts {
@@ -208,7 +208,7 @@ foreach ($w in $worktrees) { Build-Worktree -Path $w }
 
 # ---- rounds ----
 
-$suiteLock = Acquire-SuiteLock
+$locks = Acquire-GateLocks -Commit $commit
 $anyFailure = $false
 try {
 for ($round = 1; $round -le $Rounds; $round++) {
@@ -302,9 +302,9 @@ for ($round = 1; $round -le $Rounds; $round++) {
 }
 
 } finally {
-    $suiteLock.Writer.Dispose()
-    $suiteLock.Stream.Dispose()
-    Write-Step "Released the machine-wide suite lock."
+    Exit-GateLock $locks.Suite
+    Exit-GateLock $locks.Gate
+    Write-Step "Released the suite lock and the release-gate lock."
 }
 
 # ---- teardown ----

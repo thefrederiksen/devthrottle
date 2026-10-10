@@ -100,14 +100,21 @@ internal static class GatewayTestSuiteLock
     /// <summary>
     /// How long this run queues behind a live holder before failing loudly.
     ///
-    /// The suite takes roughly nine minutes, so forty-five minutes accommodates a queue of about four full
-    /// runs ahead of this one - which is the worst real contention observed here, four agents overlapping
-    /// on one afternoon. Beyond that the holder is far more likely stuck than busy, and the right answer is
-    /// to tell a human rather than to guess. The cost of the timeout being too short is a clear, re-runnable
-    /// error; the cost of breaking the lock instead would be a corrupted run. That asymmetry is why this
-    /// number can be wrong without being dangerous.
+    /// TWO MINUTES, SINCE OCTOBER 2026. It was forty-five, sized for a queue of four full runs, and the
+    /// queue is what went wrong: between 8 and 10 October nineteen release-gate runs each waited the full
+    /// forty-five minutes and then executed nothing - fourteen hours of gate time that proved nothing,
+    /// with up to seven gates overlapping. A queue hides the conflict it is in. The gate script now
+    /// takes a release-gate lock BEFORE it builds and refuses at once when one is held
+    /// (scripts/gate-lock.ps1), so by the time this initializer runs the only holder it can meet is a
+    /// hand-run "dotnet test" of this suite that started in the last few minutes. Two minutes lets a
+    /// short filtered run of that kind finish; anything longer is a conflict to show, not to hide.
+    /// Phase 2 of the release-process work removes this lock altogether.
+    ///
+    /// The cost of the wait being too short is a clear, re-runnable error; the cost of breaking the
+    /// lock instead would be a corrupted run. That asymmetry is why this number can be wrong without
+    /// being dangerous.
     /// </summary>
-    internal static readonly TimeSpan MaxWait = TimeSpan.FromMinutes(45);
+    internal static readonly TimeSpan MaxWait = TimeSpan.FromMinutes(2);
 
     /// <summary>Pause between acquisition attempts while queued behind a live holder.</summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(3);
