@@ -798,10 +798,13 @@ def show_list(actions: WindowActions) -> None:
     placed_x, placed_y = root.winfo_x(), root.winfo_y()
     placed_width, placed_height = root.winfo_width(), root.winfo_height()
     monitor = window_layout.monitor_at(placed_x + placed_width // 2, placed_y + title_bar, screens)
-    # Now the title bar can be measured, the minimum can allow for it. On a monitor shorter than the window
+    # Now the title bar can be measured, the minimum can allow for it: on a monitor shorter than the window
     # needs, a minimum as tall as the whole monitor left no room for the frame's title bar and nothing could
-    # trim it back. This can only lower the minimum, so it never resizes the window.
-    smallest = window_layout.minimum_size(needed, (LIST_MIN_WIDTH, LIST_MIN_HEIGHT), monitor, title_bar)
+    # trim it back. The smaller of the two is kept, so a window the owner is already looking at is never grown
+    # - the monitor it was placed on can be a different, larger one than the monitor the first minimum was
+    # measured against, and on its own the second measurement would then be the bigger of the two.
+    with_title_bar = window_layout.minimum_size(needed, (LIST_MIN_WIDTH, LIST_MIN_HEIGHT), monitor, title_bar)
+    smallest = (min(smallest[0], with_title_bar[0]), min(smallest[1], with_title_bar[1]))
     root.minsize(*smallest)
     fitted = window_layout.fit_height(placed_y, title_bar, placed_height, monitor, smallest[1])
     if fitted != placed_height:

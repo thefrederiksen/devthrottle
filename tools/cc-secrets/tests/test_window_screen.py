@@ -333,6 +333,29 @@ def test_NothingIsCutOff_AtAnySizeTheListAllows(window):
     assert (root.winfo_width(), root.winfo_height()) == smallest, "the window system let it go below the minimum"
 
 
+def test_TheTableAsksForFewEnoughRows_ThatTheHeightFloorStillGoverns(window):
+    """TABLE_ROWS_WANTED is what the table ASKS for, not what it shows - it stretches to fill the window. Left at
+    Tk's default of ten it asked for 369 of the 542 pixels the window claimed to need, which raised the minimum
+    height above the floor the owner set. The floor must be the thing that decides the height."""
+    root, listing = window
+    root.update_idletasks()
+
+    assert root.winfo_reqheight() <= entry_window.LIST_MIN_HEIGHT, (
+        f"the window says it needs {root.winfo_reqheight()} pixels of height, above the "
+        f"{entry_window.LIST_MIN_HEIGHT} floor, so the floor no longer decides it")
+    smallest = window_layout.minimum_size((root.winfo_reqwidth(), root.winfo_reqheight()),
+                                          (entry_window.LIST_MIN_WIDTH, entry_window.LIST_MIN_HEIGHT),
+                                          entry_window.monitors(root)[0])
+    assert smallest[1] == entry_window.LIST_MIN_HEIGHT
+
+    root.minsize(*smallest)
+    root.geometry(f"{smallest[0]}x{smallest[1]}")
+    root.update()
+    assert cut_off(root) == []
+    assert sum(1 for iid in listing._tree.get_children() if listing._tree.bbox(iid)) >= 4, \
+        "a list that shows fewer than four rows at its smallest is not worth opening"
+
+
 def test_TheListLeftLowOnTheScreen_IsNotTrimmedWhileItStillFits(store, tk_root):
     """It is trimmed only by as much as the room at the place it ACTUALLY got, which is not always the place it
     asked for: macOS moves a window up on its first showing to keep it clear of the Dock. Measured from the
