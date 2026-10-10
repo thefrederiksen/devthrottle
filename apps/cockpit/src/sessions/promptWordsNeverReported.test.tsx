@@ -1,15 +1,19 @@
 // @vitest-environment jsdom
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { useState } from "react";
 
-// NEVER THE PROMPT'S WORDS, in the Cockpit composer (the Error Logging mission, issue #3675). The twin of the
-// phone's apps/mobile/src/promptWordsNeverReported.test.tsx: the send sites in SessionComposer.tsx are DERIVED
-// from the code (promptSendSites.testkit.ts), each is driven with a unique marker while every Gateway call fails,
-// and no body posted to /client-errors may carry the marker. A derived site with no driver fails by name; a run
-// that derives none fails as a broken scan.
+// NEVER THE PROMPT'S WORDS, anywhere in the Cockpit (the Error Logging mission, issue #3675). The twin of the
+// phone's apps/mobile/src/promptWordsNeverReported.test.tsx: every prompt-send site in apps/cockpit/src is DERIVED
+// from the code (promptSendSites.testkit.ts) - the composer, the queue's edit, the Voice tab, the Fleet Manager's
+// quick prompts and the dictation resume at start-up - each is driven with a unique marker while every Gateway call
+// fails, and no body posted to /client-errors may carry the marker. A derived site with no driver fails by name; a
+// run that derives none fails as a broken scan.
 //
 // Only what jsdom cannot provide is faked: the dictation dialog (a microphone) and the dictation store (IndexedDB).
+// The Fleet Manager's setting and page answers are faked too, because its quick prompts exist only on a running
+// Fleet Manager whose page offers them - here the quick prompt's words ARE the marker.
 
 const MARKER = "zq-prompt-marker-cockpit-4b81-never-in-a-report";
 
@@ -45,9 +49,30 @@ vi.mock("@devthrottle/client-core/dictation/DictationDialog", () => ({
   ),
 }));
 
+vi.mock("@devthrottle/client-core/settings/fleetManagerClient", async () => {
+  const { placement } = await import("../fleetmanager/fixtures");
+  return {
+    getFleetManagerPlacement: vi.fn(async () => placement("running")),
+    startFleetManager: vi.fn(async () => placement("running")),
+    restartFleetManager: vi.fn(async () => placement("running")),
+  };
+});
+vi.mock("@devthrottle/client-core/fleetmanager/pageClient", async () => {
+  const { morningPage } = await import("../fleetmanager/fixtures");
+  return {
+    getFleetManagerPage: vi.fn(async () => ({ ...morningPage(), quickPrompts: [{ label: "fake-quick-prompt", words: `${MARKER} quick` }] })),
+    answerFleetOutcome: vi.fn(async () => undefined),
+  };
+});
+
 import { promptSendSites } from "@devthrottle/client-core/errors/promptSendSites.testkit";
+import { resumePendingDictations } from "@devthrottle/client-core/dictation/backgroundSend";
+import { useVoiceMode } from "@devthrottle/client-core/voice/useVoiceMode";
 import { resetReportingForTests, setReportingComponent } from "@devthrottle/client-core/errors/reportClientError";
 import { SessionComposer } from "./SessionComposer";
+import { QueuePanel } from "./QueuePanel";
+import { FleetManagerView } from "../fleetmanager/FleetManagerView";
+import { FM_SESSION } from "../fleetmanager/fixtures";
 
 const SID = "sess-42";
 
@@ -114,13 +139,71 @@ const DRIVERS: Record<string, () => Promise<void>> = {
     fireEvent.click(await screen.findByRole("button", { name: "fake-dialog-send-audio" }));
     await dictationTried();
   },
+  "apps/cockpit/src/sessions/QueuePanel.tsx#editQueueItem#saveEdit": async () => {
+    render(
+      <QueuePanel sessionId={SID} queue={[{ id: "q-1", text: "queued", createdAt: "2026-10-10T00:00:00Z" }]} onQueue={() => {}} onPop={() => {}} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByDisplayValue("queued"), { target: { value: `${MARKER} edited` } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(document.querySelector(".qpanel-error")).not.toBeNull());
+  },
+  "apps/cockpit/src/sessions/VoiceTab.tsx#useVoiceMode#VoiceTab": async () => {
+    const { result } = renderHook(() => useVoiceMode(SID));
+    await act(async () => {
+      await result.current.onRespondSend(`${MARKER} spoken reply`);
+    });
+    expect(result.current.error).toBeTruthy();
+    const before = fetchMock.mock.calls.length;
+    act(() =>
+      result.current.onRespondSendAudio({
+        sentAt: Date.now(),
+        blob: new Blob(["clip"]),
+        recordedMs: 1000,
+        prefixText: `${MARKER} earlier`,
+        surface: "cockpit",
+      } as never),
+    );
+    await waitFor(() => expect(fetchMock.mock.calls.slice(before).some(([u]) => String(u).startsWith("/dictation"))).toBe(true));
+  },
+  "apps/cockpit/src/fleetmanager/FleetManagerView.tsx#sendTypedPrompt#sendQuick": async () => {
+    render(
+      <MemoryRouter initialEntries={["/fleet-manager"]}>
+        <FleetManagerView />
+      </MemoryRouter>,
+    );
+    const quick = await screen.findByRole("button", { name: "fake-quick-prompt" });
+    await waitFor(() => expect((quick as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(quick);
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([u]) => String(u).includes(`/sessions/${FM_SESSION}/`))).toBe(true),
+    );
+    await waitFor(() => expect(document.querySelector(".fmp-bar-bad")).not.toBeNull());
+  },
+  "apps/cockpit/src/AppShell.tsx#resumePendingDictations#ShellFrame": async () => {
+    pending.set("pending-1", {
+      id: "pending-1",
+      sessionId: SID,
+      blob: new Blob(["clip"]),
+      recordedMs: 1000,
+      surface: "cockpit-send",
+      before: `${MARKER} before`,
+      after: `${MARKER} after`,
+      prefix: `${MARKER} prefix`,
+      createdAt: Date.now(),
+      sentAt: Date.now(),
+    });
+    const before = fetchMock.mock.calls.length;
+    await resumePendingDictations();
+    await waitFor(() => expect(fetchMock.mock.calls.slice(before).some(([u]) => String(u).startsWith("/dictation"))).toBe(true));
+  },
 };
 
-describe("no prompt-send path in the Cockpit composer puts the prompt's words into an error report", () => {
-  const sites = promptSendSites(["apps/cockpit/src/sessions/SessionComposer.tsx"]);
+describe("no prompt-send path in the Cockpit puts the prompt's words into an error report", () => {
+  const sites = promptSendSites(["apps/cockpit/src"]);
 
   it("derives the send sites from the code, and every one has a driver", () => {
-    console.log(`[promptWordsNeverReported] cockpit composer: ${sites.length} prompt-send sites derived: ${sites.map((s) => s.id).join(", ")}`);
+    console.log(`[promptWordsNeverReported] cockpit: ${sites.length} prompt-send sites derived: ${sites.map((s) => s.id).join(", ")}`);
     expect(sites.length).toBeGreaterThan(0);
     const derived = sites.map((s) => s.id);
     expect(derived.filter((id) => !(id in DRIVERS)), "sites with no driver - add one").toEqual([]);
@@ -139,7 +222,7 @@ describe("no prompt-send path in the Cockpit composer puts the prompt's words in
       cleanup();
       exercised++;
     }
-    console.log(`[promptWordsNeverReported] cockpit composer: exercised ${exercised} sites, captured ${reports.length} report bodies`);
+    console.log(`[promptWordsNeverReported] cockpit: exercised ${exercised} sites, captured ${reports.length} report bodies`);
     expect(exercised).toBe(sites.length);
     expect(reports.length).toBeGreaterThan(0);
     for (const body of reports) expect(body).not.toContain(MARKER);
