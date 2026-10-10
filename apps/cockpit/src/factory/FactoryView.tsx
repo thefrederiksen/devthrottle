@@ -51,6 +51,7 @@ export function FactoryView() {
 
   useScrollToHash(view.data !== null);
 
+  // error-reported-by: useView
   if (view.error !== null) return <ErrorBanner message={view.error} onRetry={view.reload} />;
   if (view.data === null) return <LoadingState />;
   const page = view.data;
@@ -115,6 +116,7 @@ export function FactoryView() {
       {tab === "floor" && <FactoryFloorPanel factory={page.id} full />}
       {tab === "seats" &&
         (seats.error !== null ? (
+          // error-reported-by: useView
           <ErrorBanner message={seats.error} onRetry={seats.reload} />
         ) : seats.data === null ? (
           <LoadingState />

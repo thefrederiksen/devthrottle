@@ -77,6 +77,7 @@ export function ActivityTab({ fixedFactory }: { fixedFactory?: string }) {
   const view = useView<FactoryActivityView>((s) => getFactoryActivity(q, s), key, "load the activity");
   const apply = (next: FactoryQuery) => navigate(recordAddress("activity", next, fixedFactory));
 
+  // error-reported-by: useView
   if (view.error !== null) return <ErrorBanner message={view.error} onRetry={view.reload} />;
   if (view.data === null) return <LoadingState />;
   const d = view.data;
@@ -113,6 +114,7 @@ export function ReportsTab({ fixedFactory }: { fixedFactory?: string }) {
   const view = useView<FactoryReportView>((s) => getFactoryReports(q, s), key, "load the report");
   const apply = (next: FactoryQuery) => navigate(recordAddress("reports", next, fixedFactory));
 
+  // error-reported-by: useView
   if (view.error !== null) return <ErrorBanner message={view.error} onRetry={view.reload} />;
   if (view.data === null) return <LoadingState />;
   const d = view.data;

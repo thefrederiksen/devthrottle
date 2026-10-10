@@ -61,7 +61,13 @@ type TeamPlanAnswer = { kind: "offered" } | { kind: "not-offered" } | { kind: "u
 
 /** The Team plan answer for the team on screen; null while it is first read. `retry` reads it again, keeping the last
  *  answer on screen until the new one lands (`retrying`), so the tab does not drop out of the strip and come back. */
-function useTeamPlanAnswer(teamId: string | null): { answer: TeamPlanAnswer | null; retrying: boolean; retry: () => void } {
+interface TeamPlanRead {
+  answer: TeamPlanAnswer | null;
+  retrying: boolean;
+  retry: () => void;
+}
+
+function useTeamPlanAnswer(teamId: string | null): TeamPlanRead {
   const [held, setHeld] = useState<{ teamId: string; attempt: number; answer: TeamPlanAnswer } | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -134,6 +140,7 @@ export function SettingsView() {
             plan.retrying ? (
               <LoadingState message="Reading the team's plan again..." />
             ) : (
+              // error-reported-by: useTeamPlanAnswer
               <ErrorBanner message={teamPlan.error} onRetry={plan.retry} />
             )
           ) : (

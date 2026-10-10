@@ -13,7 +13,7 @@ import { renameSession } from "@devthrottle/client-core/fleet/fleetClient";
 import { useSnoozeOptions } from "@devthrottle/client-core/settings/snoozeOptions";
 import { buildSnoozeMenu } from "@devthrottle/client-core/settings/snoozeMenu";
 import { ConfirmDialog, useDismissOnBackdrop } from "../components";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { describeAndReport, reportShownError } from "@devthrottle/client-core/errors/reportClientError";
 import { useStopSession } from "./StopSessionProvider";
 import { runHandOver } from "@devthrottle/client-core/fleetmanager/handOverClient";
 import { MessageLinkDialog } from "./MessageLinkDialog";
@@ -303,7 +303,7 @@ export function SessionMenu({ session, onClosed, variant = "page" }: SessionMenu
     const outcome = await runHandOver(sid, ownerChange.to);
     setOwnerBusy(false);
     if (outcome.ok) setOwnerNote(outcome.sentence);
-    else setError(outcome.error);
+    else setError(reportShownError(SURFACE, "hand the session over", outcome.error, { sessionId: sid }, outcome.cause));
   }, [sid, ownerChange]);
 
   return (

@@ -36,11 +36,17 @@ export function resetFactorySwitchCache(): void {
   cached = null;
 }
 
+export interface FactorySwitchAnswer {
+  state: FactorySwitchState;
+  howToStart: string | null;
+  error: string | null;
+}
+
 // `enabled` false asks nothing (a Collaborator's three pages have no Factory Agents rail entry; devthrottle_internal
 // #2306, review finding F2).
 // `error` is the sentence to show, already reported when the failure was caught - so a page that re-renders never
 // reports the same failure twice.
-export function useFactorySwitch(enabled = true): { state: FactorySwitchState; howToStart: string | null; error: string | null } {
+export function useFactorySwitch(enabled = true): FactorySwitchAnswer {
   const [answer, setAnswer] = useState<FactoryAgentsSwitch | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {

@@ -47,7 +47,6 @@ vi.mock("@devthrottle/client-core/fleetmanager/standingClient", () => ({
 }));
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   reportClientError: vi.fn(),
-  backgroundRecovered: vi.fn(),
   describeAndReport: (_s: string, _a: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
   reportShownError: (_s: string, _a: string, message: string) => message,
   backgroundRecovered: () => {},

@@ -8,6 +8,7 @@ import { useFactorySwitch } from "./useFactorySwitch";
 // hosted one, so the Cockpit never writes it (rule 7).
 export function FactoryAreaGate({ children }: { children: ReactNode }) {
   const { state, howToStart, error } = useFactorySwitch();
+  // error-reported-by: useFactorySwitch
   if (error !== null) return <ErrorBanner message={error} />;
   if (state === "unknown") return <LoadingState />;
   if (state === "off") {

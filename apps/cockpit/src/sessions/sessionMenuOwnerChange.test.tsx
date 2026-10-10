@@ -14,6 +14,11 @@ vi.mock("@devthrottle/client-core/api/client", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("@devthrottle/client-core/api/client");
   return { ...actual, holdSession: vi.fn(), getHandover: vi.fn() };
 });
+const reported = vi.hoisted(() => vi.fn((_s: string, _a: string, message: string) => message));
+vi.mock("@devthrottle/client-core/errors/reportClientError", async () => {
+  const actual = await vi.importActual<Record<string, unknown>>("@devthrottle/client-core/errors/reportClientError");
+  return { ...actual, reportShownError: reported };
+});
 vi.mock("@devthrottle/client-core/settings/snoozeOptions", () => ({ useSnoozeOptions: () => null }));
 vi.mock("./StopSessionProvider", () => ({ useStopSession: () => ({ openStop: vi.fn() }) }));
 
@@ -56,7 +61,8 @@ describe("the session menu's change of owner", () => {
   });
 
   it("shows a refusal in the Gateway's words", async () => {
-    hand.run.mockResolvedValue({ ok: false, error: "Its Director is older than hand over. (fake)", cause: new Error("fake") });
+    const refusal = new Error("fake");
+    hand.run.mockResolvedValue({ ok: false, error: "Its Director is older than hand over. (fake)", cause: refusal });
     render(<SessionMenu session={session(handBack)} variant="rail" />);
     openMenu();
 
@@ -64,6 +70,8 @@ describe("the session menu's change of owner", () => {
 
     await waitFor(() => expect(screen.getByText("Its Director is older than hand over. (fake)")).toBeTruthy());
     expect(screen.queryByRole("status")).toBeNull();
+    // The sentence shown is the one reported, with the session and the original error.
+    expect(reported).toHaveBeenCalledWith("cockpit-session-menu", "hand the session over", "Its Director is older than hand over. (fake)", { sessionId: "sess-owned-1" }, refusal);
   });
 
   it("offers nothing when the Gateway offers nothing", () => {

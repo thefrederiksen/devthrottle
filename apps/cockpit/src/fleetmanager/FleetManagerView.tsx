@@ -282,7 +282,7 @@ export function FleetManagerView() {
         />
       )}
       {standingState.error !== null && (standingShown || mistakeOpen) && (
-        // error-reported-by: fleetStandingErrorSentence
+        // error-reported-by: createPollingStore
         <div className="fmp-bar fmp-bar-bad" role="alert">
           {standingState.error}
         </div>
@@ -336,7 +336,7 @@ export function FleetManagerView() {
               </div>
             )}
             {page.error !== null && (
-              // error-reported-by: fleetManagerPageErrorSentence
+              // error-reported-by: createPollingStore
               <div className="fmp-region-error" role="alert">
                 {page.error}
               </div>

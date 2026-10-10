@@ -61,6 +61,7 @@ export function MentorView() {
   const { status, current, resolving, error } = useCurrentTeam();
 
   if (status === "loading" || resolving) {
+    // error-reported-by: CurrentTeamProvider
     if (status === "error" && error !== null) return <ErrorBanner message={error} />;
     return <LoadingState message="Loading the Mentor's page..." />;
   }
