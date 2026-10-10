@@ -363,26 +363,6 @@ public sealed class GatewayHost : IAsyncDisposable
 
     /// <summary>The account's confirmed lessons as the one block every Fleet Manager is given (issue #3559), read now,
     /// or null when it has none.</summary>
-    // A factory's Archive and Restore switch its schedules off and on. A window schedule switched on is given its minute
-    // the same way a save gives it one; without that, one that was never placed came back with no next run. One whose
-    // window has no workable minute is still switched on, keeping whatever minute it had, and the log says why.
-    private CronJobDto? SetFactoryScheduleEnabled(TenantId tenant, string id, bool enabled)
-    {
-        string? placed = null;
-        if (enabled && _cronJobs.Get(tenant, id) is { } job && CronSchedule.IsWindow(job.ScheduleKind))
-        {
-            var all = _cronJobs.ListAll(tenant);
-            var lengths = new Running.CronRunRecordReader(_cronRuns, _sessionHistory.EndingsOf)
-                .RunLengthsOf(all.Select(j => j.Id).ToList());
-            var (expression, error) = WindowSchedule.PlaceAgain(job, all, lengths, DateTime.UtcNow);
-            placed = expression;
-            FileLog.Write(expression is null
-                ? $"[GatewayHost] SetFactoryScheduleEnabled: window {id} '{job.Name}' could not be placed, kept as it was: {error}"
-                : $"[GatewayHost] SetFactoryScheduleEnabled: window {id} '{job.Name}' placed: {expression}");
-        }
-        return _cronJobs.SetEnabled(tenant, id, enabled, placed);
-    }
-
     private string? FleetManagerLessonsBlock(TenantId tenant)
         => Fleet.FleetManagerLessons.Build(_fleetPreferences!.ConfirmedLessons(tenant));
 
@@ -5006,7 +4986,12 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             sources: factoriesScreenSources,
             appendRows: (tenant, rows, actor) => FactoryActivity.Append(tenant, rows, actor),
-            setScheduleEnabled: SetFactoryScheduleEnabled);
+            setScheduleEnabled: (tenant, id, enabled) => _cronJobs.SetEnabled(tenant, id, enabled),
+            // A window schedule Restore switched on is given its minute the way a save gives it one.
+            placeWindows: (tenant, switchedOn) => WindowRestorePlacement.PlaceSwitchedOn(_cronJobs, tenant,
+                switchedOn.Select(j => j.Id).ToList(),
+                ids => new Running.CronRunRecordReader(_cronRuns, _sessionHistory.EndingsOf).RunLengthsOf(ids),
+                DateTime.UtcNow));
         // The Talk button (Factories screen mission, phase C): a session seated as one seat, started down the same
         // path a person's New Session takes, built from the same stores GatewayEndpoints.Map was handed above.
         var talkSpawnDoor = new Api.DirectorSpawnDoor(_tenantBoundary, Registry, _sessionHistory.FactoryOf, SendCommandAsync,

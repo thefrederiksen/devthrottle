@@ -115,9 +115,10 @@ public sealed class CronEngine
             ct.ThrowIfCancellationRequested();
             try
             {
-                // A window schedule promises to be done by its deadline. A fire found after that moment - the Gateway
-                // was down when it was due - is not started late; the schedule moves on to its next run, and its
-                // last status says so.
+                // A window schedule promises to be done by its deadline. A fire the sweep reaches after that moment -
+                // the Gateway stayed up but the sweep came late, as after the machine slept - is not started late; the
+                // schedule moves on to its next run, and its last status says so. (A Gateway restart already moves
+                // every schedule on from now, so a fire missed while it was down never reaches here.)
                 if (WindowSchedule.DeadlineFor(job, job.NextRunUtc ?? now) is { } deadline && now >= deadline)
                 {
                     var next = CronSchedule.ComputeNextRunUtc(job, now);

@@ -82,7 +82,7 @@ public sealed class CronEngineTests : IDisposable
         var starter = new RecordingStarter();
         var created = store.Create(WindowJob(deadline: true));
         Assert.NotNull(created.NextRunUtc);
-        // The Gateway was down from before 02:00 until 05:00 - an hour past the 04:00 deadline.
+        // The sweep comes round at 05:00 (the machine slept through 02:00) - an hour past the 04:00 deadline.
         var clock = new FakeClock(created.NextRunUtc.Value.AddHours(3));
 
         var fired = await Engine(store, history, starter, clock).EvaluateDueAsync(CancellationToken.None);
@@ -103,7 +103,7 @@ public sealed class CronEngineTests : IDisposable
         var history = NewHistory();
         var starter = new RecordingStarter();
         var created = store.Create(WindowJob(deadline: true));
-        // Back at 03:00, before the 04:00 deadline.
+        // The sweep comes round at 03:00, before the 04:00 deadline.
         var clock = new FakeClock(created.NextRunUtc!.Value.AddHours(1));
 
         var fired = await Engine(store, history, starter, clock).EvaluateDueAsync(CancellationToken.None);

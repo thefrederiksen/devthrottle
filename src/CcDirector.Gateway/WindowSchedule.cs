@@ -208,7 +208,7 @@ public static class WindowSchedule
     /// <summary>
     /// The deadline a window schedule's fire due at <paramref name="scheduledUtc"/> must be done by: the first time the
     /// deadline's clock time comes round after that minute. Null when the schedule is not a window schedule or has no
-    /// deadline. A fire found after this moment - a catch-up after the Gateway was down - is not started.
+    /// deadline. A fire the engine's sweep reaches after this moment is not started.
     /// </summary>
     public static DateTime? DeadlineFor(CronJobDto job, DateTime scheduledUtc)
     {

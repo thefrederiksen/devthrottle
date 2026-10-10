@@ -866,7 +866,7 @@ def delete_job(job_id: str) -> None:
         return
     axi_cli.write_lines(f"Deleted schedule {job_id}.")
     # The Gateway's warning when window schedules ran after this one: they keep running but cannot be placed again.
-    warning = (answer or {}).get("warning")
+    warning = answer.get("warning")
     if warning:
         axi_cli.write_lines(f"  WARNING:   {axi_cli.ascii_text(warning)}")
     axi_cli.print_next([_FIND_A_SCHEDULE, _CREATE_USAGE])

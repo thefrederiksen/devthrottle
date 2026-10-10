@@ -43,6 +43,9 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
 
     /// <summary>Every switch the routes asked of the schedule store, in order.</summary>
     private readonly List<(string Id, bool Enabled)> _switches = new();
+    // What Restore asked to be placed, with every switch already made at that moment, and the sentences it is answered.
+    private readonly List<(List<string> Ids, int SwitchesSoFar)> _placements = new();
+    private readonly List<string> _unplaced = new();
 
     public enum Caller { OwnerBrowser, OwnerPhone, SessionKey, DirectorDeviceKey, MachineToken }
 
@@ -133,6 +136,11 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
                 if (!_schedules.TryGetValue(id, out var job)) return null;
                 job.Enabled = enabled;
                 return Copy(job);
+            },
+            placeWindows: (_, switchedOn) =>
+            {
+                _placements.Add((switchedOn.Select(j => j.Id).ToList(), _switches.Count));
+                return _unplaced.ToList();
             });
 
         await app.StartAsync();
@@ -319,6 +327,27 @@ public sealed class FactoryOwnerActionEndpointTests : IAsyncDisposable
 
         Assert.Equal(HttpStatusCode.BadRequest, again.StatusCode);
         Assert.Equal("Website Business is already archived.", await ErrorOf(again));
+    }
+
+    [Fact]
+    public async Task Restore_PlacesItsWindowSchedulesOnceAllAreOn_AndSaysWhichCouldNotBeGivenATime()
+    {
+        Schedule("cj_ceo", "Website - Malik Grant - morning run", enabled: true);
+        Schedule("cj_send", "Website - Sender - send", enabled: true);
+        await StartAsync();
+        Assert.Equal(HttpStatusCode.OK, (await Post("archive", new FactoryOwnerActionRequest { Schedules = Page().Archive!.Schedules })).StatusCode);
+        _switches.Clear();
+        _unplaced.Add("'Website - Sender - send' is switched on but could not be given a time to run: no minute fits.");
+
+        var response = await Post("restore", new FactoryOwnerActionRequest { Schedules = Page().Restore!.Schedules });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        // Asked once, with both schedules, after both were switched on.
+        var placement = Assert.Single(_placements);
+        Assert.Equal(new[] { "cj_ceo", "cj_send" }, placement.Ids);
+        Assert.Equal(2, placement.SwitchesSoFar);
+        var result = (await response.Content.ReadFromJsonAsync<FactoryOwnerActionResultDto>(Web))!;
+        Assert.EndsWith(" 'Website - Sender - send' is switched on but could not be given a time to run: no minute fits.", result.Text);
     }
 
     [Fact]
