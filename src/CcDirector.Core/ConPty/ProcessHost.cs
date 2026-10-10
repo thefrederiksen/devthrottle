@@ -102,8 +102,8 @@ public sealed class ProcessHost : IDisposable
                 lpAttributeList = attributeList
             };
 
-            // Build a Unicode environment block with CLAUDECODE removed so that
-            // Claude Code launched inside the terminal does not see itself as nested.
+            // Build a Unicode environment block: the Director's environment less what no session may
+            // inherit (Sessions.InheritedSessionEnvironment), then this session's own variables.
             var envBlock = IntPtr.Zero;
             try
             {

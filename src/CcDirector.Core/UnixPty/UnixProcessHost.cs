@@ -353,13 +353,13 @@ public sealed class UnixProcessHost : IDisposable
     }
 
     /// <summary>
-    /// Build the child environment: inherit the parent's, force TERM, apply any
-    /// caller overrides, and strip parent-agent variables (same list as the
-    /// Windows ProcessHost) so a Director that was itself launched from inside a
-    /// terminal agent does not poison its children. In particular an inherited
-    /// CLAUDE_CODE_CHILD_SESSION=1 makes interactive Claude Code treat itself as
-    /// a subagent and silently skip writing its session transcript, which broke
-    /// session history on macOS. Returns a null-terminated KEY=VALUE array.
+    /// Build the child environment: inherit the parent's less what no session may inherit (the one
+    /// rule in <see cref="Sessions.InheritedSessionEnvironment"/>, shared with the Windows ProcessHost),
+    /// force TERM, then apply the caller's overrides. The strip matters: an inherited
+    /// CLAUDE_CODE_CHILD_SESSION=1 makes interactive Claude Code treat itself as a subagent and silently
+    /// skip writing its session transcript, which broke session history on macOS, and an inherited
+    /// factory folder gave a session in no factory another factory's notes. Returns a null-terminated
+    /// KEY=VALUE array.
     /// </summary>
     internal static string?[] BuildEnvironment(Dictionary<string, string>? overrides)
     {
