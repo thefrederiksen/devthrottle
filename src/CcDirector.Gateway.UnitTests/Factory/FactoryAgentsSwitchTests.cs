@@ -21,7 +21,7 @@ namespace CcDirector.Gateway.Tests.Factory;
 /// it on for your account only". So: off for every account by default, on only for an account an administrator
 /// switched on, and every factory route - not just the Cockpit's switch question - refuses for an account that is off.
 /// </summary>
-[Collection(AdminServiceTokenCollection.Name)]
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class FactoryAgentsSwitchTests : IDisposable
 {
     private const string Token = "test-admin-service-token-fa01";

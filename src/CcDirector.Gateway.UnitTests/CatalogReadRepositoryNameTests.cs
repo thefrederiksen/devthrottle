@@ -27,11 +27,13 @@ namespace CcDirector.Gateway.Tests;
 /// <c>Path.GetFileName</c> already reads both separators and understands a drive letter, so the old code was
 /// right there and no test can make the defect appear on that platform.
 ///
-/// The Director root is redirected to a throwaway directory because <c>repos-overview</c> reads the saved
-/// session history and handover documents under it; this class is in the DirectorRoot collection so that
-/// redirect cannot race the other tests that move the same root.
+/// The registry file lives in a folder of this test's own. The Director root is NOT moved: this class used to
+/// point the process-wide CC_DIRECTOR_ROOT at that folder and delete the folder afterwards, under a collection
+/// name defined in another assembly that protected nothing, and TeamMentorEndpointsTests and
+/// TurnVerdictFeedbackRouteTests failed with "SQLite Error 14: unable to open database file" at paths inside it.
+/// The overview lists the REGISTRY's repositories and only enriches them from the root, and the registry is
+/// handed its file, so the assembly-wide throwaway root that TestStorageRootRedirect sets is all it needs.
 /// </summary>
-[Collection("DirectorRoot")]
 public sealed class CatalogReadRepositoryNameTests : IDisposable
 {
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
@@ -40,15 +42,12 @@ public sealed class CatalogReadRepositoryNameTests : IDisposable
     private const string WindowsRepositoryPath = @"D:\ReposFred\devthrottle_internal";
 
     private readonly string _root;
-    private readonly string? _previousRoot;
     private readonly RepositoryRegistry _registry;
 
     public CatalogReadRepositoryNameTests()
     {
-        _previousRoot = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
         _root = Path.Combine(Path.GetTempPath(), "ccd-catalog-name-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_root);
-        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _root);
 
         // The registry file is written by hand rather than through TryAdd, because TryAdd stores a name and
         // the fallback under test is what happens when the stored name is empty - which is what a registry
@@ -62,7 +61,6 @@ public sealed class CatalogReadRepositoryNameTests : IDisposable
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", _previousRoot);
         try { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
     }
 

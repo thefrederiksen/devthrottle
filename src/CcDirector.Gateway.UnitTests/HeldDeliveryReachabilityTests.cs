@@ -498,7 +498,13 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         // the permanent failure. The outcome read answers the same 422 the complete path gives, and the
         // owner's Retry re-enters PENDING and is owned again - no dead end.
         if (!OperatingSystem.IsWindows()) return;   // the failing-ffmpeg transcode path below is Windows-shaped
-        var (driver, _) = NewDriver();
+        // The clip is over-budget non-WAV, so the pipeline transcodes it - and the ffmpeg this driver is HANDED
+        // cannot decode anything, which is the REAL permanent path: a clip ffmpeg cannot decode is a permanent
+        // failure, never retried forever. The transcoder is passed in; nothing here touches the process environment,
+        // which the other three threads of this assembly are reading.
+        var failingFfmpeg = Path.Combine(_root, "failing-ffmpeg.bat");
+        File.WriteAllText(failingFfmpeg, "@exit /b 1\r\n");
+        var (driver, _) = NewDriver(transcoder: new FfmpegAudioTranscoder(failingFfmpeg));
         var sid = Seat();
         var uploadId = await StagedBigNonWavClipAsync(sid);
         _pushed.UnregisterConnection(TenantId.Local, DirectorId, "conn-1");
@@ -508,26 +514,13 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         Assert.Equal(DeliverySendAndAsk.WaitingForDirectorState, first.Body.GetProperty("directorState").GetString());
         Assert.Equal(0, _transcriber.Calls);
 
-        // The tunnel comes back; the clip is over-budget non-WAV, so the pipeline transcodes it - and the
-        // ffmpeg the test points at cannot decode anything, which is the REAL permanent path: a clip
-        // ffmpeg cannot decode is a permanent failure, never retried forever.
-        var failingFfmpeg = Path.Combine(_root, "failing-ffmpeg.bat");
-        File.WriteAllText(failingFfmpeg, "@exit /b 1\r\n");
-        var prevFfmpeg = Environment.GetEnvironmentVariable("CCDIRECTOR_FFMPEG");
-        Environment.SetEnvironmentVariable("CCDIRECTOR_FFMPEG", failingFfmpeg);
-        try
-        {
-            _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-2");
-            Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-2", ++_pushedSeq, new[] { Session(sid) }));
-            driver.OnSessionsArrived(TenantId.Local, DirectorId);
-            var deadline = DateTime.UtcNow.AddSeconds(30);
-            while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } && DateTime.UtcNow < deadline)
-                await Task.Delay(50);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("CCDIRECTOR_FFMPEG", prevFfmpeg);
-        }
+        // The tunnel comes back.
+        _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-2");
+        Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-2", ++_pushedSeq, new[] { Session(sid) }));
+        driver.OnSessionsArrived(TenantId.Local, DirectorId);
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (_store.ReadRecord(uploadId) is not { State: DictationDeliveryState.Failed } && DateTime.UtcNow < deadline)
+            await Task.Delay(50);
 
         Assert.Equal(0, driver.HeldCount);
         var handback = Lines(uploadId).Single(l => l.Decision == DeliveryDecisions.GatewayHandedBack);
@@ -769,9 +762,9 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
 
     // ===== harness ==========================================================================================
 
-    private (HeldDeliveryDriver Driver, DictationDelivery Delivery) NewDriver(SessionOwnerCache? owners = null)
+    private (HeldDeliveryDriver Driver, DictationDelivery Delivery) NewDriver(SessionOwnerCache? owners = null, IAudioTranscoder? transcoder = null)
     {
-        var delivery = new DictationDelivery(_registry, owners, Transcription(), _marks, _pushed, SendAsync,
+        var delivery = new DictationDelivery(_registry, owners, Transcription(transcoder), _marks, _pushed, SendAsync,
             TimeSpan.FromSeconds(20), _clock);
         var driver = new HeldDeliveryDriver(_store, _ => new NoScope(),
             (tenant, sid) => _pushed.TryLocateIgnoringFreshness(tenant, sid)?.DirectorId, hosted: false)
@@ -896,13 +889,14 @@ public sealed class HeldDeliveryReachabilityTests : IDisposable
         => DirectorCommandResult.Success(SessionCommandExecutor.Serialize(
             new DeliveryStateResponse { State = state, Reason = reason }));
 
-    private GatewayTranscriptionService Transcription() => new(
+    private GatewayTranscriptionService Transcription(IAudioTranscoder? transcoder = null) => new(
         new KeyVault(_vaultPath),
         dictionaryProvider: _ => DictationDictionary.Empty,
         modeProvider: () => TranscriptionMode.DevThrottle,
         http: new HttpClient(_transcriber, disposeHandler: false),
         history: new TranscriptionHistoryLog(Path.Combine(_root, "history")),
-        audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "archive")));
+        audioArchive: new TranscriptionAudioArchive(Path.Combine(_root, "archive")),
+        transcoder: transcoder);
 
     /// <summary>The real clock moved ahead by <see cref="Ahead"/>, or pinned to <see cref="Fixed"/> when a boundary must be
     /// exact: every limit is judged by it.</summary>

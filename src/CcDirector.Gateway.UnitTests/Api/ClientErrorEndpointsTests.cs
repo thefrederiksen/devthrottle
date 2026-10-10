@@ -299,7 +299,7 @@ public sealed class ClientErrorServiceLogTests : IDisposable
 }
 
 /// <summary>The administrator token reads every account's browser errors - and only it does (issue #3675).</summary>
-[Collection(AdminServiceTokenCollection.Name)]
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class ClientErrorAdministratorReadTests : IDisposable
 {
     private const string Token = "test-admin-service-token-client-errors-5c2e";

@@ -13,19 +13,12 @@ using Xunit;
 
 namespace CcDirector.Gateway.Tests.HostedAi;
 
-/// <summary>The tests below set the process-wide service-token variable, so they never run beside each other.</summary>
-[CollectionDefinition(Name, DisableParallelization = true)]
-public sealed class AiCallTagEnvCollection
-{
-    public const string Name = "AI call tag service token";
-}
-
 /// <summary>
 /// Every hosted AI call says what it is FOR and, on the hosted Gateway, which account it is for. The API
 /// records both on the call's usage row; these prove the Gateway side: the headers that go on the wire, the
 /// one rule deciding the account, and that no production call site builds a client without a tag.
 /// </summary>
-[Collection(AiCallTagEnvCollection.Name)]
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class AiCallTagTests : IDisposable
 {
     private const string Token = "gateway-service-token-for-the-tests-0123456789";

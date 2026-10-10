@@ -19,7 +19,7 @@ namespace CcDirector.Gateway.Tests.Teams;
 /// row carries the tag; removal removes only tagged rows; a made-up member is not billed, has no account (so no email and
 /// no Director), and the Mentor's writer never visits it; and the member list shows its name and email.
 /// </summary>
-[Collection(AdminServiceTokenCollection.Name)]
+[Collection(ProcessEnvironmentCollection.Name)]
 public sealed class TeamShowcaseTests : IDisposable
 {
     private const string Token = "test-admin-service-token-showcase";
