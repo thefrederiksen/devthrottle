@@ -39,6 +39,15 @@
     The product version lives in EXACTLY ONE file: Directory.Build.props at the
     repo root (see docs/architecture/VERSIONING.md).
 
+.PARAMETER Version
+    Step 1: the new version (X.Y.Z or X.Y.Z-rcN). Without it, step 1 asks, offering
+    the next patch version.
+
+.PARAMETER Yes
+    Step 1: do not ask "Go?". For a release seat, which runs non-interactively; the
+    human has already signed off the notes. The -Tag step has no such switch: the
+    person releasing confirms the tag push themselves.
+
 .PARAMETER Tag
     The candidate commit to tag (the merge commit step 1 printed).
 
@@ -48,9 +57,14 @@
     New version [1.9.3]:            <- press Enter to take it
 
 .EXAMPLE
+    .\scripts\new-release.ps1 -Version 2.18.0 -Yes
+
+.EXAMPLE
     .\scripts\new-release.ps1 -Tag 1a2b3c4d
 #>
 param(
+    [string]$Version = "",
+    [switch]$Yes,
     [string]$Tag = ""
 )
 
@@ -99,6 +113,11 @@ if ($Tag) {
     $notesRel = "docs/public/release-notes/$tagName.md"
     if (-not (git -C $repoRoot ls-tree --name-only $candidate -- $notesRel)) {
         Fail "$notesRel is not in the candidate $candidate." "The notes and the bump merge in one pull request. Run step 1 again."
+    }
+    # A candidate is the commit that froze the notes: its own change touches them. A later commit that
+    # merely carries an older notes file is not a candidate - work merged between the two is not in the notes.
+    if (-not (git -C $repoRoot diff-tree --no-commit-id --name-only -r $candidate -- $notesRel)) {
+        Fail "$candidate does not change $notesRel, so it is not a candidate." "Tag the merge commit of the pull request that froze the notes - the one step 1 printed, or the notes-correction pull request that replaced it."
     }
     $notesAtCandidate = git -C $repoRoot show "${candidate}:$notesRel"
     $candidateNotesChars = (($notesAtCandidate -join "") -replace '\s', '').Length
@@ -162,7 +181,9 @@ if ($currentVersion -match '^(\d+)\.(\d+)\.(\d+)$') {
 
 Write-Host ""
 Write-Host "Current version: $currentVersion" -ForegroundColor Cyan
-if ($suggested) {
+if ($Version) {
+    $newVersion = $Version.Trim()
+} elseif ($suggested) {
     $answer = Read-Host "New version [$suggested]"
     if ([string]::IsNullOrWhiteSpace($answer)) { $newVersion = $suggested } else { $newVersion = $answer.Trim() }
 } else {
@@ -216,7 +237,12 @@ if ($dirty) {
 $base = git -C $repoRoot rev-parse origin/main
 $head = git -C $repoRoot rev-parse HEAD
 if ($head -ne $base) {
-    Fail "This checkout is at $head, not origin/main ($base)." "Cut a worktree from origin/main, write the notes there, and run this from it:`n  git worktree add ../devthrottle-release-$tagName -b $branch origin/main"
+    git -C $repoRoot merge-base --is-ancestor $head $base
+    if ($LASTEXITCODE -eq 0) {
+        $landed = git -C $repoRoot log --oneline "$head..$base"
+        Fail "main moved since this checkout was cut. The notes do not cover:`n$($landed -join "`n")" "Bring this checkout up to origin/main (git merge --ff-only origin/main), extend the notes to cover these, and run this again."
+    }
+    Fail "This checkout is at $head, which is not on origin/main ($base)." "Cut a worktree from origin/main, write the notes there, and run this from it:`n  git worktree add ../devthrottle-release-$tagName -b $branch origin/main"
 }
 $lastTag = git -C $repoRoot describe --tags --abbrev=0 --match "v*" $base
 
@@ -234,8 +260,10 @@ Write-Host ""
 Write-Host "This bumps the version and merges it WITH the notes in one pull request. It does not tag." -ForegroundColor Gray
 Write-Host ""
 
-$confirm = Read-Host "Go? (Y/N)"
-if ($confirm -ne 'Y' -and $confirm -ne 'y') { Write-Host "Aborted. Nothing was changed." -ForegroundColor Yellow; exit 0 }
+if (-not $Yes) {
+    $confirm = Read-Host "Go? (Y/N)"
+    if ($confirm -ne 'Y' -and $confirm -ne 'y') { Write-Host "Aborted. Nothing was changed." -ForegroundColor Yellow; exit 0 }
+}
 
 # --- 1. Branch, bump, commit, push ---
 Write-Host ""
@@ -266,7 +294,7 @@ git -C $repoRoot fetch --quiet origin main
 $baseNow = git -C $repoRoot rev-parse origin/main
 if ($baseNow -ne $base) {
     $landed = git -C $repoRoot log --oneline "$base..$baseNow"
-    Fail "main moved while the candidate was being cut. These commits are not covered by the notes:`n$($landed -join "`n")" "The pull request is open and NOT merged. Close it, delete $branch, cut a fresh worktree from origin/main, extend the notes to cover these, and run this again."
+    Fail "main moved while the candidate was being cut. These commits are not covered by the notes:`n$($landed -join "`n")" "The pull request is open and NOT merged. Close it (gh pr close $branch --delete-branch), then recut as the release-manager skill says in Step 8 under 'If main moved'."
 }
 
 Write-Host "Merging..." -ForegroundColor Cyan

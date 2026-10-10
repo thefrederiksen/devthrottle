@@ -67,34 +67,19 @@ The README download link always points to the latest release automatically.
 
 ## What the Workflow Does
 
-The workflow (`.github/workflows/release.yml`) replicates the local `scripts/release.ps1` build process:
+`.github/workflows/release.yml` runs on the tag. It runs no tests - the release gate is local, on
+the candidate, before the tag exists. It:
 
-1. **Pre-build Core** - Workaround for .NET 10 WPF `_wpftmp` stack overflow when building project references from clean state
-2. **Build WPF with RID** - Compiles XAML markup with `-r win-x64`
-3. **MSBuild Publish** - Uses `dotnet msbuild -t:Publish` with `NoBuild=true` instead of `dotnet publish` to avoid the bundle size bug that incorrectly bundles the full runtime
-
-The version number from the tag (e.g., `1.3.0` from `v1.3.0`) is injected into the build via `/p:Version=`, overriding the default in the .csproj.
-
-## Local Builds
-
-For local testing, `scripts/release.ps1` still works:
-
-```powershell
-.\scripts\release.ps1                   # Framework-dependent (~10 MB)
-.\scripts\release.ps1 -SelfContained    # Standalone (~150+ MB)
-```
-
-The version comes from `Directory.Build.props`, which is the single version source for every
-binary in the release (see `docs/architecture/VERSIONING.md`). The workflow fails the release if
-the tag and that file disagree.
+1. Reads `<Version>` from `Directory.Build.props` at the tagged commit and **fails if the tag
+   disagrees**. The version is never injected from the tag; the file is the single source.
+2. Requires `docs/public/release-notes/<tag>.md` at the tag, with at least 200 non-whitespace
+   characters, and publishes it verbatim as the release page.
+3. Builds every component for Windows, macOS and Linux, creates the release as a draft, attaches
+   every asset, and publishes it only once `release-manifest.json` is provably attached.
 
 ## Previous Tags
 
-| Tag | Date | Notes |
-|-----|------|-------|
-| v1.1.0 | 2026-02 | Current |
-| v1.0.0 | 2026-02 | First stable |
-| v0.2.0 | 2026-02 | Pre-release |
+See the releases page. A table kept here goes stale with every release.
 
 ## Implementation Status
 

@@ -82,7 +82,7 @@ New version [1.9.3]:          <- Enter
 ```
 
 3. **Gate the candidate once, then tag it.** In a worktree detached at the
-   candidate, run `scripts	est-local.ps1 -Parked -Configuration Release`. When it
+   candidate, run `scripts\test-local.ps1 -Parked -Configuration Release`. When it
    is green, the person releasing runs `scripts/new-release.ps1 -Tag <candidate>`.
 
 ### What the script does, and why in this order

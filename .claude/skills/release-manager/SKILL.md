@@ -213,17 +213,30 @@ work merged while a gate was running.
     git worktree add ../devthrottle-release-v<version> -b release/v<version> origin/main
     cd ../devthrottle-release-v<version>
     # write docs/public/release-notes/v<version>.md here, covering the last tag up to origin/main
-    .\scripts\new-release.ps1
+    .\scripts\new-release.ps1 -Version <version> -Yes
 
-It refuses unless the checkout is exactly origin/main plus the notes file. It bumps
+`-Version` and `-Yes` are what let a seat run it: without them it asks, and a
+non-interactive session cannot answer. The human's sign-off is Step 7. It refuses unless
+the checkout is exactly origin/main plus the notes file. It bumps
 `Directory.Build.props` (the version lives in exactly that one file), commits the bump with
 the notes, opens the `release: v<version>` pull request and merges it - and it does NOT tag.
 
 The notes describe the last tag up to the base the pull request was cut from, so the
 candidate must be exactly that base plus this one commit. The script checks both ends:
 - If main moved before the merge, it stops with the pull request open and unmerged, and
-  lists what landed. Close that pull request, cut a fresh worktree, extend the notes to
-  cover what landed, and run it again.
+  lists what landed. **If main moved**, recut in this order, because the release branch
+  now exists locally and on origin:
+
+      gh pr close release/v<version> --delete-branch
+
+  Copy `docs/public/release-notes/v<version>.md` out of the release worktree, then leave
+  it and, from the main repository folder:
+
+      git worktree remove ../devthrottle-release-v<version>
+      git branch -D release/v<version>
+
+  Then cut the worktree again as above, copy the saved notes back in, extend them to
+  cover what landed, and run the script again.
 - After the merge it checks that the candidate's parent is that base. If not, it says so:
   the candidate carries work the notes do not cover, and must not be gated or tagged.
 
@@ -257,12 +270,15 @@ green; the human runs the tag step, because pushing a tag is the one irreversibl
    happens to pass hides the defect. Find the cause - a flaky test is a defect in the test,
    and it is fixed like any other - and fix it on main. Then cut a new candidate: a pull
    request that corrects the notes to cover everything merged since the last tag, merged when
-   nothing else has landed since its base, whose merge commit is the new C. Gate that once.
+   nothing else has landed since its base, whose merge commit is the new C. Nothing checks that
+   last condition for you on a recut candidate: before gating it, confirm
+   `git rev-parse <C>^` is the base you extended the notes against. Gate it once.
 3. **The human tags the gated candidate:**
 
        .\scripts\new-release.ps1 -Tag <C>
 
-   It refuses unless C is on origin/main, the notes for C's version are in C, and
+   It refuses unless C is on origin/main, C itself changes the notes for its version (a later
+   commit that merely carries them is not a candidate), and
    `scripts/assert-gated.ps1 <C>` accepts it - that script refuses a commit with no green
    `-Parked` run recorded against it. If `assert-gated.ps1` is not in the checkout, the tag
    step refuses too: nothing can prove C was gated. Only then does it tag C and push the tag.
@@ -270,8 +286,9 @@ green; the human runs the tag step, because pushing a tag is the one irreversibl
    The tag goes on C even when main has moved on. A tag does not have to be the tip of main,
    and C is on main because it is the squash commit of the candidate pull request. That push
    is the last manual act. Monitor the Actions run.
-4. Remove the gate and release worktrees: `git worktree remove ../devthrottle-gate-v<version>`
-   and `git worktree remove ../devthrottle-release-v<version>`.
+4. Remove the gate and release worktrees and the local release branch (the merge deleted
+   the remote one): `git worktree remove ../devthrottle-gate-v<version>`,
+   `git worktree remove ../devthrottle-release-v<version>`, `git branch -D release/v<version>`.
 
 **Do NOT create or publish a GitHub release by hand, and do NOT paste the notes into
 the release body.** The workflow does both: it creates the release as a DRAFT, attaches
@@ -352,7 +369,7 @@ This feature is built and tested once; thereafter Step 10 simply uses it.
 6. Hands the file path to the internal session, which folds it into the changelog
    in draft and holds for FINAL.
 7. The human signs off on the wording.
-8. On request, runs `scripts/new-release.ps1` from a worktree cut from origin/main,
+8. On request, runs `scripts/new-release.ps1 -Version 1.2.0 -Yes` from a worktree cut from origin/main,
    which merges the bump and the notes in one pull request and prints the candidate.
 9. Runs the release gate once on the candidate in a detached worktree; it is green,
    so the human runs `new-release.ps1 -Tag <candidate>`, which checks
