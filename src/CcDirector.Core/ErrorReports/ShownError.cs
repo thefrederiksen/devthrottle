@@ -17,7 +17,10 @@ namespace CcDirector.Core.ErrorReports;
 /// {action}: {what the user saw}</c>, with the exception and its stack on the lines after it when there is one.
 /// That is an error line, so the <see cref="ErrorReporter"/> picks it up like any other - scrubbed, capped,
 /// rate-limited, kept on disk before sign-in. The class and method come from the compiler, so the row names the
-/// code that showed the error.
+/// code that showed the error. The line is written inside an <see cref="ErrorContext"/> that says the user saw it
+/// and names the surface and the action, so the report carries user_visible, surface and action as FIELDS. That
+/// scope is the innermost one and wraps this one line only: a field that describes one row never leaks onto the
+/// rows logged around it, and the correlation and session id of any scope the caller has open still apply.
 ///
 /// WHAT IT NEVER WRITES. Prompt, transcript, terminal or model text. Where a site shows such text, it passes
 /// <c>reported</c> - what failed, in our own words - and the line carries that instead of the shown text.
@@ -56,7 +59,8 @@ public static class ShownError
         ArgumentException.ThrowIfNullOrWhiteSpace(action);
         ArgumentNullException.ThrowIfNull(shown);
 
-        FileLog.Write(LineFor(surface, action, shown, exception, reported, fatal, callerFile, callerMember));
+        using (ErrorContext.Begin(userVisible: true, surface: surface, action: action))
+            FileLog.Write(LineFor(surface, action, shown, exception, reported, fatal, callerFile, callerMember));
         return shown;
     }
 
