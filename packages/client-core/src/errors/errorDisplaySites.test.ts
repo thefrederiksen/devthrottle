@@ -513,3 +513,25 @@ describe("a marker comment inside an object literal", () => {
     expect(bad(src)).toHaveLength(1);
   });
 });
+
+describe("a comment inside a value is not the value (the 3c re-review, P14 and P15)", () => {
+  const BOTH = new Set(["describeAndReport", "reportShownError"]);
+
+  it("scanSource_TrailingCommentNamingAReporterOnTheLastProperty_IsStillUnreported", () => {
+    const sites = scan(`publishDictationStatus({\n  phase: "failed",\n  error: err.message // the caller runs describeAndReport() first\n});`, BOTH);
+
+    expect(sites).toHaveLength(1);
+    expect(sites[0].reported).toBe(false);
+  });
+
+  it("scanSource_BlockCommentNamingAReporterInsideASettersArguments_IsStillUnreported", () => {
+    const sites = scan(`try { work(); } catch (err) {\n  setError(err.message /* reportShownError() is the caller's job */);\n}`, BOTH);
+
+    expect(sites).toHaveLength(1);
+    expect(sites[0].reported).toBe(false);
+  });
+
+  it("scanSource_StringHoldingSlashes_IsKeptAndAReportBesideItStillCounts", () => {
+    expect(scan(`setError(describeAndReport("open https://example.test/x", "a", err));`, BOTH)[0].reported).toBe(true);
+  });
+});

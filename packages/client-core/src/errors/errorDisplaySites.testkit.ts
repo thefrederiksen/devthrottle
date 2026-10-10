@@ -183,8 +183,11 @@ export function scanSource(
   const states = useStatePairs(src);
   const sites = new Map<number, ErrorDisplaySite>();
 
-  const valueReported = (value: string, at: number): boolean =>
-    callsAny(value, reporting) || lastAssignmentReports(assignments, value.trim(), at) || isPassThrough(src, at, value.trim());
+  // A comment in the value is not the value: `err.message // the caller runs describeAndReport() first` reports nothing.
+  const valueReported = (raw: string, at: number): boolean => {
+    const value = withoutComments(raw);
+    return callsAny(value, reporting) || lastAssignmentReports(assignments, value.trim(), at) || isPassThrough(src, at, value.trim());
+  };
 
   const addCall = (at: number, kind: ErrorDisplaySiteKind, name: string, value: string) => {
     if (sites.has(at) || isClearing(value) || !carriesText(value, kind)) return;
@@ -961,6 +964,28 @@ function stripStringsAndComments(expr: string): string {
     } else if (c === "/" && expr[i + 1] === "*") {
       const end = expr.indexOf("*/", i + 2);
       i = end < 0 ? expr.length : end + 1;
+    } else out += c;
+  }
+  return out;
+}
+
+/** The text with its comments removed - `//` to the end of the line and `/* ... *\/` - and its strings kept as written,
+ *  so a comment naming a reporter (`err.message /* reportShownError() is the caller's job *\/`) cannot make an
+ *  unreported value read as reported (the 3c re-review, P14 and P15). */
+function withoutComments(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === "`") {
+      const end = c === "`" ? skipTemplate(text, i) : skipQuoted(text, i);
+      out += text.slice(i, end + 1);
+      i = end;
+    } else if (c === "/" && text[i + 1] === "/") {
+      const end = text.indexOf("\n", i);
+      i = (end < 0 ? text.length : end) - 1;
+    } else if (c === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end < 0 ? text.length : end + 1;
     } else out += c;
   }
   return out;
