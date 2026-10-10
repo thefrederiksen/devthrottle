@@ -242,6 +242,23 @@ describe("errorDisplaySites scanner", () => {
     expect(scan(src)[0].reported).toBe(true);
   });
 
+  it("scanSource_ExemptionInAJsxCommentOnAWindowsLine_ReasonStopsAtTheComment", () => {
+    const src = `<p role="alert">\r\n{/* error-report-exempt: the Gateway's own refusal, nothing failed here */}\r\n{menuBlocked}</p>`;
+
+    expect(scan(src)[0].exemptReason).toBe("the Gateway's own refusal, nothing failed here");
+  });
+
+  it("scanSource_ClearingOneEntryOfAnErrorMap_IsNotASite", () => {
+    // The step 3 rulings, R7 (LinkRequests.tsx): the rest of the map is kept and the named entry emptied.
+    expect(scan(`setErrors((e) => ({ ...e, [id]: '' }));`)).toEqual([]);
+    expect(scan(`setErrors((e) => ({ ...e, [a]: null, b: "" }));`)).toEqual([]);
+  });
+
+  it("scanSource_SettingOneEntryOfAnErrorMapToText_IsStillASite", () => {
+    expect(bad(`setErrors((e) => ({ ...e, [id]: err.message }));`)).toHaveLength(1);
+    expect(bad(`setErrors((e) => ({ ...e, [id]: '', other: "It failed." }));`)).toHaveLength(1);
+  });
+
   it("scanSource_ErrorCallbackWithTheOriginalErrorAsASecondArgument_JudgesTheShownTextOnly", () => {
     // The host shows the first argument; the second is the original error handed over beside it.
     const passed = `const shown = describeAndReport("s", "a", err);\nhooks.onError?.(shown, err);`;

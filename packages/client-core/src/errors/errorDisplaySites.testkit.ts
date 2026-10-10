@@ -342,7 +342,30 @@ function objectProperties(src: string, open: number, close: number): { key: stri
 }
 
 function isClearing(value: string): boolean {
-  return /^\s*(?:null|undefined|false|""|''|``|\[\]|\{\})?\s*$/.test(value);
+  return /^\s*(?:null|undefined|false|""|''|``|\[\]|\{\})?\s*$/.test(value) || clearsMapEntries(value);
+}
+
+/** `setErrors((e) => ({ ...e, [id]: "" }))` clears one entry of an error map: an updater whose object keeps the rest
+ *  (spread) and sets every entry it names to a clearing value shows nothing new (the step 3 rulings, R7). */
+function clearsMapEntries(value: string): boolean {
+  const head = /^\s*(?:async\s*)?\(?[\w$\s,]*\)?\s*=>\s*\(\s*\{/.exec(value);
+  if (!head) return false;
+  const open = head[0].length - 1;
+  const close = matchingClose(value, open);
+  if (close < 0 || !/^\s*\)\s*$/.test(value.slice(close + 1))) return false;
+  let entries = 0;
+  for (let i = open + 1; i < close; ) {
+    while (i < close && /[\s,]/.test(value[i])) i++;
+    if (i >= close) break;
+    const end = Math.min(expressionEnd(value, i), close);
+    const entry = value.slice(i, end);
+    i = end + 1;
+    if (/^\.\.\./.test(entry)) continue;
+    const pair = /^(?:\[[^\]]*\]|[\w$]+|"[^"]*"|'[^']*')\s*:([\s\S]*)$/.exec(entry);
+    if (!pair || !/^\s*(?:null|undefined|false|""|''|``)\s*$/.test(pair[1])) return false;
+    entries++;
+  }
+  return entries > 0;
 }
 
 /** An updater function (`setErrors((e) => ...)`) only shows text when it builds some; a pure reshuffle - removing
@@ -533,7 +556,9 @@ interface Marker {
  *  exemption. */
 function markerFor(lines: string[], line: number, inside = ""): Marker | null {
   for (const text of [lines[line - 1] ?? "", lines[line - 2] ?? "", ...inside.split("\n")]) {
-    const exempt = /error-report-exempt:\s*(.*?)\s*(?:\*\/.*)?$/.exec(text);
+    // `[^\n]` and not `.`: a Windows line ends in a carriage return, which `.` cannot cross, and the reason would
+    // then swallow the comment's closing `*/}`.
+    const exempt = /error-report-exempt:\s*(.*?)\s*(?:\*\/[^\n]*)?$/.exec(text);
     if (exempt) return exempt[1].length >= 10 ? { kind: "exempt", text: exempt[1] } : { kind: "reported-by", text: "" };
     const by = /error-reported-by:\s*([A-Za-z_$][\w$]*)/.exec(text);
     if (by) return { kind: "reported-by", text: by[1] };
