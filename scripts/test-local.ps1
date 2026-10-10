@@ -377,7 +377,7 @@ if ($toRun -contains $gatewayProject) {
         Write-Host "This is NOT another run holding the lock. It is a fault in the lock's location that will not"
         Write-Host "clear by waiting: fix the path above (permissions, a directory or read-only file sitting at it,"
         Write-Host "a full disk) and run this again."
-        Remove-Item $logDir -Force
+        Remove-Item $logDir -Recurse -Force
         exit 2
     }
     if ($suiteHeld) {
@@ -390,7 +390,7 @@ if ($toRun -contains $gatewayProject) {
         Write-Host "Two runs of that suite corrupt each other, so there is one at a time per user per machine."
         Write-Host "This run does not queue: a queue hides the conflict until it expires. Wait for the holder to"
         Write-Host "finish - or, if it is stuck, end that process - and run this again."
-        Remove-Item $logDir -Force
+        Remove-Item $logDir -Recurse -Force
         exit 6
     }
     if ($null -eq $gateLock) {
@@ -403,7 +403,7 @@ if ($toRun -contains $gatewayProject) {
         Write-Host "One release gate at a time, by design, and the loser is told at once instead of queueing for"
         Write-Host "forty-five minutes and then executing nothing. The holder's session, commit and command are"
         Write-Host "above: wait for it to finish - or, if it is stuck, end that process - and run this again."
-        Remove-Item $logDir -Force
+        Remove-Item $logDir -Recurse -Force
         exit 6
     }
 }
@@ -848,4 +848,11 @@ try {
     # run on this machine is refused only while a live process holds the handle, so the handle must not
     # outlive the run.
     if ($null -ne $gateLock) { Exit-GateLock $gateLock }
+    # A run that ends by exception or Ctrl+C never reached Stop-Gate, and its run.json would say RUNNING
+    # forever - exactly the shape a reader mistakes for a live run. Stamp it as stopped without a verdict.
+    if ($null -eq $runRecord.exitCode) {
+        $runRecord.verdict = "STOPPED BEFORE A VERDICT"
+        $runRecord.finishedUtc = (Get-Date).ToUniversalTime().ToString("o")
+        Write-RunRecord
+    }
 }
