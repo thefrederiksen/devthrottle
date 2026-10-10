@@ -25,6 +25,21 @@ KIND_SESSION = "session"
 KIND_MACHINE = "machine"
 
 
+class GatewayRefusal(CcSecretsError):
+    """The Gateway answered and said no - a transfer already answered, a machine not connected, a session without the
+    owner's words. Nothing was done, so this is a refusal to show, not a failure to report. `code` is the Gateway's
+    reason code; the message is its own sentence."""
+
+    def __init__(self, status: int, code: str, sentence: str) -> None:
+        super().__init__(sentence)
+        self.status = status
+        self.code = code
+
+
+class GatewayShapeError(CcSecretsError):
+    """The Gateway's answer was not the shape this cc-secrets reads."""
+
+
 @dataclass(frozen=True)
 class Link:
     kind: str
@@ -52,7 +67,7 @@ def get(path: str, link: Optional[Link] = None) -> Any:
     try:
         return gateway.get_json(path, bearer=link.bearer, base_url=link.url)
     except gateway.GatewayError as exc:
-        raise CcSecretsError(str(exc)) from exc
+        raise _translated(exc) from exc
 
 
 def post(path: str, body: dict, link: Optional[Link] = None) -> Any:
@@ -62,4 +77,13 @@ def post(path: str, body: dict, link: Optional[Link] = None) -> Any:
     try:
         return gateway.post_json(path, body, bearer=link.bearer, base_url=link.url)
     except gateway.GatewayError as exc:
-        raise CcSecretsError(str(exc)) from exc
+        raise _translated(exc) from exc
+
+
+def _translated(exc) -> CcSecretsError:
+    """A 4xx carrying the Gateway's {code, error} is a refusal; anything else is a failure, in the Gateway's words."""
+    status = getattr(exc, "status", None)
+    body = getattr(exc, "body", None)
+    if isinstance(status, int) and 400 <= status < 500 and isinstance(body, dict) and body.get("code"):
+        return GatewayRefusal(status, str(body["code"]), str(body.get("error") or exc))
+    return CcSecretsError(str(exc))

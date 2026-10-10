@@ -39,7 +39,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import _console  # noqa: F401  (installs the ASCII-only output patches)
-from . import __version__, entry_window, filelog, machine_key, machines, paths
+from . import __version__, entry_window, filelog, gateway_link, machine_key, machines, paths, transfers
 from .audit import AuditLog, OwnerApproval
 from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_login
 from .errors import CcSecretsError, InputError, describe
@@ -1017,6 +1017,127 @@ def machines_command(
                                 + (m.pin.pinned.pinned_utc if m.pin.pinned else "")}[m.pin.state]
         _say(_visible_ascii(f"{m.name}: key {machine_key.short_fingerprint(m.fingerprint)} - {state}; "
                             f"last seen {m.last_seen_utc}"))
+
+
+def _transfer_refused(command: str, transfer_id: str, exc: gateway_link.GatewayRefusal,
+                      json_output: bool = False) -> NoReturn:
+    """The Gateway said no: nothing was done. Audited and shown in its words, never reported as a fault."""
+    filelog.write(f"[cli] {command} refused by the Gateway: {exc.code}")
+    _audit().record(f"transfer {transfer_id}", command, "refused", f"{exc.code}: {exc}")
+    if json_output:
+        _say_json({"outcome": "refused", "code": exc.code, "reason": str(exc)})
+    else:
+        _say(f"refused: {exc}", err=True)
+    raise typer.Exit(EXIT_REFUSED)
+
+
+def _transfer_lines(t: "transfers.Transfer") -> List[str]:
+    lines = [f"{t.transfer_id}  {t.summary}", f"    {t.status_text}"]
+    if t.replace_note:
+        lines.append(f"    {t.replace_note}")
+    if t.reason:
+        lines.append(f"    Why: {t.reason}")
+    if t.can_answer:
+        lines.append(f"    Answer by {t.expires_utc}: cc-secrets approve {t.transfer_id}  or  cc-secrets deny {t.transfer_id}")
+    return [_visible_ascii(line) for line in lines]
+
+
+def _transfer_json(t: "transfers.Transfer") -> dict:
+    return {"transferId": t.transfer_id, "summary": t.summary, "entry": t.entry, "targetName": t.target_name,
+            "fromMachine": t.from_machine, "toMachine": t.to_machine, "replace": t.replace, "askedBy": t.asked_by,
+            "reason": t.reason, "state": t.state, "statusText": t.status_text, "canAnswer": t.can_answer,
+            "expiresAtUtc": t.expires_utc, "answeredWhere": t.answered_where, "outcome": t.outcome}
+
+
+@app.command("approvals")
+def approvals_command(
+    json_output: bool = typer.Option(False, "--json", help="Print JSON."),
+):
+    """The secret transfers waiting for the owner's answer, and those that ended in the last day: what, from where to
+    where, who asked and why. Never a secret."""
+    try:
+        found = transfers.listed()
+    except gateway_link.GatewayRefusal as exc:
+        _transfer_refused("approvals", "(all)", exc, json_output)
+    except Exception as exc:
+        _fail("approvals", "(approvals)", "approvals", exc)
+    if json_output:
+        _say_json({"transfers": [_transfer_json(t) for t in found]})
+        return
+    waiting = [t for t in found if t.can_answer]
+    ended = [t for t in found if not t.can_answer]
+    if not found:
+        _say("No secret transfer is waiting for an answer, and none ended in the last day.")
+        return
+    _say(f"Waiting for an answer: {len(waiting)}" if waiting else "Nothing is waiting for an answer.")
+    for t in waiting:
+        for line in _transfer_lines(t):
+            _say(line)
+    if ended:
+        _say("Ended recently:")
+        for t in ended:
+            for line in _transfer_lines(t):
+                _say(line)
+
+
+def _answer(command: str, transfer_id: str, approve: bool, owner_approved: Optional[str], json_output: bool) -> None:
+    transfer_id = transfer_id.strip().lower()
+    try:
+        link = gateway_link.resolve()
+        where = None if link.kind == gateway_link.KIND_SESSION else "terminal"
+        if approve and link.kind != gateway_link.KIND_SESSION:
+            # The owner's own terminal: show exactly what is being approved and have it confirmed by typing yes, so
+            # a stray approve on the wrong id cannot move anything.
+            t = transfers.find(transfer_id, link)
+            for line in _transfer_lines(t):
+                _say(line)
+            if not t.can_answer:
+                _say(f"refused: {t.status_text}", err=True)
+                raise typer.Exit(EXIT_REFUSED)
+            if not _stdin_is_tty():
+                _say("refused: approving in a terminal needs someone at the keyboard to type yes. Approve it on the "
+                     "phone, in the Cockpit or in the cc-secrets window instead.", err=True)
+                raise typer.Exit(EXIT_REFUSED)
+            typed = typer.prompt("Type yes to approve this transfer", default="", show_default=False)
+            if typed.strip().lower() != "yes":
+                _audit().record(f"transfer {transfer_id}", command, "cancelled", "the owner did not type yes")
+                _say("cancelled: nothing was approved.")
+                raise typer.Exit(EXIT_CANCELLED)
+        t, note = transfers.answer(transfer_id, approve, where, owner_approved, link)
+    except typer.Exit:
+        raise
+    except gateway_link.GatewayRefusal as exc:
+        _transfer_refused(command, transfer_id, exc, json_output)
+    except Exception as exc:
+        _fail(command, f"transfer {transfer_id}", command, exc)
+    approval = OwnerApproval(text=(owner_approved or "").strip(), session_name="") if owner_approved else None
+    _audit().record(f"transfer {transfer_id}", command, "ok", t.summary, approval)
+    if json_output:
+        _say_json({"outcome": "approved" if approve else "denied", "note": note, "transfer": _transfer_json(t)})
+        return
+    _say(_visible_ascii(f"{'approved' if approve else 'denied'}: {t.summary}. {note}".strip()))
+
+
+@app.command("approve")
+def approve_command(
+    transfer_id: str = typer.Argument(..., help="The transfer's id, from 'cc-secrets approvals'."),
+    owner_approved: Optional[str] = typer.Option(None, "--owner-approved",
+        help="Inside a session: the owner's approval of THIS transfer, in their words, verbatim, from this session's "
+             "chat. Recorded on both machines and on the Gateway."),
+    json_output: bool = typer.Option(False, "--json", help="Print JSON."),
+):
+    """Approve a secret transfer that is waiting. In the owner's own terminal it shows the transfer and asks you to
+    type yes; inside a session it needs the owner's words with --owner-approved."""
+    _answer("approve", transfer_id, True, owner_approved, json_output)
+
+
+@app.command("deny")
+def deny_command(
+    transfer_id: str = typer.Argument(..., help="The transfer's id, from 'cc-secrets approvals'."),
+    json_output: bool = typer.Option(False, "--json", help="Print JSON."),
+):
+    """Deny a secret transfer that is waiting. Nothing is moved."""
+    _answer("deny", transfer_id, False, None, json_output)
 
 
 @app.command("log")
