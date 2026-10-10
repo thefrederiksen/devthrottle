@@ -156,11 +156,13 @@ public sealed class ErrorContext : IDisposable
     /// <see cref="MinRecentWithheldChars"/> characters - from every report in the process while it is among the
     /// <see cref="MaxRecentWithheld"/> most recent. Empty text is ignored.
     /// </summary>
-    public static void Withhold(string? text)
+    public static void Withhold(string? text) => Withhold(text, processWide: true);
+
+    private static void Withhold(string? text, bool processWide)
     {
         if (string.IsNullOrEmpty(text)) return;
         Current?._withheld.Add(text);
-        if (text.Length < MinRecentWithheldChars) return;
+        if (!processWide || text.Length < MinRecentWithheldChars) return;
         lock (RecentLock)
         {
             if (!RecentSet.Add(text)) return;
@@ -169,11 +171,16 @@ public sealed class ErrorContext : IDisposable
         }
     }
 
-    /// <summary>Withhold a prompt's own words, from <see cref="MinWithheldPromptChars"/> characters.</summary>
+    /// <summary>
+    /// Withhold a prompt's own words, from <see cref="MinWithheldPromptChars"/> characters, inside the context open on
+    /// this flow of execution only. A prompt is ordinary words - "delivered", "the release" - and kept process-wide it
+    /// would blank those words in every unrelated report; it reaches a line elsewhere only through what a screen showed,
+    /// which the code that describes the screen withholds on its own.
+    /// </summary>
     public static void WithholdPrompt(string? prompt)
     {
         if (prompt is null || prompt.Length < MinWithheldPromptChars) return;
-        Withhold(prompt);
+        Withhold(prompt, processWide: false);
     }
 
     /// <summary>

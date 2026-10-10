@@ -317,6 +317,22 @@ public sealed class ErrorContextTests
     }
 
     [Fact]
+    public void WithholdPrompt_IsWithheldInsideItsContextOnly()
+    {
+        var prompt = Unique("please ship the release");
+        var line = $"[X] Relay FAILED: {prompt}";
+
+        using (ErrorContext.Begin(correlationId: "cmd-w7"))
+        {
+            ErrorContext.WithholdPrompt(prompt);
+            Assert.DoesNotContain(prompt, ErrorContext.ApplyWithheld(line, ErrorContext.Current));
+        }
+
+        // Kept process-wide, a prompt's ordinary words would blank those words in every unrelated report.
+        Assert.Equal(line, ErrorContext.ApplyWithheld(line, ErrorContext.Current));
+    }
+
+    [Fact]
     public void WithholdPrompt_BelowFourCharacters_IsNotWithheld()
     {
         using var _ = ErrorContext.Begin(correlationId: "cmd-w5");

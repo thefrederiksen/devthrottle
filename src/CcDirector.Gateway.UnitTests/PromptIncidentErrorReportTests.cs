@@ -197,7 +197,7 @@ public sealed class PromptIncidentErrorReportTests : IDisposable
         await PromptCommand(session, "cmd-this-one", Prompt("release it to dev", "upload-this-one"));
 
         var shown = Assert.Single(await SentAsync(), r => r.Source == "PromptDeliveryFailures");
-        Assert.Contains(expected, shown.Message);
+        Assert.True(shown.Message!.Contains(expected, StringComparison.Ordinal), shown.Message);
         if (previous == "none") Assert.DoesNotContain("previous_correlation_id", shown.Message);
     }
 
