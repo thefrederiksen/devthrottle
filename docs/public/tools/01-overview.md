@@ -98,13 +98,15 @@ Groups: `contacts`, `tasks`, `goals`, `ideas`, `docs`, `health`, `posts`, `lists
 Lets a session use a password without the model ever seeing it. It protects against accidental exposure (transcripts, logs, output, screenshots), not against a hostile program running as the same user.
 
 ```bash
-cc-secrets add devlinux                      # you, in PowerShell or cmd
+cc-secrets ask devlinux --username soren --reason "sudo over SSH"   # a session asks; you type it in a window
+cc-secrets add devlinux                      # or you, in PowerShell or cmd
 cc-secrets list
 cc-secrets run devlinux -- sudo -S apt-get update
 cc-secrets login github-work --browser center-consulting
 cc-secrets log
 ```
 
+- `ask` is how a session gets a password it does not have: a small window opens on your screen with the name, username and notes already filled in, you type only the password and press Save. The session cannot pass the password itself - there is no argument, variable or pipe for it - and the audit log records that you typed it in the window.
 - `add`, `remove` and `list --all` are for you and are refused inside a DevThrottle session. `add` reads the password from a hidden prompt or from a pipe, never from an argument. Git Bash cannot hide typing, so a typed password is refused there; piping works.
 - `run` supplies the password on standard input (the default), in one environment variable (`--via env`), or through an askpass helper (`--via askpass`), and returns the output with the password removed.
 - `login` fills and submits the login form in a Director-owned browser profile, only on an address the entry allows, and only inside a DevThrottle session.

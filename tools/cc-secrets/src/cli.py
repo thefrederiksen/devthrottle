@@ -3,6 +3,11 @@
 Agents call `list`, `run` and `login`. None of them ever prints a secret: every line of output passes
 through the process-wide scrubber, and the commands that act with a secret hand back only the result.
 
+When an agent needs a credential the store does not hold, it calls `ask`: a window opens on the owner's screen with
+the name, username and notes pre-filled, and the owner types only the secret. `ask` has no way to receive the secret
+from its caller, so it needs no --owner-approved; the entry is saved by the same code as `add` and audited as typed by
+the owner in the window.
+
 The owner calls `add`, `import`, `edit` and `remove` from their own terminal. Inside a DevThrottle session they
 refuse, unless the owner approved that exact command in the session's chat and the session reruns it with
 --owner-approved "<the owner's words>" (issue 3414); every such use is audited with those words. `add` takes the
@@ -32,14 +37,14 @@ from rich.console import Console
 from rich.table import Table
 
 from . import _console  # noqa: F401  (installs the ASCII-only output patches)
-from . import __version__, filelog, paths
+from . import __version__, entry_window, filelog, paths
 from .audit import AuditLog, OwnerApproval
 from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_login
 from .errors import CcSecretsError, InputError
 from .redact import SCRUBBER
 from .runner import DEFAULT_ENV_NAME, VIA_CHOICES, run_with_secrets
 from .store import (ENV_NAME_PATTERN, KIND_SECRET, KIND_SETTING, MIN_SECRET_LENGTH, USES, EntryNotAvailableError,
-                    SecretStore, make_entry, validate_name)
+                    SecretStore, make_entry, normalize_origin, validate_env_name, validate_name)
 from .storefile import UserOnlyFile
 
 # Make cc_shared importable when running from source, matching the other cc-* tools.
@@ -52,7 +57,8 @@ PROTECTION = ("It protects against accidental exposure (transcripts, logs, outpu
 
 app = typer.Typer(
     name="cc-secrets",
-    help="Use a stored password without the model ever seeing it. Agents: list, run, login, get. Owner: add, import, edit, remove "
+    help="Use a stored password without the model ever seeing it. Agents: list, run, login, get, and ask (opens a "
+         "window for the owner to type a secret). Owner: add, import, edit, remove "
          "(inside a session only with --owner-approved). "
          "Anyone: log. " + PROTECTION,
     add_completion=False,
@@ -64,6 +70,7 @@ console = Console()
 
 EXIT_FAILED = 1
 EXIT_REFUSED = 2
+EXIT_CANCELLED = 3
 
 MINTTY_MESSAGE = (
     "This terminal (Git Bash, or another mintty window) cannot hide what you type, so cc-secrets will not "
@@ -246,6 +253,29 @@ def _split_list(value: str) -> List[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
+def _save_entry(store: SecretStore, name: str, username: str, secret: str, domains: List[str], notes: str,
+                agents: bool, uses: List[str], env_name: str, setting: bool, command: str, detail: str,
+                approval: Optional[OwnerApproval]) -> tuple:
+    """Validate and store one entry, and write its audit line. The ONE way an entry the owner typed is written:
+    `add` and the `ask` window both come through here. Returns (entry, replaced)."""
+    if not setting:
+        SCRUBBER.add(secret, username)
+    entry = make_entry(name, username, secret, domains, notes, agents, uses,
+                       env_name=env_name, kind=KIND_SETTING if setting else KIND_SECRET)
+    audit = _audit()
+    # The audit line is built and checked before the store changes, so an approval text that carries the secret
+    # is refused with nothing saved, rather than after the entry is already in.
+    # Both possible lines are prepared, and the one matching what put reports is written, so a store that
+    # changed underneath still gets a true line.
+    suffix = f"; {detail}" if detail else ""
+    prepared = {was_there: audit.prepare(name, command, "ok", ("replaced" if was_there else "added") + suffix,
+                                         approval)
+                for was_there in (False, True)}
+    replaced = store.put(entry)
+    audit.write_prepared([prepared[replaced]])
+    return entry, replaced
+
+
 @app.command()
 def add(
     name: str = typer.Argument(..., help="Entry name, for example devlinux or github-work."),
@@ -300,19 +330,8 @@ def add(
             agents = typer.confirm("May sessions on this machine use it?", default=False)
         use_list = _split_list(uses) if uses is not None else list(USES)
         secret = _read_secret_from_owner()
-        if not setting:
-            SCRUBBER.add(secret, username)
-        entry = make_entry(name, username, secret, _split_list(domains), notes, agents, use_list,
-                           env_name=env_name or "", kind=KIND_SETTING if setting else KIND_SECRET)
-        audit = _audit()
-        # The audit line is built and checked before the store changes, so an approval text that carries the secret
-        # is refused with nothing saved, rather than after the entry is already in.
-        # Both possible lines are prepared, and the one matching what put reports is written, so a store that
-        # changed underneath still gets a true line.
-        prepared = {was_there: audit.prepare(name, "add", "ok", "replaced" if was_there else "added", approval)
-                    for was_there in (False, True)}
-        replaced = store.put(entry)
-        audit.write_prepared([prepared[replaced]])
+        entry, replaced = _save_entry(store, name, username, secret, _split_list(domains), notes, agents, use_list,
+                                      env_name or "", setting, "add", "", approval)
         _say(f"{'Replaced' if replaced else 'Added'} '{name}' in {store.location}. "
              f"Agents may use it: {'yes' if entry.agents_may_use else 'no'}. Uses: {', '.join(entry.uses)}. "
              f"Allowed addresses: {', '.join(entry.allowed_domains) or 'none'}.")
@@ -322,6 +341,97 @@ def add(
         _log_failure("add", exc)
         _say(f"add failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
+
+
+ASK_RECORD = "typed by the owner in the cc-secrets ask window"
+
+
+def _check_ask_details(name: Optional[str], domains: List[str], uses: List[str], env_name: str) -> None:
+    """Refuse what the agent pre-filled wrongly BEFORE the window opens, so the owner is never shown a form
+    that cannot be saved whatever they type."""
+    if name:
+        validate_name(name)
+    for domain in domains:
+        normalize_origin(domain)
+    bad = [u for u in uses if u not in USES]
+    if bad or not uses:
+        raise InputError(f"Uses must be one or more of: {', '.join(USES)}.")
+    validate_env_name(env_name)
+
+
+@app.command()
+def ask(
+    name: Optional[str] = typer.Argument(None, help="Entry name to pre-fill, for example devlinux. Leave it out for an empty form."),
+    username: Optional[str] = typer.Option(None, "--username", help="The user name to pre-fill."),
+    notes: Optional[str] = typer.Option(None, "--notes", help="A note to pre-fill. Agents see it in list."),
+    reason: Optional[str] = typer.Option(None, "--reason", help="Why the secret is needed, shown in the window so the owner knows what they are typing into."),
+    domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill (as for add)."),
+    uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run. Default both."),
+    agents: bool = typer.Option(True, "--agents/--no-agents", help="Pre-tick 'sessions may use it'. The owner can change it in the window. Default: ticked."),
+    setting: bool = typer.Option(False, "--setting", help="Ask for a setting that is not secret (a host, an email address)."),
+    env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable run supplies it in. Default CC_SECRET."),
+):
+    """Open a window on the owner's screen to type a secret. The agent pre-fills the name, username and notes;
+    the owner types ONLY the secret and presses Save. There is no way to pass the secret to this command - not as
+    an argument, not in a variable, not on standard input. Prints 'saved NAME' (exit 0) or 'cancelled' (exit 3).
+
+    Example: cc-secrets ask devlinux --username soren --reason "sudo over SSH on devlinux" --uses run"""
+    label = name or "(new)"
+    try:
+        _refuse_swallowed_options(username=username, notes=notes, reason=reason, domains=domains, uses=uses,
+                                  env_name=env_name)
+        domain_list = _split_list(domains or "")
+        use_list = _split_list(uses) if uses is not None else list(USES)
+        _check_ask_details(name, domain_list, use_list, env_name or "")
+        store = _store()
+        exists = bool(name) and store.get(name) is not None
+    except Exception as exc:
+        _log_failure("ask", exc)
+        _say(f"ask failed: {_describe(exc)}", err=True)
+        raise typer.Exit(EXIT_FAILED)
+
+    # Who opened the window, in words the owner recognises; the audit line records the same session.
+    session_id = os.environ.get("CC_SESSION_ID", "")
+    session_name = _session_name(session_id) if session_id else ""
+    asked_by = f"The session '{session_name}'" if session_id else "A command in a terminal"
+    approval = OwnerApproval(text=ASK_RECORD, session_name=session_name)
+    detail = ASK_RECORD + (f"; reason: {reason}" if reason else "")
+    summary = (f"Uses: {', '.join(use_list)}. Sign-in addresses: {', '.join(domain_list) or 'none'}. "
+               f"Supplied to commands as {env_name or DEFAULT_ENV_NAME}.")
+    request = entry_window.WindowRequest(name=name or "", username=username or "", notes=notes or "",
+                                         reason=reason or "", asked_by=asked_by, is_setting=setting,
+                                         agents_may_use=agents, summary=summary, exists=exists)
+    # A name that already exists is replaced only once the owner has been told so: the pre-filled name is told
+    # in the window from the start, a name typed over it is told on the first Save.
+    told_replaces = {name} if exists else set()
+    saved_as = {}
+
+    def on_save(typed: entry_window.WindowInput) -> Optional[str]:
+        try:
+            validate_name(typed.name)
+            if typed.name not in told_replaces and store.get(typed.name) is not None:
+                told_replaces.add(typed.name)
+                return f"'{typed.name}' already exists. Press Save again to REPLACE it."
+            _save_entry(store, typed.name, typed.username, typed.secret, domain_list, typed.notes,
+                        typed.agents_may_use, use_list, env_name or "", setting, "ask", detail, approval)
+        except CcSecretsError as exc:
+            return f"Not saved: {_describe(exc)}"
+        except Exception as exc:
+            _log_failure("ask", exc)
+            return f"Not saved: {_describe(exc)}"
+        saved_as["name"] = typed.name
+        return None
+
+    try:
+        saved = entry_window.show(request, on_save)
+    except Exception as exc:
+        _fail("ask", label, "ask", exc)
+    if saved:
+        _say(f"saved {saved_as['name']}")
+        return
+    _audit().record(label, "ask", "cancelled", "the owner closed the window without saving", approval)
+    _say("cancelled")
+    raise typer.Exit(EXIT_CANCELLED)
 
 
 @app.command()

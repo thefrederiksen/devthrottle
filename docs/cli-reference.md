@@ -2060,8 +2060,9 @@ COMMANDS:
 
 ## cc-secrets
 
-Use a stored password without the model ever seeing it. The owner adds entries by hand on each
-machine; agents use them through `list`, `run` and `login`, and get back only the result. No command
+Use a stored password without the model ever seeing it. The owner adds entries on each machine - by hand,
+or in the window an agent opens with `ask`; agents use them through `list`, `run` and `login`, and get back only
+the result. No command
 prints a secret, and there is deliberately no `get`.
 
 The store is one plain JSON file per user per machine (`secrets.json`), protected by user-only file
@@ -2078,6 +2079,7 @@ OPTIONS:
              `cc-secrets list --version` is a usage error.
 
 COMMANDS:
+  ask      Open a window for the owner to type a secret; the agent pre-fills everything else
   add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
   import   OWNER: import every KEY=VALUE line of a file (credentials.env) as its own entry
   edit     OWNER: change an entry's username, addresses, uses, agents, notes or variable - not its secret
@@ -2108,6 +2110,42 @@ secret as an argument. In Git Bash (mintty) typing cannot be hidden, so `add` re
 PowerShell or cmd, or pipe the secret in.
 
 No error is shown as a traceback: an unexpected error is named by its type only.
+
+**An agent that needs a credential the store does not hold runs `cc-secrets ask`** - never asks the owner to run
+`add`. A small window opens on the owner's screen; the agent pre-fills the name, username and notes, and the owner
+types only the secret.
+
+### cc-secrets ask
+
+```
+USAGE: cc-secrets ask [OPTIONS] [NAME]
+
+OPTIONS:
+  --username TEXT         The user name to pre-fill
+  --notes TEXT            A note to pre-fill; agents see it in list
+  --reason TEXT           Why it is needed - shown in the window, and written to the audit log
+  --domains TEXT          Comma-separated site addresses login may fill (as for add)
+  --uses TEXT             Comma-separated: login, run [default: both]
+  --agents / --no-agents  Pre-tick "sessions on this machine may use it" [default: ticked]
+  --setting               Ask for a setting that is not secret (a host, an email address)
+  --env-name TEXT         The variable run supplies it in [default: CC_SECRET]
+```
+
+The window shows who asked (the session's name) and why, the name, username and notes (all editable), the
+secret (hidden, with a "Show the secret" box) and Save / Cancel. If the entry already exists the window says
+that Save REPLACES it; a name the owner types over an existing one is warned about on the first Save. A secret
+that cannot be stored (too short, for example) is reported in the window, which stays open.
+
+Prints only `saved NAME` (exit 0) or `cancelled` (exit 3). With no NAME the form opens empty.
+
+There is no way to pass the secret to `ask` - no argument, no environment variable, no standard input - so it
+needs no `--owner-approved`, inside a session or out. Save stores the entry by the same code as `add`, and the
+audit line records that the owner typed it in the window, the session that asked and the reason. Checked before
+the window opens: the name, addresses, uses and variable the agent pre-filled, so the owner is never shown a
+form that cannot be saved. With no screen (an SSH shell, or Linux with no `DISPLAY`/`WAYLAND_DISPLAY`) it fails
+and says so. Example:
+`cc-secrets ask devlinux --username soren --uses run --reason "sudo over SSH on devlinux"`, then
+`cc-secrets run devlinux -- ssh devlinux sudo -S apt-get update`.
 
 ### cc-secrets add
 
