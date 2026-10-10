@@ -39,7 +39,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import _console  # noqa: F401  (installs the ASCII-only output patches)
-from . import __version__, entry_window, filelog, paths
+from . import __version__, entry_window, filelog, machine_key, machines, paths
 from .audit import AuditLog, OwnerApproval
 from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_login
 from .errors import CcSecretsError, InputError, describe
@@ -961,6 +961,62 @@ def login(
         _say(f"{result.outcome}: {result.reason}", err=True)
     if result.outcome != OUTCOME_LOGGED_IN:
         raise typer.Exit(EXIT_REFUSED if result.outcome == OUTCOME_REFUSED else EXIT_FAILED)
+
+
+@app.command("machine-key")
+def machine_key_command(
+    json_output: bool = typer.Option(False, "--json", help="Print JSON."),
+):
+    """This machine's PUBLIC key for receiving a secret, made the first time it is asked for. The Director runs this to
+    publish the key to the Gateway; the private half never leaves this machine's private secrets folder."""
+    try:
+        key, created = machine_key.load_or_create()
+    except Exception as exc:
+        _fail("machine-key", "(machine key)", "machine-key", exc)
+    if json_output:
+        _say_json({"publicKey": key.public_b64, "fingerprint": key.fingerprint, "created": created})
+    else:
+        _say(f"{'Made' if created else 'This machine has'} the key {machine_key.short_fingerprint(key.fingerprint)} "
+             f"(fingerprint {key.fingerprint}).")
+
+
+@app.command("machines")
+def machines_command(
+    json_output: bool = typer.Option(False, "--json", help="Print JSON."),
+):
+    """The machines that can receive a secret: each one's name, key fingerprint, whether it is this machine, and
+    whether its key is the one this machine pinned the last time it sent to it. Never a secret."""
+    try:
+        own, _ = machine_key.load_or_create()
+        found = machines.listed(own)
+    except Exception as exc:
+        _fail("machines", "(machines)", "machines", exc)
+    if json_output:
+        _say_json({"machines": [{
+            "machine": m.name, "fingerprint": m.fingerprint, "thisMachine": m.this_machine,
+            "key": "conflict" if m.conflict else m.pin.state,
+            "pinnedUtc": m.pin.pinned.pinned_utc if m.pin.pinned else "", "lastSeenUtc": m.last_seen_utc,
+            "directors": m.directors, "conflict": m.conflict} for m in found]})
+        return
+    if not found:
+        _say("No machine can receive a secret right now. A machine is listed while a Director that can take part is "
+             "running on it.")
+        return
+    # One line per machine rather than a table: a table squeezed into a narrow terminal cuts names short, and a
+    # machine name is what the next command needs typed exactly.
+    for m in found:
+        if m.conflict:
+            _say(f"{m.name}: cannot receive - {m.conflict}")
+            continue
+        if m.this_machine:
+            state = "this machine"
+        else:
+            state = {"new": "not sent to before",
+                     "same": "the key pinned when it was first sent to",
+                     "changed": "KEY CHANGED since it was pinned on "
+                                + (m.pin.pinned.pinned_utc if m.pin.pinned else "")}[m.pin.state]
+        _say(_visible_ascii(f"{m.name}: key {machine_key.short_fingerprint(m.fingerprint)} - {state}; "
+                            f"last seen {m.last_seen_utc}"))
 
 
 @app.command("log")
