@@ -16,7 +16,7 @@ import { directorPrimaryLabel, directorStatus, epochOf, repoNamesOf } from "./di
 import { getFleetMachines, type FleetMachines } from "@devthrottle/client-core/fleet/machinesClient";
 import { MachinesPanel, VersionPill } from "./MachinesPanel";
 import { versionStateByDirector } from "./machinesFormat";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-directors";
 
@@ -58,6 +58,7 @@ export function DirectorsView() {
     try {
       setMachines(await getFleetMachines(signal));
       setMachinesError(null);
+      backgroundRecovered(SURFACE, "read the machine list");
     } catch (err) {
       if (signal?.aborted === true) return;
       setMachinesError(describeAndReport(SURFACE, "read the machine list", err, { background: true }));
@@ -71,6 +72,7 @@ export function DirectorsView() {
       const ds = await getFleetDirectors(signal);
       setDirectors(ds);
       setRegistryError(null);
+      backgroundRecovered(SURFACE, "read the Director list");
       setLastRefresh(new Date());
     } catch (err) {
       if (signal?.aborted === true) return;

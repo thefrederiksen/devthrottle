@@ -144,7 +144,7 @@ export function ActivityTable({ rows, showFactory }: { rows: FactoryActivityLine
 export function Faults({ faults }: { faults: string[] }) {
   if (faults.length === 0) return null;
   return (
-    // error-report-exempt: the Gateway's own fault lines, carried in its answer; nothing failed here
+    // error-report-exempt: a factory's fault lines, produced and held by the Gateway and carried in its answer; nothing failed in the Cockpit
     <div className="fa-faults" role="alert" data-testid="fa-faults">
       {faults.map((f) => (
         <div key={f} className="fa-fault">

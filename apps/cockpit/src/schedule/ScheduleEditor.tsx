@@ -192,7 +192,7 @@ export function ScheduleEditor({
       const [dirs, env] = await Promise.all([getFleetDirectors(), getSessionsEnvelope()]);
       setDirectors(dirs);
       setSessions(env.sessions);
-      setMachineErrors(env.machineErrors); // error-report-exempt: the Gateway's own list of unreachable machines, data it already holds, not a failure here
+      setMachineErrors(env.machineErrors); // error-report-exempt: the list of unreachable machines, produced and held by the Gateway; nothing failed in the Cockpit
       setDirectorReach(env.directors);
     } catch {
       /* the picker degrades to "no machines known" rather than blocking the form */

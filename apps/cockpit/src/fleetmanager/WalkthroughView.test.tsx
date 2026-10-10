@@ -26,6 +26,7 @@ vi.mock("@devthrottle/client-core/fleetmanager/walkthroughClient", () => ({
 }));
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   reportClientError: vi.fn(),
+  backgroundRecovered: vi.fn(),
   describeAndReport: (_s: string, _a: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
   errorFacts: () => ({}),
 }));

@@ -42,7 +42,7 @@ import {
   scheduleListOf,
   type ScheduleList,
 } from "./scheduleFormat";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-schedule";
 
@@ -109,6 +109,7 @@ export function ScheduleView() {
       const fresh = await getCronJobs(signal);
       setJobs(fresh);
       setLastError(null);
+      backgroundRecovered(SURFACE, "read the schedules");
       setLastRefresh(new Date());
       const sel = selectedRef.current;
       if (sel !== null && fresh.some((j) => j.id === sel)) {
@@ -133,6 +134,7 @@ export function ScheduleView() {
     try {
       setLoad(await getCronLoad(signal));
       setLoadError(null);
+      backgroundRecovered(SURFACE, "read the schedule forecast");
     } catch (err) {
       if (signal?.aborted === true) return;
       setLoadError(describeAndReport(SURFACE, "read the schedule forecast", err, { background: true }));

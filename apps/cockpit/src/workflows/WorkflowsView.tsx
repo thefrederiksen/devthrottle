@@ -17,6 +17,8 @@ import { describeAndReport } from "@devthrottle/client-core/errors/reportClientE
 import { ClipboardRefusedError } from "../components/clipboardFailure";
 
 const SURFACE = "cockpit-workflows";
+// A page the browser does not trust has no clipboard at all; there is no error object to pass on.
+const NO_CLIPBOARD = "this page has no clipboard - the browser offers one only on a trusted address";
 
 // The Workflows REGISTER (register redesign, approved mockup direction A). Workflows are the rules
 // this fleet works by, and the page reads with that weight: a ledger, not cards. One row per
@@ -530,7 +532,10 @@ function AddWorkflowDialog({ onClose, onCreated }: { onClose: () => void; onCrea
                   navigator.clipboard?.writeText(handoff).then(
                     () => setCopied(true),
                     (err: unknown) => setError(`${describeAndReport(SURFACE, "copy the prompt", new ClipboardRefusedError(err))} Select the text above and copy it manually.`),
-                  ) ?? setError("Copy is unavailable here - select the text above and copy it manually."); // error-report-exempt: this page has no clipboard (an address the browser does not trust); nothing failed
+                  ) ??
+                    setError(
+                      `${describeAndReport(SURFACE, "copy the prompt", new ClipboardRefusedError(NO_CLIPBOARD))} Select the text above and copy it manually.`,
+                    );
                 }}
               >
                 {copied ? "Copied" : "Copy prompt"}

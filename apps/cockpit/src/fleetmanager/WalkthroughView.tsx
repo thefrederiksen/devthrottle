@@ -13,7 +13,7 @@ import {
   type WalkthroughActionDeps,
   type WalkthroughActResult,
 } from "@devthrottle/client-core/fleetmanager/walkthroughActions";
-import { describeAndReport, reportClientError } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport, reportClientError } from "@devthrottle/client-core/errors/reportClientError";
 import { useVisiblePolling } from "@devthrottle/client-core/polling/useVisiblePolling";
 import { Button, ConfirmDialog } from "../components";
 import { OutcomeCard } from "./OutcomeCard";
@@ -467,6 +467,7 @@ function SessionScreen({ sessionId, lines, loadingText, label }: { sessionId: st
         try {
           setText(await readSessionLines(sessionId, lines, signal));
           setError(null);
+          backgroundRecovered(SURFACE, "read the session's screen");
         } catch (err) {
           if (!signal.aborted) setError(describeAndReport(SURFACE, "read the session's screen", err, { sessionId, background: true }));
         }

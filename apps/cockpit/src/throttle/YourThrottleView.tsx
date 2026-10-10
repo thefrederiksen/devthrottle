@@ -27,7 +27,7 @@ import { ThrottleWindowSelector } from "@devthrottle/client-core/stats/ThrottleW
 import { ReposTab } from "./ReposTab";
 import { AgentsTab } from "./AgentsTab";
 import { TABS, DEFAULT_TAB, isThrottleTab, type ThrottleTab } from "./throttleTabs";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-throttle";
 
@@ -110,6 +110,7 @@ export function YourThrottleView() {
         if (controller.signal.aborted) return;
         setData(fresh);
         setError(null);
+        backgroundRecovered(SURFACE, "read your throttle");
       } catch (err) {
         if (controller.signal.aborted) return;
         setError(describeAndReport(SURFACE, "read your throttle", err, { background: true }));

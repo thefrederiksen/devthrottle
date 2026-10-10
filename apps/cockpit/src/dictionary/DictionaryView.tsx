@@ -125,7 +125,7 @@ export function DictionaryView() {
     setSuggestions(result.suggestions);
     setScannedAtUtc(result.scannedAtUtc);
     setScreeningOk(result.screeningOk);
-    setScreeningError(result.screeningError); // error-report-exempt: the Gateway's own verdict on its screening step, carried in its answer; nothing failed here
+    setScreeningError(result.screeningError); // error-report-exempt: the screening verdict on the user's own dictations, produced and held by the Gateway; nothing failed in the Cockpit
     setSelected((prev) => {
       const next: Record<string, boolean> = {};
       for (const s of result.suggestions) next[s.term] = prev[s.term] ?? true;

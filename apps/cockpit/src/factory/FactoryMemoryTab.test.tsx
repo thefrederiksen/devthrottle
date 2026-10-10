@@ -32,6 +32,19 @@ vi.mock("@devthrottle/client-core/factory/factoryMemoryClient", async (importOri
 const pageClient = vi.hoisted(() => ({ getFactoryPage: vi.fn(), getFactorySeats: vi.fn(), getFactoryFloor: vi.fn(() => new Promise(() => {})), startFactoryTalk: vi.fn() }));
 vi.mock("@devthrottle/client-core/factory/factoriesScreenClient", () => pageClient);
 
+// The real describeAndReport formats the sentence; only the report it makes is captured.
+const reported = vi.hoisted(() => vi.fn());
+vi.mock("@devthrottle/client-core/errors/reportClientError", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@devthrottle/client-core/errors/reportClientError")>();
+  return {
+    ...real,
+    describeAndReport: (surface: string, action: string, err: unknown, context?: { sessionId?: string }) => {
+      reported({ surface, action, err });
+      return real.describeAndReport(surface, action, err, context);
+    },
+  };
+});
+
 import { FactoryMemoryRefusal } from "@devthrottle/client-core/factory/factoryMemoryClient";
 import { FactoryView } from "./FactoryView";
 import { FACTORY_PAGE } from "./fixtures";
@@ -155,6 +168,9 @@ describe("The factory page's Memory tab (Factory Memory mission, phase 3b)", () 
 
     const conflict = await screen.findByTestId("fa-memory-conflict");
     expect(conflict.textContent).toContain("changed since you opened it: version 5");
+    // The raced save is a failed save of the user's own action: reported, and its sentence leads the panel.
+    expect(reported).toHaveBeenCalledWith(expect.objectContaining({ surface: "cockpit-factory-memory", action: "save this note" }));
+    expect(within(conflict).getByRole("alert").textContent).toContain("the note changed since you read it");
     expect(within(conflict).getByText("A factory session learned this meanwhile.")).toBeTruthy();
     expect((screen.getByLabelText("Text of domains") as HTMLTextAreaElement).value).toBe("My correction.");
     expect(client.setFactoryMemoryNote).toHaveBeenCalledTimes(1);

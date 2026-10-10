@@ -21,7 +21,7 @@ import { ConfirmDialog } from "../components";
 import { clockLabel, portLabel, relativeTime, repoBasename, uptime } from "./format";
 import { directorPrimaryLabel } from "./directorsFormat";
 import { DirectorUpdateCard } from "./DirectorUpdateCard";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-director-detail";
 
@@ -106,6 +106,7 @@ export function DirectorDetailView() {
       setDirector(d);
       setNotFound(d === null);
       setRegistryError(null);
+      backgroundRecovered(SURFACE, "read the Director list");
       setLastRefresh(new Date());
 
       const tick = tickRef.current;
@@ -113,6 +114,7 @@ export function DirectorDetailView() {
         try {
           setRepos(await getRepos(directorId, signal));
           setReposError(null);
+          backgroundRecovered(SURFACE, "read the Director's repositories");
         } catch (err) {
           if (signal?.aborted !== true) setReposError(describeAndReport(SURFACE, "read the Director's repositories", err, { background: true }));
         }

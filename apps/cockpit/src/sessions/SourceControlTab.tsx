@@ -61,7 +61,7 @@ export function SourceControlTab({ sessionId, onInsertPath }: SourceControlTabPr
       busyRef.current = true;
       try {
         const snap = await getGitStatus(sessionId, signal);
-        // error-report-exempt: the Director's repository snapshot; when git failed on that machine its answer says so, nothing failed in the Cockpit
+        // error-report-exempt: the Director's repository snapshot; a git failure in it is the Director's own, reported by the Director's error reporting (step 4), and nothing failed in the Cockpit
         setSnapshot(snap);
         // A non-ok status ("not a git repository" / "git failed") is a normal rendered result, not a
         // transport error; clear the transport error so a recovered fetch stops showing the old banner.

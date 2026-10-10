@@ -11,7 +11,7 @@ import { relativeTime } from "./format";
 import { MachineActions, type ActionOutcome } from "./MachineActions";
 import { VersionPill } from "./MachinesPanel";
 import { machineOf, toneClass } from "./machinesFormat";
-import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "cockpit-director-update";
 
@@ -33,6 +33,7 @@ export function DirectorUpdateCard({ directorId, machineName }: { directorId: st
     try {
       setView(await getFleetMachines(signal));
       setViewError(null);
+      backgroundRecovered(SURFACE, "read the machine list");
     } catch (err) {
       if (signal?.aborted !== true) setViewError(describeAndReport(SURFACE, "read the machine list", err, { background: true }));
     }
@@ -50,6 +51,7 @@ export function DirectorUpdateCard({ directorId, machineName }: { directorId: st
     try {
       setStatus(await getDirectorUpdateStatus(machineName));
       setStatusError(null);
+      backgroundRecovered(SURFACE, "read the Director's update status");
     } catch (err) {
       setStatusError(describeAndReport(SURFACE, "read the Director's update status", err, { background: true }));
     }
