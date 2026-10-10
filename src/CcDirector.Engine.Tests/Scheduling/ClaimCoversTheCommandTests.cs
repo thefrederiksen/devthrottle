@@ -88,8 +88,10 @@ public sealed class ClaimCoversTheCommandTests : IDisposable
             TimeoutSeconds = 120, NextRun = DateTime.UtcNow.AddSeconds(-1)
         });
 
+        // Director A's tick is driven here, with the cancellation its shutdown would send; no timers.
         using var schedulerA = new Scheduler(a, new JobExecutor(a), checkIntervalSeconds: 1, runRetentionDays: 30);
-        schedulerA.Start();
+        using var directorAShutdown = new CancellationTokenSource();
+        var tickA = schedulerA.TickAsync(directorAShutdown.Token);
         await WaitForLine("first-start", TimeSpan.FromSeconds(20));
 
         // Any later execution of this job is told apart by its marker.
@@ -97,13 +99,18 @@ public sealed class ClaimCoversTheCommandTests : IDisposable
         job.Command = LoopCommand("second");
         a.UpdateJob(job);
 
-        // Director A shuts down mid-run, and Director B is running on the same file.
-        await schedulerA.StopAsync(15);
+        // Director A shuts down mid-run: its job is cancelled, which kills the command and waits for it to
+        // be seen gone. The tick completes when the job has been dealt with.
+        directorAShutdown.Cancel();
+        await tickA.WaitAsync(TimeSpan.FromSeconds(15));
+
+        // Director B, on the same file, takes one tick. The command's ticks are real time (it is a real
+        // process), so the only waits left are the ones that watch the process, not the scheduler.
         using var schedulerB = new Scheduler(b, new JobExecutor(b), checkIntervalSeconds: 1, runRetentionDays: 30);
-        schedulerB.Start();
+        using var directorBShutdown = new CancellationTokenSource();
+        var tickB = schedulerB.TickAsync(directorBShutdown.Token);
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(5));
             var log = ReadLog();
             var firstTicksAfterStop = log.Count(l => l == "first-tick");
             await Task.Delay(TimeSpan.FromSeconds(3));
@@ -121,7 +128,9 @@ public sealed class ClaimCoversTheCommandTests : IDisposable
         }
         finally
         {
-            await schedulerB.StopAsync(15);
+            directorBShutdown.Cancel();
+            try { await tickB.WaitAsync(TimeSpan.FromSeconds(15)); }
+            catch (OperationCanceledException) { /* the test's own cancellation */ }
         }
     }
 

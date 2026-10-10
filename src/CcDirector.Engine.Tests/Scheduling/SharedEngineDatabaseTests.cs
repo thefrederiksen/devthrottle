@@ -29,6 +29,14 @@ public sealed class SharedEngineDatabaseTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// The two schedulers' ticks are driven by the test, not by their timers: in each round both tick AT
+    /// ONCE on the same due occurrence (the claim race), and then each ticks again alone after the run has
+    /// ended (the occurrence must not be due any more). Nothing here waits on a clock, so a second run can
+    /// only come from the product: two claims succeeding, or a completed run leaving the job due. The
+    /// timer-driven form of this test went red four times on 7 and 8 October 2026 ("expected 1 runs in
+    /// total, found 2") and the data could not tell a product double-run from a race in the test's waits.
+    /// </summary>
     [Fact]
     public async Task TwoSchedulers_OneFile_SameDueJob_RunsExactlyOncePerRound()
     {
@@ -52,37 +60,28 @@ public sealed class SharedEngineDatabaseTests : IDisposable
 
         using var schedulerA = new Scheduler(dbA, new JobExecutor(dbA), checkIntervalSeconds: 1, runRetentionDays: 30);
         using var schedulerB = new Scheduler(dbB, new JobExecutor(dbB), checkIntervalSeconds: 1, runRetentionDays: 30);
-        schedulerA.Start();
-        schedulerB.Start();
 
-        try
+        for (var round = 1; round <= rounds; round++)
         {
-            for (var round = 1; round <= rounds; round++)
-            {
-                dbA.UpdateNextRun(jobId, DateTime.UtcNow.AddSeconds(-1));
+            dbA.UpdateNextRun(jobId, DateTime.UtcNow.AddSeconds(-1));
 
-                // Wait for this round's run to finish, then give both loops two more ticks to run it
-                // a second time if they are going to.
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                while (sw.Elapsed < TimeSpan.FromSeconds(20))
-                {
-                    var runs = dbA.ListRuns(jobName: "shared-job", limit: 1000);
-                    if (runs.Count >= round && runs.All(r => r.EndedAt.HasValue))
-                        break;
-                    await Task.Delay(100);
-                }
-                await Task.Delay(2500);
+            // Both Directors see the occurrence due and race for the claim. Each tick completes when the
+            // run it started (if it won) has ended.
+            await Task.WhenAll(schedulerA.TickAsync(), schedulerB.TickAsync());
 
-                var all = dbA.ListRuns(jobName: "shared-job", limit: 1000);
-                Assert.True(all.Count == round,
-                    $"round {round}: expected {round} runs in total, found {all.Count}");
-                Assert.All(all, r => Assert.Equal(0, r.ExitCode));
-            }
-        }
-        finally
-        {
-            await schedulerA.StopAsync(5);
-            await schedulerB.StopAsync(5);
+            var afterTheRace = dbA.ListRuns(jobName: "shared-job", limit: 1000);
+            Assert.True(afterTheRace.Count == round,
+                $"round {round}: expected {round} runs in total after both Directors ticked at once, found {afterTheRace.Count}");
+            Assert.All(afterTheRace, r => Assert.True(r.EndedAt.HasValue, "a tick returned before its run had ended"));
+
+            // The run is over and next_run has moved on: a later tick on either Director finds nothing due.
+            await schedulerA.TickAsync();
+            await schedulerB.TickAsync();
+
+            var all = dbA.ListRuns(jobName: "shared-job", limit: 1000);
+            Assert.True(all.Count == round,
+                $"round {round}: expected {round} runs in total after each Director ticked again alone, found {all.Count}");
+            Assert.All(all, r => Assert.Equal(0, r.ExitCode));
         }
     }
 

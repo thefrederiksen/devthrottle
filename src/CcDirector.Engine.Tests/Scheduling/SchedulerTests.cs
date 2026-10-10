@@ -79,18 +79,9 @@ public sealed class SchedulerTests : IDisposable
         using var scheduler = new Scheduler(_db, executor, checkIntervalSeconds: 1, runRetentionDays: 30);
         scheduler.OnEvent += e => events.Add(e);
 
-        scheduler.Start();
-
-        // Poll for the start+complete events instead of a fixed sleep: a hard 3s delay flakes
-        // under CI load when the 1s-interval tick + subprocess run + completion take longer.
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        bool Both() =>
-            events.Any(e => e.Type == EngineEventType.JobStarted && e.JobName == "event-job") &&
-            events.Any(e => e.Type == EngineEventType.JobCompleted && e.JobName == "event-job");
-        while (!Both() && sw.Elapsed < TimeSpan.FromSeconds(15))
-            await Task.Delay(100);
-
-        await scheduler.StopAsync(5);
+        // One tick, driven here: it returns once the job it started has completed, so both events are
+        // facts by then - no polling against a clock.
+        await scheduler.TickAsync();
 
         Assert.Contains(events, e => e.Type == EngineEventType.JobStarted && e.JobName == "event-job");
         Assert.Contains(events, e => e.Type == EngineEventType.JobCompleted && e.JobName == "event-job");
