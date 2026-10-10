@@ -210,6 +210,21 @@ public sealed class ClientErrorEndpointsTests : IDisposable
     }
 
     [Fact]
+    public void HandlePost_CorrelationIdTheGatewayMinted_IsStoredVerbatim_NotScrubbedAsAKey()
+    {
+        // The browser reports the X-Correlation-Id the Gateway put on its error answer (step 2). That id is a run of 32
+        // characters - the shape the scrubber redacts when it looks like a key - so it must come back exactly as minted,
+        // or the browser's row and the Gateway's row stop reading as one incident.
+        var store = NewStore();
+        var minted = GatewayRequestErrors.NewCorrelationId();
+        var body = $$"""{"component":"mobile","surface":"s","action":"send prompt","message":"could not send","correlation_id":"{{minted}}"}""";
+
+        Assert.Equal(StatusCodes.Status202Accepted, Status(ClientErrorEndpoints.HandlePost(store, TenantA, UniqueDevice(), Json(body), Now)));
+
+        Assert.Equal(minted, Assert.Single(store.Query(Everything()).Records).CorrelationId);
+    }
+
+    [Fact]
     public void HandlePost_BurstPastTheDeviceCap_IsOneFloodRowForClientErrors_WithTheCountDropped()
     {
         // Step 2's flood record (issue #3675): every report this route refuses over its limit is counted, and the
