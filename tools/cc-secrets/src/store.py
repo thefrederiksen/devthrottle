@@ -152,7 +152,6 @@ class Entry:
     secret: Secret
     allowed_domains: List[str] = field(default_factory=list)
     notes: str = ""
-    agents_may_use: bool = False
     uses: List[str] = field(default_factory=lambda: list(USES))
     # The environment variable `run` puts the secret in when the caller does not choose one. Empty: CC_SECRET.
     env_name: str = ""
@@ -170,7 +169,6 @@ class Entry:
             "username": self.username,
             "allowedDomains": list(self.allowed_domains),
             "uses": list(self.uses),
-            "agentsMayUse": self.agents_may_use,
             "notes": self.notes,
             "envName": self.env_name,
             "kind": self.kind,
@@ -195,7 +193,8 @@ class Entry:
             secret=Secret(str(record["secret"])),
             allowed_domains=[str(d) for d in record.get("allowedDomains", [])],
             notes=str(record.get("notes", "")),
-            agents_may_use=bool(record.get("agentsMayUse", False)),
+            # A record written before 2026-10-10 still carries "agentsMayUse". It is read past and dropped on the next
+            # save: every entry is available to agents (owner decision 2026-10-10, the Secret Handoff mission).
             uses=[str(u) for u in record.get("uses", list(USES))],
             env_name=str(record.get("envName", "")),
             kind=str(record.get("kind", KIND_SECRET)),
@@ -215,7 +214,7 @@ def validate_env_name(env_name: str) -> str:
 
 
 def make_entry(name: str, username: str, secret: str, allowed_domains: List[str], notes: str,
-               agents_may_use: bool, uses: List[str], env_name: str = "", kind: str = KIND_SECRET) -> Entry:
+               uses: List[str], env_name: str = "", kind: str = KIND_SECRET) -> Entry:
     """Validate the owner's input and build an entry."""
     validate_name(name)
     validate_env_name(env_name)
@@ -239,7 +238,6 @@ def make_entry(name: str, username: str, secret: str, allowed_domains: List[str]
         secret=Secret(secret),
         allowed_domains=sorted({normalize_origin(d) for d in allowed_domains if d.strip()}),
         notes=notes,
-        agents_may_use=agents_may_use,
         uses=[u for u in USES if u in uses],
         env_name=env_name,
         kind=kind,
@@ -326,16 +324,12 @@ class SecretStore:
         self._save(remaining)
         return True
 
-    def agent_entries(self) -> List[Entry]:
-        """The entries agents may use. An entry the owner did not mark is not listed at all."""
-        return sorted((e for e in self.entries() if e.agents_may_use), key=lambda e: e.name)
-
     def entry_for_agent(self, name: str, use: str) -> Entry:
-        """The entry, when agents may use it for `use`. Otherwise an error whose message is the same
-        for a missing entry and for one the owner kept back, so a refusal does not reveal which."""
+        """The entry, when it may be used for `use`. Every entry is available to agents (owner decision 2026-10-10);
+        what an entry is FOR - run, login - still limits it."""
         entry = self.get(name)
-        if entry is None or not entry.agents_may_use:
-            raise EntryNotAvailableError(f"No secret named '{name}' is available to agents on this machine.")
+        if entry is None:
+            raise EntryNotAvailableError(f"No secret named '{name}' is on this machine.")
         if use not in entry.uses:
             raise EntryNotAvailableError(
                 f"Secret '{name}' is not allowed for '{use}'. It may be used for: {', '.join(entry.uses)}."
@@ -354,8 +348,8 @@ class SecretStore:
     def setting_for_agent(self, name: str) -> Entry:
         """A setting agents may read. A secret is refused - naming it a secret, which list already shows."""
         entry = self.get(name)
-        if entry is None or not entry.agents_may_use:
-            raise EntryNotAvailableError(f"No setting named '{name}' is available to agents on this machine.")
+        if entry is None:
+            raise EntryNotAvailableError(f"No setting named '{name}' is on this machine.")
         if not entry.is_setting:
             raise EntryNotAvailableError(f"'{name}' is a secret, and a secret is never printed. Use it with "
                                          f"cc-secrets run {name} -- <command>.")

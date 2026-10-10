@@ -38,17 +38,17 @@ def actions(store):
     return WindowActions(store, AuditLog(paths.audit_path()), APPROVAL, detail=WINDOW_RECORD)
 
 
-def _form(name="devlinux", secret="", username="soren", notes="", setting=False, agents=True, uses=("run", "login"),
+def _form(name="devlinux", secret="", username="soren", notes="", setting=False, uses=("run", "login"),
           domains=""):
     return FormInput(name=name, kind_setting=setting, username=username, secret=secret, notes=notes,
-                     agents_may_use=agents, uses=list(uses), domains=domains)
+                     uses=list(uses), domains=domains)
 
 
 # --- The list -------------------------------------------------------------------------------------------------
 
 def test_Rows_ShowASettingInFull_AndNeverASecretsValue(store, actions):
     secret = add_entry(store, name="desktop-login", username="soren")
-    store.put(make_entry("posthog-host", "", "https://us.i.posthog.com", [], "", True, ["run"], kind=KIND_SETTING))
+    store.put(make_entry("posthog-host", "", "https://us.i.posthog.com", [], "", ["run"], kind=KIND_SETTING))
 
     rows = {r.name: r for r in actions.rows()}
 
@@ -81,7 +81,7 @@ def test_RelativeTime(ago, text):
 
 def test_Search_MatchesNameUserNotesAndSettingValue_NeverASecret(store, actions):
     secret = add_entry(store, name="desktop-login", username="soren", notes="Mac Mini")
-    store.put(make_entry("posthog-host", "", "https://us.i.posthog.com", [], "", True, ["run"], kind=KIND_SETTING))
+    store.put(make_entry("posthog-host", "", "https://us.i.posthog.com", [], "", ["run"], kind=KIND_SETTING))
     rows = actions.rows()
 
     assert [r.name for r in filter_rows(rows, "MAC mini")] == ["desktop-login"]
@@ -201,11 +201,11 @@ def test_Edit_NewSecret_ReplacesIt_AndKeepsTheVariableName(store, actions):
     store.put(entry)
     secret = new_secret()
 
-    assert actions.submit(_form(secret=secret, agents=False, uses=("run",)), MODE_EDIT, "devlinux") is None
+    assert actions.submit(_form(secret=secret, uses=("run",)), MODE_EDIT, "devlinux") is None
 
     entry = store.get("devlinux")
-    assert (entry.secret.reveal(), entry.env_name, entry.agents_may_use, entry.uses) == \
-        (secret, "DEVLINUX_PASSWORD", False, ["run"])
+    assert (entry.secret.reveal(), entry.env_name, entry.uses) == \
+        (secret, "DEVLINUX_PASSWORD", ["run"])
     assert _audit_lines()[-1]["detail"].endswith("value changed")
 
 
@@ -334,7 +334,7 @@ def test_AddOverAnExistingEntry_KeepsItsVariableName(store, actions):
 # --- The second round (owner's report 2026-10-10: slow, the QA email empty, forms in the wrong place) -----------
 
 def test_EditRequest_ForASetting_CarriesItsValue(store, actions):
-    store.put(make_entry("mindzie-qa-email", "", "qa@mindzie.com", [], "", True, ["run"], kind=KIND_SETTING))
+    store.put(make_entry("mindzie-qa-email", "", "qa@mindzie.com", [], "", ["run"], kind=KIND_SETTING))
 
     assert actions.edit_request("mindzie-qa-email").setting_value == "qa@mindzie.com"
 
@@ -346,7 +346,7 @@ def test_EditRequest_ForAPassword_CarriesNoValue(store, actions):
 
 
 def test_Edit_ASettingSavedUnchanged_KeepsItsValue(store, actions):
-    store.put(make_entry("mindzie-qa-email", "", "qa@mindzie.com", [], "n", True, ["run"], kind=KIND_SETTING))
+    store.put(make_entry("mindzie-qa-email", "", "qa@mindzie.com", [], "n", ["run"], kind=KIND_SETTING))
     request = actions.edit_request("mindzie-qa-email")
 
     assert actions.submit(_form(name="mindzie-qa-email", secret=request.setting_value, setting=True, uses=("run",)),
@@ -356,8 +356,8 @@ def test_Edit_ASettingSavedUnchanged_KeepsItsValue(store, actions):
 
 def _three(store):
     add_entry(store, name="b-password", username="zed")
-    store.put(make_entry("a-setting", "amy", "host.example", [], "", True, ["run"], kind=KIND_SETTING))
-    add_entry(store, name="c-password", username="", agents=False)
+    store.put(make_entry("a-setting", "amy", "host.example", [], "", ["run"], kind=KIND_SETTING))
+    add_entry(store, name="c-password", username="", uses=("login",))
 
 
 @pytest.mark.parametrize("show, names", [
@@ -388,7 +388,7 @@ def test_Filter_UnknownKind_Fails(store, actions):
     ("name", True, ["c-password", "b-password", "a-setting"]),
     ("kind", False, ["b-password", "c-password", "a-setting"]),
     ("username", False, ["c-password", "a-setting", "b-password"]),
-    ("access", False, ["b-password", "c-password", "a-setting"]),  # "login, run" < "not allowed" < "run"
+    ("access", False, ["c-password", "b-password", "a-setting"]),  # "login" < "login, run" < "run"
 ])
 def test_Sort_ByEachColumn_TiesByName(store, actions, column, descending, names):
     _three(store)
@@ -412,12 +412,12 @@ def test_Sort_UnknownColumn_Fails():
         sort_rows([], "secret", False)
 
 
-def test_Row_SaysWhatAgentsMayDo_InWords(store, actions):
+def test_Row_SaysWhatItIsUsedFor_InWords(store, actions):
     _three(store)
     rows = {r.name: r for r in actions.rows()}
 
     assert (rows["b-password"].access, rows["a-setting"].access, rows["c-password"].access) == \
-        ("login, run", "run", "not allowed")
+        ("login, run", "run", "login")
     assert (rows["b-password"].kind_label, rows["a-setting"].kind_label) == ("Password", "Setting")
 
 

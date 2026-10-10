@@ -23,16 +23,18 @@ def _audit_lines():
     return AuditLog(paths.audit_path()).read(1000)
 
 
-def test_List_AsAgent_ShowsOnlyAgentEntries_NeverTheSecret(store, plain):
-    shared = add_entry(store, name="shared")
-    kept = add_entry(store, name="kept-back", agents=False)
+def test_List_AsAgent_ShowsEveryEntry_NeverTheSecret(store, plain, monkeypatch):
+    # Owner decision 2026-10-10: every entry is available to agents, so list shows them all.
+    monkeypatch.setenv("CC_SESSION_ID", "agent-session")
+    first = add_entry(store, name="first")
+    second = add_entry(store, name="second", uses=("run",))
 
     result = runner.invoke(cli.app, ["list"])
 
     text = plain(_all_text(result))
     assert result.exit_code == 0
-    assert "shared" in text and "kept-back" not in text
-    assert shared not in text and kept not in text
+    assert "first" in text and "second" in text
+    assert first not in text and second not in text
 
 
 def test_ListJson_CarriesNoSecretField(store):
@@ -46,20 +48,20 @@ def test_ListJson_CarriesNoSecretField(store):
     assert secret not in result.stdout
 
 
-def test_ListAll_InsideSession_Refused(store, monkeypatch):
-    add_entry(store, name="kept-back", agents=False)
-    monkeypatch.setenv("CC_SESSION_ID", "some-session")
+def test_ListAll_WasRemoved_IsRefusedWithTheReason(store):
+    add_entry(store, name="web")
 
     result = runner.invoke(cli.app, ["list", "--all"])
 
-    assert result.exit_code == cli.EXIT_REFUSED
-    assert "kept-back" not in result.output
+    assert result.exit_code == cli.EXIT_FAILED
+    assert "--all was removed" in _all_text(result)
+    assert "web" not in result.stdout
 
 
 def test_Add_InsideSession_Refused_NothingSaved(store, monkeypatch):
     monkeypatch.setenv("CC_SESSION_ID", "some-session")
 
-    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com", "--agents"],
+    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com"],
                            input=new_secret() + "\n")
 
     assert result.exit_code == cli.EXIT_REFUSED
@@ -69,7 +71,7 @@ def test_Add_InsideSession_Refused_NothingSaved(store, monkeypatch):
 def test_Add_PipedSecret_IsSaved_AndNeverEchoed(store):
     secret = new_secret()
 
-    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com", "--agents"],
+    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com"],
                            input=secret + "\n")
 
     assert result.exit_code == 0, _all_text(result)
@@ -79,7 +81,7 @@ def test_Add_PipedSecret_IsSaved_AndNeverEchoed(store):
 
 
 def test_Add_WithoutUses_DefaultsToBothLoginAndRun(store):
-    runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com", "--agents"],
+    runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com"],
                   input=new_secret() + "\n")
 
     assert store.get("web").uses == ["login", "run"]
@@ -95,7 +97,7 @@ def test_Help_SaysWhatTheProtectionCovers(plain):
 def test_Add_PipedSecretWithCarriageReturn_IsTrimmed(store):
     secret = new_secret()
 
-    runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "", "--no-agents"], input=secret + "\r\n")
+    runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", ""], input=secret + "\r\n")
 
     assert store.get("web").secret.reveal() == secret
 
@@ -109,7 +111,7 @@ def test_Add_PipedWithoutTheOtherFields_Refused(store):
 
 
 def test_Add_PipedMultipleLines_Refused(store):
-    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "", "--agents"],
+    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", ""],
                            input="line-one\nline-two\n")
 
     assert result.exit_code == cli.EXIT_FAILED
@@ -133,7 +135,7 @@ def test_Add_HiddenPrompt_TypedTwice_IsSaved(store, monkeypatch):
     monkeypatch.setattr(getpass, "getpass", lambda prompt="": prompts.append(prompt) or secret)
 
     result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com",
-                                     "--agents", "--notes", ""])
+                                     "--notes", ""])
 
     assert result.exit_code == 0, _all_text(result)
     assert len(prompts) == 2
@@ -145,7 +147,7 @@ def test_Add_HiddenPrompt_Mismatch_NothingSaved(store, monkeypatch):
     monkeypatch.setattr(cli, "_stdin_is_tty", lambda: True)
     monkeypatch.setattr(getpass, "getpass", lambda prompt="": next(answers))
 
-    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "", "--agents", "--notes", ""])
+    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "", "--notes", ""])
 
     assert result.exit_code == cli.EXIT_FAILED
     assert "did not match" in _all_text(result)
@@ -162,7 +164,7 @@ def test_Add_PromptThatCannotHideInput_IsRefused(store, monkeypatch):
     monkeypatch.setattr(cli, "_stdin_is_tty", lambda: True)
     monkeypatch.setattr(getpass, "getpass", visible_prompt)
 
-    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "", "--agents", "--notes", ""])
+    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "", "--notes", ""])
 
     assert result.exit_code == cli.EXIT_FAILED
     assert store.get("web") is None
@@ -171,7 +173,7 @@ def test_Add_PromptThatCannotHideInput_IsRefused(store, monkeypatch):
 def test_Add_ExistingWithoutReplace_Refused(store):
     original = add_entry(store, name="web")
 
-    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "", "--agents"],
+    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", ""],
                            input=new_secret() + "\n")
 
     assert result.exit_code == cli.EXIT_FAILED
@@ -188,15 +190,14 @@ def test_Remove_InsideSession_Refused(store, monkeypatch):
     assert store.get("web") is not None
 
 
-def test_Run_KeptBackEntry_RefusedAndAudited(store, monkeypatch):
-    add_entry(store, name="kept-back", agents=False)
+def test_Run_MissingEntry_RefusedAndAudited(store, monkeypatch):
     monkeypatch.setenv("CC_SESSION_ID", "agent-session")
 
-    result = runner.invoke(cli.app, ["run", "kept-back", "--", PY, "-c", "print(1)"])
+    result = runner.invoke(cli.app, ["run", "not-there", "--", PY, "-c", "print(1)"])
 
     assert result.exit_code == cli.EXIT_REFUSED
     line = _audit_lines()[-1]
-    assert (line["entry"], line["outcome"], line["session"]) == ("kept-back", "refused", "agent-session")
+    assert (line["entry"], line["outcome"], line["session"]) == ("not-there", "refused", "agent-session")
 
 
 def test_Run_LoginOnlyEntry_Refused(store):
@@ -231,10 +232,10 @@ def test_Run_NonZeroExit_IsPassedThrough(store):
     assert _audit_lines()[-1]["outcome"] == "failed"
 
 
-def test_Login_KeptBackEntry_Refused(store):
-    add_entry(store, name="kept-back", agents=False)
+def test_Login_RunOnlyEntry_Refused(store):
+    add_entry(store, name="run-only", uses=("run",))
 
-    result = runner.invoke(cli.app, ["login", "kept-back", "--browser", "agent-browser"])
+    result = runner.invoke(cli.app, ["login", "run-only", "--browser", "agent-browser"])
 
     assert result.exit_code == cli.EXIT_REFUSED
 
@@ -263,7 +264,7 @@ def test_IsMsysPtyPipeName_RecognisesOnlyAGitBashTerminal():
 def test_Add_FromAGitBashTerminal_RefusedBeforeReadingAnything(store, monkeypatch, plain):
     monkeypatch.setattr(cli, "_stdin_is_mintty", lambda: True)
 
-    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com", "--agents"],
+    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com"],
                            input="typed-visibly\n")
 
     assert result.exit_code == cli.EXIT_REFUSED

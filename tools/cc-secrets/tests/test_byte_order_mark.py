@@ -12,7 +12,7 @@ VOICE_ID = "voice-id-1234567890"
 
 
 def test_AddSetting_PipedWithAByteOrderMark_StoresTheValueWithoutIt(store):
-    result = runner.invoke(cli.app, ["add", "voice-id", "--username", "", "--domains", "", "--agents", "--setting",
+    result = runner.invoke(cli.app, ["add", "voice-id", "--username", "", "--domains", "", "--setting",
                                      "--env-name", "VOICE_ID"], input=BOM + VOICE_ID + "\r\n")
 
     assert result.exit_code == 0, result.output

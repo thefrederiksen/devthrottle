@@ -18,7 +18,25 @@ def test_Put_ThenGet_RoundTripsEveryField(store):
     assert entry.username == "leak-user"
     assert entry.allowed_domains == ["https://github.com"]
     assert entry.notes == "n"
-    assert entry.agents_may_use is True
+
+
+def test_AnOldRecordWithTheAgentsField_StillLoads_AndTheFieldIsDroppedOnTheNextSave(store):
+    # Records written before 2026-10-10 carry "agentsMayUse" - true or false. Both load, both are available to
+    # agents, and the field is gone from the file after the next save of any entry.
+    add_entry(store, name="old-on")
+    add_entry(store, name="old-off")
+    path = paths.store_path()
+    document = json.loads(path.read_text(encoding="utf-8"))
+    for record in document["entries"]:
+        record["agentsMayUse"] = record["name"] == "old-on"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    assert [e.name for e in store.entries()] == ["old-off", "old-on"]
+    assert store.entry_for_agent("old-off", "run").name == "old-off"
+    assert "agentsMayUse" not in store.get("old-off").public_view()
+
+    add_entry(store, name="new")
+    assert "agentsMayUse" not in path.read_text(encoding="utf-8")
 
 
 def test_StoreFile_IsPlainJsonNamedSecretsJson(store):
@@ -42,8 +60,8 @@ def test_Secret_NeverRendersAsText(store):
     assert "<hidden>" in repr(entry)
 
 
-def test_Entries_HandsEverySecretToTheScrubber_EvenEntriesKeptBack(store):
-    kept = add_entry(store, name="kept-back", agents=False)
+def test_Entries_HandsEverySecretToTheScrubber(store):
+    kept = add_entry(store, name="kept-back")
     shared = add_entry(store, name="shared")
     SCRUBBER.clear()
 
@@ -53,7 +71,7 @@ def test_Entries_HandsEverySecretToTheScrubber_EvenEntriesKeptBack(store):
 
 
 def test_Entries_NewerStoreVersion_RegistersSecretsBeforeRefusing(store):
-    kept = add_entry(store, name="kept-back", agents=False)
+    kept = add_entry(store, name="kept-back")
     path = paths.store_path()
     path.write_text(path.read_text(encoding="utf-8").replace('"version": 1', '"version": 2'), encoding="utf-8")
     SCRUBBER.clear()
@@ -63,22 +81,9 @@ def test_Entries_NewerStoreVersion_RegistersSecretsBeforeRefusing(store):
     assert SCRUBBER.scrub(kept) == "[REDACTED]"
 
 
-def test_AgentEntries_LeavesOutEntriesNotMarkedForAgents(store):
-    add_entry(store, name="shared", agents=True)
-    add_entry(store, name="kept-back", agents=False)
-
-    assert [e.name for e in store.agent_entries()] == ["shared"]
-
-
-def test_EntryForAgent_KeptBackAndMissing_GiveTheSameMessage(store):
-    add_entry(store, name="kept-back", agents=False)
-
-    with pytest.raises(EntryNotAvailableError) as kept:
-        store.entry_for_agent("kept-back", "run")
-    with pytest.raises(EntryNotAvailableError) as missing:
+def test_EntryForAgent_Missing_SaysItIsNotOnThisMachine(store):
+    with pytest.raises(EntryNotAvailableError, match="No secret named 'nothing-here' is on this machine"):
         store.entry_for_agent("nothing-here", "run")
-
-    assert str(kept.value).replace("kept-back", "X") == str(missing.value).replace("nothing-here", "X")
 
 
 def test_EntryForAgent_UseNotAllowed_Refused(store):
@@ -154,8 +159,8 @@ def test_NormalizeOrigin_RefusesWhatCannotBeCheckedExactly(given):
 
 def test_MakeEntry_RejectsBadInput():
     with pytest.raises(InputError, match="valid entry name"):
-        make_entry("Bad Name", "u", new_secret(), [], "", True, ["run"])
+        make_entry("Bad Name", "u", new_secret(), [], "", ["run"])
     with pytest.raises(InputError, match="at least"):
-        make_entry("ok", "u", "abc", [], "", True, ["run"])
+        make_entry("ok", "u", "abc", [], "", ["run"])
     with pytest.raises(InputError, match="Uses"):
-        make_entry("ok", "u", new_secret(), [], "", True, ["reveal"])
+        make_entry("ok", "u", new_secret(), [], "", ["reveal"])

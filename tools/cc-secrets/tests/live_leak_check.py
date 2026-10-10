@@ -7,7 +7,7 @@ after the command has returned:
              site (and a second "agent" site on another port), and then uses them through every command
              an agent has - list, run (stdin, env and askpass), and login in the Director-owned browser.
              The login cases: a one-page form, a two-step form, a wrong password, a form that will not
-             submit, a tab on a host the entry does not allow, an entry kept back from agents, the first
+             submit, a tab on a host the entry does not allow, an entry not allowed for login, the first
              review's cases (pressing Back after logging in and after a wrong password, a single-page app
              that hides its form, an agent rewriting the form's action to its own server, a tab on another
              port of the allowed host) and the second review's cases (a form that sends by GET, and the
@@ -318,10 +318,10 @@ def run(args) -> int:
     agent_base = f"http://127.0.0.1:{agent_port}"
 
     store = SecretStore(UserOnlyFile(paths.store_path()))
-    store.put(make_entry("leak-good", USERNAME, good, [base], run_id, True, ["login", "run"]))
-    store.put(make_entry("leak-wrong", USERNAME, wrong, [base], run_id, True, ["login"]))
-    store.put(make_entry("leak-kept", USERNAME, kept, [base], run_id, False, ["login", "run"]))
-    store.put(make_entry("leak-accented", USERNAME, accented, [base], run_id, True, ["login"]))
+    store.put(make_entry("leak-good", USERNAME, good, [base], run_id, ["login", "run"]))
+    store.put(make_entry("leak-wrong", USERNAME, wrong, [base], run_id, ["login"]))
+    store.put(make_entry("leak-kept", USERNAME, kept, [base], run_id, ["run"]))
+    store.put(make_entry("leak-accented", USERNAME, accented, [base], run_id, ["login"]))
 
     shots = workdir / "screenshots"
     shots.mkdir()
@@ -406,7 +406,7 @@ print("screenshot saved")
         login_case("wrong-password", f"{base}/login", "leak-wrong", "failed")
         login_case("stuck-form", f"{base}/stuck", "leak-good", "failed")
         login_case("wrong-host", f"http://localhost:{port}/login", "leak-good", "refused")
-        login_case("kept-back", f"{base}/login", "leak-kept", "refused")
+        login_case("run-only", f"{base}/login", "leak-kept", "refused")
         login_case("back-after-login", f"{base}/login", "leak-good", "logged in", after=go_back)
         login_case("back-after-wrong-password", f"{base}/login", "leak-wrong", "failed", after=go_back)
         login_case("single-page-app-hidden-form", f"{base}/spa", "leak-good", "logged in")

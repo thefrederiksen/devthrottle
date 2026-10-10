@@ -80,7 +80,7 @@ EXIT_CANCELLED = 3
 MINTTY_MESSAGE = (
     "This terminal (Git Bash, or another mintty window) cannot hide what you type, so cc-secrets will not "
     "read a secret from it. Run 'cc-secrets add' from PowerShell or cmd, or pipe the secret in, for example: "
-    "<password manager command> | cc-secrets add NAME --username USER --domains https://example.com --agents"
+    "<password manager command> | cc-secrets add NAME --username USER --domains https://example.com"
 )
 
 _MSYS_PTY_PIPE = re.compile(r"\\(?:msys|cygwin)-[0-9a-f]+-pty\d+-(?:from|to)-master", re.IGNORECASE)
@@ -134,14 +134,6 @@ def _fail(command: str, name: str, label: str, exc: BaseException) -> NoReturn:
 
     note_failure(f"{command} failed", exc)
     raise typer.Exit(EXIT_FAILED)
-
-
-def _owner_only(command: str) -> None:
-    """`list --all` is refused inside a DevThrottle session outright: it has no approval path."""
-    if os.environ.get("CC_SESSION_ID"):
-        _say(f"'cc-secrets {command}' is for the owner, in their own terminal. It does not run inside a "
-             "DevThrottle session.", err=True)
-        raise typer.Exit(EXIT_REFUSED)
 
 
 OWNER_APPROVED_HELP = ("Inside a session: the owner's approval of THIS command, in their words, verbatim. Without it "
@@ -246,14 +238,30 @@ def _read_secret_from_owner() -> str:
 
 def _refuse_swallowed_options(**values: Optional[str]) -> None:
     """Refuse an option value that is itself an option. Windows PowerShell 5.1 drops an empty "" argument when it
-    starts a program, so `--username "" --no-agents` arrives as `--username --no-agents`: the user name becomes
-    "--no-agents" and the access change is silently lost (review of pull request 3005). No user name, note,
+    starts a program, so `--username "" --uses run` arrives as `--username --uses run`: the user name becomes
+    "--uses" and the change is silently lost (review of pull request 3005). No user name, note,
     address, use or variable starts with "--"."""
     for option, value in values.items():
         if value is not None and value.startswith("--"):
             raise InputError(f"The value given to --{option.replace('_', '-')} starts with '--', so another option was "
                              f"probably taken as its value (PowerShell drops an empty \"\"). To clear it, write "
                              f"--{option.replace('_', '-')}= with nothing after the equals sign.")
+
+
+AGENTS_REMOVED = ("--agents and --no-agents were removed on 2026-10-10: every entry is available to agents on this "
+                  "machine. What an entry may be used for is still set with --uses (run, login).")
+
+
+def _agents_option():
+    """The removed --agents/--no-agents, kept hidden only so that passing it is refused with the reason rather than
+    a bare 'no such option'."""
+    return typer.Option(None, "--agents/--no-agents", hidden=True, help=AGENTS_REMOVED)
+
+
+def _refuse_removed_agents(command: str, agents: Optional[bool]) -> None:
+    if agents is not None:
+        _say(f"{command} failed: {AGENTS_REMOVED}", err=True)
+        raise typer.Exit(EXIT_FAILED)
 
 
 def _split_list(value: str) -> List[str]:
@@ -266,7 +274,7 @@ def add(
     username: Optional[str] = typer.Option(None, "--username", help="The user name that goes with the secret."),
     domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill, for example https://example.com,https://*.example.com,http://127.0.0.1:8080. No scheme means https; scheme and port must match exactly."),
     notes: Optional[str] = typer.Option(None, "--notes", help="A note for yourself. Agents see it in list."),
-    agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use it."),
+    agents: Optional[bool] = _agents_option(),
     uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run. Default both."),
     replace: bool = typer.Option(False, "--replace", help="Replace an existing entry without asking."),
     setting: bool = typer.Option(False, "--setting", help="Store a setting that is not secret (a host, an email address): readable with get, not hidden from output."),
@@ -274,6 +282,7 @@ def add(
     owner_approved: Optional[str] = typer.Option(None, "--owner-approved", help=OWNER_APPROVED_HELP),
 ):
     """OWNER: add or replace an entry. The secret comes from a hidden prompt, or piped on stdin."""
+    _refuse_removed_agents("add", agents)
     try:
         _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name,
                                   owner_approved=owner_approved)
@@ -295,9 +304,9 @@ def add(
         _say(MINTTY_MESSAGE, err=True)
         raise typer.Exit(EXIT_REFUSED)
     try:
-        if not interactive and (username is None or domains is None or agents is None):
-            _say("With the secret piped on stdin there is no prompt for the other fields: pass --username, "
-                 "--domains and --agents or --no-agents.", err=True)
+        if not interactive and (username is None or domains is None):
+            _say("With the secret piped on stdin there is no prompt for the other fields: pass --username and "
+                 "--domains.", err=True)
             raise typer.Exit(EXIT_FAILED)
         store = _store()
         if store.get(name) is not None and not replace:
@@ -310,15 +319,12 @@ def add(
             domains = typer.prompt("Allowed site addresses for login (comma-separated, blank for none)", default="", show_default=False)
         if notes is None:
             notes = typer.prompt("Notes", default="", show_default=False) if interactive else ""
-        if agents is None:
-            agents = typer.confirm("May sessions on this machine use it?", default=False)
         use_list = _split_list(uses) if uses is not None else list(USES)
         secret = _read_secret_from_owner()
-        entry, replaced = save_entry(store, _audit(), name, username, secret, _split_list(domains), notes, agents,
+        entry, replaced = save_entry(store, _audit(), name, username, secret, _split_list(domains), notes,
                                      use_list, env_name or "", setting, "add", "", approval)
         _say(f"{'Replaced' if replaced else 'Added'} '{name}' in {store.location}. "
-             f"Agents may use it: {'yes' if entry.agents_may_use else 'no'}. Uses: {', '.join(entry.uses)}. "
-             f"Allowed addresses: {', '.join(entry.allowed_domains) or 'none'}.")
+             f"Uses: {', '.join(entry.uses)}. Allowed addresses: {', '.join(entry.allowed_domains) or 'none'}.")
     except typer.Exit:
         raise
     except Exception as exc:
@@ -371,7 +377,7 @@ def ask(
     reason: Optional[str] = typer.Option(None, "--reason", help="Why the secret is needed, shown in the window so the owner knows what they are typing into."),
     domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill (as for add)."),
     uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run. Default both."),
-    agents: bool = typer.Option(True, "--agents/--no-agents", help="Pre-tick 'agents may use it'. The owner can change it in the window. Default: ticked."),
+    agents: Optional[bool] = _agents_option(),
     setting: bool = typer.Option(False, "--setting", help="Ask for a setting that is not secret (a host, an email address)."),
     env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable run supplies it in. Default CC_SECRET."),
 ):
@@ -381,6 +387,7 @@ def ask(
 
     Example: cc-secrets ask devlinux --username soren --reason "sudo over SSH on devlinux" --uses run"""
     label = name or "(new)"
+    _refuse_removed_agents("ask", agents)
     try:
         _refuse_swallowed_options(username=username, notes=notes, reason=reason, domains=domains, uses=uses,
                                   env_name=env_name)
@@ -400,7 +407,7 @@ def ask(
     if exists:
         actions.told_about(name)  # the window says so from the start
     request = FormRequest(mode=MODE_ASK, name=name or "", kind_setting=setting, username=username or "",
-                          notes=notes or "", agents_may_use=agents, uses=use_list, domains=", ".join(domain_list),
+                          notes=notes or "", uses=use_list, domains=", ".join(domain_list),
                           asked_by=asked_by, reason=reason or "", exists=exists)
     try:
         saved = entry_window.show_ask(request, actions)
@@ -479,14 +486,15 @@ def edit(
     username: Optional[str] = typer.Option(None, "--username", help="The user name that goes with it."),
     domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill; --domains= (nothing after the equals sign) clears them."),
     uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run."),
-    agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use it."),
+    agents: Optional[bool] = _agents_option(),
     notes: Optional[str] = typer.Option(None, "--notes", help="A note for yourself. Agents see it in list."),
     env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable run supplies it in."),
     owner_approved: Optional[str] = typer.Option(None, "--owner-approved", help=OWNER_APPROVED_HELP),
 ):
-    """OWNER: change an entry's details - username, allowed addresses, uses, agents, notes, variable - WITHOUT
+    """OWNER: change an entry's details - username, allowed addresses, uses, notes, variable - WITHOUT
     touching its secret or setting value. For example, make an imported password usable by login:
     cc-secrets edit mindzie-qa-password-local --username qa@mindzie.com --domains https://localhost:7330 --uses login,run"""
+    _refuse_removed_agents("edit", agents)
     try:
         _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name,
                                   owner_approved=owner_approved)
@@ -496,11 +504,11 @@ def edit(
     approval = _owner_command("edit", name, owner_approved)
     try:
         changed = [label for label, value in (("username", username), ("domains", domains), ("uses", uses),
-                                              ("agents", agents), ("notes", notes), ("variable", env_name))
+                                              ("notes", notes), ("variable", env_name))
                    if value is not None]
         if not changed:
-            _say("Nothing to change: give at least one of --username, --domains, --uses, --agents/--no-agents, "
-                 "--notes, --env-name.", err=True)
+            _say("Nothing to change: give at least one of --username, --domains, --uses, --notes, "
+                 "--env-name.", err=True)
             raise typer.Exit(EXIT_FAILED)
         store = _store()
         current = store.get(name)
@@ -513,7 +521,6 @@ def edit(
             current.secret.reveal(),
             current.allowed_domains if domains is None else _split_list(domains),
             current.notes if notes is None else notes,
-            current.agents_may_use if agents is None else agents,
             current.uses if uses is None else _split_list(uses),
             env_name=current.env_name if env_name is None else env_name,
             kind=current.kind,
@@ -523,7 +530,7 @@ def edit(
         store.put(updated)
         audit.write_prepared([prepared])
         _say(f"Changed {', '.join(changed)} of '{name}'. Its {'value' if updated.is_setting else 'secret'} is unchanged. "
-             f"Agents may use it: {'yes' if updated.agents_may_use else 'no'}. Uses: {', '.join(updated.uses)}. "
+             f"Uses: {', '.join(updated.uses)}. "
              f"Allowed addresses: {', '.join(updated.allowed_domains) or 'none'}.")
     except typer.Exit:
         raise
@@ -566,15 +573,18 @@ def remove(
 
 @app.command("list")
 def list_entries(
-    all_entries: bool = typer.Option(False, "--all", help="OWNER: include entries agents may not use."),
+    all_entries: bool = typer.Option(False, "--all", hidden=True,
+                                     help="Removed on 2026-10-10: list shows every entry."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON."),
 ):
-    """Show the entries agents may use: names, usernames, allowed addresses. Never secrets."""
+    """Show every entry on this machine: names, usernames, allowed addresses, uses. Never secrets."""
     if all_entries:
-        _owner_only("list --all")
+        _say("list failed: --all was removed on 2026-10-10. Every entry is available to agents, so list shows them "
+             "all.", err=True)
+        raise typer.Exit(EXIT_FAILED)
     try:
         store = _store()
-        entries = sorted(store.entries(), key=lambda e: e.name) if all_entries else store.agent_entries()
+        entries = sorted(store.entries(), key=lambda e: e.name)
         views = [e.public_view() for e in entries]
         for view, entry in zip(views, entries):
             if entry.is_setting:
@@ -583,17 +593,14 @@ def list_entries(
             _say_json({"entries": views})
             return
         if not views:
-            _say("No secrets are available to agents on this machine." if not all_entries else "The store is empty.")
+            _say("The store on this machine is empty.")
             return
         table = Table(show_lines=False)
-        for column in ("Name", "Kind", "Variable", "Value", "Username", "Allowed addresses", "Uses") + (("Agents",) if all_entries else ()) + ("Notes",):
+        for column in ("Name", "Kind", "Variable", "Value", "Username", "Allowed addresses", "Uses", "Notes"):
             table.add_column(column)
         for v in views:
             row = [v["name"], v["kind"], v["envName"], v.get("value", ""), v["username"], ", ".join(v["allowedDomains"]),
-                   ", ".join(v["uses"])]
-            if all_entries:
-                row.append("yes" if v["agentsMayUse"] else "no")
-            row.append(v["notes"])
+                   ", ".join(v["uses"]), v["notes"]]
             table.add_row(*[_visible_ascii(SCRUBBER.scrub(str(c))) for c in row])
         console.print(table)
     except Exception as exc:
@@ -786,7 +793,7 @@ def entry_name_for_key(key: str) -> str:
 @app.command("import")
 def import_entries(
     file: Path = typer.Argument(..., help="A KEY=VALUE file, for example credentials.env. Blank lines and # comments are skipped."),
-    agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use the imported entries. Required."),
+    agents: Optional[bool] = _agents_option(),
     uses: str = typer.Option("run", "--uses", help="Comma-separated: login, run. Default run."),
     settings: Optional[str] = typer.Option(None, "--settings", help="Comma-separated keys to import as SETTINGS - not secret (hosts, email addresses, identifiers): readable with get and not hidden from output."),
     skip: Optional[str] = typer.Option(None, "--skip", help="Comma-separated keys NOT to import."),
@@ -797,6 +804,7 @@ def import_entries(
     """OWNER: import every KEY=VALUE line of a file as its own entry. Each entry is named after its key
     (POSTHOG_API_KEY becomes posthog-api-key) and `run` supplies it in a variable of that same name. No value is
     ever printed."""
+    _refuse_removed_agents("import", agents)
     try:
         _refuse_swallowed_options(owner_approved=owner_approved)
     except InputError as exc:
@@ -804,9 +812,6 @@ def import_entries(
         raise typer.Exit(EXIT_FAILED)
     approval = _owner_command("import", file.name, owner_approved)
     try:
-        if agents is None:
-            _say("Say whether sessions may use the imported entries: --agents or --no-agents.", err=True)
-            raise typer.Exit(EXIT_FAILED)
         use_list = _split_list(uses)
         skipped = set(_split_list(skip or ""))
         as_settings = set(_split_list(settings or ""))
@@ -837,7 +842,7 @@ def import_entries(
             try:
                 name = validate_name(entry_name_for_key(key))
                 kind = KIND_SETTING if key in as_settings else KIND_SECRET
-                built.append(make_entry(name, "", value, [], notes, agents, use_list, env_name=key, kind=kind))
+                built.append(make_entry(name, "", value, [], notes, use_list, env_name=key, kind=kind))
             except InputError as exc:
                 failed[key] = str(exc)
         existing = {e.name for e in stored}
@@ -884,7 +889,7 @@ def import_entries(
         _say(f"Imported into {store.location}: {counts['added']} added, {counts['replaced']} replaced, "
              f"{counts['exists']} already there and left as they are ({setting_count} of the changed ones are settings), "
              f"{len(skipped)} skipped, "
-             f"{len(failed)} not importable. Agents may use them: {'yes' if agents else 'no'}. Uses: {', '.join(use_list)}.")
+             f"{len(failed)} not importable. Uses: {', '.join(use_list)}.")
         for key, reason in failed.items():
             _say(f"  NOT imported: {key}: {reason}", err=True)
         raise typer.Exit(EXIT_FAILED if failed else 0)

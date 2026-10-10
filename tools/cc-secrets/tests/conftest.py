@@ -48,9 +48,9 @@ def store(home):
 
 
 def add_entry(store, name="devlinux", secret=None, username="leak-user", domains=("https://127.0.0.1",),
-              agents=True, uses=("login", "run"), notes="test entry"):
+              uses=("login", "run"), notes="test entry"):
     secret = secret or new_secret()
-    store.put(make_entry(name, username, secret, list(domains), notes, agents, list(uses)))
+    store.put(make_entry(name, username, secret, list(domains), notes, list(uses)))
     return secret
 
 

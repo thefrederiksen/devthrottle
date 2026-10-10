@@ -110,7 +110,7 @@ def _leaks(output: bytes, secrets) -> list:
 
 
 def _two_entries(store):
-    kept = add_entry(store, name="kept", agents=False, domains=("https://example.com",))
+    kept = add_entry(store, name="kept", domains=("https://example.com",))
     agent = add_entry(store, name="devlinux", domains=("https://127.0.0.1",))
     return [kept, agent]
 

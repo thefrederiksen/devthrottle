@@ -53,9 +53,9 @@ def tk_root():
 def window(store, tk_root):
     import tkinter as tk
 
-    entries = [make_entry("mindzie-qa-email", "", "qa@mindzie.com", [], "n", True, ["run"], kind=KIND_SETTING),
-               make_entry("devlinux", "soren", new_secret(), [], "", True, ["run"])]
-    entries += [make_entry(f"filler-{index:03}", "", new_secret(), [], "", True, ["run"]) for index in range(150)]
+    entries = [make_entry("mindzie-qa-email", "", "qa@mindzie.com", [], "n", ["run"], kind=KIND_SETTING),
+               make_entry("devlinux", "soren", new_secret(), [], "", ["run"])]
+    entries += [make_entry(f"filler-{index:03}", "", new_secret(), [], "", ["run"]) for index in range(150)]
     store.put_many(entries, replace=False)
     actions = WindowActions(store, AuditLog(paths.audit_path()), OwnerApproval(text=WINDOW_RECORD, session_name=""),
                             detail=WINDOW_RECORD)

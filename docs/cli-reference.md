@@ -2084,9 +2084,9 @@ COMMANDS:
   shortcut Windows: add a Start-menu shortcut "cc-secrets" that opens the window
   add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
   import   OWNER: import every KEY=VALUE line of a file (credentials.env) as its own entry
-  edit     OWNER: change an entry's username, addresses, uses, agents, notes or variable - not its secret
+  edit     OWNER: change an entry's username, addresses, uses, notes or variable - not its secret
   remove   OWNER: remove an entry
-  list     Entries agents may use: names, usernames, allowed addresses. Never secrets (--all, --json)
+  list     Every entry: names, usernames, allowed addresses, uses. Never secrets (--json)
   run      Run a command with the secret supplied; output comes back with the secret removed
   get      Print a SETTING's value (never a secret)
   login    Fill and submit the login form in a Director-owned browser; refuses any other address
@@ -2113,6 +2113,12 @@ PowerShell or cmd, or pipe the secret in.
 
 No error is shown as a traceback: an unexpected error is named by its type only.
 
+**Every entry is available to agents on the machine that holds it** (owner decision, 10 October 2026). There is no
+"agents may use it" switch any more: what limits an entry is what it is used for - `run`, `login`, or both - and,
+for `login`, its login sites. A store written before then still loads; the old field is dropped on the next save.
+`--agents` / `--no-agents` (and `list --all`) are refused with that reason. Choosing which agents or factories may
+use which entries is planned as a later feature.
+
 **An agent that needs a credential the store does not hold runs `cc-secrets ask`** - never asks the owner to run
 `add`. A small window opens on the owner's screen; the agent pre-fills the name, username and notes, and the owner
 types only the secret. To put the whole list on the owner's screen (to review, edit or delete entries), an agent
@@ -2129,8 +2135,8 @@ still on a screen, or under the mouse the first time, and remembers its size, so
 `window.json` beside the store - nothing about any entry. On Windows each monitor is known, so a window is kept on
 one monitor; on macOS and Linux Tk reports the screens as one area, so there it is kept on that area.
 
-The list shows every entry with the columns Name, Kind (Password or Setting), User name, Value, Agents may (what
-agents may do with it: `run`, `login`, or "not allowed") and Last used (the last successful `run`, `login` or `get`,
+The list shows every entry with the columns Name, Kind (Password or Setting), User name, Value, Used for (`run`,
+`login`, or both) and Last used (the last successful `run`, `login` or `get`,
 from the audit log). Click a column heading to sort by it; click again to reverse. All / Passwords / Settings
 filters by kind, and the search box matches names, user names, notes and settings' values - never a password. A
 setting shows in full. A password shows as asterisks with Show beside it: clicking Show (or its asterisks, or the
@@ -2143,8 +2149,8 @@ Escape clears the search, Enter edits the selected entry, Delete deletes it. A r
 Show or Hide, and Delete.
 
 Add and Edit (or a double-click) open the form centred over the list: Name, Kind (Password or Setting), User
-name, Password (with its own Show / Hide) or Value, Notes, whether agents may use it and for what (run commands,
-log in to websites), and Login sites (used only when login is ticked). Editing a setting shows its value. Editing
+name, Password (with its own Show / Hide) or Value, Notes, what it is used for (running commands,
+logging in to websites), and Login sites (used only when login is ticked). Editing a setting shows its value. Editing
 a password leaves its box empty: leave it empty to keep the current password, or click Show to see it (a reveal,
 audited). The name of an existing entry is not edited - add a new one and delete the old. Closing a form with
 changes asks first. Delete asks to confirm. Every save goes through the same code as `add` and is audited as
@@ -2172,7 +2178,6 @@ OPTIONS:
   --reason TEXT           Why it is needed - shown in the window, and written to the audit log
   --domains TEXT          Comma-separated site addresses login may fill (as for add)
   --uses TEXT             Comma-separated: login, run [default: both]
-  --agents / --no-agents  Pre-tick "sessions on this machine may use it" [default: ticked]
   --setting               Ask for a setting that is not secret (a host, an email address)
   --env-name TEXT         The variable run supplies it in [default: CC_SECRET]
 ```
@@ -2206,7 +2211,6 @@ OPTIONS:
                           https://*.example.com, http://127.0.0.1:8080. No scheme means https;
                           scheme, host and port must all match
   --notes TEXT            A note for yourself; agents see it in list
-  --agents / --no-agents  Whether sessions on this machine may use it
   --uses TEXT             Comma-separated: login, run [default: both]
   --replace               Replace an existing entry without asking
   --setting               Store a setting that is not secret: readable with get, not hidden
@@ -2214,7 +2218,7 @@ OPTIONS:
   --owner-approved TEXT   Inside a session: the owner's approval of this command, verbatim
 ```
 
-With the secret piped on stdin, `--username`, `--domains` and `--agents`/`--no-agents` are required.
+With the secret piped on stdin, `--username` and `--domains` are required.
 
 ### cc-secrets edit
 
@@ -2225,7 +2229,6 @@ OPTIONS:
   --username TEXT         The user name that goes with it
   --domains TEXT          Comma-separated site addresses login may fill; --domains= clears them
   --uses TEXT             Comma-separated: login, run
-  --agents / --no-agents  Whether sessions on this machine may use it
   --notes TEXT            A note for yourself; agents see it in list
   --env-name TEXT         The variable run supplies it in
   --owner-approved TEXT   Inside a session: the owner's approval of this command, verbatim
@@ -2233,7 +2236,7 @@ OPTIONS:
 
 Changes only the details given; the secret (or a setting's value) is never touched, so no prompt. To clear a field
 write it with an equals sign and nothing after it (`--username=`, `--notes=`, `--domains=`): Windows PowerShell 5.1
-drops an empty `""` argument, so `--username "" --no-agents` would take `--no-agents` as the user name. A value
+drops an empty `""` argument, so `--username "" --notes x` would take `--notes` as the user name. A value
 that starts with `--` is refused for that reason, by `edit` and by `add`. For example,
 make an imported password usable by `login`:
 `cc-secrets edit mindzie-qa-password-local --username qa@mindzie.com --domains https://localhost:7330 --uses login,run`
@@ -2244,7 +2247,6 @@ make an imported password usable by `login`:
 USAGE: cc-secrets import [OPTIONS] FILE
 
 OPTIONS:
-  --agents / --no-agents  Whether sessions on this machine may use the imported entries [required]
   --uses TEXT             Comma-separated: login, run [default: run]
   --settings TEXT         Comma-separated keys to import as SETTINGS (not secret)
   --skip TEXT             Comma-separated keys NOT to import
@@ -2263,7 +2265,7 @@ Name the keys that are not secret (hosts, project identifiers, email addresses) 
 are stored as settings: a secret is hidden from every command's output, and a host name stored as a secret
 would vanish from everything that prints it.
 
-Example: `cc-secrets import $env:LOCALAPPDATA\cc-director\config\credentials.env --agents --settings POSTHOG_HOST,POSTHOG_API_HOST --dry-run`
+Example: `cc-secrets import $env:LOCALAPPDATA\cc-director\config\credentials.env --settings POSTHOG_HOST,POSTHOG_API_HOST --dry-run`
 
 ### cc-secrets run
 
