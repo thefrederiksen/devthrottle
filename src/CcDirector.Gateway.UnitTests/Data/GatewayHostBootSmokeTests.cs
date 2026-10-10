@@ -136,7 +136,7 @@ public sealed class GatewayHostBootSmokeTests
     private const string ArchiveFactoriesSqliteMigration = "20261007035034_ArchiveFactories";
     // The NEWEST migration is never named here. A name moves every time a migration is added, and a test that pins
     // it goes red on every branch that adds one until somebody edits the test. That the newest Designer of each
-    // provider carries the current model is FleetOutcomeStopIdentityMigrationTests' job, and it derives the id.
+    // provider carries the current model is FleetOutcomeStopIdentityMigrationTests' job, and it derives the identifier.
 
     /// <summary>
     /// The Postgres migration set resolves BY ASSEMBLY NAME - the exact mechanism EF uses at runtime when the

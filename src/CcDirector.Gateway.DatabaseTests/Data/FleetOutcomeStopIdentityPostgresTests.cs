@@ -60,59 +60,8 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
             // The Wingman narration call trace (pull request 3105) landed after this proof was written, so the
             // migration under test is second from the end rather than last.
             Assert.Equal("20260918181205_AddWingmanNarrationCallTrace", all[index + 1]);
-            // The repository catalog's discovered columns and the raised sessions table landed after that, and the
-            // pins below moved with them.
-            Assert.Equal("20260920021806_AddDiscoveredRepositories", all[index + 2]);
-            Assert.Equal("20260920053001_AddRaisedSessions", all[index + 3]);
-            // The factory activity record landed after that, and the factory triggers after it.
-            Assert.Equal("20260921084515_AddFactoryActivity", all[index + 4]);
-            Assert.Equal("20260921105238_AddFactoryTriggers", all[index + 5]);
-            // The factory activity record's read indexes (the Factory Agents pages) after that.
-            Assert.Equal("20260921131114_IndexFactoryActivityReads", all[index + 6]);
-            // The name a trigger's pending start used, stored with its lock (the trigger's live check) after that.
-            Assert.Equal("20260921203258_AddTriggerStartName", all[index + 7]);
-            // The fleet message's unreachable-notice mark (issue 3289) after that.
-            Assert.Equal("20260927212206_AddFleetMessageUnreachableNotice", all[index + 8]);
-            // The factory a session or schedule belongs to, and the factory memory notes (issue 3436), after that.
-            Assert.Equal("20260928123825_AddSessionAndScheduleFactory", all[index + 9]);
-            Assert.Equal("20260928124407_AddFactoryMemoryNotes", all[index + 10]);
-            // The teams and their members (devthrottle_internal#2300), after that.
-            Assert.Equal("20261003182436_AddTeams", all[index + 11]);
-            // The team invitations (devthrottle_internal#2301), after that.
-            Assert.Equal("20261003233544_AddTeamInvitations", all[index + 12]);
-            // The Mentor's weekly page (devthrottle_internal#2305), after that.
-            Assert.Equal("20261004214416_AddTeamMentor", all[index + 13]);
-            // The message links between sessions (issue #3548), after that.
-            Assert.Equal("20261005031815_AddFleetMessageLinks", all[index + 14]);
-            // The team requests (devthrottle_internal#2308), after that.
-            Assert.Equal("20261005124444_AddTeamRequests", all[index + 15]);
-            // The requests for a message link (issue #3548), after that.
-            Assert.Equal("20261005160425_AddFleetMessageLinkRequests", all[index + 16]);
-            // The Fleet Manager's lessons (issue #3559), after that.
-            Assert.Equal("20261005184813_AddFleetManagerLessons", all[index + 17]);
-            // A dev report sent to a member of a team (devthrottle_internal#2309), after that.
-            Assert.Equal("20261005234644_AddDevReportSharing", all[index + 18]);
-            // The factory registry and goal numbers (Factories screen mission, phase A), after that.
-            Assert.Equal("20261006140813_AddFactoryRegistry", all[index + 19]);
-            // A team member's answer and the question a person's comment is about (devthrottle_internal#2307), after that.
-            Assert.Equal("20261006171258_AddTeamQuestionAnswers", all[index + 20]);
-            // Archiving a factory (Factories screen mission, round 2), after that.
-            Assert.Equal("20261007052952_ArchiveFactories", all[index + 21]);
-            // The team bill the Gateway owns, and its billing history (Teams v1, the team bill without Stripe), after that.
-            Assert.Equal("20261007070501_AddTeamBills", all[index + 22]);
-            // The amount a link request asks for (issue #3631), after that.
-            Assert.Equal("20261007180154_AddLinkRequestRequestedAmount", all[index + 23]);
-            // The seat a schedule runs (issue #3650), after that.
-            Assert.Equal("20261008043117_AddScheduleSeat", all[index + 24]);
-            // The team's governance rules and their record of changes (Teams v1, the Governance tab), after that.
-            Assert.Equal("20261008191614_AddTeamGovernance", all[index + 25]);
-            // A factory's one-line purpose (the Factories cards, 8 Oct 2026), after that.
-            Assert.Equal("20261008200010_AddFactoryPurpose", all[index + 26]);
-            // The team showcase's tag, and a made-up member's name and email (team showcase, 8 Oct 2026), after that.
-            Assert.Equal("20261008212232_AddTeamShowcase", all[index + 27]);
-            // The factory registry's boss seat column, renamed from CeoSeat (Factory Design and Improvements), after that.
-            Assert.Equal("20261008220319_RenameCeoSeatToBossSeat", all[index + 28]);
-            Assert.Equal(all.Count - 29, index);
+            // What sorts after that is not this test's concern: naming the tail pins today's newest migration, and
+            // that name moves every time one is added.
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
@@ -126,11 +75,9 @@ public sealed class FleetOutcomeStopIdentityPostgresTests
         using (var ctx = NewContext())
         {
             ctx.GetService<IMigrator>().Migrate();
-            // Later migrations follow the one under test, so migrating fully applies them too; the raised sessions
-            // table was the last of them until the factory activity record and then the factory triggers followed it,
-            // and then the name a trigger's pending start used, and then the factory memory notes (issue 3436), and then
-            // the teams (devthrottle_internal#2300) and the team invitations (devthrottle_internal#2301).
-            Assert.Equal("20261008220319_RenameCeoSeatToBossSeat", ctx.Database.GetAppliedMigrations().Last());
+            // Later migrations follow the one under test, so migrating fully applies them too - whichever is newest
+            // today. Nothing is left pending, and the newest is never named: a name moves every time one is added.
+            Assert.Empty(ctx.Database.GetPendingMigrations());
             Assert.False(ctx.Database.HasPendingModelChanges());
         }
 

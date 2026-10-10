@@ -14,8 +14,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// after step 4's delivery migration and their Designer files rebuilt on its model. For each provider this walks the
 /// chain from step 4's delivery migration: each migration comes straight after the one before it, and the schema
 /// difference between the two Designer models is exactly what the migration's Up does - no more, no less. Read with no
-/// database. The chain is a fixed window: a migration added after its last entry is not its concern, so this never
-/// names the newest migration and never goes red because one was added.
+/// database. The chain is a fixed window that ends at a fixed migration: its last entry is not asserted to be the
+/// newest in the assembly, so a migration added after it is not its concern and does not turn it red.
 /// </summary>
 public sealed class FleetManagerLaterStepsMigrationChainTests
 {
