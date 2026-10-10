@@ -349,6 +349,60 @@ jobs:
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
           echo "Built digest: $DIGEST (the push and the registry agree)"
 
+      # THE HOSTED CONTRACT, PROVED ON THE IMAGE THAT SHIPS (production-readiness item MH-3). Publishing the
+      # host also ships a runnable, unmarked CcDirector.Gateway.dll; a review of pull request #1968 ran it with
+      # every hosted variable unset and it served /healthz 200. The fix is the image-wide marker file
+      # (GatewayHostedMode.HostedImageMarkerFileName), which makes every entry executable refuse to start when
+      # the hosted contract is missing. This step proves it on the exact digest about to be deployed, before
+      # production is touched: the marker is in /app, both known entries ship, and EVERY runnable entry - every
+      # dll with a runtimeconfig.json beside it - exits 2 with "REFUSING TO START" when the contract variables
+      # are blank. A blank value is how docker unsets the image's own CC_GATEWAY_HOSTED=1; the contract treats
+      # blank as missing. An entry still running after 90 seconds started serving: that is the regression.
+      # This replaced HostedImagePublishedArtifactTests, which ran a Debug `dotnet publish` inside the test
+      # suite - up to 30 minutes on a loaded machine - to prove a property of an artifact only this workflow
+      # builds.
+      - name: Prove the built image refuses to start without the hosted contract
+        env:
+          IMAGE: ${{ env.ACR }}.azurecr.io/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.digest }}
+        run: |
+          docker pull --quiet "$IMAGE"
+          if ! docker run --rm --entrypoint sh "$IMAGE" -c 'test -f /app/hosted-gateway.image'; then
+            echo "ERROR: the image-wide hosted marker /app/hosted-gateway.image is not in $IMAGE."
+            exit 1
+          fi
+          ENTRIES=$(docker run --rm --entrypoint sh "$IMAGE" -c \
+            'cd /app && for c in *.runtimeconfig.json; do d="${c%.runtimeconfig.json}.dll"; if [ -f "$d" ]; then echo "$d"; fi; done')
+          echo "Runnable entries in the image:"
+          echo "$ENTRIES"
+          for required in CcDirector.Gateway.Host.dll CcDirector.Gateway.dll; do
+            if ! printf '%s\n' "$ENTRIES" | grep -qx "$required"; then
+              echo "ERROR: $required is not a runnable entry in the image, so this check would prove nothing about it."
+              exit 1
+            fi
+          done
+          for dll in $ENTRIES; do
+            name="contract-check-${{ github.run_id }}-${dll%.dll}"
+            set +e
+            OUT=$(timeout 90 docker run --rm --name "$name" \
+              -e CC_GATEWAY_HOSTED= -e CC_GATEWAY_NO_AUTH= -e CC_GATEWAY_AUTH= \
+              -e CC_GATEWAY_PUBLIC_URL= -e CC_GATEWAY_DB_CONNECTION= \
+              --entrypoint dotnet "$IMAGE" "$dll" --port 7999 2>&1)
+            CODE=$?
+            set -e
+            if [ "$CODE" -eq 124 ]; then
+              docker rm -f "$name" >/dev/null 2>&1 || true
+              echo "ERROR: $dll did NOT fail closed: still running after 90 seconds with the hosted contract missing."
+              echo "$OUT"
+              exit 1
+            fi
+            if [ "$CODE" -ne 2 ] || ! printf '%s' "$OUT" | grep -q "REFUSING TO START"; then
+              echo "ERROR: $dll exited $CODE, expected 2 with REFUSING TO START (the hosted contract refusal)."
+              echo "$OUT"
+              exit 1
+            fi
+            echo "$dll refused to start without the hosted contract (exit 2)."
+          done
+
       # Read the commit the LIVE service is running BEFORE the deploy - this is the OUTGOING build, and the
       # /healthz .commit field (added alongside this workflow) is what makes it readable. Used for two
       # things: the honest-readiness poll below tells "the new image is serving" apart from "the old
