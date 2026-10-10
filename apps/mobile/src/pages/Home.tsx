@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { type SessionDto } from "@devthrottle/client-core/api/client";
-import { describeAndReport, describeReadAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { getAutoSpeak, queueTouchMs, setAutoSpeak } from "@devthrottle/client-core/voice/queueTouch";
 import { useVoiceModeAll, writeVoiceModeAll } from "@devthrottle/client-core/voice/useVoiceModeAll";
 import { VoiceAutoOffNote } from "@devthrottle/client-core/voice/VoiceAutoOffNote";
@@ -115,8 +115,6 @@ export function Home() {
   const [marks, setMarks] = useState<Map<string, RosterSessionMark>>(() => new Map());
   const retentionCache = useRef(emptyRetentionCache());
   const [error, setError] = useState<string | null>(null);
-  // The roster poll: its failure is reported when it first appears, not on every round.
-  const loadReportRef = useRef<string | null>(null);
   // The roster filter (by machine and/or repo) and whether its full-screen panel is open. The filter
   // is persisted across navigations and restarts by the hook; the panel is transient UI state.
   const [filter, setFilter] = useSessionFilter();
@@ -191,7 +189,7 @@ export function Home() {
       setSessions(merged.roster.sessions);
       setMarks(merged.roster.marks);
       setError(null);
-      loadReportRef.current = null;
+      backgroundRecovered("mobile-home", "load the sessions");
       // The app-icon "needs you" dot is counted over the MERGED roster - the same sessions this page
       // renders and builds the voice queue from. It used to be counted from the RAW envelope, and in a
       // wobbly fallback - a connected-but-quiet Director the Gateway names but serves no rows for - the
@@ -216,7 +214,7 @@ export function Home() {
       // single voice for "bad connection, showing last known", so this page no longer shows its own
       // offline strip. The error is kept only to stop the "Loading sessions..." line from lying after a
       // first-load failure.
-      setError(describeReadAndReport("mobile-home", "load the sessions", err, undefined, loadReportRef));
+      setError(describeAndReport("mobile-home", "load the sessions", err, { background: true }));
     }
   }, []);
 

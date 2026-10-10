@@ -14,7 +14,7 @@
 //     with a fresh nonce and token, and the draft carried across (handoff ruling 4).
 
 import { GatewayError } from "../api/client";
-import { describeAndReport, describeReadAndReport, reportShownError, type ReportMemory } from "../errors/reportClientError";
+import { backgroundRecovered, describeAndReport, reportShownError } from "../errors/reportClientError";
 import type { DevReportDetail, DevReportHtml, DevReportSendUpdate } from "./devReportsClient";
 import { DevReportFrameHost } from "./frameHost";
 import {
@@ -91,8 +91,6 @@ function sendFailureLabel(err: unknown): string {
 export class DevReportController {
   readonly host: DevReportFrameHost;
   private readonly options: DevReportControllerOptions;
-  /** The record is polled; a failure to read it is reported when it first appears, not on every round. */
-  private readonly loadErrorReport: ReportMemory = { current: null };
   private snapshot: DevReportSnapshot = {
     detail: null,
     notFound: false,
@@ -153,7 +151,7 @@ export class DevReportController {
       detail = await this.options.api.getDetail(this.options.reportId, signal);
     } catch (err) {
       if (isAbort(err) || this.disposed) return;
-      this.update({ loadError: describeReadAndReport(SURFACE, "open the report", err, undefined, this.loadErrorReport) });
+      this.update({ loadError: describeAndReport(SURFACE, "open the report", err, { background: true }) });
       return;
     }
     if (this.disposed) return;
@@ -161,7 +159,7 @@ export class DevReportController {
       this.update({ notFound: true, loadError: null });
       return;
     }
-    this.loadErrorReport.current = null;
+    backgroundRecovered(SURFACE, "open the report");
     this.update({ detail, notFound: false, loadError: null });
     const loaded = this.snapshot.loadedVersion;
     if (loaded === null || detail.report.version > loaded) {
@@ -196,7 +194,7 @@ export class DevReportController {
         page = await this.options.api.getHtml(this.options.reportId, version, signal);
       } catch (err) {
         if (isAbort(err) || this.disposed) return;
-        this.update({ loadError: describeReadAndReport(SURFACE, "open the report", err, undefined, this.loadErrorReport) });
+        this.update({ loadError: describeAndReport(SURFACE, "open the report", err, { background: true }) });
         return;
       }
       if (this.disposed) return;

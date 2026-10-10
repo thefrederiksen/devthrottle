@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   getThrottle,
@@ -13,7 +13,7 @@ import {
   type ThrottleSummary,
 } from "@devthrottle/client-core/stats/statsClient";
 import { ThrottleWindowSelector } from "@devthrottle/client-core/stats/ThrottleWindowSelector";
-import { describeReadAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 // Your Throttle on the phone: a compact dashboard of the MAIN stats, not the whole desktop page - many
 // people drive the fleet mostly from their phone, so this is a clean, glanceable view of how they work. It
@@ -50,8 +50,6 @@ const ONLY_YOURS = "Only sessions you started";
 export function YourThrottle() {
   const [data, setData] = useState<ThrottleData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // A poll: its failure is reported when it first appears, not on every round.
-  const errorReportRef = useRef<string | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   // The window the URL asks for. Stable for one URL, so the effect below re-runs only when the URL changes.
   const request = useMemo(() => throttleWindowFromSearch(searchParams), [searchParams]);
@@ -70,11 +68,11 @@ export function YourThrottle() {
         const fresh = await getThrottle(controller.signal, request);
         if (controller.signal.aborted) return;
         setData(fresh);
-        errorReportRef.current = null;
+        backgroundRecovered("mobile-your-throttle", "read your throttle");
         setError(null);
       } catch (err) {
         if (controller.signal.aborted) return;
-        setError(describeReadAndReport("mobile-your-throttle", "read your throttle", err, undefined, errorReportRef));
+        setError(describeAndReport("mobile-your-throttle", "read your throttle", err, { background: true }));
       } finally {
         if (!controller.signal.aborted) timer = setTimeout(() => void tick(), REFRESH_MS);
       }

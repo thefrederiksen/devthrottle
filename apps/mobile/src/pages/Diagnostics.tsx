@@ -12,7 +12,9 @@ import {
   type NetworkDiag,
   type NetDiagPeer,
 } from "@devthrottle/client-core/api/client";
-import { describeAndReport, describeReadAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const ECHO_READ = "read the connection check";
 
 // Diagnostics (Network Diagnostics mission): a phone-side connection tester. A phone cannot run
 // `tailscale ping`, so this measures the phone-to-Gateway path from the phone itself - route, latency,
@@ -41,10 +43,11 @@ export function Diagnostics() {
     getNetDiagEcho(controller.signal)
       .then((e) => {
         setEcho(e);
+        backgroundRecovered("mobile-diagnostics", ECHO_READ);
         setEchoError(null);
       })
       .catch((err) => {
-        if (!controller.signal.aborted) setEchoError(describeReadAndReport("mobile-diagnostics", "read the connection check", err));
+        if (!controller.signal.aborted) setEchoError(describeAndReport("mobile-diagnostics", ECHO_READ, err, { background: true }));
       });
     return () => controller.abort();
   }, []);

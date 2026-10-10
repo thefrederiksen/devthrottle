@@ -63,7 +63,7 @@ vi.mock("@devthrottle/client-core/settings/snoozeOptions", () => ({
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   reportClientError: () => {},
   describeAndReport: (_surface: string, _action: string, err: unknown) => String(err),
-  describeReadAndReport: (_surface: string, _action: string, err: unknown) => String(err),
+  backgroundRecovered: () => {},
   reportShownError: (_surface: string, _action: string, message: string) => message,
 }));
 

@@ -48,7 +48,8 @@ vi.mock("@devthrottle/client-core/fleetmanager/standingClient", () => ({
 vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
   reportClientError: vi.fn(),
   describeAndReport: (_s: string, _a: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
-  reportShownErrorWhenNew: (_m: unknown, _s: string, _a: string, message: string) => message,
+  reportShownError: (_s: string, _a: string, message: string) => message,
+  backgroundRecovered: () => {},
 }));
 vi.mock("@devthrottle/client-core/history/useSessionChat", () => ({
   useSessionChat: () => ({

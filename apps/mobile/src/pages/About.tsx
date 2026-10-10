@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { getGatewayHealth, type GatewayHealth } from "@devthrottle/client-core/api/client";
-import { describeReadAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
+
+const SURFACE = "mobile-about";
+const READ = "read the Gateway's version";
 
 export function About() {
   const [health, setHealth] = useState<GatewayHealth | null>(null);
@@ -14,10 +17,11 @@ export function About() {
     getGatewayHealth(controller.signal)
       .then((h) => {
         setHealth(h);
+        backgroundRecovered(SURFACE, READ);
         setError(null);
       })
       .catch((err) => {
-        if (!controller.signal.aborted) setError(describeReadAndReport("mobile-about", "read the Gateway's version", err));
+        if (!controller.signal.aborted) setError(describeAndReport(SURFACE, READ, err, { background: true }));
       });
     return () => controller.abort();
   }, []);

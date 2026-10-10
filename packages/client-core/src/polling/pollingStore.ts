@@ -20,7 +20,7 @@
 // timer, the visibility source, the fetch - is injectable, so the whole loop is unit-tested in Node
 // with no DOM.
 import { documentVisibility, type VisibilitySource } from "./visibility";
-import { reportShownErrorWhenNew, type ReportMemory } from "../errors/reportClientError";
+import { backgroundRecovered, reportShownError } from "../errors/reportClientError";
 
 // The snapshot every subscriber reads. `data` is null until the first fetch settles; `loading` is true
 // only over that first fetch (a subsequent failed poll keeps the last data and sets `error`, it does
@@ -85,8 +85,6 @@ export function createPollingStore<T>(options: PollingStoreOptions<T>): PollingS
   let timer: number | undefined;
   let controller: AbortController | undefined;
   let unsubscribeVisibility: (() => void) | undefined;
-  // What the last failed poll reported, so the same failure is not reported again every round.
-  const reported: ReportMemory = { current: null };
 
   function emit(): void {
     for (const listener of listeners) listener();
@@ -106,7 +104,7 @@ export function createPollingStore<T>(options: PollingStoreOptions<T>): PollingS
     try {
       const data = await fetcher(own.signal);
       if (own.signal.aborted) return;
-      reported.current = null;
+      backgroundRecovered(reporting.surface, reporting.action);
       setState({ data, error: null, loading: false });
     } catch (err) {
       // A cancelled poll (tab hidden, unmount) is not an error to show - just stop.
@@ -114,7 +112,8 @@ export function createPollingStore<T>(options: PollingStoreOptions<T>): PollingS
       // Keep the last good data; raise the error alongside it.
       setState({
         data: state.data,
-        error: reportShownErrorWhenNew(reported, reporting.surface, reporting.action, mapError(err), undefined, err),
+        // A background poll: reported when what it shows changes, not every round.
+        error: reportShownError(reporting.surface, reporting.action, mapError(err), { background: true }, err),
         loading: false,
       });
     }

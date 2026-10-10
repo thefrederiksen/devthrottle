@@ -24,7 +24,7 @@ import {
   recordingAudioUrl,
   type RecordingListItem,
 } from "@devthrottle/client-core/recordings/recordingsClient";
-import { describeReadAndReport, reportShownError } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport, reportShownError } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "mobile-recorder";
 const NO_DURABLE_STORE =
@@ -129,8 +129,6 @@ export function Recorder() {
   const [localRecordings, setLocalRecordings] = useState<LocalRecording[]>([]);
   const [serverRecordings, setServerRecordings] = useState<RecordingListItem[]>([]);
   const [serverError, setServerError] = useState<string | null>(null);
-  // The library poll: its failure is reported when it first appears, not on every round.
-  const serverReportRef = useRef<string | null>(null);
 
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -149,10 +147,10 @@ export function Recorder() {
       const items = await getRecordings(signal);
       setServerRecordings(items);
       setServerError(null);
-      serverReportRef.current = null;
+      backgroundRecovered(SURFACE, "load the recordings on the Gateway");
     } catch (err) {
       if (signal?.aborted) return;
-      setServerError(describeReadAndReport(SURFACE, "load the recordings on the Gateway", err, undefined, serverReportRef));
+      setServerError(describeAndReport(SURFACE, "load the recordings on the Gateway", err, { background: true }));
     }
   }, []);
 

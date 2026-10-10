@@ -202,8 +202,15 @@ function backgroundKey(surface: string, action: string): string {
  * store recordings", "the phone suspended the microphone". The sibling of describeAndReport for those sites -
  * describeAndReport would rewrite a sentence that is already right into "something unexpected went wrong".
  * Returns `message` unchanged, so the call can sit where the text is shown. Never pass the user's own words.
+ * `background` works as it does for describeAndReport: reported only when the sentence changes for that surface
+ * and action, until {@link backgroundRecovered}.
  */
 export function reportShownError(surface: string, action: string, message: string, context?: ReportContext, cause?: unknown): string {
+  if (context?.background) {
+    const key = backgroundKey(surface, action);
+    if (backgroundShown.get(key) === message) return message;
+    backgroundShown.set(key, message);
+  }
   reportClientError({
     surface,
     action,
@@ -213,53 +220,6 @@ export function reportShownError(surface: string, action: string, message: strin
     ...(context?.sessionId ? { session_id: context.sessionId } : {}),
   });
   return message;
-}
-
-/** What a repeating display last reported: a poll's error banner, set again on every round. */
-export interface ReportMemory {
-  current: string | null;
-}
-
-/**
- * Show AND report a failure of a BACKGROUND READ - a page's own load when it opens, or a poll that runs again
- * every few seconds - that nobody pressed anything for. Two things differ from describeAndReport, both on purpose:
- *
- * - The sentence names no action. Nobody pressed anything, so a background read keeps the shared "can't reach the
- *   Gateway" line (gatewayErrorMessage without an action, issue #1028). The ACTION still labels the stored report.
- * - Given a memory (a POLL), the failure is reported when it first appears, and again only when what is shown
- *   changes - not on every round. Clear the memory (`current = null`) when the display clears, so the same failure
- *   coming back later is reported again. Without one, every failure is reported.
- */
-export function describeReadAndReport(surface: string, action: string, err: unknown, context?: ReportContext, last?: ReportMemory): string {
-  const message = gatewayErrorMessage(err);
-  if (last) {
-    if (last.current === message) return message;
-    last.current = message;
-  }
-  return reportShownError(surface, action, message, context, err);
-}
-
-/** describeAndReport - the sentence names the action - for an action RETRIED on a timer: reported when the failure
- *  first appears or changes, not on every retry. Clear the memory when the display clears. */
-export function describeAndReportWhenNew(last: ReportMemory, surface: string, action: string, err: unknown, context?: ReportContext): string {
-  const message = gatewayErrorMessage(err, action);
-  if (last.current === message) return message;
-  last.current = message;
-  return describeAndReport(surface, action, err, context);
-}
-
-/** reportShownError for a display a poll sets again every few seconds - see describeReadAndReport. */
-export function reportShownErrorWhenNew(
-  last: ReportMemory,
-  surface: string,
-  action: string,
-  message: string,
-  context?: ReportContext,
-  cause?: unknown,
-): string {
-  if (last.current === message) return message;
-  last.current = message;
-  return reportShownError(surface, action, message, context, cause);
 }
 
 /**

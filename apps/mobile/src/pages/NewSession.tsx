@@ -9,7 +9,7 @@ import {
   type DirectorInfo,
   type RepoInfo,
 } from "@devthrottle/client-core/api/client";
-import { describeAndReport, describeReadAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 const SURFACE = "mobile-new-session";
 import { durationLabel, useNow } from "@devthrottle/client-core/sessions/waiting";
@@ -141,6 +141,7 @@ export function NewSession() {
     setDirectorsError(null);
     getDirectors(controller.signal)
       .then((list) => {
+        backgroundRecovered(SURFACE, "load the Directors");
         if (controller.signal.aborted) return;
         setDirectors(list);
         if (list.length > 0) {
@@ -156,7 +157,7 @@ export function NewSession() {
       })
       .catch((error) => {
         if (controller.signal.aborted) return;
-        setDirectorsError(describeReadAndReport(SURFACE, "load the Directors", error));
+        setDirectorsError(describeAndReport(SURFACE, "load the Directors", error, { background: true }));
       });
     return () => controller.abort();
   }, [directorReload, clearDirectorChoices]);
@@ -175,6 +176,7 @@ export function NewSession() {
       .then((list) => {
         if (!isCurrent()) return;
         setAgents(list);
+        backgroundRecovered(SURFACE, "load the agents");
         setSelectedAgentType((selected) => {
           if (selected !== null && list.some((agent) => agent.type === selected)) return selected;
           if (list.length === 0) return null;
@@ -185,7 +187,7 @@ export function NewSession() {
       .catch((error) => {
         if (!isCurrent()) return;
         setAgents([]);
-        setAgentsError(describeReadAndReport(SURFACE, "load the agents", error));
+        setAgentsError(describeAndReport(SURFACE, "load the agents", error, { background: true }));
       });
 
     return () => agentController.abort();
@@ -205,11 +207,12 @@ export function NewSession() {
       .then((list) => {
         if (!isCurrent()) return;
         setKnownRepositories(list);
+        backgroundRecovered(SURFACE, "load the repositories");
       })
       .catch((error) => {
         if (knownController.signal.aborted || !isCurrent()) return;
         setKnownRepositories([]);
-        setKnownRepositoriesError(describeReadAndReport(SURFACE, "load the repositories", error));
+        setKnownRepositoriesError(describeAndReport(SURFACE, "load the repositories", error, { background: true }));
       });
 
     return () => knownController.abort();

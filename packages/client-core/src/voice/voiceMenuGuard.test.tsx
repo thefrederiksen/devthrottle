@@ -31,9 +31,8 @@ vi.mock("../api/client", () => ({
 // The show-and-report boundary (issue #3675): returns the error's own text, as the screen showed before.
 vi.mock("../errors/reportClientError", () => ({
   describeAndReport: (_surface: string, _action: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
-  describeReadAndReport: (_surface: string, _action: string, err: unknown) => (err instanceof Error ? err.message : String(err)),
   reportShownError: (_surface: string, _action: string, message: string) => message,
-  reportShownErrorWhenNew: (_memory: unknown, _surface: string, _action: string, message: string) => message,
+  backgroundRecovered: () => {},
 }));
 
 vi.mock("../dictation/backgroundSend", () => ({

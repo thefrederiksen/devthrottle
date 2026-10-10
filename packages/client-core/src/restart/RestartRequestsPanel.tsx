@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { describeAndReport, describeReadAndReport, type ReportMemory } from "../errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
 
 const SURFACE = "restart-requests";
 import {
@@ -36,19 +36,17 @@ export function useRestartRequests(): { requests: DirectorRestartRequest[]; erro
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
-    // A poll: a failure to read is reported when it first appears, not on every round.
-    const shown: ReportMemory = { current: null };
     const load = async () => {
       try {
         const list = await listRestartRequests(controller.signal);
         if (stopped) return;
         setRequests(list);
         setError(null);
-        shown.current = null;
+        backgroundRecovered(SURFACE, "read the restart requests");
       } catch (err) {
         if (stopped || controller.signal.aborted) return;
         // Keep the last-known list on screen; say plainly that the read failed.
-        setError(describeReadAndReport(SURFACE, "read the restart requests", err, undefined, shown));
+        setError(describeAndReport(SURFACE, "read the restart requests", err, { background: true }));
       }
       if (!stopped) timer = setTimeout(() => void load(), POLL_INTERVAL_MS);
     };

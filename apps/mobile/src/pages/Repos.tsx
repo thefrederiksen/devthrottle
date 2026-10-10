@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   getThrottle,
@@ -8,7 +8,7 @@ import {
   type RepoStat,
   type RepoSummary,
 } from "@devthrottle/client-core/stats/statsClient";
-import { describeReadAndReport } from "@devthrottle/client-core/errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 
 // The private "Repos" page for the phone: where the owner's development actually happens - how driving
 // splits across the codebases worked in, ranked by submitted turns. Its own page, deliberately separate
@@ -33,8 +33,6 @@ function metricValue(r: RepoStat, metric: Metric): number {
 export function Repos() {
   const [data, setData] = useState<ThrottleData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // A poll: its failure is reported when it first appears, not on every round.
-  const errorReportRef = useRef<string | null>(null);
   const [metric, setMetric] = useState<Metric>("turns");
 
   useEffect(() => {
@@ -46,11 +44,11 @@ export function Repos() {
         const fresh = await getThrottle(controller.signal);
         if (controller.signal.aborted) return;
         setData(fresh);
-        errorReportRef.current = null;
+        backgroundRecovered("mobile-repos", "read the repositories");
         setError(null);
       } catch (err) {
         if (controller.signal.aborted) return;
-        setError(describeReadAndReport("mobile-repos", "read the repositories", err, undefined, errorReportRef));
+        setError(describeAndReport("mobile-repos", "read the repositories", err, { background: true }));
       } finally {
         if (!controller.signal.aborted) timer = setTimeout(() => void tick(), REFRESH_MS);
       }

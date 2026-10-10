@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { getSessionHistory } from "../api/client";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
-import { describeReadAndReport } from "../errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
 import type { HistoryBubbleFilter } from "./bubbleMapper";
 import type { SessionHistoryDto } from "./types";
 import { applyHistoryPage, type HeldConversation } from "./conversationTail";
@@ -45,8 +45,6 @@ export function useSessionChat(sessionId: string | undefined): SessionChat {
   const [staleNotice, setStaleNotice] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // The conversation is polled; a failure to read it is reported when it first appears, not on every round.
-  const loadReportRef = useRef<string | null>(null);
 
   const signatureRef = useRef("");
   const lastHistoryRef = useRef<SessionHistoryDto | null>(null);
@@ -102,13 +100,13 @@ export function useSessionChat(sessionId: string | undefined): SessionChat {
         const history = next.history;
         setLoadFailed(false);
         setLoadError(null);
-        loadReportRef.current = null;
+        backgroundRecovered("session-chat", "load the conversation");
         lastHistoryRef.current = history;
         renderHistory(history, false);
       } catch (err) {
         if (signal.aborted) return;
         setLoadFailed(true);
-        setLoadError(describeReadAndReport("session-chat", "load the conversation", err, { sessionId }, loadReportRef));
+        setLoadError(describeAndReport("session-chat", "load the conversation", err, { sessionId, background: true }));
       }
     },
     [sessionId, renderHistory],

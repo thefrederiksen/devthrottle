@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { describeAndReport, describeReadAndReport } from "../errors/reportClientError";
+import { backgroundRecovered, describeAndReport } from "../errors/reportClientError";
 import { useVisiblePolling } from "../polling/useVisiblePolling";
 import { listDevReports, type DevReportSummary } from "./devReportsClient";
 import "./devReports.css";
@@ -57,8 +57,6 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
   const [newestNext, setNewestNext] = useState<string | null>(null);
   const [olderNext, setOlderNext] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
-  // The list is polled; a failure to read it is reported when it first appears, not on every round.
-  const listReportRef = useRef<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderError, setOlderError] = useState<string | null>(null);
   // Which list this is: bumped when the session changes, so an answer for the previous session is dropped, never shown.
@@ -86,11 +84,11 @@ export function DevReportList({ sessionId, onOpen }: DevReportListProps) {
         setReports((shown) => (olderOnScreen.current && shown !== null ? fold(shown, page.reports) : page.reports));
         setNewestNext(page.next);
         setError(null);
-        listReportRef.current = null;
+        backgroundRecovered(SURFACE, "load the reports");
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") return;
         if (asked !== generation.current) return;
-        setError(describeReadAndReport(SURFACE, "load the reports", err, { sessionId }, listReportRef));
+        setError(describeAndReport(SURFACE, "load the reports", err, { sessionId, background: true }));
       }
     },
     [sessionId],

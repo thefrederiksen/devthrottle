@@ -19,10 +19,12 @@ import { switchVoiceModeOn } from "./switchVoiceMode";
 import { speakLocally } from "../speech/localSpeech";
 import { utteranceFor } from "../speech/spokenUtterance";
 import { isWorking } from "../sessions/ordering";
-import { describeAndReport, describeReadAndReport, reportShownError, reportShownErrorWhenNew } from "../errors/reportClientError";
+import { backgroundRecovered, describeAndReport, reportShownError } from "../errors/reportClientError";
 
 /** Where a voice-mode failure is filed (issue #3675). */
 const SURFACE = "voice-mode";
+// The three-second poll of the voice state: reported when what it shows changes, not every round.
+const VOICE_READ = "read the voice state";
 
 // Session Voice mode (issue #850): the hands-free Wingman narration screen, the third session view
 // alongside Terminal (#817) and Chat (#811). A read-only Wingman narrates every completed turn as
@@ -197,10 +199,8 @@ export function useVoiceMode(
     actionErrorRef.current = false;
     setError(null);
   }, []);
-  // The poll sets its own error every three seconds; it is reported when it first appears, not on every round.
-  const pollReportRef = useRef<string | null>(null);
   const clearPollError = useCallback(() => {
-    pollReportRef.current = null;
+    backgroundRecovered(SURFACE, VOICE_READ);
     if (!actionErrorRef.current) setError(null);
   }, []);
   const [autoPlayBlocked, setAutoPlayBlocked] = useState(false);
@@ -286,7 +286,7 @@ export function useVoiceMode(
           // NOT authority to turn voice off - only the branch below (the session IS reported, with
           // voiceMode=false) does that. Surface a soft reconnecting note; the next good poll clears it.
           setPollDone(true);
-          setError(reportShownErrorWhenNew(pollReportRef, SURFACE, "read the voice state", "Reconnecting to this session's computer...", { sessionId: sid }));
+          setError(reportShownError(SURFACE, VOICE_READ, "Reconnecting to this session's computer...", { sessionId: sid, background: true }));
           return;
         }
 
@@ -312,7 +312,7 @@ export function useVoiceMode(
         if (signal.aborted) return;
         // Background poll: keep the last-known view on screen and surface a soft note; the next tick
         // retries. (Mirrors the roster's keep-last-known behavior - not a degraded fallback.)
-        setError(describeReadAndReport(SURFACE, "read the voice state", err, { sessionId: sid }, pollReportRef));
+        setError(describeAndReport(SURFACE, VOICE_READ, err, { sessionId: sid, background: true }));
       }
     },
     [sid, clearPollError],
