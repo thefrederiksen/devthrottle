@@ -360,6 +360,8 @@ def test_kept_reports_go_with_the_next_failure_and_leave_when_accepted(root, gw,
     monkeypatch.setenv("CC_GATEWAY_SESSION_KEY", "k")
     with pytest.raises(SystemExit):
         _run(monkeypatch, ["files", "convert", "a.md"], _app(), app=_app())
+    # The failed send paused sending for a while; the Gateway comes back after that pause has run out.
+    tool_errors.default_outbox().pause("session", -1)
     _session(monkeypatch, gw.url)
     with pytest.raises(SystemExit):
         _run(monkeypatch, ["files", "convert", "b.md"], _app(), app=_app())
@@ -473,3 +475,158 @@ def test_gateway_error_carries_the_correlation_header():
     finally:
         server.shutdown()
         server.server_close()
+
+
+# --- Review of #3757: nothing in the send path may change how the tool ends ----------------------
+
+
+class _NotHttp:
+    """A listener that answers every connection with bytes that are not HTTP, and counts the connections."""
+
+    def __init__(self):
+        import socket
+
+        self.connections = 0
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(5)
+        self.url = f"http://127.0.0.1:{self.sock.getsockname()[1]}"
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+        self.thread.start()
+
+    def _serve(self):
+        while True:
+            try:
+                conn, _ = self.sock.accept()
+            except OSError:
+                return
+            self.connections += 1
+            try:
+                # Read the WHOLE request first: closing with unread bytes resets the connection, and the client
+                # would then see a reset instead of the answer this listener exists to give.
+                data = b""
+                while b"\r\n\r\n" not in data:
+                    data += conn.recv(65536)
+                head, _, body = data.partition(b"\r\n\r\n")
+                length = next((int(line.split(b":", 1)[1]) for line in head.split(b"\r\n")
+                               if line.lower().startswith(b"content-length:")), 0)
+                while len(body) < length:
+                    body += conn.recv(65536)
+                conn.sendall(b"this is not http\r\n\r\n")
+            finally:
+                conn.close()
+
+    def close(self):
+        self.sock.close()
+
+
+@pytest.fixture
+def not_http():
+    listener = _NotHttp()
+    yield listener
+    listener.close()
+
+
+def test_an_answer_that_is_not_http_does_not_change_the_ending(root, not_http, monkeypatch, capsys):
+    """A Gateway address that speaks something else (http.client's BadStatusLine, which is not an OSError)
+    used to replace the tool's own exit with a traceback. The tool's code, output and silence are kept."""
+    _session(monkeypatch, not_http.url)
+
+    def entry():
+        print("the tool's own error")
+        raise SystemExit(3)
+
+    with pytest.raises(SystemExit) as ended:
+        _run(monkeypatch, [], entry)
+    out = capsys.readouterr()
+    assert ended.value.code == 3
+    assert out.out == "the tool's own error\n"
+    assert out.err == ""
+    assert not_http.connections == 1
+    box = tool_errors.default_outbox()
+    assert box.count == 1 and box.failed_sends == 1
+    log = (root / "logs" / "tool-error-reports.log").read_text(encoding="utf-8")
+    assert "BadStatusLine" in log
+
+
+def test_after_no_answer_sending_pauses_so_an_outage_costs_one_attempt(root, not_http, monkeypatch):
+    _session(monkeypatch, not_http.url)
+    for _ in range(3):
+        with pytest.raises(SystemExit):
+            _run(monkeypatch, ["files", "convert", "x.md"], _app(), app=_app())
+    assert not_http.connections == 1, "the second and third failures must not try while the pause holds"
+    box = tool_errors.default_outbox()
+    assert box.count == 3
+    assert box.paused_until("session") > 0
+
+
+def test_report_never_raises_even_when_the_outbox_cannot_be_reached(root, monkeypatch, capsys):
+    def broken():
+        raise RuntimeError("the storage library is broken")
+
+    monkeypatch.setattr(tool_errors, "default_outbox", broken)
+    tool_errors.report({"component": "tool", "message": "m"})
+    err = capsys.readouterr().err
+    assert "could be neither kept nor sent" in err and "RuntimeError" in err
+
+
+def test_a_report_ending_that_raises_never_changes_the_exit(root, monkeypatch, capsys):
+    def broken(item, outbox=None):
+        raise RuntimeError("a defect in report()")
+
+    monkeypatch.setattr(tool_errors, "report", broken)
+    with pytest.raises(SystemExit) as ended:
+        _run(monkeypatch, [], lambda: 4)
+    assert ended.value.code == 4
+    assert "could not be delivered" in capsys.readouterr().err
+
+
+# --- Review of #3757: every value is cut, including the dash-led and the attached ones -----------
+
+
+def _prompt_app():
+    app = typer.Typer()
+    session = typer.Typer()
+    app.add_typer(session, name="session")
+
+    @session.command("spawn")
+    def spawn(repo: str, prompt: str = typer.Option(None, "--prompt"), out: str = typer.Option(None, "-o", "--out"),
+              verbose: bool = typer.Option(False, "-v")):
+        raise RuntimeError(f"could not send '{prompt}' for {repo} into {out}")
+
+    return app
+
+
+def test_a_prompt_that_starts_with_a_dash_never_reaches_the_report(root, gw, monkeypatch):
+    _session(monkeypatch, gw.url)
+    prompt = "- wire the payroll export to the new bank account"
+    with pytest.raises(RuntimeError):
+        _run(monkeypatch, ["session", "spawn", "D:/clients/acme", "--prompt", prompt, "-vo", "acme-ledger.md"],
+             _prompt_app(), app=_prompt_app())
+    sent = json.dumps(gw.requests)
+    for leaked in ("payroll", "bank account", "acme", "ledger"):
+        assert leaked not in sent, f"{leaked!r} reached the Gateway"
+    report = gw.requests[0]["body"]["reports"][0]
+    assert report["surface"] == "cc-test session spawn"
+
+
+def test_parse_command_line_reads_options_from_the_tree():
+    app = _prompt_app()
+    line = tool_errors.parse_command_line(
+        ["session", "spawn", "D:/repo", "--prompt", "- wire it", "-oreport.md", "--unknown-flag", "-v", "--", "--x"],
+        app=app)
+    assert line.path == ["session", "spawn"]
+    assert line.values == ["D:/repo", "- wire it", "report.md", "--unknown-flag", "--x"]
+
+
+def test_parse_command_line_reads_an_argparse_parser():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", action="store_true")
+    sub = parser.add_subparsers(dest="command")
+    get = sub.add_parser("get")
+    get.add_argument("--repo")
+    line = tool_errors.parse_command_line(["get", "--repo", "-private-repo", "--json"], app=parser)
+    assert line.path == ["get"]
+    assert line.values == ["-private-repo"]

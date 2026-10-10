@@ -91,6 +91,9 @@ MAX_BEFORE_SIGN_IN_PER_HOUR = 3
 SEND_TIMEOUT_SECONDS = 5.0
 PAUSE_AFTER_RATE_LIMIT_SECONDS = 15 * 60
 PAUSE_AFTER_MISSING_ROUTE_SECONDS = 60 * 60
+#: After a send that got no answer at all - the Gateway is down, the machine is offline, the address speaks
+#: something else - sending pauses, so an outage costs one timeout and not one per failing command.
+PAUSE_AFTER_NO_ANSWER_SECONDS = 5 * 60
 
 USAGE_EXIT_CODE = 2
 ARGUMENT = "<argument>"
@@ -218,26 +221,6 @@ def _value_forms(value: str) -> List[str]:
     return [f for f in forms if len(f) >= MIN_ARGUMENT_CHARS]
 
 
-def argument_values(argv: Sequence[str], command_path: Sequence[str]) -> List[str]:
-    """The VALUES on a command line: everything but the command names and the option names.
-
-    `--theme dark` gives "dark"; `--theme=dark` gives "dark"; `--json` gives nothing; a command name
-    that was resolved as part of the command gives nothing. Everything else is somebody's data.
-    """
-    commands = list(command_path)
-    values: List[str] = []
-    for token in argv:
-        if token.startswith("-"):
-            if "=" in token:
-                values.append(token.split("=", 1)[1])
-            continue
-        if commands and token == commands[0]:
-            commands.pop(0)
-            continue
-        values.append(token)
-    return values
-
-
 def redact_arguments(text: Optional[str], values: Iterable[str]) -> str:
     """Cut every command-line value, in every spelling `_value_forms` knows, out of `text`."""
     if not text:
@@ -250,6 +233,22 @@ def redact_arguments(text: Optional[str], values: Iterable[str]) -> str:
     return text
 
 
+@dataclass
+class CommandLine:
+    """A command line read against the tool's own command tree: the commands it named, and its values."""
+
+    path: List[str]
+    values: List[str]
+
+
+@dataclass
+class _Node:
+    """One command in the tree: its options (name -> how many values each takes) and its subcommands."""
+
+    options: Dict[str, int]
+    children: Dict[str, Any]
+
+
 def _click_command(app: Any) -> Any:
     """The Click command behind a Typer app, or the Click command itself."""
     if hasattr(app, "registered_commands"):
@@ -259,43 +258,122 @@ def _click_command(app: Any) -> Any:
     return app
 
 
-def argparse_command_names(parser: Any) -> List[str]:
-    """The subcommand names of an argparse parser, read from the parser itself rather than kept by hand."""
-    import argparse
+def _node(command: Any) -> _Node:
+    """The options and subcommands of a Click command, an argparse parser, or a bare command name (None)."""
+    if command is None:
+        return _Node({}, {})
+    if hasattr(command, "_actions"):  # an argparse parser
+        import argparse
 
-    names: List[str] = []
-    for action in parser._actions:
-        if isinstance(action, argparse._SubParsersAction):
-            names.extend(action.choices.keys())
-    return names
+        options: Dict[str, int] = {}
+        children: Dict[str, Any] = {}
+        for action in command._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                children.update(action.choices)
+            takes = action.nargs if isinstance(action.nargs, int) else (0 if action.nargs == 0 else 1)
+            for name in action.option_strings:
+                options[name] = takes
+        return _Node(options, children)
+    options = {}
+    for param in getattr(command, "params", []) or []:
+        if getattr(param, "param_type_name", "") != "option":
+            continue
+        flag = bool(getattr(param, "is_flag", False) or getattr(param, "count", False))
+        takes = 0 if flag else max(1, int(getattr(param, "nargs", 1) or 1))
+        for name in getattr(param, "opts", []):
+            options[name] = takes
+        for name in getattr(param, "secondary_opts", []) or []:
+            options[name] = 0
+    settings = getattr(command, "context_settings", None) or {}
+    for name in settings.get("help_option_names") or ["--help"]:
+        options.setdefault(name, 0)
+    commands = getattr(command, "commands", None)
+    return _Node(options, dict(commands) if isinstance(commands, dict) else {})
+
+
+def parse_command_line(argv: Sequence[str], app: Any = None,
+                       command_names: Optional[Iterable[str]] = None) -> CommandLine:
+    """Read a command line the way the tool's own parser would, to tell commands and option NAMES apart from
+    everything else. Everything else is a value - somebody's data - and is cut from every report.
+
+    `app` is a Typer app, a Click command or an argparse parser; its option names and subcommands are read
+    from it. `command_names` is the one level of subcommands of a tool that offers nothing more (cc-playwright);
+    then no option name is known, so every dash-led token is treated as a value too.
+
+    What counts as a value: a word that is not a subcommand in the tree; whatever follows an option that takes
+    one, even when it starts with a dash (`--prompt "- wire the payroll"`); the part after `=` in
+    `--name=value`; the rest of a short option (`-oreport.md`) or of a short-option cluster after the option in
+    it that takes a value (`-vo report.md`); any dash-led token that is not a known option; and everything
+    after `--`.
+    """
+    if app is not None:
+        root = _node(_click_command(app) if not hasattr(app, "_actions") else app)
+    else:
+        root = _Node({}, {name: None for name in (command_names or [])})
+    known: Dict[str, int] = dict(root.options)
+    current = root
+    path: List[str] = []
+    values: List[str] = []
+    tokens = list(argv)
+    i = 0
+
+    def take(count: int) -> None:
+        nonlocal i
+        values.extend(tokens[i:i + count])
+        i += count
+
+    while i < len(tokens):
+        token = tokens[i]
+        i += 1
+        if token == "--":
+            take(len(tokens) - i)
+            break
+        if token.startswith("--"):
+            name, eq, value = token.partition("=")
+            if name not in known:
+                values.append(token)
+            elif eq:
+                values.append(value)
+            else:
+                take(known[name])
+            continue
+        if token.startswith("-") and len(token) > 1:
+            if token[:2] not in known:
+                values.append(token)
+                continue
+            position = 1
+            while position < len(token):
+                option = "-" + token[position]
+                if option not in known:
+                    values.append(token[position:])
+                    break
+                if known[option]:
+                    rest = token[position + 1:]
+                    if rest:
+                        values.append(rest)
+                        take(known[option] - 1)
+                    else:
+                        take(known[option])
+                    break
+                position += 1
+            continue
+        if token in current.children:
+            path.append(token)
+            current = _node(current.children[token])
+            known.update(current.options)
+            continue
+        values.append(token)
+    return CommandLine(path=path, values=values)
 
 
 def command_path(argv: Sequence[str], app: Any = None, command_names: Optional[Iterable[str]] = None) -> List[str]:
-    """The commands named on the command line, resolved against the tool's own command tree.
+    """The commands named on the command line (see `parse_command_line`)."""
+    return parse_command_line(argv, app=app, command_names=command_names).path
 
-    Only a word that IS a command name in the tree is taken, so a value can never become part of the
-    surface. `app` is a Typer app or a Click command; `command_names` is the one level of subcommands
-    of an argparse tool.
-    """
-    words = [t for t in argv if not t.startswith("-")]
-    if app is not None:
-        path: List[str] = []
-        current = _click_command(app)
-        for word in words:
-            commands = getattr(current, "commands", None)
-            if not isinstance(commands, dict):
-                break
-            if word in commands:
-                path.append(word)
-                current = commands[word]
-        return path
-    if command_names is not None:
-        names = set(command_names)
-        for word in words:
-            if word in names:
-                return [word]
-        return []
-    return []
+
+def argument_values(argv: Sequence[str], app: Any = None, command_names: Optional[Iterable[str]] = None) -> List[str]:
+    """The values on the command line (see `parse_command_line`)."""
+    return parse_command_line(argv, app=app, command_names=command_names).values
 
 
 # --- What failed -------------------------------------------------------------------------------
@@ -456,7 +534,7 @@ def _log(line: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
             f.write(f"{_utc_now()} [tool_errors] {line}\n")
-    except OSError as exc:
+    except Exception as exc:  # the log is the reporter's own record; failing to write it must not end the tool
         sys.stderr.write(f"[tool_errors] could not write the error-report log ({type(exc).__name__}): {exc}\n")
 
 
@@ -479,8 +557,8 @@ def build_report(
     if is_user_mistake(exc, code):
         return None
 
-    path = command_path(argv, app=app, command_names=command_names)
-    values = argument_values(argv, path)
+    command_line = parse_command_line(argv, app=app, command_names=command_names)
+    path, values = command_line.path, command_line.values
     surface = " ".join([tool, *path])
     action = path[-1] if path else "run"
 
@@ -699,6 +777,19 @@ class Outbox:
         state[f"paused_until_{kind}"] = self._clock() + seconds
         self._save_state(state)
 
+    def record_failed_send(self) -> None:
+        """Count a send the Gateway did not accept; the reports themselves stay in the outbox."""
+        state = self._state()
+        count = state.get("failed_sends", 0)
+        state["failed_sends"] = (count if isinstance(count, int) else 0) + 1
+        self._save_state(state)
+
+    @property
+    def failed_sends(self) -> int:
+        """Sends the Gateway did not accept, since this outbox began."""
+        count = self._state().get("failed_sends", 0)
+        return count if isinstance(count, int) else 0
+
     def before_sign_in_sends_last_hour(self) -> int:
         now = self._clock()
         sent = [t for t in self._state().get("before_sign_in_sent", []) if isinstance(t, (int, float)) and now - t < 3600]
@@ -750,7 +841,10 @@ def _post(url: str, body: Dict[str, Any], bearer: Optional[str], timeout: float)
             return SendOutcome(resp.status)
     except urllib.error.HTTPError as err:
         return SendOutcome(err.code)
-    except (urllib.error.URLError, OSError, ValueError, gateway.GatewayError) as err:
+    except Exception as err:  # every other way a send can fail is an outcome, never the tool's ending
+        # Not only URLError and OSError: an answer that is not HTTP at all (a TLS port over http://, a captive
+        # portal) raises http.client's BadStatusLine or IncompleteRead, which urllib does not wrap and which are
+        # neither. Before this, one of those escaped and replaced the tool's own exit (review of #3757).
         return SendOutcome(None, f"{type(err).__name__}: {err}")
 
 
@@ -865,32 +959,31 @@ def flush(outbox: Outbox, credential: Credential, timeout: float = SEND_TIMEOUT_
         outbox.remove(markers)
         _log(f"{used} report(s) sent with the {credential.kind} credential ({outcome}); {outbox.count} still waiting")
         return used
+    outbox.record_failed_send()
     if outcome.status == 429:
         outbox.pause(credential.kind, PAUSE_AFTER_RATE_LIMIT_SECONDS)
     elif outcome.status == 404:
         outbox.pause(credential.kind, PAUSE_AFTER_MISSING_ROUTE_SECONDS)
-    _log(f"{outbox.count} report(s) kept: the {credential.kind} send was {outcome}")
+    elif outcome.status is None:
+        outbox.pause(credential.kind, PAUSE_AFTER_NO_ANSWER_SECONDS)
+    _log(f"{outbox.count} report(s) kept: the {credential.kind} send was {outcome} "
+         f"({outbox.failed_sends} failed send(s) counted)")
     return 0
 
 
 def report(report_item: Dict[str, Any], outbox: Optional[Outbox] = None) -> None:
-    """Keep one report, then send everything waiting. Never raises: a report that could not be kept or
-    sent is logged, and a report that could be neither is also said on standard error."""
-    box = outbox if outbox is not None else default_outbox()
-    kept = True
+    """Keep one report, then send everything waiting. NEVER RAISES, whatever goes wrong: a report that could
+    not be sent is kept and counted, the reason is logged, and a report that could be neither kept nor sent is
+    also said on standard error. Nothing here may change how the tool ends (review of #3757)."""
+    kept = False
     try:
-        box.keep(report_item)
-    except OSError as exc:
-        kept = False
-        _log(f"a report could not be written to {box.folder} ({type(exc).__name__}: {exc}); sending it directly")
-    try:
+        box = outbox if outbox is not None else default_outbox()
+        try:
+            box.keep(report_item)
+            kept = True
+        except OSError as exc:
+            _log(f"a report could not be written to {box.folder} ({type(exc).__name__}: {exc}); sending it directly")
         credential = resolve_credential()
-    except (OSError, ValueError) as exc:
-        _log(f"{box.count} report(s) kept: no credential could be read ({type(exc).__name__}: {exc})")
-        if not kept:
-            sys.stderr.write(f"[tool_errors] an error report could be neither kept nor sent: {exc}\n")
-        return
-    try:
         if kept:
             flush(box, credential)
             return
@@ -903,10 +996,11 @@ def report(report_item: Dict[str, Any], outbox: Optional[Outbox] = None) -> None
         _log(f"a report that could not be kept was sent directly: {outcome}")
         if not outcome.accepted:
             sys.stderr.write(f"[tool_errors] an error report could be neither kept nor sent ({outcome})\n")
-    except OSError as exc:
-        _log(f"{box.count} report(s) kept: the send failed ({type(exc).__name__}: {exc})")
+    except Exception as exc:  # the reporter's last line: logged, loud when nothing was kept, never raised
+        _log(f"the report path stopped ({type(exc).__name__}: {exc}); "
+             + ("the report is kept in the outbox" if kept else "the report was NOT kept"))
         if not kept:
-            sys.stderr.write(f"[tool_errors] an error report could be neither kept nor sent: {exc}\n")
+            sys.stderr.write(f"[tool_errors] an error report could be neither kept nor sent: {type(exc).__name__}: {exc}\n")
 
 
 # --- The entry point ---------------------------------------------------------------------------
@@ -927,7 +1021,11 @@ def _report_ending(tool: str, argv: Sequence[str], exc: Optional[BaseException],
         return
     if item is None:
         return
-    report(item)
+    try:
+        report(item)
+    except Exception as report_error:  # report() promises never to raise; if it ever does, the tool still ends as it would have
+        _log(f"delivering the report for {tool} FAILED ({type(report_error).__name__}: {report_error})")
+        sys.stderr.write(f"[tool_errors] the error report for {tool} could not be delivered: {type(report_error).__name__}\n")
 
 
 def run_tool(entry: Callable[[], Any], tool: str, *, app: Any = None,
@@ -935,8 +1033,9 @@ def run_tool(entry: Callable[[], Any], tool: str, *, app: Any = None,
     """Run a tool's entry point and report how it failed, if it did. The ONE hook every tool goes through.
 
     `entry` is the tool itself: a Typer app, or a function. When it returns an int that is the exit code.
-    `app` (a Typer app or Click command) or `command_names` (an argparse tool's subcommands) is how the
-    command that ran is named. `report_message=False` reports only the command and the exception type,
+    `app` (a Typer app, a Click command or an argparse parser) or `command_names` (bare subcommand names, for
+    a tool that offers nothing more) is how the command that ran, its option names and its values are told
+    apart (`parse_command_line`). `report_message=False` reports only the command and the exception type,
     for a tool whose messages may quote what it guards (cc-secrets).
     """
     argv = list(sys.argv[1:])

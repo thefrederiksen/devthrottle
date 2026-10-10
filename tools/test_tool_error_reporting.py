@@ -35,6 +35,9 @@ EXEMPT: Dict[str, str] = {
     "cc-trisight": "A .NET tool; its two Python files are standalone helper scripts it launches, not a cc-* entry point. "
                    "The hook is Python; .NET tools report through the Director's own reporter work, not this one.",
     "cc-computer": "A .NET tool; its Python file is a standalone helper script, not a cc-* entry point.",
+    "cc-launcher": "A developer daemon for the Mac that launchd starts (launcher.py, standard library only by design): "
+                   "it answers HTTP on loopback and is not a command an agent runs. Its main.py imports a src.cli that "
+                   "does not exist, so there is no Typer entry point to wire.",
     "cc-scrub/src/cli.py:30": "An import-time check that Pillow is installed. It runs while cli.py is imported, before "
                               "the entry point exists, and says the fix (pip install Pillow) itself.",
     "cc-ship/main.py": "The interpreter-version check (`sys.exit(\"needs Python 3.11\")`) runs before anything can be "
@@ -250,7 +253,10 @@ def scan_tools(tools_dir: Path) -> Scan:
                     if direct:
                         scan.helpers.append(Helper(tool, rel, node.lineno, node.name, _calls(node, "note_failure")))
         scan.tools.append(tool)
-        if found_any:
+        # EVERY tool with an entry point is checked, with an explicit exit or without one (review of #3757). A
+        # tool whose failures are all unhandled exceptions - exactly what the hook exists to catch - has no exit
+        # site to find, and a scan that only looked where exits are would let it go unwired without a word.
+        if found_any or (tool_dir / "pyproject.toml").exists() or (tool_dir / "main.py").exists():
             _check_wiring(tool_dir, scan)
     return scan
 
@@ -339,6 +345,17 @@ def test_scan_catches_a_broken_site(tmp_path):
     assert not any("cc-good" in p for p in found)
 
 
+def test_scan_checks_a_tool_with_no_explicit_exit(tmp_path):
+    """A tool whose only failures are unhandled exceptions has no exit to find; it is still checked."""
+    _write(tmp_path / "cc-quiet/pyproject.toml",
+           '[project.scripts]\ncc-quiet = "cc_quiet.cli:app"\n[tool.setuptools]\npackage-dir = {"cc_quiet" = "src"}\n')
+    _write(tmp_path / "cc-quiet/src/cli.py",
+           "import typer\napp = typer.Typer()\n@app.command()\ndef read(path: str):\n    print(open(path).read())\n")
+    scan = scan_tools(tmp_path)
+    assert scan.sites == []
+    assert any("cc-quiet: the console script's app() does not run the tool" in p for p in problems(scan))
+
+
 def test_scan_catches_a_main_py_that_bypasses_the_entry(tmp_path):
     _write(tmp_path / "cc-sly/pyproject.toml",
            '[project.scripts]\ncc-sly = "cc_sly.cli:tool_main"\n[tool.setuptools]\npackage-dir = {"cc_sly" = "src"}\n')
@@ -348,3 +365,137 @@ def test_scan_catches_a_main_py_that_bypasses_the_entry(tmp_path):
     _write(tmp_path / "cc-sly/main.py", "from cli import app\nif __name__ == '__main__':\n    app()\n")
     found = problems(scan_tools(tmp_path))
     assert any("cc-sly: main.py starts the tool with ['app']" in p for p in found)
+
+
+# --- Test suites keep their reports inside the test ----------------------------------------------
+#
+# A test suite that makes a tool fail on purpose, through the entry point, would send that failure to a
+# real Gateway - and before the isolation fixture existed, 24 such reports did (review of #3757). The
+# fixture is a per-suite convention, so this rule makes forgetting it a red test: every suite that starts a
+# Python process, starts a cc-* tool by name, or calls an entry point in process must carry an autouse
+# fixture named ISOLATION_FIXTURE in its conftest.py that points CC_DIRECTOR_ROOT at a throwaway folder and
+# DEVTHROTTLE_HOSTED_GATEWAY_URL at an address that fails at once.
+
+ISOLATION_FIXTURE = "tool_error_reports_stay_in_the_test"
+
+#: Test files that start a Python process which is NOT a cc-* tool, each with the reason. Per file, never
+#: per suite, so a new file in the same suite that does start the tool is still caught.
+ISOLATION_EXEMPT: Dict[str, str] = {
+    "cc-ship/tests/test_engine.py": "Starts Python only to stand in for gh, git and codex (`PY` stub programs); its "
+                                    "tests call cli.main() directly, which does not go through the entry hook.",
+}
+
+
+_PROCESS_CALLS = {"run", "Popen", "call", "check_call", "check_output"}
+
+
+@dataclass
+class SuiteScan:
+    suites: List[str] = field(default_factory=list)
+    starting: Dict[str, List[str]] = field(default_factory=dict)  # suite -> files that start a tool
+    isolated: Set[str] = field(default_factory=set)
+
+
+def _entry_function_names(tools_dir: Path) -> Set[str]:
+    """Every console-script function the tools name, plus the hook itself - read from the pyprojects."""
+    names = {"run_tool"}
+    for tool_dir in tools_dir.glob("cc-*"):
+        target = _console_script(tool_dir) if tool_dir.is_dir() else None
+        if target is not None:
+            names.add(target[1])
+    return names
+
+
+def _starts_a_tool(tree: ast.Module, text: str, entry_names: Set[str], tool_names: Set[str]) -> bool:
+    """A Python process (`sys.executable`), a cc-* tool started by name, or an entry point called here."""
+    if "sys.executable" in text:
+        return True
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _name_of(node.func)[1] in entry_names:
+            return True
+    for node in ast.walk(tree):
+        # subprocess.run(["cc-pdf", ...]) and the like: a process whose program is a cc-* tool by name.
+        if (isinstance(node, ast.Call) and _name_of(node.func)[1] in _PROCESS_CALLS and node.args
+                and isinstance(node.args[0], (ast.List, ast.Tuple)) and node.args[0].elts
+                and isinstance(node.args[0].elts[0], ast.Constant) and node.args[0].elts[0].value in tool_names):
+            return True
+    return False
+
+
+def _has_isolation_fixture(conftest: Path) -> bool:
+    if not conftest.exists():
+        return False
+    text = conftest.read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.FunctionDef) and node.name == ISOLATION_FIXTURE:
+            autouse = any(isinstance(d, ast.Call) and any(k.arg == "autouse" and isinstance(k.value, ast.Constant)
+                                                          and k.value.value is True for k in d.keywords)
+                          for d in node.decorator_list)
+            body = ast.get_source_segment(text, node) or ""
+            return autouse and "CC_DIRECTOR_ROOT" in body and "DEVTHROTTLE_HOSTED_GATEWAY_URL" in body
+    return False
+
+
+def scan_suites(tools_dir: Path) -> SuiteScan:
+    """Read every test suite under `tools_dir` (a `tests` folder of a tool or of cc_shared)."""
+    scan = SuiteScan()
+    entry_names = _entry_function_names(tools_dir)
+    tool_names = {p.name for p in tools_dir.glob("cc-*") if p.is_dir()}
+    for tests_dir in sorted(tools_dir.glob("*/tests")):
+        suite = tests_dir.relative_to(tools_dir).as_posix()
+        scan.suites.append(suite)
+        for path in sorted(tests_dir.rglob("*.py")):
+            rel = path.relative_to(tools_dir).as_posix()
+            if rel in ISOLATION_EXEMPT:
+                continue
+            text = path.read_text(encoding="utf-8-sig")
+            if _starts_a_tool(ast.parse(text), text, entry_names, tool_names):
+                scan.starting.setdefault(suite, []).append(rel)
+        if _has_isolation_fixture(tests_dir / "conftest.py"):
+            scan.isolated.add(suite)
+    return scan
+
+
+def isolation_problems(scan: SuiteScan) -> List[str]:
+    return [f"{suite}: {', '.join(files)} start(s) a tool or call an entry point, but {suite}/conftest.py has no "
+            f"autouse {ISOLATION_FIXTURE} fixture - the tool's deliberate failures would reach a real Gateway"
+            for suite, files in sorted(scan.starting.items()) if suite not in scan.isolated]
+
+
+def test_every_suite_that_starts_a_tool_keeps_its_reports():
+    scan = scan_suites(TOOLS_DIR)
+    files = sum(len(f) for f in scan.starting.values())
+    print(f"\nread {len(scan.suites)} test suites; {len(scan.starting)} start a tool or call an entry point "
+          f"({files} files: {', '.join(sorted(scan.starting))}); {len(scan.isolated)} carry the isolation fixture")
+    assert scan.suites, "the scan read no test suites - it is looking in the wrong place"
+    assert scan.starting, "no suite starts a tool - the rule is reading nothing"
+    found = isolation_problems(scan)
+    assert not found, "Suites that would send their deliberate failures to a real Gateway:\n  " + "\n  ".join(found)
+
+
+def test_every_isolation_exemption_still_names_a_real_file():
+    for key in ISOLATION_EXEMPT:
+        assert (TOOLS_DIR / key).exists(), f"ISOLATION_EXEMPT names {key}, which does not exist"
+
+
+def test_suite_scan_catches_a_suite_without_the_fixture(tmp_path):
+    """The proof: a suite that starts its tool with no fixture is caught, one with a fixture that does not set
+    the storage root is caught, and a properly isolated suite beside them is not."""
+    _write(tmp_path / "cc-loud/tests/test_run.py",
+           "import subprocess, sys\ndef test_it():\n    subprocess.run([sys.executable, 'main.py', 'fail'])\n")
+    _write(tmp_path / "cc-half/tests/conftest.py",
+           "import pytest\n@pytest.fixture(autouse=True)\ndef tool_error_reports_stay_in_the_test(monkeypatch):\n"
+           "    monkeypatch.delenv('CC_GATEWAY_URL', raising=False)\n")
+    _write(tmp_path / "cc-half/pyproject.toml", '[project.scripts]\ncc-half = "cc_half.cli:tool_main"\n')
+    _write(tmp_path / "cc-half/tests/test_run.py", "from src.cli import tool_main\ndef test_it():\n    tool_main()\n")
+    _write(tmp_path / "cc-calm/tests/conftest.py",
+           "import pytest\n@pytest.fixture(autouse=True)\ndef tool_error_reports_stay_in_the_test(monkeypatch, tmp_path):\n"
+           "    monkeypatch.setenv('CC_DIRECTOR_ROOT', str(tmp_path))\n"
+           "    monkeypatch.setenv('DEVTHROTTLE_HOSTED_GATEWAY_URL', 'http://127.0.0.1:0')\n")
+    _write(tmp_path / "cc-calm/tests/test_run.py", "import subprocess\ndef test_it():\n    subprocess.run(['cc-calm', 'x'])\n")
+    _write(tmp_path / "cc-calm/pyproject.toml", "")
+    found = isolation_problems(scan_suites(tmp_path))
+    print("\n  " + "\n  ".join(found))
+    assert any(p.startswith("cc-loud/tests:") for p in found)
+    assert any(p.startswith("cc-half/tests:") for p in found)
+    assert not any(p.startswith("cc-calm/tests:") for p in found)

@@ -12,7 +12,7 @@ from importlib import metadata
 from pathlib import Path
 
 from cc_shared import axi_output
-from cc_shared.tool_errors import argparse_command_names, note_failure, run_tool
+from cc_shared.tool_errors import note_failure, run_tool
 
 import pool
 from errors import EXIT_ERROR, EXIT_OK, EXIT_USAGE, ToolError
@@ -350,4 +350,4 @@ def main(argv: list[str] | None = None) -> int:
 def tool_main() -> None:
     """The console-script entry point. The tool runs through the shared failure reporter (issue #3642): a
     failure is reported to the Gateway, and the exit code and the printed error stay exactly as they were."""
-    run_tool(main, "cc-worktrees", command_names=argparse_command_names(build_parser()))
+    run_tool(main, "cc-worktrees", app=build_parser())
