@@ -11,11 +11,12 @@ namespace CcDirector.Setup.Cli.Tests;
 public class InstallProgressTests
 {
     [Fact]
-    public void NextStep_Mac_SaysApplicationsAndSignIn()
+    public void NextStep_Mac_SaysWhereTheAppIsAndSignIn()
     {
         var lines = InstallProgress.NextStep(InstallRole.Workstation, isMac: true, isWindows: false);
         var text = string.Join("\n", lines);
-        Assert.Contains("Applications", text);
+        Assert.Contains("~/Applications", text);
+        Assert.Contains("Command-Space", text);
         Assert.Contains("Sign in and connect", text);
     }
 

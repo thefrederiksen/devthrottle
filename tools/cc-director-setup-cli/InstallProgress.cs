@@ -42,11 +42,15 @@ internal static class InstallProgress
     public static IReadOnlyList<string> NextStep(InstallRole role, bool isMac, bool isWindows)
     {
         if (role != InstallRole.Workstation) return [];
-        var where = isMac ? "your Applications folder" : isWindows ? "the Start menu" : "your app menu";
+        // On a Mac the app is placed in the Applications folder inside the home folder (~/Applications), which
+        // Finder's sidebar does not open; Spotlight finds it either way.
+        var open = isMac
+            ? "open DevThrottle (press Command-Space and type DevThrottle, or open ~/Applications)"
+            : isWindows ? "open DevThrottle from the Start menu" : "open DevThrottle from your app menu";
         return
         [
             "",
-            "Next step: open DevThrottle from " + where + " and click Sign in and connect.",
+            "Next step: " + open + " and click Sign in and connect.",
             "That connects this machine to your account. Until then it does not show up in DevThrottle.",
         ];
     }
