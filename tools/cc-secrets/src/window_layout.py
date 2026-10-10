@@ -125,25 +125,66 @@ def save_prefs(path: Path, prefs: ListPrefs) -> None:
     path.write_text(json.dumps(asdict(prefs), indent=2), encoding="utf-8")
 
 
-def list_geometry(prefs: ListPrefs, monitors: Sequence[Rect], pointer: Tuple[int, int]) -> Tuple[int, int, int, int]:
-    """(x, y, width, height) for the list: where it was last closed when that is still on a monitor, otherwise
-    centred on the monitor under the mouse. Never larger than that monitor."""
+def target_monitor(prefs: ListPrefs, monitors: Sequence[Rect], pointer: Tuple[int, int]) -> Rect:
+    """The monitor the list is about to open on: the one holding where it was last closed, or the one under the
+    mouse when there is no remembered place or it is no longer on any monitor."""
     remembered = prefs.rect()
     if remembered is not None and still_visible(remembered, monitors):
-        m = monitor_at(remembered[0] + MIN_VISIBLE_WIDTH // 2, remembered[1] + MIN_VISIBLE_HEIGHT // 2, monitors)
-        width, height = min(prefs.width, m[2] - m[0]), min(prefs.height, m[3] - m[1])
-        return remembered[0], remembered[1], width, height
-    m = monitor_at(pointer[0], pointer[1], monitors)
-    width, height = min(prefs.width, m[2] - m[0]), min(prefs.height, m[3] - m[1])
+        return monitor_at(remembered[0] + MIN_VISIBLE_WIDTH // 2, remembered[1] + MIN_VISIBLE_HEIGHT // 2, monitors)
+    return monitor_at(pointer[0], pointer[1], monitors)
+
+
+def list_geometry(prefs: ListPrefs, monitors: Sequence[Rect], pointer: Tuple[int, int],
+                  smallest: Tuple[int, int] = (0, 0)) -> Tuple[int, int, int, int]:
+    """(x, y, width, height) for the list: where it was last closed when that is still on a monitor, otherwise
+    centred on the monitor under the mouse. Never larger than that monitor and never smaller than `smallest`.
+
+    When the size is not the size that was remembered - raised to `smallest`, or cut down to the monitor - the
+    corner it was closed at may no longer hold it, so it is moved onto the monitor. Without that, a list closed
+    near the right edge and reopened wider opened partly off the screen, and the saved place kept it there.
+    """
+    m = target_monitor(prefs, monitors, pointer)
+    width = min(max(prefs.width, smallest[0]), m[2] - m[0])
+    height = min(max(prefs.height, smallest[1]), m[3] - m[1])
+    remembered = prefs.rect()
+    if remembered is not None and still_visible(remembered, monitors):
+        if (width, height) == (prefs.width, prefs.height):
+            return remembered[0], remembered[1], width, height
+        x, y = clamp_into(remembered[0], remembered[1], width, height, m)
+        return x, y, width, height
     x, y = centre_on_monitor(pointer, width, height, monitors)
     return x, y, width, height
 
 
 def fit_height(top: int, title_bar: int, height: int, monitor: Rect, minimum: int) -> int:
     """The list's height so its frame - title bar included - ends inside the monitor. Tk sizes the content and
-    places the frame, so a list as tall as the work area would otherwise run a title bar's height past it."""
+    places the frame, so a list as tall as the work area would otherwise run a title bar's height past it.
+
+    `top` must be where the window ACTUALLY is, not where it was asked to go. macOS moves a window up on its
+    first showing to keep it clear of the Dock, and measuring from the asked-for place then trimmed a window
+    that was already wholly visible - and the trimmed height was saved, so the list came back shorter every
+    time it was left low on the screen.
+    """
     room = monitor[3] - top - title_bar
     return max(minimum, min(height, room))
+
+
+def minimum_size(needed: Tuple[int, int], floor: Tuple[int, int], monitor: Rect,
+                 title_bar: int = 0) -> Tuple[int, int]:
+    """The smallest the list may be dragged to: never below the floor, never below what the window needs to
+    draw itself whole, and never so big that its frame cannot fit on the monitor it is on.
+
+    The floor alone is not enough. It is a count of pixels, and the same words take more of them in one
+    system's font than in another's: against a floor of 760 by 420 the list needs about 1012 wide in both the
+    macOS and the Windows system font, so it could be dragged narrow enough to squeeze the search box down to a
+    hundred pixels and cut the end off the hint under the table. A window may not be made smaller than it needs.
+
+    `title_bar` is the height the window system adds above the content. The cap allows for it, because a
+    minimum as tall as the whole monitor would put the title bar past the top and nothing could trim it back.
+    """
+    width = min(max(floor[0], needed[0]), monitor[2] - monitor[0])
+    height = min(max(floor[1], needed[1]), max(1, monitor[3] - monitor[1] - title_bar))
+    return width, height
 
 
 def windows_monitors() -> List[Rect]:

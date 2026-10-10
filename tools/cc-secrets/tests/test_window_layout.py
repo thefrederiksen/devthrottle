@@ -77,6 +77,59 @@ def test_TheListsFrame_TitleBarIncluded_EndsInsideTheMonitor():
     assert wl.fit_height(top=900, title_bar=31, height=600, monitor=MAIN, minimum=420) == 420  # never below minimum
 
 
+def test_TheListMayNotBeDraggedSmallerThanItNeedsToDrawItself():
+    """The floor is a count of pixels and the same words are wider in one system font than in another. On macOS
+    the list needs 1013 by 514 against a floor of 760 by 420, and at the floor the search box was squeezed to
+    about a hundred pixels and the hint under the table had its end cut off."""
+    assert wl.minimum_size(needed=(1013, 514), floor=(760, 420), monitor=MAIN) == (1013, 514)
+
+
+def test_AWindowThatNeedsLessThanTheFloor_KeepsTheFloor():
+    assert wl.minimum_size(needed=(700, 300), floor=(760, 420), monitor=MAIN) == (760, 420)
+
+
+def test_TheMinimumIsNeverBiggerThanTheMonitor():
+    small = (0, 0, 900, 400)
+
+    assert wl.minimum_size(needed=(1013, 514), floor=(760, 420), monitor=small) == (900, 400)
+
+
+def test_TheMinimumLeavesRoomForTheTitleBar():
+    """On a monitor shorter than the window needs, a minimum as tall as the whole work area would put the title
+    bar past the top of it, and nothing could trim it back - fit_height will not go below the minimum."""
+    short = (0, 0, 1366, 500)
+
+    assert wl.minimum_size(needed=(1013, 900), floor=(760, 420), monitor=short, title_bar=31) == (1013, 469)
+    assert wl.fit_height(top=0, title_bar=31, height=469, monitor=short, minimum=469) == 469
+
+
+def test_AListReopenedAtItsMinimum_IsMovedBackOntoItsMonitor():
+    """It was closed near the right edge at a size that fitted. Reopened wider - the minimum is wider than the
+    size it was left at - the corner it was closed at no longer holds it, so it must move."""
+    prefs = wl.ListPrefs(x=1150, y=200, width=760, height=420)
+
+    x, y, width, height = wl.list_geometry(prefs, [MAIN], (100, 100), smallest=(1013, 420))
+
+    assert (width, height) == (1013, 420)
+    assert x + width <= MAIN[2] and x >= MAIN[0]
+    assert (x, y) == (MAIN[2] - 1013, 200)
+
+
+def test_AListReopenedAtTheSizeItWasLeft_StaysExactlyWhereItWas():
+    """Nothing about the remembered place is second-guessed while the size is the size that was remembered -
+    including a window the owner deliberately left hanging over an edge."""
+    prefs = wl.ListPrefs(x=1500, y=200, width=1060, height=420)
+
+    assert wl.list_geometry(prefs, [MAIN], (100, 100), smallest=(760, 420)) == (1500, 200, 1060, 420)
+
+
+def test_TheMonitorTheListWillOpenOn():
+    """Worked out before the window is placed, so the minimum can be measured against the right monitor."""
+    assert wl.target_monitor(wl.ListPrefs(x=2200, y=200), MONITORS, (10, 10)) == SECOND
+    assert wl.target_monitor(wl.ListPrefs(x=4200, y=200), MONITORS, (1500, 1400)) == THIRD  # that screen is gone
+    assert wl.target_monitor(wl.ListPrefs(), MONITORS, (500, 500)) == MAIN  # nothing remembered yet
+
+
 def test_StillVisible_NeedsEnoughOfTheTitleBarToGrab():
     assert wl.still_visible((1900, 100, 2900, 700), MONITORS)
     assert not wl.still_visible((3830, 100, 4830, 700), MONITORS)  # only 10 pixels on the second screen
