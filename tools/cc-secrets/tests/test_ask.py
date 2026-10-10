@@ -1,6 +1,6 @@
 """`cc-secrets ask`: an agent opens a window, the owner types the secret.
 
-The window itself needs a screen, so these tests replace `entry_window.show` with a stand-in that plays the
+The window itself needs a screen, so these tests replace `entry_window.show_ask` with a stand-in that plays the
 owner: it reads the request the agent pre-filled and presses Save with what the owner "typed". Everything
 around the window - argument handling, the refusal of every other way in for the secret, the store write and
 the audit line - runs for real.
@@ -17,6 +17,7 @@ from conftest import add_entry, new_secret
 from src import cli, entry_window, paths
 from src.audit import AuditLog
 from src.store import KIND_SETTING
+from src.window_actions import ASK_RECORD, MODE_ASK, FormInput, FormRequest
 
 runner = CliRunner()
 
@@ -41,16 +42,17 @@ class Owner:
         self.request = None
         self.answers = []
 
-    def __call__(self, request, on_save):
+    def __call__(self, request, actions):
         self.request = request
         if self.cancel:
             return False
         for form in self.forms:
-            typed = entry_window.WindowInput(
-                name=form.get("name", request.name), username=form.get("username", request.username),
-                notes=form.get("notes", request.notes), secret=form["secret"],
-                agents_may_use=form.get("agents", request.agents_may_use))
-            answer = on_save(typed)
+            typed = FormInput(
+                name=form.get("name", request.name), kind_setting=form.get("setting", request.kind_setting),
+                username=form.get("username", request.username), secret=form["secret"],
+                notes=form.get("notes", request.notes), agents_may_use=form.get("agents", request.agents_may_use),
+                uses=form.get("uses", request.uses), domains=form.get("domains", request.domains))
+            answer = actions.submit(typed, MODE_ASK)
             self.answers.append(answer)
             if answer is None:
                 return True
@@ -61,7 +63,7 @@ class Owner:
 def owner(monkeypatch):
     def install(*forms, cancel=False):
         stand_in = Owner(*forms, cancel=cancel)
-        monkeypatch.setattr(entry_window, "show", stand_in)
+        monkeypatch.setattr(entry_window, "show_ask", stand_in)
         return stand_in
     return install
 
@@ -90,21 +92,22 @@ def test_Ask_AuditLine_SaysTheOwnerTypedIt_WithTheReason_AndNeverTheSecret(store
 
     line = _audit_lines()[-1]
     assert (line["entry"], line["command"], line["outcome"]) == ("devlinux", "ask", "ok")
-    assert line["detail"].startswith("added; " + cli.ASK_RECORD)
+    assert line["detail"].startswith("added; " + ASK_RECORD)
     assert "reason: sudo over SSH" in line["detail"]
-    assert line["ownerApproved"] == cli.ASK_RECORD
+    assert line["ownerApproved"] == ASK_RECORD
     assert secret not in json.dumps(line)
 
 
 def test_Ask_InsideASession_NeedsNoOwnerApproved_AndRecordsTheSession(store, owner, monkeypatch):
     monkeypatch.setenv("CC_SESSION_ID", SESSION)
     monkeypatch.setattr(cli, "_session_name", lambda session_id: SESSION_NAME)
+    monkeypatch.setattr(cli, "_session_number", lambda session_id: "104")
     stand_in = owner({"secret": new_secret()})
 
     result = runner.invoke(cli.app, ["ask", "devlinux", "--reason", "sudo over SSH"])
 
     assert result.exit_code == 0, _text(result)
-    assert SESSION_NAME in stand_in.request.asked_by
+    assert stand_in.request.asked_by == f'Session 104 "{SESSION_NAME}"'
     line = _audit_lines()[-1]
     assert (line["session"], line["sessionName"], line["command"]) == (SESSION, SESSION_NAME, "ask")
 
@@ -230,8 +233,8 @@ def test_Ask_HasNoParameterThatCouldCarryASecret():
     assert parameters == {"name", "username", "notes", "reason", "domains", "uses", "agents", "setting", "env_name"}
 
 
-def test_WindowRequest_HasNoSecretField():
-    fields = {f.name for f in dataclasses.fields(entry_window.WindowRequest)}
+def test_FormRequest_HasNoSecretField():
+    fields = {f.name for f in dataclasses.fields(FormRequest)}
     assert not any(word in field for field in fields for word in ("secret", "password", "value"))
 
 
@@ -327,6 +330,7 @@ def test_Ask_LeaksTheTypedSecretNowhere(store, owner, monkeypatch, tmp_path):
     marker = "asktest-" + new_secret()
     monkeypatch.setenv("CC_SESSION_ID", marker)
     monkeypatch.setattr(cli, "_session_name", lambda session_id: SESSION_NAME)
+    monkeypatch.setattr(cli, "_session_number", lambda session_id: "104")
     secret = new_secret()
     transcript = []
     for forms, args in (

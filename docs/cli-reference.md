@@ -2060,10 +2060,10 @@ COMMANDS:
 
 ## cc-secrets
 
-Use a stored password without the model ever seeing it. The owner adds entries on each machine - by hand,
-or in the window an agent opens with `ask`; agents use them through `list`, `run` and `login`, and get back only
-the result. No command
-prints a secret, and there is deliberately no `get`.
+Use a stored password without the model ever seeing it. The owner adds and edits entries on each machine - in
+the cc-secrets window (`ui`), in the pop-up an agent opens with `ask`, or by hand with `add`; agents use them
+through `list`, `run` and `login`, and get back only the result. No command prints a secret (`get` prints only a
+setting); the one place a secret is shown is the window's eye, for the person at the screen.
 
 The store is one plain JSON file per user per machine (`secrets.json`), protected by user-only file
 permissions. Every use writes a line to `secrets-audit.log`.
@@ -2079,7 +2079,9 @@ OPTIONS:
              `cc-secrets list --version` is a usage error.
 
 COMMANDS:
-  ask      Open a window for the owner to type a secret; the agent pre-fills everything else
+  ui       The cc-secrets window: every entry, Add / Edit / Delete, and an eye to show a secret
+  ask      Open a pop-up for the owner to type a secret; the agent pre-fills everything else
+  shortcut Windows: add a Start-menu shortcut "cc-secrets" that opens the window
   add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
   import   OWNER: import every KEY=VALUE line of a file (credentials.env) as its own entry
   edit     OWNER: change an entry's username, addresses, uses, agents, notes or variable - not its secret
@@ -2113,7 +2115,39 @@ No error is shown as a traceback: an unexpected error is named by its type only.
 
 **An agent that needs a credential the store does not hold runs `cc-secrets ask`** - never asks the owner to run
 `add`. A small window opens on the owner's screen; the agent pre-fills the name, username and notes, and the owner
-types only the secret.
+types only the secret. To put the whole list on the owner's screen (to review, edit or delete entries), an agent
+runs `cc-secrets ui`.
+
+### cc-secrets ui
+
+```
+USAGE: cc-secrets ui
+```
+
+Opens the cc-secrets window and returns when it is closed. Every entry, with a search box (names, user names,
+notes and settings' values - never a secret's), and the columns Name, Kind, User name, Secret, Agents and Last used
+(the last successful `run`, `login` or `get`, from the audit log). A setting shows in full. A secret shows as
+asterisks with `[show]`: clicking it (or selecting the row and pressing Show / hide) shows the secret until it is
+clicked again - there is no timer and no Copy button (the owner's rulings, 9 October 2026). Every reveal is
+written to the audit log as `ui reveal`, with the time, the machine, and the session that opened the window.
+
+Add and Edit (or a double-click) open the form: Name, Kind (secret or setting), User name, Secret (with its own
+Show / Hide), Notes, Agents may use with the uses (run, login), and Login sites. Editing leaves the secret box empty;
+leave it empty to keep the current secret, or click Show to see it (a reveal, audited). The name of an existing
+entry is not edited - add a new one and delete the old. Delete asks to confirm. Every save goes through the same
+code as `add` and is audited as `ui add` or `ui edit` (with "value kept" or "value changed"); a delete as
+`ui delete`.
+
+Agents may open the window - so they can put it on the owner's screen - and it is not refused inside a session.
+No command, option or interface reveals a secret through it; only a click on the eye does. Like the rest of
+cc-secrets, this guards against accidental exposure, not against a program on the same desktop clicking the eye
+itself. With no screen it fails and says so, as `ask` does.
+
+### cc-secrets shortcut
+
+Windows only: writes `cc-secrets.lnk` to the Start menu, opening the window with the windowless Python beside the
+installed one (`pythonw.exe -m cc_secrets.cli ui`), so no console window opens. On macOS and Linux run
+`cc-secrets ui`.
 
 ### cc-secrets ask
 
@@ -2131,9 +2165,9 @@ OPTIONS:
   --env-name TEXT         The variable run supplies it in [default: CC_SECRET]
 ```
 
-The window shows who asked (the session's name) and why, the name, username and notes (all editable), the
-secret (hidden, with a "Show the secret" box) and Save / Cancel. If the entry already exists the window says
-that Save REPLACES it; a name the owner types over an existing one is warned about on the first Save. A secret
+The pop-up is the same form as the window's Add, pre-filled with everything except the secret, with the asking
+session's number and name and the reason at the top. If the entry already exists an amber line says Save REPLACES
+it; a name the owner types over an existing one is warned about on the first Save. A secret
 that cannot be stored (too short, for example) is reported in the window, which stays open.
 
 Prints only `saved NAME` (exit 0) or `cancelled` (exit 3). With no NAME the form opens empty.
@@ -2142,7 +2176,8 @@ There is no way to pass the secret to `ask` - no argument, no environment variab
 needs no `--owner-approved`, inside a session or out. Save stores the entry by the same code as `add`, and the
 audit line records that the owner typed it in the window, the session that asked and the reason. Checked before
 the window opens: the name, addresses, uses and variable the agent pre-filled, so the owner is never shown a
-form that cannot be saved. With no screen (an SSH shell, or Linux with no `DISPLAY`/`WAYLAND_DISPLAY`) it fails
+form that cannot be saved. With no screen (an SSH shell, a Windows process not on the visible desktop, or Linux
+with no `DISPLAY`/`WAYLAND_DISPLAY`) it fails
 and says so. Example:
 `cc-secrets ask devlinux --username soren --uses run --reason "sudo over SSH on devlinux"`, then
 `cc-secrets run devlinux -- ssh devlinux sudo -S apt-get update`.

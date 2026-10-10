@@ -17,3 +17,12 @@ class InputError(CcSecretsError, ValueError):
 
 class StoreFormatError(CcSecretsError):
     """The store file is not in a form this cc-secrets reads."""
+
+
+def describe(exc: BaseException) -> str:
+    """What may be shown about an error: a message cc-secrets wrote itself, or only the type of anything else."""
+    from .redact import SCRUBBER
+
+    if isinstance(exc, CcSecretsError):
+        return SCRUBBER.scrub(str(exc))
+    return f"an unexpected {type(exc).__name__} (details, without any store content, are in the cc-secrets tool log)"

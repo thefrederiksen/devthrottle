@@ -98,7 +98,8 @@ Groups: `contacts`, `tasks`, `goals`, `ideas`, `docs`, `health`, `posts`, `lists
 Lets a session use a password without the model ever seeing it. It protects against accidental exposure (transcripts, logs, output, screenshots), not against a hostile program running as the same user.
 
 ```bash
-cc-secrets ask devlinux --username soren --reason "sudo over SSH"   # a session asks; you type it in a window
+cc-secrets ui                                # the window: list, add, edit, delete, and an eye to show a secret
+cc-secrets ask devlinux --username soren --reason "sudo over SSH"   # a session asks; you type it in a pop-up
 cc-secrets add devlinux                      # or you, in PowerShell or cmd
 cc-secrets list
 cc-secrets run devlinux -- sudo -S apt-get update
@@ -106,6 +107,7 @@ cc-secrets login github-work --browser center-consulting
 cc-secrets log
 ```
 
+- `ui` opens the cc-secrets window (on Windows also from the Start menu, after `cc-secrets shortcut`): every entry with a search box, Add / Edit / Delete, settings shown in full and each secret behind an eye that shows it until you click it again. There is no Copy button. Every reveal is written to the audit log. A session may open the window to put it in front of you; only a click on the eye shows a secret.
 - `ask` is how a session gets a password it does not have: a small window opens on your screen with the name, username and notes already filled in, you type only the password and press Save. The session cannot pass the password itself - there is no argument, variable or pipe for it - and the audit log records that you typed it in the window.
 - `add`, `remove` and `list --all` are for you and are refused inside a DevThrottle session. `add` reads the password from a hidden prompt or from a pipe, never from an argument. Git Bash cannot hide typing, so a typed password is refused there; piping works.
 - `run` supplies the password on standard input (the default), in one environment variable (`--via env`), or through an askpass helper (`--via askpass`), and returns the output with the password removed.

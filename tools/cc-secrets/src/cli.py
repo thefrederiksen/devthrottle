@@ -6,7 +6,8 @@ through the process-wide scrubber, and the commands that act with a secret hand 
 When an agent needs a credential the store does not hold, it calls `ask`: a window opens on the owner's screen with
 the name, username and notes pre-filled, and the owner types only the secret. `ask` has no way to receive the secret
 from its caller, so it needs no --owner-approved; the entry is saved by the same code as `add` and audited as typed by
-the owner in the window.
+the owner in the window. `ui` opens the full window - list, add, edit, delete, and an eye to show a secret - which
+agents may open for the owner but which reveals nothing without a click (window_actions holds the rulings).
 
 The owner calls `add`, `import`, `edit` and `remove` from their own terminal. Inside a DevThrottle session they
 refuse, unless the owner approved that exact command in the session's chat and the session reruns it with
@@ -25,11 +26,12 @@ import getpass
 import json
 import os
 import re
+import subprocess
 import sys
 import traceback
 import warnings
 from pathlib import Path
-from typing import List, NoReturn, Optional
+from typing import List, NoReturn, Optional, Tuple
 from urllib.parse import urlsplit
 
 import typer
@@ -40,12 +42,14 @@ from . import _console  # noqa: F401  (installs the ASCII-only output patches)
 from . import __version__, entry_window, filelog, paths
 from .audit import AuditLog, OwnerApproval
 from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_login
-from .errors import CcSecretsError, InputError
+from .errors import CcSecretsError, InputError, describe
 from .redact import SCRUBBER
 from .runner import DEFAULT_ENV_NAME, VIA_CHOICES, run_with_secrets
+from .saving import save_entry
 from .store import (ENV_NAME_PATTERN, KIND_SECRET, KIND_SETTING, MIN_SECRET_LENGTH, USES, EntryNotAvailableError,
                     SecretStore, make_entry, normalize_origin, validate_env_name, validate_name)
 from .storefile import UserOnlyFile
+from .window_actions import ASK_RECORD, MODE_ASK, WINDOW_RECORD, FormRequest, WindowActions
 
 # Make cc_shared importable when running from source, matching the other cc-* tools.
 _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
@@ -58,7 +62,8 @@ PROTECTION = ("It protects against accidental exposure (transcripts, logs, outpu
 app = typer.Typer(
     name="cc-secrets",
     help="Use a stored password without the model ever seeing it. Agents: list, run, login, get, and ask (opens a "
-         "window for the owner to type a secret). Owner: add, import, edit, remove "
+         "window for the owner to type a secret). The window: ui (list, add, edit, delete, show). Owner: add, import, "
+         "edit, remove "
          "(inside a session only with --owner-approved). "
          "Anyone: log. " + PROTECTION,
     add_completion=False,
@@ -101,10 +106,7 @@ def _say_json(payload: object) -> None:
 
 
 def _describe(exc: BaseException) -> str:
-    """What may be shown about an error: a message cc-secrets wrote itself, or only the type of anything else."""
-    if isinstance(exc, CcSecretsError):
-        return SCRUBBER.scrub(str(exc))
-    return f"an unexpected {type(exc).__name__} (details, without any store content, are in the cc-secrets tool log)"
+    return describe(exc)
 
 
 def _log_failure(where: str, exc: BaseException) -> None:
@@ -253,32 +255,6 @@ def _split_list(value: str) -> List[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
-def _save_entry(store: SecretStore, name: str, username: str, secret: str, domains: List[str], notes: str,
-                agents: bool, uses: List[str], env_name: str, setting: bool, command: str, detail: str,
-                approval: Optional[OwnerApproval]) -> tuple:
-    """Validate and store one entry, and write its audit line. The ONE way an entry the owner typed is written:
-    `add` and the `ask` window both come through here. Returns (entry, replaced)."""
-    entry = make_entry(name, username, secret, domains, notes, agents, uses,
-                       env_name=env_name, kind=KIND_SETTING if setting else KIND_SECRET)
-    # Registered only once make_entry has accepted it: the ask window lets the owner try again in the same
-    # process, and a refused attempt (a typo, three letters) left in the scrubber would then block every audit
-    # line whose entry or machine name happened to contain it. make_entry's messages never carry the secret.
-    if not setting:
-        SCRUBBER.add(secret, username)
-    audit = _audit()
-    # The audit line is built and checked before the store changes, so an approval text that carries the secret
-    # is refused with nothing saved, rather than after the entry is already in.
-    # Both possible lines are prepared, and the one matching what put reports is written, so a store that
-    # changed underneath still gets a true line.
-    suffix = f"; {detail}" if detail else ""
-    prepared = {was_there: audit.prepare(name, command, "ok", ("replaced" if was_there else "added") + suffix,
-                                         approval)
-                for was_there in (False, True)}
-    replaced = store.put(entry)
-    audit.write_prepared([prepared[replaced]])
-    return entry, replaced
-
-
 @app.command()
 def add(
     name: str = typer.Argument(..., help="Entry name, for example devlinux or github-work."),
@@ -333,8 +309,8 @@ def add(
             agents = typer.confirm("May sessions on this machine use it?", default=False)
         use_list = _split_list(uses) if uses is not None else list(USES)
         secret = _read_secret_from_owner()
-        entry, replaced = _save_entry(store, name, username, secret, _split_list(domains), notes, agents, use_list,
-                                      env_name or "", setting, "add", "", approval)
+        entry, replaced = save_entry(store, _audit(), name, username, secret, _split_list(domains), notes, agents,
+                                     use_list, env_name or "", setting, "add", "", approval)
         _say(f"{'Replaced' if replaced else 'Added'} '{name}' in {store.location}. "
              f"Agents may use it: {'yes' if entry.agents_may_use else 'no'}. Uses: {', '.join(entry.uses)}. "
              f"Allowed addresses: {', '.join(entry.allowed_domains) or 'none'}.")
@@ -346,7 +322,27 @@ def add(
         raise typer.Exit(EXIT_FAILED)
 
 
-ASK_RECORD = "typed by the owner in the cc-secrets ask window"
+def _session_number(session_id: str) -> str:
+    """This session's three-digit number from the Gateway's fleet list - what the owner sees - or '' when unknown."""
+    from cc_shared import gateway
+
+    try:
+        sessions = gateway.get_fleet()[0]
+    except Exception:  # shown in the window only; the audit line records the id and name regardless
+        return ""
+    me = next((s for s in sessions if gateway.field(s, "sessionId", "SessionId").lower() == session_id.lower()), None)
+    return gateway.field(me, "number", "Number") if me is not None else ""
+
+
+def _window_approval(text: str) -> Tuple[OwnerApproval, str]:
+    """The audit record for something the owner did in a window, and who opened the window, in the owner's words:
+    'Session 104 "name"' inside a session, else 'A command in a terminal'."""
+    session_id = os.environ.get("CC_SESSION_ID", "")
+    if not session_id:
+        return OwnerApproval(text=text, session_name=""), "A command in a terminal"
+    name = _session_name(session_id)
+    number = _session_number(session_id)
+    return OwnerApproval(text=text, session_name=name), f'Session {number + " " if number else ""}"{name}"'
 
 
 def _check_ask_details(name: Optional[str], domains: List[str], uses: List[str], env_name: str) -> None:
@@ -370,7 +366,7 @@ def ask(
     reason: Optional[str] = typer.Option(None, "--reason", help="Why the secret is needed, shown in the window so the owner knows what they are typing into."),
     domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill (as for add)."),
     uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run. Default both."),
-    agents: bool = typer.Option(True, "--agents/--no-agents", help="Pre-tick 'sessions may use it'. The owner can change it in the window. Default: ticked."),
+    agents: bool = typer.Option(True, "--agents/--no-agents", help="Pre-tick 'agents may use it'. The owner can change it in the window. Default: ticked."),
     setting: bool = typer.Option(False, "--setting", help="Ask for a setting that is not secret (a host, an email address)."),
     env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable run supplies it in. Default CC_SECRET."),
 ):
@@ -393,44 +389,20 @@ def ask(
         _say(f"ask failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
 
-    # Who opened the window, in words the owner recognises; the audit line records the same session.
-    session_id = os.environ.get("CC_SESSION_ID", "")
-    session_name = _session_name(session_id) if session_id else ""
-    asked_by = f"The session '{session_name}'" if session_id else "A command in a terminal"
-    approval = OwnerApproval(text=ASK_RECORD, session_name=session_name)
-    detail = ASK_RECORD + (f"; reason: {reason}" if reason else "")
-    summary = (f"Uses: {', '.join(use_list)}. Sign-in addresses: {', '.join(domain_list) or 'none'}. "
-               f"Supplied to commands as {env_name or DEFAULT_ENV_NAME}.")
-    request = entry_window.WindowRequest(name=name or "", username=username or "", notes=notes or "",
-                                         reason=reason or "", asked_by=asked_by, is_setting=setting,
-                                         agents_may_use=agents, summary=summary, exists=exists)
-    # A name that already exists is replaced only once the owner has been told so: the pre-filled name is told
-    # in the window from the start, a name typed over it is told on the first Save.
-    told_replaces = {name} if exists else set()
-    saved_as = {}
-
-    def on_save(typed: entry_window.WindowInput) -> Optional[str]:
-        try:
-            validate_name(typed.name)
-            if typed.name not in told_replaces and store.get(typed.name) is not None:
-                told_replaces.add(typed.name)
-                return f"'{typed.name}' already exists. Press Save again to REPLACE it."
-            _save_entry(store, typed.name, typed.username, typed.secret, domain_list, typed.notes,
-                        typed.agents_may_use, use_list, env_name or "", setting, "ask", detail, approval)
-        except CcSecretsError as exc:
-            return f"Not saved: {_describe(exc)}"
-        except Exception as exc:
-            _log_failure("ask", exc)
-            return f"Not saved: {_describe(exc)}"
-        saved_as["name"] = typed.name
-        return None
-
+    approval, asked_by = _window_approval(ASK_RECORD)
+    actions = WindowActions(store, _audit(), approval, env_name=env_name or "",
+                            detail=ASK_RECORD + (f"; reason: {reason}" if reason else ""))
+    if exists:
+        actions.told_about(name)  # the window says so from the start
+    request = FormRequest(mode=MODE_ASK, name=name or "", kind_setting=setting, username=username or "",
+                          notes=notes or "", agents_may_use=agents, uses=use_list, domains=", ".join(domain_list),
+                          asked_by=asked_by, reason=reason or "", exists=exists)
     try:
-        saved = entry_window.show(request, on_save)
+        saved = entry_window.show_ask(request, actions)
     except Exception as exc:
         _fail("ask", label, "ask", exc)
     if saved:
-        _say(f"saved {saved_as['name']}")
+        _say(f"saved {actions.saved_name}")
         return
     try:
         _audit().record(label, "ask", "cancelled", "the owner closed the window without saving", approval)
@@ -439,6 +411,61 @@ def ask(
         _say(f"The cancellation could not be written to the audit log: {_describe(exc)}", err=True)
     _say("cancelled")
     raise typer.Exit(EXIT_CANCELLED)
+
+
+@app.command()
+def ui():
+    """Open the cc-secrets window: every entry, searchable, with Add, Edit and Delete, and an eye ([show]) that
+    shows a secret until it is clicked again. Settings show in full. Agents may open it to put it on the owner's
+    screen; only a click on the eye shows a secret, and every reveal is written to the audit log. Returns when the
+    window is closed."""
+    approval, _ = _window_approval(WINDOW_RECORD)
+    try:
+        entry_window.show_list(WindowActions(_store(), _audit(), approval, detail=WINDOW_RECORD))
+    except Exception as exc:
+        _log_failure("ui", exc)
+        _say(f"ui failed: {_describe(exc)}", err=True)
+        raise typer.Exit(EXIT_FAILED)
+
+
+def start_menu_shortcut_command(executable: str, package_dir: Path) -> Tuple[str, str, str]:
+    """(target, arguments, working folder) for the Start-menu shortcut: the windowless Python beside this one
+    running this package's `ui`, so no console window opens behind it."""
+    target = Path(executable).with_name("pythonw.exe")
+    return str(target), f"-m {package_dir.name}.cli ui", str(package_dir.parent)
+
+
+def _on_windows() -> bool:
+    return sys.platform == "win32"
+
+
+@app.command()
+def shortcut():
+    """Windows: add a 'cc-secrets' shortcut to the Start menu that opens the window (cc-secrets ui)."""
+    try:
+        if not _on_windows():
+            raise CcSecretsError("The Start-menu shortcut is for Windows. On macOS and Linux run: cc-secrets ui")
+        target, arguments, folder = start_menu_shortcut_command(sys.executable, Path(__file__).resolve().parent)
+        if not Path(target).is_file():
+            raise CcSecretsError(f"There is no windowless Python at {target}, so the shortcut would have nothing "
+                                 "to start. Reinstall the cc-* tools (cc-devthrottle setup repair).")
+        programs = Path(os.environ["APPDATA"]) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+        link = programs / "cc-secrets.lnk"
+        script = ("$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:CCS_LINK); "
+                  "$s.TargetPath = $env:CCS_TARGET; $s.Arguments = $env:CCS_ARGS; "
+                  "$s.WorkingDirectory = $env:CCS_DIR; $s.Description = 'Your passwords and settings'; $s.Save()")
+        env = dict(os.environ, CCS_LINK=str(link), CCS_TARGET=target, CCS_ARGS=arguments, CCS_DIR=folder)
+        done = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], env=env,
+                              capture_output=True, text=True, timeout=60)
+        if done.returncode != 0 or not link.is_file():
+            raise CcSecretsError(f"PowerShell could not write the shortcut (exit {done.returncode}): "
+                                 f"{done.stderr.strip()[:300]}")
+        filelog.write(f"[cli] shortcut: wrote {link}")
+        _say(f"Added the Start-menu shortcut {link}. It opens: {target} {arguments}")
+    except Exception as exc:
+        _log_failure("shortcut", exc)
+        _say(f"shortcut failed: {_describe(exc)}", err=True)
+        raise typer.Exit(EXIT_FAILED)
 
 
 @app.command()
@@ -992,6 +1019,12 @@ def version():
 
 def main() -> None:
     """The console-script entry point. Whatever escapes a command is shown without a traceback."""
+    # Started from the Start-menu shortcut by the windowless Python there is no console at all; anything said
+    # goes nowhere rather than failing on a missing stream.
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
     try:
         app()
     except SystemExit:
